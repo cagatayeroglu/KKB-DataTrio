@@ -241,7 +241,7 @@ Local checkout and Python >=3.12 for later application validation. No live Kloud
 - [x] M0-04 — Status: DONE. Owner: Çağatay; Branch: `feature/m0-04-local-config-hygiene`. Local ignore rules and placeholder-only `.env.example` passed targeted validation without real credentials; [PR #3](https://github.com/cagatayeroglu/KKB-DataTrio/pull/3) merged into `dev` at `ddcb5a7`, with the validated tree unchanged.
 - [ ] M0-05 — Reconcile provisional Kloudeks variable names with the stub; label them local conventions until Q-K-01 is answered.
 - [ ] M0-06 — Inspect repository privacy, branch protection, and remote CI only in an authorized setup task; local branches alone do not prove remote settings.
-- [ ] M0-07 — Add a fast feature-to-dev CI workflow in a later authorized task; no workflow exists in this snapshot.
+- [ ] M0-07 — Status: IN PROGRESS. Owner: Çağatay; Branch: `feature/m0-07-fast-ci`. Add a fast feature-to-dev CI workflow; required checks and handoff are in the active record below.
 - [ ] M0-08 — Add the separate manual/release full gate without making it run after every edit.
 - [ ] M0-09 — Confirm synthetic/public-safe fixture policy and document where local private inputs may be stored before accepting them.
 - [ ] M0-10 — Document an actual successful setup command/result on a teammate's Python >=3.12 environment.
@@ -309,6 +309,20 @@ A teammate can install the declared development environment, run recorded quick 
 - Evidence: Synthetic temporary Git repositories verify that secrets/private/generated paths stay out of normal staging while the root `.env.example`, source, tests, and synthetic fixtures remain trackable. All example values are blank; provisional Kloudeks names remain subject to M0-05 and organizer answers. No environment loader, provider transport, CI, or runtime contract was added.
 - Blocker: none for this scope; dependencies and remote claims checked before/after publication. No unresolved decision or Day 0 stash input required.
 - Handoff: M0-04 is delivered in `dev`; this post-merge record follows AGENTS.md. M1-01 was selected on a fresh branch from updated `dev`. The Day 0 preservation stash remains unchanged/unapplied.
+
+### M0-07 active record
+
+- Status: IN PROGRESS
+- Owner: Çağatay
+- Branch: `feature/m0-07-fast-ci`; fresh base `dcebf96f9c27b78ac9947850c21762cf3629c869` after authorized PR #14 merge
+- PR: pending draft claim publication into `dev`
+- Commit: pending claim commit
+- Objective: Add a fast feature-to-dev CI workflow.
+- Readiness: READY triage passed on 2026-09-08, then claimed under explicit user authorization to prioritize M0-07 before M1-10. Python >=3.12, the dependency manifest and existing `make install-dev`/`make pr` commands are available. No unresolved architecture/organizer answer or Day 0 recovery is needed; no competing open/draft PR or remote task claim found. This record supersedes the historical untriaged M0-07 queue note only.
+- Acceptance: PRs targeting `dev` trigger one fast job for checkout, supported Python, repository dependency installation, Ruff format/lint, unit tests, Bandit and the repository secret scan. Reuse Makefile commands, simple dependency caching, read-only contents permission and cancellation of superseded PR runs. Validate configuration and local `make quick`/`make pr`; observe a real GitHub check without waiting indefinitely. No live credentials, release gate or application functionality.
+- Tests: NOT RUN for this task; workflow not implemented yet
+- Blocker: none known in the requested CI scope
+- Handoff: Publish this draft claim before implementation. Keep M0-07 unchecked/PARTIAL until its CI PR merges. M1-10 remains READY and unclaimed; do not start it. Preserve `main` and the original Day 0 stash.
 
 ### M0-HANDOFF active record
 
