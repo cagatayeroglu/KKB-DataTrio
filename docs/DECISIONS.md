@@ -149,6 +149,15 @@ Evidence policy: organizer constraints below are carried forward from the origin
 - Consequences: No silent takeover based on age. Inspect branch/PR/Handoff, confirm activity with the owner/team, and record transfers explicitly. Independent tasks use separate branches from latest `dev`; prefer waiting for dependency merge, with explicit documented authorization for stacking. Report evidence mismatches and unresolved selection decisions. Preserve the existing targeted/fast/full gate split.
 - Revisit trigger: Explicit team coordination change or repeated claim collisions. No fixed developer-to-task mapping, automatic stale timeout, or new tracking service is selected.
 
+### DEC-111 — openpyxl for XLSX reading, writing, and sheet discovery
+
+- Status: CONFIRMED — explicitly approved by the team for M1-09 on 2026-09-08.
+- Decision: Use `openpyxl>=3.1,<4` as a normal runtime dependency for XLSX reading/writing and sheet discovery.
+- Reason: One library supports both runtime reading and deterministic synthetic fixture creation, avoiding a second XLSX writer dependency.
+- Alternatives: A separate writer or another XLSX library is unnecessary for this scope. This does not select the analytical engine; Q-TEAM-02 remains open.
+- Consequences: Macro execution remains unsupported. The application must require explicit sheet selection when ambiguous and must not infer financial semantics. M1-09 covers fixtures/discovery/selection only; bounded table loading and remaining parser limits belong to M1-10.
+- Revisit trigger: A concrete XLSX compatibility or resource-limit failure that openpyxl cannot handle within the hackathon scope.
+
 ## Proposed decisions
 
 Candidates below are not approved selections. Compare options in a bounded task; do not silently promote a proposal to CONFIRMED.
