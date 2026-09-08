@@ -1,6 +1,6 @@
 # M1-09 synthetic XLSX fixtures
 
-Created with openpyxl under [DEC-111](../../../docs/DECISIONS.md#dec-111--openpyxl-for-xlsx-reading-writing-and-sheet-discovery). All data is synthetic. These are ordinary `.xlsx` files with no formulas, macros, external links, hidden sheets or source-specific assumptions.
+Created with openpyxl under [DEC-111](../../../docs/DECISIONS.md#dec-111--openpyxl-for-the-untrusted-xlsx-boundary). All data is synthetic. These are ordinary `.xlsx` files with no formulas, macros, external links, hidden sheets or source-specific assumptions.
 
 | File | Worksheet order | Exact table shape |
 | --- | --- | --- |
