@@ -312,19 +312,19 @@ A teammate can install the declared development environment, run recorded quick 
 
 ### M0-07 active record
 
-- Status: PARTIAL — workflow implemented and local fast gates passed; remote run observation and PR merge remain
+- Status: PARTIAL — workflow implemented, local fast gates passed and GitHub check triggered; PR merge remains
 - Owner: Çağatay
 - Branch: `feature/m0-07-fast-ci`; fresh base `dcebf96f9c27b78ac9947850c21762cf3629c869` after authorized PR #14 merge
 - PR: [#15](https://github.com/cagatayeroglu/KKB-DataTrio/pull/15) -> `dev`; draft claim published before implementation
-- Commit: claim `820075edb095151ab9492585e90707c4f8740a9f`; implementation pending
+- Commit: claim `820075edb095151ab9492585e90707c4f8740a9f`; implementation `a55d1189dd99c89cc486188b5cfdd3f6d3fff467`; subsequent documentation-only commit records this observation
 - Objective: Add a fast feature-to-dev CI workflow.
 - Readiness: READY triage passed on 2026-09-08, then claimed under explicit user authorization to prioritize M0-07 before M1-10. Python >=3.12, the dependency manifest and existing `make install-dev`/`make pr` commands are available. No unresolved architecture/organizer answer or Day 0 recovery is needed; no competing open/draft PR or remote task claim found. This record supersedes the historical untriaged M0-07 queue note only.
 - Acceptance: PRs targeting `dev` trigger one fast job for checkout, supported Python, repository dependency installation, Ruff format/lint, unit tests, Bandit and the repository secret scan. Reuse Makefile commands, simple dependency caching, read-only contents permission and cancellation of superseded PR runs. Validate configuration and local `make quick`/`make pr`; observe a real GitHub check without waiting indefinitely. No live credentials, release gate or application functionality.
 - Implementation: [Fast PR workflow](../.github/workflows/fast-pr.yml) runs one Python 3.12 job on Ubuntu 24.04 for `pull_request` targeting `dev`, reusing `make install-dev` and `make pr`. Official checkout/setup-python actions are pinned to verified v7 commit IDs; pip cache follows `pyproject.toml`. Token permission is `contents: read`, checkout does not persist credentials, superseded runs for the same PR cancel, and the job has a five-minute ceiling (normal target <=3 minutes). No application/Makefile/dependency changes.
 - Tests: PASS (2026-09-08): existing PyYAML parsed workflow; reviewed trigger, job, read-only permissions, cache, concurrency, pinned Action refs and Makefile command expansion. `make quick` — 193 passed in 4.53s (5.48s wall); `make pr` — 193 passed in 3.72s (4.52s wall), Ruff format/lint, Bandit and repository secret scan passed. Used Python 3.12.2, Ruff 0.8.6, Bandit 1.7.10 and the existing temporary openpyxl environment; CI will install declared dependencies on its runner. No added local validation tooling, full/release checks or live credentials. Diff/link checks passed. GitHub configuration execution is verified by the actual run, not by YAML parsing alone.
-- Remote check: pending first workflow push; draft claim currently has 0 checks because it predates the workflow
+- Remote check: GitHub shows 1 check after the workflow push: `Fast PR / Fast PR gate (pull_request)`, [first run](https://github.com/cagatayeroglu/KKB-DataTrio/actions/runs/34257909139) at `a55d118`, observed IN PROGRESS on 2026-09-08. This proves triggering, not a remote PASS; later pushes trigger replacement runs. No indefinite CI wait.
 - Blocker: none known in the requested CI scope
-- Handoff: Draft claim published and overlap rechecked; only PR #15 is open. Validate locally, push the workflow, then observe its real GitHub check and update this PR for review. Keep M0-07 unchecked/PARTIAL until merge. M1-10 remains READY and unclaimed; do not start it. Preserve `main` and the original Day 0 stash.
+- Handoff: Review PR #15 and its latest check; after an explicitly authorized merge verify evidence and record DONE. The workflow is delivered on the feature branch only, with no branch-protection/settings changes or full/release gate. M1-10 remains READY and unclaimed; it was deliberately not started. Preserve `main` and the original Day 0 stash.
 
 ### M0-HANDOFF active record
 
