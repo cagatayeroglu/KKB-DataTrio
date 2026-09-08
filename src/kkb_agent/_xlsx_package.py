@@ -103,7 +103,7 @@ class _XmlGuard:
         if self.member == "xl/workbook.xml" and name == f"{SHEET_NS}}}sheet":
             title, rel_id = attrs.get("name", ""), attrs.get(f"{REL_NS}}}id", "")
             self.limits.check_field(title, label=True)
-            if not title or not rel_id:
+            if not title.strip() or not rel_id:
                 _reject("FORMAT_MISMATCH")
             self.package.sheets.append((title, rel_id))
             if len(self.package.sheets) > self.limits.max_sheets:

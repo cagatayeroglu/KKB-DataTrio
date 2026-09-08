@@ -32,11 +32,13 @@ SOURCE = SourceRef(
 )
 
 
-def workbook_bytes(rows, *, second_sheet=False):
+def workbook_bytes(rows, *, second_sheet=False, text_cells=()):
     workbook = Workbook()
     workbook.active.title = "Data"
     for row in rows:
         workbook.active.append(row)
+    for coordinate in text_cells:
+        workbook.active[coordinate].data_type = "s"
     if second_sheet:
         workbook.create_sheet("Other").append(["label"])
     output = io.BytesIO()
@@ -123,16 +125,9 @@ def test_unknown_text_missing_duplicate_headers_boolean_and_time_are_preserved()
             ["duplicate", "duplicate", None, "cumulative stock USD", "time"],
             ["01/02/2026", "1,234", None, False, timedelta(hours=26)],
             ["NA", "  ", "=instructions as text", True, None],
-        ]
-    )
-    # An explicit text type, not an Excel formula, remains untrusted text data.
-    content = rewrite(
-        content,
-        {
-            SHEET: lambda b: b.replace(
-                b"<f>instructions as text</f><v></v>", b"<is><t>=instructions as text</t></is>"
-            ).replace(b'<c r="C3">', b'<c r="C3" t="inlineStr">')
-        },
+        ],
+        # Explicit text stays data, regardless of the optional XML writer backend.
+        text_cells=("C3",),
     )
     result = load(content)
     assert result.status == "loaded"
@@ -237,7 +232,16 @@ def test_dtd_and_entities_rejected_before_library(monkeypatch, xml):
 
 def test_formula_is_rejected_even_with_cached_value_or_on_unselected_sheet():
     formula = workbook_bytes([["value"], ["=1+1"]], second_sheet=True)
-    formula = rewrite(formula, {SHEET: lambda b: b.replace(b"<v></v>", b"<v>2</v>")})
+    formula = rewrite(
+        formula,
+        {
+            SHEET: lambda b: b.replace(b"<v />", b"<v></v>")
+            .replace(b"<v/>", b"<v></v>")
+            .replace(b"<v></v>", b"<v>2</v>")
+        },
+    )
+    with ZipFile(io.BytesIO(formula)) as archive:
+        assert b"<f>1+1</f><v>2</v>" in archive.read(SHEET)
     with pytest.raises(package.XlsxRejected, match="FORMULA_UNSUPPORTED"):
         loader._parse(formula, "Other", DEFAULT_LIMITS)
 
@@ -344,7 +348,7 @@ def test_actual_expansion_budget_stops_stream_before_library(monkeypatch):
 
 
 @pytest.mark.parametrize("kind", ["corrupt_xml", "bad_crc", "formula"])
-def test_public_parser_failures_are_sanitized_and_publish_no_partial_table(kind, capsys):
+def test_public_parser_failures_are_sanitized_and_publish_no_partial_table(kind, capfd):
     if kind == "corrupt_xml":
         content = rewrite(SINGLE, {SHEET: b"<private-payload>broken"})
     elif kind == "bad_crc":
@@ -356,7 +360,8 @@ def test_public_parser_failures_are_sanitized_and_publish_no_partial_table(kind,
     assert result.status == "rejected" and result.table is None
     assert result.code in {"FORMAT_MISMATCH", "FORMULA_UNSUPPORTED"}
     assert "private-payload" not in repr(result)
-    assert not capsys.readouterr().out and not capsys.readouterr().err
+    captured = capfd.readouterr()
+    assert not captured.out and not captured.err
 
 
 def _slow_worker(content, selection, limits, output):
@@ -475,3 +480,12 @@ def test_successful_worker_also_cleans_private_output(monkeypatch, tmp_path):
     )
     assert load().status == "loaded"
     assert not list(tmp_path.iterdir())
+
+
+def test_blank_sheet_title_fails_safely_before_shared_contract_construction():
+    content = rewrite(
+        SINGLE, {"xl/workbook.xml": lambda b: b.replace(b'name="Observations"', b'name="   "')}
+    )
+    result = load(content)
+    assert result.status == "rejected" and result.code == "FORMAT_MISMATCH"
+    assert result.table is None
