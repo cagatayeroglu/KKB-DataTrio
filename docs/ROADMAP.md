@@ -54,9 +54,10 @@ For a general “continue,” use the first eligible unchecked READY task with n
 | 4 | M0-04 | DONE — [PR #3](https://github.com/cagatayeroglu/KKB-DataTrio/pull/3) merged into `dev` at `ddcb5a7`; validated tree preserved | Ignore/config implementation and merge evidence recorded under M0-04 |
 | 5 | M1-01 | DONE — [PR #4](https://github.com/cagatayeroglu/KKB-DataTrio/pull/4) merged at `cbb51ad`; validated tree unchanged | Generic result specification delivered |
 | 6 | M1-02 | DONE — [PR #5](https://github.com/cagatayeroglu/KKB-DataTrio/pull/5) merged into `dev` at `e2287f7`; validated tree unchanged | Admission policy/guards and passing fast gates delivered |
-| 7 | M1-04 | PARTIAL — Çağatay; `feature/m1-04-synthetic-csv-fixture`; [PR #8](https://github.com/cagatayeroglu/KKB-DataTrio/pull/8) | Fixture and exact-table test pass; both fast gates pass; review/merge pending |
+| 7 | M1-04 | DONE — [PR #8](https://github.com/cagatayeroglu/KKB-DataTrio/pull/8) merged at `0d4ecf9`; validated tree unchanged | Synthetic UTF-8 fixture and exact-table test delivered |
+| 8 | M1-05 | PARTIAL — Çağatay; `feature/m1-05-csv-edge-fixtures`; [PR #9](https://github.com/cagatayeroglu/KKB-DataTrio/pull/9) | Four small CSV fixtures and exact-table tests pass; fast gates pass; review/merge pending |
 
-READY requires satisfied prerequisites, no active owner, and the fresh-`dev` workflow below. M0-01, M4-01, and M9-01 need separately authorized Day 0 code delivery/recovery and a configured Python >=3.12 environment before returning to READY. Preserve the stash; never apply it to a documentation branch. A task explicitly covering that code may recover only its required files onto its fresh branch from latest `dev`, documenting origin. Without those inputs, choose the first independent eligible unclaimed entry; M0-04, M1-01 and M1-02 have merged; M1-04 was verified READY and is now claimed for the synthetic fixture only. M1-03 still requires Q-TEAM-02. Never reuse `feature/day0-core` for unrelated work or invent validation to unblock the queue.
+READY requires satisfied prerequisites, no active owner, and the fresh-`dev` workflow below. M0-01, M4-01, and M9-01 need separately authorized Day 0 code delivery/recovery and a configured Python >=3.12 environment before returning to READY. Preserve the stash; never apply it to a documentation branch. A task explicitly covering that code may recover only its required files onto its fresh branch from latest `dev`, documenting origin. Without those inputs, choose the first independent eligible unclaimed entry; M0-04, M1-01, M1-02 and M1-04 have merged; M1-05 was verified READY and is now claimed for CSV edge fixtures only. M1-03 still requires Q-TEAM-02. Never reuse `feature/day0-core` for unrelated work or invent validation to unblock the queue.
 
 | Queued task | Task-specific acceptance once eligible |
 | --- | --- |
@@ -305,8 +306,8 @@ M0 validated contracts for implementation; Q-TEAM-02 for engine dependency selec
 - [x] M1-01 — Status: DONE. Owner: Çağatay; Branch: `feature/m1-01-ingestion-profile-spec`. Specify the ingestion/profile result contract: data reference, source reference, columns/types, row count, date/numeric candidates, missingness, and unresolved semantics. [Specification and synthetic examples](INGESTION_PROFILE.md) validated; PR #4 merged into `dev` at `cbb51ad`, with the validated tree unchanged.
 - [x] M1-02 — Status: DONE. Owner: Çağatay; Branch: `feature/m1-02-file-admission-policy`. Specify extension/MIME/content checks, byte/row/column limits, and storage paths before implementing loaders.
 - [ ] M1-03 — Select the analytical/parsing dependency only after the team records Q-TEAM-02/DECISIONS outcome.
-- [ ] M1-04 — Status: PARTIAL. Owner: Çağatay; Branch: `feature/m1-04-synthetic-csv-fixture`. Add a synthetic UTF-8 CSV fixture with date, numeric, text, and missing values.
-- [ ] M1-05 — Add alternate delimiter, quoted field, BOM/encoding, and decimal/thousands-separator fixtures with explicit expected parsing.
+- [x] M1-04 — Status: DONE. Owner: Çağatay; Branch: `feature/m1-04-synthetic-csv-fixture`. Add a synthetic UTF-8 CSV fixture with date, numeric, text, and missing values.
+- [ ] M1-05 — Status: PARTIAL. Owner: Çağatay; Branch: `feature/m1-05-csv-edge-fixtures`. Add alternate delimiter, quoted field, BOM/encoding, and decimal/thousands-separator fixtures with explicit expected parsing.
 - [ ] M1-06 — Implement bounded CSV parsing; record which delimiter/encoding was used and reject ambiguous parsing safely.
 - [ ] M1-07 — Detect date-like columns without silently choosing between ambiguous day/month interpretations.
 - [ ] M1-08 — Detect numeric columns and report coercion failures without dropping rows silently.
@@ -368,18 +369,33 @@ Known fixtures produce exact expected row counts/types/source references. Ambigu
 
 ### M1-04 active record
 
-- Status: PARTIAL — fixture and required local validation passed; PR review/merge required before DONE/[x]
+- Status: DONE — authorized PR #8 merge into `dev` verified on 2026-09-08; fixture validation and both fast gates passed
 - Owner: Çağatay
 - Branch: `feature/m1-04-synthetic-csv-fixture`; base `64851f51172e47beef21a99cc6a0ae30ebb38a35` after PR #7 merged into `dev`
-- PR: [#8](https://github.com/cagatayeroglu/KKB-DataTrio/pull/8) — open into `dev`; claim published as draft before implementation, updated for review; do not merge in this task
-- Commit: `72467db38c86caaa26b9554b177b3ca821da80a7` adds the fixture/test; claim `c8d4d46787ae7ea33a34c9399899bd2e70a20318`; merge evidence pending
+- PR: [#8](https://github.com/cagatayeroglu/KKB-DataTrio/pull/8) — merged into `dev` after scope/conflict review and explicit user authorization; no separate teammate review claimed
+- Commit: `72467db38c86caaa26b9554b177b3ca821da80a7` adds the fixture/test; validated PR head `01bc098d21fb8b1cf4080e5c71f9186789040387`; merge `0d4ecf946a3a74e1b995fadeb75e4e11fb121184` contains that head with an identical tree. Completion bookkeeping is recorded on the fresh M1-05 branch.
 - Readiness: M1-01/M1-02 are merged and M1-02 DONE evidence is preserved. No competing open PR or remote task-branch claim found before/after claim publication on 2026-09-08. Fixture design is explicitly independent of Q-TEAM-02; M1-03 remains blocked and unstarted.
 - Tests: PASS (2026-09-08, Python 3.12.2): `PYTHONPATH=src python3.12 -m pytest -q tests/unit/test_ingestion_fixture.py` — 1 passed in 0.00s (0.73s wall); `make quick` — 118 passed in 3.12s (3.64s wall); `make pr` — 118 passed in 3.03s (3.86s wall), including Ruff 0.8.6 format/lint, Bandit 1.7.10 and secret checks. Fixture content also matches the existing specification example exactly. Relevant document links/status/commit references and diff checks passed. No full/release checks; CI remains unconfigured (0 checks, not a CI pass).
 - Evidence: [Synthetic CSV](../tests/fixtures/ingestion/synthetic_utf8.csv) and [exact-table test](../tests/unit/test_ingestion_fixture.py). Three data rows plus header; `as_of` has three ISO date strings, `measure` has `100`, empty, `125`, and `label` has `A`, `B`, `C`. The test verifies presence, strict UTF-8 decoding, exact header/row order/width/values and the empty numeric cell.
 - Scope: This is the existing synthetic example in [INGESTION_PROFILE](INGESTION_PROFILE.md): comma delimiter, header, empty field missing, dot decimal, no thousands separator, trimming or imputation. Counts and values are fixture expectations, not an implemented profile. Unit/frequency/time-role/stock-flow/cumulative/reset semantics remain unknown.
 - Limitations: One static UTF-8 fixture only; the original example uses ASCII characters, a valid UTF-8 subset. No loader/profile, engine decision, alternate delimiter/BOM/locale fixtures, source-specific logic, dependency or runtime changes.
 - Blocker: none in M1-04 scope; Day 0 stash is not required and remains unchanged/unapplied.
-- Handoff: Review PR #8; after an authorized merge, verify evidence and record DONE on a fresh branch. M1-05 is the next independent candidate: alternate delimiter, quoted field, BOM/encoding and decimal/thousands fixtures with explicit expected parsing. Recheck readiness/ownership before claiming; no subsequent task was started. M1-03 still requires Q-TEAM-02.
+- Handoff: M1-04 is delivered. M1-05 was re-evaluated after merge: its fixture-only scope is independent of the engine decision; ownership was checked and the fresh branch claimed. M1-03 remains blocked on Q-TEAM-02. Preserve the Day 0 stash.
+
+### M1-05 active record
+
+- Status: PARTIAL — four CSV fixtures and required local validation passed; review/merge required before DONE/[x]
+- Owner: Çağatay
+- Branch: `feature/m1-05-csv-edge-fixtures`; base `0d4ecf946a3a74e1b995fadeb75e4e11fb121184` after PR #8 merged into `dev`
+- PR: [#9](https://github.com/cagatayeroglu/KKB-DataTrio/pull/9) — open into `dev`; claim published as draft before implementation, updated for review; do not merge in this task
+- Commit: `bd34c1102e2c775dbe5892def54a44d6a9697519` adds fixtures/declarations/tests; claim and M1-04 completion bookkeeping `6a6bd8feea9ce9625c5cd0ce78d9175db1716156`; merge evidence pending
+- Readiness: Previously untriaged checkbox verified READY after M1-04 merge: M1-01 specification, M1-02 admission policy and M1-04 base fixture are delivered. No competing open PR or remote task-branch claim found before/after publication. The milestone explicitly permits fixture design before Q-TEAM-02; no unresolved architecture choice is needed.
+- Tests: PASS (2026-09-08, Python 3.12.2): `PYTHONPATH=src python3.12 -m pytest -q tests/unit/test_csv_edge_fixtures.py` — 4 passed in 0.01s (0.78s wall); `make quick` — 122 passed in 2.90s (3.54s wall); `make pr` — 122 passed in 2.94s (3.80s wall), including Ruff 0.8.6 format/lint, Bandit 1.7.10 and secret checks. Relevant links/status/commit references and diff checks passed. No full/release checks; CI remains unconfigured (0 checks, not a CI pass).
+- Evidence: [Fixture declarations](../tests/fixtures/ingestion/CSV_EDGE_CASES.md) link all four synthetic CSVs and document their exact interpretation; [four parameterized tests](../tests/unit/test_csv_edge_fixtures.py) pin presence, BOM flag, LF/UTF-8 decoding, header/order/width and every string cell. Cases cover semicolon delimiter, quoted commas/escaped quotes/embedded LF, UTF-8 BOM with `Örnek`/`çığ`, and both comma/dot numeric ambiguity.
+- Scope: Numeric strings `1,234`/`2,345` and `1.234`/`2.345` remain unchanged. Each column has two documented decimal/grouping interpretations; none is selected. Empty cells remain missing and financial semantics remain unknown.
+- Limitations: Fixture oracles only, using stdlib CSV inside tests. No runtime loader/profile, numeric normalization, engine/dependency/CI change, source-specific logic or private data.
+- Blocker: none in M1-05 scope; M1-03 remains blocked on Q-TEAM-02. The Day 0 stash remains unchanged and unapplied.
+- Handoff: Review PR #9; after an authorized merge, record verified DONE on a fresh branch. M1-06/07/08 runtime parsing/profiling still needs the milestone's validated M0 contracts and engine decision; do not infer those dependencies are resolved by fixtures. M1-09 (single/multi-sheet XLSX fixtures with explicit selection expectations) is the next independent fixture candidate, subject to fresh readiness/ownership review. No next task was started.
 
 
 ## Handoff notes
