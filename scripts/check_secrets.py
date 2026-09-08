@@ -5,12 +5,32 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 IGNORED_DIRS = {
-    ".git", ".venv", "venv", "__pycache__", ".pytest_cache", ".mypy_cache",
-    ".ruff_cache", "dist", "build"
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    "dist",
+    "build",
 }
 TEXT_SUFFIXES = {
-    ".py", ".md", ".toml", ".yaml", ".yml", ".json", ".txt", ".env",
-    ".ini", ".cfg", ".sh", ".js", ".ts", ".tsx", ".jsx"
+    ".py",
+    ".md",
+    ".toml",
+    ".yaml",
+    ".yml",
+    ".json",
+    ".txt",
+    ".env",
+    ".ini",
+    ".cfg",
+    ".sh",
+    ".js",
+    ".ts",
+    ".tsx",
+    ".jsx",
 }
 
 PATTERNS = [
@@ -20,12 +40,14 @@ PATTERNS = [
 
 SAFE_FILENAMES = {".env.example"}
 
+
 def should_scan(path: Path) -> bool:
     if any(part in IGNORED_DIRS for part in path.parts):
         return False
     if path.name in SAFE_FILENAMES:
         return False
     return path.suffix.lower() in TEXT_SUFFIXES or path.name.startswith(".env")
+
 
 def main() -> int:
     hits: list[str] = []
@@ -48,6 +70,7 @@ def main() -> int:
 
     print("Secret scan: clean")
     return 0
+
 
 if __name__ == "__main__":
     raise SystemExit(main())
