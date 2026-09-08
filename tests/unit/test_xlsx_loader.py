@@ -231,15 +231,13 @@ def test_dtd_and_entities_rejected_before_library(monkeypatch, xml):
 
 
 def test_formula_is_rejected_even_with_cached_value_or_on_unselected_sheet():
+    def cache_formula(xml):
+        for empty in (b"<v />", b"<v/>", b"<v></v>"):
+            xml = xml.replace(empty, b"<v>2</v>")
+        return xml
+
     formula = workbook_bytes([["value"], ["=1+1"]], second_sheet=True)
-    formula = rewrite(
-        formula,
-        {
-            SHEET: lambda b: b.replace(b"<v />", b"<v></v>")
-            .replace(b"<v/>", b"<v></v>")
-            .replace(b"<v></v>", b"<v>2</v>")
-        },
-    )
+    formula = rewrite(formula, {SHEET: cache_formula})
     with ZipFile(io.BytesIO(formula)) as archive:
         assert b"<f>1+1</f><v>2</v>" in archive.read(SHEET)
     with pytest.raises(package.XlsxRejected, match="FORMULA_UNSUPPORTED"):
