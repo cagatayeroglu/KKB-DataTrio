@@ -241,7 +241,7 @@ Local checkout and Python >=3.12 for later application validation. No live Kloud
 - [x] M0-04 — Status: DONE. Owner: Çağatay; Branch: `feature/m0-04-local-config-hygiene`. Local ignore rules and placeholder-only `.env.example` passed targeted validation without real credentials; [PR #3](https://github.com/cagatayeroglu/KKB-DataTrio/pull/3) merged into `dev` at `ddcb5a7`, with the validated tree unchanged.
 - [ ] M0-05 — Reconcile provisional Kloudeks variable names with the stub; label them local conventions until Q-K-01 is answered.
 - [ ] M0-06 — Inspect repository privacy, branch protection, and remote CI only in an authorized setup task; local branches alone do not prove remote settings.
-- [ ] M0-07 — Status: IN PROGRESS. Owner: Çağatay; Branch: `feature/m0-07-fast-ci`. Add a fast feature-to-dev CI workflow; required checks and handoff are in the active record below.
+- [ ] M0-07 — Status: PARTIAL. Owner: Çağatay; Branch: `feature/m0-07-fast-ci`. Add a fast feature-to-dev CI workflow; required checks and handoff are in the active record below. Keep unchecked until PR #15 merges.
 - [ ] M0-08 — Add the separate manual/release full gate without making it run after every edit.
 - [ ] M0-09 — Confirm synthetic/public-safe fixture policy and document where local private inputs may be stored before accepting them.
 - [ ] M0-10 — Document an actual successful setup command/result on a teammate's Python >=3.12 environment.
@@ -312,17 +312,19 @@ A teammate can install the declared development environment, run recorded quick 
 
 ### M0-07 active record
 
-- Status: IN PROGRESS
+- Status: PARTIAL — workflow implemented and local fast gates passed; remote run observation and PR merge remain
 - Owner: Çağatay
 - Branch: `feature/m0-07-fast-ci`; fresh base `dcebf96f9c27b78ac9947850c21762cf3629c869` after authorized PR #14 merge
-- PR: pending draft claim publication into `dev`
-- Commit: pending claim commit
+- PR: [#15](https://github.com/cagatayeroglu/KKB-DataTrio/pull/15) -> `dev`; draft claim published before implementation
+- Commit: claim `820075edb095151ab9492585e90707c4f8740a9f`; implementation pending
 - Objective: Add a fast feature-to-dev CI workflow.
 - Readiness: READY triage passed on 2026-09-08, then claimed under explicit user authorization to prioritize M0-07 before M1-10. Python >=3.12, the dependency manifest and existing `make install-dev`/`make pr` commands are available. No unresolved architecture/organizer answer or Day 0 recovery is needed; no competing open/draft PR or remote task claim found. This record supersedes the historical untriaged M0-07 queue note only.
 - Acceptance: PRs targeting `dev` trigger one fast job for checkout, supported Python, repository dependency installation, Ruff format/lint, unit tests, Bandit and the repository secret scan. Reuse Makefile commands, simple dependency caching, read-only contents permission and cancellation of superseded PR runs. Validate configuration and local `make quick`/`make pr`; observe a real GitHub check without waiting indefinitely. No live credentials, release gate or application functionality.
-- Tests: NOT RUN for this task; workflow not implemented yet
+- Implementation: [Fast PR workflow](../.github/workflows/fast-pr.yml) runs one Python 3.12 job on Ubuntu 24.04 for `pull_request` targeting `dev`, reusing `make install-dev` and `make pr`. Official checkout/setup-python actions are pinned to verified v7 commit IDs; pip cache follows `pyproject.toml`. Token permission is `contents: read`, checkout does not persist credentials, superseded runs for the same PR cancel, and the job has a five-minute ceiling (normal target <=3 minutes). No application/Makefile/dependency changes.
+- Tests: PASS (2026-09-08): existing PyYAML parsed workflow; reviewed trigger, job, read-only permissions, cache, concurrency, pinned Action refs and Makefile command expansion. `make quick` — 193 passed in 4.53s (5.48s wall); `make pr` — 193 passed in 3.72s (4.52s wall), Ruff format/lint, Bandit and repository secret scan passed. Used Python 3.12.2, Ruff 0.8.6, Bandit 1.7.10 and the existing temporary openpyxl environment; CI will install declared dependencies on its runner. No added local validation tooling, full/release checks or live credentials. Diff/link checks passed. GitHub configuration execution is verified by the actual run, not by YAML parsing alone.
+- Remote check: pending first workflow push; draft claim currently has 0 checks because it predates the workflow
 - Blocker: none known in the requested CI scope
-- Handoff: Publish this draft claim before implementation. Keep M0-07 unchecked/PARTIAL until its CI PR merges. M1-10 remains READY and unclaimed; do not start it. Preserve `main` and the original Day 0 stash.
+- Handoff: Draft claim published and overlap rechecked; only PR #15 is open. Validate locally, push the workflow, then observe its real GitHub check and update this PR for review. Keep M0-07 unchecked/PARTIAL until merge. M1-10 remains READY and unclaimed; do not start it. Preserve `main` and the original Day 0 stash.
 
 ### M0-HANDOFF active record
 
