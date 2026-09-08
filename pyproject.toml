@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "KKB Hackathon agentic financial analytics"
 requires-python = ">=3.12"
 dependencies = [
+  "openpyxl>=3.1,<4",
   "pydantic>=2.9,<3",
 ]
 

@@ -56,7 +56,7 @@ For a general “continue,” use the first eligible unchecked READY task with n
 | 6 | M1-02 | DONE — [PR #5](https://github.com/cagatayeroglu/KKB-DataTrio/pull/5) merged into `dev` at `e2287f7`; validated tree unchanged | Admission policy/guards and passing fast gates delivered |
 | 7 | M1-04 | DONE — [PR #8](https://github.com/cagatayeroglu/KKB-DataTrio/pull/8) merged at `0d4ecf9`; validated tree unchanged | Synthetic UTF-8 fixture and exact-table test delivered |
 | 8 | M1-05 | DONE — [PR #9](https://github.com/cagatayeroglu/KKB-DataTrio/pull/9) merged at `a548a54`; validated tree unchanged | CSV edge fixtures, declarations and passing fast gates delivered |
-| 9 | M1-09 | IN PROGRESS — Çağatay; `feature/m1-09-xlsx-fixtures`; openpyxl approved in DEC-111 | Synthetic single/multi-sheet XLSX fixtures and explicit sheet selection; see active record |
+| 9 | M1-09 | PARTIAL — Çağatay; [PR #11](https://github.com/cagatayeroglu/KKB-DataTrio/pull/11); validation passed, awaiting merge | Synthetic XLSX fixtures/discovery/selection delivered on the task branch; see active record |
 
 READY requires satisfied prerequisites, no active owner, and the fresh-`dev` workflow below. M0-01, M4-01, and M9-01 need separately authorized Day 0 code delivery/recovery and a configured Python >=3.12 environment before returning to READY. Preserve the stash; never apply it to a documentation branch. A task explicitly covering that code may recover only its required files onto its fresh branch from latest `dev`, documenting origin. Without those inputs, choose the first independent eligible unclaimed entry; M0-04, M1-01, M1-02, M1-04 and M1-05 have merged. M1-09 became eligible after the team explicitly approved openpyxl (DEC-111) and is now claimed. No other unchecked task is currently marked READY in this queue. M1-03 still requires Q-TEAM-02. Never reuse `feature/day0-core` for unrelated work or invent validation to unblock the queue.
 
@@ -312,7 +312,7 @@ M0 validated contracts for implementation; Q-TEAM-02 for engine dependency selec
 - [ ] M1-06 — Implement bounded CSV parsing; record which delimiter/encoding was used and reject ambiguous parsing safely.
 - [ ] M1-07 — Detect date-like columns without silently choosing between ambiguous day/month interpretations.
 - [ ] M1-08 — Detect numeric columns and report coercion failures without dropping rows silently.
-- [ ] M1-09 — Status: IN PROGRESS. Owner: Çağatay; Branch: `feature/m1-09-xlsx-fixtures`. Add single-sheet and multi-sheet XLSX fixtures; list sheets and require explicit selection when ambiguous.
+- [ ] M1-09 — Status: PARTIAL. Owner: Çağatay; Branch: `feature/m1-09-xlsx-fixtures`. Add single-sheet and multi-sheet XLSX fixtures; list sheets and require explicit selection when ambiguous.
 - [ ] M1-10 — Implement XLSX loading with formula/macro and expansion limits from SECURITY.
 - [ ] M1-11 — Record original filename as metadata, retrieval/ingestion timestamp, source identity, and safe data reference; never treat the filename as a destination path.
 - [ ] M1-12 — Profile row/column counts, missingness, duplicate dates, date range, and frequency candidates; preserve unknowns.
@@ -400,16 +400,19 @@ Known fixtures produce exact expected row counts/types/source references. Ambigu
 
 ### M1-09 active record
 
-- Status: IN PROGRESS — claim published before implementation; not complete until merge into `dev`
+- Status: PARTIAL — implementation and required local validation pass; [ ] until reviewed/merged into `dev`
 - Owner: Çağatay
 - Branch: `feature/m1-09-xlsx-fixtures`; fresh base `eb0922c6249d558248bc98341ed367e646beceef` after PR #10 merged
-- PR: draft claim to be published before implementation
-- Commit: claim commit; implementation not yet started
-- Readiness: M1-01/02/04/05 are delivered; M1-05 is DONE in updated `dev`. No competing open PR or remote task-branch claim found on 2026-09-08. Explicit team approval of `openpyxl>=3.1,<4` is recorded in [DEC-111](DECISIONS.md#dec-111--openpyxl-for-xlsx-reading-writing-and-sheet-discovery), resolving the previous writer blocker without deciding Q-TEAM-02.
-- Tests: NOT RUN for M1-09 yet.
-- Scope: Single-sheet and multi-sheet synthetic XLSX fixtures plus a small sheet-discovery/selection helper. No full table loader, profile, financial inference, macro execution or external-link resolution.
-- Blocker: none within this explicitly authorized scope; M1-03 and M1-06–08 retain their documented prerequisites.
-- Handoff: Publish/recheck the draft claim, implement only M1-09, run targeted tests and `make quick`/`make pr`, then leave the implementation PR unmerged with PARTIAL evidence. Preserve the Day 0 stash.
+- PR: [#11](https://github.com/cagatayeroglu/KKB-DataTrio/pull/11) -> `dev`; published as a draft claim before implementation, left unmerged for review
+- Commit: claim/decision `61219af177aa92b0e29f84120a90b71db2d46811`; implementation commit recorded after creation below
+- Readiness: M1-01/02/04/05 are delivered; M1-05 is DONE in updated `dev`. No competing open PR or remote task-branch claim found before/after publication on 2026-09-08. Explicit team approval of `openpyxl>=3.1,<4` is recorded in [DEC-111](DECISIONS.md#dec-111--openpyxl-for-xlsx-reading-writing-and-sheet-discovery), resolving the previous writer blocker without deciding Q-TEAM-02.
+- Dependency: Added `openpyxl>=3.1,<4` to normal runtime dependencies in [pyproject.toml](../pyproject.toml), using the existing manifest style. No existing lock file, no lock change/new strategy. Validation used openpyxl 3.1.5 with its required et-xmlfile 2.0.0 in a temporary environment; no second XLSX library added to the project.
+- Tests: PASS (2026-09-08, Python 3.12.2): `python3.12 -m pytest -q tests/unit/test_xlsx_fixtures.py` with `PYTHONPATH=/private/tmp/kkb-m109-deps:src` — 19 passed in 1.05s (2.83s wall); `make quick` — 141 passed in 3.50s (4.36s wall); `make pr` — 141 passed in 3.41s (4.25s wall), including Ruff 0.8.6 format/lint, Bandit 1.7.10 and secret checks. Both gates used the same Python/dependency environment. All three fixture worksheets were reopened/rendered and visually checked; relevant links/status/diff checks passed. No full/release gate. CI remains unconfigured (0 checks is not a CI pass).
+- Evidence: [Fixture declarations](../tests/fixtures/ingestion/XLSX_CASES.md), [generator](../scripts/generate_xlsx_fixtures.py), [targeted tests](../tests/unit/test_xlsx_fixtures.py), and [selection helper](../src/kkb_agent/xlsx_sheets.py). Exact sheet order/types/cells, date/numeric/text/missing values, UTF-8 text, ordinary XLSX package, repeatable generation, existing admission compatibility and selection edge cases are verified.
+- Scope: `single_sheet.xlsx` has `Observations` (3 data rows, 3 columns); `multi_sheet.xlsx` adds `Categories` (2 rows, 2 columns). The helper lists worksheets in workbook order, preserves hidden-sheet ambiguity, excludes chart-only tabs and selects only an unambiguous single worksheet or an explicit exact name. Multiple sheets return `needs_input`/`SELECTION_REQUIRED`; invalid names return `needs_input`/`UNKNOWN_SHEET`; no worksheet returns `rejected`/`NO_WORKSHEETS`.
+- Limitations: Helper accepts an already-open openpyxl workbook and reads no cells. Selection success is not a loaded table or `ok` profile. The future loader owns safe opening/closing, resource limits, corrupt-file handling and adapter integration. No full loader, profile, formulas/macros/external-link resolution, financial inference, real source data, analytical engine or CI implementation. Fixture bytes are repeatable with the same toolchain; supported library versions may serialize differently.
+- Blocker: none for M1-09 review/merge. The Day 0 stash remains unchanged and unapplied.
+- Handoff: Review PR #11 into `dev`; after an authorized merge verify its implementation/evidence, then record DONE on a fresh task/docs branch. M1-10 is the next XLSX implementation candidate, but is not READY: validated M0 contracts and bounded parser/security integration remain prerequisites. Q-TEAM-02 still blocks M1-03 and the documented CSV implementation queue. No other queued task has an explicit unowned READY marker; re-triage prerequisites before selecting further work. No subsequent task was started.
 
 
 ## Handoff notes
