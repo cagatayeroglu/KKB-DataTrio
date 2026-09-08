@@ -252,11 +252,11 @@ A teammate can install the declared development environment, run recorded quick 
 - Status: PARTIAL — document validation passed; awaiting PR review/merge
 - Owner: Codex for the initiating repository owner; Eray/Arda unassigned
 - Branch: `docs/team-handoff-protocol`; base `fe5d44ab74e60633ef52c5ba4de7a5a5ca8fa083`
-- PR: pending; target `dev`, no merge authorized for this second PR
-- Commit: pending
+- PR: [#2](https://github.com/cagatayeroglu/KKB-DataTrio/pull/2) — open, `docs/team-handoff-protocol` -> `dev`; no merge authorized for this second PR
+- Commit: `0f73cbb077f0e091cbffe17be213e18fb6c723e4` implements the protocol; the PR head also includes this handoff-reference update
 - Tests: PASS (2026-09-08): full relevant diff/contradiction review, `git diff --check`, Python standard-library link/anchor/task/evidence checks (57 tracked local links, 198 unique task IDs including only one new ID), fresh-`dev` ancestry, and stash hash preservation. Application/security/full checks NOT RUN by task scope
 - Blocker: none for documentation; no CI workflow exists
-- Handoff: Startup/claim/transfer rules and M0-DOC merge evidence are documented and validated. Publish the documentation PR for review; merge remains required for M0-HANDOFF DONE. Then recheck claims and take M0-04 on a fresh branch from latest `dev`. This task's explicit Phase F opens its PR after document validation; subsequent implementation tasks use early draft claim PRs.
+- Handoff: Startup/claim/transfer rules and M0-DOC merge evidence are documented and validated. Review PR #2; merge remains required for M0-HANDOFF DONE. Then recheck claims and take M0-04 on a fresh branch from latest `dev`. This task's explicit Phase F opened its PR after document validation; subsequent implementation tasks use early draft claim PRs.
 
 ## Handoff notes
 
