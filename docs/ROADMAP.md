@@ -55,9 +55,10 @@ For a general “continue,” use the first eligible unchecked READY task with n
 | 5 | M1-01 | DONE — [PR #4](https://github.com/cagatayeroglu/KKB-DataTrio/pull/4) merged at `cbb51ad`; validated tree unchanged | Generic result specification delivered |
 | 6 | M1-02 | DONE — [PR #5](https://github.com/cagatayeroglu/KKB-DataTrio/pull/5) merged into `dev` at `e2287f7`; validated tree unchanged | Admission policy/guards and passing fast gates delivered |
 | 7 | M1-04 | DONE — [PR #8](https://github.com/cagatayeroglu/KKB-DataTrio/pull/8) merged at `0d4ecf9`; validated tree unchanged | Synthetic UTF-8 fixture and exact-table test delivered |
-| 8 | M1-05 | PARTIAL — Çağatay; `feature/m1-05-csv-edge-fixtures`; [PR #9](https://github.com/cagatayeroglu/KKB-DataTrio/pull/9) | Four small CSV fixtures and exact-table tests pass; fast gates pass; review/merge pending |
+| 8 | M1-05 | DONE — [PR #9](https://github.com/cagatayeroglu/KKB-DataTrio/pull/9) merged at `a548a54`; validated tree unchanged | CSV edge fixtures, declarations and passing fast gates delivered |
+| 9 | M1-09 | BLOCKED — unassigned; no existing repository XLSX-writing dependency | Obtain an explicit fixture-writing dependency decision; do not add a package or start another task automatically |
 
-READY requires satisfied prerequisites, no active owner, and the fresh-`dev` workflow below. M0-01, M4-01, and M9-01 need separately authorized Day 0 code delivery/recovery and a configured Python >=3.12 environment before returning to READY. Preserve the stash; never apply it to a documentation branch. A task explicitly covering that code may recover only its required files onto its fresh branch from latest `dev`, documenting origin. Without those inputs, choose the first independent eligible unclaimed entry; M0-04, M1-01, M1-02 and M1-04 have merged; M1-05 was verified READY and is now claimed for CSV edge fixtures only. M1-03 still requires Q-TEAM-02. Never reuse `feature/day0-core` for unrelated work or invent validation to unblock the queue.
+READY requires satisfied prerequisites, no active owner, and the fresh-`dev` workflow below. M0-01, M4-01, and M9-01 need separately authorized Day 0 code delivery/recovery and a configured Python >=3.12 environment before returning to READY. Preserve the stash; never apply it to a documentation branch. A task explicitly covering that code may recover only its required files onto its fresh branch from latest `dev`, documenting origin. Without those inputs, choose the first independent eligible unclaimed entry; M0-04, M1-01, M1-02, M1-04 and M1-05 have merged. M1-09 cannot become READY under the current task constraints until the missing XLSX-writing dependency is explicitly resolved. No unchecked task is currently marked READY in this queue. M1-03 still requires Q-TEAM-02. Never reuse `feature/day0-core` for unrelated work or invent validation to unblock the queue.
 
 | Queued task | Task-specific acceptance once eligible |
 | --- | --- |
@@ -307,11 +308,11 @@ M0 validated contracts for implementation; Q-TEAM-02 for engine dependency selec
 - [x] M1-02 — Status: DONE. Owner: Çağatay; Branch: `feature/m1-02-file-admission-policy`. Specify extension/MIME/content checks, byte/row/column limits, and storage paths before implementing loaders.
 - [ ] M1-03 — Select the analytical/parsing dependency only after the team records Q-TEAM-02/DECISIONS outcome.
 - [x] M1-04 — Status: DONE. Owner: Çağatay; Branch: `feature/m1-04-synthetic-csv-fixture`. Add a synthetic UTF-8 CSV fixture with date, numeric, text, and missing values.
-- [ ] M1-05 — Status: PARTIAL. Owner: Çağatay; Branch: `feature/m1-05-csv-edge-fixtures`. Add alternate delimiter, quoted field, BOM/encoding, and decimal/thousands-separator fixtures with explicit expected parsing.
+- [x] M1-05 — Status: DONE. Owner: Çağatay; Branch: `feature/m1-05-csv-edge-fixtures`. Add alternate delimiter, quoted field, BOM/encoding, and decimal/thousands-separator fixtures with explicit expected parsing.
 - [ ] M1-06 — Implement bounded CSV parsing; record which delimiter/encoding was used and reject ambiguous parsing safely.
 - [ ] M1-07 — Detect date-like columns without silently choosing between ambiguous day/month interpretations.
 - [ ] M1-08 — Detect numeric columns and report coercion failures without dropping rows silently.
-- [ ] M1-09 — Add single-sheet and multi-sheet XLSX fixtures; list sheets and require explicit selection when ambiguous.
+- [ ] M1-09 — Status: BLOCKED. Owner: Unassigned; Branch: —. Add single-sheet and multi-sheet XLSX fixtures; list sheets and require explicit selection when ambiguous.
 - [ ] M1-10 — Implement XLSX loading with formula/macro and expansion limits from SECURITY.
 - [ ] M1-11 — Record original filename as metadata, retrieval/ingestion timestamp, source identity, and safe data reference; never treat the filename as a destination path.
 - [ ] M1-12 — Profile row/column counts, missingness, duplicate dates, date range, and frequency candidates; preserve unknowns.
@@ -384,18 +385,29 @@ Known fixtures produce exact expected row counts/types/source references. Ambigu
 
 ### M1-05 active record
 
-- Status: PARTIAL — four CSV fixtures and required local validation passed; review/merge required before DONE/[x]
+- Status: DONE — authorized PR #9 merge into `dev` verified on 2026-09-08; targeted fixture tests and both fast gates passed
 - Owner: Çağatay
 - Branch: `feature/m1-05-csv-edge-fixtures`; base `0d4ecf946a3a74e1b995fadeb75e4e11fb121184` after PR #8 merged into `dev`
-- PR: [#9](https://github.com/cagatayeroglu/KKB-DataTrio/pull/9) — open into `dev`; claim published as draft before implementation, updated for review; do not merge in this task
-- Commit: `bd34c1102e2c775dbe5892def54a44d6a9697519` adds fixtures/declarations/tests; claim and M1-04 completion bookkeeping `6a6bd8feea9ce9625c5cd0ce78d9175db1716156`; merge evidence pending
+- PR: [#9](https://github.com/cagatayeroglu/KKB-DataTrio/pull/9) — merged into `dev` after scope/conflict review and explicit user authorization; no separate teammate review claimed
+- Commit: implementation `bd34c1102e2c775dbe5892def54a44d6a9697519`; validated PR head `21aa686dd8ae63814e31d605dbbc5470d40a2387`; merge `a548a54291625888d482b59ba1947977e545cfac` contains that head with an identical tree. Completion bookkeeping is on fresh `docs/m1-05-completion` from updated `dev`.
 - Readiness: Previously untriaged checkbox verified READY after M1-04 merge: M1-01 specification, M1-02 admission policy and M1-04 base fixture are delivered. No competing open PR or remote task-branch claim found before/after publication. The milestone explicitly permits fixture design before Q-TEAM-02; no unresolved architecture choice is needed.
 - Tests: PASS (2026-09-08, Python 3.12.2): `PYTHONPATH=src python3.12 -m pytest -q tests/unit/test_csv_edge_fixtures.py` — 4 passed in 0.01s (0.78s wall); `make quick` — 122 passed in 2.90s (3.54s wall); `make pr` — 122 passed in 2.94s (3.80s wall), including Ruff 0.8.6 format/lint, Bandit 1.7.10 and secret checks. Relevant links/status/commit references and diff checks passed. No full/release checks; CI remains unconfigured (0 checks, not a CI pass).
 - Evidence: [Fixture declarations](../tests/fixtures/ingestion/CSV_EDGE_CASES.md) link all four synthetic CSVs and document their exact interpretation; [four parameterized tests](../tests/unit/test_csv_edge_fixtures.py) pin presence, BOM flag, LF/UTF-8 decoding, header/order/width and every string cell. Cases cover semicolon delimiter, quoted commas/escaped quotes/embedded LF, UTF-8 BOM with `Örnek`/`çığ`, and both comma/dot numeric ambiguity.
 - Scope: Numeric strings `1,234`/`2,345` and `1.234`/`2.345` remain unchanged. Each column has two documented decimal/grouping interpretations; none is selected. Empty cells remain missing and financial semantics remain unknown.
 - Limitations: Fixture oracles only, using stdlib CSV inside tests. No runtime loader/profile, numeric normalization, engine/dependency/CI change, source-specific logic or private data.
 - Blocker: none in M1-05 scope; M1-03 remains blocked on Q-TEAM-02. The Day 0 stash remains unchanged and unapplied.
-- Handoff: Review PR #9; after an authorized merge, record verified DONE on a fresh branch. M1-06/07/08 runtime parsing/profiling still needs the milestone's validated M0 contracts and engine decision; do not infer those dependencies are resolved by fixtures. M1-09 (single/multi-sheet XLSX fixtures with explicit selection expectations) is the next independent fixture candidate, subject to fresh readiness/ownership review. No next task was started.
+- Handoff: M1-05 is delivered. M1-03 remains blocked on Q-TEAM-02; M1-06/07/08 retain the milestone's unresolved validated M0 contracts/engine prerequisites. M1-09 was checked next and stopped before claiming because no suitable XLSX-writing dependency is declared. See its blocker record; no substitute task was started.
+
+### M1-09 readiness record
+
+- Status: BLOCKED — no suitable XLSX-writing dependency in the repository; implementation not started
+- Owner: Unassigned
+- Branch / PR / Commit: none for M1-09; this record is documentation-only handoff
+- Readiness: M1-01 specification and M1-02/04/05 policy/fixtures are delivered. No open PR or remote task-branch claim found on 2026-09-08. Fixture scope is independent of the unresolved runtime engine choice, but the current user request requires an existing repository writer and explicitly says to stop if none exists.
+- Evidence: [pyproject.toml](../pyproject.toml) is the only dependency manifest found; runtime dependencies contain only Pydantic, and the dev group contains Bandit, mypy, pip-audit, pytest and Ruff. Build requirements are setuptools/wheel. No XLSX-writing package or tracked XLSX fixture exists; no dependency was added and the preserved Day 0 stash was not inspected/applied.
+- Tests: NOT RUN — no M1-09 fixtures or implementation created; `make quick`/`make pr`/full/release gates not run for this documentation-only handoff. M1-05's passing validation above remains applicable to the identical merged tree.
+- Blocker: Explicit approval/recording of a suitable repository XLSX-writing dependency is required before creating fixtures. No package or architectural decision has been selected automatically.
+- Handoff: After resolving the dependency, recheck readiness/ownership and claim `feature/m1-09-xlsx-fixtures` from freshly updated `dev`. Preserve the exact task scope: single/multi-sheet synthetic XLSX fixtures with sheet-list/explicit-selection expectations; no real loader. No other unchecked/queued task currently has an explicit READY marker, and no alternative task was started. M1-03 and M1-06–08 remain blocked; CI/M0-07 is outside this task.
 
 
 ## Handoff notes
