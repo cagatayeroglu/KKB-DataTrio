@@ -53,7 +53,7 @@ For a general “continue,” use the first eligible unchecked READY task with n
 | 3 | M9-01 | BLOCKED — evaluation schema/fixtures are not delivered in `dev` | Obtain authorized inputs; do not claim a scoring runner exists |
 | 4 | M0-04 | DONE — [PR #3](https://github.com/cagatayeroglu/KKB-DataTrio/pull/3) merged into `dev` at `ddcb5a7`; validated tree preserved | Ignore/config implementation and merge evidence recorded under M0-04 |
 | 5 | M1-01 | DONE — [PR #4](https://github.com/cagatayeroglu/KKB-DataTrio/pull/4) merged at `cbb51ad`; validated tree unchanged | Generic result specification delivered |
-| 6 | M1-02 | IN PROGRESS — Çağatay; `feature/m1-02-file-admission-policy` | Executable admission policy, practical limits/storage rules and targeted negative tests |
+| 6 | M1-02 | PARTIAL — Çağatay; `feature/m1-02-file-admission-policy`; [PR #5](https://github.com/cagatayeroglu/KKB-DataTrio/pull/5) | Guards and targeted tests pass; baseline fast-gate formatting, review and merge pending |
 
 READY requires satisfied prerequisites, no active owner, and the fresh-`dev` workflow below. M0-01, M4-01, and M9-01 need separately authorized Day 0 code delivery/recovery and a configured Python >=3.12 environment before returning to READY. Preserve the stash; never apply it to a documentation branch. A task explicitly covering that code may recover only its required files onto its fresh branch from latest `dev`, documenting origin. Without those inputs, choose the first independent eligible unclaimed entry; M0-04 and M1-01 have merged; M1-02 was re-evaluated as eligible and is now claimed. Never reuse `feature/day0-core` for unrelated work or invent validation to unblock the queue.
 
@@ -289,7 +289,7 @@ Record failures/tooling gaps and keep the task unchecked if either command fails
 <a id="m1"></a>
 # M1 — Generic data ingestion/profiling
 
-Status: PARTIAL — M1-01 specification prepared for review; no loader/profile implementation is established. The Day 0 SourceAdapter protocol remains stash-only, not delivered in `dev`.
+Status: PARTIAL — M1-01 specification merged; M1-02 admission guards await integration. No loader/profile implementation is established. The Day 0 SourceAdapter protocol remains stash-only, not delivered in `dev`.
 
 ## Objective
 
@@ -302,7 +302,7 @@ M0 validated contracts for implementation; Q-TEAM-02 for engine dependency selec
 ## Tasks
 
 - [x] M1-01 — Status: DONE. Owner: Çağatay; Branch: `feature/m1-01-ingestion-profile-spec`. Specify the ingestion/profile result contract: data reference, source reference, columns/types, row count, date/numeric candidates, missingness, and unresolved semantics. [Specification and synthetic examples](INGESTION_PROFILE.md) validated; PR #4 merged into `dev` at `cbb51ad`, with the validated tree unchanged.
-- [ ] M1-02 — Status: IN PROGRESS. Owner: Çağatay; Branch: `feature/m1-02-file-admission-policy`. Specify extension/MIME/content checks, byte/row/column limits, and storage paths before implementing loaders.
+- [ ] M1-02 — Status: PARTIAL. Owner: Çağatay; Branch: `feature/m1-02-file-admission-policy`. Specify extension/MIME/content checks, byte/row/column limits, and storage paths before implementing loaders.
 - [ ] M1-03 — Select the analytical/parsing dependency only after the team records Q-TEAM-02/DECISIONS outcome.
 - [ ] M1-04 — Add a synthetic UTF-8 CSV fixture with date, numeric, text, and missing values.
 - [ ] M1-05 — Add alternate delimiter, quoted field, BOM/encoding, and decimal/thousands-separator fixtures with explicit expected parsing.
@@ -352,15 +352,18 @@ Known fixtures produce exact expected row counts/types/source references. Ambigu
 
 ### M1-02 active record
 
-- Status: IN PROGRESS
+- Status: PARTIAL — implementation/targeted checks passed; baseline fast-gate formatting, PR review and merge still required
 - Owner: Çağatay
 - Branch: `feature/m1-02-file-admission-policy`; base `cbb51adbbdcdab48d17efdc72d104867b4f7295c` after PR #4 merged
-- PR: pending draft claim into `dev`
-- Commit: pending
-- Tests: NOT RUN — claim only
-- Readiness: M1-01 is merged; no owner or competing open PR/remote task branch found. This task's explicit request authorizes executable policy/guards and synthetic tests for the ROADMAP's admission/limits/storage objective. Standalone guards need no analytical engine or shared core-type integration.
-- Blocker: none for this scope; parser/loader integration still requires its own dependencies and validated core contracts.
-- Handoff: Implement narrow, generic admission rules and limits/storage primitives; test invalid metadata/content and exact-limit cases. Do not implement CSV/XLSX loaders or apply the Day 0 stash.
+- PR: [#5](https://github.com/cagatayeroglu/KKB-DataTrio/pull/5) — open into `dev`; claim published as draft before implementation, updated for review; merge not authorized in this task
+- Commit: `b014b15de87a0d935f32f50ba7b58c24fbebf92e` implements guards/tests/policy; claim/M1-01 merge bookkeeping `f0e7d173bc1a5d7667a9b8fa4db4e99874d0d268`; M1-02 merge evidence pending
+- Readiness: M1-01 is merged; no owner or competing open PR/remote task branch found before/after publication. The explicit task request authorized executable policy/guards and synthetic tests for the ROADMAP's admission/limits/storage objective. Standalone guards need no analytical engine or shared core-type integration.
+- Tests: PASS (2026-09-08, Python 3.12.2): `PYTHONPATH=src python3.12 -m pytest -q tests/unit/test_ingestion_policy.py` — 70 passed in 0.07s (1.05s wall); `PYTHONPATH=src python3.12 -m pytest -q tests/unit --disable-warnings --maxfail=1` — 117 passed in 2.99s (3.80s wall). Ruff 0.8.6 `check` and `format --check` on the two changed Python files passed; `bandit -q -r src` (1.7.10, temporary tool environment) and `python3.12 scripts/check_secrets.py` passed. Document links/task IDs and staged diff checks passed. Dependencies unchanged; no full/release checks run.
+- Fast gate: `make quick` FAILED in 0.06s on existing `tests/unit/test_smoke.py` I001; `make pr` FAILED in 0.07s on existing formatting in that file and `scripts/check_secrets.py`. Both files are identical to `origin/dev`; no unrelated formatting edits made. Remaining fast-gate components were run separately above; this is not a passing `make pr`. CI remains unconfigured (0 checks, not a CI pass).
+- Evidence: [FILE_ADMISSION](FILE_ADMISSION.md) documents [standalone guards](../src/kkb_agent/ingestion_policy.py) and [synthetic negative tests](../tests/unit/test_ingestion_policy.py): metadata before reads, bounded bytes, CSV text/XLSX envelope checks, limit helpers, sanitized M1-01 rejection shape, generated private staging and cleanup. Admission preserves input bytes and makes no semantic inference.
+- Limitations: No loaders/profile/API exposure. XLSX checks inspect metadata without extracting XML/cells; later loaders must enforce actual expansion, row/cell/time bounds and content rules. Row/column/field/profile helpers require loader integration; the 5-second parser budget is configuration only. Storage is transient under an operator-owned root, not a retention/backend decision.
+- Blocker: Baseline formatting prevents the complete fast gate; resolve narrowly in foundation maintenance (M0-03) before merge and rerun the gate. Engine selection and validated M0 contracts remain prerequisites for later loader integration, not this independent policy scope.
+- Handoff: Review PR #5, resolve the baseline gate and merge only when authorized; record verified completion afterward. After merge, M1-03 still needs Q-TEAM-02; M1-04 is the next eligible independent task (synthetic UTF-8 CSV fixture with expected values), subject to a fresh ownership check. Keep the Day 0 stash unapplied.
 
 ## Handoff notes
 
