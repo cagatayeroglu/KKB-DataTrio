@@ -18,6 +18,8 @@ This file owns **execution truth**. [ARCHITECTURE](ARCHITECTURE.md) owns technic
 
 # Current project status
 
+Latest M0-01 verification (2026-09-08): PR #12 is merged and local `dev` was updated to `8b7421af3840856462795a018dc5ed6d133aaeaa`; M1-09 DONE bookkeeping is shared. M0-01 now has explicitly authorized selective recovery on `feature/m0-01-core-contracts`, owner Çağatay, [PR #13](https://github.com/cagatayeroglu/KKB-DataTrio/pull/13). The minimal core models/exports and focused tests pass locally but remain PARTIAL until merge. Provider/evaluation files and deferred core architecture remain preservation-stash-only. The older snapshot below is historical; the M0-01 active record and queue describe the new work.
+
 Snapshot: **2026-09-08**, after PR #1 merged into `dev` and the local Day 0 files were preserved in a stash. Days below are relative workdays, not confirmed event dates. Recheck Git/PR state on each new session; this snapshot is not a branch-switch instruction.
 
 | Item | Last verified observation |
@@ -48,7 +50,7 @@ For a general “continue,” use the first eligible unchecked READY task with n
 
 | Order | Task | Status / start condition | Expected handoff |
 | --- | --- | --- | --- |
-| 1 | M0-01 | IN PROGRESS — Çağatay; `feature/m0-01-core-contracts`; selective recovery explicitly authorized | Minimal shared core contracts only; see M0-01 review/claim record |
+| 1 | M0-01 | PARTIAL — Çağatay; [PR #13](https://github.com/cagatayeroglu/KKB-DataTrio/pull/13); minimal core passes targeted/fast gates | Merge/review needed before downstream consumers use the recovered baseline |
 | 2 | M4-01 | BLOCKED — provider stub/test inputs are not delivered in `dev` | Obtain authorized inputs; live transport remains separately blocked |
 | 3 | M9-01 | BLOCKED — evaluation schema/fixtures are not delivered in `dev` | Obtain authorized inputs; do not claim a scoring runner exists |
 | 4 | M0-04 | DONE — [PR #3](https://github.com/cagatayeroglu/KKB-DataTrio/pull/3) merged into `dev` at `ddcb5a7`; validated tree preserved | Ignore/config implementation and merge evidence recorded under M0-04 |
@@ -75,13 +77,13 @@ Queue re-evaluation after PR #11 (2026-09-08): no open/draft PR claim and no new
 | M0-01, then downstream core consumers | Selective review/recovery is now explicitly authorized and M0-01 claimed; validate and merge the minimal baseline before consumers use it | c: implementation/validation; d authorization resolved for M0-01 only |
 | M4-01 / M9-01 | Separately deliver/review preserved provider/evaluation inputs; synthetic work needs no live credentials | d, then c; live M4 additionally needs b: Q-K-01/02/03 |
 | M1-03 and engine-dependent ingestion | Record Q-TEAM-02 outcome before selecting an analytical engine | a: team decision |
-| M1-10 | Validated M0 contracts and bounded XLSX parser/security integration; DEC-111 resolves the library only | d/c: core delivery plus implementation prerequisites; NOT READY |
+| M1-10 | M0-01 merge will supply the minimal data/provenance contracts; DEC-111 supplies openpyxl. Recheck readiness/ownership, then implement bounded XLSX loading and its required security checks | c: core delivery pending PR #13; next readiness candidate after merge, not currently READY |
 | M0-07 | Explicit readiness triage/record for the fast feature-to-dev CI task, then implement it independently; no workflow or remote check pass claimed | c: implementation-task triage; no a/b/d blocker identified |
 | Live sources / demo paths | Obtain the recorded Kloudeks, data/network, environment and cache/persistence answers; retain separate unresolved framework choices | b: organizer answers (Q-K-01/02/03, Q-DATA-01/03, Q-NET-01/02, Q-INFRA-01/02); a: team choices in DECISIONS |
 
 M0-01 has the largest downstream impact on the documented critical path (shared contracts -> ingestion -> semantics/execution/analytics -> evidence/demo). M0-07 is a useful independent CI candidate, but does not remove the missing runtime-contract prerequisite. Preserve the stash and re-evaluate eligibility before any new implementation.
 
-No application validation is requested as part of the present documentation-only task. These are handoffs for subsequent work. If a READY task reveals a missing runtime/tooling prerequisite, record it rather than claiming success or installing dependencies without considering the task scope.
+The queue review above originated in the previous documentation-only task. The current authorized M0-01 application validation is recorded below. If a READY task reveals a missing runtime/tooling prerequisite, record it rather than claiming success or installing dependencies without considering the task scope.
 
 # Team Handoff Protocol
 
@@ -231,7 +233,7 @@ Local checkout and Python >=3.12 for later application validation. No live Kloud
 
 ## Tasks
 
-- [ ] M0-01 — Status: IN PROGRESS. Owner: Çağatay; Branch: `feature/m0-01-core-contracts`. Selectively review/recover the required Day 0 core contracts and focused `tests/unit/test_core_models.py` cases, then run targeted tests/lint and fast gates; keep PARTIAL until merged into `dev`. This task explicitly authorizes simplification to minimum ingestion/provenance primitives; deferred protocols/planner/workspace/provider/evaluation code is not part of recovery.
+- [ ] M0-01 — Status: PARTIAL. Owner: Çağatay; Branch: `feature/m0-01-core-contracts`. Selectively review/recover the required Day 0 core contracts and focused `tests/unit/test_core_models.py` cases, then run targeted tests/lint and fast gates; keep PARTIAL until merged into `dev`. This task explicitly authorizes simplification to minimum ingestion/provenance primitives; deferred protocols/planner/workspace/provider/evaluation code is not part of recovery.
 - [ ] M0-02 — Add targeted coverage for duplicate/self dependencies, invalid outcome combinations, and workspace serialization as needed; keep schema changes distinct from validation-only work.
 - [ ] M0-03 — Validate the tracked package smoke test and existing `make quick` baseline; record unavailable tooling/failures honestly.
 - [x] M0-04 — Status: DONE. Owner: Çağatay; Branch: `feature/m0-04-local-config-hygiene`. Local ignore rules and placeholder-only `.env.example` passed targeted validation without real credentials; [PR #3](https://github.com/cagatayeroglu/KKB-DataTrio/pull/3) merged into `dev` at `ddcb5a7`, with the validated tree unchanged.
@@ -266,13 +268,14 @@ A teammate can install the declared development environment, run recorded quick 
 
 ### M0-01 active record
 
-- Status: IN PROGRESS — selective-recovery claim before implementation; not DONE until merged into `dev`
+- Status: PARTIAL — reviewed core subset implemented and validated; [ ] until PR #13 merges into `dev`
 - Owner: Çağatay
 - Branch: `feature/m0-01-core-contracts`; fresh base `8b7421af3840856462795a018dc5ed6d133aaeaa` after PR #12 merged
-- PR / Commit: draft claim pending publication
-- Readiness: Explicit user authorization on 2026-09-08 resolves M0-01's recovery blocker. Python 3.12.2 and the declared Pydantic dependency are available; confirmed DEC-103/104 support minimal source/semantics/evidence primitives without choosing an engine or agent architecture. No competing open PR or remote task claim found before publication. M1-09 DONE is present in merged `dev`.
+- PR: [#13](https://github.com/cagatayeroglu/KKB-DataTrio/pull/13) -> `dev`; draft claim published before recovery, left unmerged for review
+- Commit: claim/classification `7fc659083ac580ef892d6a1f13b8325dcda1e949`; implementation revision pending commit
+- Readiness: Explicit user authorization on 2026-09-08 resolves M0-01's recovery blocker. Python 3.12.2 and the declared Pydantic dependency are available; confirmed DEC-103/104 support minimal source/semantics/evidence primitives without choosing an engine or agent architecture. No competing open PR or remote task claim found before and after draft publication. M1-09 DONE is present in merged `dev`.
 - Objective / acceptance: Review/selectively deliver the required core inputs and focused tests from the preserved Day 0 work. Validate construction/rejection, explicit unknowns, provenance serialization and independent mutable defaults, plus touched-code lint, `make quick` and `make pr`. The user's explicit simplification scope supersedes the older validation-only/no-redesign handoff for this task; it does not authorize later architecture work.
-- Preservation: Read all 11 blobs via `git show` from `49d3fd30cc56b5ca928976d22e3b993960650c85^3` before writing code; tracked/index stash diffs are empty. No stash apply/pop/drop or modification. Selective copying will use only the reviewed parts below.
+- Preservation: Read all 11 blobs via `git show` from `49d3fd30cc56b5ca928976d22e3b993960650c85^3` before writing code; tracked/index stash diffs are empty. No stash apply/pop/drop or modification. Only the reviewed classes/test cases below were copied into the fresh branch; the original stash object and all 11 blobs remain intact.
 
 | Preserved path / logical component | Classification before recovery | Reason / action |
 | --- | --- | --- |
@@ -285,9 +288,12 @@ A teammate can install the declared development environment, run recorded quick 
 | `src/kkb_agent/evaluation/__init__.py`, `src/kkb_agent/evaluation/models.py`, `benchmarks/cases/synthetic.json`, `tests/unit/test_evaluation.py` | C DEFER | M9 schema/corpus/tests are not core ingestion prerequisites. |
 | Permissive string/number-to-boolean cumulative coercion; claims that structural records alone establish validated tool execution or replayability | D REJECT behavior/claims | Preserve unknown versus explicit false; no unimplemented execution/verification guarantees. No whole preserved file needs rejection. |
 
-- Tests: NOT RUN for the reduced M0-01 scope yet.
+- Delivered: [models](../src/kkb_agent/core/models.py), [public exports](../src/kkb_agent/core/__init__.py), and [focused tests](../tests/unit/test_core_models.py). Public contracts are SourceRef, DataContract, TransformationRecord, EvidenceRecord and Frequency/StockFlow/ValidationOutcome enums; the shared validation base and nonblank text constraint are internal. No `core/interfaces.py`, planner/workspace/tool result, provider or evaluation files were recovered.
+- Tests: PASS (2026-09-08, Python 3.12.2/Pydantic 2.13.4): `PYTHONPATH=/private/tmp/kkb-m109-deps:src python3.12 -m pytest -q tests/unit/test_core_models.py` — 52 passed in 0.04s (0.76s wall); touched-core/test Ruff format/lint passed; `make quick` — 193 passed in 3.67s (4.50s wall); `make pr` — 193 passed in 3.48s (4.33s wall), including Ruff 0.8.6 format/lint, Bandit 1.7.10 and secret checks. Gates used the same Python/PYTHONPATH with the previously approved openpyxl temporary target. No dependency changes or full/release checks. CI remains unconfigured (0 checks, not a CI pass). Relevant diff, links, scope and stash-preservation checks passed.
+- Invariants: Required text is typed/nonblank without trimming; extras and invalid enum values are rejected. Nullable semantics stay None/null; frequency/stock-flow UNKNOWN serializes as `unknown`; cumulative accepts only None/False/True, without coercion. Supplied retrieval time must be timezone-aware; no timestamp/hash default is invented. Transformation lineage requires input/output references and JSON-compatible finite parameters. Evidence starts NOT_RUN. Provenance/metadata round-trip, fresh mutable defaults and reused-source isolation pass.
+- Limitations: These are structural records, not a loaded M1 profile, semantic inference, transformer, verifier or complete evidence-chain check. None/null semantics require explicit mapping if a future profile uses the M1-01 `unknown` string representation. Source locators are untrusted metadata, never opened; safe storage/fetch remains the consumer's responsibility. Pydantic validates field assignment but not in-place list/dict mutation: revalidate at boundaries (covered by tests). Declared known semantics/outcomes still require independent evidence; deferred plan/tool/workspace/M4/M9 functionality is not delivered.
 - Blocker: none for this scope. Deferred components and unresolved Q-TEAM/organizer decisions remain deferred.
-- Handoff: Publish/recheck the draft claim, selectively recover only core model/export/test pieces, validate and update this record. Keep the original preservation stash intact. No M0-07 or other task starts in this session.
+- Handoff: Review PR #13; after an authorized merge verify implementation/evidence and record M0-01 DONE on a fresh branch. M0-11 can then record the validated baseline and named editor/reviewer (no reviewer assigned here). M1-10 is the next implementation readiness candidate: minimal data/provenance contracts and openpyxl will be available; bounded parsing/security remains its own acceptance work and ownership must be rechecked. No blanket READY promotion: M1-03/CSV engine work still needs Q-TEAM-02, M4-01/M9-01 still need separate recovery authorization, and M0-02 plan/tool/workspace cases remain deferred with those abstractions. No M0-07 or other task started; keep the original stash intact.
 
 ### M0-04 active record
 
