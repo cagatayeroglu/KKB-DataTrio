@@ -253,6 +253,7 @@ Local checkout and Python >=3.12 for later application validation. No live Kloud
 - [ ] M0-11 — Record the validated core contract baseline and named editor/reviewer before shared contract changes.
 - [ ] M0-12 — Run targeted/quick checks and the fast PR gate for foundation work, including boundary/contract negative tests; full checks belong to checkpoint gates or explicit requests.
 - [ ] M0-13 — Record implementation evidence and the next ready task after validation.
+- [ ] M0-ARCH — Status: IN PROGRESS. Owner: Eray; Branch: `docs/m0-arch-stack-decisions` from `dev` `8197829`. Freeze the architecture and stack: record the analytical engine, orchestration, catalog/retrieval, workspace, lineage, verifier, causality, tool surface, provider interface, frontend/API, dependency policy, package layout and deployment topology as decisions; close the Q-TEAM questions they answer; add the lakehouse and semantic-catalog milestones. Evidence: [M0-ARCH active record](#m0-arch-active-record).
 - [x] M0-DOC — Status: DONE. Documentation checks passed; [PR #1](https://github.com/cagatayeroglu/KKB-DataTrio/pull/1) merged both documentation commits into `dev` at `fe5d44a`; evidence recorded below.
 - [x] M0-HANDOFF — Status: DONE. [PR #2](https://github.com/cagatayeroglu/KKB-DataTrio/pull/2) merged into `dev` at `a5d6ee8`; the record below was left stale at PARTIAL and is corrected by this task. Document startup with zero chat history, visible task claims, ownership transfer, concise handoffs, and merge-based DONE. Owner: Codex for the initiating repository owner; Branch: `docs/team-handoff-protocol` from `fe5d44a`. Acceptance: the startup prompt selects an eligible unowned READY task using Git/PR history and targeted docs, preserves unrelated work, and stops on unresolved ownership/decisions; document checks pass and PR merges into `dev` before DONE.
 
@@ -345,6 +346,19 @@ A teammate can install the declared development environment, run recorded quick 
 - Tests: NOT RUN for a fix; the failing baseline above was reproduced on 2026-09-09 with Python 3.12.5 and mypy 1.20.2 from the declared development extra.
 - Blocker: none; no organizer answer or team choice is required.
 - Handoff: `main` currently carries an unmet release gate. Either close this task before the next `dev -> main` promotion, or record explicitly in the promotion PR that the full gate was knowingly skipped. Do not describe `main` as release-validated in the meantime.
+
+### M0-ARCH active record
+
+- Status: IN PROGRESS — claim published before content work
+- Owner: Eray
+- Branch: `docs/m0-arch-stack-decisions`; fresh `dev` base `8197829512926b6eb9c896ecfda6cac98f2dfb90`
+- PR: pending
+- Commit: pending
+- Objective: Freeze the architecture and technology stack so that M1 onward stops waiting on unresolved team choices, and record every choice with its reason and rejected alternatives.
+- Scope: documentation only — DECISIONS, OPEN_QUESTIONS, ARCHITECTURE, ROADMAP and the README repository guide. No `pyproject.toml`, dependency, directory or code change; those belong to the implementation task that follows this merge.
+- Tests: pending; documentation tier only.
+- Blocker: none.
+- Handoff: pending.
 
 ### M0-HANDOFF active record
 
