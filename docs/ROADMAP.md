@@ -414,7 +414,7 @@ M0 validated contracts for implementation. The engine question is closed by [DEC
 
 - [x] M1-01 — Status: DONE. Owner: Çağatay; Branch: `feature/m1-01-ingestion-profile-spec`. Specify the ingestion/profile result contract: data reference, source reference, columns/types, row count, date/numeric candidates, missingness, and unresolved semantics. [Specification and synthetic examples](INGESTION_PROFILE.md) validated; PR #4 merged into `dev` at `cbb51ad`, with the validated tree unchanged.
 - [x] M1-02 — Status: DONE. Owner: Çağatay; Branch: `feature/m1-02-file-admission-policy`. Specify extension/MIME/content checks, byte/row/column limits, and storage paths before implementing loaders.
-- [ ] M1-03 — Status: READY. Reconcile `pyproject.toml` with the DEC-124 manifest: add `duckdb`, `pandas>=2.2`, `pyarrow` and `python-calamine` as runtime dependencies, keep `openpyxl` for the untrusted path, and record the resulting environment. No loader behaviour change in this task.
+- [ ] M1-03 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m1-03-runtime-dependencies`. Reconcile `pyproject.toml` with the DEC-124 manifest: add `duckdb`, `pandas>=2.2`, `pyarrow` and `python-calamine` as runtime dependencies, keep `openpyxl` for the untrusted path, and record the resulting environment. No loader behaviour change. Evidence: [M1-03 active record](#m1-03-active-record).
 - [x] M1-04 — Status: DONE. Owner: Çağatay; Branch: `feature/m1-04-synthetic-csv-fixture`. Add a synthetic UTF-8 CSV fixture with date, numeric, text, and missing values.
 - [x] M1-05 — Status: DONE. Owner: Çağatay; Branch: `feature/m1-05-csv-edge-fixtures`. Add alternate delimiter, quoted field, BOM/encoding, and decimal/thousands-separator fixtures with explicit expected parsing.
 - [ ] M1-06 — Implement bounded CSV parsing; record which delimiter/encoding was used and reject ambiguous parsing safely.
@@ -475,6 +475,21 @@ Known fixtures produce exact expected row counts/types/source references. Ambigu
 - Limitations: No loaders/profile/API exposure. XLSX checks inspect metadata without extracting XML/cells; later loaders must enforce actual expansion, row/cell/time bounds and content rules. Row/column/field/profile helpers require loader integration; the 5-second parser budget is configuration only. Storage is transient under an operator-owned root, not a retention/backend decision.
 - Blocker: none for M1-02; the separate baseline formatting fix resolved the fast-gate failure. Engine selection and validated M0 contracts remain prerequisites for later loader integration, not this independent policy scope.
 - Handoff: M1-02 is delivered; no implementation changes were needed after the separate baseline fix. M1-03 still needs Q-TEAM-02. M1-04 is READY for a synthetic UTF-8 CSV fixture with date/numeric/text/missing values and explicit expected values/counts, preserving unknown semantics. No open PR or remote task-branch claim existed at the 2026-09-08 handoff check; recheck before claiming from latest `dev`. M1-04 is unassigned and not started. The Day 0 stash remains unchanged and unapplied.
+
+### M1-03 active record
+
+- Status: PARTIAL — implemented and validated on the task branch; unchecked until its PR merges into `dev`
+- Owner: Eray
+- Branch: `feature/m1-03-runtime-dependencies`; fresh `dev` base `c4506c8`
+- PR: [#20](https://github.com/cagatayeroglu/KKB-DataTrio/pull/20) -> `dev`; draft claim published before implementation
+- Commit: claim `60264e7`; implementation recorded in the PR
+- Objective: Put the decided ingestion and analytics engine into the runtime manifest, and prove the environment actually works rather than only declaring it.
+- Implementation: [pyproject.toml](../pyproject.toml) gains `duckdb>=1.1,<2`, `pandas>=2.2,<3`, `pyarrow>=17,<22` and `python-calamine>=0.2,<1`, each commented with the decision that requires it; `openpyxl` and `pydantic` stay and are commented likewise. [tests/unit/test_runtime_environment.py](../tests/unit/test_runtime_environment.py) verifies the environment against the values this project actually handles rather than asserting that imports succeed.
+- Manifest interpretation: DEC-124's list is the **allowlist**, not a required installation set. `pyproject.toml` may hold a subset of it and never a superset. The remaining entries — `lancedb`, `networkx`, `statsmodels`, `ruptures`, `scipy`, `plotly`, `kaleido`, `pypdf`, `pdfplumber`, `httpx`, `tenacity`, `diskcache`, `json-repair`, `fastapi` — are added by the milestone that first uses them, so an unused library never appears in a dependency audit or slows CI before it earns its place. Adding one from the allowlist needs no new decision; adding anything outside it does.
+- Tests: PASS (2026-09-09; Python 3.12.5, DuckDB 1.5.5, pandas 2.3.3, PyArrow 21.0.0, openpyxl 3.1.5, Pydantic 2.13.5). `pytest -q tests/unit/test_runtime_environment.py` — 9 passed in 1.06s. `make pr` equivalent — Ruff 0.16.6 format and lint clean over 20 files, 254 passed in 7.62s, Bandit 1.9.4 clean, secret scan clean. `mypy src` still reports the same 14 pre-existing errors, unchanged by this task; M0-08 still owns them.
+- Coverage note: the tests assert the cases that would silently corrupt M12 — a blank measure that becomes `0.0`, Turkish text mangled by a different reader, a NULL that survives Parquet as a zero, decimal drift on a money column, and worksheet order being guessed. One test loads the same fixture through both the DEC-111 untrusted loader and the DEC-114 bulk reader and asserts they agree cell by cell, so the two ingestion routes cannot diverge unnoticed.
+- Blocker: none.
+- Handoff: The lakehouse engine is installed and verified; nothing uses it yet. No package directory was created — [DEC-125](DECISIONS.md#dec-125--source-layout-with-named-module-packages) says modules appear when a task actually needs them, and empty packages would be scaffolding for its own sake. Next is the first M12 slice: [M12-01](#m12) through M12-03, writing a real retrieved artifact into `bronze` and one normalized series into `silver` with explicit semantics. M0-08 remains READY and unowned.
 
 ### M1-04 active record
 

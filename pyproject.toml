@@ -8,8 +8,16 @@ version = "0.1.0"
 description = "KKB Hackathon agentic financial analytics"
 requires-python = ">=3.12"
 dependencies = [
+  # Untrusted XLSX boundary and fixture writing (DEC-111).
   "openpyxl>=3.1,<4",
+  # Typed boundaries and tool argument schemas (DEC-101, DEC-121).
   "pydantic>=2.9,<3",
+  # Lakehouse engine and storage format (DEC-112).
+  "duckdb>=1.1,<2",
+  "pandas>=2.2,<3",
+  "pyarrow>=17,<22",
+  # Bulk reading of spreadsheets this project retrieved itself (DEC-114).
+  "python-calamine>=0.2,<1",
 ]
 
 [project.optional-dependencies]
