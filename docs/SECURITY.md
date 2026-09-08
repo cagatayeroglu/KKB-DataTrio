@@ -1,134 +1,343 @@
-# Security — Hackathon Baseline
+# Security — hackathon-scoped boundary plan
 
-This document is deliberately narrower than a production enterprise security program.
-It protects the boundaries that are likely to matter in this challenge without slowing every coding iteration.
+Protect the boundaries relevant to this 8–9 day product without making ordinary development a security-release ceremony. [ROADMAP](ROADMAP.md) owns execution status, [AGENTS](../AGENTS.md) check triggers, and [EVALUATION](EVALUATION.md) adversarial coverage. These controls are required behavior for enabled capabilities, not a claim that those capabilities exist.
 
-## 1. Data and secrets
-- Never commit real API keys/tokens/cookies/passwords.
-- `.env` is ignored; `.env.example` contains names only.
-- Kloudeks credentials are injected at runtime.
-- Logs must redact authorization headers and credential-like values.
-- Organizer-provided/private datasets are not committed unless explicitly allowed.
-- GitHub CI uses synthetic/public-safe fixtures only.
+Snapshot, 2026-09-08: no safe-fetch, file-ingestion, executor, logging/redaction service, or live provider transport exists in the inspected source tree. The Day 0 provider config uses SecretStr and the core uses strict Pydantic models, but those are partial controls with no passing validation established here. `.gitignore`, `.env.example`, and `.github/` workflows are absent. No security scan, dependency audit, full application check, or live-network test was run for this documentation task.
 
-## 2. LLM boundary
-Delivered runtime uses the organizer-approved Kloudeks path only unless organizers explicitly change the rule.
+## Threat model and scope
 
-The LLM:
-- may plan/route/summarize;
-- may not be trusted as the source of numeric calculations;
-- may not directly execute Python/shell/SQL;
-- may not change system instructions based on document content.
+Assets: Kloudeks credentials, organizer/private datasets, local files/network, compute/request budget, workspace integrity, analytical correctness, and demonstrable provenance.
 
-## 3. Prompt injection
-All external content is untrusted:
-- web pages
-- PDFs
-- spreadsheets
-- images/OCR
-- metadata/descriptions
-- tool outputs
+Untrusted inputs: user-provided files/URLs, external pages/PDFs/spreadsheets/images, filenames/metadata, source responses, extracted/OCR text, and model/tool outputs derived from them. A document can contain malicious instructions even when its hosting domain is familiar. Authentication does not make a source's content trustworthy.
 
-Content such as "ignore your instructions" is extracted data, not executable instruction.
+Primary threats: credential/data leakage; SSRF to local/private/metadata targets; parser/resource exhaustion; prompt injection into tool selection; arbitrary code/SQL execution; stale/corrupted state; and plausible unsupported financial claims. Boundaries must fail safely before unsafe side effects, while normal malformed-data errors remain actionable.
 
-Tool selection and arguments come from system-owned schemas and validation.
+This is not a production multi-tenant platform. Kubernetes security, enterprise RBAC/RLS, production backup/restore, full DAST, SBOM/signing, and complex security infrastructure are not mandatory. Revisit only for concrete organizer/deployment requirements in DECISIONS.
 
-## 4. Safe URL fetching / SSRF
-All network retrieval must pass one `safe_fetch` boundary.
+## Control status and maintenance
 
-Block:
-- non-HTTP(S)
-- localhost
-- loopback
-- private RFC1918 ranges
-- link-local
-- cloud metadata IPs/hostnames
-- credential-bearing URLs
-- unsafe redirect chains
+- `[ ]` means control implementation or validation is unfinished.
+- `[x]` requires implementation **and** passing relevant negative/positive tests; documentation of a policy alone is insufficient.
+- PARTIAL means some code exists without full control acceptance. BLOCKED must name the missing answer/dependency.
+- Each control has a delivery trigger. Disabled optional capabilities may be recorded as not applicable with a reason at the final gate; leave their unfinished control boxes unchecked.
+- Update only controls changed in a security-sensitive task and their relevant roadmap milestone. Do not rewrite this catalog after ordinary analytics/UI work.
 
-Enforce:
-- DNS/IP re-check where practical
-- connect/read timeout
-- redirect limit
-- response-size limit
-- content-type allowlist/routing
-- no automatic execution of downloaded content
+## SEC-KEY-01 — Secrets and credential storage
 
-Add targeted negative tests when this layer is implemented.
+Status: PARTIAL — secret-pattern script and SecretStr config exist; ignore/config hygiene and end-to-end handling are unvalidated.
 
-## 5. File ingestion
-Before parsing:
-- explicit size limit
-- extension + content/MIME sanity check
-- no path traversal
-- no archive extraction unless required and bounded
-- parser timeout/resource limits where practical
+Threat: Keys or private credentials leak through Git, fixtures, logs, screenshots, exception representations, or CI output.
 
-Never execute macros, embedded scripts, binaries, or formulas as code.
+Required control: Inject credentials from environment/repository secrets only; never commit real keys or `.env`; use placeholders and synthetic tests. SecretStr representation masking is useful but does not protect explicit secret extraction or all serialization/log paths.
 
-## 6. SQL / analytical execution
-Prefer DuckDB/Polars/Pandas over arbitrary model-generated code.
+When: M0 hygiene before storing local credentials; M4 before real Kloudeks requests; check again at M11.
 
-If SQL is used:
-- execute against controlled analytical data only
-- read-only statements only
-- parse/validate before execution
-- reject DDL/DML/ATTACH/extension loading/filesystem/network capabilities not required by the product
-- bind values rather than string-concatenating untrusted values
+- [ ] Add/validate ignore rules for `.env`, private inputs, caches, and generated sensitive artifacts.
+- [ ] Add placeholder-only `.env.example`; verify it contains no working credential.
+- [ ] Validate missing/invalid credential configuration fails with a sanitized message.
+- [ ] Test secret values absent from object repr, structured logs, errors, traces, and evidence exports.
+- [ ] Keep real credentials out of tests; normal unit/feature CI needs no live Kloudeks key.
+- [ ] Review scanner coverage/limitations before treating a clean scan as evidence; the existing script is not a full history scanner.
+- [ ] Record a response for an actually exposed key: revoke/rotate, remove current exposure, assess history/artifacts, document sanitized incident metadata.
 
-## 7. Python/shell execution
-No:
-- `eval`
-- `exec`
-- arbitrary `subprocess(..., shell=True)`
-- dynamic import from model/user text
-- model-generated Python execution inside the app
+Intended tests: Synthetic credential sentinels in config/error paths; temporary safe fixtures for ignore/scanner behavior; inspect output for sentinel leakage without printing real keys.
 
-If arbitrary code execution ever becomes a requirement, stop and design a real sandbox first.
+Acceptance: No real credential is required for unit tests; configured secret sentinels do not escape through supported output paths; ignore/config behavior passes. A clean local pattern scan alone is not proof that all history is secret-free.
 
-## 8. Tool validation
-Every tool call:
-1. validate tool name against registry;
-2. validate args against typed schema;
-3. authorize capability;
-4. apply resource limits;
-5. execute;
-6. record safe metadata/evidence;
-7. return structured status.
+## SEC-KLO-01 — Kloudeks transport configuration
 
-Bound retries to avoid loops/cost explosions.
+Status: PARTIAL — non-networking stub; live transport BLOCKED on Q-K-01/02/03.
 
-## 9. CI strategy
-Security checks are tiered for speed.
+Threat: User/model text selects an attacker endpoint, credentials go to an unintended host, requests exceed quotas, or a silent third-party LLM fallback violates constraints.
 
-### Every local task
-Targeted tests + lint only (`make quick`).
+Required control: Organizer-approved endpoint/auth is operator configuration behind LLMProvider. Enforce TLS verification and bounded transport behavior. Credentials must not follow redirects to another origin. Do not infer auth/compatibility from an endpoint-shaped string.
 
-### Feature -> dev PR
-Fast static checks:
-- lint
-- unit tests
-- Bandit
-- secret scan
+When: M4 live transport/auth implementation, before any real credential is used.
 
-### dev -> main / manual full gate
-Add:
-- mypy
-- full pytest
-- dependency audit
-- benchmark smoke/full as available
+- [ ] Confirm organizer endpoint/auth/model contract without copying credentials into docs.
+- [ ] Restrict endpoint selection to trusted configuration; user/source/model content cannot override it.
+- [ ] Validate approved destination policy and require secure transport for credentials.
+- [ ] Define redirects explicitly; reject unexpected origin changes and credential forwarding.
+- [ ] Set connection/read/total timeouts, response limits, and bounded attempts.
+- [ ] Validate structured response locally and sanitize provider errors.
+- [ ] Verify no fallback or dependency introduces a third-party runtime LLM API.
+- [ ] Add offline negative tests plus a separately authorized live smoke with safe metadata.
 
-Heavy image scanning/DAST/SBOM are optional hardening tasks only if the final deployment architecture actually makes them useful and time permits.
+Intended tests: Fake provider transport for alternate endpoint injection, redirect, timeout, oversized response, malformed model output, missing credentials, and failed TLS/config paths where applicable.
 
-## 10. Release/demo checklist
-Before final demo:
-- rotate any key ever pasted into chat/log/commit
-- verify git history contains no real secret
-- full tests green
-- dependency audit reviewed
-- prompt-injection negative test
-- SSRF negative tests if URL fetching exists
-- malicious/oversized file tests if file upload exists
-- SQL write/unsafe statement rejection test
-- no third-party LLM runtime dependency
-- logs do not expose secrets/raw sensitive payloads
+Acceptance: Only the confirmed configured provider can receive credentials; malformed output cannot invoke a tool; transport fails within limits. Any private organizer endpoint exception must be explicit and isolated to trusted provider configuration, never a bypass for user-controlled source URLs.
+
+## SEC-TRUST-01 — External content and prompt injection
+
+Status: NOT STARTED — policy exists; extraction/planning controls are not implemented.
+
+Threat: A PDF, spreadsheet cell, HTML page, image/OCR result, metadata field, or model response instructs the agent to disclose secrets, change rules, invoke unsafe tools, or fabricate evidence.
+
+Required control: Keep system instructions/capabilities separate from source content. Treat all extracted text as data. A source cannot grant permissions or select an unrestricted execution path. Defensive prompt wording supplements typed/capability checks; it does not replace them.
+
+When: M5 planner context construction and M7 extraction, before untrusted content reaches a tool-capable loop.
+
+- [ ] Label and delimit source content/metadata as untrusted context with safe source IDs.
+- [ ] Bound selected content and exclude credentials/full private payloads from planner context where unnecessary.
+- [ ] Validate model output against registered tool schemas and permitted references regardless of source wording.
+- [ ] Prevent embedded URLs/paths/SQL/code from executing merely because they were extracted.
+- [ ] Preserve evidence of extraction uncertainty without trusting claimed validation inside the document.
+- [ ] Test malicious PDF text, spreadsheet cells, HTML, source titles, and model output.
+- [ ] Assert absence of prohibited tool/network side effects, not only a polite refusal sentence.
+
+Intended tests: Inert instruction strings in synthetic fixtures and fake transports. Include “ignore instructions,” secret-sentinel requests, private URL suggestions, and fake system/tool-role text.
+
+Acceptance: Hostile source content remains data and cannot bypass registry, fetch/file boundaries, or claim verification. Do not claim a prompt filter alone solves injection.
+
+## SEC-TOOL-01 — Tool-call validation and bounded execution
+
+Status: PARTIAL — strict structural models/protocols exist; registry, argument enforcement, capabilities, and executor limits are absent.
+
+Threat: Malformed/generated tool calls access unauthorized references, execute the wrong capability, bypass verification, or loop until budget exhaustion.
+
+Required control: Validate tool name, per-tool typed arguments, referenced data/workspace, dependencies/output type, capability, and resource budget before dispatch. Mandatory material-claim verification is system policy, even if a plan field suggests otherwise.
+
+When: M5 registry/executor, before any tool-capable model loop; extend tests with new capabilities.
+
+- [ ] Reject unknown/duplicate registry tool names.
+- [ ] Reject wrong/extra arguments and invalid ranges/enums before tool invocation.
+- [ ] Resolve references through controlled workspace/data storage rather than trusting raw paths.
+- [ ] Validate dependency order and actual input/output reference existence.
+- [ ] Enforce step, retry, result-size, and request-deadline limits.
+- [ ] Stop repeated identical invalid plans; do not compound provider and tool retry budgets silently.
+- [ ] Prevent plan flags or model output from skipping required evidence checks.
+- [ ] Return structured categorized failure and preserve prior coherent state.
+- [ ] Test invalid names/args/refs, timeouts, repeated repair, and cross-workspace access.
+
+Intended tests: Instrumented fake tools prove validation occurs before execution; deterministic failure chains verify attempts and state transitions.
+
+Acceptance: No invalid/unauthorized call reaches an implementation, and execution terminates at configured bounds with a traceable safe outcome.
+
+## SEC-SQL-01 — Model-generated SQL risk
+
+Status: NOT STARTED; SQL capability/engine UNDECIDED and not implemented.
+
+Threat: Query text reads/writes files, loads extensions, attaches data, accesses network resources, mutates storage, or consumes excessive resources. A SELECT statement can still invoke dangerous functions.
+
+Required control: Prefer registered analytical operations. If SQL is introduced, parse/validate an allowlisted AST, restrict tables/functions, bind values, use read-only controlled analytical data, and disable file/network/extension capabilities. Do not directly execute model-generated SQL.
+
+When: Before exposing any SQL capability; no SQL control implementation is required while that capability remains absent.
+
+- [ ] Decide whether a concrete tool needs SQL; record engine choice separately.
+- [ ] Restrict statements, tables, columns, functions, and query complexity using the selected engine's actual capabilities.
+- [ ] Reject DDL/DML, multi-statements, ATTACH, extension loading, and file/network/table-function escape paths.
+- [ ] Bind values; allowlist identifiers instead of string-concatenating untrusted fragments.
+- [ ] Enforce read-only access plus row/time/resource limits at the engine boundary.
+- [ ] Add negative tests for writes, unsafe SELECT functions, file/network reads, comments/obfuscation, and excess work.
+
+Intended tests: Synthetic local tables and fake paths/network sinks; assert both rejection and no side effect. Engine-specific controls need engine-specific tests.
+
+Acceptance: Only approved read-only analytical operations over permitted data execute. If SQL stays disabled, demonstrate unknown SQL tools cannot dispatch and record “not enabled” at the final gate.
+
+## SEC-EXEC-01 — Arbitrary Python/shell execution prohibition
+
+Status: NOT STARTED — no runtime executor exists; the prohibition is confirmed policy.
+
+Threat: Input/model text becomes Python, shell, dynamic imports, or unrestricted subprocess execution on the host.
+
+Required control: Registered deterministic Python implementations only. No runtime `eval`, `exec`, generated Python execution, unrestricted subprocess, or imports selected by input. Ordinary developer commands are distinct from product capabilities.
+
+When: M5 tool executor and every new analytical/parser extension.
+
+- [ ] Keep execution dispatch system-owned and input arguments data-only.
+- [ ] Reject tool/schema requests carrying arbitrary executable code or module names.
+- [ ] Review new tool boundaries for dynamic execution and unrestricted subprocess use.
+- [ ] If a fixed parser utility is needed, justify it, constrain arguments/resources, and never derive a shell command from input text.
+- [ ] Test code/shell/import payloads cannot execute or create files/network requests.
+
+Intended tests: Instrumented registry plus inert payload strings and safe filesystem sentinels. Static inspection complements, but does not replace, dispatch tests.
+
+Acceptance: No supported product input provides arbitrary Python/shell execution. A future requirement would need an explicit decision and real isolation design first, not a quick bypass.
+
+## SEC-FILE-01 — File admission and safe storage
+
+Status: NOT STARTED.
+
+Threat: Uploaded/downloaded filenames escape storage roots; misleading extensions/MIME route malicious content; large inputs exhaust memory; private uploads leak into Git/artifacts.
+
+Required control: One admission boundary for uploaded and downloaded files, with supported extension/MIME/content checks, configured limits, generated storage IDs, and controlled local paths. Filenames are metadata, not paths.
+
+When: M1 CSV/XLSX ingestion; reuse at M7. Implement before any upload/download parsing exposure.
+
+- [ ] Define supported formats and per-format byte/row/column limits.
+- [ ] Enforce byte limits before full buffering/parsing, including streamed downloads.
+- [ ] Check extension, declared MIME, and content signature/structure; reject mismatches or route only under an explicit safe policy.
+- [ ] Normalize/validate storage paths and generate internal names; reject traversal, absolute paths, and unauthorized symlink escapes.
+- [ ] Separate raw/derived/temp data from source code and Git-tracked fixtures.
+- [ ] Return sanitized errors for empty, malformed, oversized, unsupported, and ambiguous input.
+- [ ] Add path, MIME/content mismatch, empty/malformed, and boundary-size negative tests.
+
+Intended tests: Temporary-directory synthetic inputs; `../`/absolute-path names, mismatched bytes, exact limit/limit+1 cases, and early-parser-call instrumentation.
+
+Acceptance: Rejected files never reach parsers; accepted files remain inside controlled storage and configured limits. No private upload becomes a fixture by default.
+
+## SEC-FILE-02 — Parser and document resource limits
+
+Status: NOT STARTED.
+
+Threat: XLSX/other containers expand massively, PDFs/images consume excessive resources, embedded formulas/macros/scripts execute, or parser uncertainty becomes fabricated analytical data.
+
+Required control: Per-format bounded parsing and explicit extraction uncertainty. Limit expanded bytes, entries, rows/columns/sheets, pages, image dimensions/pixels, execution time, and returned text as applicable. Do not execute macros, embedded scripts, spreadsheet formulas as code, or external resource links.
+
+When: M1 parser implementation and each additional M7 format before enablement.
+
+- [ ] Choose maintained parsers only after dependency/engine decision and document required capabilities.
+- [ ] Bound XLSX container entry count/expanded size and sheet/row/column counts.
+- [ ] Make formula cached-value handling explicit; never silently imply recalculation or trustworthy freshness.
+- [ ] Disable external-link/resource resolution where applicable.
+- [ ] Bound PDF page/object/text processing and image/OCR dimensions/work; reject unsupported encrypted/scanned content explicitly.
+- [ ] Ensure parser work can stop within configured time/resource limits; an outer timeout alone must not leave runaway work.
+- [ ] Preserve page/sheet/table/cell location and low-confidence extraction warnings.
+- [ ] Test corrupt containers, excessive expansion, malformed documents, embedded instructions, and limit exhaustion.
+
+Intended tests: Small synthetic pathological fixtures rather than huge harmful files; instrumented bounded parser behavior and maximum-output assertions.
+
+Acceptance: Enabled parsers cannot exceed documented tested limits silently or execute active content. Unsupported extraction does not produce invented numbers. Record the actual configured limits before claiming support.
+
+## SEC-URL-01 — Central safe fetch / SSRF / redirects
+
+Status: NOT STARTED.
+
+Threat: User/model URLs target localhost, private services, link-local/cloud metadata, redirect to forbidden targets, rebind DNS, steal credentials, or stream excessive content.
+
+Required control: All external **source retrieval** uses one safe-fetch boundary, including named adapters and URLs found inside documents. The trusted configured Kloudeks transport is separately controlled by SEC-KLO-01. Default to blocking unsafe destinations, not best-effort warnings.
+
+When: M7 safe fetch, before M3/M7 live source retrieval. Network-policy answers do not replace technical controls.
+
+- [ ] Centralize source fetching; reject direct HTTP bypasses in adapters/parsers.
+- [ ] Allow only HTTP/HTTPS; reject userinfo/credential-bearing URLs and non-approved port behavior.
+- [ ] Normalize/validate hosts and resolved addresses, including alternate IP notation and IPv6.
+- [ ] Block localhost/loopback, private RFC1918, IPv6 local ranges, link-local, unspecified/reserved unsafe destinations, and cloud-metadata addresses/hostnames.
+- [ ] Validate all resolved DNS addresses; reject mixed public/private results.
+- [ ] Bind validation to the actual connection target to address DNS rebinding/time-of-check mismatch; test the chosen approach.
+- [ ] Handle redirects explicitly and revalidate every hop before connecting.
+- [ ] Enforce redirect cap and loop detection; never forward credentials/cookies to a new origin automatically.
+- [ ] Configure connect/read/total deadlines and bound compressed/decompressed response bytes.
+- [ ] Validate content type and bytes before parser routing; limit streams even when Content-Length is absent/false.
+- [ ] Control proxy/environment behavior so it cannot silently bypass destination policy.
+- [ ] Return sanitized structured blocked/timeout/size/content errors and record safe destination metadata.
+- [ ] Add negative tests for schemes, public-to-private redirects, IPv4/IPv6, metadata, mixed DNS, rebinding, slow/oversized streams, and redirect loops.
+
+Intended tests: Fake DNS/transport or controlled local test doubles that simulate destinations; do not actually contact metadata/private services. Assert forbidden destinations are never contacted, not merely that the final response is rejected.
+
+Acceptance: Every enabled source network path enforces destination checks through the final connection and every redirect, plus byte/time/content limits. URL syntax parsing alone is not SSRF protection. If safe enforcement is not achievable, keep the affected live capability disabled.
+
+## SEC-LOG-01 — Logging, redaction, and evidence exports
+
+Status: NOT STARTED — no logging/redaction service found.
+
+Threat: Logs/traces/scorecards leak credentials, signed query strings, private document contents, or cross-workspace data; raw exceptions expose sensitive configuration.
+
+Required control: Default to IDs, stage, category, duration, counts, and redacted metadata. Keep provenance useful with safe locators/fragments; do not dump complete payloads. Apply sanitization consistently to errors and optional debug/export paths.
+
+When: First M4/M5/M7 runtime logging and M8/M9 artifacts, before real inputs.
+
+- [ ] Define safe structured log fields and sanitize source locators/query parameters.
+- [ ] Redact credential-like fields/headers and synthetic sentinels in nested error/context structures.
+- [ ] Avoid raw prompt, response, document, table, and credential dumps by default.
+- [ ] Keep evidence references resolvable without exposing sensitive locator parts.
+- [ ] Make any necessary diagnostic content capture explicit, local, bounded, and permission-compatible.
+- [ ] Test happy/error/retry/export paths for secret and private-payload sentinel leakage.
+
+Intended tests: Synthetic sentinels across nested exceptions, provider/source errors, and scorecard/evidence outputs; check outputs without logging the sensitive real data they stand for.
+
+Acceptance: Normal diagnostics support tracing a run using safe metadata; no tested sensitive sentinel appears in public-facing/log/export paths.
+
+## SEC-DATA-01 — Retention, private data, and workspace isolation
+
+Status: BLOCKED for organizer retention permission (Q-DATA-03/Q-INFRA-02); local safe defaults can be designed now.
+
+Threat: Organizer data is committed, retained longer than allowed, reused across sessions, or exposed through stale/cross-workspace references and shared demo artifacts.
+
+Required control: Until permission is confirmed, use synthetic fixtures and do not commit private inputs. Treat local retention/cache as unconfirmed. Define controlled storage, cleanup, workspace-scoped reference resolution, and honest persistence behavior before handling private data.
+
+When: M1 storage, M5 workspace service, M8 artifacts, and M11 demo preparation.
+
+- [ ] Obtain retention/cache/redistribution answers with evidence in OPEN_QUESTIONS.
+- [ ] Define local input/temp/derived/output locations, retention duration, and cleanup trigger before private ingestion.
+- [ ] Prevent cross-workspace reference access and stale derived-result reuse.
+- [ ] Keep raw data, derived outputs, logs, and screenshots out of committed fixtures unless explicitly permitted.
+- [ ] Test workspace separation, reset/cleanup behavior, and failed-turn preservation.
+- [ ] Label permitted cached data with source/version/retrieval time and distinguish it from live retrieval.
+
+Intended tests: Two synthetic workspaces, invalid references, reset/cleanup under success/failure, and cache invalidation after input changes.
+
+Acceptance: Recorded policy matches actual cleanup/persistence behavior; no private dataset is committed or cached based on an assumption. Enterprise tenancy/RBAC is not required to enforce local reference isolation.
+
+## SEC-REPO-01 — GitHub/private repository and development artifacts
+
+Status: PARTIAL — local Git branches and check definitions exist; remote privacy/protection/CI unverified.
+
+Threat: A supposedly private repo is public, history/artifacts expose data, workflow changes leak secrets, or broad Git operations publish unrelated work.
+
+Required control: Verify remote visibility/access in an authorized setup task; inspect intended diffs/files before publication; keep ordinary CI synthetic and credential-free. A private repository is not a secret store.
+
+When: M0 setup before sharing/publishing; authorized PR/release tasks; M11 final artifact review.
+
+- [ ] Verify actual remote privacy, collaborator access, and branch protection without claiming local branch names prove settings.
+- [ ] Add/validate ignore rules and safe fixture policy through M0.
+- [ ] Inspect intended staged/diff contents and untracked files before authorized publication; avoid broad accidental inclusion.
+- [ ] Configure credential-free feature CI; restrict secret-bearing live checks to justified explicit workflows.
+- [ ] Inspect permitted CI artifacts/screenshots/reports for sensitive data.
+- [ ] Review relevant history for secret exposure at the final gate; do not imply the current scanner checks history.
+- [ ] Preserve explicit commit/push/merge/settings authorization and understandable history.
+
+Intended tests/review: Lightweight diff/file review on publication; synthetic CI and scanner tests; authorized remote-setting inspection; final history/artifact review scoped to real exposure risks.
+
+Acceptance: Visibility/settings are evidenced, published changes contain only intended safe files, and unit CI does not require private inputs or real credentials.
+
+## SEC-DEP-01 — Dependency policy
+
+Status: PARTIAL — dependency declarations and audit target exist; no audit/installation validation established here.
+
+Threat: Unnecessary or unsuitable dependencies add parser/network vulnerabilities, slow setup, or make the demo irreproducible.
+
+Required control: Add a dependency only for material implementation-time/delivery-risk benefit. Review maintenance, needed capabilities, runtime side effects, and compatibility. Do not add an engine/framework before its unresolved team choice is settled. Freeze a reproducible set for the final candidate using a team-agreed mechanism.
+
+When: Any dependency addition; audit at defined full gates and final demo, not every ordinary edit.
+
+- [ ] Record why a new dependency is needed and whether existing code/dependencies suffice.
+- [ ] Check required parser/engine features and unsafe defaults relevant to its boundary.
+- [ ] Run targeted tests for the integration and required gate for changed boundaries.
+- [ ] Run/review `pip-audit` through the full gate when applicable; distinguish findings from accepted fixes/limitations.
+- [ ] Establish final candidate dependency reproducibility before rehearsal.
+
+Intended tests/review: Integration fixtures and installation on the demo environment; targeted negative tests for new parser/network capabilities; gate audit review.
+
+Acceptance: Dependencies have a concrete purpose, tested integration, and recorded final versions/configuration. Do not install new Markdown/security tooling solely for a documentation task.
+
+## CI security tiers
+
+[Makefile](../Makefile) contains local targets; no `.github/` workflow exists in this snapshot. “Feature CI” below is intended automation until M0 implements it.
+
+| Tier | Actual command / intended use | Frequency |
+| --- | --- | --- |
+| Local ordinary | Targeted tests + touched-code lint or `make quick` | Every ordinary code task; <=60 seconds target |
+| Feature -> dev | `make pr`: format/lint, unit tests, Bandit, local secret-pattern scan | Requested PR gate; <=3 minutes target |
+| Full/boundary/release | `make full`: adds mypy/full pytest/dependency audit to static/security checks | AGENTS-defined boundary changes, `dev -> main`, final checkpoint, explicit request |
+| Benchmark/rehearsal | Separate runner/operator commands once implemented | EVALUATION-defined gates; not implicitly included in `make full` |
+| Documentation only | Diff, links/paths, checkbox/status review | No application/security/release checks |
+
+Network-dependent audits/live tests can fail because infrastructure is unavailable; record that result honestly and keep acceptance pending. Do not substitute “not run” for “passed.” Profile/split checks that repeatedly exceed the budget; do not normalize slow feedback.
+
+## Final-demo security checklist
+
+Run this at M11, not after ordinary prompts. Record command/review evidence in M11 and relevant control sections. Optional disabled capabilities need a documented not-enabled outcome rather than a false completion check.
+
+- [ ] Confirm enabled sources/formats/tools match implemented and tested boundaries.
+- [ ] Verify no real secrets/private organizer data in intended Git history, current files, demo screens, or exported artifacts; rotate any actually exposed key.
+- [ ] Confirm live model traffic uses only the approved Kloudeks configuration and safe credential handling.
+- [ ] Complete required full gate and review dependency/security findings.
+- [ ] Pass applicable tool-validation, code-execution, prompt-injection, and bounded-retry negatives.
+- [ ] Pass SSRF/DNS/redirect/stream limits for every enabled source-network path.
+- [ ] Pass MIME/size/path/parser/active-content negatives for every enabled upload/document format.
+- [ ] Pass SQL restriction tests if SQL exists; otherwise record capability absent and unknown SQL dispatch rejected.
+- [ ] Verify logs/evidence/scorecards are sanitized and material claims cannot bypass verification.
+- [ ] Confirm retention/cache/fallback permissions and test cleanup/workspace separation.
+- [ ] Rehearse a hostile input, provider/source outage, and recovery within the actual demo workflow.
+- [ ] Record remaining limitations and go/no-go; do not enable an untested risky capability to make the demo appear broader.
