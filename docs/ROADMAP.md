@@ -478,15 +478,18 @@ Known fixtures produce exact expected row counts/types/source references. Ambigu
 
 ### M1-03 active record
 
-- Status: IN PROGRESS — claim published before implementation
+- Status: PARTIAL — implemented and validated on the task branch; unchecked until its PR merges into `dev`
 - Owner: Eray
 - Branch: `feature/m1-03-runtime-dependencies`; fresh `dev` base `c4506c8`
-- PR: pending
-- Commit: pending
+- PR: [#20](https://github.com/cagatayeroglu/KKB-DataTrio/pull/20) -> `dev`; draft claim published before implementation
+- Commit: claim `60264e7`; implementation recorded in the PR
 - Objective: Put the decided ingestion and analytics engine into the runtime manifest, and prove the environment actually works rather than only declaring it.
-- Tests: pending.
+- Implementation: [pyproject.toml](../pyproject.toml) gains `duckdb>=1.1,<2`, `pandas>=2.2,<3`, `pyarrow>=17,<22` and `python-calamine>=0.2,<1`, each commented with the decision that requires it; `openpyxl` and `pydantic` stay and are commented likewise. [tests/unit/test_runtime_environment.py](../tests/unit/test_runtime_environment.py) verifies the environment against the values this project actually handles rather than asserting that imports succeed.
+- Manifest interpretation: DEC-124's list is the **allowlist**, not a required installation set. `pyproject.toml` may hold a subset of it and never a superset. The remaining entries — `lancedb`, `networkx`, `statsmodels`, `ruptures`, `scipy`, `plotly`, `kaleido`, `pypdf`, `pdfplumber`, `httpx`, `tenacity`, `diskcache`, `json-repair`, `fastapi` — are added by the milestone that first uses them, so an unused library never appears in a dependency audit or slows CI before it earns its place. Adding one from the allowlist needs no new decision; adding anything outside it does.
+- Tests: PASS (2026-09-09; Python 3.12.5, DuckDB 1.5.5, pandas 2.3.3, PyArrow 21.0.0, openpyxl 3.1.5, Pydantic 2.13.5). `pytest -q tests/unit/test_runtime_environment.py` — 9 passed in 1.06s. `make pr` equivalent — Ruff 0.16.6 format and lint clean over 20 files, 254 passed in 7.62s, Bandit 1.9.4 clean, secret scan clean. `mypy src` still reports the same 14 pre-existing errors, unchanged by this task; M0-08 still owns them.
+- Coverage note: the tests assert the cases that would silently corrupt M12 — a blank measure that becomes `0.0`, Turkish text mangled by a different reader, a NULL that survives Parquet as a zero, decimal drift on a money column, and worksheet order being guessed. One test loads the same fixture through both the DEC-111 untrusted loader and the DEC-114 bulk reader and asserts they agree cell by cell, so the two ingestion routes cannot diverge unnoticed.
 - Blocker: none.
-- Handoff: pending.
+- Handoff: The lakehouse engine is installed and verified; nothing uses it yet. No package directory was created — [DEC-125](DECISIONS.md#dec-125--source-layout-with-named-module-packages) says modules appear when a task actually needs them, and empty packages would be scaffolding for its own sake. Next is the first M12 slice: [M12-01](#m12) through M12-03, writing a real retrieved artifact into `bronze` and one normalized series into `silver` with explicit semantics. M0-08 remains READY and unowned.
 
 ### M1-04 active record
 
