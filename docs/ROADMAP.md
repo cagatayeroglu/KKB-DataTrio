@@ -217,7 +217,7 @@ Local checkout and Python >=3.12 for later application validation. No live Kloud
 - [ ] M0-01 — Status: BLOCKED. Core models/interfaces and `tests/unit/test_core_models.py` require separately authorized recovery/delivery from the local Day 0 stash. Then run targeted tests/lint on a fresh task branch; keep PARTIAL until merged into `dev`.
 - [ ] M0-02 — Add targeted coverage for duplicate/self dependencies, invalid outcome combinations, and workspace serialization as needed; keep schema changes distinct from validation-only work.
 - [ ] M0-03 — Validate the tracked package smoke test and existing `make quick` baseline; record unavailable tooling/failures honestly.
-- [ ] M0-04 — Status: READY. Add local ignore rules for secrets/private data/generated outputs and a placeholder-only `.env.example`; test ignore behavior without real credentials.
+- [ ] M0-04 — Status: IN PROGRESS. Owner: Çağatay; Branch: `feature/m0-04-local-config-hygiene`. Add local ignore rules for secrets/private data/generated outputs and a placeholder-only `.env.example`; test ignore behavior without real credentials.
 - [ ] M0-05 — Reconcile provisional Kloudeks variable names with the stub; label them local conventions until Q-K-01 is answered.
 - [ ] M0-06 — Inspect repository privacy, branch protection, and remote CI only in an authorized setup task; local branches alone do not prove remote settings.
 - [ ] M0-07 — Add a fast feature-to-dev CI workflow in a later authorized task; no workflow exists in this snapshot.
@@ -246,6 +246,17 @@ A teammate can install the declared development environment, run recorded quick 
 - Notes: Core/provider/evaluation Day 0 drafts and tests are stash-only; [Makefile](../Makefile) defines `quick`, `pr`, `full`. PR #1 had 0 checks because `.github/workflows` was absent on both base/head; Actions displayed initial workflow setup. No CI/settings/permission changes made; M0-07 remains open, and 0 checks is not a CI PASS.
 - Known limitations: No passing implementation validation established; ignore/config files and CI workflows missing.
 - Handoff: Review M0-HANDOFF's documentation PR into `dev`, then start the next unowned READY task from freshly updated `dev`. M0-04 is first for a fresh clone; M0-01/M4-01/M9-01 require separate Day 0 delivery. Keep that code outside documentation PRs.
+
+### M0-04 active record
+
+- Status: IN PROGRESS
+- Owner: Çağatay
+- Branch: `feature/m0-04-local-config-hygiene`; base `a5d6ee8ab8bb5a109558b7053f4060e91c7bb8f1` after PR #2 merged
+- PR: pending draft claim into `dev`
+- Commit: pending
+- Tests: NOT RUN — claim only
+- Blocker: none; READY dependencies/remote claims checked, no unresolved decision or Day 0 stash input required
+- Handoff: Add `.gitignore` and placeholder-only `.env.example`; validate ignored synthetic paths and trackable examples/source/fixtures. Preserve the Day 0 stash unchanged.
 
 ### M0-HANDOFF active record
 
