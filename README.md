@@ -2,7 +2,7 @@
 
 An evidence-backed financial-data analyst for the KKB Hackathon. The intended product accepts supported data sources and questions, produces a typed analytical plan, computes results with deterministic Python tools, and presents answers/tables/charts with source, transformation, and verification evidence. Follow-up questions use an explicit analysis workspace.
 
-**Current state:** Day 0 foundation, not a runnable end-to-end analyst. [PR #1](https://github.com/cagatayeroglu/KKB-DataTrio/pull/1) merged the execution/workflow documentation into `dev` at `fe5d44a`. The 11 Day 0 core/provider/evaluation/fixture/test files remain only in a verified local stash, excluded from documentation delivery; a fresh clone does not contain them. No passing application validation was established. See [current status and next safe tasks](docs/ROADMAP.md#current-project-status), including local recovery details, for the authoritative handoff.
+**Current state:** foundation only, not a runnable end-to-end analyst. `dev` contains the minimal core contracts, the file admission policy, XLSX sheet discovery and a bounded XLSX loader, with synthetic CSV and XLSX fixtures; `make pr` passes with 245 tests. There is no lakehouse, catalog, CSV loader, profiler, provider, planner, tool, verifier or UI yet. The architecture and technology stack were frozen on 2026-09-09 and are recorded as decisions; none of it is built. Day 0 provider and evaluation drafts remain in a local stash that a fresh clone does not contain. See [current status and next safe tasks](docs/ROADMAP.md#current-project-status) for the authoritative handoff.
 
 ## Constraints and architecture
 
@@ -16,27 +16,52 @@ Question + explicit workspace
   -> answer + table/chart + source/transformation/validation evidence
 ```
 
-This is the target flow; most runtime components remain to be built. Framework, analytical engine, frontend, persistence, exact model, and causality method remain unresolved. See [architecture](docs/ARCHITECTURE.md) and [decisions](docs/DECISIONS.md).
+This is the target flow; most runtime components remain to be built.
+
+The stack is decided (DEC-112 through DEC-126) and no longer open to preference:
+
+| Layer | Choice |
+| --- | --- |
+| Storage and analytics | DuckDB over Parquet, bronze/silver/gold; Pandas for transformation |
+| Spreadsheets | calamine for sources we retrieved; the bounded openpyxl loader for anything a user, model or URL names |
+| Orchestration | Our own planner -> router -> executor -> verifier state machine; no framework |
+| Retrieval | LanceDB and DuckDB FTS fused with RRF, listwise reranking, a hand-written alias dictionary |
+| State | Artifact DAG persisted in DuckDB; adding a column adds a node |
+| Provenance | Typed lineage graph in DuckDB, traversed with networkx; a cell without lineage is a defect |
+| Statistics | statsmodels, ruptures, scipy — association with stated limits, never a causal claim |
+| API and UI | FastAPI with SSE; Next.js, Tailwind, shadcn/ui, TanStack Table, react-plotly.js, React Flow |
+| Deployment | One VM, Docker Compose, Caddy |
+
+Excluded regardless of merit: Spark, Airflow, dbt, Kubernetes, Elasticsearch, Neo4j, LangChain, Celery, Redis, Prophet, PyOD, and anything requiring a Java runtime. Adding a dependency needs its own decision entry.
+
+Still externally blocked: the Kloudeks endpoint, authentication, model identifiers and structured-output support; the embedding and vision models; network egress at demo time; live source access; and the runtime environment, which can override the deployment choice. See [architecture](docs/ARCHITECTURE.md), [decisions](docs/DECISIONS.md) and [open questions](docs/OPEN_QUESTIONS.md).
 
 ## Repository guide
 
 | Path | Purpose / current scope |
 | --- | --- |
 | [AGENTS.md](AGENTS.md) | Coding-agent scope, targeted reading, validation, Git authorization, handoff rules |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Main execution truth: relative days, M0–M11, checkboxes, READY queue, evidence/handoffs |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Main execution truth: relative days, M0–M13, checkboxes, READY queue, evidence/handoffs |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Component boundaries, contracts, state, data flow, failure behavior |
 | [docs/EVALUATION.md](docs/EVALUATION.md) | Metrics, benchmark tiers, adversarial cases, scorecard plan |
 | [docs/SECURITY.md](docs/SECURITY.md) | Required controls for enabled boundaries and their validation |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Confirmed constraints/decisions, proposals, deferred choices |
 | [docs/OPEN_QUESTIONS.md](docs/OPEN_QUESTIONS.md) | Actionable organizer/team unknowns, owners, evidence, blockers |
-| [src/kkb_agent/](src/kkb_agent/) | Package; in-progress core/provider/evaluation scaffolding |
-| [tests/unit/](tests/unit/) | Package smoke plus in-progress Day 0 unit tests |
-| `benchmarks/cases/` (local stash only) | Three synthetic questions, excluded from documentation delivery; no numerical scoring runner yet |
+| [docs/FILE_ADMISSION.md](docs/FILE_ADMISSION.md) | Extension/MIME/content checks, limits and staging for uploaded files |
+| [docs/INGESTION_PROFILE.md](docs/INGESTION_PROFILE.md) | The ingestion and profile result contract |
+| [src/kkb_agent/](src/kkb_agent/) | Package. Delivered: `core/models.py`, `ingestion_policy.py`, `xlsx_sheets.py`, `xlsx_loader.py`, `_xlsx_package.py`. Planned packages under DEC-125: `app`, `agent`, `tools`, `ingest`, `transform`, `catalog`, `lineage`, `llm`, `eval` |
+| `web/` (not yet created) | Next.js client under DEC-123; lives outside the Python package |
+| [tests/unit/](tests/unit/) | 245 passing unit tests across contracts, admission, fixtures and the XLSX loader |
+| [tests/fixtures/ingestion/](tests/fixtures/ingestion/) | Synthetic CSV and XLSX fixtures with their documented expected parsing |
+| `benchmarks/cases/` (local stash only) | Three synthetic questions, not delivered; no numerical scoring runner yet |
 | [scripts/check_secrets.py](scripts/check_secrets.py) | Lightweight local file pattern scan; not a history scanner |
-| [Makefile](Makefile), [pyproject.toml](pyproject.toml) | Existing setup/check targets and Python >=3.12 dependencies |
+| [scripts/generate_xlsx_fixtures.py](scripts/generate_xlsx_fixtures.py) | Deterministic regeneration of the synthetic XLSX fixtures |
+| [.github/workflows/fast-pr.yml](.github/workflows/fast-pr.yml) | Fast PR gate on pull requests targeting `dev` |
+| [Makefile](Makefile), [pyproject.toml](pyproject.toml) | Setup and check targets, Python >=3.12 dependencies |
+| [.env.example](.env.example), [.gitignore](.gitignore) | Blank local configuration template and ignore rules for credentials, private data and generated output |
 | [GITHUB_SETUP.md](GITHUB_SETUP.md) | Legacy setup examples; the current branch/workflow rules in AGENTS and DEC-109 take precedence |
 
-This checkout currently lacks `.gitignore`, `.env.example`, and `.github/` workflows. Their implementation/validation is tracked in M0. Do not store real credentials or private data in repository files while assuming ignore rules exist.
+Copy `.env.example` to an ignored `.env` for local configuration; never put a real credential in a tracked file. Private and downloaded data belongs under the ignored `data/` and `uploads/` paths, and storing organizer data at all is a separate unresolved permission question.
 
 ## Fast development workflow
 
