@@ -633,7 +633,7 @@ M1 adapter/ingestion contract, M2 relevant semantics, M7 safe fetch before live 
 
 - [ ] M3-01 — Obtain source access, approved endpoints/formats, credential requirements, and redistribution rules; record Q-DATA-01 evidence.
 - [ ] M3-02 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m3-02-bddk-source-inventory`. Identify representative BDDK datasets and source-published frequency/unit/stock-flow semantics with exact references. Evidence: [M3-02 active record](#m3-02-active-record).
-- [ ] M3-03 — Identify representative EVDS series and date/unit/revision metadata with exact references.
+- [ ] M3-03 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m3-03-evds-source-inventory`. Identify representative EVDS series and date/unit/revision metadata with exact references. Evidence: [M3-03 active record](#m3-03-active-record).
 - [ ] M3-04 — Create synthetic source-shaped discovery/inspection/load fixtures without private source payloads.
 - [ ] M3-05 — Implement BDDK discovery/inspection mapping to the common contract.
 - [ ] M3-06 — Implement BDDK load/selection through bounded approved retrieval. The endpoints, parameters and response shapes are in [BDDK_SOURCE](BDDK_SOURCE.md); the adapter must also supply BDDK's missing intermediate CA in an explicit trust bundle rather than disabling verification.
@@ -647,6 +647,19 @@ M1 adapter/ingestion contract, M2 relevant semantics, M7 safe fetch before live 
 - [ ] M3-14 — Verify an unfamiliar generic file still works without either named adapter.
 - [ ] M3-15 — Run targeted adapter/network-boundary tests, lint, and the fast PR gate; record permitted live smoke separately from offline validation.
 - [ ] M3-16 — Record source support, access blockers, permission evidence, and next integration task.
+
+### M3-03 active record
+
+- Status: IN PROGRESS — claim published before implementation
+- Owner: Eray
+- Branch: `feature/m3-03-evds-source-inventory`; fresh `dev` base `35eda16`
+- PR: pending
+- Commit: pending
+- Objective: Establish how TCMB EVDS is accessed and what it publishes for the series the reference scenario needs — the mortgage rate, a price index for deflation, and the housing price index — including frequency, unit and revision metadata, with exact series codes as references rather than as hard-coded constants.
+- Scope: read-only inspection of the published service and a written inventory. No adapter implementation, no credential committed, no retrieved payload committed.
+- Tests: pending.
+- Blocker: none for inspecting published documentation. An API key requirement, if confirmed, becomes a Q-DATA-01 dependency for live retrieval.
+- Handoff: pending.
 
 ### M3-02 active record
 
