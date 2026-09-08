@@ -632,7 +632,7 @@ M1 adapter/ingestion contract, M2 relevant semantics, M7 safe fetch before live 
 ## Tasks
 
 - [ ] M3-01 — Obtain source access, approved endpoints/formats, credential requirements, and redistribution rules; record Q-DATA-01 evidence.
-- [ ] M3-02 — Identify representative BDDK datasets and source-published frequency/unit/stock-flow semantics with exact references.
+- [ ] M3-02 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m3-02-bddk-source-inventory`. Identify representative BDDK datasets and source-published frequency/unit/stock-flow semantics with exact references. Evidence: [M3-02 active record](#m3-02-active-record).
 - [ ] M3-03 — Identify representative EVDS series and date/unit/revision metadata with exact references.
 - [ ] M3-04 — Create synthetic source-shaped discovery/inspection/load fixtures without private source payloads.
 - [ ] M3-05 — Implement BDDK discovery/inspection mapping to the common contract.
@@ -647,6 +647,19 @@ M1 adapter/ingestion contract, M2 relevant semantics, M7 safe fetch before live 
 - [ ] M3-14 — Verify an unfamiliar generic file still works without either named adapter.
 - [ ] M3-15 — Run targeted adapter/network-boundary tests, lint, and the fast PR gate; record permitted live smoke separately from offline validation.
 - [ ] M3-16 — Record source support, access blockers, permission evidence, and next integration task.
+
+### M3-02 active record
+
+- Status: IN PROGRESS — claim published before implementation
+- Owner: Eray
+- Branch: `feature/m3-02-bddk-source-inventory`; fresh `dev` base `33e3bc2`
+- PR: pending
+- Commit: pending
+- Objective: Establish what the BDDK monthly bulletin actually publishes — retrieval mechanism, table set, units, frequency and cumulative behaviour — with exact references, so M12's normalization rules are written against the real source rather than an assumed shape.
+- Scope: read-only inspection of public published data and a written inventory. No adapter implementation, no retrieved payload committed, no credential involved.
+- Tests: pending.
+- Blocker: none for inspecting published data. M3-01 access/redistribution terms (Q-DATA-01) still gate a live retrieval adapter.
+- Handoff: pending.
 
 ## Acceptance criteria
 
