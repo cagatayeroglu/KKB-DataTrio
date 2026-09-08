@@ -2,7 +2,9 @@
 
 This file owns unresolved external/team questions and their evidence. [DECISIONS](DECISIONS.md) owns confirmed choices; [ROADMAP](ROADMAP.md) owns blocked/ready tasks. A temporary assumption is a planning aid, not organizer permission or an implementation fact.
 
-Snapshot: 2026-09-08. No new organizer/team answers were available during this documentation task. All owner slots below are **unassigned**; suggested lanes refer to ROADMAP's rotating A/B/C roles, not actual commitments.
+Snapshot: 2026-09-09. The five team-decision questions Q-TEAM-01 through Q-TEAM-05 are **ANSWERED** by M0-ARCH and recorded in DECISIONS; nothing in the architecture is now waiting on an internal choice. No organizer answer has been received yet, so every Q-K, Q-INFRA, Q-DATA, Q-NET, Q-DEMO, Q-DEV, Q-JUDGE and Q-COMP entry remains open and unassigned; suggested lanes refer to ROADMAP's rotating A/B/C roles, not actual commitments.
+
+The organizer questions are now the project's only external blockers, and several of them gate long-lead work: Q-K-01/02/03 gate every live model path, Q-K-05 gates the embedding half of DEC-115, Q-NET-01/02 gate the `web_search` and `web_url` tools, Q-DATA-01 gates live source retrieval, and Q-INFRA-01 can override DEC-126. Ask them early rather than near the delivery date.
 
 ## How to use this list
 
@@ -19,7 +21,7 @@ Snapshot: 2026-09-08. No new organizer/team answers were available during this d
 | First available organizer contact | Q-K-01/02/03, Q-NET-01/02, Q-DATA-01/02, Q-DEMO-01 | Determine live access and required input/demo scope | Day 0 validation, synthetic contracts/oracles |
 | Before private data or deployment | Q-DATA-03, Q-INFRA-01/02, Q-COMP-01, Q-DEMO-02/03 | Determine retention, environment, session/fallback rules | Credential-free unit tests, operator-flow design |
 | Before final scope/experiments | Q-K-04/05, Q-DEV-01/02, Q-JUDGE-01/02, Q-COMP-02, Q-DATA-04 | Avoid unsupported tooling/scoring/resource assumptions | Core deterministic baseline |
-| Before affected implementation choice | Q-TEAM-01/02/03/04/05 | Prevent accidental framework/engine/method commitments | Testable contract examples and requirements |
+| ~~Before affected implementation choice~~ | Q-TEAM-01/02/03/04/05 — **ANSWERED 2026-09-09** | Resolved by M0-ARCH; see DEC-112, DEC-113, DEC-117, DEC-120, DEC-123 | No longer blocking; implementation may proceed |
 
 ## Kloudeks
 
@@ -305,60 +307,60 @@ Snapshot: 2026-09-08. No new organizer/team answers were available during this d
 
 ### Q-TEAM-01 — Orchestration mechanism
 
-- [ ] Record chosen minimal mechanism and rationale in DECISIONS after team review.
+- [x] Record chosen minimal mechanism and rationale in DECISIONS after team review.
 - Question: Does the tested lifecycle need a custom bounded loop, LangGraph, or another framework?
 - Why it matters: Adds coordination/dependency cost and affects shared plan/workspace boundaries.
 - Blocks which milestone? M5 framework adoption; lifecycle fixtures and registry contracts can proceed.
 - Can we proceed before answer? YES for interface/tests; NO for silently committing the team to a framework.
-- Temporary assumption: Simple orchestration is a confirmed preference, not a selected implementation.
-- Owner: Unassigned; suggested lane B; another teammate reviews.
-- Status: OPEN.
-- Answer / evidence: None; compare one plan, bounded repair, and workspace update, then record a concise ADR.
+- Temporary assumption (superseded by the answer below): Simple orchestration is a confirmed preference, not a selected implementation.
+- Owner: Eray (M0-ARCH). Original suggestion: suggested lane B; another teammate reviews.
+- Status: ANSWERED (2026-09-09, M0-ARCH).
+- Answer / evidence: Custom bounded planner -> router -> executor -> verifier loop, recorded in [DEC-113](DECISIONS.md#dec-113--custom-bounded-orchestration-loop). LangChain, LangGraph and Celery rejected; the lifecycle is small enough that owning retry, repair and cancellation explicitly is cheaper than learning a framework's failure modes during delivery. Implemented in M5.
 
 ### Q-TEAM-02 — Analytical/parsing engine
 
-- [ ] Record engine/dependency choice against concrete ingestion/normalization requirements.
+- [x] Record engine/dependency choice against concrete ingestion/normalization requirements.
 - Question: Which minimal combination of Pandas, Polars, DuckDB, or another engine best meets parsing/date/semantic needs and installation constraints?
 - Why it matters: Shared data references, deterministic operations, and dependency setup depend on the choice.
 - Blocks which milestone? M1 implementation dependency, M2/M6 engine-specific operations.
 - Can we proceed before answer? YES for contracts/synthetic oracles; NO for engine adoption by assumption.
-- Temporary assumption: Python and Pydantic exist; no analytical engine is selected; Snowflake remains prohibited.
-- Owner: Unassigned; suggested lane A with B review.
-- Status: OPEN.
-- Answer / evidence: None; record a bounded comparison and its concrete result.
+- Temporary assumption (superseded by the answer below): Python and Pydantic exist; no analytical engine is selected; Snowflake remains prohibited.
+- Owner: Eray (M0-ARCH). Original suggestion: suggested lane A with B review.
+- Status: ANSWERED (2026-09-09, M0-ARCH).
+- Answer / evidence: DuckDB over Parquet in a bronze/silver/gold medallion, with Pandas for in-process transformation, recorded in [DEC-112](DECISIONS.md#dec-112--duckdb-and-parquet-as-the-analytical-engine-and-lakehouse). Polars rejected as a third dataframe dialect at this corpus size. Spreadsheet reading is split by trust boundary between [DEC-111](DECISIONS.md#dec-111--openpyxl-for-the-untrusted-xlsx-boundary) and [DEC-114](DECISIONS.md#dec-114--pandas-with-calamine-for-operator-fetched-bulk-spreadsheets). Unblocks M1-03, M1-06 and the M2/M6 engine-dependent tasks; implemented in M12.
 
 ### Q-TEAM-03 — Frontend framework
 
-- [ ] Record UI choice after confirming demo environment and operator needs.
+- [x] Record UI choice after confirming demo environment and operator needs.
 - Question: Which frontend approach delivers the required upload/plan/result/evidence/follow-up flow with the least setup risk?
 - Why it matters: UI polish must not outrun backend acceptance or environment compatibility.
 - Blocks which milestone? M10 implementation choice.
 - Can we proceed before answer? YES for flow specification; NO for framework commitment.
-- Temporary assumption: Minimal clear UI, no chosen framework or hosting product.
-- Owner: Unassigned; suggested lane C with B deployment review.
-- Status: OPEN.
-- Answer / evidence: None; depends on Q-DEMO-01/Q-INFRA-01.
+- Temporary assumption (superseded by the answer below): Minimal clear UI, no chosen framework or hosting product.
+- Owner: Eray (M0-ARCH). Original suggestion: suggested lane C with B deployment review.
+- Status: ANSWERED (2026-09-09, M0-ARCH).
+- Answer / evidence: FastAPI with server-sent events behind a Next.js client using Tailwind, shadcn/ui, TanStack Table, react-plotly.js and React Flow, recorded in [DEC-123](DECISIONS.md#dec-123--fastapi-with-sse-behind-a-nextjs-front-end). The team has front-end capacity and the trust layer is only visible if lineage is rendered. Streamlit is retained as an explicitly recorded fallback if front-end work starts delaying backend acceptance. Q-DEMO-01 and Q-INFRA-01 still shape hosting, not the framework choice. Implemented in M10.
 
 ### Q-TEAM-04 — Causality implementation and prerequisites
 
-- [ ] Record method, supported claims, sample/assumption rules, and scope decision.
+- [x] Record method, supported claims, sample/assumption rules, and scope decision.
 - Question: Which statistical/causality method, if any, is defensible within the deadline and actual data, and when must it abstain?
 - Why it matters: A named test is not sufficient evidence of causal identification.
 - Blocks which milestone? M6 advanced method; M9 method-specific oracles; not change/association/abstention baseline.
 - Can we proceed before answer? YES for deterministic descriptive statistics and causal-discipline tests; NO for claiming an exact causal method is agreed.
-- Temporary assumption: Report association honestly; advanced causal inference stays unselected/optional pending need and review.
-- Owner: Unassigned; suggested lane A/C statistical review.
-- Status: OPEN.
-- Answer / evidence: None; record method assumptions and independent fixture/oracle evidence before implementation.
+- Temporary assumption (superseded by the answer below): Report association honestly; advanced causal inference stays unselected/optional pending need and review.
+- Owner: Eray (M0-ARCH). Original suggestion: suggested lane A/C statistical review.
+- Status: ANSWERED (2026-09-09, M0-ARCH).
+- Answer / evidence: Lagged cross-correlation plus Granger tests via `statsmodels`, with `ruptures` for structural breaks, and mandatory printed limitations, recorded in [DEC-120](DECISIONS.md#dec-120--causality-reports-association-with-stated-limits). Sixty to sixty-six monthly observations cannot identify a causal effect, so the system never emits an "X causes Y" claim and Granger output is reported as predictive precedence. Implemented in M6; abstention and phrasing tested in M9.
 
 ### Q-TEAM-05 — Workspace persistence and reference storage
 
-- [ ] Record the minimum persistence mechanism after lifetime/reset requirements are known.
+- [x] Record the minimum persistence mechanism after lifetime/reset requirements are known.
 - Question: Is in-process state sufficient, or do confirmed demo requirements require a local durable store and restore behavior?
 - Why it matters: Explicit state is mandatory; a specific database is not.
 - Blocks which milestone? M5 durable storage selection and M10/M11 restart acceptance.
 - Can we proceed before answer? YES for explicit model/state-transition tests; NO for a database commitment or durability claim.
-- Temporary assumption: Preserve state explicitly within a workspace; persistence engine remains deferred.
-- Owner: Unassigned; suggested lane B with C operator input.
-- Status: OPEN.
-- Answer / evidence: None; first resolve Q-INFRA-02/Q-DEMO-02.
+- Temporary assumption (superseded by the answer below): Preserve state explicitly within a workspace; persistence engine remains deferred.
+- Owner: Eray (M0-ARCH). Original suggestion: suggested lane B with C operator input.
+- Status: ANSWERED (2026-09-09, M0-ARCH).
+- Answer / evidence: An artifact DAG persisted in DuckDB, recorded in [DEC-117](DECISIONS.md#dec-117--analysis-workspace-as-a-persisted-artifact-dag). Adding a column adds a node rather than rebuilding the table, which is what the organizer's incremental scenario requires, and the same structure supplies replay and cache invalidation. No separate persistence engine is needed once DEC-112 puts DuckDB in the stack. Cross-process durability and reset semantics still depend on Q-INFRA-02 and Q-DEMO-02. Implemented in M5.
