@@ -26,6 +26,8 @@ Changing an organizer constraint requires organizer confirmation; a team prefere
 3. Read the current-status/next-task summary and **relevant milestone section** of [ROADMAP](docs/ROADMAP.md). Use stable task IDs in handoffs.
 4. Read **only the task-relevant technical document or section** below. Follow further references only when the work actually crosses that boundary.
 
+Before implementing the selected task, follow the fresh-`dev` branch procedure under [Git workflow](#git-workflow). Reading a READY item while on an existing feature branch does not authorize reusing that branch for a new task.
+
 | Task | Technical reference |
 | --- | --- |
 | Architecture, planner, registry, provider, workspace | [ARCHITECTURE](docs/ARCHITECTURE.md) |
@@ -43,7 +45,7 @@ Do not read every document on every prompt. Do not conduct broad research or rep
 - If asked to “continue,” choose the first unchecked task marked `Status: READY` in ROADMAP's ordered queue whose dependencies remain satisfied.
 - Recheck its milestone, blockers, and actual repository state. A stale READY marker is not proof of readiness.
 - Never silently choose BLOCKED work. Select an independent READY task if available; otherwise name the blocker and exact answer needed.
-- PARTIAL means implementation exists but acceptance is unfinished; resume it only if its next action is ready.
+- PARTIAL / IN PROGRESS includes all local or task-branch work, even with passing tests, until its implementation is merged into `dev` and required validation has passed. Resume the same task on its branch; never reuse it for an unrelated task.
 - Never resolve a team choice by guessing or mark aspirational architecture as implemented.
 - Claim a small task/coherent group in its milestone record. Use actual teammate names when supplied; do not invent assignments. A suggested role slot is not a person's commitment.
 
@@ -66,9 +68,8 @@ Ordinary code work: relevant targeted tests plus fast lint on touched Python. `m
 | --- | --- | --- |
 | Documentation only | Full relevant diff review; local links, checkbox syntax, factual status | Lightweight review; no application checks |
 | Ordinary code task | Targeted tests + touched-code lint, or `make quick` | <=60 seconds when practical |
-| Requested feature PR to `dev` | `make pr`; relevant evaluation smoke once available | <=3 minutes |
-| Shared planner/executor contract change | Targeted contract/negative tests + `make full` | <=8 minutes target |
-| Safe-fetch/file execution boundary or auth/secrets/network behavior change | Targeted negative tests + `make full` | <=8 minutes target |
+| Task PR to `dev` | Fast PR gate: `make pr` for code; relevant evaluation smoke once available. Documentation-only PRs use the document checks above | <=3 minutes |
+| Shared contract, safe-fetch/file execution, auth/secrets/network change | Targeted contract/negative tests + fast PR gate; include critical failure paths | Keep the ordinary/PR budgets |
 | Opening/updating `dev -> main`, final demo/release checkpoint, or explicit full-check request | `make full`; full evaluation/rehearsal at release/demo gates | <=8 minutes automated gate target; time-box rehearsal separately |
 
 `make full` currently does **not** invoke a benchmark runner. [EVALUATION](docs/EVALUATION.md) distinguishes implemented commands from planned tiers. A passing full application gate is not evidence of a passing benchmark.
@@ -76,6 +77,8 @@ Ordinary code work: relevant targeted tests plus fast lint on touched Python. `m
 Do not automatically run dependency audits, Docker builds/scans, full integration/benchmark suites, release checks, or long live-network checks after ordinary edits. EVAL-FULL is reserved for release/demo gates or explicit requests. Do not wait for GitHub Actions unless asked; report remote checks as pending when authorized work creates them.
 
 If checks repeatedly exceed their budget, profile/split them. If tooling is unavailable or checks fail, record the exact limitation and keep affected tasks unchecked. User instructions such as “documentation only; no full checks” override generic workflow gates for that task; editing documentation about a boundary is not changing the runtime boundary.
+
+DEC-109 and this document own Git workflow, task completion, and validation-gate placement. Full/release-level checks belong at stable `dev -> main` or final demo checkpoints, or an explicit full-check request. This supersedes older automatic full-check wording elsewhere; task-specific security controls and targeted negative tests still apply.
 
 ## Security rules for this scope
 
@@ -92,32 +95,45 @@ If checks repeatedly exceed their budget, profile/split them. If tooling is unav
 
 ## After work: update only the relevant roadmap record
 
-Mark `[x]` only when implementation exists **and** relevant targeted validation has passed. Document-only completion requires verifying the edit. Tests existing on disk, a stub, or a schema proposal do not establish working runtime behavior.
+Mark `[x]` only after the implementation is **merged into `dev`** and required targeted validation has passed. Documentation-only tasks also require verified edits and merge into `dev`. Local work, a commit, a push, an open/approved PR, or passing checks alone is PARTIAL / IN PROGRESS, not COMPLETE.
 
 After meaningful work, update affected task checkboxes and the milestone evidence/handoff only. Keep it short:
 
 ```text
+Task: actual roadmap ID
+Status: PARTIAL / IN PROGRESS; COMPLETE only after verified merge + checks
 Owner: actual teammate / agent task owner
-Branch: actual branch
-Completed: task IDs; only validated items checked
+Branch: actual task branch, based on latest dev
+PR: URL/number and review/merge state, or pending
+Commit: implementation revision, or pending before commit
 Tests: exact command and result, or NOT RUN with reason
-Limitation / blocker: specific issue, or none known in scope
-Next: one task ID and its start condition
+Blocker: specific issue, or none known in scope
+Handoff: next task/action and its start condition
 ```
 
-PR/commit/benchmark references are optional until they exist. Never fabricate them. Update top-level status/queue only when the phase, critical blocker, or next ready task changes. Do not rewrite the whole roadmap or edit unrelated milestones after each task. Change technical docs for changed contracts, DECISIONS for actual decisions, and OPEN_QUESTIONS for answer/blocker changes.
+Keep PR/Commit pending until they exist, then record real references in the relevant task record; never invent a future commit SHA. Update top-level status/queue only when the phase, critical blocker, or next ready task changes. Do not rewrite unrelated milestones. After a reviewer merges the implementation PR, the next task owner verifies the merge and passing checks, then records COMPLETE/[x] in a small update on a fresh branch from updated `dev`; never push that bookkeeping directly to `dev` or pre-check the task in its unmerged implementation PR.
 
-## Git authorization and history
+## Git workflow
 
-- `dev` is integration; `main` is demo-stable. Normal route: `feature/...` or `codex/...` -> PR to `dev`; release route: `dev` -> PR to `main`.
-- Inspect freely. Create task branches only when explicitly authorized by the task/user workflow; follow instructions to stay on the current branch.
-- Do not commit, push, merge, delete branches, or alter repository settings unless explicitly requested. Editing permission is not publishing permission.
-- Never force-push shared branches. Preserve existing uncommitted and untracked work.
-- Legacy setup command examples are operator instructions, not standing agent authorization.
+Persistent branches: `main` is the stable/demo-ready checkpoint; `dev` is shared integration. Never implement directly on either branch and never push directly to either branch.
+
+When asked to implement a roadmap task, Codex may perform the following Git/terminal operations as part of the normal project workflow, without separate permission for each routine step:
+
+1. Inspect repository, branch, staged/tracked/untracked work, remote, and task dependencies. Preserve unrelated work. If switching would carry unrelated changes into the new task or overwrite files, use an isolated checkout based on latest `dev`, or report the concrete blocker; never reset/clean or silently discard/stash another teammate's work.
+2. Fetch the verified remote; switch to `dev` and update it with `git pull --ff-only origin dev`. Verify local `dev` matches the fetched integration tip before branching. If it diverges or cannot be updated, report the blocker rather than resetting it or branching from stale state.
+3. Create a separate short-lived task branch from that freshly updated `dev`. Prefer `feature/<milestone>-<task>`, `fix/<short-description>`, or `docs/<short-description>`; examples: `feature/m1-csv-ingestion`, `feature/m2-frequency-alignment`, `fix/url-fetch-timeout`.
+4. Implement only the selected task, run targeted tests/lint or `make quick`, apply the fast PR gate, and update only its ROADMAP record. Keep its checkbox unchecked while awaiting merge.
+5. Stage only intended task files, commit with a clear message, push that task branch normally, and open a PR **into `dev`**. Record actual Commit/PR/check results and a concise Handoff; do not wait for remote CI unless asked.
+6. After review and a verified merge into `dev`, remove the short-lived branch locally/remotely when it contains no unmerged work and is no longer active in a checkout. Branch cleanup is part of this workflow; never delete `dev`/`main` or force-delete unmerged work.
+7. Start the next task from freshly updated `dev` on another new branch, never from the previous feature branch. Any branch based on another unfinished feature branch requires an explicit instruction and a documented dependency/base exception.
+
+Codex must not merge its own PR unless explicitly told, push directly to `dev`/`main`, force-push shared branches, reuse an old branch for unrelated work, or change repository settings without explicit authorization. Follow a task-specific instruction to stay on the current branch; this workflow-documentation update is such an explicit exception, not permission to reuse `feature/day0-core` for later unrelated work.
+
+Approximately every 3–4 days, or at an important stable milestone, prepare a `dev -> main` PR if the integrated state is demo-ready. `main` is not updated after every task. Run full/release checks at that gate and leave promotion/merge to review and explicit merge authorization; an elapsed calendar interval alone does not justify promotion.
 
 ## Definition of done and handoff
 
-A normal feature is done when requested behavior works, relevant tests pass, touched Python passes fast lint, the critical failure path is covered, and its roadmap record contains evidence and a next step. Required boundary/release checks must also pass when applicable. Do not introduce secret/debug dumps.
+A normal feature is complete only when requested behavior works, required targeted tests/lint and the fast PR gate pass, its critical failure path is covered, and the implementation is merged into `dev` with roadmap evidence and a next step. Before merge, report implementation-ready/PARTIAL with its PR status. Full/release checks apply at checkpoint gates or explicit requests. Do not introduce secret/debug dumps.
 
 End with the outcome, validation, material limitation/blocker, and next task. Another teammate must be able to resume from repository notes without reading chat history.
 

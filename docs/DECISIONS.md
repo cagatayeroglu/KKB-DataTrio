@@ -112,12 +112,12 @@ Evidence policy: organizer constraints below are carried forward from the origin
 
 ### DEC-107 — Integration and demo-stable branches
 
-- Status: CONFIRMED.
-- Date: Original date unrecorded; reviewed 2026-09-08.
+- Status: CONFIRMED — standardized by DEC-109.
+- Date: Original date unrecorded; workflow updated 2026-09-08.
 - Decision: Feature work goes through PRs to `dev`; `main` holds demo-stable checkpoints.
 - Reason: Separate ongoing work from reproducible demonstrations.
 - Alternatives: Routine direct development on `main` is outside the agreed workflow.
-- Consequences: Agents need explicit authorization to commit, push, merge, delete, or change repository settings. Branch creation requires task/user-workflow authorization.
+- Consequences: DEC-109 authorizes routine task branch/commit/push/PR operations for assigned work. Never implement on or push directly to `dev`/`main`; merging an agent's own PR still requires explicit instruction. Repository settings remain outside normal task authorization.
 - Revisit trigger: Team explicitly changes integration policy.
 
 ### DEC-108 — Living roadmap and lightweight handoffs
@@ -127,8 +127,18 @@ Evidence policy: organizer constraints below are carried forward from the origin
 - Decision: ROADMAP is execution/status truth. Update only relevant tasks after meaningful work, with validated checkboxes, evidence, blockers, and next task.
 - Reason: Three teammates must resume work without reconstructing chat history.
 - Alternatives: Chat-only status and mandatory rewrites of every document are rejected.
-- Consequences: `[x]` requires implementation plus passing targeted validation; document-only work requires verification of the edit. Normal reading is decisions, relevant roadmap section, and one relevant technical document.
+- Consequences: As standardized by DEC-109, `[x]` requires merge into `dev` plus passing required targeted validation; document-only work requires verified edits and merge too. Local/feature-branch work stays PARTIAL / IN PROGRESS. Normal reading remains decisions, relevant roadmap section, and one relevant technical document.
 - Revisit trigger: Handoffs omit necessary information or maintenance becomes slower than the work.
+
+### DEC-109 — Fresh-dev task branches and merge-based completion
+
+- Status: CONFIRMED — explicitly requested by the team in this workflow-standardization task.
+- Date: 2026-09-08.
+- Decision: Keep `dev` for shared integration and `main` for stable/demo-ready checkpoints. Every meaningful implementation task starts from freshly updated `dev` on a separate short-lived branch: prefer `feature/<milestone>-<task>`, `fix/<short-description>`, or `docs/<short-description>`. Implement, run targeted checks, update only the relevant ROADMAP record, commit clearly, push the task branch, and open a PR into `dev`. Work is COMPLETE/[x] only after merge into `dev` and passing required validation.
+- Reason: Any teammate can pull latest `dev`, inspect READY tasks, and continue without inheriting unfinished feature work or mistaking local validation for shared delivery.
+- Alternatives: Direct implementation/push on `dev` or `main`, reusing old feature branches, starting from unfinished feature work without an explicit documented dependency, and treating every task as a release gate are rejected.
+- Consequences: Codex may perform normal Git/terminal branch, commit, push, and PR operations for an assigned task. It must not merge its own PR without explicit instruction or force-push shared branches. Delete task branches only after reviewed/verified merge and safe cleanup; start the next task from newly updated `dev`. Record Status, Owner, Branch, PR, Commit, Tests, and Handoff per active task. Approximately every 3–4 days or at an important stable milestone, prepare `dev -> main` only when integrated `dev` is demo-ready. Normal tasks use targeted checks/`make quick`; code PRs use the fast PR gate; full/release checks belong to main/final-demo checkpoints or explicit requests. Documentation-only work uses document checks. This supersedes earlier workflow, checkbox-completion, and automatic boundary-full-gate wording; security controls and targeted negative tests remain required.
+- Revisit trigger: Explicit team workflow change. An explicit task-specific exception must record its branch/base and reason; this documentation update is expressly kept on current `feature/day0-core`, without authorizing reuse for future unrelated tasks.
 
 ## Proposed decisions
 

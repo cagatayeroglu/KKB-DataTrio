@@ -32,13 +32,13 @@ Snapshot: **2026-09-08**, local repository inspection during a documentation-onl
 | Validation baseline | Source/test files inspected, **application tests and lint NOT RUN in this documentation task**; no passing result established for this snapshot |
 | Missing foundation artifacts | `.gitignore`, `.env.example`, and `.github/` workflows absent in this checkout |
 | Runtime completeness | No implemented ingestion adapter, registry/executor, analytics, safe fetch, verifier, or UI found in the inspected source tree |
-| Documentation | Execution system and related documents rewritten; document-only verification recorded under M0-DOC |
+| Documentation | Validated and pushed as `adeb692` on `feature/day0-core`; not merged into `dev`, so M0-DOC is PARTIAL under DEC-109 |
 
 **Known blockers:** live Kloudeks integration needs Q-K-01/02/03; live BDDK/EVDS paths need Q-DATA-01 and network rules Q-NET-01/02; demo environment and cache/persistence rules need Q-INFRA-01/02 and Q-DATA-03. Missing answers block their live paths, not synthetic/offline foundation work.
 
 **Major team choices still open:** orchestration framework, analytical engine, frontend framework, exact causality method, provider model, and persistence backend. Router fine-tuning, vector DB, and multi-agent topology remain deferred. See DECISIONS before adopting any of these.
 
-**Completion boundary:** no runtime milestone is marked COMPLETE in this snapshot. Present code is PARTIAL until its targeted validation and acceptance are recorded. Documentation completion does not imply implementation completion.
+**Completion boundary:** no task is COMPLETE in this snapshot. Local or feature-branch work remains PARTIAL / IN PROGRESS until merged into `dev` with required targeted validation passed. Remote `dev` was verified at `429ea40` during workflow standardization; the documentation at `adeb692` is still feature-only. Passing documentation checks does not mean either documentation or runtime work is integrated.
 
 **Shared-delivery boundary:** the 11 Day 0 files under `src/kkb_agent/core/`, `src/kkb_agent/providers/`, `src/kkb_agent/evaluation/`, `benchmarks/cases/`, and the three new unit tests are local/untracked and excluded from this documentation commit. Their plain-text paths describe this checkout, not files delivered to teammates. A fresh clone does not contain them; obtain them through separately authorized code delivery before resuming tasks that require them.
 
@@ -54,7 +54,7 @@ For a general “continue,” use the first eligible unchecked READY task. This 
 | 4 | M0-04 | READY — separate authorized coding task for missing local ignore/config hygiene | Non-secret config documentation and targeted ignore validation |
 | 5 | M1-01 | READY — specify ingestion/profile contract and limits, preserving core interfaces | Proposal and testable examples; unresolved engine choice remains open |
 
-READY is checkout-dependent. M0-01, M4-01, and M9-01 require their local Day 0 files and a configured Python >=3.12 development environment. If those files are absent in a teammate's clone, mark that task BLOCKED for missing code delivery and continue with the first independent eligible entry, currently M0-04. Do not mark a validation task complete merely to unblock the queue.
+READY requires both satisfied task prerequisites and the fresh-`dev` branch workflow below. M0-01, M4-01, and M9-01 require the local Day 0 files and a configured Python >=3.12 development environment. Preserve those untracked files; do not silently carry them into unrelated branches. A task that explicitly covers that code may transfer only its required files into its own fresh task branch from latest `dev`, documenting their origin. If required code is unavailable, mark the task BLOCKED for missing delivery and choose the first independent eligible entry, currently M0-04. Never reuse `feature/day0-core` for a new unrelated runtime task or check off validation merely to unblock the queue.
 
 | READY task | Task-specific acceptance |
 | --- | --- |
@@ -68,26 +68,61 @@ No application validation is requested as part of the present documentation-only
 
 # Team Handoff Protocol
 
+## Repository Git workflow
+
+CONFIRMED in DEC-109. Persistent branches: `main` = stable/demo-ready checkpoint; `dev` = shared integration. Never implement on or push directly to either branch.
+
+Every meaningful implementation task starts from latest `dev` on a separate short-lived branch. Inspect/preserve existing Git work, fetch the verified remote, switch to/update `dev` with a fast-forward-only pull, verify it matches the fetched tip, then create the task branch. If existing work or divergence prevents a safe update, isolate the task from latest `dev` or record the blocker; do not reset/discard work or use stale integration state.
+
+Prefer `feature/<milestone>-<task>`, `fix/<short-description>`, or `docs/<short-description>`. Examples: `feature/m1-csv-ingestion`, `feature/m2-frequency-alignment`, `fix/url-fetch-timeout`.
+
+Implement only that task -> targeted checks -> relevant roadmap evidence -> clear commit -> normal task-branch push -> PR into `dev`. Codex may perform these normal Git/terminal operations for assigned tasks. An open or approved PR is still PARTIAL until merge. After review and verified merge, delete the short-lived branch only when no unmerged work or active checkout would be lost. The next task starts from freshly updated `dev`, never the previous feature branch. A base on another unfinished feature branch requires an explicit documented instruction/dependency.
+
+Codex does not merge its own PR without explicit instruction, push directly to `dev`/`main`, or force-push shared branches. This workflow-standardization edit explicitly stays on current `feature/day0-core`; that exception does not apply to later unrelated tasks.
+
+| Stage | Gate / result |
+| --- | --- |
+| Normal task | Targeted tests/lint or `make quick`; document-only tasks use diff/link/status checks |
+| Task branch -> `dev` | Fast PR gate (`make pr` for code); review and merge before COMPLETE/[x] |
+| `dev` -> `main` | Full/release gate, approximately every 3–4 days or an important stable milestone, only when integrated `dev` is demo-ready |
+
+Do not update `main` after every task or promote an unstable state because the date arrived. AGENTS/DEC-109 own gate placement; targeted negative tests still apply to security/contract changes. Full/release checks are reserved for checkpoint gates or explicit requests.
+
 ## Checkbox and status rules
 
-- `[ ]` means unfinished, whether not started, PARTIAL, or BLOCKED.
-- `[x]` means implementation exists **and** relevant targeted validation has passed. For documentation-only work, verify the document change itself.
-- Use plain text `Status: READY`, `Status: PARTIAL`, `Status: BLOCKED`, `Status: NOT STARTED`, or `Status: COMPLETE`; never use invented checkbox syntax.
-- READY describes a next action with satisfied prerequisites. PARTIAL describes existing work without full acceptance. BLOCKED must name its dependency/question and an unblocking action.
+- `[ ]` means unfinished, including NOT STARTED, IN PROGRESS, PARTIAL, BLOCKED, and validated work awaiting PR review/merge.
+- `[x]` means implementation is **merged into `dev`** and required targeted validation has passed. Documentation tasks require verified edits and merge too. Record actual merge evidence; a local file, commit, push, or approved PR alone is insufficient.
+- Use plain text `Status: READY`, `Status: IN PROGRESS`, `Status: PARTIAL`, `Status: BLOCKED`, `Status: NOT STARTED`, or `Status: COMPLETE`; never use invented checkbox syntax.
+- READY describes a next action with satisfied prerequisites. PARTIAL / IN PROGRESS includes all work still only local/on a task branch, even if validation passes. BLOCKED must name its dependency/question and unblocking action.
 - A file's existence, a test definition, a model protocol, or a desired diagram is not runtime acceptance evidence.
-- Mark a milestone COMPLETE only when its in-scope tasks and acceptance criteria pass. Optional/deferred tasks stay unchecked and explicitly scoped out with a reason; do not check them merely because they were cut.
+- Mark a milestone COMPLETE only when its in-scope task implementations are merged into `dev` and acceptance/required validation pass. Optional/deferred tasks stay unchecked and explicitly scoped out with a reason; do not check them merely because they were cut.
 
 ## Claim, work, hand off
 
-1. Read current status and the relevant milestone; check branch/diff and task dependencies.
-2. Put the actual owner and active task IDs in that milestone's record. Avoid two teammates editing the same contract at once.
-3. Complete one task or coherent group and run the relevant checks from AGENTS.
-4. Update **only that milestone's** checkboxes, short evidence, blocker, and next task. Update the top summary only if the phase, critical blocker, or queue changed.
-5. If stopping mid-task, keep it unchecked, mark PARTIAL, state what exists, what failed/was not run, and the exact next action.
+1. Pull latest `dev` safely, read current status/relevant milestone, select an eligible READY task, and create its fresh branch. Never implement directly on `dev`.
+2. Put the actual owner, branch, status, and task ID in its record under the relevant milestone. Avoid two teammates editing the same contract at once.
+3. Implement that task, run relevant targeted/fast PR checks, and record validation and remaining limitations.
+4. Keep the checkbox unchecked/PARTIAL, update only that task's evidence/blocker/handoff, commit, push its branch, and open the PR into `dev`. Fill real Commit/PR references once available; never invent a future SHA.
+5. After review and merge, the next task owner verifies the implementation is in updated `dev` and its required checks passed, then records COMPLETE/[x] plus merge evidence in a small update on a fresh task/docs branch. Do not pre-check an unmerged implementation or push bookkeeping directly to `dev`.
+6. Clean up the merged short-lived branch safely. Start subsequent work from newly updated `dev`. If stopping before merge, leave PARTIAL / IN PROGRESS, exact next action, and PR/blocker status.
 
 A good handoff is a few lines, not an essay. PR/commit/benchmark fields can remain `—` until they exist. Do not imply a commit or remote check happened. Link a safe result artifact when available; omit sensitive input content.
 
-On pickup, set Owner, actual Branch, active task ID, and task Status in that record. On stop, set Tests to the exact command/result or NOT RUN with reason, record the blocker (or none), and put the next task ID/start condition in Handoff. Mark local-only work explicitly; a branch name alone does not mean the code was committed or pushed.
+Every task supports the following compact record. Copy it under the relevant milestone for active work; do not create boilerplate for every untouched task or overwrite another task's evidence. Existing milestone records remain summaries. Update top-level status only when the phase, critical blocker, or queue actually changes.
+
+```text
+Task: actual roadmap ID
+Status: IN PROGRESS / PARTIAL / BLOCKED / COMPLETE
+Owner: actual teammate or agent task owner
+Branch: actual task branch; record dev base revision when useful
+PR: URL/number + review/merge state, or pending
+Commit: implementation revision + merge evidence when available, or pending
+Tests: exact command and result, or NOT RUN with reason
+Blocker: exact missing dependency/answer, or none
+Handoff: next task/action, prerequisites, and any local-only files
+```
+
+Before merge, commit/push the record with PARTIAL status. After the implementation merge, verify the actual merged revision or PR record (including squash merges) rather than assuming a feature SHA must appear unchanged in `dev`. A completion-bookkeeping PR records an already merged implementation; it does not require an endless chain of new completion tasks.
 
 Illustrative example only; this is not current project evidence:
 
@@ -96,13 +131,16 @@ Completed:
 - [x] CSV parser and basic profiling
 - [x] Malformed-file negative tests
 Evidence:
-- Branch: feature/csv-ingestion
+- Status: COMPLETE — implementation reviewed and merged into dev
+- Owner: Example teammate
+- Branch: feature/m1-csv-ingestion (deleted after merge)
 - Tests: <exact targeted command> — 14 passed
-- PR: #12
+- PR: #12 — merged into dev; merge revision recorded in the real task record
+- Commit: <actual implementation/merge revision in a real record>
 Remaining:
 - [ ] XLSX multi-sheet handling
 - [ ] Size-limit cases
-Handoff: CSV result contract is stable. Continue with M1-09 using that contract.
+Handoff: Pull latest dev and create a new task branch for M1-09 using that contract.
 ```
 
 ## Three-person coordination
@@ -172,7 +210,7 @@ Local checkout and Python >=3.12 for later application validation. No live Kloud
 
 ## Tasks
 
-- [ ] M0-01 — Status: READY. Validate existing core models/interfaces with `tests/unit/test_core_models.py` and touched-code lint; record exact results before marking the scaffold complete.
+- [ ] M0-01 — Status: READY. Validate existing core models/interfaces with `tests/unit/test_core_models.py` and touched-code lint on its fresh task branch; record results and keep PARTIAL until the implementation is merged into `dev`.
 - [ ] M0-02 — Add targeted coverage for duplicate/self dependencies, invalid outcome combinations, and workspace serialization as needed; keep schema changes distinct from validation-only work.
 - [ ] M0-03 — Validate the tracked package smoke test and existing `make quick` baseline; record unavailable tooling/failures honestly.
 - [ ] M0-04 — Status: READY. Add local ignore rules for secrets/private data/generated outputs and a placeholder-only `.env.example`; test ignore behavior without real credentials.
@@ -183,9 +221,9 @@ Local checkout and Python >=3.12 for later application validation. No live Kloud
 - [ ] M0-09 — Confirm synthetic/public-safe fixture policy and document where local private inputs may be stored before accepting them.
 - [ ] M0-10 — Document an actual successful setup command/result on a teammate's Python >=3.12 environment.
 - [ ] M0-11 — Record the validated core contract baseline and named editor/reviewer before shared contract changes.
-- [ ] M0-12 — Run the relevant quick checks for ordinary foundation work; boundary/contract modifications follow AGENTS full-gate triggers.
+- [ ] M0-12 — Run targeted/quick checks and the fast PR gate for foundation work, including boundary/contract negative tests; full checks belong to checkpoint gates or explicit requests.
 - [ ] M0-13 — Record implementation evidence and the next ready task after validation.
-- [x] M0-DOC — Status: COMPLETE (documentation only). Create and verify the living roadmap, handoff protocol, technical plans, decision/question records, and targeted agent workflow.
+- [ ] M0-DOC — Status: PARTIAL. Documentation and workflow rules are validated on `feature/day0-core`; COMPLETE requires the documentation PR merged into `dev` with document checks passed.
 
 ## Acceptance criteria
 
@@ -193,19 +231,20 @@ A teammate can install the declared development environment, run recorded quick 
 
 ## Evidence / implementation record
 
-- Owner: Unassigned for runtime; Codex completed documentation in this task.
+- Status: PARTIAL — M0-DOC is validated on the feature branch, not merged into `dev`; runtime tasks remain unvalidated.
+- Owner: Unassigned for runtime; Codex prepared M0-DOC documentation.
 - Branch: `feature/day0-core` (inspected 2026-09-08).
-- PR: —
-- Commit: The documentation-only revision is discoverable with `git log -1 --format='%h %s' -- docs/ROADMAP.md`; the implementation baseline is `429ea40`, and local Day 0 code remains uncommitted.
-- Tests: Application tests/lint NOT RUN in this documentation task. M0-DOC PASS (2026-09-08): documentation diff review, `git diff --check`, local and tracked-tree link/anchor checks, checkbox/task/record checks, and 17 unchanged non-document file hashes. Lightweight checks use Python standard library only; no tooling installed.
+- PR: Target `dev`; PR/review/merge evidence still to be recorded for M0-DOC.
+- Commit: `adeb692` contains the initial documentation delivery; latest workflow-documentation revision is discoverable with `git log -1 --format='%h %s' -- docs/ROADMAP.md`. Verified remote `dev` is still `429ea40`; local Day 0 code remains uncommitted.
+- Tests: Application tests/lint NOT RUN in this documentation task. Document checks PASS (2026-09-08; M0-DOC remains PARTIAL pending merge): diff review, `git diff --check`, local and tracked-tree links/anchors, checkbox/task/record checks, and preservation of all non-document files. Lightweight checks use Python standard library only; no tooling installed.
 - Benchmark: NOT RUN; runner absent.
 - Notes: `src/kkb_agent/core/models.py`, `src/kkb_agent/core/interfaces.py`, and `tests/unit/test_core_models.py` exist as untracked Day 0 work. [Makefile](../Makefile) defines `quick`, `pr`, `full`.
 - Known limitations: No passing implementation validation established; ignore/config files and CI workflows missing.
-- Handoff: Start M0-01 in the originating checkout where its local files exist. In a fresh clone, those tasks are BLOCKED until code delivery; M0-04 is the next independent READY task. Do not redesign contracts or check off Day 0 merely because files exist.
+- Handoff: Next PR action is `feature/day0-core -> dev` for documentation only; leave M0-DOC unchecked pending reviewed merge. Then pull latest `dev` and create a new task branch. M0-01 requires its explicitly transferred/integrated Day 0 inputs; without them, M0-04 is the next independent READY task. Do not include local runtime files in the documentation PR.
 
 ## Handoff notes
 
-Preserve all untracked Day 0 files; they are not part of the documentation delivery. The initial drafting tracked/staged diff was empty. A schema validation task can remain narrow; a later shared contract modification requires the contract gate. Remote Git actions remain separate and explicitly authorized.
+Preserve all untracked Day 0 files; they are not part of the documentation delivery. The initial drafting tracked/staged diff was empty. A subsequent runtime task must start on a fresh branch from updated `dev`, with only its relevant local inputs transferred explicitly. Targeted contract/negative tests and the fast PR gate apply; normal branch/commit/push/PR operations are authorized by DEC-109, while own-PR merge still needs explicit instruction.
 
 M0-01 starting commands for a configured Python >=3.12 development environment (not executed in this documentation task):
 
@@ -247,7 +286,7 @@ M0 validated contracts for implementation; Q-TEAM-02 for engine dependency selec
 - [ ] M1-14 — Test byte/row/column limits and mismatched extension/content before parser invocation.
 - [ ] M1-15 — Add changed-column-name/unfamiliar-schema cases using the same adapter result contract.
 - [ ] M1-16 — Test provenance survives ingestion and no private payload appears in error logs.
-- [ ] M1-17 — Run targeted ingestion/profiling tests and touched-code lint; apply the full gate when changing the file boundary.
+- [ ] M1-17 — Run targeted ingestion/profiling and file-boundary negative tests, touched-code lint, and the fast PR gate; reserve full checks for checkpoints or explicit requests.
 - [ ] M1-18 — Record supported formats, limits, evidence, and the next normalization task.
 
 ## Acceptance criteria
@@ -354,7 +393,7 @@ M1 adapter/ingestion contract, M2 relevant semantics, M7 safe fetch before live 
 - [ ] M3-12 — Keep authentication out of source locators, evidence, logs, and fixture files.
 - [ ] M3-13 — Validate at least one cross-source comparison with confirmed unit/frequency policies.
 - [ ] M3-14 — Verify an unfamiliar generic file still works without either named adapter.
-- [ ] M3-15 — Run targeted adapter tests/lint; use network-boundary gate for live transport changes and record separately authorized live smoke results.
+- [ ] M3-15 — Run targeted adapter/network-boundary tests, lint, and the fast PR gate; record permitted live smoke separately from offline validation.
 - [ ] M3-16 — Record source support, access blockers, permission evidence, and next integration task.
 
 ## Acceptance criteria
@@ -404,7 +443,7 @@ M0 contracts for offline validation; organizer endpoint/auth/model contract for 
 - [ ] M4-10 — Configure bounded retries/deadlines based on limits; separate transient transport failures from invalid-plan repair.
 - [ ] M4-11 — Test credentials and sensitive prompts never appear in logs/errors/evidence.
 - [ ] M4-12 — Measure one permitted live structured-generation request and record model/config metadata without secrets.
-- [ ] M4-13 — Run provider tests/lint and full boundary gate for transport/auth changes; keep live smoke separate from credential-free unit CI.
+- [ ] M4-13 — Run targeted provider/transport/auth negative tests, lint, and the fast PR gate; keep live smoke separate from credential-free unit CI.
 - [ ] M4-14 — Record offline versus live validation and any model-capability limitation.
 
 ## Acceptance criteria
@@ -458,7 +497,7 @@ Validated M0 contracts; synthetic provider double or M4 live provider; at least 
 - [ ] M5-14 — Distinguish clarification, unsupported request, recoverable outage, partial result, and terminal failure in the orchestration layer.
 - [ ] M5-15 — Test invalid names/arguments/dependencies, stale references, partial tool failure, and failed-turn state preservation.
 - [ ] M5-16 — Test injected source text cannot authorize a tool, URL, file path, or code execution.
-- [ ] M5-17 — Run targeted planner/executor tests/lint and full checks when changing shared planner/executor contracts.
+- [ ] M5-17 — Run targeted planner/executor contract and negative tests, lint, and the fast PR gate; reserve full checks for checkpoints or explicit requests.
 - [ ] M5-18 — Record supported lifecycle/turn operations, limits, validation, and next tool integration.
 
 ## Acceptance criteria
@@ -563,7 +602,7 @@ M1 ingestion contract, M2 relevant semantics, SEC-URL-01 and SEC-FILE-01/02 befo
 - [ ] M7-13 — Test malicious HTML, PDF text, and spreadsheet-cell instructions cannot change tool authority or trigger exfiltration.
 - [ ] M7-14 — Add an external series to an existing workspace and verify prior state/evidence remain intact.
 - [ ] M7-15 — Test changed schemas, missing tables, parser failure, unavailable source, and contradictory source metadata.
-- [ ] M7-16 — Run targeted boundary/extraction tests/lint and the full boundary gate; record limits, supported formats, and remaining restrictions.
+- [ ] M7-16 — Run targeted boundary/extraction negative tests, lint, and the fast PR gate; record limits, supported formats, and restrictions; reserve full checks for checkpoints or explicit requests.
 
 ## Acceptance criteria
 
@@ -614,7 +653,7 @@ Validated M0 record models; M1 source references; M5 tool runs; M2/M6 outputs as
 - [ ] M8-12 — Test stale evidence after changed dates/assumptions and invalidate dependent claims.
 - [ ] M8-13 — Render concise evidence summaries with safe locators and limitations for M10.
 - [ ] M8-14 — Test missing source/run/transformation links, altered numeric output, and unsupported causal statements.
-- [ ] M8-15 — Run targeted evidence/verifier tests/lint; apply contract gate when changing shared models.
+- [ ] M8-15 — Run targeted evidence/verifier/contract tests, lint, and the fast PR gate when changing shared models.
 - [ ] M8-16 — Record verified claim types, evidence gaps, and the next tool needing verification.
 
 ## Acceptance criteria
@@ -771,7 +810,7 @@ Accepted in-scope M0–M10 behavior, agreed evaluation thresholds, confirmed dem
 - [ ] M11-11 — Fix highest-impact measured failures, add regressions, and rerun affected checks; broaden only when the changed boundary requires it.
 - [ ] M11-12 — Have a teammate who did not implement the final path run the complete script within confirmed demo time.
 - [ ] M11-13 — Record go/no-go, unresolved risks, known limitations, and rollback/fallback operator instructions.
-- [ ] M11-14 — Prepare `dev -> main` only when explicitly requested; record PR/check status and merge only with separate applicable authorization.
+- [ ] M11-14 — Prepare a stable `dev -> main` checkpoint PR approximately every 3–4 days or at an important stable milestone; require full/release checks and demo-ready integrated state. Record PR/check status; merge only with explicit applicable authorization.
 - [ ] M11-15 — Use optional Day 9 only for measured blockers and final changed-path rehearsal.
 - [ ] M11-16 — Record final evidence and operator handoff.
 
