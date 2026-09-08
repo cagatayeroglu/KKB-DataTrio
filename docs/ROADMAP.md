@@ -51,10 +51,10 @@ For a general “continue,” use the first eligible unchecked READY task with n
 | 1 | M0-01 | BLOCKED — core inputs are in a local stash, not delivered in `dev` | Obtain authorized task inputs, then validate without redesign |
 | 2 | M4-01 | BLOCKED — provider stub/test inputs are not delivered in `dev` | Obtain authorized inputs; live transport remains separately blocked |
 | 3 | M9-01 | BLOCKED — evaluation schema/fixtures are not delivered in `dev` | Obtain authorized inputs; do not claim a scoring runner exists |
-| 4 | M0-04 | READY — separate authorized coding task for missing local ignore/config hygiene | Non-secret config documentation and targeted ignore validation |
+| 4 | M0-04 | PARTIAL — Çağatay; `feature/m0-04-local-config-hygiene`; [PR #3](https://github.com/cagatayeroglu/KKB-DataTrio/pull/3) awaits review/merge | Ignore/config implementation and targeted validation recorded under M0-04 |
 | 5 | M1-01 | READY — specify ingestion/profile contract and limits, preserving core interfaces | Proposal and testable examples; unresolved engine choice remains open |
 
-READY requires satisfied prerequisites, no active owner, and the fresh-`dev` workflow below. M0-01, M4-01, and M9-01 need separately authorized Day 0 code delivery/recovery and a configured Python >=3.12 environment before returning to READY. Preserve the stash; never apply it to a documentation branch. A task explicitly covering that code may recover only its required files onto its fresh branch from latest `dev`, documenting origin. Without those inputs, choose the first independent eligible entry, currently M0-04. Never reuse `feature/day0-core` for unrelated work or invent validation to unblock the queue.
+READY requires satisfied prerequisites, no active owner, and the fresh-`dev` workflow below. M0-01, M4-01, and M9-01 need separately authorized Day 0 code delivery/recovery and a configured Python >=3.12 environment before returning to READY. Preserve the stash; never apply it to a documentation branch. A task explicitly covering that code may recover only its required files onto its fresh branch from latest `dev`, documenting origin. Without those inputs, choose the first independent eligible unclaimed entry; M0-04 is now claimed in PR #3. Never reuse `feature/day0-core` for unrelated work or invent validation to unblock the queue.
 
 | Queued task | Task-specific acceptance once eligible |
 | --- | --- |
@@ -217,7 +217,7 @@ Local checkout and Python >=3.12 for later application validation. No live Kloud
 - [ ] M0-01 — Status: BLOCKED. Core models/interfaces and `tests/unit/test_core_models.py` require separately authorized recovery/delivery from the local Day 0 stash. Then run targeted tests/lint on a fresh task branch; keep PARTIAL until merged into `dev`.
 - [ ] M0-02 — Add targeted coverage for duplicate/self dependencies, invalid outcome combinations, and workspace serialization as needed; keep schema changes distinct from validation-only work.
 - [ ] M0-03 — Validate the tracked package smoke test and existing `make quick` baseline; record unavailable tooling/failures honestly.
-- [ ] M0-04 — Status: IN PROGRESS. Owner: Çağatay; Branch: `feature/m0-04-local-config-hygiene`. Add local ignore rules for secrets/private data/generated outputs and a placeholder-only `.env.example`; test ignore behavior without real credentials.
+- [ ] M0-04 — Status: PARTIAL. Owner: Çağatay; Branch: `feature/m0-04-local-config-hygiene`. Add local ignore rules for secrets/private data/generated outputs and a placeholder-only `.env.example`; test ignore behavior without real credentials. Targeted validation passed; [PR #3](https://github.com/cagatayeroglu/KKB-DataTrio/pull/3) must merge into `dev` before DONE.
 - [ ] M0-05 — Reconcile provisional Kloudeks variable names with the stub; label them local conventions until Q-K-01 is answered.
 - [ ] M0-06 — Inspect repository privacy, branch protection, and remote CI only in an authorized setup task; local branches alone do not prove remote settings.
 - [ ] M0-07 — Add a fast feature-to-dev CI workflow in a later authorized task; no workflow exists in this snapshot.
@@ -249,14 +249,15 @@ A teammate can install the declared development environment, run recorded quick 
 
 ### M0-04 active record
 
-- Status: IN PROGRESS
+- Status: PARTIAL — implementation and targeted validation passed; review/merge required before DONE/[x]
 - Owner: Çağatay
 - Branch: `feature/m0-04-local-config-hygiene`; base `a5d6ee8ab8bb5a109558b7053f4060e91c7bb8f1` after PR #2 merged
-- PR: pending draft claim into `dev`
-- Commit: pending
-- Tests: NOT RUN — claim only
-- Blocker: none; READY dependencies/remote claims checked, no unresolved decision or Day 0 stash input required
-- Handoff: Add `.gitignore` and placeholder-only `.env.example`; validate ignored synthetic paths and trackable examples/source/fixtures. Preserve the Day 0 stash unchanged.
+- PR: [#3](https://github.com/cagatayeroglu/KKB-DataTrio/pull/3) — open into `dev`; published as a draft claim before implementation, then updated for review; no implementation merge authorized
+- Commit: `17b53a67147fdcd044adb739d38b0f144355afd6` implements ignore/config hygiene and its tests; claim commit `8270df43aeb3149ac7cbb6f9dd52e2038217a31c`; merge evidence pending
+- Tests: PASS (2026-09-08, Python 3.12.2): `python3.12 -m pytest -q tests/unit/test_repository_hygiene.py` — 46 passed in 3.24s. `ruff check tests/unit/test_repository_hygiene.py` — all checks passed; `ruff format --check tests/unit/test_repository_hygiene.py` — 1 file already formatted (Ruff 0.8.6 via a temporary `uv tool run --from ruff==0.8.6` environment; repository dependencies unchanged). `git diff --cached --check` passed for implementation files. Targeted tests/lint cover this config-only task; `make quick`, full/security/release checks not run.
+- Evidence: Synthetic temporary Git repositories verify that secrets/private/generated paths stay out of normal staging while the root `.env.example`, source, tests, and synthetic fixtures remain trackable. All example values are blank; provisional Kloudeks names remain subject to M0-05 and organizer answers. No environment loader, provider transport, CI, or runtime contract was added.
+- Blocker: none for this scope; dependencies and remote claims checked before/after publication. No unresolved decision or Day 0 stash input required.
+- Handoff: Review PR #3 and merge only when authorized; then record verified merge evidence before marking M0-04 DONE. The Day 0 preservation stash remains unchanged/unapplied. Next in the ordered READY queue is M1-01; recheck ownership/dependencies on freshly updated `dev` and create its own branch.
 
 ### M0-HANDOFF active record
 
