@@ -1,0 +1,43 @@
+# Local credentials/configuration; only the root blank template is shared.
+.env
+.env.*
+.envrc
+.envrc.local
+!/.env.example
+/.secrets/
+/secrets/
+/credentials/
+
+# Local, unshared inputs and derived data. These paths do not grant permission
+# to retain organizer/private data; that policy remains a separate decision.
+/private/
+/data/private/
+/data/raw/
+/data/processed/
+/data/cache/
+/uploads/
+
+# Generated artifacts, logs, and caches. Keep synthetic test/benchmark fixtures
+# trackable; do not ignore all CSV/XLSX/JSON files or the whole data directory.
+/artifacts/
+/outputs/
+/logs/
+/cache/
+.cache/
+
+# Python environments, bytecode, and development/build outputs.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+build/
+dist/
+*.egg-info/
+.DS_Store
