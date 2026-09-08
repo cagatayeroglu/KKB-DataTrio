@@ -18,7 +18,9 @@ This file owns **execution truth**. [ARCHITECTURE](ARCHITECTURE.md) owns technic
 
 # Current project status
 
-Latest M1-10 verification (2026-09-08): PR #15 merged into `dev` at `5f93df71b2ddefab7fb668f0daca89fddfb4f068`; fast CI is shared, M0-07 is DONE and the team considers the generic repository/foundation phase complete. M1-10 is PARTIAL on `feature/m1-10-bounded-xlsx-loading`, owner Çağatay, [PR #16](https://github.com/cagatayeroglu/KKB-DataTrio/pull/16); bounded XLSX loading and targeted/local fast validation are recorded below. No other backlog task was started. The older snapshot below is historical; current task records supersede it.
+Latest verification (2026-09-09): M1-10 is DONE — [PR #16](https://github.com/cagatayeroglu/KKB-DataTrio/pull/16) merged into `dev` at `400fe58f49e2c9513f77799090030313dcc55088`, with the validated tree unchanged. [PR #17](https://github.com/cagatayeroglu/KKB-DataTrio/pull/17) then promoted `dev` to `main` at `722c2afaea419e5b270a8531bcd6690d44e53027`; both branches now hold the same tree, every task branch is deleted and no PR is open. No task is claimed or IN PROGRESS. Delivered runtime scope is file admission, bounded XLSX loading and the minimal core contracts; no CSV loader, profiler, adapter registry, provider, planner, analytics tool or UI exists. The older snapshot below is historical; current task records supersede it.
+
+Release-gate finding (2026-09-09, Eray): the promoted tree does **not** pass `make full`. `pytest -q` (245 passed), `ruff format --check`, `ruff check`, Bandit and `scripts/check_secrets.py` pass, but `mypy src` reports 14 strict errors — 11 in [xlsx_loader.py](../src/kkb_agent/xlsx_loader.py), 2 in [_xlsx_package.py](../src/kkb_agent/_xlsx_package.py) and 1 missing-stub error in [xlsx_sheets.py](../src/kkb_agent/xlsx_sheets.py). PR #17 merged `dev` into `main` without that gate passing, so `main` is a convenience checkpoint rather than a release-validated tree. Tracked as M0-08; do not describe `main` as release-validated until it closes.
 
 Snapshot: **2026-09-08**, after PR #1 merged into `dev` and the local Day 0 files were preserved in a stash. Days below are relative workdays, not confirmed event dates. Recheck Git/PR state on each new session; this snapshot is not a branch-switch instruction.
 
@@ -59,9 +61,10 @@ For a general “continue,” use the first eligible unchecked READY task with n
 | 7 | M1-04 | DONE — [PR #8](https://github.com/cagatayeroglu/KKB-DataTrio/pull/8) merged at `0d4ecf9`; validated tree unchanged | Synthetic UTF-8 fixture and exact-table test delivered |
 | 8 | M1-05 | DONE — [PR #9](https://github.com/cagatayeroglu/KKB-DataTrio/pull/9) merged at `a548a54`; validated tree unchanged | CSV edge fixtures, declarations and passing fast gates delivered |
 | 9 | M1-09 | DONE — [PR #11](https://github.com/cagatayeroglu/KKB-DataTrio/pull/11) merged into `dev` at `3e70542`; validated tree unchanged | XLSX fixtures/discovery/selection and passing fast gates delivered |
-| 10 | M1-10 | PARTIAL — Çağatay; `feature/m1-10-bounded-xlsx-loading`; prerequisites rechecked after M0-07 merge | Bounded XLSX loading only; integrate admission/selection and test SEC-FILE-01/02 before claiming support |
+| 10 | M1-10 | DONE — [PR #16](https://github.com/cagatayeroglu/KKB-DataTrio/pull/16) merged into `dev` at `400fe58`; validated tree unchanged | Bounded XLSX loading delivered; CSV loading, profiling and provenance integration remain open |
+| 11 | M0-08 | READY — unassigned on 2026-09-09; `make full` fails `mypy src` on the current `dev`/`main` tree | Green release gate, or an explicitly recorded typed-boundary exception, before the next `dev -> main` promotion |
 
-READY requires satisfied prerequisites, no active owner, and the fresh-`dev` workflow below. M0-01 is merged; Python >=3.12 is available. M1-10 passed readiness and is now claimed/PARTIAL; DEC-111 approves openpyxl independently of Q-TEAM-02. M1-03 and engine-dependent work remain blocked; M4-01/M9-01 still need separate authorization/delivery. The original stash remains intact; M1-10 needs no stash recovery. The historical no-READY scan after PR #11 and older READY mentions for completed tasks do not describe the current queue. Recheck ownership before claiming; never reuse `feature/day0-core` or invent validation to unblock work.
+READY requires satisfied prerequisites, no active owner, and the fresh-`dev` workflow below. M0-01, M0-07 and M1-01/02/04/05/09/10 are merged; Python >=3.12 is available. The 2026-09-09 rescan found no remote task branch, no open PR and no published claim, so nothing is owned. M0-08 is the only entry this bookkeeping task promotes to READY, on the concrete failing-gate evidence above. M1-11 is the next M1 candidate but stays untriaged here rather than being silently promoted. M1-03 and engine-dependent work remain blocked on Q-TEAM-02; M4-01/M9-01 still need separate authorization/delivery. The original stash remains intact. Older READY mentions for completed tasks do not describe the current queue. Recheck ownership before claiming; never reuse a merged branch or invent validation to unblock work.
 
 | Queued task | Task-specific acceptance once eligible |
 | --- | --- |
@@ -70,7 +73,8 @@ READY requires satisfied prerequisites, no active owner, and the fresh-`dev` wor
 | M9-01 | Existing evaluation-schema test and evaluation/test-file lint pass; record schema-only validation; do not claim analytical execution or numeric scoring |
 | M0-04 | Ignore rules and placeholder-only config exist; safe synthetic checks prove secrets/private/generated paths are ignored and the example remains trackable |
 | M1-01 | A reviewed specification covers the listed result fields, unknown semantics, and testable examples; no engine selection or runtime contract change is implied |
-| M1-10 | Exact XLSX objective and bounded loader/security acceptance are in the [M1-10 readiness record](#m1-10-readiness-record); synthetic positive/negative tests and fast gates must pass before delivery |
+| M1-10 | Delivered; exact objective, bounds and validation are in the [M1-10 completion record](#m1-10-completion-record) |
+| M0-08 | `make full` passes on `dev`, or each remaining strict-typing gap is recorded as an explicit, reviewed exception with its reason; no new dependency or loader behaviour change |
 
 Queue re-evaluation after PR #11 (2026-09-08): no open/draft PR claim and no new remote task claim was found. M0-07 is unchecked **untriaged backlog, not READY**; no CI workflow exists. Its documented local checkout/Python >=3.12 prerequisites are available and the local fast gate is already validated, but it has no READY/ownership record. No unresolved architecture or organizer answer was identified for the narrow fast-CI scope. Under AGENTS' explicit READY selection rule and this task's stop condition, no new implementation was claimed. M0-03's smoke/quick behavior is already covered by recorded passing gates; its unchecked box is a bookkeeping gap, not evidence of a failing baseline. Other untriaged M0 boxes were not silently promoted to READY or marked DONE.
 
@@ -79,11 +83,12 @@ Queue re-evaluation after PR #11 (2026-09-08): no open/draft PR claim and no new
 | M0-01, then downstream core consumers | Minimal baseline delivered by PR #13; re-evaluate each consumer's own prerequisites, without restoring deferred abstractions | Resolved for the delivered subset; no blanket downstream READY promotion |
 | M4-01 / M9-01 | Separately deliver/review preserved provider/evaluation inputs; synthetic work needs no live credentials | d, then c; live M4 additionally needs b: Q-K-01/02/03 |
 | M1-03 and engine-dependent ingestion | Record Q-TEAM-02 outcome before selecting an analytical engine | a: team decision |
-| M1-10 | PARTIAL on PR #16; inspect targeted/fast validation and remote check before review/merge | Implementation delivered on task branch only; no unresolved prerequisite in this scope |
+| M1-10 | DONE; PR #16 merged at `400fe58` with passing targeted tests and fast gates | Resolved |
+| M0-08 / `main` release validation | Make `make full` pass, or record reviewed typed-boundary exceptions, before the next `dev -> main` promotion | Defect in already merged code; no organizer answer or team choice needed |
 | M0-07 | DONE; PR #15 merged at `5f93df7` with a passing Fast PR gate | Resolved; generic foundation phase is complete by team direction |
 | Live sources / demo paths | Obtain the recorded Kloudeks, data/network, environment and cache/persistence answers; retain separate unresolved framework choices | b: organizer answers (Q-K-01/02/03, Q-DATA-01/03, Q-NET-01/02, Q-INFRA-01/02); a: team choices in DECISIONS |
 
-M0-01 and M0-07 are delivered. The team closed the generic foundation phase and selected M1-10; its current implementation/handoff is below. Preserve the stash and recheck ownership before subsequent work.
+M0-01, M0-07 and M1-10 are delivered and merged; their records are below. No task is claimed. Preserve the stash and recheck ownership before subsequent work.
 
 The PR #11 scan is historical; M0-01 completion and the requested post-PR #13 M1-10 review supersede its affected entries. M0-01 application validation is recorded below. If a READY task reveals a missing prerequisite, record it rather than claiming success.
 
@@ -242,14 +247,14 @@ Local checkout and Python >=3.12 for later application validation. No live Kloud
 - [ ] M0-05 — Reconcile provisional Kloudeks variable names with the stub; label them local conventions until Q-K-01 is answered.
 - [ ] M0-06 — Inspect repository privacy, branch protection, and remote CI only in an authorized setup task; local branches alone do not prove remote settings.
 - [x] M0-07 — Status: DONE. Owner: Çağatay; Branch: `feature/m0-07-fast-ci`. Add a fast feature-to-dev CI workflow; required checks and handoff are in the active record below. PR #15 merged at `5f93df7`; validated tree unchanged.
-- [ ] M0-08 — Add the separate manual/release full gate without making it run after every edit.
+- [ ] M0-08 — Status: READY. Owner: unassigned. The [Makefile](../Makefile) `full` target already exists and is correctly kept out of the per-edit loop, but it does not pass: `mypy src` reports 14 strict errors in the merged XLSX code. Make the release gate green, or record reviewed exceptions, before the next `dev -> main` promotion. Evidence: [M0-08 active record](#m0-08-active-record).
 - [ ] M0-09 — Confirm synthetic/public-safe fixture policy and document where local private inputs may be stored before accepting them.
 - [ ] M0-10 — Document an actual successful setup command/result on a teammate's Python >=3.12 environment.
 - [ ] M0-11 — Record the validated core contract baseline and named editor/reviewer before shared contract changes.
 - [ ] M0-12 — Run targeted/quick checks and the fast PR gate for foundation work, including boundary/contract negative tests; full checks belong to checkpoint gates or explicit requests.
 - [ ] M0-13 — Record implementation evidence and the next ready task after validation.
 - [x] M0-DOC — Status: DONE. Documentation checks passed; [PR #1](https://github.com/cagatayeroglu/KKB-DataTrio/pull/1) merged both documentation commits into `dev` at `fe5d44a`; evidence recorded below.
-- [ ] M0-HANDOFF — Status: PARTIAL. Document startup with zero chat history, visible task claims, ownership transfer, concise handoffs, and merge-based DONE. Owner: Codex for the initiating repository owner; Branch: `docs/team-handoff-protocol` from `fe5d44a`. Acceptance: the startup prompt selects an eligible unowned READY task using Git/PR history and targeted docs, preserves unrelated work, and stops on unresolved ownership/decisions; document checks pass and PR merges into `dev` before DONE.
+- [x] M0-HANDOFF — Status: DONE. [PR #2](https://github.com/cagatayeroglu/KKB-DataTrio/pull/2) merged into `dev` at `a5d6ee8`; the record below was left stale at PARTIAL and is corrected by this task. Document startup with zero chat history, visible task claims, ownership transfer, concise handoffs, and merge-based DONE. Owner: Codex for the initiating repository owner; Branch: `docs/team-handoff-protocol` from `fe5d44a`. Acceptance: the startup prompt selects an eligible unowned READY task using Git/PR history and targeted docs, preserves unrelated work, and stops on unresolved ownership/decisions; document checks pass and PR merges into `dev` before DONE.
 
 ## Acceptance criteria
 
@@ -326,12 +331,27 @@ A teammate can install the declared development environment, run recorded quick 
 - Blocker: none for delivered M0-07
 - Handoff: The team considers the generic repository/foundation phase complete after this merge. Continue the explicitly assigned M1-10; do not manufacture more foundation/security/documentation tasks or mark unrelated backlog boxes DONE. `main` and the original Day 0 stash remain untouched.
 
+### M0-08 active record
+
+- Status: READY — unowned; promoted on 2026-09-09 on reproducible failing-gate evidence
+- Owner: unassigned
+- Branch: —
+- PR: —
+- Commit: —
+- Objective: Make the existing `dev -> main` release gate pass, so that promoting `dev` to `main` means something.
+- Finding: `make full` fails on `dev` `400fe58` and on `main` `722c2af`. `mypy src` reports 14 strict errors: [xlsx_loader.py](../src/kkb_agent/xlsx_loader.py) 11 (missing return/parameter annotations, `Any` returns, bare `dict` generics, a `str | None` index, and an untyped `openpyxl` import), [_xlsx_package.py](../src/kkb_agent/_xlsx_package.py) 2 (unchecked `re.Match | None` index; an incompatible handler assignment), and [xlsx_sheets.py](../src/kkb_agent/xlsx_sheets.py) 1 (untyped `openpyxl` import). `pyproject.toml` sets `strict = true`, so this is a real gate failure, not configuration drift.
+- Scope note: the `full` half of M0-08's original wording is already satisfied — the target exists in the [Makefile](../Makefile), CI only runs `make pr`, and no per-edit full check was added. What remains is making that target pass.
+- Acceptance: `make full` passes on a fresh checkout of `dev`, or each remaining error is recorded here as an explicit reviewed exception with its reason. Add `types-openpyxl` (typing-only, development extra) or a scoped, justified `openpyxl` ignore rather than relaxing `strict`. No loader behaviour change, no new runtime dependency, no relaxation of repository-wide typing without a recorded decision.
+- Tests: NOT RUN for a fix; the failing baseline above was reproduced on 2026-09-09 with Python 3.12.5 and mypy 1.20.2 from the declared development extra.
+- Blocker: none; no organizer answer or team choice is required.
+- Handoff: `main` currently carries an unmet release gate. Either close this task before the next `dev -> main` promotion, or record explicitly in the promotion PR that the full gate was knowingly skipped. Do not describe `main` as release-validated in the meantime.
+
 ### M0-HANDOFF active record
 
-- Status: PARTIAL — document validation passed; awaiting PR review/merge
+- Status: DONE — merged into `dev` at `a5d6ee8`; corrected on 2026-09-09 by the M1-10 completion task after Git showed the merge
 - Owner: Codex for the initiating repository owner; Eray/Arda unassigned
 - Branch: `docs/team-handoff-protocol`; base `fe5d44ab74e60633ef52c5ba4de7a5a5ca8fa083`
-- PR: [#2](https://github.com/cagatayeroglu/KKB-DataTrio/pull/2) — open, `docs/team-handoff-protocol` -> `dev`; no merge authorized for this second PR
+- PR: [#2](https://github.com/cagatayeroglu/KKB-DataTrio/pull/2) — merged, `docs/team-handoff-protocol` -> `dev` at `a5d6ee8`; branch deleted
 - Commit: `0f73cbb077f0e091cbffe17be213e18fb6c723e4` implements the protocol; the PR head also includes this handoff-reference update
 - Tests: PASS (2026-09-08): full relevant diff/contradiction review, `git diff --check`, Python standard-library link/anchor/task/evidence checks (57 tracked local links, 198 unique task IDs including only one new ID), fresh-`dev` ancestry, and stash hash preservation. Application/security/full checks NOT RUN by task scope
 - Blocker: none for documentation; no CI workflow exists
@@ -355,7 +375,7 @@ Record failures/tooling gaps and keep the task unchecked if either command fails
 <a id="m1"></a>
 # M1 — Generic data ingestion/profiling
 
-Status: PARTIAL — M1-01 specification and M1-02 admission guards merged into `dev`. No loader/profile implementation is established. The Day 0 SourceAdapter protocol remains stash-only, not delivered in `dev`.
+Status: PARTIAL — M1-01 specification, M1-02 admission guards, M1-04/M1-05 CSV fixtures, M1-09 XLSX fixtures/sheet selection and M1-10 bounded XLSX loading are merged into `dev`. No CSV loader, profiler or adapter registry is established. The Day 0 SourceAdapter protocol remains stash-only, not delivered in `dev`.
 
 ## Objective
 
@@ -376,7 +396,7 @@ M0 validated contracts for implementation; Q-TEAM-02 for engine dependency selec
 - [ ] M1-07 — Detect date-like columns without silently choosing between ambiguous day/month interpretations.
 - [ ] M1-08 — Detect numeric columns and report coercion failures without dropping rows silently.
 - [x] M1-09 — Status: DONE. Owner: Çağatay; Branch: `feature/m1-09-xlsx-fixtures`. Add single-sheet and multi-sheet XLSX fixtures; list sheets and require explicit selection when ambiguous.
-- [ ] M1-10 — Status: PARTIAL. Owner: Çağatay; Branch: `feature/m1-10-bounded-xlsx-loading`. Implement XLSX loading with formula/macro and expansion limits from SECURITY. Prerequisites and acceptance: [readiness record](#m1-10-readiness-record).
+- [x] M1-10 — Status: DONE. Owner: Çağatay; Branch: `feature/m1-10-bounded-xlsx-loading`, merged and deleted. Implement XLSX loading with formula/macro and expansion limits from SECURITY. [PR #16](https://github.com/cagatayeroglu/KKB-DataTrio/pull/16) merged into `dev` at `400fe58`, with the validated tree unchanged. Evidence: [completion record](#m1-10-completion-record).
 - [ ] M1-11 — Record original filename as metadata, retrieval/ingestion timestamp, source identity, and safe data reference; never treat the filename as a destination path.
 - [ ] M1-12 — Profile row/column counts, missingness, duplicate dates, date range, and frequency candidates; preserve unknowns.
 - [ ] M1-13 — Return structured failures for empty CSV, header-only data, malformed rows, corrupt XLSX, and unsupported type.
@@ -477,9 +497,9 @@ Known fixtures produce exact expected row counts/types/source references. Ambigu
 - Blocker: none for delivered M1-09. The Day 0 stash remains unchanged and unapplied.
 - Historical PR #12 handoff: M1-09 was delivered with unchanged validated tree; the then-current global scan found no READY task. Its M0-01/M1-10 blockers are superseded by the post-PR #13 readiness record below. M1-03 remains blocked on Q-TEAM-02; no M1-09 implementation or validation was changed in this recheck.
 
-### M1-10 readiness record
+### M1-10 completion record
 
-- Status: PARTIAL — implemented and validated on task branch; unchecked until PR #16 merges into `dev`
+- Status: DONE — [PR #16](https://github.com/cagatayeroglu/KKB-DataTrio/pull/16) merged into `dev` on 2026-09-08 at `400fe58f49e2c9513f77799090030313dcc55088`; the merged tree matches validated head `4921d99`. Branch deleted; verified on 2026-09-09
 - Owner: Çağatay
 - Branch: `feature/m1-10-bounded-xlsx-loading`; fresh `dev` base `5f93df71b2ddefab7fb668f0daca89fddfb4f068`
 - PR: [#16](https://github.com/cagatayeroglu/KKB-DataTrio/pull/16) -> `dev`; draft claim published before implementation
@@ -492,8 +512,9 @@ Known fixtures produce exact expected row counts/types/source references. Ambigu
 - Bounds / policy: Reuse M1-02 admission before the worker. Stream every package part to EOF for actual expansion/CRC/XML checks; enforce entry/sheet/grid/field budgets, safe internal relationship targets and actual ordered cell coordinates rather than declared dimensions. XML nesting is capped at 64 and nodes per part at `8 * max_cells + 100000`. Materialized/serialized table output also uses `max_expanded_bytes` (50 MiB default). Formula cells and cached values, defined names, DTD/entities, macros, external relationships, merged cells, cell errors and non-XML embedded/image parts are conservatively rejected; no recalculation or freshness claim. A fixed spawn worker is terminated/killed and reaped at `max_parser_seconds` (5 seconds default), with private generated output removed on success/failure; Linux additionally caps address space at max(512 MiB, 8 * expanded-byte budget). No user/model-provided executable target or filesystem path.
 - Tests: PASS (2026-09-08; Python 3.12.2, openpyxl 3.1.5, existing temporary dependency environment): `python3.12 -m pytest -q tests/unit/test_xlsx_loader.py` with `PYTHONPATH=/private/tmp/kkb-m109-deps:src` — 52 passed in 4.97s (5.70s wall) with optional openpyxl LXML/DEFUSEDXML backends disabled to exercise the standard-library path used by CI. `make quick` — 245 passed in 9.54s (10.56s wall), using the existing local backend; `make pr` — 245 passed in 9.67s (11.15s wall) with those optional backends disabled, plus Ruff 0.8.6 format/lint, Bandit 1.7.10 and secret scan. Tests cover exact fixtures/provenance/unknowns, ambiguous sheets, false dimensions, sparse gaps, empty/corrupt data, path/MIME rejection before worker start, formulas/caches, DTD/encoding/suffix bypass, relationships, actual expansion/output exhaustion, worker crash/timeout/reaping and private-output cleanup. No full/release checks, new dependencies or fixture changes.
 - Remote check: Fast PR triggered on `7a94c11`; [first implementation run](https://github.com/cagatayeroglu/KKB-DataTrio/actions/runs/34260756751) failed on a new synthetic test that assumed one XML empty-tag spelling. Reproduced locally with `OPENPYXL_LXML=False`; fixed test generation to set explicit cell types through openpyxl and verified cached-formula fixture content for either writer. The next run exposed a Ruff-version layout difference in the same test helper; simplified that helper without changing its assertion. Both local fast gates pass; inspect the new head's Fast PR check on PR #16 before merge. No CI/dependency change was needed.
-- Blocker: none known in the approved bounded XLSX scope. Q-TEAM-02 still blocks engine selection, not this DEC-111 parser.
-- Limitations / handoff: Review PR #16 and its latest Fast PR check; keep PARTIAL until merge. Caller controls input-stream I/O timeout and trusted source identity; parser deadline covers the worker, with bounded startup/cleanup/output handling overhead. Spawn callers need the standard main-module guard. No shared core contract change, full profiler, CSV loader, adapter registry/persistence, planner/provider/UI, new foundation task or stash recovery. M1-11 (filename/time/source/safe-reference integration) is the next candidate to triage after merge; it is not claimed or promoted READY by this task. M1-03 remains blocked on Q-TEAM-02.
+- Blocker: none in the delivered bounded XLSX scope. Q-TEAM-02 still blocks engine selection, not this DEC-111 parser. The strict-typing gap this code leaves in `make full` is tracked separately as M0-08, not as an M1-10 regression.
+- Post-merge verification (2026-09-09, Eray): merge inspected on freshly fetched `dev`; branch `feature/m1-10-bounded-xlsx-loading` deleted locally and remotely, no open PR remains. Independent revalidation on the merged tree with a clean Python 3.12.5 virtual environment and the declared dependencies (Ruff 0.16.6, Bandit 1.9.4, mypy 1.20.2, openpyxl 3.1.5): `ruff format --check src tests scripts` — 19 files already formatted; `ruff check src tests scripts` — all checks passed; `pytest -q tests/unit --disable-warnings --maxfail=1` — 245 passed in 6.51s; `bandit -q -r src` — clean; `python scripts/check_secrets.py` — clean. `pytest -q` over the whole suite — 245 passed. `mypy src` — 14 errors, recorded under M0-08. `make pr` therefore passes and `make full` does not.
+- Limitations / handoff: Caller controls input-stream I/O timeout and trusted source identity; parser deadline covers the worker, with bounded startup/cleanup/output handling overhead. Spawn callers need the standard main-module guard. No shared core contract change, full profiler, CSV loader, adapter registry/persistence, planner/provider/UI, new foundation task or stash recovery. M1-11 (filename/time/source/safe-reference integration) remains the next M1 candidate to triage; it is not claimed or promoted READY. M1-03 remains blocked on Q-TEAM-02.
 
 
 ## Handoff notes
