@@ -20,6 +20,10 @@ This file owns **execution truth**. [ARCHITECTURE](ARCHITECTURE.md) owns technic
 
 Latest verification (2026-09-09): M1-10 is DONE — [PR #16](https://github.com/cagatayeroglu/KKB-DataTrio/pull/16) merged into `dev` at `400fe58f49e2c9513f77799090030313dcc55088`, with the validated tree unchanged. [PR #17](https://github.com/cagatayeroglu/KKB-DataTrio/pull/17) then promoted `dev` to `main` at `722c2afaea419e5b270a8531bcd6690d44e53027`; both branches now hold the same tree, every task branch is deleted and no PR is open. No task is claimed or IN PROGRESS. Delivered runtime scope is file admission, bounded XLSX loading and the minimal core contracts; no CSV loader, profiler, adapter registry, provider, planner, analytics tool or UI exists. The older snapshot below is historical; current task records supersede it.
 
+Architecture frozen (2026-09-09, M0-ARCH): the technology stack is decided and recorded as DEC-112 through DEC-126, and [Q-TEAM-01 through Q-TEAM-05](OPEN_QUESTIONS.md#priority-queue) are ANSWERED. DuckDB with Parquet and Pandas is the engine and lakehouse; orchestration is a custom bounded loop; retrieval is LanceDB with DuckDB FTS, RRF and an alias dictionary; the workspace is an artifact DAG in DuckDB; provenance is a typed lineage graph gating a verifier; causality reports association with stated limits; the six brief-named tools carry Pydantic schemas and restricted text-to-SQL; the front end is Next.js over FastAPI with SSE. Two milestones were added for work the previous plan had no home for: [M12](#m12) lakehouse and medallion normalization, and [M13](#m13) semantic catalog and retrieval. **No decision below is implemented code** — every one of them still has to be built.
+
+The internal blockers are now gone; the remaining ones are organizer answers. Q-K-01/02/03 gate every live model path, Q-K-05 gates the dense half of retrieval, Q-NET-01/02 gate the `web_search` and `web_url` tools, Q-DATA-01 gates live source retrieval, and Q-INFRA-01 can override DEC-126. These have external latency, so ask them now rather than when the affected task starts.
+
 Release-gate finding (2026-09-09, Eray): the promoted tree does **not** pass `make full`. `pytest -q` (245 passed), `ruff format --check`, `ruff check`, Bandit and `scripts/check_secrets.py` pass, but `mypy src` reports 14 strict errors — 11 in [xlsx_loader.py](../src/kkb_agent/xlsx_loader.py), 2 in [_xlsx_package.py](../src/kkb_agent/_xlsx_package.py) and 1 missing-stub error in [xlsx_sheets.py](../src/kkb_agent/xlsx_sheets.py). PR #17 merged `dev` into `main` without that gate passing, so `main` is a convenience checkpoint rather than a release-validated tree. Tracked as M0-08; do not describe `main` as release-validated until it closes.
 
 Snapshot: **2026-09-08**, after PR #1 merged into `dev` and the local Day 0 files were preserved in a stash. Days below are relative workdays, not confirmed event dates. Recheck Git/PR state on each new session; this snapshot is not a branch-switch instruction.
@@ -63,8 +67,10 @@ For a general “continue,” use the first eligible unchecked READY task with n
 | 9 | M1-09 | DONE — [PR #11](https://github.com/cagatayeroglu/KKB-DataTrio/pull/11) merged into `dev` at `3e70542`; validated tree unchanged | XLSX fixtures/discovery/selection and passing fast gates delivered |
 | 10 | M1-10 | DONE — [PR #16](https://github.com/cagatayeroglu/KKB-DataTrio/pull/16) merged into `dev` at `400fe58`; validated tree unchanged | Bounded XLSX loading delivered; CSV loading, profiling and provenance integration remain open |
 | 11 | M0-08 | READY — unassigned on 2026-09-09; `make full` fails `mypy src` on the current `dev`/`main` tree | Green release gate, or an explicitly recorded typed-boundary exception, before the next `dev -> main` promotion |
+| 12 | M0-ARCH | Status in its [active record](#m0-arch-active-record); architecture and stack decisions | DEC-112 through DEC-126 recorded, Q-TEAM questions closed, M12 and M13 added |
+| 13 | M1-03 | READY — unassigned; unblocked by DEC-112/DEC-124 once M0-ARCH merges | Runtime manifest reconciled with the decided stack; no loader behaviour change |
 
-READY requires satisfied prerequisites, no active owner, and the fresh-`dev` workflow below. M0-01, M0-07 and M1-01/02/04/05/09/10 are merged; Python >=3.12 is available. The 2026-09-09 rescan found no remote task branch, no open PR and no published claim, so nothing is owned. M0-08 is the only entry this bookkeeping task promotes to READY, on the concrete failing-gate evidence above. M1-11 is the next M1 candidate but stays untriaged here rather than being silently promoted. M1-03 and engine-dependent work remain blocked on Q-TEAM-02; M4-01/M9-01 still need separate authorization/delivery. The original stash remains intact. Older READY mentions for completed tasks do not describe the current queue. Recheck ownership before claiming; never reuse a merged branch or invent validation to unblock work.
+READY requires satisfied prerequisites, no active owner, and the fresh-`dev` workflow below. M0-01, M0-07 and M1-01/02/04/05/09/10 are merged; Python >=3.12 is available. The 2026-09-09 rescan found no remote task branch, no open PR and no published claim, so nothing is owned. M0-08 was promoted on the concrete failing-gate evidence above, and M1-03 becomes READY once M0-ARCH merges, since DEC-112 and DEC-124 supply the manifest it was waiting for. M1-11 is the next M1 candidate but stays untriaged rather than being silently promoted. No engine blocker remains anywhere in M1, M2, M6 or M12; M4-01/M9-01 still need separate authorization/delivery, and M4 live transport still needs Q-K-01/02/03. The original stash remains intact. Older READY mentions for completed tasks do not describe the current queue. Recheck ownership before claiming; never reuse a merged branch or invent validation to unblock work.
 
 | Queued task | Task-specific acceptance once eligible |
 | --- | --- |
@@ -82,7 +88,7 @@ Queue re-evaluation after PR #11 (2026-09-08): no open/draft PR claim and no new
 | --- | --- | --- |
 | M0-01, then downstream core consumers | Minimal baseline delivered by PR #13; re-evaluate each consumer's own prerequisites, without restoring deferred abstractions | Resolved for the delivered subset; no blanket downstream READY promotion |
 | M4-01 / M9-01 | Separately deliver/review preserved provider/evaluation inputs; synthetic work needs no live credentials | d, then c; live M4 additionally needs b: Q-K-01/02/03 |
-| M1-03 and engine-dependent ingestion | Record Q-TEAM-02 outcome before selecting an analytical engine | a: team decision |
+| M1-03 and engine-dependent ingestion | Resolved by DEC-112; M1-03 is now dependency reconciliation, and M1-06/07/08 have no remaining engine blocker | Resolved |
 | M1-10 | DONE; PR #16 merged at `400fe58` with passing targeted tests and fast gates | Resolved |
 | M0-08 / `main` release validation | Make `make full` pass, or record reviewed typed-boundary exceptions, before the next `dev -> main` promotion | Defect in already merged code; no organizer answer or team choice needed |
 | M0-07 | DONE; PR #15 merged at `5f93df7` with a passing Fast PR gate | Resolved; generic foundation phase is complete by team direction |
@@ -207,21 +213,25 @@ Day 0 is bootstrap before the eight delivery days. If bootstrap must fit within 
 | Milestone | Scope | Current status | Target window |
 | --- | --- | --- | --- |
 | [M0](#m0) | Repository and development foundation | PARTIAL | Day 0 |
-| [M1](#m1) | Generic ingestion/profiling | NOT STARTED; M1-01 READY | Days 1–2 |
+| [M1](#m1) | Generic ingestion/profiling | PARTIAL — admission, fixtures and bounded XLSX loading merged | Days 1–2 |
 | [M2](#m2) | Financial semantics/normalization | NOT STARTED | Days 2–3 |
 | [M3](#m3) | BDDK/EVDS integration | BLOCKED for live access; fixtures can proceed after M1 | Days 1–5 as access permits |
 | [M4](#m4) | Kloudeks | PARTIAL; live transport BLOCKED | Days 0–3 as access permits |
-| [M5](#m5) | Planning/routing/workspace | PARTIAL — schemas/protocols only | Days 1–3 |
+| [M5](#m5) | Planning/routing/workspace | NOT STARTED; mechanism decided in DEC-113/DEC-117 | Days 1–3 |
 | [M6](#m6) | Deterministic analytics | NOT STARTED | Days 2–4 |
 | [M7](#m7) | URL/documents/external inputs | NOT STARTED; live policy unresolved | Day 5 |
 | [M8](#m8) | Verification/evidence/provenance | PARTIAL — record models only | Days 2–6 |
 | [M9](#m9) | Evaluation/adversarial benchmark | PARTIAL — schema and three cases only | Days 0–6, then continuously |
-| [M10](#m10) | UI/demo workflow | BLOCKED for framework/environment choice | Day 7; operator design can precede |
+| [M10](#m10) | UI/demo workflow | NOT STARTED; framework decided in DEC-123, hosting still Q-INFRA-01 | Day 7; operator design can precede |
 | [M11](#m11) | Hardening/rehearsal | NOT STARTED; upstream acceptance required | Days 8–9 |
+| [M12](#m12) | Lakehouse and medallion normalization | NOT STARTED; unblocked by DEC-112 | Days 1–4 |
+| [M13](#m13) | Semantic catalog and retrieval | NOT STARTED; unblocked by DEC-115/DEC-116 | Days 2–5 |
 
 ## Dependency and scope policy
 
-The critical path is M0 contracts -> M1 ingestion -> M2 minimum semantics -> M5 execution + M6 basic change -> M8 evidence -> M10 demo -> M11. M4 live access is required for the final live model path. M9 develops alongside each feature; do not wait until Day 6 to define expected outputs. M3/M7 depend on safe boundaries and source permissions. Milestone dependencies below name required subsets, not a requirement to finish every optional task upstream.
+The critical path is M0 contracts -> M1 ingestion -> M12 lakehouse and semantics -> M13 catalog -> M5 execution + M6 basic change -> M8 evidence -> M10 demo -> M11. M2 is the specification half of the normalization work that M12 implements against the chosen engine; they are worked together, not sequentially. M4 live access is required for the final live model path. M9 develops alongside each feature; do not wait until Day 6 to define expected outputs. M3/M7 depend on safe boundaries and source permissions. Milestone dependencies below name required subsets, not a requirement to finish every optional task upstream.
+
+M12 is where correctness is won or lost. Cumulative handling, frequency alignment and unit normalization decide whether every downstream number is right; no other milestone can compensate for an error there. Prefer a thin vertical slice through the whole path early — one series, loaded, normalized, queried, answered with evidence — over completing any single milestone horizontally.
 
 If behind schedule, cut fancy UI, optional image/exotic formats, router fine-tuning, advanced causality methods, deep observability, and extra agents. Keep typed plans, semantic correctness, evidence, safe inputs, and regressions. Record each cut and its demo consequence. Never advertise a cut/blocked format or live integration as supported.
 
@@ -349,16 +359,17 @@ A teammate can install the declared development environment, run recorded quick 
 
 ### M0-ARCH active record
 
-- Status: IN PROGRESS — claim published before content work
+- Status: PARTIAL — content complete and validated on the task branch; unchecked until its PR merges into `dev`
 - Owner: Eray
 - Branch: `docs/m0-arch-stack-decisions`; fresh `dev` base `8197829512926b6eb9c896ecfda6cac98f2dfb90`
-- PR: pending
-- Commit: pending
+- PR: [#19](https://github.com/cagatayeroglu/KKB-DataTrio/pull/19) -> `dev`; draft claim published before content work
+- Commit: claim `aba7360`; content commits recorded in the PR
 - Objective: Freeze the architecture and technology stack so that M1 onward stops waiting on unresolved team choices, and record every choice with its reason and rejected alternatives.
-- Scope: documentation only — DECISIONS, OPEN_QUESTIONS, ARCHITECTURE, ROADMAP and the README repository guide. No `pyproject.toml`, dependency, directory or code change; those belong to the implementation task that follows this merge.
-- Tests: pending; documentation tier only.
-- Blocker: none.
-- Handoff: pending.
+- Scope: documentation only — DECISIONS, OPEN_QUESTIONS, ARCHITECTURE, ROADMAP and the README repository guide, plus three inbound anchor fixes caused by renaming DEC-111. No `pyproject.toml`, dependency, directory or code change.
+- Delivered: [DEC-112](DECISIONS.md#dec-112--duckdb-and-parquet-as-the-analytical-engine-and-lakehouse) engine and lakehouse, [DEC-113](DECISIONS.md#dec-113--custom-bounded-orchestration-loop) orchestration, [DEC-114](DECISIONS.md#dec-114--pandas-with-calamine-for-operator-fetched-bulk-spreadsheets) bulk spreadsheets, [DEC-115](DECISIONS.md#dec-115--hybrid-series-retrieval-over-lancedb-and-duckdb-fts) retrieval, [DEC-116](DECISIONS.md#dec-116--alias-dictionary-single-turkish-normalizer-and-a-measured-recall-floor) aliases and recall floor, [DEC-117](DECISIONS.md#dec-117--analysis-workspace-as-a-persisted-artifact-dag) workspace DAG, [DEC-118](DECISIONS.md#dec-118--lineage-graph-as-the-provenance-substrate) lineage, [DEC-119](DECISIONS.md#dec-119--verifier-gates-the-answer) verifier, [DEC-120](DECISIONS.md#dec-120--causality-reports-association-with-stated-limits) causality, [DEC-121](DECISIONS.md#dec-121--six-brief-named-tools-with-typed-schemas-and-restricted-sql) tools, [DEC-122](DECISIONS.md#dec-122--llmprovider-interface-and-structured-output-fallback) provider, [DEC-123](DECISIONS.md#dec-123--fastapi-with-sse-behind-a-nextjs-front-end) API and front end, [DEC-124](DECISIONS.md#dec-124--dependency-manifest-and-excluded-technologies) dependencies, [DEC-125](DECISIONS.md#dec-125--source-layout-with-named-module-packages) layout, [DEC-126](DECISIONS.md#dec-126--single-vm-deployment-with-docker-compose) deployment. DEC-111 narrowed to the untrusted XLSX boundary. Q-TEAM-01 through Q-TEAM-05 closed. M12 and M13 added with their task lists.
+- Tests: documentation tier. Full diff review; `git diff --check` clean; a link and anchor pass over all tracked Markdown — 158 local links, 240 roadmap checkboxes, 227 unique task IDs, no broken file or anchor target. No application checks run and none required: no code, dependency or configuration file is touched.
+- Blocker: none. Q-K-05 constrains the dense half of DEC-115 and Q-INFRA-01 can override DEC-126, but neither blocks recording the decisions.
+- Handoff: Every architecture choice is now recorded with its reason and rejected alternatives, so no implementation task needs to reopen one. Nothing here is built. After merge, the first implementation task is M1-03 — reconcile `pyproject.toml` with the DEC-124 manifest and create the DEC-125 package directories — followed by a thin vertical slice through M12: one real series into `bronze`, normalized into `silver`, queried through DuckDB, answered with lineage. Ask the organizer questions named in the status section in parallel; they have external latency and gate M4, M7 and M13's dense half.
 
 ### M0-HANDOFF active record
 
@@ -397,13 +408,13 @@ Turn supported unfamiliar tables into bounded, profiled data references with exp
 
 ## Dependencies
 
-M0 validated contracts for implementation; Q-TEAM-02 for engine dependency selection. Contract examples and synthetic fixture design can proceed before the engine decision. File exposure requires SEC-FILE-01/02.
+M0 validated contracts for implementation. The engine question is closed by [DEC-112](DECISIONS.md#dec-112--duckdb-and-parquet-as-the-analytical-engine-and-lakehouse), so M1-03 and the loader tasks below are no longer blocked. File exposure requires SEC-FILE-01/02.
 
 ## Tasks
 
 - [x] M1-01 — Status: DONE. Owner: Çağatay; Branch: `feature/m1-01-ingestion-profile-spec`. Specify the ingestion/profile result contract: data reference, source reference, columns/types, row count, date/numeric candidates, missingness, and unresolved semantics. [Specification and synthetic examples](INGESTION_PROFILE.md) validated; PR #4 merged into `dev` at `cbb51ad`, with the validated tree unchanged.
 - [x] M1-02 — Status: DONE. Owner: Çağatay; Branch: `feature/m1-02-file-admission-policy`. Specify extension/MIME/content checks, byte/row/column limits, and storage paths before implementing loaders.
-- [ ] M1-03 — Select the analytical/parsing dependency only after the team records Q-TEAM-02/DECISIONS outcome.
+- [ ] M1-03 — Status: READY. Reconcile `pyproject.toml` with the DEC-124 manifest: add `duckdb`, `pandas>=2.2`, `pyarrow` and `python-calamine` as runtime dependencies, keep `openpyxl` for the untrusted path, and record the resulting environment. No loader behaviour change in this task.
 - [x] M1-04 — Status: DONE. Owner: Çağatay; Branch: `feature/m1-04-synthetic-csv-fixture`. Add a synthetic UTF-8 CSV fixture with date, numeric, text, and missing values.
 - [x] M1-05 — Status: DONE. Owner: Çağatay; Branch: `feature/m1-05-csv-edge-fixtures`. Add alternate delimiter, quoted field, BOM/encoding, and decimal/thousands-separator fixtures with explicit expected parsing.
 - [ ] M1-06 — Implement bounded CSV parsing; record which delimiter/encoding was used and reject ambiguous parsing safely.
@@ -703,7 +714,7 @@ Turn requests into validated tool runs and explicit state transitions with bound
 
 ## Dependencies
 
-Validated M0 contracts; synthetic provider double or M4 live provider; at least one deterministic fixture tool for the first slice. Resolve Q-TEAM-01 before framework adoption; no framework is required to specify tests.
+Validated M0 contracts; synthetic provider double or M4 live provider; at least one deterministic fixture tool for the first slice. The orchestration mechanism is settled by [DEC-113](DECISIONS.md#dec-113--custom-bounded-orchestration-loop) and the workspace shape by [DEC-117](DECISIONS.md#dec-117--analysis-workspace-as-a-persisted-artifact-dag); no framework is required to specify tests.
 
 ## Tasks
 
@@ -740,7 +751,7 @@ A synthetic request executes a typed plan through a registry and retains explici
 - Benchmark: Planner-failure and multi-turn cases planned.
 - Notes: `AnalyticalPlan` currently checks ordered unique dependencies; `PlanStep.arguments` remains a generic JSON dictionary.
 - Known limitations: A nonempty tool-name string is not allowlist validation; workspace model is not a persistence/service implementation.
-- Handoff: After M0-01, start M5-01/03 around a deterministic fixture tool; handle Q-TEAM-01 before framework adoption.
+- Handoff: After M0-01, start M5-01/03 around a deterministic fixture tool. The loop is our own code under DEC-113 and the workspace is the DuckDB artifact DAG of DEC-117; no framework evaluation is needed.
 
 ## Handoff notes
 
@@ -757,7 +768,7 @@ Produce reproducible financial/statistical results with stated prerequisites, sa
 
 ## Dependencies
 
-M1 data references, M2 operation-specific semantic policies, M5 tool registration, M8 evidence-record interface. Exact advanced causality method depends on Q-TEAM-04; basic descriptive tools do not.
+M1 data references, M2 operation-specific semantic policies, M5 tool registration, M8 evidence-record interface. The causality method is fixed by [DEC-120](DECISIONS.md#dec-120--causality-reports-association-with-stated-limits); basic descriptive tools do not.
 
 ## Tasks
 
@@ -771,7 +782,7 @@ M1 data references, M2 operation-specific semantic policies, M5 tool registratio
 - [ ] M6-08 — Reject or explicitly flag too few observations and constant series; avoid invalid/undefined statistics.
 - [ ] M6-09 — Implement lag analysis with a clear lag sign, bounded search window, and per-lag sample counts.
 - [ ] M6-10 — Test non-stationary/spurious-correlation examples and prevent an association result becoming causal prose.
-- [ ] M6-11 — Resolve exact causality method/prerequisites in Q-TEAM-04 before implementing a causal/statistical test.
+- [ ] M6-11 — Implement the DEC-120 causality tool: lagged cross-correlation and Granger tests via `statsmodels`, with mandatory printed limitations and no "X causes Y" phrasing.
 - [ ] M6-12 — Implement supported causality method only if justified/time permits; otherwise record explicit scope cut and abstention behavior.
 - [ ] M6-13 — Reuse M2 deflation with reference-period evidence; never compare nominal and real measures silently.
 - [ ] M6-14 — Generate deterministic table/chart data from tool outputs; formatting must not recompute material values through the model.
@@ -960,7 +971,7 @@ Update the command registry in EVALUATION when a runner actually exists. Keep li
 <a id="m10"></a>
 # M10 — UI / demo workflow
 
-Status: BLOCKED for implementation choice — Q-TEAM-03 and Q-DEMO-01. Operator-flow specification can proceed.
+Status: NOT STARTED. Framework settled by [DEC-123](DECISIONS.md#dec-123--fastapi-with-sse-behind-a-nextjs-front-end); hosting still depends on Q-INFRA-01 and demo format on Q-DEMO-01. Operator-flow specification can proceed.
 
 ## Objective
 
@@ -974,7 +985,7 @@ A minimal M1/M4/M5/M6/M8 slice for live integration; confirmed demo environment/
 
 - [ ] M10-01 — Specify operator steps: load/select source, ask question, inspect plan, inspect result/evidence, follow up, recover/reset.
 - [ ] M10-02 — Confirm demo time, environment, audience interaction, and allowed fallback assets in Q-DEMO-01/02/03.
-- [ ] M10-03 — Choose the frontend approach through Q-TEAM-03; record installation/runtime consequences.
+- [ ] M10-03 — Scaffold the DEC-123 client in `web/` — Next.js, Tailwind, shadcn/ui, TanStack Table, react-plotly.js, React Flow — against the agreed API contract; record installation and runtime consequences.
 - [ ] M10-04 — Implement source upload/selection UI through validated backend boundaries.
 - [ ] M10-05 — Show workspace source selections, assumptions, and unresolved semantics clearly.
 - [ ] M10-06 — Show plan/progress and bounded failure states without exposing provider internals or secrets.
@@ -1059,3 +1070,101 @@ The candidate is reproducible, applicable full checks and benchmark meet recorde
 ## Handoff notes
 
 Keep the final record compact but reproducible: revision, environment, commands/results, scorecard reference, limitations, operator script, and permitted fallback. Publishing/merging is not implied by completion of local checks.
+
+<a id="m12"></a>
+# M12 — Lakehouse and medallion normalization
+
+Status: NOT STARTED. Unblocked by [DEC-112](DECISIONS.md#dec-112--duckdb-and-parquet-as-the-analytical-engine-and-lakehouse); no lakehouse code exists.
+
+## Objective
+
+Turn retrieved BDDK and EVDS sources into analysis-ready facts on a canonical time spine, with unit, frequency, stock/flow and cumulative semantics recorded explicitly rather than inferred. This milestone decides whether every downstream number is correct.
+
+## Dependencies
+
+M0-01 contracts and M1 loading for input; DEC-112 for the engine, DEC-114 for bulk spreadsheet reading, DEC-118 for lineage writes. M2 owns the normalization policy specifications this milestone implements. Live retrieval needs M3 and Q-DATA-01; synthetic and already-downloaded fixtures need neither.
+
+## Tasks
+
+- [ ] M12-01 — Create the DuckDB database and the `bronze`/`silver`/`gold` Parquet layout with a documented schema per layer; commit the database definition, which is a required deliverable.
+- [ ] M12-02 — Write every retrieved artifact to `bronze` with its bytes, SHA-256, source locator and retrieval timestamp; never edit a bronze object in place.
+- [ ] M12-03 — Define the `silver` series row shape: series ID, period, value, unit, scale, frequency, stock/flow, cumulative behaviour, source vintage, and an explicit unknown for each semantic that is genuinely unknown.
+- [ ] M12-04 — Implement the canonical time spine and period labelling, with inclusive/exclusive range behaviour and timezone/calendar conventions stated once.
+- [ ] M12-05 — Implement cumulative detection: distinguish a series cumulative since first publication, a series that resets each January, and a plain flow series, and report low confidence rather than guessing.
+- [ ] M12-06 — Implement non-reset cumulative-to-flow differencing, requiring the preceding baseline for the first derived period. **No merge without unit tests.**
+- [ ] M12-07 — Implement yearly-reset cumulative conversion with January and missing-prior-period boundary cases. **No merge without unit tests.**
+- [ ] M12-08 — Implement frequency alignment for daily, weekly and monthly sources, including weeks that cross a month boundary; do not assume equal row spacing implies a known reporting calendar.
+- [ ] M12-09 — Store the aggregation policy in each series' metadata — stock to period end, flow summed, rate by its recorded rule — and read it from metadata rather than branching on the series name in code.
+- [ ] M12-10 — Implement unit and scale normalization for TRY, thousand TRY and million TRY with the applied factor recorded; make unit a required field and reject a series without one.
+- [ ] M12-11 — Implement percentage, decimal and basis-point conversion, distinguishing percentage points from relative percent change.
+- [ ] M12-12 — Preserve revisions and source vintages; never collapse conflicting historical observations silently.
+- [ ] M12-13 — Build `gold` joins on the canonical spine with explicit missing-value treatment and observed sample counts.
+- [ ] M12-14 — Write lineage nodes and edges for every transformation in this milestone; a produced cell without lineage fails review.
+- [ ] M12-15 — Add hand-calculated fixtures for each cumulative, aggregation, frequency and unit rule, plus negative tests for unknown unit, unknown frequency and unknown reset behaviour.
+- [ ] M12-16 — Run targeted normalization tests and touched-code lint; record which policies are implemented and which still need source confirmation.
+
+## Acceptance criteria
+
+A known synthetic bulletin with a January reset converts to the hand-calculated flow series exactly. A daily and a monthly series align on the canonical spine with correct sample counts. A series with unknown unit or unknown reset behaviour is rejected or surfaced as unknown, never silently normalized. Every value in `gold` traces to a `bronze` object through recorded transformations.
+
+## Evidence / implementation record
+
+- Owner: Unassigned; suggested lane A.
+- Branch: —
+- PR: —
+- Commit: —
+- Tests: NOT RUN; no implementation.
+- Benchmark: Planned semantic cases in EVALUATION.
+- Known limitations: Real BDDK format variation across the 2021–2026 window is not yet inspected; task estimates assume it is worse than the current fixtures suggest.
+- Handoff: Start from M12-01 through M12-03 on synthetic fixtures; real-source inspection belongs to M3-02/M3-03 and can proceed in parallel.
+
+## Handoff notes
+
+Do not infer unit or stock/flow meaning from a numeric dtype. A parsed table is not a normalized series. When cumulative behaviour is ambiguous, surface both interpretations or ask; a silently chosen one is indistinguishable from a correct one until the demo.
+
+<a id="m13"></a>
+# M13 — Semantic catalog and retrieval
+
+Status: NOT STARTED. Unblocked by [DEC-115](DECISIONS.md#dec-115--hybrid-series-retrieval-over-lancedb-and-duckdb-fts) and [DEC-116](DECISIONS.md#dec-116--alias-dictionary-single-turkish-normalizer-and-a-measured-recall-floor); embedding model still needs Q-K-05.
+
+## Objective
+
+Let a Turkish financial question find the right series without hard-coded codes, and prove the retrieval works with a measurement rather than an assumption.
+
+## Dependencies
+
+M12 series metadata for content; DEC-122's `embed` method for vectors, which needs Q-K-05 for the model and its prefix convention. The alias dictionary, the normalizer, the BM25 index and the evaluation pairs need none of that and can proceed first.
+
+## Tasks
+
+- [ ] M13-01 — Define the catalog record: series ID, Turkish title, unit, frequency, source, coverage range and sample values.
+- [ ] M13-02 — Pull the EVDS series catalog from its endpoint and index it; never hard-code series codes anywhere in the system.
+- [ ] M13-03 — Implement one Turkish normalization function — dotted and dotless i, case folding, diacritic removal — and use it for both indexing and querying; add a test that fails if the two paths ever diverge.
+- [ ] M13-04 — Build the DuckDB full-text index over catalog metadata for BM25 retrieval.
+- [ ] M13-05 — Build the LanceDB collection for series metadata; keep the embedding call behind the provider interface so a blocked Q-K-05 does not block the rest.
+- [ ] M13-06 — Implement reciprocal rank fusion over the lexical and dense result sets.
+- [ ] M13-07 — Implement listwise reranking: hand twenty candidates to a small model, take the best five back as validated JSON.
+- [ ] M13-08 — Write the alias dictionary of roughly fifty concepts mapped to series identifiers; an exact hit bypasses retrieval entirely.
+- [ ] M13-09 — Write fifty question-to-series evaluation pairs by hand and measure recall@10; record the number.
+- [ ] M13-10 — Add the second LanceDB collection for document chunks retrieved by the `web_url` tool.
+- [ ] M13-11 — Test near-identical series titles: the system must resolve the ambiguity explicitly rather than pick the higher score.
+- [ ] M13-12 — Record measured recall, the weighting in use, and which part of the pipeline each failure came from.
+
+## Acceptance criteria
+
+A recall@10 number exists and is recorded, not asserted. An exact alias term returns its series without touching the vector index. Two similarly named series produce an explicit resolution step rather than a silent choice. Every returned candidate carries its unit and frequency, so the caller cannot use it without knowing its semantics.
+
+## Evidence / implementation record
+
+- Owner: Unassigned; suggested lane A or C.
+- Branch: —
+- PR: —
+- Commit: —
+- Tests: NOT RUN; no implementation.
+- Benchmark: The fifty pairs from M13-09 become a retrieval case set in EVALUATION.
+- Known limitations: Embedding model, vector dimension, batch limits and any query/passage prefix are unresolved (Q-K-05). A wrong prefix convention silently halves recall on an E5-family model.
+- Handoff: M13-03, M13-04, M13-08 and M13-09 need no model access; do them first, then measure what the dense half actually adds.
+
+## Handoff notes
+
+Do not trust embedding quality on Turkish financial vocabulary without the measurement. If measured recall is weak, move weight to BM25 and the alias dictionary; that is a supported outcome, not a failure to work around. A retrieval score is never evidence of correct semantics — the unit and frequency on the record are.
