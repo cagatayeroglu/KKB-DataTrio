@@ -619,7 +619,7 @@ Do not choose “sum” or “last” from frequency alone. Keep source vintage 
 <a id="m3"></a>
 # M3 — BDDK / EVDS integration
 
-Status: BLOCKED for live adapters — Q-DATA-01 and Q-NET-01/02. Offline adapter fixtures can proceed after M1.
+Status: PARTIAL — the BDDK bulletins are inventoried in [BDDK_SOURCE](BDDK_SOURCE.md) with their transports, units and cumulative behaviour measured. Live adapters remain BLOCKED on Q-DATA-01 and Q-NET-01/02; EVDS inspection (M3-03) is the next open piece.
 
 ## Objective
 
@@ -636,7 +636,7 @@ M1 adapter/ingestion contract, M2 relevant semantics, M7 safe fetch before live 
 - [ ] M3-03 — Identify representative EVDS series and date/unit/revision metadata with exact references.
 - [ ] M3-04 — Create synthetic source-shaped discovery/inspection/load fixtures without private source payloads.
 - [ ] M3-05 — Implement BDDK discovery/inspection mapping to the common contract.
-- [ ] M3-06 — Implement BDDK load/selection through bounded approved retrieval.
+- [ ] M3-06 — Implement BDDK load/selection through bounded approved retrieval. The endpoints, parameters and response shapes are in [BDDK_SOURCE](BDDK_SOURCE.md); the adapter must also supply BDDK's missing intermediate CA in an explicit trust bundle rather than disabling verification.
 - [ ] M3-07 — Implement EVDS discovery/inspection mapping to the same contract.
 - [ ] M3-08 — Implement EVDS load/date-range selection through bounded approved retrieval.
 - [ ] M3-09 — Preserve series IDs, titles, source release/vintage information, retrieval time, and limitations.
@@ -650,16 +650,21 @@ M1 adapter/ingestion contract, M2 relevant semantics, M7 safe fetch before live 
 
 ### M3-02 active record
 
-- Status: IN PROGRESS — claim published before implementation
+- Status: PARTIAL — inventory complete and validated on the task branch; unchecked until its PR merges into `dev`
 - Owner: Eray
 - Branch: `feature/m3-02-bddk-source-inventory`; fresh `dev` base `33e3bc2`
-- PR: pending
-- Commit: pending
-- Objective: Establish what the BDDK monthly bulletin actually publishes — retrieval mechanism, table set, units, frequency and cumulative behaviour — with exact references, so M12's normalization rules are written against the real source rather than an assumed shape.
+- PR: [#21](https://github.com/cagatayeroglu/KKB-DataTrio/pull/21) -> `dev`; draft claim published before implementation
+- Commit: claim `153a70a`; inventory recorded in the PR
+- Objective: Establish what the BDDK bulletins actually publish — retrieval mechanism, table set, units, frequency and cumulative behaviour — with exact references, so M12's normalization rules are written against the real source rather than an assumed shape.
 - Scope: read-only inspection of public published data and a written inventory. No adapter implementation, no retrieved payload committed, no credential involved.
-- Tests: pending.
-- Blocker: none for inspecting published data. M3-01 access/redistribution terms (Q-DATA-01) still gate a live retrieval adapter.
-- Handoff: pending.
+- Delivered: [BDDK source inventory](BDDK_SOURCE.md) covering the monthly, weekly and FinTürk bulletins — transports, parameters, response shape, table lists, declared units and observed cumulative behaviour.
+- Key findings: the three sources differ in transport, frequency **and scale**. FinTürk is quarterly and denominated in **Bin TL** while the monthly and weekly bulletins are **Milyon TL**, so joining them without reading each declared unit is a silent 1000x error. Cumulative behaviour is per table, not per source: monthly table 4 is a stock that decreases in 8 of 65 steps, while table 2 resets at all five observed January boundaries. The reference scenario's "kullanılan konut kredisi" maps to a stock, not disbursement, so it needs clarification rather than a lookup.
+- Evidence: all 66 periods from 2021/1 to 2026/6 retrieved for monthly tables 2 and 4 with zero errors, 134 responses inspected. Values quoted in the inventory come from those responses. Retrieval used the published site at roughly three requests per second.
+- Retrieval blocker found: `www.bddk.org.tr` omits its intermediate CA, so `httpx` against certifi fails with `CERTIFICATE_VERIFY_FAILED`. M3-06 must supply the missing issuer in an explicit trust bundle, and the demo environment must reproduce it. Disabling verification is not an acceptable resolution.
+- Tests: documentation tier. Full diff review; `git diff --check` clean; link and anchor pass over all tracked Markdown. No application checks apply — no code, dependency or configuration file is touched. The quoted figures were read directly from the retrieved responses, not transcribed by hand.
+- Data handling: responses were written to the ignored `data/raw/bddk/` path and are **not** committed; `git check-ignore` confirms `.gitignore:15` covers them. Redistribution remains Q-DATA-03.
+- Blocker: none for inspecting published data. M3-01 access terms (Q-DATA-01) still gate a live retrieval adapter.
+- Handoff: M12's normalization rules can now be written against measured behaviour. The next natural task is M3-03, the same inspection for EVDS, since the reference scenario needs the mortgage rate series and EVDS access may need a key. Revision behaviour, USD variants, the other 15 monthly tables and bank-group breakdowns remain uninspected.
 
 ## Acceptance criteria
 
@@ -1118,12 +1123,12 @@ M0-01 contracts and M1 loading for input; DEC-112 for the engine, DEC-114 for bu
 - [ ] M12-02 — Write every retrieved artifact to `bronze` with its bytes, SHA-256, source locator and retrieval timestamp; never edit a bronze object in place.
 - [ ] M12-03 — Define the `silver` series row shape: series ID, period, value, unit, scale, frequency, stock/flow, cumulative behaviour, source vintage, and an explicit unknown for each semantic that is genuinely unknown.
 - [ ] M12-04 — Implement the canonical time spine and period labelling, with inclusive/exclusive range behaviour and timezone/calendar conventions stated once.
-- [ ] M12-05 — Implement cumulative detection: distinguish a series cumulative since first publication, a series that resets each January, and a plain flow series, and report low confidence rather than guessing.
+- [ ] M12-05 — Implement cumulative detection: distinguish a series cumulative since first publication, a series that resets each January, and a plain flow series, and report low confidence rather than guessing. Detection is **per series, not per source** — [BDDK_SOURCE](BDDK_SOURCE.md) shows monthly table 4 is a stock and table 2 resets every January, in the same bulletin.
 - [ ] M12-06 — Implement non-reset cumulative-to-flow differencing, requiring the preceding baseline for the first derived period. **No merge without unit tests.**
 - [ ] M12-07 — Implement yearly-reset cumulative conversion with January and missing-prior-period boundary cases. **No merge without unit tests.**
 - [ ] M12-08 — Implement frequency alignment for daily, weekly and monthly sources, including weeks that cross a month boundary; do not assume equal row spacing implies a known reporting calendar.
 - [ ] M12-09 — Store the aggregation policy in each series' metadata — stock to period end, flow summed, rate by its recorded rule — and read it from metadata rather than branching on the series name in code.
-- [ ] M12-10 — Implement unit and scale normalization for TRY, thousand TRY and million TRY with the applied factor recorded; make unit a required field and reject a series without one.
+- [ ] M12-10 — Implement unit and scale normalization for TRY, thousand TRY and million TRY with the applied factor recorded; make unit a required field and reject a series without one. This is not hypothetical: FinTürk publishes Bin TL while the monthly and weekly bulletins publish Milyon TL, and the unit appears only in a caption or a display label.
 - [ ] M12-11 — Implement percentage, decimal and basis-point conversion, distinguishing percentage points from relative percent change.
 - [ ] M12-12 — Preserve revisions and source vintages; never collapse conflicting historical observations silently.
 - [ ] M12-13 — Build `gold` joins on the canonical spine with explicit missing-value treatment and observed sample counts.
