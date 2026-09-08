@@ -56,9 +56,9 @@ For a general “continue,” use the first eligible unchecked READY task with n
 | 6 | M1-02 | DONE — [PR #5](https://github.com/cagatayeroglu/KKB-DataTrio/pull/5) merged into `dev` at `e2287f7`; validated tree unchanged | Admission policy/guards and passing fast gates delivered |
 | 7 | M1-04 | DONE — [PR #8](https://github.com/cagatayeroglu/KKB-DataTrio/pull/8) merged at `0d4ecf9`; validated tree unchanged | Synthetic UTF-8 fixture and exact-table test delivered |
 | 8 | M1-05 | DONE — [PR #9](https://github.com/cagatayeroglu/KKB-DataTrio/pull/9) merged at `a548a54`; validated tree unchanged | CSV edge fixtures, declarations and passing fast gates delivered |
-| 9 | M1-09 | BLOCKED — unassigned; no existing repository XLSX-writing dependency | Obtain an explicit fixture-writing dependency decision; do not add a package or start another task automatically |
+| 9 | M1-09 | IN PROGRESS — Çağatay; `feature/m1-09-xlsx-fixtures`; openpyxl approved in DEC-111 | Synthetic single/multi-sheet XLSX fixtures and explicit sheet selection; see active record |
 
-READY requires satisfied prerequisites, no active owner, and the fresh-`dev` workflow below. M0-01, M4-01, and M9-01 need separately authorized Day 0 code delivery/recovery and a configured Python >=3.12 environment before returning to READY. Preserve the stash; never apply it to a documentation branch. A task explicitly covering that code may recover only its required files onto its fresh branch from latest `dev`, documenting origin. Without those inputs, choose the first independent eligible unclaimed entry; M0-04, M1-01, M1-02, M1-04 and M1-05 have merged. M1-09 cannot become READY under the current task constraints until the missing XLSX-writing dependency is explicitly resolved. No unchecked task is currently marked READY in this queue. M1-03 still requires Q-TEAM-02. Never reuse `feature/day0-core` for unrelated work or invent validation to unblock the queue.
+READY requires satisfied prerequisites, no active owner, and the fresh-`dev` workflow below. M0-01, M4-01, and M9-01 need separately authorized Day 0 code delivery/recovery and a configured Python >=3.12 environment before returning to READY. Preserve the stash; never apply it to a documentation branch. A task explicitly covering that code may recover only its required files onto its fresh branch from latest `dev`, documenting origin. Without those inputs, choose the first independent eligible unclaimed entry; M0-04, M1-01, M1-02, M1-04 and M1-05 have merged. M1-09 became eligible after the team explicitly approved openpyxl (DEC-111) and is now claimed. No other unchecked task is currently marked READY in this queue. M1-03 still requires Q-TEAM-02. Never reuse `feature/day0-core` for unrelated work or invent validation to unblock the queue.
 
 | Queued task | Task-specific acceptance once eligible |
 | --- | --- |
@@ -312,7 +312,7 @@ M0 validated contracts for implementation; Q-TEAM-02 for engine dependency selec
 - [ ] M1-06 — Implement bounded CSV parsing; record which delimiter/encoding was used and reject ambiguous parsing safely.
 - [ ] M1-07 — Detect date-like columns without silently choosing between ambiguous day/month interpretations.
 - [ ] M1-08 — Detect numeric columns and report coercion failures without dropping rows silently.
-- [ ] M1-09 — Status: BLOCKED. Owner: Unassigned; Branch: —. Add single-sheet and multi-sheet XLSX fixtures; list sheets and require explicit selection when ambiguous.
+- [ ] M1-09 — Status: IN PROGRESS. Owner: Çağatay; Branch: `feature/m1-09-xlsx-fixtures`. Add single-sheet and multi-sheet XLSX fixtures; list sheets and require explicit selection when ambiguous.
 - [ ] M1-10 — Implement XLSX loading with formula/macro and expansion limits from SECURITY.
 - [ ] M1-11 — Record original filename as metadata, retrieval/ingestion timestamp, source identity, and safe data reference; never treat the filename as a destination path.
 - [ ] M1-12 — Profile row/column counts, missingness, duplicate dates, date range, and frequency candidates; preserve unknowns.
@@ -398,16 +398,18 @@ Known fixtures produce exact expected row counts/types/source references. Ambigu
 - Blocker: none in M1-05 scope; M1-03 remains blocked on Q-TEAM-02. The Day 0 stash remains unchanged and unapplied.
 - Handoff: M1-05 is delivered. M1-03 remains blocked on Q-TEAM-02; M1-06/07/08 retain the milestone's unresolved validated M0 contracts/engine prerequisites. M1-09 was checked next and stopped before claiming because no suitable XLSX-writing dependency is declared. See its blocker record; no substitute task was started.
 
-### M1-09 readiness record
+### M1-09 active record
 
-- Status: BLOCKED — no suitable XLSX-writing dependency in the repository; implementation not started
-- Owner: Unassigned
-- Branch / PR / Commit: none for M1-09; this record is documentation-only handoff
-- Readiness: M1-01 specification and M1-02/04/05 policy/fixtures are delivered. No open PR or remote task-branch claim found on 2026-09-08. Fixture scope is independent of the unresolved runtime engine choice, but the current user request requires an existing repository writer and explicitly says to stop if none exists.
-- Evidence: [pyproject.toml](../pyproject.toml) is the only dependency manifest found; runtime dependencies contain only Pydantic, and the dev group contains Bandit, mypy, pip-audit, pytest and Ruff. Build requirements are setuptools/wheel. No XLSX-writing package or tracked XLSX fixture exists; no dependency was added and the preserved Day 0 stash was not inspected/applied.
-- Tests: NOT RUN — no M1-09 fixtures or implementation created; `make quick`/`make pr`/full/release gates not run for this documentation-only handoff. M1-05's passing validation above remains applicable to the identical merged tree.
-- Blocker: Explicit approval/recording of a suitable repository XLSX-writing dependency is required before creating fixtures. No package or architectural decision has been selected automatically.
-- Handoff: After resolving the dependency, recheck readiness/ownership and claim `feature/m1-09-xlsx-fixtures` from freshly updated `dev`. Preserve the exact task scope: single/multi-sheet synthetic XLSX fixtures with sheet-list/explicit-selection expectations; no real loader. No other unchecked/queued task currently has an explicit READY marker, and no alternative task was started. M1-03 and M1-06–08 remain blocked; CI/M0-07 is outside this task.
+- Status: IN PROGRESS — claim published before implementation; not complete until merge into `dev`
+- Owner: Çağatay
+- Branch: `feature/m1-09-xlsx-fixtures`; fresh base `eb0922c6249d558248bc98341ed367e646beceef` after PR #10 merged
+- PR: draft claim to be published before implementation
+- Commit: claim commit; implementation not yet started
+- Readiness: M1-01/02/04/05 are delivered; M1-05 is DONE in updated `dev`. No competing open PR or remote task-branch claim found on 2026-09-08. Explicit team approval of `openpyxl>=3.1,<4` is recorded in [DEC-111](DECISIONS.md#dec-111--openpyxl-for-xlsx-reading-writing-and-sheet-discovery), resolving the previous writer blocker without deciding Q-TEAM-02.
+- Tests: NOT RUN for M1-09 yet.
+- Scope: Single-sheet and multi-sheet synthetic XLSX fixtures plus a small sheet-discovery/selection helper. No full table loader, profile, financial inference, macro execution or external-link resolution.
+- Blocker: none within this explicitly authorized scope; M1-03 and M1-06–08 retain their documented prerequisites.
+- Handoff: Publish/recheck the draft claim, implement only M1-09, run targeted tests and `make quick`/`make pr`, then leave the implementation PR unmerged with PARTIAL evidence. Preserve the Day 0 stash.
 
 
 ## Handoff notes
