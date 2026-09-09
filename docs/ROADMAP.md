@@ -721,20 +721,33 @@ M0 contracts for offline validation; organizer endpoint/auth/model contract for 
 
 ## Tasks
 
-- [ ] M4-01 — Status: BLOCKED. Provider stub/tests are local-stash-only; obtain separately authorized task inputs before targeted tests/lint. Record environment parsing, SecretStr representation, and explicit pending-error behavior; live transport remains separately blocked.
+- [ ] M4-01 — Status: SUPERSEDED by [DEC-122](DECISIONS.md#dec-122--llmprovider-interface-and-structured-output-fallback), which fixes the interface directly. Recovering a Day 0 stub written before that decision would deliver the wrong shape, so the provider is written fresh; the stash stays intact and unapplied. Environment parsing, secret representation and pending-error behaviour are delivered under M4-06 and M4-09 instead.
 - [ ] M4-02 — Cover every stub method's non-networking failure path, not only synthesis, with synthetic inputs.
 - [ ] M4-03 — Record confirmed endpoint/authentication/credential-delivery details in Q-K-01 without recording secrets.
 - [ ] M4-04 — Record model IDs, context limits, tool/JSON capabilities, and rate/timeout quotas in Q-K-02/03/04.
-- [ ] M4-05 — Define capability reporting and structured-output fallback using confirmed platform features.
-- [ ] M4-06 — Implement environment-based configuration validation and safe missing/invalid-config errors.
+- [ ] M4-05 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m4-provider-interface`. Define capability reporting and structured-output fallback using confirmed platform features. Evidence: [M4 provider record](#m4-provider-record).
+- [ ] M4-06 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m4-provider-interface`. Implement environment-based configuration validation and safe missing/invalid-config errors. Evidence: [M4 provider record](#m4-provider-record).
 - [ ] M4-07 — Implement bounded organizer-approved transport behind LLMProvider; no hidden fallback to another provider.
-- [ ] M4-08 — Parse structured output into the requested schema; reject extra/malformed fields and unsupported tool arguments.
-- [ ] M4-09 — Add synthetic provider doubles for success, malformed JSON, refusal, timeout, rate limit, and unavailable model.
+- [ ] M4-08 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m4-provider-interface`. Parse structured output into the requested schema; reject extra/malformed fields and unsupported tool arguments. Evidence: [M4 provider record](#m4-provider-record).
+- [ ] M4-09 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m4-provider-interface`. Add synthetic provider doubles for success, malformed JSON, refusal, timeout, rate limit, and unavailable model. Evidence: [M4 provider record](#m4-provider-record).
 - [ ] M4-10 — Configure bounded retries/deadlines based on limits; separate transient transport failures from invalid-plan repair.
-- [ ] M4-11 — Test credentials and sensitive prompts never appear in logs/errors/evidence.
+- [ ] M4-11 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m4-provider-interface`. Test credentials and sensitive prompts never appear in logs/errors/evidence. Evidence: [M4 provider record](#m4-provider-record).
 - [ ] M4-12 — Measure one permitted live structured-generation request and record model/config metadata without secrets.
 - [ ] M4-13 — Run targeted provider/transport/auth negative tests, lint, and the fast PR gate; keep live smoke separate from credential-free unit CI.
 - [ ] M4-14 — Record offline versus live validation and any model-capability limitation.
+
+### M4 provider record
+
+- Status: IN PROGRESS — claim published before implementation
+- Owner: Eray
+- Branch: `feature/m4-provider-interface`; fresh `dev` base `726f97a`
+- PR: pending
+- Commit: pending
+- Objective: Deliver the DEC-122 provider boundary so everything above it can be built and tested while the platform's endpoint, models and capabilities stay unanswered.
+- Scope: interface, configuration, structured-output fallback, synthetic doubles and redaction. **No live transport** — M4-07 stays blocked on Q-K-01/02/03.
+- Tests: pending.
+- Blocker: none for the offline boundary.
+- Handoff: pending.
 
 ## Acceptance criteria
 
