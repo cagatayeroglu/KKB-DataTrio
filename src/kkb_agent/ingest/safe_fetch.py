@@ -6,8 +6,8 @@ files, parsed observations or verified financial semantics. CSV/XLSX still pass
 through M1 admission/loader checks; other parser routes remain separate tasks.
 
 Limits below are local operator budgets, not organizer/platform guarantees.
-M7-02 validates URLs and literal targets here. M7-03..06 must bind DNS to the
-actual connection and enforce redirects/stream/decompression/deadline controls
+M7-02 validates URLs and literal targets here. M7-03's internal SourceConnection
+binds DNS to its socket; M7-04..06 must integrate redirects and bounded responses
 before this entry point can fetch. Constructed records are not network permission.
 """
 
@@ -134,7 +134,8 @@ def safe_fetch(request: FetchRequest, *, limits: FetchLimits = DEFAULT_LIMITS) -
     cannot silently supply an invalid budget. Invalid contracts raise sanitized
     Pydantic ValidationError text. URL-policy failures carry fixed rejection
     reasons. Passing that policy still returns NETWORK_DISABLED: no DNS lookup,
-    peer validation, HTTP transport or complete SSRF protection exists yet.
+    connection or HTTP request is invoked here. The internal M7-03 connection
+    primitive is not exposed until the remaining bounded-fetch controls exist.
     """
 
     request = FetchRequest.model_validate(request)
