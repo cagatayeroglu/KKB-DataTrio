@@ -41,6 +41,15 @@ if TYPE_CHECKING:  # pragma: no cover - import cost only
 LAYERS = ("bronze", "silver", "gold")
 DATABASE_NAME = "kkb.duckdb"
 
+#: The engine capabilities this database never has. DuckDB applies configuration
+#: per database rather than per connection, so this is set once at open time and
+#: covers model-supplied SQL as well as our own. The pipeline reads and writes
+#: files through Python instead, which is why nothing here needs it back.
+SANDBOX = {
+    "enable_external_access": "false",
+    "allow_community_extensions": "false",
+}
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS bronze_artifacts (
     artifact_id   TEXT PRIMARY KEY,
@@ -273,12 +282,25 @@ class Lakehouse:
         return len(rows)
 
     def export_silver(self) -> list[Path]:
-        """Write the silver tables to Parquet for handover and inspection."""
+        """Write the silver tables to Parquet for handover and inspection.
+
+        Written through PyArrow rather than `COPY ... TO`, because the database
+        is opened with external access switched off — see `SANDBOX`. Our own
+        file I/O goes through Python, so SQL never needs the capability.
+        """
+        import pyarrow.parquet  # type: ignore[import-untyped]
+
         self.silver.mkdir(parents=True, exist_ok=True)
         written = []
-        for table in ("silver_series", "silver_observations"):
+        # Literal statements rather than an interpolated table name: nothing
+        # here comes from outside, and it stays that way by construction.
+        exports = {
+            "silver_series": "SELECT * FROM silver_series",
+            "silver_observations": "SELECT * FROM silver_observations",
+        }
+        for table, query in exports.items():
             target = self.silver / f"{table}.parquet"
-            self.connection.execute(f"COPY {table} TO '{target}' (FORMAT PARQUET)")
+            pyarrow.parquet.write_table(self.connection.execute(query).to_arrow_table(), target)
             written.append(target)
         return written
 
@@ -293,7 +315,7 @@ def open_lakehouse(root: Path) -> Iterator[Lakehouse]:
         raise LakehouseError(f"Lakehouse root is not a directory: {root}")
     for layer in LAYERS:
         (root / layer).mkdir(parents=True, exist_ok=True)
-    connection = duckdb.connect(str(root / DATABASE_NAME))
+    connection = duckdb.connect(str(root / DATABASE_NAME), config=dict(SANDBOX))
     try:
         # Imported here because the registry imports this module's schema back.
         from kkb_agent.database import apply_schema
