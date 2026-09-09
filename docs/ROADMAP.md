@@ -800,15 +800,28 @@ Validated M0 contracts; synthetic provider double or M4 live provider; at least 
 - [ ] M5-07 — Implement deterministic format routing and metadata-based narrowing before semantic model routing.
 - [ ] M5-08 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m5-plan-registry-executor`. Generate a constrained AnalyticalPlan using the provider boundary; separate source content from system instructions. Evidence: [M5 loop record](#m5-loop-record).
 - [ ] M5-09 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m5-plan-registry-executor`. Execute the smallest valid plan using registered deterministic tools and structured ToolResult outcomes. Evidence: [M5 loop record](#m5-loop-record).
-- [ ] M5-10 — Preserve explicit selected sources, contracts, derived references, assumptions, transformations, evidence, and tool results between turns.
-- [ ] M5-11 — Add a series/change-date-range follow-up using existing workspace references.
-- [ ] M5-12 — Invalidate/recompute dependent results when a selection or assumption changes; preserve historical lineage.
+- [ ] M5-10 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m5-10-workspace-dag`. Preserve explicit selected sources, contracts, derived references, assumptions, transformations, evidence, and tool results between turns. Evidence: [M5 workspace record](#m5-workspace-record).
+- [ ] M5-11 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m5-10-workspace-dag`. Add a series/change-date-range follow-up using existing workspace references. Evidence: [M5 workspace record](#m5-workspace-record).
+- [ ] M5-12 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m5-10-workspace-dag`. Invalidate/recompute dependent results when a selection or assumption changes; preserve historical lineage. Evidence: [M5 workspace record](#m5-workspace-record).
 - [ ] M5-13 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m5-plan-registry-executor`. Bound plan repairs, tool retries, steps, and total request deadline; abort repeated identical invalid plans. Evidence: [M5 loop record](#m5-loop-record).
 - [ ] M5-14 — Distinguish clarification, unsupported request, recoverable outage, partial result, and terminal failure in the orchestration layer.
 - [ ] M5-15 — Test invalid names/arguments/dependencies, stale references, partial tool failure, and failed-turn state preservation.
 - [ ] M5-16 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m5-plan-registry-executor`. Test injected source text cannot authorize a tool, URL, file path, or code execution. Evidence: [M5 loop record](#m5-loop-record).
 - [ ] M5-17 — Run targeted planner/executor contract and negative tests, lint, and the fast PR gate; reserve full checks for checkpoints or explicit requests.
 - [ ] M5-18 — Record supported lifecycle/turn operations, limits, validation, and next tool integration.
+
+### M5 workspace record
+
+- Status: IN PROGRESS — claim published before implementation
+- Owner: Eray
+- Branch: `feature/m5-10-workspace-dag`; fresh `dev` base `1fa48b8`
+- PR: pending
+- Commit: pending
+- Objective: Implement the DEC-117 artifact DAG so a follow-up adds to the analysis instead of rebuilding it, and so changing an input invalidates exactly what depended on it.
+- Scope: workspace state, derivation, invalidation and replay. No UI, no verifier, no tool implementations.
+- Tests: pending.
+- Blocker: none.
+- Handoff: pending.
 
 ### M5 loop record
 
