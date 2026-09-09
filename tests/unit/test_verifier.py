@@ -274,7 +274,7 @@ class TestTheChainEndToEnd:
             ExecutionContext(question="Haziran'da konut kredisi stoğu neydi?"),
         )
         assert result.status is ToolStatus.SUCCESS
-        value = result.output.rows[0][0]
+        value = result.output.table.rows[0][0]
 
         answer = f"Haziran 2026'da konut kredisi stoğu {value:,.0f} milyon TL.".replace(",", ".")
         verdict = verify(answer, house.connection)

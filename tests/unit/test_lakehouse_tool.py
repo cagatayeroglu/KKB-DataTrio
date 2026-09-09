@@ -246,7 +246,7 @@ class TestTheToolInTheRegistry:
         spec = registry.get("lakehouse")
         result = spec.run(validated.steps[0].arguments, ExecutionContext(question="x"))
         assert result.status is ToolStatus.SUCCESS
-        assert result.output.rows[0][0] == pytest.approx(801438.0)
+        assert result.output.table.rows[0][0] == pytest.approx(801438.0)
 
     def test_a_rejected_query_becomes_a_failure_not_an_exception(self, house):
         spec = self.registry(house).get("lakehouse")
