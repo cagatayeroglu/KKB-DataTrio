@@ -791,24 +791,44 @@ Validated M0 contracts; synthetic provider double or M4 live provider; at least 
 
 ## Tasks
 
-- [ ] M5-01 — Define a minimal request -> plan -> validation -> execution -> verification lifecycle fixture.
-- [ ] M5-02 — Resolve orchestration choice based on the bounded lifecycle; record the team decision before adding a framework.
-- [ ] M5-03 — Implement a tool registry with unique system-owned names and argument schemas.
-- [ ] M5-04 — Reject unknown tool names and validate per-tool arguments, rather than trusting the plan's generic argument dictionary.
-- [ ] M5-05 — Validate dependency order, input/output reference existence, workspace ownership, and declared output type.
-- [ ] M5-06 — Expose only relevant tool descriptions and source metadata to the planner.
+- [ ] M5-01 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m5-plan-registry-executor`. Define a minimal request -> plan -> validation -> execution -> verification lifecycle fixture. Evidence: [M5 loop record](#m5-loop-record).
+- [x] M5-02 — Status: DONE. Resolved by [DEC-113](DECISIONS.md#dec-113--custom-bounded-orchestration-loop) on 2026-09-09: a custom planner -> router -> executor -> verifier state machine, with LangChain, LangGraph and Celery rejected. No framework is added.
+- [ ] M5-03 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m5-plan-registry-executor`. Implement a tool registry with unique system-owned names and argument schemas. Evidence: [M5 loop record](#m5-loop-record).
+- [ ] M5-04 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m5-plan-registry-executor`. Reject unknown tool names and validate per-tool arguments, rather than trusting the plan's generic argument dictionary. Evidence: [M5 loop record](#m5-loop-record).
+- [ ] M5-05 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m5-plan-registry-executor`. Validate dependency order, input/output reference existence, workspace ownership, and declared output type. Evidence: [M5 loop record](#m5-loop-record).
+- [ ] M5-06 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m5-plan-registry-executor`. Expose only relevant tool descriptions and source metadata to the planner. Evidence: [M5 loop record](#m5-loop-record).
 - [ ] M5-07 — Implement deterministic format routing and metadata-based narrowing before semantic model routing.
-- [ ] M5-08 — Generate a constrained AnalyticalPlan using the provider boundary; separate source content from system instructions.
-- [ ] M5-09 — Execute the smallest valid plan using registered deterministic tools and structured ToolResult outcomes.
+- [ ] M5-08 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m5-plan-registry-executor`. Generate a constrained AnalyticalPlan using the provider boundary; separate source content from system instructions. Evidence: [M5 loop record](#m5-loop-record).
+- [ ] M5-09 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m5-plan-registry-executor`. Execute the smallest valid plan using registered deterministic tools and structured ToolResult outcomes. Evidence: [M5 loop record](#m5-loop-record).
 - [ ] M5-10 — Preserve explicit selected sources, contracts, derived references, assumptions, transformations, evidence, and tool results between turns.
 - [ ] M5-11 — Add a series/change-date-range follow-up using existing workspace references.
 - [ ] M5-12 — Invalidate/recompute dependent results when a selection or assumption changes; preserve historical lineage.
-- [ ] M5-13 — Bound plan repairs, tool retries, steps, and total request deadline; abort repeated identical invalid plans.
+- [ ] M5-13 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m5-plan-registry-executor`. Bound plan repairs, tool retries, steps, and total request deadline; abort repeated identical invalid plans. Evidence: [M5 loop record](#m5-loop-record).
 - [ ] M5-14 — Distinguish clarification, unsupported request, recoverable outage, partial result, and terminal failure in the orchestration layer.
 - [ ] M5-15 — Test invalid names/arguments/dependencies, stale references, partial tool failure, and failed-turn state preservation.
-- [ ] M5-16 — Test injected source text cannot authorize a tool, URL, file path, or code execution.
+- [ ] M5-16 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m5-plan-registry-executor`. Test injected source text cannot authorize a tool, URL, file path, or code execution. Evidence: [M5 loop record](#m5-loop-record).
 - [ ] M5-17 — Run targeted planner/executor contract and negative tests, lint, and the fast PR gate; reserve full checks for checkpoints or explicit requests.
 - [ ] M5-18 — Record supported lifecycle/turn operations, limits, validation, and next tool integration.
+
+### M5 loop record
+
+- Status: PARTIAL — implemented and validated on the task branch; unchecked until its PR merges into `dev`
+- Owner: Eray
+- Branch: `feature/m5-plan-registry-executor`; fresh `dev` base `69ff1d2`
+- PR: [#28](https://github.com/cagatayeroglu/KKB-DataTrio/pull/28) -> `dev`; draft claim published before implementation
+- Commit: claim `3d3da30`; implementation recorded in the PR
+- Objective: Deliver the DEC-113 loop's first half — a typed plan, a registry that owns the names and argument schemas, validation that decides what may run, and a bounded executor.
+- Scope: plan, registry, validation, execution and budgets against the scripted provider. Workspace state (M5-10/11/12) and the verifier are separate.
+- Implementation: [agent/plan.py](../src/kkb_agent/agent/plan.py), [agent/registry.py](../src/kkb_agent/agent/registry.py), [agent/executor.py](../src/kkb_agent/agent/executor.py) and [agent/loop.py](../src/kkb_agent/agent/loop.py). No framework: the loop is a few dozen lines of our own code, as DEC-113 selected.
+- The registry owns the names, and a name that is not registered does not exist. Registration is restricted to the six the brief fixes, so adding a seventh needs a decision rather than a commit. One definition produces both the description shown to the planner and the validation applied to what comes back, so the two cannot drift into the failure where a model is told about a parameter the executor will not accept.
+- Validation refuses a plan whole rather than running its valid prefix; a partial answer nobody asked for is worse than a refusal. It checks the tool exists, that arguments satisfy that tool's own schema rather than a generic dictionary, that dependencies exist and are acyclic, that step ids are unique, and that the plan fits the step budget.
+- Prompt injection is stopped by construction, and tested that way. A test has the model **obey** an injected instruction and propose a `shell` tool; the registry has no `shell`, so the plan is refused before anything runs. A second test has it smuggle an undeclared `command` argument into a real tool, refused by that tool's schema. The question reaches the model only as a user turn, and a test asserts source-derived text never occupies a system turn.
+- Bounds are everywhere and each is tested: step count, plan repairs, tool retries. A planner that proposes the **same** invalid plan twice is stopped immediately rather than allowed to spend the remaining budget on a loop it will not escape. A tool that raises becomes a categorized failure instead of aborting the run, and steps after a terminal failure are reported `not_run` rather than silently skipped.
+- Tests: PASS (2026-09-09; Python 3.12.5). `pytest -q tests/unit/test_agent_loop.py` — 30 passed. Full gate: Ruff 0.16.6 format and lint clean over 45 files, `pytest -q tests/unit` — 445 passed in 9.07s, Bandit 1.9.4 clean, secret scan clean. `mypy src` reports 14 errors, **unchanged**; the `agent` package is strict-clean.
+- One test failed first and taught something worth keeping: it introspected the execution context with `vars()`, which raises on a slots dataclass, and the executor caught the exception and turned it into a tool failure exactly as designed. The test was wrong; the swallowing behaviour it accidentally exercised is correct and is now covered deliberately.
+- M5-02 is marked DONE: the orchestration choice it asked for was resolved by DEC-113, and no framework is added.
+- Blocker: none.
+- Handoff: a question can now become a validated plan and a bounded run, against a provider that fails the way the platform is expected to. Nothing is persisted between turns and no tool does real work — the six registered names have no implementations yet. Next is M5-10/11/12, the DEC-117 workspace artifact DAG that makes a follow-up reuse prior state, and then the first real tool over the M12 lakehouse.
 
 ## Acceptance criteria
 
