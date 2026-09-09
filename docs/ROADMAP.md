@@ -812,16 +812,21 @@ Validated M0 contracts; synthetic provider double or M4 live provider; at least 
 
 ### M5 workspace record
 
-- Status: IN PROGRESS — claim published before implementation
+- Status: PARTIAL — implemented and validated on the task branch; unchecked until its PR merges into `dev`
 - Owner: Eray
 - Branch: `feature/m5-10-workspace-dag`; fresh `dev` base `1fa48b8`
-- PR: pending
-- Commit: pending
+- PR: [#29](https://github.com/cagatayeroglu/KKB-DataTrio/pull/29) -> `dev`; draft claim published before implementation
+- Commit: claim `5d10fad`; implementation recorded in the PR
 - Objective: Implement the DEC-117 artifact DAG so a follow-up adds to the analysis instead of rebuilding it, and so changing an input invalidates exactly what depended on it.
-- Scope: workspace state, derivation, invalidation and replay. No UI, no verifier, no tool implementations.
-- Tests: pending.
+- Scope: workspace state, derivation, invalidation and refresh, persisted in DuckDB. No UI, no verifier, no tool implementations.
+- Implementation: [agent/workspace.py](../src/kkb_agent/agent/workspace.py). Artifacts are immutable and content-addressed over their **definition** — kind, name, parameters and ordered input ids — so an identical redefinition is a no-op and a changed one mints a new artifact instead of mutating the old. A name is a slot; an artifact is what currently fills it. Three DuckDB tables hold artifacts, current bindings and per-name revision history.
+- The organizer's three turns are the test structure. Turn one builds the table. Turn two adds a deflated column and a test asserts every pre-existing artifact id is **unchanged**. Turn three adds the housing price index and asserts the same. That is what "tabloyu bozmadan" has to mean mechanically: a table rebuilt each turn is how a value silently changes between two answers the user believes are the same table.
+- Invalidation is exact and lazy. Changing the date range marks `konut_stok`, `konut_faiz` and `tablo` stale and leaves an unrelated column alone; the changed artifact itself is current, because it is the thing that changed. Dependents are **not** recomputed eagerly — whether they should be is the caller's decision, and doing it silently is how a stale result hides. `refresh` refuses to run before a name's own inputs are refreshed, so a recomputation cannot rest on a value that is itself out of date, and `refresh_order` returns a safe order.
+- History is never deleted. A superseded artifact stays readable, so "what did this say before the range changed" remains answerable rather than being a thing the system used to know.
+- Tests: PASS (2026-09-09; Python 3.12.5). `pytest -q tests/unit/test_workspace.py` — 22 passed. Full gate: Ruff 0.16.6 format and lint clean over 47 files, `pytest -q tests/unit` — 467 passed, Bandit 1.9.4 clean, secret scan clean. `mypy src` reports 14 errors, **unchanged**; the workspace is strict-clean.
+- Two workspaces on one connection are isolated by id, which is what a second concurrent session needs. A leftover no-op line in `refresh_order` was found and removed rather than left as decoration.
 - Blocker: none.
-- Handoff: pending.
+- Handoff: the multi-turn mechanism exists and holds definitions, not values — `value_ref` points at a gold table or lineage node rather than carrying data, so the workspace stays small and replayable. What it cannot yet do is compute anything, because no tool is implemented. The next step is the first real tool: `lakehouse` over the M12 gold tables, which turns a validated plan step into an artifact with a value and a lineage node.
 
 ### M5 loop record
 
