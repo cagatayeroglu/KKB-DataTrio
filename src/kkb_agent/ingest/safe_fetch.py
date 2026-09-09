@@ -1,14 +1,8 @@
-"""Source-fetch contract and offline URL policy; live I/O remains disabled.
+"""Single bounded direct source GET boundary, with no automatic redirects.
 
-Adapters will call ``safe_fetch`` with an opaque SourceRef.source_id, a locator
-and explicit accepted media types. Success means retrieved bytes, not admitted
-files, parsed observations or verified financial semantics. CSV/XLSX still pass
-through M1 admission/loader checks; other parser routes remain separate tasks.
-
-Limits below are local operator budgets, not organizer/platform guarantees.
-M7-02 validates URLs and literal targets here. M7-03's internal SourceConnection
-binds DNS to its socket; M7-04..06 must integrate redirects and bounded responses
-before this entry point can fetch. Constructed records are not network permission.
+Explicit accepted media types route bounded bytes; success is not file admission,
+parsed observations, source permission or verified financial semantics. CSV/XLSX
+must still pass M1 guards. Budgets are operator limits, not provider guarantees.
 """
 
 from __future__ import annotations
@@ -36,7 +30,7 @@ PositiveSeconds = Annotated[float, Field(strict=True, gt=0, allow_inf_nan=False)
 
 
 class FetchLimits(ContractModel):
-    """Budgets the future transport must enforce, including across redirects.
+    """Budgets enforced by the direct-fetch worker and its deadline supervisor.
 
     Response bytes count the encoded HTTP body; decompressed bytes count the
     decoded HTTP body, independently of XLSX archive expansion in M1. Read time
@@ -47,6 +41,7 @@ class FetchLimits(ContractModel):
     model_config = ConfigDict(frozen=True)
 
     max_url_chars: PositiveInt = 4096
+    max_header_bytes: PositiveInt = 32 * 1024
     max_response_bytes: PositiveInt = ADMISSION_LIMITS.max_bytes
     max_decompressed_bytes: PositiveInt = ADMISSION_LIMITS.max_bytes
     max_redirects: Annotated[int, Field(strict=True, ge=0)] = 3
@@ -68,9 +63,9 @@ class FetchRequest(ContractModel):
     """Untrusted locator plus caller-owned identity; never a network permission.
 
     Only the opaque source ID crosses into diagnostics. The locator is masked
-    in repr and excluded from ordinary model exports; a future transport must
+    in repr and excluded from ordinary model exports; the transport must
     explicitly unwrap it. Construction alone does not validate the destination;
-    safe_fetch applies the offline policy before refusing all live connections.
+    safe_fetch validates it before the worker resolves and pins the connection.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -107,7 +102,7 @@ class FetchFailure(ContractModel):
 
 
 class FetchSuccess(ContractModel):
-    """Future transport result; metadata is not proof of content validity.
+    """Bounded transport result; metadata is not proof of content validity.
 
     A transport must enforce the request's limits before assembling this
     in-memory record. Raw content is excluded from repr/ordinary model exports;
@@ -128,14 +123,13 @@ FetchOutcome = Annotated[FetchSuccess | FetchFailure, Field(discriminator="statu
 
 
 def safe_fetch(request: FetchRequest, *, limits: FetchLimits = DEFAULT_LIMITS) -> FetchOutcome:
-    """The single source-fetch entry point; always refuses live I/O for now.
+    """Validate, then perform a bounded direct GET with DNS/peer/TLS checks.
 
-    Revalidate at this boundary so an unchecked model_copy/model_construct
-    cannot silently supply an invalid budget. Invalid contracts raise sanitized
-    Pydantic ValidationError text. URL-policy failures carry fixed rejection
-    reasons. Passing that policy still returns NETWORK_DISABLED: no DNS lookup,
-    connection or HTTP request is invoked here. The internal M7-03 connection
-    primitive is not exposed until the remaining bounded-fetch controls exist.
+    A fixed child process makes blocking OS DNS cancellable without abandoning
+    threads. Unsupported encodings, malformed framing and all redirects fail
+    closed; max_redirects is reserved for M7-04 and never enables following here.
+    Invalid contracts still raise sanitized ValidationError text. Callers own
+    source/network authorization; no adapter/tool is enabled by this function.
     """
 
     request = FetchRequest.model_validate(request)
@@ -148,4 +142,6 @@ def safe_fetch(request: FetchRequest, *, limits: FetchLimits = DEFAULT_LIMITS) -
         elif target.reason in (TargetReason.LOCAL_HOST, TargetReason.NON_PUBLIC_IP):
             code = FetchCode.BLOCKED_DESTINATION
         return FetchFailure(source_ref=request.source_ref, code=code, target_reason=target.reason)
-    return FetchFailure(source_ref=request.source_ref, code=FetchCode.NETWORK_DISABLED)
+    from kkb_agent.ingest._fetch_process import fetch_in_process
+
+    return fetch_in_process(request, limits)
