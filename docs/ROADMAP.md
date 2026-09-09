@@ -1,6 +1,6 @@
 # Mission / success criteria
 
-Deliver an evidence-backed financial analyst in an 8–9 day hackathon window. A teammate must be able to load a supported unfamiliar source, ask a financial question, inspect a typed plan, receive deterministically computed results, and trace every material claim to data, transformations, and validation. A follow-up question must reuse explicit analysis state correctly.
+Deliver an evidence-backed financial analyst by the organizer's **20 September 2026** development deadline, with a live demo on **17 October 2026** for teams that advance ([DEC-131](DECISIONS.md#dec-131--organizer-kick-off-brief-schedule-delivery-form-and-demo-day-input-scope)). A teammate must be able to load a supported unfamiliar source, ask a financial question, inspect a typed plan, receive deterministically computed results, and trace every material claim to data, transformations, and validation. A follow-up question must reuse explicit analysis state correctly.
 
 Demo acceptance requires all of these observable outcomes:
 
@@ -18,16 +18,18 @@ This file owns **execution truth**. [ARCHITECTURE](ARCHITECTURE.md) owns technic
 
 # Current Project Status
 
-- Last verified `origin/dev`: **`dfcd7c5d648b865561aba3a58f4d0b6a49cf9269`** (PR #38).
-- Verification: **2026-09-09**, after authorized PR #38 merge; local `dev` fast-forwarded to `origin/dev`, merged tree equals validated `c5c25d3`, and no open/draft PR remains at inspection. No new implementation task selected; recheck claims before future work.
+- Last verified `origin/dev`: **`0dbeef12733ea854acbef88e880815a86b583078`** (PR #39).
+- Verification: **2026-09-10**, after PR #39 merge; local `dev` fast-forwarded to `origin/dev`, `origin` carries only `dev` and `main` so no task branch or draft claim is outstanding, and `.env` is untracked and ignored. The previous header still named `dfcd7c5`/PR #38 and is corrected here.
+- Schedule: **Day 4 of the confirmed 7–20 September 2026 development window** ([DEC-131](DECISIONS.md#dec-131--organizer-kick-off-brief-schedule-delivery-form-and-demo-day-input-scope)); 11 days remain to the reviewed-repository deadline. Final Day is 17 October 2026. The earlier "8–9 day" figure was an internal estimate, never an organizer date.
 - Phase: Foundation available; complete the **first real end-to-end slice**. The offline planner/registry/executor, lakehouse SQL tool, definition DAG and numeric-binding verifier exist. Real-source ingestion, complete result/workspace/proof integration and live Kloudeks remain delivery work.
-- Active task: **none started in this closure**. M7-05 and M7-06 direct-GET negative coverage are DONE from merged PR #38; completion evidence is recorded below. M3-06 is not started: Q-DATA-01 and Q-NET-01/02 remain OPEN and block live execution. Other teammate ownership and the independent READY queue are unchanged.
+- Active task: **organizer primary-source documentation sync / Eray / IN PROGRESS**, `docs/organizer-brief-mia-sync`; documentation only, no implementation task claimed. M7-05 and M7-06 direct-GET negative coverage are DONE from merged PR #38. M3-06 is not started: Q-DATA-01 and Q-NET-01/02 remain OPEN and block live execution. The independent READY queue is unchanged.
 - Product/retrieval documentation synchronization: **DONE**, PR [#34](https://github.com/cagatayeroglu/KKB-DataTrio/pull/34) merged into `dev` at `41e302c`; final content `e2029ea`, document checks and Fast PR gate PASS (55s). DEC-129/130 and the reconciled current status are present in the merged tree.
-- Organizer primary-source synchronization: **IN PROGRESS**, Owner Eray, Branch `docs/organizer-brief-mia-sync`, PR pending. Records the kick-off brief calendar/delivery/demo-input constraints and the primary MIA integration guide (literal OCR contract, embedding call shape, error semantics) that were previously relayed second-hand or missing. Documentation only; no runtime behaviour changes.
+- Organizer primary-source synchronization: **PARTIAL** — implemented, unchecked until merged. Owner Eray; Branch `docs/organizer-brief-mia-sync`; PR pending. Records [DEC-131](DECISIONS.md#dec-131--organizer-kick-off-brief-schedule-delivery-form-and-demo-day-input-scope) (kick-off calendar, delivery form, demo-day input scope, technology expectations) and amends DEC-129 with the primary MIA guide's literal OCR/embedding contracts and error semantics; narrows Q-K-01/04/05, Q-DATA-01, Q-DEMO-01, Q-INFRA-01, Q-NET-02, Q-DEV-02 and sharpens Q-DEV-01. Documentation and the `.env.example` template only; no runtime behaviour, dependency or test-policy change. `.env.example` values stay blank so `test_environment_template_has_only_blank_values` needed no exception. Tests: `make quick` 892 passed / 16.36s; `make pr` 892 passed / 16.07s with Ruff format/lint, Bandit and secret scan clean; internal Markdown link/anchor check 0 broken.
 - Fast gate: M7-05 delivery on PR #38 — **340 targeted / 892 unit tests PASS**, `make quick` 17.30s, `make pr` 16.73s including Ruff format/lint, Bandit and secret scan (Python 3.12.2). Final-head GitHub Fast PR gate PASS (59s), verified before merge. These are existing delivery results; no application checks rerun for this documentation-only closure.
 - Known failing gate: **M0-08** — 14 strict mypy errors reported through PR #32, originating in the XLSX modules. Full/release validation is not established. Do not infer a green release from a green `make pr`; no full/release checks run in this task.
-- Critical implementation gaps: CSV/profile and source adapters; source POST/trust configuration and redirect following; typed financial results/run/snapshot identity; workspace stale-result rejection/recomputation and loop integration; second-path verifier and answer gate; catalog retrieval; remaining `web_search`, `web_url`, `anomaly`, `causality`, `change_detection`; benchmark runner; API/UI/deployment.
-- External blockers (Kloudeks update 2026-09-09): [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy) confirms endpoint/MIA-key auth, text/vision, embedding and OCR availability. Q-K-01 now concerns account-specific key provisioning/access; Q-K-02/03/04 cover remaining context/output limits, native tool/JSON guarantees and quotas/timeouts. Q-K-05 retains required dense-path dimension/prefix/limit configuration and optional dedicated-reranker questions. Dense retrieval is initial baseline under DEC-130; RRF/reranking still need held-out benchmark evidence. Q-DATA-01/03, Q-NET-01/02, Q-INFRA-01/02 and Q-DEMO-01/02/03 remain external source/egress/storage/delivery blockers. Q-TEAM-01..05 were answered in PR #19.
+- Critical implementation gaps: CSV/profile and source adapters; source POST/trust configuration and redirect following; typed financial results/run/snapshot identity; workspace stale-result rejection/recomputation and loop integration; second-path verifier and answer gate; catalog retrieval; remaining `web_search`, `web_url`, `anomaly`, `causality`, `change_detection`; **document extraction behind `web_url` (HTML/PDF/XLSX/image), now a confirmed demo-day requirement**; benchmark runner; API/UI/deployment.
+- External blockers (organizer primary-source review 2026-09-10): [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy) now also records the **literal OCR request contract, the embedding call shape and the documented `401`/`403`/`429` semantics** from the primary MIA guide. The MIA API key is **provisioned** and held only in the operator-local ignored `.env`; Q-K-01 is narrowed to an unexercised live smoke. Q-K-02/03/04 still cover context/output capacity, native tool/JSON guarantees and the numbers behind `429`; a `vllm_xargs` parameter reveals a vLLM server but guarantees no structured-output feature. Q-K-05 needs the **vector dimension measured** from the first authorized live call, not asked. Q-DEMO-01, Q-INFRA-01, Q-NET-02, Q-DATA-01 and Q-DEV-02 gained real answers from [DEC-131](DECISIONS.md#dec-131--organizer-kick-off-brief-schedule-delivery-form-and-demo-day-input-scope) and are narrowed. **Q-DEV-01 is now the most urgent question**: the kick-off deck's development-process wording is genuinely ambiguous about coding assistants and must be asked on Slack, not assumed. Q-DATA-03, Q-NET-01, Q-INFRA-02 and Q-DEMO-02/03 remain open. Q-TEAM-01..05 were answered in PR #19.
+- Confirmed scope changes from [DEC-131](DECISIONS.md#dec-131--organizer-kick-off-brief-schedule-delivery-form-and-demo-day-input-scope): reading **prompt-supplied URLs (PDF/Excel/image/text) is a required demo-day capability**, not an optional M7 extra; a **live deployed** solution is expected on Final Day; delivery is by granting KKB access to the private repository; both sources are bounded to **2021-01 – 2026-06**.
 - Current direction: [DEC-130](DECISIONS.md#dec-130--initial-hybrid-retrieval-baseline) supersedes DEC-127 with initial lexical + dense hybrid retrieval; DEC-115 remains historical/SUPERSEDED. [DEC-128](DECISIONS.md#dec-128--financial-question-validation-and-claim-level-evidence) records product direction. Neither claims implementation. Core ingestion/results/workspace/verifier/live provider/required tools precede broad differentiation.
 
 ## Ordered next safe tasks
@@ -161,9 +163,22 @@ Time passed is not abandonment evidence. For takeover, inspect the branch/PR and
 
 # Milestone overview
 
-## Relative 8–9 day execution plan
+<a id="relative-execution-plan-anchored-to-the-confirmed-calendar"></a>
+## Relative execution plan, anchored to the confirmed calendar
 
-Day 0 is bootstrap before the eight delivery days. If bootstrap must fit within eight total calendar days, combine Day 0 and Day 1 and reduce optional scope; do not pretend the schedule gained a day. Day 9 is contingency only if the organizer allows it.
+The organizer calendar is fixed by [DEC-131](DECISIONS.md#dec-131--organizer-kick-off-brief-schedule-delivery-form-and-demo-day-input-scope): kick-off **7 September 2026**, online development **7–20 September 2026**, top-10 announcement **5 October 2026**, Final Day **17 October 2026**. The relative day numbers below predate that record and were an internal 8–9 day estimate; they are kept because milestones reference them, and mapped to real dates here.
+
+| Relative day | Calendar date | Note |
+| --- | --- | --- |
+| Day 0 | 7 September | Kick-off and bootstrap |
+| Day 1–3 | 8–10 September | Delivered through PR #39; today is 10 September |
+| Day 4–8 | 11–15 September | Original plan's remaining slots |
+| Slack 9–13 | 16–20 September | **Not free contingency.** Reserve for the vertical slice, live Kloudeks, the required tools and rehearsal |
+| Deadline | **20 September** | Repository reviewed as delivered; no further development window is promised |
+| — | 5 October | Top-10 announcement |
+| Demo | **17 October** | Live deployed solution; organizer-supplied inputs on the day |
+
+The real window is longer than the original estimate, which removes the "combine Day 0 and Day 1" compression the earlier plan assumed. It is **not** authorization to widen scope: the core-first sequence below is unchanged, and the extra days go to the vertical slice, the six required tools and rehearsal. Two gates exist, and they are not the same deliverable — what is reviewed after **20 September is the repository**, while **17 October is the live demo**. Demo-only polish must never displace the reviewed slice.
 
 | Workday | Slot A focus | Slot B focus | Slot C focus | Daily observable exit |
 | --- | --- | --- | --- | --- |
@@ -177,6 +192,7 @@ Day 0 is bootstrap before the eight delivery days. If bootstrap must fit within 
 | 7 | Source/demo-data review | M10 UI integration and measured latency | Independent operator rehearsal | Another teammate runs the demo and finds evidence without assistance |
 | 8 | Fix highest-impact regressions | M11 full gate and dependency freeze | Full evaluation/security review/rehearsal | Reproducible demo candidate and honest limitations; release only if authorized |
 | Optional 9 | Measured blockers only | Measured blockers only | Repeat changed-path rehearsal | No architecture rewrite or speculative feature addition |
+| 16–20 Sep | Close the vertical slice | Live Kloudeks + remaining brief tools | `web_url` document extraction; rehearsal | A reviewable repository at the 20 September deadline |
 
 | Milestone | Scope | Target window |
 | --- | --- | --- |
@@ -187,7 +203,7 @@ Day 0 is bootstrap before the eight delivery days. If bootstrap must fit within 
 | [M4](#m4) | Kloudeks | Days 0–3 as access permits |
 | [M5](#m5) | Planning/routing/workspace | Days 1–3 |
 | [M6](#m6) | Deterministic analytics | Days 2–4 |
-| [M7](#m7) | URL/documents/external inputs | Day 5 |
+| [M7](#m7) | URL/documents/external inputs | Day 5; document extraction is required demo-day scope under DEC-131, not optional |
 | [M8](#m8) | Verification/evidence/provenance | Days 2–6 |
 | [M9](#m9) | Evaluation/adversarial benchmark | Days 0–6, then continuously |
 | [M10](#m10) | UI/demo workflow | Day 7; operator design can precede |
@@ -669,8 +685,8 @@ M0 contracts for offline validation; organizer endpoint/auth/model contract for 
 
 - [ ] M4-01 — Status: BLOCKED — original recovery scope retired in favor of [DEC-122](DECISIONS.md#dec-122--llmprovider-interface-and-structured-output-fallback), which fixes the interface directly. Recovering a Day 0 stub written before that decision would deliver the wrong shape, so the provider is written fresh; the stash stays intact and unapplied. Environment parsing, secret representation and pending-error behaviour are delivered under M4-06 and M4-09 instead.
 - [ ] M4-02 — Cover every stub method's non-networking failure path, not only synthesis, with synthetic inputs.
-- [ ] M4-03 — Status: PARTIAL — official endpoint/auth/client facts recorded in DEC-129 by open docs PR #34; account-specific credential provisioning/access remains unverified in narrowed Q-K-01. No secrets or live-authentication result recorded.
-- [ ] M4-04 — Status: PARTIAL — exact model IDs and image-input counts recorded in DEC-129 by open docs PR #34. Remaining context/output limits, native tool/JSON guarantees and rate/concurrency/timeout behavior remain Q-K-02/03/04; embedding details remain Q-K-05.
+- [ ] M4-03 — Status: PARTIAL — official endpoint/auth/client facts recorded in DEC-129, verified against the primary MIA guide 2026-09-10. The MIA API key is now **provisioned** and held only in the operator-local ignored `.env`; **live authentication has still not been exercised**, which is all that remains of narrowed Q-K-01. No secret value is recorded anywhere in this repository.
+- [ ] M4-04 — Status: PARTIAL — exact model IDs and image-input counts recorded in DEC-129 (PR #34), extended 2026-09-10 with the literal OCR request contract, the embedding call shape and documented `401`/`403`/`429` semantics from the primary MIA guide. Remaining context/output limits, native tool/JSON guarantees and exact rate/concurrency/timeout numbers remain Q-K-02/03/04; embedding vector dimension remains Q-K-05 and is measurable from the first authorized live call.
 - [ ] M4-05 — Status: PARTIAL — merged scope; remaining acceptance: Offline capability reporting exists; official text/vision, embedding and OCR availability is now DEC-129, but runtime integration and remaining capacity/native tool/JSON/embedding configuration acceptance are still unfinished. Owner: Eray; Branch: `feature/m4-provider-interface`. Define capability reporting and structured-output fallback using confirmed platform features. Evidence: [M4 provider record](#m4-provider-record).
 - [x] M4-06 — Status: DONE — merged/validated (PR #27 / 69ff1d2, offline config tests). Owner: Eray; Branch: `feature/m4-provider-interface`. Implement environment-based configuration validation and safe missing/invalid-config errors. Evidence: [M4 provider record](#m4-provider-record).
 - [ ] M4-07 — Implement bounded organizer-approved transport behind LLMProvider using DEC-129; no hidden fallback to another provider. Include the conflicting SDK-policy test/comment correction and destination/credential negative tests described below. This docs update does not claim, start or deliver transport.
@@ -715,7 +731,7 @@ PR #27 delivers `llm/` protocol/config/structured parsing/doubles. No live trans
 
 ## Handoff notes
 
-Use DEC-129's officially supplied compatible-client contract; do not invent native tool/JSON support, limits or embedding prefixes. Follow M4-07 for the SDK-policy correction and bounded transport on a separately claimed implementation branch after ownership is confirmed. Synthetic doubles remain the credential-free test path. OCR prompt/`extra_body` literals must come from the original organizer guidance before OCR request implementation.
+Use DEC-129's officially supplied compatible-client contract; do not invent native tool/JSON support, limits or embedding prefixes. Follow M4-07 for the SDK-policy correction and bounded transport on a separately claimed implementation branch after ownership is confirmed. Synthetic doubles remain the credential-free test path. **The OCR prompt/`extra_body` blocker is cleared**: DEC-129's 2026-09-10 amendment carries the literal organizer values, so OCR implementation now waits on bounded rendering/parsing and input scope, not on missing guidance. A key exists but no live call has been made; M4-12 remains a separately authorized step, and its first response should capture the embedding vector dimension for Q-K-05.
 
 <a id="m5"></a>
 # M5 — Planning / tool routing
@@ -893,7 +909,7 @@ M1 ingestion contract, M2 relevant semantics, SEC-URL-01 and SEC-FILE-01/02 befo
 - [ ] M7-08 — Route downloaded CSV/XLSX through the same local file guards and parser contracts as uploads.
 - [ ] M7-09 — Implement bounded PDF text/table extraction if in required scope; retain page/table coordinates and extraction warnings.
 - [ ] M7-10 — Handle scanned/unreadable PDFs explicitly; do not silently invent table cells.
-- [ ] M7-11 — Vision/OCR capability is confirmed in DEC-129; decide supported document scope after input requirements, bounded parsing/rendering and the exact organizer OCR prompt/`extra_body` are available. Keep unsupported-input errors usable meanwhile; no OCR implementation is delivered.
+- [ ] M7-11 — Vision/OCR capability is confirmed in DEC-129 and its **exact prompt/`extra_body` values are now recorded there** (2026-09-10 amendment), so that prerequisite is met. Supported document scope is also no longer open-ended: [DEC-131](DECISIONS.md#dec-131--organizer-kick-off-brief-schedule-delivery-form-and-demo-day-input-scope) confirms PDF, Excel, image and text at prompt-supplied URLs as required demo-day capability. Remaining work is bounded PDF-to-PNG rendering, parsing limits and untrusted layout-tag handling. Keep unsupported-input errors usable meanwhile; no OCR implementation is delivered.
 - [ ] M7-12 — Preserve filename/URL/page/sheet/cell metadata as untrusted provenance, with sensitive locator parts removed.
 - [ ] M7-13 — Test malicious HTML, PDF text, and spreadsheet-cell instructions cannot change tool authority or trigger exfiltration.
 - [ ] M7-14 — Add an external series to an existing workspace and verify prior state/evidence remain intact.
@@ -1000,7 +1016,7 @@ Every enabled external retrieval uses the central boundary, including redirects 
 - Tests: M7-01/02/03/05 delivery checks and M7-06 reconciliation PASS as recorded above; parser and live-source acceptance remain incomplete.
 - Benchmark: External-format and injection catalog planned.
 - Notes: Local file ingestion is not permission to fetch arbitrary URLs.
-- Known limitations: Generic bounded direct GET is merged; source adapter/tool exposure and document/OCR runtime support remain incomplete. Vision/OCR availability is confirmed by DEC-129; demo internet/egress, required format scope and remaining request limits are unresolved. Obtain the literal organizer OCR prompt/`extra_body` before implementing that request.
+- Known limitations: Generic bounded direct GET is merged; source adapter/tool exposure and document/OCR runtime support remain incomplete. Vision/OCR availability and its literal request contract are both recorded in DEC-129; the former "obtain the OCR literals first" blocker is cleared. Required format scope is now confirmed by DEC-131 as PDF, Excel, image and text at prompt-supplied URLs. Demo internet/egress (Q-NET-01) and the URL permission boundary (Q-NET-02) remain unresolved, as do remaining request limits.
 - Previous handoff (historical; current queue controls selection): Build M7-01/02 against fake transport after contract review; enable live paths only after controls and policy are confirmed.
 
 ## Handoff notes
@@ -1122,7 +1138,7 @@ Update the command registry in EVALUATION when a runner actually exists. Keep li
 <a id="m10"></a>
 # M10 — UI / demo workflow
 
-Status: NOT STARTED. Framework settled by [DEC-123](DECISIONS.md#dec-123--fastapi-with-sse-behind-a-nextjs-front-end); hosting still depends on Q-INFRA-01 and demo format on Q-DEMO-01. Operator-flow specification can proceed.
+Status: NOT STARTED. Framework settled by [DEC-123](DECISIONS.md#dec-123--fastapi-with-sse-behind-a-nextjs-front-end); hosting still depends on Q-INFRA-01 and remaining demo format on Q-DEMO-01. [DEC-131](DECISIONS.md#dec-131--organizer-kick-off-brief-schedule-delivery-form-and-demo-day-input-scope) now confirms that Final Day expects a **deployed, running solution** producing output from organizer-supplied inputs — so deployment is a requirement, not a stretch goal, even though its environment is unstated. Operator-flow specification can proceed.
 
 ## Objective
 
@@ -1135,7 +1151,7 @@ A minimal M1/M4/M5/M6/M8 slice for live integration; confirmed demo environment/
 ## Tasks
 
 - [ ] M10-01 — Specify operator steps: load/select source, ask question, inspect plan, inspect result/evidence, follow up, recover/reset.
-- [ ] M10-02 — Confirm demo time, environment, audience interaction, and allowed fallback assets in Q-DEMO-01/02/03.
+- [ ] M10-02 — Status: PARTIAL — dates are confirmed by DEC-131 (development to 20 September 2026; Final Day 17 October 2026) and a live deployed solution is required. Confirm the remaining demo duration, environment, audience interaction and allowed fallback assets in Q-DEMO-01/02/03 and Q-INFRA-01.
 - [ ] M10-03 — Scaffold the DEC-123 client in `web/` — Next.js, Tailwind, shadcn/ui, TanStack Table, react-plotly.js; graph-heavy React Flow presentation is deferred under DEC-128 — against the agreed API contract; record installation and runtime consequences.
 - [ ] M10-04 — Implement source upload/selection UI through validated backend boundaries.
 - [ ] M10-05 — Show workspace source selections, assumptions, and unresolved semantics clearly.

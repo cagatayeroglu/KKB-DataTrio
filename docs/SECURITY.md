@@ -1,6 +1,6 @@
 # Security — hackathon-scoped boundary plan
 
-Protect the boundaries relevant to this 8–9 day product without making ordinary development a security-release ceremony. [ROADMAP](ROADMAP.md) owns execution status, [AGENTS](../AGENTS.md) check triggers, and [EVALUATION](EVALUATION.md) adversarial coverage. These controls are required behavior for enabled capabilities, not a claim that those capabilities exist.
+Protect the boundaries relevant to this short-window product — development closes 20 September 2026 under [DEC-131](DECISIONS.md#dec-131--organizer-kick-off-brief-schedule-delivery-form-and-demo-day-input-scope) — without making ordinary development a security-release ceremony. [ROADMAP](ROADMAP.md) owns execution status, [AGENTS](../AGENTS.md) check triggers, and [EVALUATION](EVALUATION.md) adversarial coverage. These controls are required behavior for enabled capabilities, not a claim that those capabilities exist.
 
 Implementation evidence lives in [ROADMAP Current Project Status](ROADMAP.md#current-project-status) and the linked task records. Delivered boundaries include ignore/config hygiene, fast CI, file admission and bounded XLSX parsing, the offline provider/config/repair path, registry/argument/count validation, restricted lakehouse SQL and partial workspace/lineage/numeric matching. Safe fetch, live provider transport, end-to-end stale/reference isolation and complete proof gating remain incomplete. This docs task performs no application/security scan or full/release check; existing delivery results are not new runs.
 
@@ -24,16 +24,16 @@ This is not a production multi-tenant platform. Kubernetes security, enterprise 
 
 ## SEC-KEY-01 — Secrets and credential storage
 
-Status: PARTIAL — M0-04 (#3) validated ignore/config hygiene; M4 (#27) tests configuration and structured-error redaction; the secret-pattern scan is in fast CI. Full logging/export and live credential handling are not established.
+Status: PARTIAL — M0-04 (#3) validated ignore/config hygiene; M4 (#27) tests configuration and structured-error redaction; the secret-pattern scan is in fast CI. Full logging/export and live credential handling are not established. **A real MIA API key now exists** (delivered 2026-09-10) in the operator-local, git-ignored `.env`; it has not been used in a request, and no key value appears in this repository. This raises the stakes on the untested export/logging paths below rather than closing anything.
 
 Threat: Keys or private credentials leak through Git, fixtures, logs, screenshots, exception representations, or CI output.
 
-Required control: Inject credentials from environment/repository secrets only; never commit real keys or `.env`; use placeholders and synthetic tests. SecretStr representation masking is useful but does not protect explicit secret extraction or all serialization/log paths.
+Required control: Inject credentials from environment/repository secrets only; never commit real keys or `.env`; use placeholders and synthetic tests. The organizer states the same rule independently (DEC-129) and adds screenshots, slides, chat messages and browser-side code as leak surfaces — relevant once a UI exists, since a key reaching client-side code is published. SecretStr representation masking is useful but does not protect explicit secret extraction or all serialization/log paths.
 
 When: M0 hygiene before storing local credentials; M4 before real Kloudeks requests; check again at M11.
 
 - [x] Add/validate ignore rules for `.env`, private inputs, caches, and generated sensitive artifacts.
-- [x] Add placeholder-only `.env.example`; verify it contains no working credential.
+- [x] Add placeholder-only `.env.example`; verify it contains no working credential. Every value stays blank and is enforced by `test_environment_template_has_only_blank_values`; confirmed non-secret endpoint/model identifiers are documented as comments rather than filled in, so the control needs no exception.
 - [x] Validate missing/invalid credential configuration fails with a sanitized message.
 - [ ] Test secret values absent from object repr, structured logs, errors, traces, and evidence exports.
 - [ ] Keep real credentials out of tests; normal unit/feature CI needs no live Kloudeks key.
