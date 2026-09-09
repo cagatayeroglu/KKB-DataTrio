@@ -1005,13 +1005,13 @@ Validated M0 record models; M1 source references; M5 tool runs; M2/M6 outputs as
 
 ## Tasks
 
-- [ ] M8-01 — Define material-claim types and their minimum source/run/period/column/transformation/validation requirements.
-- [ ] M8-02 — Validate existing evidence models with targeted tests, including NOT_RUN defaults and unresolved references.
+- [ ] M8-01 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m8-verifier`. Define material-claim types and their minimum source/run/period/column/transformation/validation requirements. Evidence: [verifier record](#verifier-record).
+- [ ] M8-02 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m8-verifier`. Validate existing evidence models with targeted tests, including NOT_RUN defaults and unresolved references. Evidence: [verifier record](#verifier-record).
 - [ ] M8-03 — Implement evidence registration and stable IDs tied to workspace/tool runs.
 - [ ] M8-04 — Validate source, input/output, tool-run, and transformation references resolve; reject orphan evidence.
 - [ ] M8-05 — Attach lineage at ingestion, transformation, and analytical execution time, not only during synthesis.
 - [ ] M8-06 — Implement deterministic verification for basic change/numeric results against preserved input references.
-- [ ] M8-07 — Verify units, periods, sample counts, and transformation prerequisites alongside values.
+- [ ] M8-07 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m8-verifier`. Verify units, periods, sample counts, and transformation prerequisites alongside values. Evidence: [verifier record](#verifier-record).
 - [ ] M8-08 — Distinguish passed, failed, and not-run validation; partial results must identify exactly which claims are supported.
 - [ ] M8-09 — Detect conflicting sources/vintages and surface the disagreement instead of choosing silently.
 - [ ] M8-10 — Gate answer assembly so unsupported claims are omitted, qualified, or answered with abstention.
@@ -1021,6 +1021,19 @@ Validated M0 record models; M1 source references; M5 tool runs; M2/M6 outputs as
 - [ ] M8-14 — Test missing source/run/transformation links, altered numeric output, and unsupported causal statements.
 - [ ] M8-15 — Run targeted evidence/verifier/contract tests, lint, and the fast PR gate when changing shared models.
 - [ ] M8-16 — Record verified claim types, evidence gaps, and the next tool needing verification.
+
+### Verifier record
+
+- Status: IN PROGRESS — claim published before implementation
+- Owner: Eray
+- Branch: `feature/m8-verifier`; fresh `dev` base `6b1ee47`
+- PR: pending
+- Commit: pending
+- Objective: Close the evidence chain. The lakehouse tool records that a query ran, and the verifier binds every number in an answer to an actual stored cell before the answer may leave — [DEC-119](DECISIONS.md#dec-119--verifier-gates-the-answer)'s first rule.
+- Scope: query lineage at table level, number extraction in the formats a Turkish answer uses, and cell binding. The second-path recomputation, the web cross-check and the vision rule are separate and stay unimplemented.
+- Tests: pending.
+- Blocker: none.
+- Handoff: pending.
 
 ## Acceptance criteria
 
