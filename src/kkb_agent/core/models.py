@@ -47,19 +47,103 @@ class SourceRef(ContractModel):
 
 
 class Frequency(StrEnum):
+    """Reporting calendar. Members were added for conventions EVDS actually declares.
+
+    WEEKLY does not say which weekday anchors the period; that is WeeklyAnchor,
+    because EVDS anchors most weekly series to Friday and at least one to
+    Wednesday. BUSINESS_DAY differs from DAILY on weekends and holidays, which
+    changes both observation counts and any average taken over a period.
+    """
+
     UNKNOWN = "unknown"
     DAILY = "daily"
+    BUSINESS_DAY = "business_day"
     WEEKLY = "weekly"
+    TWICE_MONTHLY = "twice_monthly"
     MONTHLY = "monthly"
     QUARTERLY = "quarterly"
+    SEMIANNUAL = "semiannual"
     ANNUAL = "annual"
     IRREGULAR = "irregular"
 
 
+class WeeklyAnchor(StrEnum):
+    """Weekday a weekly period ends on. Required when Frequency is WEEKLY."""
+
+    MONDAY = "monday"
+    TUESDAY = "tuesday"
+    WEDNESDAY = "wednesday"
+    THURSDAY = "thursday"
+    FRIDAY = "friday"
+    SATURDAY = "saturday"
+    SUNDAY = "sunday"
+
+    @property
+    def weekday(self) -> int:
+        """Match `datetime.date.weekday()`, where Monday is 0."""
+        return list(WeeklyAnchor).index(self)
+
+
 class StockFlow(StrEnum):
+    """What an observation measures, which decides how periods may be combined.
+
+    RATE and INDEX are neither stock nor flow: summing either is meaningless,
+    and EVDS marks its rate series `SUMABLE: 0` for exactly that reason.
+    """
+
     UNKNOWN = "unknown"
     STOCK = "stock"
     FLOW = "flow"
+    RATE = "rate"
+    INDEX = "index"
+
+
+class Scale(StrEnum):
+    """Multiplier a published value carries, kept separate from its unit.
+
+    BDDK publishes its monthly and weekly bulletins in million TRY and FinTürk
+    in thousand TRY, so a value without a recorded scale is unusable.
+    """
+
+    UNKNOWN = "unknown"
+    ONE = "one"
+    THOUSAND = "thousand"
+    MILLION = "million"
+    BILLION = "billion"
+
+    @property
+    def factor(self) -> int:
+        if self is Scale.UNKNOWN:
+            raise ValueError("Unknown scale has no factor")
+        return {Scale.ONE: 1, Scale.THOUSAND: 10**3, Scale.MILLION: 10**6, Scale.BILLION: 10**9}[
+            self
+        ]
+
+
+class CumulativeKind(StrEnum):
+    """How a running total accumulates, if it does.
+
+    Three distinct behaviours were measured in one BDDK bulletin, so a boolean
+    cannot express this. NONE is a positive statement that the series does not
+    accumulate; UNKNOWN means nobody has established which applies.
+    """
+
+    UNKNOWN = "unknown"
+    NONE = "none"
+    SINCE_INCEPTION = "since_inception"
+    YEARLY_RESET = "yearly_reset"
+
+
+class Aggregation(StrEnum):
+    """Permitted reduction when combining periods; sources may publish this."""
+
+    UNKNOWN = "unknown"
+    SUM = "sum"
+    AVERAGE = "average"
+    FIRST = "first"
+    LAST = "last"
+    MIN = "min"
+    MAX = "max"
 
 
 class TransformationRecord(ContractModel):
