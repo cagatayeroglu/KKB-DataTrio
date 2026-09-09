@@ -17,7 +17,26 @@ from kkb_agent.lakehouse.cumulative import (
     detect_cumulative,
     to_flow,
 )
+from kkb_agent.lakehouse.gold import (
+    GOLD_SCHEMA,
+    GoldColumn,
+    GoldError,
+    GoldTable,
+    build_gold,
+    persist_gold,
+)
+from kkb_agent.lakehouse.lineage import (
+    LINEAGE_SCHEMA,
+    EdgeKind,
+    Lineage,
+    LineageError,
+    LineageNode,
+    NodeKind,
+    missing_provenance,
+    node_id,
+)
 from kkb_agent.lakehouse.periods import add_months, is_january, month_end, spine
+from kkb_agent.lakehouse.records import Observation
 from kkb_agent.lakehouse.semantics import (
     KNOWN_UNITS,
     REQUIRED_SEMANTICS,
@@ -35,13 +54,14 @@ from kkb_agent.lakehouse.store import (
     BronzeArtifact,
     Lakehouse,
     LakehouseError,
-    Observation,
     open_lakehouse,
 )
 
 __all__ = [
     "DATABASE_NAME",
     "FIRM_RESET_BOUNDARIES",
+    "GOLD_SCHEMA",
+    "LINEAGE_SCHEMA",
     "KNOWN_UNITS",
     "LAYERS",
     "MIN_OBSERVATIONS",
@@ -52,10 +72,18 @@ __all__ = [
     "BronzeArtifact",
     "Confidence",
     "Coverage",
+    "EdgeKind",
+    "GoldColumn",
+    "GoldError",
+    "GoldTable",
     "CumulativeError",
     "CumulativeVerdict",
     "Lakehouse",
     "LakehouseError",
+    "Lineage",
+    "LineageError",
+    "LineageNode",
+    "NodeKind",
     "Observation",
     "PeriodMismatch",
     "SemanticsError",
@@ -64,11 +92,15 @@ __all__ = [
     "WeekAssignment",
     "add_months",
     "assign_month",
+    "build_gold",
     "check_period",
     "detect_cumulative",
     "is_january",
+    "missing_provenance",
     "month_end",
+    "node_id",
     "open_lakehouse",
+    "persist_gold",
     "period_bounds",
     "spine",
     "to_flow",

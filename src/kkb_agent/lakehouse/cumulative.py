@@ -24,7 +24,7 @@ from enum import StrEnum
 
 from kkb_agent.core import CumulativeKind, Frequency
 from kkb_agent.lakehouse.periods import add_months, is_january
-from kkb_agent.lakehouse.store import Observation
+from kkb_agent.lakehouse.records import Observation
 
 #: Accumulation is only defined where a period has an unambiguous predecessor
 #: within a calendar year. Weekly and daily calendars do not, and no source we

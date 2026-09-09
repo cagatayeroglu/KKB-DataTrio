@@ -31,8 +31,8 @@ from kkb_agent.core import (
     WeeklyAnchor,
 )
 from kkb_agent.lakehouse.periods import month_end, spine
+from kkb_agent.lakehouse.records import Observation
 from kkb_agent.lakehouse.semantics import SemanticsError, SeriesSemantics, check_period
-from kkb_agent.lakehouse.store import Observation
 
 
 class WeekAssignment(StrEnum):
