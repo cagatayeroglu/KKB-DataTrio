@@ -18,30 +18,29 @@ This file owns **execution truth**. [ARCHITECTURE](ARCHITECTURE.md) owns technic
 
 # Current Project Status
 
-- Last verified `origin/dev`: **`27dab85267de7e02ba53e5bd25f3d8ec3bea6459`** (PR #33).
-- Verification: **2026-09-09 15:09 +03:00**; fetched integration history, inspected source/tests, GitHub PR state and current remote heads. This is a dated observation; recheck before claiming work.
+- Last verified `origin/dev`: **`41e302ce8959da480a8cecc826fd3ef39b6de899`** (PR #34).
+- Verification: **2026-09-09**, after PR #34 merge; local `dev` fast-forwarded to `origin/dev`, merged tree verified, open/draft PRs and remote heads checked before claiming M7-01. Recheck claims before starting independent work.
 - Phase: Foundation available; complete the **first real end-to-end slice**. The offline planner/registry/executor, lakehouse SQL tool, definition DAG and numeric-binding verifier exist. Real-source ingestion, complete result/workspace/proof integration and live Kloudeks remain delivery work.
-- Active teammate claims / open PRs at inspection: **none** (GitHub 0 open PRs; remote heads only `dev` and `main`). Eray's PRs #19–#33 are merged. M12-DB/database-definition merged as **PR #30 at `99894f3`**; its protected task record below is intentionally unchanged in this docs task. Its old PARTIAL wording is historical, not an active branch claim.
-- This authorized documentation synchronization: Status **PARTIAL** until merge; Owner **Çağatay**; Branch `docs/product-retrieval-doc-sync`, based on the verified SHA above; PR [#34](https://github.com/cagatayeroglu/KKB-DataTrio/pull/34) open into `dev`; content commit `860ee87a9764eb41927d9dbfd533166c679e6b5a`. Validation: initial synchronization diff/status review and 325 relative file/anchor links PASS; official Kloudeks and DEC-130 hybrid-policy follow-up validation is recorded in PR #34. Local application checks not run (docs only). Blocker: none in documentation scope. Handoff: review/merge this documentation PR before selecting from the reconciled queue. No runtime task claimed. No teammate ownership is transferred: Eray remains the recorded owner of merged-but-incomplete scopes until a handoff is confirmed.
-- Fast gate: PR #32's implementation `f9c94bb` reports **37 verifier / 552 unit tests**, Ruff format/lint, Bandit and secret scan passing; GitHub shows **1 check passed**. PR #33 changes docs only. These are historical delivery results, not fresh application runs in this docs task.
-- Known failing gate: **M0-08** — 14 strict mypy errors reported through PR #32, originating in the XLSX modules. Full/release validation is not established. Do not infer a green release from a green `make pr`; no full/security/release checks run here.
+- Active task: **M7-01 / Çağatay / PARTIAL**, `feature/m7-01-safe-fetch-contract`; PR [#35](https://github.com/cagatayeroglu/KKB-DataTrio/pull/35) open into `dev`, implementation validated and awaiting review/merge. No other open/draft PR or active remote task branch at inspection. Eray retains responsibility for merged-but-incomplete scopes until an explicit handoff; M12-DB PR #30 is merged and its historical record below remains unchanged.
+- Product/retrieval documentation synchronization: **DONE**, PR [#34](https://github.com/cagatayeroglu/KKB-DataTrio/pull/34) merged into `dev` at `41e302c`; final content `e2029ea`, document checks and Fast PR gate PASS (55s). DEC-129/130 and the reconciled current status are present in the merged tree. No further documentation-polish task is needed.
+- Fast gate: M7-01 delivery on PR #35 — **67 targeted / 619 unit tests PASS**, `make quick` 25.92s, `make pr` 15.23s including Ruff format/lint, Bandit and secret scan (Python 3.12.2). GitHub status for the delivery commit is recorded in PR #35; claim-only CI does not validate the implementation.
+- Known failing gate: **M0-08** — 14 strict mypy errors reported through PR #32, originating in the XLSX modules. Full/release validation is not established. Do not infer a green release from a green `make pr`; no full/release checks run in this task.
 - Critical implementation gaps: CSV/profile and source adapters; safe fetch; typed financial results/run/snapshot identity; workspace stale-result rejection/recomputation and loop integration; second-path verifier and answer gate; catalog retrieval; remaining `web_search`, `web_url`, `anomaly`, `causality`, `change_detection`; benchmark runner; API/UI/deployment.
 - External blockers (Kloudeks update 2026-09-09): [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy) confirms endpoint/MIA-key auth, text/vision, embedding and OCR availability. Q-K-01 now concerns account-specific key provisioning/access; Q-K-02/03/04 cover remaining context/output limits, native tool/JSON guarantees and quotas/timeouts. Q-K-05 retains required dense-path dimension/prefix/limit configuration and optional dedicated-reranker questions. Dense retrieval is initial baseline under DEC-130; RRF/reranking still need held-out benchmark evidence. Q-DATA-01/03, Q-NET-01/02, Q-INFRA-01/02 and Q-DEMO-01/02/03 remain external source/egress/storage/delivery blockers. Q-TEAM-01..05 were answered in PR #19.
 - Current direction: [DEC-130](DECISIONS.md#dec-130--initial-hybrid-retrieval-baseline) supersedes DEC-127 with initial lexical + dense hybrid retrieval; DEC-115 remains historical/SUPERSEDED. [DEC-128](DECISIONS.md#dec-128--financial-question-validation-and-claim-level-evidence) records product direction. Neither claims implementation. Core ingestion/results/workspace/verifier/live provider/required tools precede broad differentiation.
 
 ## Ordered next safe tasks
 
-All READY entries below are unowned, with Branch/PR/Commit **—**, Tests **NOT RUN for that task**, and no published claim at verification. Recheck claims immediately before starting. This is the single selection queue; unchecked backlog elsewhere is not implicitly READY.
+All READY entries below are unowned, with Branch/PR/Commit **—**, Tests **NOT RUN for that task**, and no published claim at verification. Active M7-01 is recorded separately below and excluded from this queue. Recheck claims immediately before starting. This is the single selection queue; unchecked backlog elsewhere is not implicitly READY.
 
 | Order | Task / status | Satisfied prerequisites | Acceptance / handoff |
 | --- | --- | --- | --- |
 | 1 | **M6-01 — READY** | Core records, M5 registry and M6-20 lakehouse result exist; DEC-112/119/128 confirm deterministic/evidence direction | Define the narrow result schema for values, units, periods, sample counts, warnings and evidence references. Keep unresolved semantics explicit; test serialization and invalid/missing metadata. Specify how run/result identity will connect to M5/M8; do not implement a broad proof engine here. Unblocks actual tool/workspace/verifier integration. |
-| 2 | **M7-01 — READY** | M1 contract/admission and SEC-URL policy available; fake transports need no live permission | Define one bounded safe-fetch API/outcomes/limits with targeted contract tests. Keep live networking disabled; M7-02..06 enforce it before M3 live use. |
-| 3 | **M1-06 — READY** | M1-01/02/03/04/05 and core contracts merged; engine decision settled | Bounded CSV parsing with explicit delimiter/encoding and ambiguity rejection, synthetic fixture oracles, targeted limits/negative tests and fast PR gate. No source-specific logic. |
-| 4 | **M3-04 — READY** | Both source inventories and generic ingestion specification merged | Small synthetic source-shaped discovery/inspection/load fixtures; preserve comma decimals, native cadence and unknown semantics; test content without live calls/private payloads. |
-| 5 | **M13-01 — READY** | Series metadata and source inventories exist; DEC-130 fixes hybrid baseline direction | Catalog record with identity/title/unit/frequency/source/coverage/sample values plus explicit unknown/archived metadata. Test round-trip and ambiguity; no live catalog fetch or embeddings. |
-| 6 | **M13-03 — READY** | Confirmed DEC-116/130; no model/source access needed | One shared Turkish normalizer, preserved original labels and deterministic case/diacritic fixtures proving query/index agreement. |
-| 7 | **M0-08 — READY** | Reproduced release-gate failure; existing full target | Narrow typing fix or reviewed exceptions under its record, before the next checkpoint. Independent release prerequisite, not a reason to create more foundation work. |
+| 2 | **M1-06 — READY** | M1-01/02/03/04/05 and core contracts merged; engine decision settled | Bounded CSV parsing with explicit delimiter/encoding and ambiguity rejection, synthetic fixture oracles, targeted limits/negative tests and fast PR gate. No source-specific logic. |
+| 3 | **M3-04 — READY** | Both source inventories and generic ingestion specification merged | Small synthetic source-shaped discovery/inspection/load fixtures; preserve comma decimals, native cadence and unknown semantics; test content without live calls/private payloads. |
+| 4 | **M13-01 — READY** | Series metadata and source inventories exist; DEC-130 fixes hybrid baseline direction | Catalog record with identity/title/unit/frequency/source/coverage/sample values plus explicit unknown/archived metadata. Test round-trip and ambiguity; no live catalog fetch or embeddings. |
+| 5 | **M13-03 — READY** | Confirmed DEC-116/130; no model/source access needed | One shared Turkish normalizer, preserved original labels and deterministic case/diacritic fixtures proving query/index agreement. |
+| 6 | **M0-08 — READY** | Reproduced release-gate failure; existing full target | Narrow typing fix or reviewed exceptions under its record, before the next checkpoint. Independent release prerequisite, not a reason to create more foundation work. |
 
 M13 alias/holdout authoring follows the catalog record so identifiers, versions and reviewed concept families are stable. M9-01 retains its explicit Day 0 review/delivery blocker; no stash recovery is authorized here. Remaining PARTIAL scopes below are **not automatically released for takeover**; request the recorded owner's handoff before resuming.
 
@@ -871,7 +870,7 @@ Do not wait for advanced causality to deliver a tested change/association path. 
 <a id="m7"></a>
 # M7 — External source / URL / document ingestion
 
-Status: NOT STARTED. Live source policy is unresolved; safe-boundary tests/design can proceed independently.
+Status: PARTIAL — M7-01 contract implemented/validated on PR #35, not yet merged; live retrieval remains disabled pending M7-02..06 controls and source/network permissions.
 
 ## Objective
 
@@ -883,7 +882,7 @@ M1 ingestion contract, M2 relevant semantics, SEC-URL-01 and SEC-FILE-01/02 befo
 
 ## Tasks
 
-- [ ] M7-01 — Status: READY. Owner: unassigned; Branch/PR/Commit: —. Acceptance/dependencies: [ordered queue](#ordered-next-safe-tasks). Define one source safe-fetch API and structured outcomes; configure limits before implementing retrieval.
+- [ ] M7-01 — Status: PARTIAL. Owner: Çağatay; Branch: `feature/m7-01-safe-fetch-contract`; PR: [#35](https://github.com/cagatayeroglu/KKB-DataTrio/pull/35) open; Commit: `64654e7`. Define one source safe-fetch API and structured outcomes; configure limits before implementing retrieval. Evidence: [M7-01 active record](#m7-01-active-record).
 - [ ] M7-02 — Validate HTTP(S), reject credentials in URLs, and block loopback/private/link-local/metadata targets including IPv6.
 - [ ] M7-03 — Validate DNS results and the actual connection destination; reject mixed public/private resolution and rebinding hazards.
 - [ ] M7-04 — Handle redirects explicitly; revalidate every destination, cap hops, and avoid forwarding credentials across origins.
@@ -900,6 +899,22 @@ M1 ingestion contract, M2 relevant semantics, SEC-URL-01 and SEC-FILE-01/02 befo
 - [ ] M7-15 — Test changed schemas, missing tables, parser failure, unavailable source, and contradictory source metadata.
 - [ ] M7-16 — Run targeted boundary/extraction negative tests, lint, and the fast PR gate; record limits, supported formats, and restrictions; reserve full checks for checkpoints or explicit requests.
 
+### M7-01 active record
+
+- Status: PARTIAL — implementation/validation complete, awaiting merge into `dev`
+- Owner: Çağatay
+- Branch: `feature/m7-01-safe-fetch-contract`, from `dev` `41e302ce8959da480a8cecc826fd3ef39b6de899`
+- PR: [#35](https://github.com/cagatayeroglu/KKB-DataTrio/pull/35) into `dev`; draft claim published before implementation, then updated for delivery. No conflicting claim on recheck.
+- Commit: implementation `64654e7e87081f1ac15363d9b5db19d4fdd6c316`; claim `7c4bd164b8f93c450a9355d46026419390a80bc0`
+- Objective: Define one source safe-fetch API and structured outcomes; configure limits before implementing retrieval.
+- Delivered: [safe_fetch](../src/kkb_agent/ingest/safe_fetch.py) provides typed immutable requests, success/failure outcomes, fixed error codes and validated locator/byte/time/redirect/media-type configuration. Uses existing `ContractModel` and M1 admission byte defaults. URLs and content are excluded from repr/ordinary exports; opaque source IDs link caller provenance. The entry point revalidates records and returns `NETWORK_DISABLED` (or locator `SIZE_LIMIT`) without DNS/socket I/O.
+- Limits: operator defaults — 4096 URL characters, 10 MiB encoded/decoded HTTP body budgets, 3 redirects, 5s connect/read and 30s total. These are configuration contracts; M7-02..06 must enforce them during live retrieval. Accepted media types are explicit per request. Archive/parser budgets remain owned by M1.
+- Readiness: M1 contract/admission and SEC-URL policy exist; the offline contract requires no model, live-source permission or unresolved architecture decision. User prioritizes the real-source path ahead of independent READY work. Teammate ownership is unchanged.
+- Tests: PASS (2026-09-09; Python 3.12.2). `python -m pytest -q tests/unit/test_safe_fetch.py --disable-warnings --maxfail=1` — **67 passed in 0.42s**; touched-code Ruff PASS. `make quick` — **619 passed in 25.14s**, 25.92s wall. `make pr` — **619 passed in 13.34s**, 15.23s wall; Ruff format/lint, Bandit and secret scan PASS. No full/release or live-network checks run.
+- Limitations: no HTTP transport, destination/DNS/redirect/stream enforcement, adapters, parsers or provider changes. Constructed success records are not proof of file admission, source permission or financial meaning; a synthetic CSV test explicitly passes the bytes through M1 admission. Do not log unfiltered Pydantic error dictionaries; only their sanitized text or fixed categories.
+- Blocker: PR review/merge for DONE; M7-02..06 and Q-DATA-01/Q-NET-01/02 still gate live adapters.
+- Handoff: Review/merge PR #35, then triage M7-02 URL/destination policy using this contract before enabling any transport. M6-01 remains the first independent READY task; M0-08 typing debt remains visible. Do not interpret this contract delivery as a completed real-source vertical slice.
+
 ## Acceptance criteria
 
 Every enabled external retrieval uses the central boundary, including redirects and source adapters. All enabled parsers receive bounded validated content. Material extracted values retain source locations and validation status. Unsupported/ambiguous extraction results cannot become verified numerical claims.
@@ -910,7 +925,7 @@ Every enabled external retrieval uses the central boundary, including redirects 
 - Branch: —
 - PR: —
 - Commit: —
-- Tests: NOT RUN; fetch/parser boundaries absent.
+- Tests: M7-01 contract checks PASS as recorded above; live fetch/parser controls remain unimplemented.
 - Benchmark: External-format and injection catalog planned.
 - Notes: Local file ingestion is not permission to fetch arbitrary URLs.
 - Known limitations: No URL/document/OCR runtime support. Vision/OCR availability is confirmed by DEC-129; demo internet/egress, required format scope and remaining request limits are unresolved. Obtain the literal organizer OCR prompt/`extra_body` before implementing that request.
