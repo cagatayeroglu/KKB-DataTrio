@@ -24,12 +24,15 @@ from kkb_agent.agent.registry import (
 )
 from kkb_agent.agent.verifier import (
     DEFAULT_TOLERANCE,
+    SCALE_WORDS,
     NumberVerdict,
     Verdict,
     WrittenNumber,
     extract_numbers,
     parse_written,
+    recheck_against_store,
     verify,
+    verify_result,
 )
 from kkb_agent.agent.verifier import (
     Binding as NumberBinding,
@@ -48,6 +51,7 @@ __all__ = [
     "BRIEF_TOOLS",
     "DEFAULT_BUDGET",
     "DEFAULT_TOLERANCE",
+    "SCALE_WORDS",
     "SYSTEM_PROMPT",
     "WORKSPACE_SCHEMA",
     "AnalyticalPlan",
@@ -80,6 +84,8 @@ __all__ = [
     "execute",
     "extract_numbers",
     "parse_written",
+    "recheck_against_store",
     "validate_plan",
     "verify",
+    "verify_result",
 ]
