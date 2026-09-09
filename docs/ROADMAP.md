@@ -1159,16 +1159,21 @@ M0-01 contracts and M1 loading for input; DEC-112 for the engine, DEC-114 for bu
 
 ### M12-08 active record
 
-- Status: IN PROGRESS — claim published before implementation
+- Status: PARTIAL — implemented and validated on the task branch; unchecked until its PR merges into `dev`
 - Owner: Eray
 - Branch: `feature/m12-08-frequency-alignment`; fresh `dev` base `e628169`
-- PR: pending
-- Commit: pending
-- Objective: Reduce a higher-frequency series onto a lower-frequency spine using the aggregation its source declares, reporting how much of each target period was actually observed instead of hiding a thin month behind a confident number.
+- PR: [#25](https://github.com/cagatayeroglu/KKB-DataTrio/pull/25) -> `dev`; draft claim published before implementation
+- Commit: claim `6bfa34d`; implementation recorded in the PR
+- Objective: Reduce a higher-frequency series onto a lower-frequency spine using the aggregation its source declares, reporting how much of each target period was actually observed.
 - Scope: alignment as pure functions. No retrieval, no lineage writing, no gold joins.
-- Tests: pending.
+- Implementation: [lakehouse/alignment.py](../src/kkb_agent/lakehouse/alignment.py). `to_monthly` reduces a weekly series onto monthly periods; `assign_month` decides where a straddling week lands; `Coverage` reports observed against expected per target period.
+- Two things are made explicit rather than assumed. **Which month a straddling week belongs to is a policy the caller must pass** — `BY_END` follows how the source labelled the week, `BY_MAJORITY` puts it where most of its days fell. Both are defensible, only one is right for a given question, and the tests show the two produce different February and March averages from the same input. **Coverage travels with the value**: a month averaged from one Friday and a month averaged from five are not the same claim, and the count is the only thing that distinguishes them once the number exists.
+- Expected counts come from the canonical spine, not from what arrived, so a week missing from the middle is counted as missing rather than quietly shrinking the denominator. A month with no observations at all is omitted rather than emitted as zero, and its coverage still records the shortfall. Every input is validated against the declared anchor before any reduction, so an off-anchor date is named rather than surfacing later as an unexplained gap. `method` returns the operation, aggregation, assignment policy and anchor, which is what a transformation record will need under DEC-118.
+- Tests: PASS (2026-09-09; Python 3.12.5). `pytest -q tests/unit/test_alignment.py` — 22 passed. Full gate: Ruff 0.16.6 format and lint clean over 29 files, `pytest -q tests/unit` — 344 passed in 8.01s, Bandit 1.9.4 clean, secret scan clean. `mypy src` reports 14 errors, **unchanged**; alignment is strict-clean.
+- Fixtures use real weekly Friday observations read from an EVDS `fe` response during the M3-03 inspection. Their series identity was not resolved in the catalog, so the tests use them for genuine cadence and shape rather than as a claim about a named series; the file says so. The dates are what matter and they are real: January and February 2023 hold four Fridays and March holds five, and two of those weeks straddle a month boundary with most of their days on the earlier side.
+- Two defects were found and fixed during the work. The off-anchor rejection originally surfaced as an unexplained spine mismatch, so inputs are now checked against the declared anchor first and the error names the offending date. Two mypy strict errors were introduced and removed before delivery — a loop variable shadowing an optional, and an untyped reducer table — so the M0-08 baseline is unchanged rather than grown.
 - Blocker: none.
-- Handoff: pending.
+- Handoff: the reference scenario's inputs can now share a spine — a weekly Friday-anchored rate reduces onto the monthly stock it must be charted against. Still nothing is persisted or attributed: alignment returns observations and a method dictionary but writes no lineage, which M12-14 and DEC-118 require. The remaining M12 work before an end-to-end slice is M12-13 gold joins and M12-14 lineage.
 
 ### M12-04..07 active record
 

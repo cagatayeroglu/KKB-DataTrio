@@ -1,5 +1,13 @@
 """Medallion lakehouse: immutable bronze, semantics-gated silver."""
 
+from kkb_agent.lakehouse.alignment import (
+    Alignment,
+    AlignmentError,
+    Coverage,
+    WeekAssignment,
+    assign_month,
+    to_monthly,
+)
 from kkb_agent.lakehouse.cumulative import (
     FIRM_RESET_BOUNDARIES,
     MIN_OBSERVATIONS,
@@ -39,8 +47,11 @@ __all__ = [
     "MIN_OBSERVATIONS",
     "REQUIRED_SEMANTICS",
     "SCHEMA",
+    "Alignment",
+    "AlignmentError",
     "BronzeArtifact",
     "Confidence",
+    "Coverage",
     "CumulativeError",
     "CumulativeVerdict",
     "Lakehouse",
@@ -50,7 +61,9 @@ __all__ = [
     "SemanticsError",
     "SeriesSemantics",
     "UnresolvedSemantics",
+    "WeekAssignment",
     "add_months",
+    "assign_month",
     "check_period",
     "detect_cumulative",
     "is_january",
@@ -59,4 +72,5 @@ __all__ = [
     "period_bounds",
     "spine",
     "to_flow",
+    "to_monthly",
 ]
