@@ -22,11 +22,11 @@ This file owns **execution truth**. [ARCHITECTURE](ARCHITECTURE.md) owns technic
 - Verification: **2026-09-09 15:09 +03:00**; fetched integration history, inspected source/tests, GitHub PR state and current remote heads. This is a dated observation; recheck before claiming work.
 - Phase: Foundation available; complete the **first real end-to-end slice**. The offline planner/registry/executor, lakehouse SQL tool, definition DAG and numeric-binding verifier exist. Real-source ingestion, complete result/workspace/proof integration and live Kloudeks remain delivery work.
 - Active teammate claims / open PRs at inspection: **none** (GitHub 0 open PRs; remote heads only `dev` and `main`). Eray's PRs #19–#33 are merged. M12-DB/database-definition merged as **PR #30 at `99894f3`**; its protected task record below is intentionally unchanged in this docs task. Its old PARTIAL wording is historical, not an active branch claim.
-- This authorized documentation synchronization: Status **PARTIAL** until merge; Owner **Çağatay**; Branch `docs/product-retrieval-doc-sync`, based on the verified SHA above; PR [#34](https://github.com/cagatayeroglu/KKB-DataTrio/pull/34) open into `dev`; content commit `860ee87a9764eb41927d9dbfd533166c679e6b5a`. Validation: documentation diff/status review and 325 relative file/anchor links PASS; application checks not run (docs only). Blocker: none in documentation scope. Handoff: review/merge this documentation PR before selecting from the reconciled queue. No runtime task claimed. No teammate ownership is transferred: Eray remains the recorded owner of merged-but-incomplete scopes until a handoff is confirmed.
+- This authorized documentation synchronization: Status **PARTIAL** until merge; Owner **Çağatay**; Branch `docs/product-retrieval-doc-sync`, based on the verified SHA above; PR [#34](https://github.com/cagatayeroglu/KKB-DataTrio/pull/34) open into `dev`; content commit `860ee87a9764eb41927d9dbfd533166c679e6b5a`. Validation: initial synchronization diff/status review and 325 relative file/anchor links PASS; official Kloudeks follow-up validation is recorded in PR #34. Local application checks not run (docs only). Blocker: none in documentation scope. Handoff: review/merge this documentation PR before selecting from the reconciled queue. No runtime task claimed. No teammate ownership is transferred: Eray remains the recorded owner of merged-but-incomplete scopes until a handoff is confirmed.
 - Fast gate: PR #32's implementation `f9c94bb` reports **37 verifier / 552 unit tests**, Ruff format/lint, Bandit and secret scan passing; GitHub shows **1 check passed**. PR #33 changes docs only. These are historical delivery results, not fresh application runs in this docs task.
 - Known failing gate: **M0-08** — 14 strict mypy errors reported through PR #32, originating in the XLSX modules. Full/release validation is not established. Do not infer a green release from a green `make pr`; no full/security/release checks run here.
 - Critical implementation gaps: CSV/profile and source adapters; safe fetch; typed financial results/run/snapshot identity; workspace stale-result rejection/recomputation and loop integration; second-path verifier and answer gate; catalog retrieval; remaining `web_search`, `web_url`, `anomaly`, `causality`, `change_detection`; benchmark runner; API/UI/deployment.
-- External blockers: Q-K-01/02/03/04 (live provider), Q-DATA-01/03 (source use/retention), Q-NET-01/02 (live egress/source policy), Q-INFRA-01/02 and Q-DEMO-01/02/03 (delivery/storage/fallback). Q-K-05 gates only optional dense/reranking, **not** lexical retrieval. Q-TEAM-01..05 were answered in PR #19; no engine/framework choice remains open.
+- External blockers (Kloudeks update 2026-09-09): [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy) confirms endpoint/MIA-key auth, text/vision, embedding and OCR availability. Q-K-01 now concerns account-specific key provisioning/access; Q-K-02/03/04 cover remaining context/output limits, native tool/JSON guarantees and quotas/timeouts. Q-K-05 retains embedding dimension/prefix/limits and dedicated-reranker questions; dense/RRF/reranking still need DEC-127 benchmark evidence. Q-DATA-01/03, Q-NET-01/02, Q-INFRA-01/02 and Q-DEMO-01/02/03 remain external source/egress/storage/delivery blockers. Q-TEAM-01..05 were answered in PR #19.
 - Current direction: [DEC-127](DECISIONS.md#dec-127--benchmark-gated-retrieval) supersedes mandatory DEC-115; [DEC-128](DECISIONS.md#dec-128--financial-question-validation-and-claim-level-evidence) records product direction. Neither claims implementation. Core ingestion/results/workspace/verifier/live provider/required tools precede broad differentiation.
 
 ## Ordered next safe tasks
@@ -227,7 +227,7 @@ Local checkout and Python >=3.12 for later application validation. No live Kloud
 - [ ] M0-02 — Status: PARTIAL; plan/result/workspace tests exist in PR #28/#29, but duplicate dependency and end-to-end serialization/reference coverage need review. Add targeted coverage for duplicate/self dependencies, invalid outcome combinations, and workspace serialization as needed; keep schema changes distinct from validation-only work.
 - [x] M0-03 — Status: DONE. Merged smoke test and fast baseline validated by PR #15 and subsequent fast gates (latest PR #32: 552 unit).
 - [x] M0-04 — Status: DONE. Owner: Çağatay; Branch: `feature/m0-04-local-config-hygiene`. Local ignore rules and placeholder-only `.env.example` passed targeted validation without real credentials; [PR #3](https://github.com/cagatayeroglu/KKB-DataTrio/pull/3) merged into `dev` at `ddcb5a7`, with the validated tree unchanged.
-- [ ] M0-05 — Status: BLOCKED for organizer reconciliation on Q-K-01; offline variable-name/config half delivered in PR #27. Reconcile provisional Kloudeks variable names with the stub; label them local conventions until Q-K-01 is answered.
+- [ ] M0-05 — Status: PARTIAL — offline variable-name/config half delivered in PR #27; endpoint/auth uncertainty removed by DEC-129. Remaining implementation reconciliation belongs with M4-07: map existing local configuration to the official client without changing secret hygiene. Environment names are repository conventions, not organizer-mandated names; no runtime change or new claim in this docs PR.
 - [ ] M0-06 — Inspect repository privacy, branch protection, and remote CI only in an authorized setup task; local branches alone do not prove remote settings.
 - [x] M0-07 — Status: DONE. Owner: Çağatay; Branch: `feature/m0-07-fast-ci`. Add a fast feature-to-dev CI workflow; required checks and handoff are in the active record below. PR #15 merged at `5f93df7`; validated tree unchanged.
 - [ ] M0-08 — Status: READY. Owner: unassigned. The [Makefile](../Makefile) `full` target already exists and is correctly kept out of the per-edit loop, but it does not pass: `mypy src` reports 14 strict errors in the merged XLSX code. Make the release gate green, or record reviewed exceptions, before the next `dev -> main` promotion. Evidence: [M0-08 active record](#m0-08-active-record).
@@ -655,7 +655,7 @@ Answer Q-DATA-01 in OPEN_QUESTIONS; do not scatter endpoint assumptions across c
 <a id="m4"></a>
 # M4 — LLM / Kloudeks integration
 
-Status: PARTIAL — the [provider boundary](../src/kkb_agent/llm/provider.py) is delivered: three methods, environment-driven configuration, reported capabilities, strict structured-output validation with repair, and a scripted double that fails the way the platform is expected to. Live transport (M4-07) remains BLOCKED on Q-K-01/02/03.
+Status: PARTIAL — the [provider boundary](../src/kkb_agent/llm/provider.py) is delivered: three methods, environment-driven configuration, reported capabilities, strict structured-output validation with repair, and a scripted double that fails the way the platform is expected to. Live transport (M4-07) remains unimplemented. DEC-129 supplies the official endpoint/auth/models; remaining work includes the SDK-policy correction and bounded transport tests. Native tool/JSON guarantees are still unknown and are not prerequisites for ordinary text plus local schema validation; live acceptance requires provisioned access and recorded limits.
 
 ## Objective
 
@@ -669,38 +669,39 @@ M0 contracts for offline validation; organizer endpoint/auth/model contract for 
 
 - [ ] M4-01 — Status: BLOCKED — original recovery scope retired in favor of [DEC-122](DECISIONS.md#dec-122--llmprovider-interface-and-structured-output-fallback), which fixes the interface directly. Recovering a Day 0 stub written before that decision would deliver the wrong shape, so the provider is written fresh; the stash stays intact and unapplied. Environment parsing, secret representation and pending-error behaviour are delivered under M4-06 and M4-09 instead.
 - [ ] M4-02 — Cover every stub method's non-networking failure path, not only synthesis, with synthetic inputs.
-- [ ] M4-03 — Record confirmed endpoint/authentication/credential-delivery details in Q-K-01 without recording secrets.
-- [ ] M4-04 — Record model IDs, context limits, tool/JSON capabilities, and rate/timeout quotas in Q-K-02/03/04.
-- [ ] M4-05 — Status: PARTIAL — merged scope; remaining acceptance: Offline capability reporting exists; actual platform feature confirmation is still Q-K-02/03/05. Owner: Eray; Branch: `feature/m4-provider-interface`. Define capability reporting and structured-output fallback using confirmed platform features. Evidence: [M4 provider record](#m4-provider-record).
+- [ ] M4-03 — Status: PARTIAL — official endpoint/auth/client facts recorded in DEC-129 by open docs PR #34; account-specific credential provisioning/access remains unverified in narrowed Q-K-01. No secrets or live-authentication result recorded.
+- [ ] M4-04 — Status: PARTIAL — exact model IDs and image-input counts recorded in DEC-129 by open docs PR #34. Remaining context/output limits, native tool/JSON guarantees and rate/concurrency/timeout behavior remain Q-K-02/03/04; embedding details remain Q-K-05.
+- [ ] M4-05 — Status: PARTIAL — merged scope; remaining acceptance: Offline capability reporting exists; official text/vision, embedding and OCR availability is now DEC-129, but runtime integration and remaining capacity/native tool/JSON/embedding configuration acceptance are still unfinished. Owner: Eray; Branch: `feature/m4-provider-interface`. Define capability reporting and structured-output fallback using confirmed platform features. Evidence: [M4 provider record](#m4-provider-record).
 - [x] M4-06 — Status: DONE — merged/validated (PR #27 / 69ff1d2, offline config tests). Owner: Eray; Branch: `feature/m4-provider-interface`. Implement environment-based configuration validation and safe missing/invalid-config errors. Evidence: [M4 provider record](#m4-provider-record).
-- [ ] M4-07 — Implement bounded organizer-approved transport behind LLMProvider; no hidden fallback to another provider.
+- [ ] M4-07 — Implement bounded organizer-approved transport behind LLMProvider using DEC-129; no hidden fallback to another provider. Include the conflicting SDK-policy test/comment correction and destination/credential negative tests described below. This docs update does not claim, start or deliver transport.
 - [x] M4-08 — Status: DONE — merged/validated (PR #27 / 69ff1d2, structured-output tests). Owner: Eray; Branch: `feature/m4-provider-interface`. Parse structured output into the requested schema; reject extra/malformed fields and unsupported tool arguments. Evidence: [M4 provider record](#m4-provider-record).
 - [x] M4-09 — Status: DONE — merged/validated (PR #27 / 69ff1d2, scripted-provider tests). Owner: Eray; Branch: `feature/m4-provider-interface`. Add synthetic provider doubles for success, malformed JSON, refusal, timeout, rate limit, and unavailable model. Evidence: [M4 provider record](#m4-provider-record).
 - [ ] M4-10 — Configure bounded retries/deadlines based on limits; separate transient transport failures from invalid-plan repair.
-- [x] M4-11 — Status: DONE — merged/validated (PR #27 / 69ff1d2, redaction/third-party-client tests). Owner: Eray; Branch: `feature/m4-provider-interface`. Test credentials and sensitive prompts never appear in logs/errors/evidence. Evidence: [M4 provider record](#m4-provider-record).
+- [x] M4-11 — Status: DONE — merged/validated (PR #27 / 69ff1d2, credential/prompt redaction tests). Owner: Eray; Branch: `feature/m4-provider-interface`. Test credentials and sensitive prompts never appear in logs/errors/evidence. Evidence: [M4 provider record](#m4-provider-record).
 - [ ] M4-12 — Measure one permitted live structured-generation request and record model/config metadata without secrets.
 - [ ] M4-13 — Run targeted provider/transport/auth negative tests, lint, and the fast PR gate; keep live smoke separate from credential-free unit CI.
 - [x] M4-14 — Status: DONE. Record offline versus live validation and any model-capability limitation. Evidence: PR #27 distinguishes 48 offline tests from blocked live transport/capabilities.
 
 ### M4 provider record
 
-- Status: PARTIAL — offline boundary merged/validated; M4-05 awaits actual platform capabilities, M4-07/12 await live transport/measurement
+- Status: PARTIAL — offline boundary merged/validated; DEC-129 now confirms listed capabilities. M4-05 awaits runtime integration/remaining capability details; M4-07/12 await transport/policy correction and live measurement
 - Owner: Eray (recorded delivery owner; no active PR found; confirm handoff before resuming remaining scope)
 - Branch: `feature/m4-provider-interface`; fresh `dev` base `726f97a`
 - PR: [#27](https://github.com/cagatayeroglu/KKB-DataTrio/pull/27) — merged into `dev` at `69ff1d2`; original claim publication retained in Git history
 - Merge evidence: `69ff1d2` is an ancestor of verified `dev`; tests below are historical delivery results, not new runs in this docs task.
 - Commit: claim `4ae5127`; implementation recorded in the PR
-- Objective: Deliver the DEC-122 provider boundary so everything above it can be built and tested while the platform's endpoint, models and capabilities stay unanswered.
-- Scope: interface, configuration, structured-output fallback, synthetic doubles and redaction. **No live transport** — M4-07 stays blocked on Q-K-01/02/03.
+- Original PR #27 objective (historical): Deliver the DEC-122 provider boundary so callers can be built/tested before the platform answers arrive. DEC-129 now supplies the listed transport/model facts.
+- Scope: interface, configuration, structured-output fallback, synthetic doubles and redaction. **No live transport**. The former endpoint/model availability blockers were answered by DEC-129; the existing code has not been updated or live-tested against that guidance.
 - Implementation: [llm/provider.py](../src/kkb_agent/llm/provider.py) holds the three-method protocol and the error taxonomy; [llm/config.py](../src/kkb_agent/llm/config.py) reads every platform value from the environment; [llm/structured.py](../src/kkb_agent/llm/structured.py) extracts, repairs and strictly validates model JSON; [llm/doubles.py](../src/kkb_agent/llm/doubles.py) is a scripted provider that runs the real repair loop and performs no networking.
-- Nothing platform-specific is a constant. Model identifiers, base URL, capability flags, timeout and attempt budget all come from the environment, because Q-K-01 through Q-K-05 are unanswered and a constant written today would be a guess that outlives the guessing. Configuration errors name every faulty setting at once rather than one per restart, and name the setting rather than its value.
+- Model identifiers, base URL, capability flags, timeout and attempt budget come from environment configuration. DEC-129 now supplies official transport/model facts; configuration remains the boundary rather than hard-coded choices in callers. Configuration errors report setting names, not values. Source comments claiming all Q-K facts remain unknown are stale and require the later M4 correction below.
 - Capabilities are reported, not assumed. `capabilities()` derives `embed` and `vision` from whether a model is configured, and `structured_output` defaults to **false**, so the repair loop is the default path until Q-K-03 says otherwise. A caller that needs embeddings finds out at configuration rather than at the first retrieval.
 - Strict validation is the gate. Extra fields are rejected rather than ignored, because DEC-101 requires the schema to decide what may execute — a test feeds a plan carrying an unexpected `shell` field and asserts it is refused. On failure the loop appends the model's own answer plus a correction naming the fault and restating the schema, then retries within a bounded budget; an unchanged prompt tends to reproduce the same malformation.
 - Redaction is tested, not assumed: prompt content and completion text are excluded from representations, the credential is a `SecretStr` and absent from both `repr` and configuration errors, and a schema violation reports field locations and error types without the offending values, which are model output derived from a prompt that may hold source rows.
-- A test walks the whole package asserting no third-party LLM client, import or environment variable appears anywhere, which is what makes [DEC-002](DECISIONS.md#dec-002--delivered-llm-access-through-kloudeks) checkable by inspection rather than by trust.
+- Required future M4-07 policy correction: [tests/unit/test_llm_provider.py](../tests/unit/test_llm_provider.py), `TestTheBoundaryHoldsTheLine.test_no_third_party_provider_appears_in_the_package` (lines 274–283 at verified dev), rejects the literal `openai` anywhere under `src/kkb_agent`, including a compliant import. This now conflicts with official DEC-129 guidance. Replace blanket SDK-name rejection with targeted exclusive-Kloudeks destination/no-hosted-fallback/credential tests while retaining the ban on third-party hosted LLM services. The test remains unchanged in this docs PR.
+- Related unchanged source policy: [llm/provider.py](../src/kkb_agent/llm/provider.py) lines 3–10 states the client/import ban and old unknowns; [llm/config.py](../src/kkb_agent/llm/config.py) lines 3–6/22–23 and [llm/doubles.py](../src/kkb_agent/llm/doubles.py) lines 1–7 retain outdated unanswered-question comments. Correct them with the implementation follow-up. No live SDK client/dependency support is claimed here.
 - Tests: PASS (2026-09-09; Python 3.12.5). `pytest -q tests/unit/test_llm_provider.py` — 48 passed. Recorded fast checks: Ruff 0.16.6 format and lint clean over 39 files, `pytest -q tests/unit` — 415 passed in 8.60s, Bandit 1.9.4 clean, secret scan clean. `mypy src` reports 14 errors, **unchanged**; the `llm` package is strict-clean.
 - The repository secret scan flagged a test constant named like a key, correctly. It was renamed to an obvious canary rather than excused: a control that has to be suppressed for the test proving it works is not a control. `json-repair` was added from the DEC-124 allowlist; [.env.example](../.env.example) now lists the real settings, which also closes the naming half of M0-05.
-- Blocker: none for the offline boundary. M4-07 live transport still needs Q-K-01/02/03; M4-12's live measurement needs a credential.
+- Blocker: no missing endpoint/auth/model decision for ordinary compatible text transport. M4-07 still needs implementation/policy correction; M4-12 needs an operator-provisioned key and authorized live validation. Native tool/JSON guarantees and capacity/limit questions remain open. Recorded Eray ownership is not transferred; no M4 task is claimed by this docs follow-up.
 - Previous handoff (historical; current queue controls selection): the planner, router and tools can now be written and exercised against a provider that fails the way the platform is expected to fail. The next lane is M5 — the DEC-113 planner/router/executor loop with a typed plan and a registry, built against the scripted provider. When Kloudeks answers arrive, the live transport slots in behind this interface and nothing above it changes.
 
 ## Acceptance criteria
@@ -709,12 +710,12 @@ Offline tests require no credentials/network. Live integration uses the confirme
 
 ## Evidence / implementation record
 
-PR #27 delivers `llm/` protocol/config/structured parsing/doubles. No live transport exists. M4-05/07/12 remain constrained by organizer capabilities/access. The old `providers/kloudeks.py` draft is preserved stash-only and superseded by DEC-122, not a file available in dev.
+PR #27 delivers `llm/` protocol/config/structured parsing/doubles. No live transport exists. M4-05/07/12 still require runtime implementation/validation and the narrowed capability/access answers above. The old `providers/kloudeks.py` draft is preserved stash-only and superseded by DEC-122, not a file available in dev.
 
 
 ## Handoff notes
 
-Do not infer OpenAI-compatible transport from a desired interface or invent an auth header. Synthetic doubles support planner work while external answers are pending.
+Use DEC-129's officially supplied compatible-client contract; do not invent native tool/JSON support, limits or embedding prefixes. Follow M4-07 for the SDK-policy correction and bounded transport on a separately claimed implementation branch after ownership is confirmed. Synthetic doubles remain the credential-free test path. OCR prompt/`extra_body` literals must come from the original organizer guidance before OCR request implementation.
 
 <a id="m5"></a>
 # M5 — Planning / tool routing
@@ -892,7 +893,7 @@ M1 ingestion contract, M2 relevant semantics, SEC-URL-01 and SEC-FILE-01/02 befo
 - [ ] M7-08 — Route downloaded CSV/XLSX through the same local file guards and parser contracts as uploads.
 - [ ] M7-09 — Implement bounded PDF text/table extraction if in required scope; retain page/table coordinates and extraction warnings.
 - [ ] M7-10 — Handle scanned/unreadable PDFs explicitly; do not silently invent table cells.
-- [ ] M7-11 — Decide image/OCR support only after input requirements and permitted capability are known; keep unsupported input errors usable meanwhile.
+- [ ] M7-11 — Vision/OCR capability is confirmed in DEC-129; decide supported document scope after input requirements, bounded parsing/rendering and the exact organizer OCR prompt/`extra_body` are available. Keep unsupported-input errors usable meanwhile; no OCR implementation is delivered.
 - [ ] M7-12 — Preserve filename/URL/page/sheet/cell metadata as untrusted provenance, with sensitive locator parts removed.
 - [ ] M7-13 — Test malicious HTML, PDF text, and spreadsheet-cell instructions cannot change tool authority or trigger exfiltration.
 - [ ] M7-14 — Add an external series to an existing workspace and verify prior state/evidence remain intact.
@@ -912,7 +913,7 @@ Every enabled external retrieval uses the central boundary, including redirects 
 - Tests: NOT RUN; fetch/parser boundaries absent.
 - Benchmark: External-format and injection catalog planned.
 - Notes: Local file ingestion is not permission to fetch arbitrary URLs.
-- Known limitations: No URL/document runtime support; internet rules, format scope, OCR capability unknown.
+- Known limitations: No URL/document/OCR runtime support. Vision/OCR availability is confirmed by DEC-129; demo internet/egress, required format scope and remaining request limits are unresolved. Obtain the literal organizer OCR prompt/`extra_body` before implementing that request.
 - Previous handoff (historical; current queue controls selection): Build M7-01/02 against fake transport after contract review; enable live paths only after controls and policy are confirmed.
 
 ## Handoff notes
@@ -1275,7 +1276,7 @@ Do not infer unit or stock/flow meaning from a numeric dtype. A parsed table is 
 <a id="m13"></a>
 # M13 — Semantic catalog and retrieval
 
-Status: NOT STARTED. Baseline direction is confirmed by DEC-116 and [DEC-127](DECISIONS.md#dec-127--benchmark-gated-retrieval); DEC-115 is SUPERSEDED. Only the explicitly triaged queue entries are READY. Q-K-05 blocks optional dense/reranker experiments, not the baseline.
+Status: NOT STARTED. Baseline direction is confirmed by DEC-116 and [DEC-127](DECISIONS.md#dec-127--benchmark-gated-retrieval); DEC-115 is SUPERSEDED. Only the explicitly triaged queue entries are READY. Q-K-05 retains optional embedding dimension/prefix/limit and dedicated-reranker questions, not an embedding-availability blocker or a baseline prerequisite.
 
 ## Objective
 
@@ -1283,7 +1284,7 @@ Let a Turkish financial question find the right series without hard-coded codes,
 
 ## Dependencies
 
-M12 series metadata and M13-01 catalog record for content, M13-03 shared normalization, reviewed aliases/concept families, metadata filters and lexical/BM25 retrieval. Real catalog fetching needs M3/M7 and permitted access. Optional vectors additionally need Q-K-05 and measured baseline gain; RRF/reranking are not prerequisites for baseline delivery.
+M12 series metadata and M13-01 catalog record for content, M13-03 shared normalization, reviewed aliases/concept families, metadata filters and lexical/BM25 retrieval. Real catalog fetching needs M3/M7 and permitted access. Optional vectors have a confirmed model/endpoint (DEC-129), but still need the Q-K-05 configuration/limit answers and measured baseline gain; RRF/reranking are not prerequisites for baseline delivery.
 
 ## Tasks
 
@@ -1291,7 +1292,7 @@ M12 series metadata and M13-01 catalog record for content, M13-03 shared normali
 - [ ] M13-02 — Status: BLOCKED for live retrieval on M7-01..06 and Q-DATA-01/Q-NET-01/02. Pull approved EVDS catalog metadata, preserving original IDs, source/vintage, archived and semantic flags; never hard-code runtime series selection.
 - [ ] M13-03 — Status: READY. Owner: unassigned; Branch/PR/Commit: —. Acceptance/dependencies: [ordered queue](#ordered-next-safe-tasks). Implement one Turkish normalization function — dotted and dotless i, case folding, diacritic removal — and use it for both indexing and querying; add a test that fails if the two paths ever diverge.
 - [ ] M13-04 — Build lexical/BM25 retrieval over normalized, metadata-filtered catalog records after M13-01/03/08. DuckDB FTS is the existing candidate; verify its extension/index requirements without relaxing the hardened lakehouse connection. Any separate index connection design needs task review.
-- [ ] M13-05 — Status: BLOCKED on baseline holdout evidence and Q-K-05. BENCHMARK FIRST: add/activate embedding/LanceDB only for meaningful measured selection/recall gain and acceptable latency.
+- [ ] M13-05 — Status: BLOCKED on baseline holdout evidence and remaining Q-K-05 dimension/prefix/limit answers; model/endpoint availability is confirmed by DEC-129. BENCHMARK FIRST: add/activate embedding/LanceDB only for meaningful measured selection/recall gain and acceptable latency.
 - [ ] M13-06 — Status: BLOCKED on M13-05 complementary-path evidence. BENCHMARK FIRST: activate RRF/fusion only when held-out quality improves over the measured baseline; report its gain/cost.
 - [ ] M13-07 — Status: BLOCKED on baseline/final-selection benchmark and model capability. BENCHMARK FIRST: reranking must justify latency, calls, failure surface and weak-model instability; top-20-to-5 is a historical proposal, not a fixed requirement.
 - [ ] M13-08 — After M13-01/03, review roughly fifty aliases/concepts and their catalog mappings. Preserve ambiguity; an exact hit must still satisfy metadata/semantic filters. Reviewed concept families bound catalog neighborhoods for relationship investigation, not causes.
@@ -1312,7 +1313,7 @@ The mandatory normalizer + reviewed alias/concept mapping + metadata filtering +
 - Commit: —
 - Tests: NOT RUN; no implementation.
 - Benchmark: The fifty pairs from M13-09 become a retrieval case set in EVALUATION.
-- Known limitations: Embedding model, vector dimension, batch limits and any query/passage prefix are unresolved (Q-K-05). A wrong prefix convention can invalidate an embedding experiment; no gain or loss is measured yet.
+- Known limitations: Embedding model/endpoint availability is confirmed by DEC-129; vector dimension, batch limits, query/passage prefix and dedicated-reranker availability remain unresolved (Q-K-05). A wrong prefix convention can invalidate an embedding experiment; no gain or loss is measured yet.
 - Previous handoff (historical; current queue controls selection): M13-03, M13-04, M13-08 and M13-09 need no model access; do them first, then measure what the dense half actually adds.
 
 ## Handoff notes

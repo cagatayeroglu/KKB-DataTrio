@@ -2,9 +2,9 @@
 
 This file owns unresolved external/team questions and their evidence. [DECISIONS](DECISIONS.md) owns confirmed choices; [ROADMAP](ROADMAP.md) owns blocked/ready tasks. A temporary assumption is a planning aid, not organizer permission or an implementation fact.
 
-Snapshot: 2026-09-09. The five team-decision questions Q-TEAM-01 through Q-TEAM-05 are **ANSWERED** by M0-ARCH and recorded in DECISIONS; those five choices are no longer blockers. Task-level proof/result schemas, reviewed concept-family membership and measured thresholds remain proposals until reviewed; they do not reopen those answered questions. No organizer answer has been received yet, so every Q-K, Q-INFRA, Q-DATA, Q-NET, Q-DEMO, Q-DEV, Q-JUDGE and Q-COMP entry remains open and unassigned; suggested lanes refer to ROADMAP's rotating A/B/C roles, not actual commitments.
+Snapshot: 2026-09-09. The five team-decision questions Q-TEAM-01 through Q-TEAM-05 are **ANSWERED** by M0-ARCH and recorded in DECISIONS; those five choices are no longer blockers. Task-level proof/result schemas, reviewed concept-family membership and measured thresholds remain proposals until reviewed; they do not reopen those answered questions. Official Kloudeks integration information relayed by Çağatay on 2026-09-09 answers endpoint/authentication, model availability and image-input limits; [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy) owns the exact capability contract. Q-K-01/02/05 are narrowed below. Other organizer categories have no newly recorded answers and remain open; suggested lanes are not assignments.
 
-The organizer questions are now the project's only external blockers, and several of them gate long-lead work: Q-K-01/02/03 gate every live model path, Q-K-05 gates only optional embedding/reranker experiments under DEC-127 (DEC-115 is SUPERSEDED), Q-NET-01/02 gate the `web_search` and `web_url` tools, Q-DATA-01 gates live source retrieval, and Q-INFRA-01 can override DEC-126. Ask them early rather than near the delivery date.
+The organizer questions are now the project's only external blockers, and several of them gate long-lead work: remaining key provisioning/access (Q-K-01), capacity (Q-K-02/04) and capability guarantees (Q-K-03) constrain their respective live acceptance. Ordinary compatible text transport can be built against the confirmed contract with local schema validation; no native tool/JSON guarantee is needed for that path. Q-K-05 gates optional embedding configuration/dedicated-reranker questions under DEC-127 (DEC-115 is SUPERSEDED); Q-NET-01/02 gate the `web_search` and `web_url` tools, Q-DATA-01 gates live source retrieval, and Q-INFRA-01 can override DEC-126. Ask them early rather than near the delivery date.
 
 ## How to use this list
 
@@ -27,39 +27,41 @@ The organizer questions are now the project's only external blockers, and severa
 
 ### Q-K-01 — Endpoint, authentication, and credential delivery
 
-- [ ] Record confirmed transport/authentication contract and unblock eligible M4 work.
-- Question: When/how will credentials arrive, which endpoint is approved, and what authentication/TLS/network contract must the application use?
-- Why it matters: The delivered offline provider boundary cannot become a live transport by guessing an endpoint or header.
-- Blocks which milestone? M4 live transport/auth (M4-03/07/12), M11 live-model demo.
-- Can we proceed before answer? NO for live transport/auth acceptance; YES for the merged offline interface/configuration/structured-output validation and provider doubles (PR #27).
-- Temporary assumption: Runtime is Kloudeks-only; endpoint/auth remain unknown. Current environment variable names are local provisional conventions.
+- [x] Record the official endpoint, MIA-key authentication and compatible-client contract in [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy).
+- [ ] Verify account-specific credential provisioning/access for a separately authorized live smoke; never record the key itself.
+- Remaining question: How is the team's MIA key provisioned, and is it usable for the confirmed endpoints? This docs task has not verified delivery/access.
+- Why it matters: Knowing the integration contract does not establish possession or successful live authentication.
+- Blocks which milestone? M4-12 live smoke and M11 live demo access; no longer the endpoint/auth design of M4-07.
+- Can we proceed before answer? YES for bounded transport implementation and fake-transport tests; NO for claiming live authentication passed.
+- Temporary assumption: Use only the confirmed Kloudeks destination and operator-supplied secret; no real request or hosted fallback by default.
 - Owner: Unassigned; suggested lane B / organizer liaison.
-- Status: OPEN.
-- Answer / evidence: None recorded. Store contract/reference and date here, never the credential itself.
+- Status: OPEN only for credential provisioning/access; endpoint/auth/SDK subparts ANSWERED.
+- Answer / evidence: Official guidance relayed by Çağatay, 2026-09-09; DEC-129. No live request or real key recorded.
 
 ### Q-K-02 — Available models and context capacity
 
-- [ ] Record available model IDs, supported roles/capabilities, and context limits.
-- Question: Which model IDs/sizes are available, and what input/output/context limits apply to each?
-- Why it matters: Planner context and model choice must fit actual platform capability.
-- Blocks which milestone? M4 model configuration/live validation; M5 context sizing; M11 live candidate.
-- Can we proceed before answer? NO for final live model selection; YES for model-independent contracts/doubles.
-- Temporary assumption: Do not assume large models or a particular model ID; keep metadata prompts bounded.
+- [x] Record exact text/reasoning/vision, embedding and OCR model IDs plus confirmed image-count limits in [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy).
+- [ ] Record context window and general maximum output tokens beyond example-specific values.
+- Remaining question: What context/output-token capacity applies to each confirmed model? Example settings are not guaranteed maxima.
+- Why it matters: Bounded prompts and output budgets must fit the platform; availability is not a capacity measurement.
+- Blocks which milestone? M4/M5 validated context sizing and M11 capacity claims, not model-ID selection or offline integration.
+- Can we proceed before answer? YES using confirmed IDs and conservative configurable local budgets; NO for promising undocumented limits.
+- Temporary assumption: Use the documented image counts; do not infer token limits, a cheaper router model or native tool/JSON support.
 - Owner: Unassigned; suggested lane B.
-- Status: OPEN.
-- Answer / evidence: None recorded.
+- Status: OPEN only for remaining capacity; model availability and listed image limits ANSWERED.
+- Answer / evidence: Official guidance relayed by Çağatay, 2026-09-09; DEC-129. General context/output limits were not supplied.
 
 ### Q-K-03 — Structured output and tool calling
 
 - [ ] Record native function/tool calling, JSON-schema support, and response-format behavior.
 - Question: Does Kloudeks expose native tool calling or guaranteed structured JSON, and which schema features/error responses are supported?
 - Why it matters: Determines provider parsing/repair approach without weakening local validation.
-- Blocks which milestone? M4 structured-output integration; M5 live plan generation.
-- Can we proceed before answer? NO for platform-specific implementation; YES for strict local schemas and malformed-output fixtures.
+- Blocks which milestone? Enabling native function/tool calling or guaranteed structured-output mode in M4/M5; does not block ordinary text requests with strict local parsing/repair.
+- Can we proceed before answer? YES for the confirmed compatible text transport with strict local schemas and malformed-output fixtures; NO for asserting or relying on native tool/JSON guarantees.
 - Temporary assumption: No guarantee of native structured output; model results must validate locally in all cases.
 - Owner: Unassigned; suggested lane B.
 - Status: OPEN.
-- Answer / evidence: None recorded; add a sanitized response/schema example only when permitted.
+- Answer / evidence: DEC-129 confirms OpenAI-compatible transport, not native function/tool calling or guaranteed JSON/JSON-schema. No such guarantee recorded; add a sanitized response/schema example only when permitted.
 
 ### Q-K-04 — Quotas, timeouts, and retry behavior
 
@@ -75,15 +77,16 @@ The organizer questions are now the project's only external blockers, and severa
 
 ### Q-K-05 — Embeddings and rerankers
 
-- [ ] Record whether embeddings/rerankers exist and whether their use is necessary/permitted.
-- Question: Are embedding/reranking endpoints exposed; which model IDs, vector dimensions, query/passage prefix conventions, batch/token limits, quotas and output contracts apply?
-- Why it matters: Could improve discovery if a benchmark demonstrates a retrieval problem.
-- Blocks which milestone? Optional M13-05 embedding/LanceDB and M13-07 model-reranking experiments only; fusion also needs benchmark evidence. Not the mandatory normalizer/alias/metadata/lexical baseline or offline benchmark design.
-- Can we proceed before answer? YES.
-- Temporary assumption: No embedding/reranker dependency; use deterministic metadata filtering and the basic provider boundary.
+- [x] Record the official embedding model and endpoint in [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy).
+- [ ] Resolve vector dimension, query/passage prefix convention, batch/token limits and whether a dedicated reranker is available.
+- Remaining question: What are those embedding configuration/limit details, and can a dedicated reranker be provided? General request/rate/concurrency limits remain Q-K-04.
+- Why it matters: Availability alone does not define a valid index/configuration or establish retrieval quality.
+- Blocks which milestone? Optional M13-05 embedding configuration and dedicated-reranker use under M13-07, plus their benchmark gates. Not the mandatory normalizer/alias/metadata/lexical baseline or offline benchmark design.
+- Can we proceed before answer? YES for baseline/benchmark work; do not invent dimension/prefix values for an optional vector index.
+- Temporary assumption: Keep DEC-127's measured activation policy. Do not copy an E5 prefix convention onto the confirmed Qwen model. The supplied list's omission of a dedicated reranker is not proof one can never be offered.
 - Owner: Unassigned; suggested lane B.
-- Status: OPEN; optional activation is BENCHMARK-GATED by DEC-127. No current embedding/reranking contract is claimed.
-- Answer / evidence: None recorded.
+- Status: OPEN only for remaining embedding details/dedicated reranker; embedding availability ANSWERED.
+- Answer / evidence: Official guidance relayed by Çağatay, 2026-09-09; DEC-129. No dimension, prefix convention or dedicated-reranker answer supplied.
 
 ## Organizer infrastructure
 
@@ -132,7 +135,7 @@ The organizer questions are now the project's only external blockers, and severa
 - Why it matters: Defines required parsers, limits, OCR scope, and adversarial coverage.
 - Blocks which milestone? M1/M7 final format scope, M9 required coverage, M11 support claims.
 - Can we proceed before answer? YES for bounded CSV/XLSX baseline and explicit unsupported-format behavior; NO for claiming full hidden-format coverage.
-- Temporary assumption: CSV/XLSX first; HTML/PDF planned; image/OCR not guaranteed. All enabled parsers need tested limits.
+- Temporary assumption: CSV/XLSX first; HTML/PDF planned. Vision/OCR availability is confirmed by DEC-129; required input scope and safe document/OCR implementation remain separate questions. All enabled parsers need tested limits.
 - Owner: Unassigned; suggested lane A with C coverage.
 - Status: OPEN.
 - Answer / evidence: None recorded.

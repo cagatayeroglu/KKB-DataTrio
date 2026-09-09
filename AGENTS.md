@@ -9,7 +9,7 @@ Build a reliable agentic financial analyst in 8–9 days. Prioritize correct ans
 Treat these as hard unless [DECISIONS](docs/DECISIONS.md) records an authorized change with evidence:
 
 - Python is the primary backend/analytics language.
-- Delivered runtime LLM access goes through Kloudeks only. Do not add OpenAI/Anthropic/Gemini or other third-party LLM APIs to the product.
+- Delivered runtime LLM access goes through Kloudeks only. The `openai` Python SDK is allowed solely as an OpenAI-compatible HTTP client explicitly configured for the Kloudeks base URL in [DEC-129](docs/DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy). Never call `api.openai.com`, OpenAI-hosted GPT models, Anthropic-hosted models, Google-hosted LLM APIs or other third-party hosted LLM services; no default-host or fallback route. The SDK/import itself is not a hosted service.
 - Do not use Snowflake or hard-code the core to BDDK/EVDS.
 - LLMs may interpret, plan, route, propose schema mappings, and summarize.
 - Deterministic code performs material calculations and statistical tests.

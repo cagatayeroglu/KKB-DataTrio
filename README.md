@@ -6,7 +6,7 @@ The repository contains an offline Python analysis spine: guarded XLSX input, Du
 
 ## Constraints and architecture
 
-Python is the backend/analytics language; delivered runtime LLM access uses Kloudeks only. DuckDB/Parquet and Pandas are confirmed, with custom bounded orchestration and a DuckDB workspace/lineage graph. Material calculations are deterministic, unknown semantics stay explicit, and external/model content remains untrusted. BDDK/EVDS are intended adapters, not hard-coded core assumptions. No Snowflake or third-party runtime LLM APIs.
+Python is the backend/analytics language; delivered runtime LLM access uses Kloudeks only. DuckDB/Parquet and Pandas are confirmed, with custom bounded orchestration and a DuckDB workspace/lineage graph. Material calculations are deterministic, unknown semantics stay explicit, and external/model content remains untrusted. BDDK/EVDS are intended adapters, not hard-coded core assumptions. No Snowflake or third-party hosted LLM services. The `openai` SDK is permitted only as a client exclusively configured for Kloudeks; [DEC-129](docs/DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy) owns the official endpoints, MIA-key authentication and confirmed text/vision, embedding and OCR models. Availability does not imply implemented live transport or native tool/JSON support.
 
 Target flow:
 

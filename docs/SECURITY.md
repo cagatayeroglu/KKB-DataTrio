@@ -46,21 +46,21 @@ Acceptance: No real credential is required for unit tests; configured secret sen
 
 ## SEC-KLO-01 — Kloudeks transport configuration
 
-Status: PARTIAL — merged offline provider/config/schema-repair/doubles (#27); live transport BLOCKED on Q-K-01/02/03, with quotas/budgets Q-K-04. Configured capabilities do not prove live support.
+Status: PARTIAL — merged offline provider/config/schema-repair/doubles (#27); [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy) records official transport/auth/models and image limits. Live SDK integration, destination enforcement and live validation remain unimplemented; native tool/JSON guarantees and remaining limits are still open. Availability/configuration is not a passing live test.
 
 Threat: User/model text selects an attacker endpoint, credentials go to an unintended host, requests exceed quotas, or a silent third-party LLM fallback violates constraints.
 
-Required control: Organizer-approved endpoint/auth is operator configuration behind LLMProvider. Enforce TLS verification and bounded transport behavior. Credentials must not follow redirects to another origin. Do not infer auth/compatibility from an endpoint-shaped string.
+Required control: The DEC-129 endpoint/auth contract is trusted operator configuration behind LLMProvider. The `openai` SDK is permitted solely as its compatible client; explicitly bind the Kloudeks base URL and reject default `api.openai.com` routing, third-party hosted LLM fallback and user/model endpoint overrides. Enforce TLS verification and bounded transport behavior; credentials must not follow redirects to another origin. This is a destination/service rule, not an import-name ban.
 
 When: M4 live transport/auth implementation, before any real credential is used.
 
-- [ ] Confirm organizer endpoint/auth/model contract without copying credentials into docs.
+- Contract evidence: DEC-129 records the organizer endpoint/auth/model contract without credentials; this answers the documentation subpart, not the unfinished runtime control acceptance below.
 - [ ] Restrict endpoint selection to trusted configuration; user/source/model content cannot override it.
 - [ ] Validate approved destination policy and require secure transport for credentials.
 - [ ] Define redirects explicitly; reject unexpected origin changes and credential forwarding.
 - [ ] Set connection/read/total timeouts, response limits, and bounded attempts.
 - [ ] Validate structured response locally and sanitize provider errors.
-- [ ] Verify no fallback or dependency introduces a third-party runtime LLM API.
+- [ ] Test exclusive Kloudeks routing and absence of third-party hosted LLM fallback, allowing the compatible SDK import itself. Correct the existing blanket `openai` string-ban test in a later M4 implementation PR; see ROADMAP M4.
 - [ ] Add offline negative tests plus a separately authorized live smoke with safe metadata.
 
 Intended tests: Fake provider transport for alternate endpoint injection, redirect, timeout, oversized response, malformed model output, missing credentials, and failed TLS/config paths where applicable.

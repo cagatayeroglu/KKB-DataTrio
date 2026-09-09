@@ -25,7 +25,7 @@ Evidence policy: organizer constraints below are carried forward from the origin
 - Decision: Runtime model access uses KKB/Kloudeks only. Do not add third-party LLM APIs to the delivered product. Open-weight models are expected through that platform; do not assume high-parameter models are available.
 - Reason: Comply with supplied runtime restrictions and remain usable with constrained models.
 - Alternatives: Direct OpenAI/Anthropic/Gemini or other third-party runtime access is excluded under current rules.
-- Consequences: Endpoint, authentication, model IDs, and structured-output capabilities remain unresolved. Development-assistant permission is a separate question, Q-DEV-01.
+- Consequences (updated 2026-09-09 by DEC-129): Endpoint, MIA-key authentication and model IDs/capabilities are now officially recorded below. The `openai` SDK configured exclusively for Kloudeks is allowed; third-party hosted LLM access remains prohibited. Native tool/structured-output support and remaining limits are unresolved. Development-assistant permission is a separate question, Q-DEV-01.
 - Revisit trigger: Written organizer change to runtime access rules.
 
 ### DEC-003 — No Snowflake; fine-tuning not required
@@ -273,9 +273,9 @@ Evidence policy: organizer constraints below are carried forward from the origin
 - Status: CONFIRMED — team decision on 2026-09-09; implements the DEC-102 boundary.
 - Date: 2026-09-09.
 - Decision: All model access goes through one `LLMProvider` interface exposing `complete(messages, *, model, schema=None)`, `embed(texts, *, kind="query"|"passage")` and `vision(image_bytes, prompt)`. Model identifier, base URL and whether structured output is supported come from environment configuration, never from source constants. When the platform offers no structured-output mode, the provider validates against the Pydantic schema, repairs with `json-repair`, and retries at most twice while feeding the validation error back to the model.
-- Reason: Kloudeks capabilities are unresolved (Q-K-01/02/03) and may differ per model. Confining that uncertainty to one file means a platform change edits one module rather than the planner, router and tools.
-- Alternatives: Calling the platform directly from each caller couples every component to an unconfirmed API. Assuming structured output exists would strand the planner if it does not.
-- Consequences: Keeps the DEC-002 constraint enforceable by inspection: no third-party LLM client, import or environment variable appears anywhere in the product. The `kind` argument exists because an E5-family embedding model silently loses quality without its `query:`/`passage:` prefix. M4 implements the provider; the interface is testable now with a synthetic double.
+- Reason: At the original decision, Kloudeks transport/model facts were unresolved. DEC-129 now records them; native tool/structured-output support and remaining limits still need answers. The boundary keeps those changes out of the planner, router and tools.
+- Alternatives: Calling the platform directly from each caller couples every component to its API. OpenAI compatibility does not establish guaranteed structured output or native tool calling; neither may be assumed.
+- Consequences (corrected by DEC-129): Enforce the destination/service boundary, not an SDK-name ban. The `openai` client is allowed only with the explicit Kloudeks base URL and no hosted-service fallback. The interface remains testable with a synthetic double. `kind` preserves query/passage intent; the confirmed Qwen embedding model's prefix convention is unknown, so an E5 prefix must not be copied by analogy.
 - Revisit trigger: Confirmed platform capabilities that make a method unnecessary or require another.
 
 ### DEC-123 — FastAPI with SSE behind a Next.js front end
@@ -298,7 +298,7 @@ Evidence policy: organizer constraints below are carried forward from the origin
 - Alternatives: Considering each candidate ad hoc during implementation is how a stack grows past what a three-person team can deploy and debug.
 - Consequences: Statistics stay explainable rather than delegated to an opinionated forecasting library. Caching is a local disk cache, not a service. The implementation task that follows M0-ARCH reconciles `pyproject.toml` with this list, and may adopt `uv` for environment management provided `make install-dev`, `make quick`, `make pr` and `make full` keep their current names and behavior.
 - Revisit trigger: A measured, specific requirement that nothing in the manifest covers.
-- Clarification (2026-09-09): This is an allowed dependency manifest, not a claim that all packages are installed or mandatory. DEC-127 gates embedding/LanceDB, fusion and reranker activation on measured benefit; DEC-128 defers graph-heavy UI. This docs change removes no dependency or code.
+- Clarification (2026-09-09): This is an allowed dependency manifest, not a claim that all packages are installed or mandatory. DEC-127 gates embedding/LanceDB, fusion and reranker activation on measured benefit; DEC-128 defers graph-heavy UI. This docs change removes no dependency or code. DEC-129 additionally permits the `openai` SDK solely for the official Kloudeks-compatible transport; dependency installation remains future implementation work.
 
 ### DEC-125 — Source layout with named module packages
 
@@ -329,7 +329,7 @@ Evidence policy: organizer constraints below are carried forward from the origin
 - Two retrieval problems: Direct series retrieval resolves a named concept to the correct catalog series. **Catalog-bounded relationship discovery** starts from a target, applies a reviewed concept-family policy, searches metadata inside those families, diversifies/deduplicates, applies financial semantic filters, and returns a bounded candidate set. Direct-series Recall@K alone cannot validate family coverage or the ability to return no useful candidate. Family policy names neighborhoods worth investigating, not an economic causality table.
 - Reason: “Buy complexity only with measured quality.” A large catalog establishes the need for retrieval, not the need for every retrieval stage.
 - Alternatives: The always-on dense + lexical + RRF + reranker pipeline in DEC-115 is superseded. No existing code or dependency is deleted by this decision; it controls necessity and activation.
-- Consequences: M13 owns baseline/optional stages; M9 owns independent oracles and holdout protocol. Q-K-05 blocks only optional embedding/reranker experiments (model, dimension, prefixes, quotas). The baseline and synthetic benchmark design can proceed without model access. DuckDB/Pandas, custom orchestration and the Kloudeks-only runtime constraint remain unchanged.
+- Consequences: M13 owns baseline/optional stages; M9 owns independent oracles and holdout protocol. Q-K-05 now covers optional embedding dimension/prefix/limit questions and dedicated reranker availability; DEC-129 confirms embedding availability without changing this benchmark gate. The baseline and synthetic benchmark design can proceed without model access. DuckDB/Pandas, custom orchestration and the Kloudeks-only runtime constraint remain unchanged.
 - Revisit trigger: A versioned benchmark demonstrates an additional stage's benefit and affordable cost, or a catalog change invalidates earlier measurements.
 
 ### DEC-128 — Financial question validation and claim-level evidence
@@ -348,6 +348,24 @@ Evidence policy: organizer constraints below are carried forward from the origin
 - Consequences: [ARCHITECTURE](ARCHITECTURE.md#product-behaviors-and-proof-target) owns integration boundaries; [EVALUATION](EVALUATION.md#retrieval-and-product-evaluation-tracks) owns separate behavioral tracks; ROADMAP sequences existing milestones and does not automatically promote this direction to READY.
 - Revisit trigger: Measured core-slice failure, a reviewed benchmark or an explicit team/organizer scope change. No implementation is delivered by this ADR.
 
+### DEC-129 — Official Kloudeks endpoints, models and compatible client policy
+
+- Status: CONFIRMED — official organizer integration information relayed by Çağatay on 2026-09-09 for the PR #34 follow-up. This records supplied guidance, not a live connectivity/capability test; no credential was supplied to or stored by this documentation task.
+- Transport: API host `https://mia.csp.kloudeks.com`; Python/OpenAI-compatible base URL `https://mia.csp.kloudeks.com/v1`; authentication uses an **MIA API key**. Official examples use `from openai import OpenAI`, supplying the key via `api_key` and the explicit Kloudeks `base_url`.
+- Service policy: The `openai` Python SDK is allowed **only as an OpenAI-compatible HTTP client exclusively configured for that Kloudeks base URL**. This corrects DEC-122's former blanket client/import ban and adds this narrowly permitted client to DEC-124's allowed manifest. `api.openai.com`, OpenAI-hosted GPT, Anthropic-hosted models, Google-hosted LLM APIs and other third-party hosted LLM services remain prohibited. No default-host route, alternate-provider fallback or credential forwarding is permitted. Credentials remain in operator environment/repository secrets, never examples or Git.
+
+| Capability | Exact model ID | Endpoint path from API host | Confirmed input/behavior |
+| --- | --- | --- | --- |
+| Chat / reasoning / text / vision | `kkbhackathon2026/Qwen3.8-27B` | `/v1/chat/completions` | Text and image input; maximum **5 images in one prompt** |
+| Embedding | `kkbhackathon2026/Qwen3-Embedding-8B` | `/v1/embeddings` | Embedding model/endpoint available; vector dimension and query/passage prefix convention **unknown** |
+| OCR | `kkbhackathon2026/Unlimited-OCR` | `/v1/chat/completions` | Maximum **3 images**; base64 `image_url` block; render PDF pages to images first when OCR is needed |
+
+- OCR contract: Preserve the organizer's exact OCR prompt and `extra_body` parameters during implementation. Their literal values are not included in the information supplied for this docs correction; obtain the original guidance before implementing that request, never invent replacements. Output may contain layout tags such as `<|ref|>` and `<|det|>`; treat extracted content as untrusted data and preserve extraction uncertainty. Available OCR is not an implemented or validated document-ingestion path.
+- Still unknown: Native function/tool calling; guaranteed structured JSON/JSON-schema; context window; general maximum output tokens beyond example-specific values; request/rate/concurrency limits; provider timeout behavior; embedding dimension and query/passage prefix convention; dedicated reranker availability; demo internet/egress. No dedicated reranker in this supplied model list does **not** prove none can be provided later. Account-specific key provisioning/live access was not verified here.
+- Retrieval consequence: Embedding availability removes only that external availability blocker. **DEC-127 is unchanged:** normalizer + reviewed aliases/concepts + metadata filters + lexical/BM25, then benchmark. Dense/LanceDB, RRF and reranking remain optional and require measured benefit.
+- Implementation consequence: No SDK dependency or live client is delivered by this docs change. M4 must separately correct the package-wide `openai` string ban in [test_llm_provider.py](../tests/unit/test_llm_provider.py) and stale provider-policy comments, then validate exclusive Kloudeks routing, no hosted fallback and secret redaction. [ROADMAP M4](ROADMAP.md#m4) records the exact remaining policy conflict; do not weaken the hosted-service ban to make a test pass.
+- Revisit trigger: Further official capability/limit guidance or a separately authorized, sanitized live test. Keep unanswered details in OPEN_QUESTIONS.
+
 ## Proposed decisions
 
 Candidates below are not approved selections. Compare options in a bounded task; do not silently promote a proposal to CONFIRMED.
@@ -365,13 +383,13 @@ Candidates below are not approved selections. Compare options in a bounded task;
 | Topic | Status | Why deferred | Revisit trigger |
 | --- | --- | --- | --- |
 | Router fine-tuning | DEFERRED; no training approach selected | No measured routing baseline or confirmed resources | Persistent routing errors after simpler fixes, plus time/compute |
-| Dense retrieval / fusion / reranking | PROPOSED / BENCHMARK-GATED under DEC-127; DEC-115 SUPERSEDED | Additional complexity must earn activation through held-out gain and measured cost | Baseline comparison; optional model/dimension/prefix answers in Q-K-05 |
+| Dense retrieval / fusion / reranking | PROPOSED / BENCHMARK-GATED under DEC-127; DEC-115 SUPERSEDED | Additional complexity must earn activation through held-out gain and measured cost | Baseline comparison; remaining dimension/prefix/limits and dedicated-reranker answers in Q-K-05 |
 | Multi-agent topology | DEFERRED; none selected | Added coordination cost is not justified | A bounded independent role measurably improves results |
 | Workspace persistence backend | RESOLVED by DEC-117; artifact DAG persisted in DuckDB | Superseded: DEC-112 already places DuckDB in the stack, so no separate engine is needed | Cross-process durability and reset semantics still need Q-INFRA-02 and Q-DEMO-02 |
 | GPU/training deployment | DEFERRED | Resource availability/need unknown | Q-COMP-01 answered and workload requires it |
 | Enterprise security infrastructure | DEFERRED | Outside 8–9 day scope | Concrete production/organizer requirement |
 
-Exact Kloudeks endpoint, authentication and model identifiers remain **UNDECIDED and externally blocked** (Q-K-01/02/03), as do the embedding model and its prefix convention (Q-K-05) and the vision model's limits. These are not preferences to settle by guessing; DEC-122 exists so that answering them changes one module.
+DEC-129 records confirmed Kloudeks transport, authentication, models and image-count limits. Still unresolved: account-specific credential provisioning/access, native function/tool calling, guaranteed JSON/JSON-schema output, context/output capacity, rate/concurrency/timeout behavior, embedding dimension/prefix convention and dedicated reranker availability (narrowed Q-K-01..05). Demo egress remains Q-NET-01/02. Neither compatibility nor example parameters answer these questions.
 
 Orchestration, analytical engine, frontend framework, causality method and workspace persistence are **no longer open** — see DEC-112, DEC-113, DEC-117, DEC-120 and DEC-123. Router fine-tuning and multi-agent topology remain deferred.
 
