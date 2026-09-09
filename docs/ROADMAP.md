@@ -619,7 +619,7 @@ Do not choose “sum” or “last” from frequency alone. Keep source vintage 
 <a id="m3"></a>
 # M3 — BDDK / EVDS integration
 
-Status: PARTIAL — the BDDK bulletins are inventoried in [BDDK_SOURCE](BDDK_SOURCE.md) with their transports, units and cumulative behaviour measured. Live adapters remain BLOCKED on Q-DATA-01 and Q-NET-01/02; EVDS inspection (M3-03) is the next open piece.
+Status: PARTIAL — both sources are inventoried against the live services: [BDDK_SOURCE](BDDK_SOURCE.md) and [EVDS_SOURCE](EVDS_SOURCE.md) record their transports, units, frequencies and measured semantics. Live adapters remain BLOCKED on Q-DATA-01 and Q-NET-01/02.
 
 ## Objective
 
@@ -633,20 +633,40 @@ M1 adapter/ingestion contract, M2 relevant semantics, M7 safe fetch before live 
 
 - [ ] M3-01 — Obtain source access, approved endpoints/formats, credential requirements, and redistribution rules; record Q-DATA-01 evidence.
 - [ ] M3-02 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m3-02-bddk-source-inventory`. Identify representative BDDK datasets and source-published frequency/unit/stock-flow semantics with exact references. Evidence: [M3-02 active record](#m3-02-active-record).
-- [ ] M3-03 — Identify representative EVDS series and date/unit/revision metadata with exact references.
+- [ ] M3-03 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m3-03-evds-source-inventory`. Identify representative EVDS series and date/unit/revision metadata with exact references. Evidence: [M3-03 active record](#m3-03-active-record).
 - [ ] M3-04 — Create synthetic source-shaped discovery/inspection/load fixtures without private source payloads.
 - [ ] M3-05 — Implement BDDK discovery/inspection mapping to the common contract.
 - [ ] M3-06 — Implement BDDK load/selection through bounded approved retrieval. The endpoints, parameters and response shapes are in [BDDK_SOURCE](BDDK_SOURCE.md); the adapter must also supply BDDK's missing intermediate CA in an explicit trust bundle rather than disabling verification.
-- [ ] M3-07 — Implement EVDS discovery/inspection mapping to the same contract.
-- [ ] M3-08 — Implement EVDS load/date-range selection through bounded approved retrieval.
+- [ ] M3-07 — Implement EVDS discovery/inspection mapping to the same contract. Use the keyless catalog endpoints in [EVDS_SOURCE](EVDS_SOURCE.md); never hard-code series codes, filter archived datagroups, and carry each series' published aggregation flags through to the contract.
+- [ ] M3-08 — Implement EVDS load/date-range selection through bounded approved retrieval. Capture the `fe` and `serieList/baslangicBitis` POST payloads from the browser first — they are not documented. Parse the comma decimal separator explicitly and take `UNIXTIME` over the ambiguous `DD-MM-YYYY` label; request original observations at native frequency rather than server-side conversions.
 - [ ] M3-09 — Preserve series IDs, titles, source release/vintage information, retrieval time, and limitations.
-- [ ] M3-10 — Test similarly named wrong-series candidates and require explicit resolution of ambiguity.
+- [ ] M3-10 — Test similarly named wrong-series candidates and require explicit resolution of ambiguity. The fixture is real and recorded in [EVDS_SOURCE](EVDS_SOURCE.md): `TP.KBK.TRY.18` and `TP.KTF12` differ only by a comma, and `TP.BKR.TRY.18` and `TP.KKP.TRY.18` are identically named.
 - [ ] M3-11 — Test changed columns, unavailable series, empty ranges, historical revisions, and rate/source failures.
 - [ ] M3-12 — Keep authentication out of source locators, evidence, logs, and fixture files.
 - [ ] M3-13 — Validate at least one cross-source comparison with confirmed unit/frequency policies.
 - [ ] M3-14 — Verify an unfamiliar generic file still works without either named adapter.
 - [ ] M3-15 — Run targeted adapter/network-boundary tests, lint, and the fast PR gate; record permitted live smoke separately from offline validation.
 - [ ] M3-16 — Record source support, access blockers, permission evidence, and next integration task.
+
+### M3-03 active record
+
+- Status: PARTIAL — inventory complete and validated on the task branch; unchecked until its PR merges into `dev`
+- Owner: Eray
+- Branch: `feature/m3-03-evds-source-inventory`; fresh `dev` base `35eda16`
+- PR: [#22](https://github.com/cagatayeroglu/KKB-DataTrio/pull/22) -> `dev`; draft claim published before implementation
+- Commit: claim `34b1025`; inventory recorded in the PR
+- Objective: Establish how TCMB EVDS is accessed and what it publishes for the series the reference scenario needs, with exact series codes as references rather than hard-coded constants.
+- Scope: read-only inspection of the published service and a written inventory. No adapter implementation, no credential committed, no retrieved payload committed.
+- Delivered: [EVDS source inventory](EVDS_SOURCE.md) covering access, the catalog endpoints, per-series metadata, frequencies, archived and base-year variants, and the observation response shape.
+- Key findings: the documented `evds2.tcmb.gov.tr/service/evds` API is **gone** — every path 302s to EVDS3 — so published API-key instructions are stale and the "has the key been obtained" question may have no answer to obtain. EVDS3 exposes a **keyless** internal API at `/igmevdsms-dis/` whose catalog is 154 categories and 678 datagroups. **EVDS publishes the aggregation policy per series** (`DEFAULT_AGG_METHOD`, `SUMABLE`, `AVGABLE`, ...), so M12-09's metadata-driven policy is read rather than authored for these series; every rate carries `SUMABLE: 0`. The catalog declares **nine frequencies**, including separate Friday and Wednesday weekly anchors and `İŞ GÜNÜ` distinct from `GÜNLÜK`. 228 of 678 datagroups are archived and rank in ordinary searches.
+- Demo-critical finding: `konut kredisi` returns four series — `TP.KBK.TRY.18` and `TP.KTF12` (weekly Friday, Akım) and `TP.BKR.TRY.18` and `TP.KKP.TRY.18` (monthly, Stok). The first two differ **only by a comma** in their display names and the last two are identically named, so no ranking method can separate them from text. This is the M3-10 wrong-near-match case, arriving in the demo's very first series.
+- Cross-source consequence: BDDK publishes housing credit monthly while the EVDS flow rate is weekly-Friday, and no monthly variant of the flow rate exists. Frequency alignment is a prerequisite for the reference scenario, not an optimization.
+- Parsing hazard: observation values arrive as **strings with a comma decimal separator** (`"46,750"` is 46.75). Reading that comma as a thousands separator is a 1000x error that still charts plausibly. Dates are `DD-MM-YYYY` and ambiguous below the thirteenth; `UNIXTIME` is present and should be authoritative.
+- Evidence: catalog and two series lists retrieved and inspected, roughly a dozen requests. Counts quoted in the inventory were computed from the retrieved catalog, not transcribed.
+- Tests: documentation tier. Full diff review; `git diff --check` clean; link and anchor pass over all tracked Markdown. No application checks apply — no code, dependency or configuration file is touched.
+- Data handling: responses written to the ignored `data/raw/evds/` path and **not** committed. EVDS terms of use were not reviewed; M3-01 should read them before any scheduled retrieval.
+- Blocker: none for inspection. The two POST payloads (`fe`, `serieList/baslangicBitis`) were not captured and must be read from the browser network panel when implementing M3-08.
+- Handoff: both source inventories now exist, so M12 can be written against measured behaviour on both sides of the reference scenario. Natural next step is the first M12 slice using the series named here. M3-04 synthetic fixtures should now be shaped like these real responses, including the comma decimal and the weekly Friday anchor.
 
 ### M3-02 active record
 
@@ -1126,8 +1146,8 @@ M0-01 contracts and M1 loading for input; DEC-112 for the engine, DEC-114 for bu
 - [ ] M12-05 — Implement cumulative detection: distinguish a series cumulative since first publication, a series that resets each January, and a plain flow series, and report low confidence rather than guessing. Detection is **per series, not per source** — [BDDK_SOURCE](BDDK_SOURCE.md) shows monthly table 4 is a stock and table 2 resets every January, in the same bulletin.
 - [ ] M12-06 — Implement non-reset cumulative-to-flow differencing, requiring the preceding baseline for the first derived period. **No merge without unit tests.**
 - [ ] M12-07 — Implement yearly-reset cumulative conversion with January and missing-prior-period boundary cases. **No merge without unit tests.**
-- [ ] M12-08 — Implement frequency alignment for daily, weekly and monthly sources, including weeks that cross a month boundary; do not assume equal row spacing implies a known reporting calendar.
-- [ ] M12-09 — Store the aggregation policy in each series' metadata — stock to period end, flow summed, rate by its recorded rule — and read it from metadata rather than branching on the series name in code.
+- [ ] M12-08 — Implement frequency alignment for daily, weekly and monthly sources, including weeks that cross a month boundary; do not assume equal row spacing implies a known reporting calendar. Key on the declared frequency: EVDS publishes nine, including separate Friday and Wednesday weekly anchors and `İŞ GÜNÜ` distinct from `GÜNLÜK`. The reference scenario needs a weekly-Friday rate joined to a monthly stock, so this is on the critical path.
+- [ ] M12-09 — Store the aggregation policy in each series' metadata — stock to period end, flow summed, rate by its recorded rule — and read it from metadata rather than branching on the series name in code. EVDS already publishes this per series (`DEFAULT_AGG_METHOD`, `SUMABLE`, `AVGABLE`, ...); carry those flags through instead of re-deriving them, and honour `SUMABLE: 0`.
 - [ ] M12-10 — Implement unit and scale normalization for TRY, thousand TRY and million TRY with the applied factor recorded; make unit a required field and reject a series without one. This is not hypothetical: FinTürk publishes Bin TL while the monthly and weekly bulletins publish Milyon TL, and the unit appears only in a caption or a display label.
 - [ ] M12-11 — Implement percentage, decimal and basis-point conversion, distinguishing percentage points from relative percent change.
 - [ ] M12-12 — Preserve revisions and source vintages; never collapse conflicting historical observations silently.
@@ -1135,6 +1155,7 @@ M0-01 contracts and M1 loading for input; DEC-112 for the engine, DEC-114 for bu
 - [ ] M12-14 — Write lineage nodes and edges for every transformation in this milestone; a produced cell without lineage fails review.
 - [ ] M12-15 — Add hand-calculated fixtures for each cumulative, aggregation, frequency and unit rule, plus negative tests for unknown unit, unknown frequency and unknown reset behaviour.
 - [ ] M12-16 — Run targeted normalization tests and touched-code lint; record which policies are implemented and which still need source confirmation.
+- [ ] M12-17 — Handle index base-year variants explicitly: the consumer price index exists as 2003=100 and 2025=100, the housing price index as 2010=100, 2017=100 and current. Parse the base from the title, require an explicit reference period, and verify overlap before rebasing.
 
 ## Acceptance criteria
 
