@@ -18,11 +18,11 @@ This file owns **execution truth**. [ARCHITECTURE](ARCHITECTURE.md) owns technic
 
 # Current Project Status
 
-- Last verified `origin/dev`: **`90dd9e9858725457533bb4c64aaf1061f6f9e0dc`** (PR #41).
-- Verification: **2026-09-10**, after authorized PR #41 merge; local `dev` fast-forwarded to `origin/dev`, merged tree equals validated `9c707f6`, the merged `docs/organizer-brief-mia-sync` branch was deleted locally and on `origin`, and no open PR or outstanding claim remains at inspection. `.env` is untracked and ignored.
+- Last verified `origin/dev`: **`d4d584bfe08efa3d8fe9f0d852a825d7a1e60906`** (PR #42).
+- Verification: **2026-09-10**, after authorized PR #42 merge; local `dev` fast-forwarded to `origin/dev`, merged tree equals validated `3c4d68e`, the merged `feature/m6-01-result-contract` branch was deleted locally and on `origin`, and no open PR or outstanding claim remains at inspection.
 - Schedule: **Day 4 of the confirmed 7–20 September 2026 development window** ([DEC-131](DECISIONS.md#dec-131--organizer-kick-off-brief-schedule-delivery-form-and-demo-day-input-scope)); 11 days remain to the reviewed-repository deadline. Final Day is 17 October 2026. The earlier "8–9 day" figure was an internal estimate, never an organizer date.
 - Phase: Foundation available; complete the **first real end-to-end slice**. The offline planner/registry/executor, lakehouse SQL tool, definition DAG and numeric-binding verifier exist. Real-source ingestion, complete result/workspace/proof integration and live Kloudeks remain delivery work.
-- Active task: **M6-01 / Eray / PARTIAL**, `feature/m6-01-result-contract` from `dev` `90dd9e9`; [PR #42](https://github.com/cagatayeroglu/KKB-DataTrio/pull/42) awaits review/merge. the typed financial-result contract. Selected as the queue's first READY task: it is the missing keystone under the three largest gaps — the verifier binds numbers by value proximity because no result carries period/unit/run identity, the workspace cannot reject a stale result that has no identity, and M6-02..M6-11 all need one answer to "what does a tool return". M3-06 remains not started: Q-DATA-01 and Q-NET-01/02 block live execution, and BDDK bulletin endpoints additionally need bounded POST support. Remaining READY queue is unchanged.
+- Active task: **M6-21 / Eray / IN PROGRESS**, `feature/m6-21-lakehouse-typed-result` from `dev` `d4d584b`; make the `lakehouse` tool emit the M6-01 typed result. M6-01 is DONE from merged PR #42. Selected as the queue's first READY task: it is the missing keystone under the three largest gaps — the verifier binds numbers by value proximity because no result carries period/unit/run identity, the workspace cannot reject a stale result that has no identity, and M6-02..M6-11 all need one answer to "what does a tool return". M3-06 remains not started: Q-DATA-01 and Q-NET-01/02 block live execution, and BDDK bulletin endpoints additionally need bounded POST support. Remaining READY queue is unchanged.
 - Product/retrieval documentation synchronization: **DONE**, PR [#34](https://github.com/cagatayeroglu/KKB-DataTrio/pull/34) merged into `dev` at `41e302c`; final content `e2029ea`, document checks and Fast PR gate PASS (55s). DEC-129/130 and the reconciled current status are present in the merged tree.
 - Organizer primary-source synchronization: **DONE**, PR [#41](https://github.com/cagatayeroglu/KKB-DataTrio/pull/41) merged into `dev` at `90dd9e9`; final content `9c707f6`. Owner Eray; branch deleted after merge. Records [DEC-131](DECISIONS.md#dec-131--organizer-kick-off-brief-schedule-delivery-form-and-demo-day-input-scope) (kick-off calendar, delivery form, demo-day input scope, technology expectations) and amends DEC-129 with the primary MIA guide's literal OCR/embedding contracts and error semantics; narrows Q-K-01/04/05, Q-DATA-01, Q-DEMO-01, Q-INFRA-01, Q-NET-02, Q-DEV-02 and sharpens Q-DEV-01. Documentation and the `.env.example` template only; no runtime behaviour, dependency or test-policy change. `.env.example` values stay blank so `test_environment_template_has_only_blank_values` needed no exception. Tests: `make quick` 892 passed / 16.36s; `make pr` 892 passed / 16.07s with Ruff format/lint, Bandit and secret scan clean; internal Markdown link/anchor check 0 broken.
 - Fast gate: M7-05 delivery on PR #38 — **340 targeted / 892 unit tests PASS**, `make quick` 17.30s, `make pr` 16.73s including Ruff format/lint, Bandit and secret scan (Python 3.12.2). Final-head GitHub Fast PR gate PASS (59s), verified before merge. These are existing delivery results; no application checks rerun for this documentation-only closure.
@@ -38,14 +38,14 @@ All READY entries below are unowned, with Branch/PR/Commit **—**, Tests **NOT 
 
 | Order | Task / status | Satisfied prerequisites | Acceptance / handoff |
 | --- | --- | --- | --- |
-| 1 | **M6-01 — PARTIAL** (Eray, `feature/m6-01-result-contract`, [PR #42](https://github.com/cagatayeroglu/KKB-DataTrio/pull/42)) | Core records, M5 registry and M6-20 lakehouse result exist; DEC-112/119/128 confirm deterministic/evidence direction | Define the narrow result schema for values, units, periods, sample counts, warnings and evidence references. Keep unresolved semantics explicit; test serialization and invalid/missing metadata. Specify how run/result identity will connect to M5/M8; do not implement a broad proof engine here. Unblocks actual tool/workspace/verifier integration. |
+| 1 | **M6-21 — IN PROGRESS** (Eray, `feature/m6-21-lakehouse-typed-result`) | M6-01 contract and the M6-20 lakehouse tool are merged; DEC-119/121 fix the tool and verification direction | Project a validated lakehouse query into an `AnalyticalResult` using the semantics the lakehouse already stores, inventing none. Preserve the rows for presentation. Refuse to present a number that rests on no lakehouse table. Unblocks M8 claim binding and gives M6-02/03 a settled output shape. |
 | 2 | **M1-06 — READY** | M1-01/02/03/04/05 and core contracts merged; engine decision settled | Bounded CSV parsing with explicit delimiter/encoding and ambiguity rejection, synthetic fixture oracles, targeted limits/negative tests and fast PR gate. No source-specific logic. |
 | 3 | **M3-04 — READY** | Both source inventories and generic ingestion specification merged | Small synthetic source-shaped discovery/inspection/load fixtures; preserve comma decimals, native cadence and unknown semantics; test content without live calls/private payloads. |
 | 4 | **M13-01 — READY** | Series metadata and source inventories exist; DEC-130 fixes hybrid baseline direction | Catalog record with identity/title/unit/frequency/source/coverage/sample values plus explicit unknown/archived metadata. Test round-trip and ambiguity; no live catalog fetch or embeddings. |
 | 5 | **M13-03 — READY** | Confirmed DEC-116/130; no model/source access needed | One shared Turkish normalizer, preserved original labels and deterministic case/diacritic fixtures proving query/index agreement. |
 | 6 | **M0-08 — READY** | Reproduced release-gate failure; existing full target | Narrow typing fix or reviewed exceptions under its record, before the next checkpoint. Scope is **17** errors in 5 files as measured on `90dd9e9`, not the 14 previously recorded. Independent release prerequisite, not a reason to create more foundation work. |
 
-M13 alias/holdout authoring follows the catalog record so identifiers, versions and reviewed concept families are stable. M9-01 retains its explicit Day 0 review/delivery blocker; no stash recovery is authorized here. Remaining PARTIAL scopes below are **not automatically released for takeover**; request the recorded owner's handoff before resuming.
+Completed M6-01 is recorded below and excluded from this queue. M13 alias/holdout authoring follows the catalog record so identifiers, versions and reviewed concept families are stable. M9-01 retains its explicit Day 0 review/delivery blocker; no stash recovery is authorized here. Remaining PARTIAL scopes below are **not automatically released for takeover**; request the recorded owner's handoff before resuming.
 
 ## Reconciled merge evidence
 
@@ -835,7 +835,7 @@ M1 data references, M2 operation-specific semantic policies, M5 tool registratio
 
 ## Tasks
 
-- [ ] M6-01 — Status: PARTIAL. Owner: Eray; Branch: `feature/m6-01-result-contract` from `dev` `90dd9e9`; PR: [#42](https://github.com/cagatayeroglu/KKB-DataTrio/pull/42) open; Commit: `194df0c`. Define result schemas for values, units, periods, sample counts, warnings, and evidence references. Evidence: [M6-01 result contract record](#m6-01-result-contract-record).
+- [x] M6-01 — Status: DONE — merged/validated (PR [#42](https://github.com/cagatayeroglu/KKB-DataTrio/pull/42) / `d4d584b`, 57 targeted / 949 unit tests). Owner: Eray; Branch: `feature/m6-01-result-contract`; Commit: `194df0c`. Define result schemas for values, units, periods, sample counts, warnings, and evidence references. Evidence: [M6-01 result contract record](#m6-01-result-contract-record).
 - [ ] M6-02 — Implement absolute change and relative change with explicit denominator/zero handling.
 - [ ] M6-03 — Implement period comparison with exact date selection and transparent missing observations.
 - [ ] M6-04 — Add hand-calculated change fixtures including negative values, zeros, and empty ranges.
@@ -846,6 +846,7 @@ M1 data references, M2 operation-specific semantic policies, M5 tool registratio
 - [ ] M6-09 — Implement lag analysis with a clear lag sign, bounded search window, and per-lag sample counts.
 - [ ] M6-10 — Test non-stationary/spurious-correlation examples and prevent an association result becoming causal prose.
 - [x] M6-20 — Status: DONE — merged/validated (PR #31 / 6b1ee47, 39 targeted SQL tests). Owner: Eray; Branch: `feature/m6-lakehouse-tool`. Implement the `lakehouse` tool as restricted text-to-SQL over gold under [DEC-121](DECISIONS.md#dec-121--six-brief-named-tools-with-typed-schemas-and-restricted-sql): parse the statement, allow only whitelisted tables, dry-run through `EXPLAIN`, then execute read-only with the engine's file, network and extension capabilities switched off. Evidence: [lakehouse tool record](#lakehouse-tool-record).
+- [ ] M6-21 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m6-21-lakehouse-typed-result` from `dev` `d4d584b`; PR/Commit: pending. Project a validated `lakehouse` query into the M6-01 `AnalyticalResult` using only the semantics the lakehouse already stores, so a claim can be bound to a period, unit and run. Added under the M6-20 precedent, where a numbered task was created when the need appeared. Evidence: [M6-21 typed lakehouse result record](#m6-21-typed-lakehouse-result-record).
 - [ ] M6-11 — Implement the DEC-120 causality tool: lagged cross-correlation and Granger tests via `statsmodels`, with mandatory printed limitations and no "X causes Y" phrasing.
 - [ ] M6-12 — Implement supported causality method only if justified/time permits; otherwise record explicit scope cut and abstention behavior.
 - [ ] M6-13 — Reuse M2 deflation with reference-period evidence; never compare nominal and real measures silently.
@@ -855,10 +856,10 @@ M1 data references, M2 operation-specific semantic policies, M5 tool registratio
 
 ### M6-01 result contract record
 
-- Status: PARTIAL — implemented and validated; unchecked until merged into `dev`.
+- Status: DONE — PR #42 merged into `dev` at `d4d584bfe08efa3d8fe9f0d852a825d7a1e60906`; merged tree equals validated `3c4d68e`.
 - Owner: Eray
-- Branch: `feature/m6-01-result-contract`, from `dev` `90dd9e9858725457533bb4c64aaf1061f6f9e0dc`
-- PR: [#42](https://github.com/cagatayeroglu/KKB-DataTrio/pull/42), `feature/m6-01-result-contract` -> `dev`; awaiting review/merge. Claim published before implementation; no collision on post-publication remote recheck.
+- Branch: `feature/m6-01-result-contract`, from `dev` `90dd9e9858725457533bb4c64aaf1061f6f9e0dc`; deleted after merge.
+- PR: [#42](https://github.com/cagatayeroglu/KKB-DataTrio/pull/42), `feature/m6-01-result-contract` -> `dev`; merged. Claim published before implementation; no collision on post-publication remote recheck.
 - Commit: `194df0c` (implementation); claim `42fc1e6`.
 - Objective: Define the narrow typed contract an analytical tool returns — values, units and scale, periods, sample counts, warnings and evidence references — and specify how result identity connects to M5 execution and M8 verification. Not a proof engine.
 - Readiness at start: queue position 1, unowned, no competing branch or PR on `origin`. Core records, the M5 registry and the M6-20 lakehouse result exist; DEC-112/119/120/128 fix the deterministic/evidence direction. No unresolved team or organizer decision blocks a contract definition.
@@ -871,6 +872,16 @@ M1 data references, M2 operation-specific semantic policies, M5 tool registratio
 - Limitations: contract only. No tool emits an `AnalyticalResult` yet, the lakehouse tool still returns `QueryResult`, and `ToolResult.output` remains `object`. `ResultEvidence.input_refs` are unresolved strings — this module does not check that a lineage node or evidence record exists, which is M8-04. `describes_same_computation` compares content, not replay: two results can hash alike and still both be wrong.
 - Blocker: none known in scope.
 - Handoff: The contract exists and is exported from `kkb_agent.core`. The next step that turns it into product value is making the `lakehouse` tool return an `AnalyticalResult` instead of a bare `QueryResult`, which then lets M8 bind a claim to a period/unit/run rather than to any nearby number. M6-02/03 (change and comparison) are the natural first producers and can now be written against a settled output shape. Do not extend this module with proof, storage or recomputation logic; those belong to M8 and M5.
+
+### M6-21 typed lakehouse result record
+
+- Status: IN PROGRESS — claim published before implementation.
+- Owner: Eray
+- Branch: `feature/m6-21-lakehouse-typed-result`, from `dev` `d4d584bfe08efa3d8fe9f0d852a825d7a1e60906`
+- PR: pending
+- Commit: pending
+- Objective: Make the `lakehouse` tool emit an M6-01 `AnalyticalResult` beside the rows it already returns, reading unit, scale, frequency, anchor and observation kind from the columns the lakehouse itself stores. Invent no semantics; keep the security gates untouched.
+- Blocker: none known in scope.
 
 ### Lakehouse tool record
 
