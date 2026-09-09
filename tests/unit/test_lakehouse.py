@@ -409,11 +409,20 @@ class TestStoreLayout:
             "silver_series.parquet",
             "silver_observations.parquet",
         }
-        observations = house.silver / "silver_observations.parquet"
-        value = house.connection.execute(
-            f"SELECT value FROM read_parquet('{observations}')"
-        ).fetchone()[0]
-        assert value == pytest.approx(801438.0)
+        # Read back with PyArrow rather than the engine: the database is
+        # sandboxed and cannot open files, and an independent reader also proves
+        # the export is real Parquet rather than something DuckDB happens to
+        # accept.
+        import pyarrow.parquet
+
+        table = pyarrow.parquet.read_table(house.silver / "silver_observations.parquet")
+        assert table.column("value").to_pylist() == [pytest.approx(801438.0)]
+
+    def test_the_database_cannot_reach_the_filesystem(self, house):
+        import duckdb
+
+        with pytest.raises(duckdb.Error):
+            house.connection.execute("SELECT * FROM read_csv('/etc/passwd')")
 
     def test_a_file_cannot_be_used_as_a_root(self, tmp_path):
         occupied = tmp_path / "not-a-dir"

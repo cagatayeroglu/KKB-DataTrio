@@ -883,8 +883,8 @@ M1 data references, M2 operation-specific semantic policies, M5 tool registratio
 
 ## Tasks
 
-- [ ] M6-01 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m6-lakehouse-tool`. Define result schemas for values, units, periods, sample counts, warnings, and evidence references. Evidence: [lakehouse tool record](#lakehouse-tool-record).
-- [ ] M6-02 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m6-lakehouse-tool`. Implement absolute change and relative change with explicit denominator/zero handling. Evidence: [lakehouse tool record](#lakehouse-tool-record).
+- [ ] M6-01 — Define result schemas for values, units, periods, sample counts, warnings, and evidence references.
+- [ ] M6-02 — Implement absolute change and relative change with explicit denominator/zero handling.
 - [ ] M6-03 — Implement period comparison with exact date selection and transparent missing observations.
 - [ ] M6-04 — Add hand-calculated change fixtures including negative values, zeros, and empty ranges.
 - [ ] M6-05 — Choose/document a simple change/anomaly baseline and its minimum-sample/parameter policy.
@@ -893,6 +893,7 @@ M1 data references, M2 operation-specific semantic policies, M5 tool registratio
 - [ ] M6-08 — Reject or explicitly flag too few observations and constant series; avoid invalid/undefined statistics.
 - [ ] M6-09 — Implement lag analysis with a clear lag sign, bounded search window, and per-lag sample counts.
 - [ ] M6-10 — Test non-stationary/spurious-correlation examples and prevent an association result becoming causal prose.
+- [ ] M6-20 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m6-lakehouse-tool`. Implement the `lakehouse` tool as restricted text-to-SQL over gold under [DEC-121](DECISIONS.md#dec-121--six-brief-named-tools-with-typed-schemas-and-restricted-sql): parse the statement, allow only whitelisted tables, dry-run through `EXPLAIN`, then execute read-only with the engine's file, network and extension capabilities switched off. Evidence: [lakehouse tool record](#lakehouse-tool-record).
 - [ ] M6-11 — Implement the DEC-120 causality tool: lagged cross-correlation and Granger tests via `statsmodels`, with mandatory printed limitations and no "X causes Y" phrasing.
 - [ ] M6-12 — Implement supported causality method only if justified/time permits; otherwise record explicit scope cut and abstention behavior.
 - [ ] M6-13 — Reuse M2 deflation with reference-period evidence; never compare nominal and real measures silently.
@@ -902,16 +903,20 @@ M1 data references, M2 operation-specific semantic policies, M5 tool registratio
 
 ### Lakehouse tool record
 
-- Status: IN PROGRESS — claim published before implementation
+- Status: PARTIAL — implemented and validated on the task branch; unchecked until its PR merges into `dev`
 - Owner: Eray
 - Branch: `feature/m6-lakehouse-tool`; fresh `dev` base `99894f3`
-- PR: pending
-- Commit: pending
-- Objective: The first tool that does real work — restricted text-to-SQL over gold, under the DEC-121 controls: parse, whitelist, `EXPLAIN` dry run, then read-only execution with the engine's file, network and extension capabilities switched off.
-- Scope: the `lakehouse` tool and its security boundary. No planner prompt changes, no other tools.
-- Tests: pending.
+- PR: [#31](https://github.com/cagatayeroglu/KKB-DataTrio/pull/31) -> `dev`; draft claim published before implementation
+- Commit: claim `e372c5f`; implementation recorded in the PR
+- Objective: The first tool that does real work — restricted text-to-SQL over the analysis tables under the DEC-121 controls.
+- Scope: the `lakehouse` tool and its security boundary, tracked as the new M6-20. No planner prompt changes, no other tools.
+- Implementation: [tools/lakehouse.py](../src/kkb_agent/tools/lakehouse.py). Five gates, all of which a query must pass: one statement and it must be a SELECT, parsed by the engine rather than matched by a regular expression; no table functions, which is how SQL reaches the filesystem; only whitelisted tables, with CTEs the query defines itself excluded; an `EXPLAIN` dry run; and a database that cannot reach the filesystem, the network or an extension registry at all.
+- One finding changed the design. DuckDB applies configuration **per database, not per connection**, so hardening a cursor locks the whole database and a second hardening call then fails. Opening a separate hardened read-only connection is also refused — DuckDB will not open one file under two configurations. So the sandbox moved to `open_lakehouse`, where it belongs, and [export_silver](../src/kkb_agent/lakehouse/store.py) now writes Parquet through PyArrow instead of `COPY ... TO`. The pipeline does its own file I/O in Python, so SQL never needs the capability back and the whole analysis database is permanently sandboxed rather than only during a tool call.
+- The whitelist closes a gap the statement check misses: DuckDB reads `SELECT * FROM 'secrets.parquet'` as a base table named `secrets.parquet`, so an implicit file scan is refused by name rather than slipping through as an ordinary SELECT.
+- Tests: PASS (2026-09-09; Python 3.12.5). `pytest -q tests/unit/test_lakehouse_tool.py` — 39 passed, most of them attacks: a statement hidden after a comment, eight non-SELECT verbs including `ATTACH`, `INSTALL` and `COPY ... TO`, four file-reading functions and one buried in a subquery, forbidden tables reached through a join and through a CTE, and the implicit file scan. Full gate: Ruff 0.16.6 clean over 52 files, `pytest -q tests/unit` — 515 passed, Bandit 1.9.4 clean, secret scan clean. `mypy src` reports 14 errors, **unchanged**.
+- Two findings were fixed rather than suppressed. Bandit flagged an interpolated table name in the export; the statements are now literal, so nothing from outside can reach that string by construction. It also flagged an `assert` used as a contract check in the tool — asserts vanish under `-O`, and a runtime guarantee that disappears in production is not a guarantee, so it is an explicit raise. An existing test that read an export back through `read_parquet` now reads it with PyArrow, which the sandbox forced and which independently proves the file is real Parquet.
 - Blocker: none.
-- Handoff: pending.
+- Handoff: a validated plan step can now run SQL against real data and get rows back, and the tool refuses everything it should. What is still missing between here and an answer: the tool returns rows but writes no lineage node, so a value it produces is not yet traceable — wiring that to DEC-118 is the next step, followed by the verifier that checks each number in the answer text against a cell.
 
 ## Acceptance criteria
 
