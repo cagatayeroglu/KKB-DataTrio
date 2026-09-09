@@ -883,8 +883,8 @@ M1 data references, M2 operation-specific semantic policies, M5 tool registratio
 
 ## Tasks
 
-- [ ] M6-01 — Define result schemas for values, units, periods, sample counts, warnings, and evidence references.
-- [ ] M6-02 — Implement absolute change and relative change with explicit denominator/zero handling.
+- [ ] M6-01 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m6-lakehouse-tool`. Define result schemas for values, units, periods, sample counts, warnings, and evidence references. Evidence: [lakehouse tool record](#lakehouse-tool-record).
+- [ ] M6-02 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m6-lakehouse-tool`. Implement absolute change and relative change with explicit denominator/zero handling. Evidence: [lakehouse tool record](#lakehouse-tool-record).
 - [ ] M6-03 — Implement period comparison with exact date selection and transparent missing observations.
 - [ ] M6-04 — Add hand-calculated change fixtures including negative values, zeros, and empty ranges.
 - [ ] M6-05 — Choose/document a simple change/anomaly baseline and its minimum-sample/parameter policy.
@@ -899,6 +899,19 @@ M1 data references, M2 operation-specific semantic policies, M5 tool registratio
 - [ ] M6-14 — Generate deterministic table/chart data from tool outputs; formatting must not recompute material values through the model.
 - [ ] M6-15 — Test numeric oracles, tolerances, warning semantics, and source/transformation links.
 - [ ] M6-16 — Run targeted analytics tests/lint and relevant smoke cases; record per-tool support and next task.
+
+### Lakehouse tool record
+
+- Status: IN PROGRESS — claim published before implementation
+- Owner: Eray
+- Branch: `feature/m6-lakehouse-tool`; fresh `dev` base `99894f3`
+- PR: pending
+- Commit: pending
+- Objective: The first tool that does real work — restricted text-to-SQL over gold, under the DEC-121 controls: parse, whitelist, `EXPLAIN` dry run, then read-only execution with the engine's file, network and extension capabilities switched off.
+- Scope: the `lakehouse` tool and its security boundary. No planner prompt changes, no other tools.
+- Tests: pending.
+- Blocker: none.
+- Handoff: pending.
 
 ## Acceptance criteria
 
