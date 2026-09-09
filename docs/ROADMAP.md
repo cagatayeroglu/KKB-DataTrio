@@ -18,13 +18,13 @@ This file owns **execution truth**. [ARCHITECTURE](ARCHITECTURE.md) owns technic
 
 # Current Project Status
 
-- Last verified `origin/dev`: **`0dbeef12733ea854acbef88e880815a86b583078`** (PR #39).
-- Verification: **2026-09-10**, after PR #39 merge; local `dev` fast-forwarded to `origin/dev`, `origin` carries only `dev` and `main` so no task branch or draft claim is outstanding, and `.env` is untracked and ignored. The previous header still named `dfcd7c5`/PR #38 and is corrected here.
+- Last verified `origin/dev`: **`90dd9e9858725457533bb4c64aaf1061f6f9e0dc`** (PR #41).
+- Verification: **2026-09-10**, after authorized PR #41 merge; local `dev` fast-forwarded to `origin/dev`, merged tree equals validated `9c707f6`, the merged `docs/organizer-brief-mia-sync` branch was deleted locally and on `origin`, and no open PR or outstanding claim remains at inspection. `.env` is untracked and ignored.
 - Schedule: **Day 4 of the confirmed 7–20 September 2026 development window** ([DEC-131](DECISIONS.md#dec-131--organizer-kick-off-brief-schedule-delivery-form-and-demo-day-input-scope)); 11 days remain to the reviewed-repository deadline. Final Day is 17 October 2026. The earlier "8–9 day" figure was an internal estimate, never an organizer date.
 - Phase: Foundation available; complete the **first real end-to-end slice**. The offline planner/registry/executor, lakehouse SQL tool, definition DAG and numeric-binding verifier exist. Real-source ingestion, complete result/workspace/proof integration and live Kloudeks remain delivery work.
-- Active task: **organizer primary-source documentation sync / Eray / IN PROGRESS**, `docs/organizer-brief-mia-sync`; documentation only, no implementation task claimed. M7-05 and M7-06 direct-GET negative coverage are DONE from merged PR #38. M3-06 is not started: Q-DATA-01 and Q-NET-01/02 remain OPEN and block live execution. The independent READY queue is unchanged.
+- Active task: **M6-01 / Eray / IN PROGRESS**, `feature/m6-01-result-contract` from `dev` `90dd9e9`; the typed financial-result contract. Selected as the queue's first READY task: it is the missing keystone under the three largest gaps — the verifier binds numbers by value proximity because no result carries period/unit/run identity, the workspace cannot reject a stale result that has no identity, and M6-02..M6-11 all need one answer to "what does a tool return". M3-06 remains not started: Q-DATA-01 and Q-NET-01/02 block live execution, and BDDK bulletin endpoints additionally need bounded POST support. Remaining READY queue is unchanged.
 - Product/retrieval documentation synchronization: **DONE**, PR [#34](https://github.com/cagatayeroglu/KKB-DataTrio/pull/34) merged into `dev` at `41e302c`; final content `e2029ea`, document checks and Fast PR gate PASS (55s). DEC-129/130 and the reconciled current status are present in the merged tree.
-- Organizer primary-source synchronization: **PARTIAL** — implemented, unchecked until merged. Owner Eray; Branch `docs/organizer-brief-mia-sync`; PR pending. Records [DEC-131](DECISIONS.md#dec-131--organizer-kick-off-brief-schedule-delivery-form-and-demo-day-input-scope) (kick-off calendar, delivery form, demo-day input scope, technology expectations) and amends DEC-129 with the primary MIA guide's literal OCR/embedding contracts and error semantics; narrows Q-K-01/04/05, Q-DATA-01, Q-DEMO-01, Q-INFRA-01, Q-NET-02, Q-DEV-02 and sharpens Q-DEV-01. Documentation and the `.env.example` template only; no runtime behaviour, dependency or test-policy change. `.env.example` values stay blank so `test_environment_template_has_only_blank_values` needed no exception. Tests: `make quick` 892 passed / 16.36s; `make pr` 892 passed / 16.07s with Ruff format/lint, Bandit and secret scan clean; internal Markdown link/anchor check 0 broken.
+- Organizer primary-source synchronization: **DONE**, PR [#41](https://github.com/cagatayeroglu/KKB-DataTrio/pull/41) merged into `dev` at `90dd9e9`; final content `9c707f6`. Owner Eray; branch deleted after merge. Records [DEC-131](DECISIONS.md#dec-131--organizer-kick-off-brief-schedule-delivery-form-and-demo-day-input-scope) (kick-off calendar, delivery form, demo-day input scope, technology expectations) and amends DEC-129 with the primary MIA guide's literal OCR/embedding contracts and error semantics; narrows Q-K-01/04/05, Q-DATA-01, Q-DEMO-01, Q-INFRA-01, Q-NET-02, Q-DEV-02 and sharpens Q-DEV-01. Documentation and the `.env.example` template only; no runtime behaviour, dependency or test-policy change. `.env.example` values stay blank so `test_environment_template_has_only_blank_values` needed no exception. Tests: `make quick` 892 passed / 16.36s; `make pr` 892 passed / 16.07s with Ruff format/lint, Bandit and secret scan clean; internal Markdown link/anchor check 0 broken.
 - Fast gate: M7-05 delivery on PR #38 — **340 targeted / 892 unit tests PASS**, `make quick` 17.30s, `make pr` 16.73s including Ruff format/lint, Bandit and secret scan (Python 3.12.2). Final-head GitHub Fast PR gate PASS (59s), verified before merge. These are existing delivery results; no application checks rerun for this documentation-only closure.
 - Known failing gate: **M0-08** — 14 strict mypy errors reported through PR #32, originating in the XLSX modules. Full/release validation is not established. Do not infer a green release from a green `make pr`; no full/release checks run in this task.
 - Critical implementation gaps: CSV/profile and source adapters; source POST/trust configuration and redirect following; typed financial results/run/snapshot identity; workspace stale-result rejection/recomputation and loop integration; second-path verifier and answer gate; catalog retrieval; remaining `web_search`, `web_url`, `anomaly`, `causality`, `change_detection`; **document extraction behind `web_url` (HTML/PDF/XLSX/image), now a confirmed demo-day requirement**; benchmark runner; API/UI/deployment.
@@ -38,7 +38,7 @@ All READY entries below are unowned, with Branch/PR/Commit **—**, Tests **NOT 
 
 | Order | Task / status | Satisfied prerequisites | Acceptance / handoff |
 | --- | --- | --- | --- |
-| 1 | **M6-01 — READY** | Core records, M5 registry and M6-20 lakehouse result exist; DEC-112/119/128 confirm deterministic/evidence direction | Define the narrow result schema for values, units, periods, sample counts, warnings and evidence references. Keep unresolved semantics explicit; test serialization and invalid/missing metadata. Specify how run/result identity will connect to M5/M8; do not implement a broad proof engine here. Unblocks actual tool/workspace/verifier integration. |
+| 1 | **M6-01 — IN PROGRESS** (Eray, `feature/m6-01-result-contract`) | Core records, M5 registry and M6-20 lakehouse result exist; DEC-112/119/128 confirm deterministic/evidence direction | Define the narrow result schema for values, units, periods, sample counts, warnings and evidence references. Keep unresolved semantics explicit; test serialization and invalid/missing metadata. Specify how run/result identity will connect to M5/M8; do not implement a broad proof engine here. Unblocks actual tool/workspace/verifier integration. |
 | 2 | **M1-06 — READY** | M1-01/02/03/04/05 and core contracts merged; engine decision settled | Bounded CSV parsing with explicit delimiter/encoding and ambiguity rejection, synthetic fixture oracles, targeted limits/negative tests and fast PR gate. No source-specific logic. |
 | 3 | **M3-04 — READY** | Both source inventories and generic ingestion specification merged | Small synthetic source-shaped discovery/inspection/load fixtures; preserve comma decimals, native cadence and unknown semantics; test content without live calls/private payloads. |
 | 4 | **M13-01 — READY** | Series metadata and source inventories exist; DEC-130 fixes hybrid baseline direction | Catalog record with identity/title/unit/frequency/source/coverage/sample values plus explicit unknown/archived metadata. Test round-trip and ambiguity; no live catalog fetch or embeddings. |
@@ -835,7 +835,7 @@ M1 data references, M2 operation-specific semantic policies, M5 tool registratio
 
 ## Tasks
 
-- [ ] M6-01 — Status: READY. Owner: unassigned; Branch/PR/Commit: —. Acceptance/dependencies: [ordered queue](#ordered-next-safe-tasks). Define result schemas for values, units, periods, sample counts, warnings, and evidence references.
+- [ ] M6-01 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m6-01-result-contract` from `dev` `90dd9e9`; PR/Commit: pending. Define result schemas for values, units, periods, sample counts, warnings, and evidence references. Evidence: [M6-01 result contract record](#m6-01-result-contract-record).
 - [ ] M6-02 — Implement absolute change and relative change with explicit denominator/zero handling.
 - [ ] M6-03 — Implement period comparison with exact date selection and transparent missing observations.
 - [ ] M6-04 — Add hand-calculated change fixtures including negative values, zeros, and empty ranges.
@@ -852,6 +852,16 @@ M1 data references, M2 operation-specific semantic policies, M5 tool registratio
 - [ ] M6-14 — Generate deterministic table/chart data from tool outputs; formatting must not recompute material values through the model.
 - [ ] M6-15 — Test numeric oracles, tolerances, warning semantics, and source/transformation links.
 - [ ] M6-16 — Run targeted analytics tests/lint and relevant smoke cases; record per-tool support and next task.
+
+### M6-01 result contract record
+
+- Status: IN PROGRESS — claim published before implementation.
+- Owner: Eray
+- Branch: `feature/m6-01-result-contract`, from `dev` `90dd9e9858725457533bb4c64aaf1061f6f9e0dc`
+- PR: pending
+- Commit: pending
+- Objective: Define the narrow typed contract an analytical tool returns — values, units and scale, periods, sample counts, warnings and evidence references — and specify how result identity connects to M5 execution and M8 verification. Not a proof engine.
+- Blocker: none known in scope.
 
 ### Lakehouse tool record
 
