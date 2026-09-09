@@ -721,20 +721,40 @@ M0 contracts for offline validation; organizer endpoint/auth/model contract for 
 
 ## Tasks
 
-- [ ] M4-01 — Status: BLOCKED. Provider stub/tests are local-stash-only; obtain separately authorized task inputs before targeted tests/lint. Record environment parsing, SecretStr representation, and explicit pending-error behavior; live transport remains separately blocked.
+- [ ] M4-01 — Status: SUPERSEDED by [DEC-122](DECISIONS.md#dec-122--llmprovider-interface-and-structured-output-fallback), which fixes the interface directly. Recovering a Day 0 stub written before that decision would deliver the wrong shape, so the provider is written fresh; the stash stays intact and unapplied. Environment parsing, secret representation and pending-error behaviour are delivered under M4-06 and M4-09 instead.
 - [ ] M4-02 — Cover every stub method's non-networking failure path, not only synthesis, with synthetic inputs.
 - [ ] M4-03 — Record confirmed endpoint/authentication/credential-delivery details in Q-K-01 without recording secrets.
 - [ ] M4-04 — Record model IDs, context limits, tool/JSON capabilities, and rate/timeout quotas in Q-K-02/03/04.
-- [ ] M4-05 — Define capability reporting and structured-output fallback using confirmed platform features.
-- [ ] M4-06 — Implement environment-based configuration validation and safe missing/invalid-config errors.
+- [ ] M4-05 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m4-provider-interface`. Define capability reporting and structured-output fallback using confirmed platform features. Evidence: [M4 provider record](#m4-provider-record).
+- [ ] M4-06 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m4-provider-interface`. Implement environment-based configuration validation and safe missing/invalid-config errors. Evidence: [M4 provider record](#m4-provider-record).
 - [ ] M4-07 — Implement bounded organizer-approved transport behind LLMProvider; no hidden fallback to another provider.
-- [ ] M4-08 — Parse structured output into the requested schema; reject extra/malformed fields and unsupported tool arguments.
-- [ ] M4-09 — Add synthetic provider doubles for success, malformed JSON, refusal, timeout, rate limit, and unavailable model.
+- [ ] M4-08 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m4-provider-interface`. Parse structured output into the requested schema; reject extra/malformed fields and unsupported tool arguments. Evidence: [M4 provider record](#m4-provider-record).
+- [ ] M4-09 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m4-provider-interface`. Add synthetic provider doubles for success, malformed JSON, refusal, timeout, rate limit, and unavailable model. Evidence: [M4 provider record](#m4-provider-record).
 - [ ] M4-10 — Configure bounded retries/deadlines based on limits; separate transient transport failures from invalid-plan repair.
-- [ ] M4-11 — Test credentials and sensitive prompts never appear in logs/errors/evidence.
+- [ ] M4-11 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m4-provider-interface`. Test credentials and sensitive prompts never appear in logs/errors/evidence. Evidence: [M4 provider record](#m4-provider-record).
 - [ ] M4-12 — Measure one permitted live structured-generation request and record model/config metadata without secrets.
 - [ ] M4-13 — Run targeted provider/transport/auth negative tests, lint, and the fast PR gate; keep live smoke separate from credential-free unit CI.
 - [ ] M4-14 — Record offline versus live validation and any model-capability limitation.
+
+### M4 provider record
+
+- Status: PARTIAL — implemented and validated on the task branch; unchecked until its PR merges into `dev`
+- Owner: Eray
+- Branch: `feature/m4-provider-interface`; fresh `dev` base `726f97a`
+- PR: [#27](https://github.com/cagatayeroglu/KKB-DataTrio/pull/27) -> `dev`; draft claim published before implementation
+- Commit: claim `4ae5127`; implementation recorded in the PR
+- Objective: Deliver the DEC-122 provider boundary so everything above it can be built and tested while the platform's endpoint, models and capabilities stay unanswered.
+- Scope: interface, configuration, structured-output fallback, synthetic doubles and redaction. **No live transport** — M4-07 stays blocked on Q-K-01/02/03.
+- Implementation: [llm/provider.py](../src/kkb_agent/llm/provider.py) holds the three-method protocol and the error taxonomy; [llm/config.py](../src/kkb_agent/llm/config.py) reads every platform value from the environment; [llm/structured.py](../src/kkb_agent/llm/structured.py) extracts, repairs and strictly validates model JSON; [llm/doubles.py](../src/kkb_agent/llm/doubles.py) is a scripted provider that runs the real repair loop and performs no networking.
+- Nothing platform-specific is a constant. Model identifiers, base URL, capability flags, timeout and attempt budget all come from the environment, because Q-K-01 through Q-K-05 are unanswered and a constant written today would be a guess that outlives the guessing. Configuration errors name every faulty setting at once rather than one per restart, and name the setting rather than its value.
+- Capabilities are reported, not assumed. `capabilities()` derives `embed` and `vision` from whether a model is configured, and `structured_output` defaults to **false**, so the repair loop is the default path until Q-K-03 says otherwise. A caller that needs embeddings finds out at configuration rather than at the first retrieval.
+- Strict validation is the gate. Extra fields are rejected rather than ignored, because DEC-101 requires the schema to decide what may execute — a test feeds a plan carrying an unexpected `shell` field and asserts it is refused. On failure the loop appends the model's own answer plus a correction naming the fault and restating the schema, then retries within a bounded budget; an unchanged prompt tends to reproduce the same malformation.
+- Redaction is tested, not assumed: prompt content and completion text are excluded from representations, the credential is a `SecretStr` and absent from both `repr` and configuration errors, and a schema violation reports field locations and error types without the offending values, which are model output derived from a prompt that may hold source rows.
+- A test walks the whole package asserting no third-party LLM client, import or environment variable appears anywhere, which is what makes [DEC-002](DECISIONS.md#dec-002--delivered-llm-access-through-kloudeks) checkable by inspection rather than by trust.
+- Tests: PASS (2026-09-09; Python 3.12.5). `pytest -q tests/unit/test_llm_provider.py` — 48 passed. Full gate: Ruff 0.16.6 format and lint clean over 39 files, `pytest -q tests/unit` — 415 passed in 8.60s, Bandit 1.9.4 clean, secret scan clean. `mypy src` reports 14 errors, **unchanged**; the `llm` package is strict-clean.
+- The repository secret scan flagged a test constant named like a key, correctly. It was renamed to an obvious canary rather than excused: a control that has to be suppressed for the test proving it works is not a control. `json-repair` was added from the DEC-124 allowlist; [.env.example](../.env.example) now lists the real settings, which also closes the naming half of M0-05.
+- Blocker: none for the offline boundary. M4-07 live transport still needs Q-K-01/02/03; M4-12's live measurement needs a credential.
+- Handoff: the planner, router and tools can now be written and exercised against a provider that fails the way the platform is expected to fail. The next lane is M5 — the DEC-113 planner/router/executor loop with a typed plan and a registry, built against the scripted provider. When Kloudeks answers arrive, the live transport slots in behind this interface and nothing above it changes.
 
 ## Acceptance criteria
 

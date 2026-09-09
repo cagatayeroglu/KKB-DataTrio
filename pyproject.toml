@@ -18,6 +18,9 @@ dependencies = [
   "pyarrow>=17,<22",
   # Bulk reading of spreadsheets this project retrieved itself (DEC-114).
   "python-calamine>=0.2,<1",
+  # Repairing malformed model JSON when the platform has no structured output
+  # (DEC-122). Open-weight models make this the likely path, not a contingency.
+  "json-repair>=0.30,<1",
 ]
 
 [project.optional-dependencies]
