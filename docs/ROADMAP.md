@@ -1270,6 +1270,19 @@ M0-01 contracts and M1 loading for input; DEC-112 for the engine, DEC-114 for bu
 - Blocker: none.
 - Handoff: cumulative series can now be converted safely, and a stock can no longer be differenced into a fake disbursement series by accident. Nothing is persisted or attributed yet: `to_flow` returns observations and writes no lineage, which M12-14 and DEC-118 still require. Next is M12-08 frequency alignment, where the weekly Friday-anchored rate from EVDS meets the monthly stock from BDDK — the reference scenario needs that join and no monthly variant of the rate exists.
 
+### M12-DB active record
+
+- Status: IN PROGRESS — claim published before implementation
+- Owner: Eray
+- Branch: `feature/database-definition`; fresh `dev` base `dcefc5b`
+- PR: pending
+- Commit: pending
+- Objective: Close M12-01's remaining half. The schema exists in code but is spread across four modules with no document, and the brief lists database definitions as a required deliverable alongside the architecture drawings and the repository.
+- Scope: a written database definition, one entry point that applies every schema, and a test that keeps the two in step. No new tables, no behaviour change.
+- Tests: pending.
+- Blocker: none.
+- Handoff: pending.
+
 ### M12-01/02/03 active record
 
 - Status: PARTIAL — implemented and validated on the task branch; unchecked until its PR merges into `dev`
