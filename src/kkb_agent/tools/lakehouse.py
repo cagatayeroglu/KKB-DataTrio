@@ -31,6 +31,7 @@ file I/O through Python, so nothing needs the capability back.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
@@ -42,6 +43,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
 from kkb_agent.agent.registry import ToolSpec
 from kkb_agent.database import all_tables
+from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 
 if TYPE_CHECKING:  # pragma: no cover
     from duckdb import DuckDBPyConnection
@@ -198,8 +200,18 @@ def make_lakehouse_tool(
     *,
     readable: Sequence[str] = DEFAULT_READABLE,
     max_rows: int = DEFAULT_MAX_ROWS,
+    lineage: Lineage | None = None,
 ) -> ToolSpec:
-    """Bind the tool to one database. The registry holds the closure, not the data."""
+    """Bind the tool to one database. The registry holds the closure, not the data.
+
+    When a `lineage` is supplied, each successful query is recorded as a
+    transform node carrying the statement's hash, the tables it read and the
+    shape it returned. That provenance is **table-level**: deriving which
+    individual cells produced a result needs a full column analyzer, and
+    claiming more than we compute would be worse than claiming less. Cell-exact
+    binding happens where DEC-119 puts it, in the verifier, which resolves each
+    number in an answer to a stored cell and reads that cell's own lineage.
+    """
 
     def run(arguments: BaseModel, context: ExecutionContext) -> ToolResult:
         # The registry parses arguments against this tool's schema before
@@ -221,8 +233,14 @@ def make_lakehouse_tool(
         warnings: tuple[str, ...] = ()
         if result.truncated:
             warnings = (f"Result truncated to {max_rows} rows; narrow the query",)
+        node = _record_query(lineage, arguments, result, readable)
         return ToolResult(
-            ToolStatus.SUCCESS, step_id="", tool="lakehouse", output=result, warnings=warnings
+            ToolStatus.SUCCESS,
+            step_id="",
+            tool="lakehouse",
+            output=result,
+            warnings=warnings,
+            evidence=node,
         )
 
     return ToolSpec(
@@ -239,3 +257,34 @@ def _describe(readable: Iterable[str]) -> str:
         f"Readable tables: {', '.join(sorted(readable))}. "
         "Only SELECT is accepted; no table functions, no writes, no other tables."
     )
+
+
+def _record_query(
+    lineage: Lineage | None,
+    arguments: LakehouseArguments,
+    result: QueryResult,
+    readable: Sequence[str],
+) -> str | None:
+    """Record the query as a transform node, or return None when unrecorded."""
+    if lineage is None:
+        return None
+    tables = sorted(referenced_tables(_ast_of(arguments.sql)) & set(readable))
+    return lineage.record(
+        NodeKind.TRANSFORM,
+        "lakehouse_query",
+        attributes={
+            "sql_sha256": hashlib.sha256(arguments.sql.encode("utf-8")).hexdigest(),
+            "purpose": arguments.purpose,
+            "tables": ", ".join(tables),
+            "columns": ", ".join(result.columns),
+            "rows": str(result.row_count),
+            "truncated": str(result.truncated).lower(),
+            "provenance": "table-level; cell binding is the verifier's job",
+        },
+    )
+
+
+def _ast_of(sql: str) -> dict[str, Any]:
+    """Re-parse for recording. Cheap, and keeps the record independent of state."""
+    with duckdb.connect() as scratch:
+        return _ast(scratch, sql)

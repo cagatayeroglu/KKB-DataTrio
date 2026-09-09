@@ -63,6 +63,8 @@ class ToolResult:
     error_category: str | None = None
     recoverable: bool = False
     warnings: tuple[str, ...] = ()
+    #: Lineage node for what this step produced, when the tool recorded one.
+    evidence: str | None = None
 
     def __post_init__(self) -> None:
         if self.status is ToolStatus.SUCCESS and self.error_category is not None:

@@ -1005,13 +1005,13 @@ Validated M0 record models; M1 source references; M5 tool runs; M2/M6 outputs as
 
 ## Tasks
 
-- [ ] M8-01 — Define material-claim types and their minimum source/run/period/column/transformation/validation requirements.
-- [ ] M8-02 — Validate existing evidence models with targeted tests, including NOT_RUN defaults and unresolved references.
+- [ ] M8-01 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m8-verifier`. Define material-claim types and their minimum source/run/period/column/transformation/validation requirements. Evidence: [verifier record](#verifier-record).
+- [ ] M8-02 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m8-verifier`. Validate existing evidence models with targeted tests, including NOT_RUN defaults and unresolved references. Evidence: [verifier record](#verifier-record).
 - [ ] M8-03 — Implement evidence registration and stable IDs tied to workspace/tool runs.
 - [ ] M8-04 — Validate source, input/output, tool-run, and transformation references resolve; reject orphan evidence.
 - [ ] M8-05 — Attach lineage at ingestion, transformation, and analytical execution time, not only during synthesis.
 - [ ] M8-06 — Implement deterministic verification for basic change/numeric results against preserved input references.
-- [ ] M8-07 — Verify units, periods, sample counts, and transformation prerequisites alongside values.
+- [ ] M8-07 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m8-verifier`. Verify units, periods, sample counts, and transformation prerequisites alongside values. Evidence: [verifier record](#verifier-record).
 - [ ] M8-08 — Distinguish passed, failed, and not-run validation; partial results must identify exactly which claims are supported.
 - [ ] M8-09 — Detect conflicting sources/vintages and surface the disagreement instead of choosing silently.
 - [ ] M8-10 — Gate answer assembly so unsupported claims are omitted, qualified, or answered with abstention.
@@ -1021,6 +1021,24 @@ Validated M0 record models; M1 source references; M5 tool runs; M2/M6 outputs as
 - [ ] M8-14 — Test missing source/run/transformation links, altered numeric output, and unsupported causal statements.
 - [ ] M8-15 — Run targeted evidence/verifier/contract tests, lint, and the fast PR gate when changing shared models.
 - [ ] M8-16 — Record verified claim types, evidence gaps, and the next tool needing verification.
+
+### Verifier record
+
+- Status: PARTIAL — implemented and validated on the task branch; unchecked until its PR merges into `dev`
+- Owner: Eray
+- Branch: `feature/m8-verifier`; fresh `dev` base `6b1ee47`
+- PR: [#32](https://github.com/cagatayeroglu/KKB-DataTrio/pull/32) -> `dev`; draft claim published before implementation
+- Commit: claim `35ab8ea`; implementation recorded in the PR
+- Objective: Close the evidence chain — the lakehouse tool records that a query ran, and the verifier binds every number in an answer to a stored cell before the answer may leave.
+- Scope: query lineage, number extraction in the formats a Turkish answer uses, and cell binding. Second-path recomputation, the web cross-check and the vision rule stay unimplemented and are named as limitations rather than omitted quietly.
+- Implementation: [agent/verifier.py](../src/kkb_agent/agent/verifier.py) and query recording in [tools/lakehouse.py](../src/kkb_agent/tools/lakehouse.py). `verify` extracts every quantity in an answer and binds it to a gold cell, a silver observation, a caller-justified context value or a year; anything left unbound **rejects the answer**. Not annotates — rejects. A bound number carries the lineage node of the cell it matched, so the evidence panel has something to draw and a test walks that node back to the bytes.
+- Number reading is the substance of this task, not a detail. `801.438` is eight hundred thousand in Turkish and `46,75` is forty-six and three quarters; reading either the other way is a thousandfold error that still looks plausible. Both conventions parse, ambiguous grouping like `1.23.456` is refused rather than guessed, and identifiers such as `TP.KTF12` are not read as quantities.
+- A real defect was found by a failing test. The first pattern matched only `\d{1,3}` before a group separator, so a plain number longer than three digits — `801438`, or any year — **matched nothing at all**. An unmatched number is one the verifier never checks, which is the worst possible failure for a gate whose entire job is to check numbers. The pattern now tries the grouped form first and falls back to a plain run of digits.
+- Query provenance is deliberately **table-level** and says so in the node it writes. Deriving which individual cells produced an arbitrary SQL result needs a full column analyzer; claiming more than we compute would be worse than claiming less. Cell-exact binding happens where DEC-119 puts it, in the verifier. Identical queries record one node; a rejected query records nothing.
+- Tests: PASS (2026-09-09; Python 3.12.5). `pytest -q tests/unit/test_verifier.py` — 37 passed. Full gate: Ruff 0.16.6 clean over 54 files, `pytest -q tests/unit` — 552 passed, Bandit 1.9.4 clean, secret scan clean. `mypy src` reports 14 errors, **unchanged**.
+- End-to-end: one test runs a query through the tool, formats the returned value into a Turkish sentence, verifies that sentence, takes the lineage node the verdict names, and reads the original bronze bytes back through the graph. That is the chain closed — question to plan to SQL to data to a traceable number to a checked answer.
+- Blocker: none.
+- Handoff: the loop is complete but thin. Every layer exists and is tested; none of them is fed by a real adapter, because M3-05 through M3-08 are unwritten and the safe-fetch layer does not exist. The verifier's remaining DEC-119 rules — recomputing a headline metric on a second path, cross-checking against a searched source, and refusing model-extracted document content that fails a consistency check — are the next correctness work, and they are listed in the verdict's own limitations so nothing downstream can mistake this for full verification.
 
 ## Acceptance criteria
 
