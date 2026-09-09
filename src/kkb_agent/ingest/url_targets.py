@@ -5,8 +5,8 @@ already use their ASCII form). IPv6 must be native public unicast in 2000::/3;
 legacy numeric IP spellings and transition addresses are refused rather than
 delegated to a permissive resolver.
 
-Supplied DNS answers are checked as data, never looked up here. M7-03 must bind
-resolution to the actual connection and check its peer; M7-04 must call the
+Supplied DNS answers are checked as data, never looked up here. M7-03's internal
+connection binds resolution to the socket and checks its peer; M7-04 must call the
 redirect validator for every hop and enforce redirect budgets. No live I/O.
 """
 
@@ -35,6 +35,7 @@ class TargetReason(StrEnum):
     NON_PUBLIC_IP = "NON_PUBLIC_IP"
     INVALID_RESOLUTION = "INVALID_RESOLUTION"
     HTTPS_DOWNGRADE = "HTTPS_DOWNGRADE"
+    PEER_MISMATCH = "PEER_MISMATCH"
 
 
 @dataclass(frozen=True)
