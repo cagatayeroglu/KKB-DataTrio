@@ -126,7 +126,8 @@ def validate_url_target(
     if bracketed:
         host, closing, tail = authority[1:].partition("]")
         if not closing or (tail and not tail.startswith(":")):
-            return TargetRejection(TargetReason.INVALID_HOST)
+            # Match newer urlsplit versions that already reject this syntax.
+            return TargetRejection(TargetReason.MALFORMED_URL)
         explicit_port, port_text = bool(tail), tail[1:]
     else:
         host, separator, port_text = authority.partition(":")

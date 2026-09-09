@@ -91,7 +91,7 @@ def test_public_target_canonicalization_does_not_claim_dns_checked(
         ("https://example.test:0443", TargetReason.UNSAFE_PORT),
         ("https://example.test:443:80", TargetReason.UNSAFE_PORT),
         ("https://example.test:65536", TargetReason.UNSAFE_PORT),
-        ("https://[2606:4700::1111]ignored", TargetReason.INVALID_HOST),
+        ("https://[2606:4700::1111]ignored", TargetReason.MALFORMED_URL),
         ("https://%31%32%37.0.0.1", TargetReason.INVALID_HOST),
         ("https://example.test%40127.0.0.1", TargetReason.INVALID_HOST),
         ("https://[fe80::1%25eth0]", TargetReason.INVALID_HOST),
