@@ -18,20 +18,20 @@ This file owns **execution truth**. [ARCHITECTURE](ARCHITECTURE.md) owns technic
 
 # Current Project Status
 
-- Last verified `origin/dev`: **`2f9cde6eb76b35cdf3f9ea1254157b23e032a379`** (PR #37).
-- Verification: **2026-09-09**, after PR #37 merge; local `dev` fast-forwarded to `origin/dev`, merged tree equals validated `c3caa92`, open/draft PRs (none open) and remote heads checked before claiming M7-05. Recheck claims before starting independent work.
+- Last verified `origin/dev`: **`dfcd7c5d648b865561aba3a58f4d0b6a49cf9269`** (PR #38).
+- Verification: **2026-09-09**, after authorized PR #38 merge; local `dev` fast-forwarded to `origin/dev`, merged tree equals validated `c5c25d3`, and no open/draft PR remains at inspection. No new implementation task selected; recheck claims before future work.
 - Phase: Foundation available; complete the **first real end-to-end slice**. The offline planner/registry/executor, lakehouse SQL tool, definition DAG and numeric-binding verifier exist. Real-source ingestion, complete result/workspace/proof integration and live Kloudeks remain delivery work.
-- Active task: **M7-05 / Çağatay / PARTIAL**, `feature/m7-05-bounded-http-fetch`; [PR #38](https://github.com/cagatayeroglu/KKB-DataTrio/pull/38) awaits review/merge. Published draft claim rechecked: no ownership collision. M7-03 is DONE after PR #37 merged with final Fast PR PASS (48s). Other teammate ownership and the independent READY queue are unchanged.
+- Active task: **none started in this closure**. M7-05 and M7-06 direct-GET negative coverage are DONE from merged PR #38; completion evidence is recorded below. M3-06 is not started: Q-DATA-01 and Q-NET-01/02 remain OPEN and block live execution. Other teammate ownership and the independent READY queue are unchanged.
 - Product/retrieval documentation synchronization: **DONE**, PR [#34](https://github.com/cagatayeroglu/KKB-DataTrio/pull/34) merged into `dev` at `41e302c`; final content `e2029ea`, document checks and Fast PR gate PASS (55s). DEC-129/130 and the reconciled current status are present in the merged tree. No further documentation-polish task is needed.
-- Fast gate: M7-05 delivery on PR #38 — **340 targeted / 892 unit tests PASS**, `make quick` 17.30s, `make pr` 16.73s including Ruff format/lint, Bandit and secret scan (Python 3.12.2). Check final-head GitHub Fast PR status in PR #38; claim-only CI is not implementation evidence.
+- Fast gate: M7-05 delivery on PR #38 — **340 targeted / 892 unit tests PASS**, `make quick` 17.30s, `make pr` 16.73s including Ruff format/lint, Bandit and secret scan (Python 3.12.2). Final-head GitHub Fast PR gate PASS (59s), verified before merge. These are existing delivery results; no application checks rerun for this documentation-only closure.
 - Known failing gate: **M0-08** — 14 strict mypy errors reported through PR #32, originating in the XLSX modules. Full/release validation is not established. Do not infer a green release from a green `make pr`; no full/release checks run in this task.
-- Critical implementation gaps: CSV/profile and source adapters; safe fetch; typed financial results/run/snapshot identity; workspace stale-result rejection/recomputation and loop integration; second-path verifier and answer gate; catalog retrieval; remaining `web_search`, `web_url`, `anomaly`, `causality`, `change_detection`; benchmark runner; API/UI/deployment.
+- Critical implementation gaps: CSV/profile and source adapters; source POST/trust configuration and redirect following; typed financial results/run/snapshot identity; workspace stale-result rejection/recomputation and loop integration; second-path verifier and answer gate; catalog retrieval; remaining `web_search`, `web_url`, `anomaly`, `causality`, `change_detection`; benchmark runner; API/UI/deployment.
 - External blockers (Kloudeks update 2026-09-09): [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy) confirms endpoint/MIA-key auth, text/vision, embedding and OCR availability. Q-K-01 now concerns account-specific key provisioning/access; Q-K-02/03/04 cover remaining context/output limits, native tool/JSON guarantees and quotas/timeouts. Q-K-05 retains required dense-path dimension/prefix/limit configuration and optional dedicated-reranker questions. Dense retrieval is initial baseline under DEC-130; RRF/reranking still need held-out benchmark evidence. Q-DATA-01/03, Q-NET-01/02, Q-INFRA-01/02 and Q-DEMO-01/02/03 remain external source/egress/storage/delivery blockers. Q-TEAM-01..05 were answered in PR #19.
 - Current direction: [DEC-130](DECISIONS.md#dec-130--initial-hybrid-retrieval-baseline) supersedes DEC-127 with initial lexical + dense hybrid retrieval; DEC-115 remains historical/SUPERSEDED. [DEC-128](DECISIONS.md#dec-128--financial-question-validation-and-claim-level-evidence) records product direction. Neither claims implementation. Core ingestion/results/workspace/verifier/live provider/required tools precede broad differentiation.
 
 ## Ordered next safe tasks
 
-All READY entries below are unowned, with Branch/PR/Commit **—**, Tests **NOT RUN for that task**, and no published claim at verification. Active M7-05 was triaged READY after M7-03 merged, is recorded separately below, and is excluded from this queue. Recheck claims immediately before starting. This is the single selection queue; unchecked backlog elsewhere is not implicitly READY.
+All READY entries below are unowned, with Branch/PR/Commit **—**, Tests **NOT RUN for that task**, and no published claim at verification. Completed M7-05/06 are recorded below and excluded from this queue; no new task is claimed by this closure. Recheck claims immediately before starting. This is the single selection queue; unchecked backlog elsewhere is not implicitly READY.
 
 | Order | Task / status | Satisfied prerequisites | Acceptance / handoff |
 | --- | --- | --- | --- |
@@ -870,7 +870,7 @@ Do not wait for advanced causality to deliver a tested change/association path. 
 <a id="m7"></a>
 # M7 — External source / URL / document ingestion
 
-Status: PARTIAL — M7-01/02/03 DONE (PRs #35/36/37 merged); M7-05 bounded direct fetch is implementation-ready/PARTIAL in PR #38. Redirect following remains deferred to M7-04; source/network permissions still apply.
+Status: PARTIAL — M7-01/02/03/05 DONE (PRs #35/36/37/38 merged); M7-06 negative coverage is DONE for the enabled direct-GET path. Redirect following remains deferred to M7-04; parsers/adapters and source/network permissions remain incomplete.
 
 ## Objective
 
@@ -886,8 +886,8 @@ M1 ingestion contract, M2 relevant semantics, SEC-URL-01 and SEC-FILE-01/02 befo
 - [x] M7-02 — Status: DONE. Owner: Çağatay; Branch: `feature/m7-02-url-target-validation`; PR: [#36](https://github.com/cagatayeroglu/KKB-DataTrio/pull/36) merged at `2678613`; Commit: `be3a184`. Validate HTTP(S), reject credentials in URLs, and block loopback/private/link-local/metadata targets including IPv6. Evidence: [M7-02 active record](#m7-02-active-record).
 - [x] M7-03 — Status: DONE. Owner: Çağatay; Branch: `feature/m7-03-dns-binding`; PR: [#37](https://github.com/cagatayeroglu/KKB-DataTrio/pull/37) merged at `2f9cde6`; Commit: `4ef4415`. Validate DNS results and the actual connection destination; reject mixed public/private resolution and rebinding hazards. Evidence: [M7-03 active record](#m7-03-active-record).
 - [ ] M7-04 — Handle redirects explicitly; revalidate every destination, cap hops, and avoid forwarding credentials across origins.
-- [ ] M7-05 — Status: PARTIAL. Owner: Çağatay; Branch: `feature/m7-05-bounded-http-fetch`; PR: [#38](https://github.com/cagatayeroglu/KKB-DataTrio/pull/38) open; Commit: `bee17bd`. Bound connect/read/total time, response/decompressed bytes, and content-type routing; do not buffer unlimited responses.
-- [ ] M7-06 — Add negative tests for forbidden addresses/schemes, redirects, misleading content headers, and oversized/slow streams.
+- [x] M7-05 — Status: DONE. Owner: Çağatay; Branch: `feature/m7-05-bounded-http-fetch`; PR: [#38](https://github.com/cagatayeroglu/KKB-DataTrio/pull/38) merged at `dfcd7c5`; Commit: `bee17bd`. Bound connect/read/total time, response/decompressed bytes, and content-type routing; do not buffer unlimited responses.
+- [x] M7-06 — Status: DONE for the current direct-GET boundary; delivered tests merged in PRs #36/37/38. Add negative tests for forbidden addresses/schemes, redirects, misleading content headers, and oversized/slow streams. Evidence: [M7-06 acceptance reconciliation](#m7-06-acceptance-reconciliation).
 - [ ] M7-07 — Extract HTML tables/text with source fragment identifiers; ignore embedded instructions/scripts as authority.
 - [ ] M7-08 — Route downloaded CSV/XLSX through the same local file guards and parser contracts as uploads.
 - [ ] M7-09 — Implement bounded PDF text/table extraction if in required scope; retain page/table coordinates and extraction warnings.
@@ -951,10 +951,10 @@ M1 ingestion contract, M2 relevant semantics, SEC-URL-01 and SEC-FILE-01/02 befo
 
 ### M7-05 active record
 
-- Status: PARTIAL — implemented and validated; unchecked until merged into `dev`.
+- Status: DONE — PR #38 merged into `dev` at `dfcd7c5d648b865561aba3a58f4d0b6a49cf9269`; merged tree equals validated delivery `c5c25d3`.
 - Owner: Çağatay
 - Branch: `feature/m7-05-bounded-http-fetch`, from `dev` `2f9cde6eb76b35cdf3f9ea1254157b23e032a379`
-- PR: [#38](https://github.com/cagatayeroglu/KKB-DataTrio/pull/38), `feature/m7-05-bounded-http-fetch` -> `dev`; awaiting review/merge. Draft claim published before implementation; no collision on post-publication PR/remote recheck.
+- PR: [#38](https://github.com/cagatayeroglu/KKB-DataTrio/pull/38), `feature/m7-05-bounded-http-fetch` -> `dev`; merged; final Fast PR gate PASS (59s). Draft claim published before implementation; no collision on post-publication PR/remote recheck.
 - Commit: `bee17bd3b4e97430a92f88cb4a9f365b86d8fe1c` (implementation); claim `3972d7495922c705bea855835fb72b577f07a80e`.
 - Objective: Bound connect/read/total time, response/decompressed bytes, and content-type routing; do not buffer unlimited responses.
 - Readiness: Triaged READY after M7-03 merge and final Fast PR PASS. M7-01/02/03 contracts/policy/pinned sockets and SEC-URL-01 are available; no competing owner or unresolved decision blocks synthetic-test implementation. Explicit user priority selects this source path. M7-04 is not a prerequisite when every 3xx fails closed; live source/egress permissions remain separate.
@@ -963,9 +963,28 @@ M1 ingestion contract, M2 relevant semantics, SEC-URL-01 and SEC-FILE-01/02 befo
 - Limits: 32 KiB aggregate status/header/chunk-framing budget; 16 KiB reads and independent 10 MiB encoded/decoded defaults. Connect 5s includes child startup/DNS/TCP/TLS; read 5s limits stalled socket I/O; total 30s never restarts. Deadlines use parent monotonic time; OS process-start/kill/reap scheduling overhead is not a hard real-time guarantee. Install the package in the active interpreter (`make install-dev`) so the isolated worker can import it.
 - Formats: Explicit accepted media types only; Content-Length, connection-close and bounded chunked bodies; identity or single-member gzip with bounded output/checksum/EOF checks. Reject all 3xx even when max_redirects > 0, duplicate/ambiguous framing, interim/upgrade responses, chunk extensions/trailers, concatenated gzip, other encodings and truncated bodies. No silent numerical/financial normalization; bytes remain subject to downstream file/parser admission.
 - Tests: PASS (2026-09-09, Python 3.12.2). `pytest -q tests/unit/test_bounded_fetch.py tests/unit/test_safe_fetch.py tests/unit/test_source_connection.py tests/unit/test_url_targets.py --disable-warnings --maxfail=1` — **340 passed / 4.54s**. `make quick` — **892 passed / 17.30s**. `make pr` — **892 passed / 16.73s**, Ruff format/lint, Bandit and secret scan clean. Narrow `mypy --follow-imports=silent` on the three new modules PASS; CPython-private hooks have focused typeshed annotations and wire-level tests. [Tests](../tests/unit/test_bounded_fetch.py) cover exact/over byte and header limits, malformed/truncated/chunked/gzip responses, decompression bomb, timeout/cleanup, redacted failures, original TLS host and blocked targets; real local child processes simulate stalled DNS/body without internet. No live, full or release checks.
-- Blocker: review/merge for DONE; none in M7-05 implementation scope. Check final-head Fast PR status in PR #38 before merge.
-- Limitations: GET only; no source adapter/tool exposure, POST body, redirect following, auth/cookies, proxy, retry, parser or source-specific CA handling. M7-06 remains unchecked: reconcile its direct-fetch negative coverage against these tests before source exposure, and add tests with any new POST/redirect path. Do not infer live-source permission or completed M7 from synthetic validation.
-- Handoff: Review/merge PR #38 before continuing the real-source path. First BDDK request still needs Q-DATA-01/Q-NET-01/02 source/egress approval and the explicit verified CA bundle documented in [BDDK_SOURCE](BDDK_SOURCE.md); no live TLS recheck was made here. Its bulletin data endpoints are POST, so M3-06 will need bounded generic POST/form support before actual data loading. Documented direct HTTPS endpoints do not establish a redirect requirement: M7-04 is needed only if following a 3xx is required. M7-07/08 apply when parsing HTML/files, not merely retrieving bounded bytes. M6-01, main and the Day 0 stash remain untouched.
+- Blocker: none for M7-05; merge and final-head Fast PR PASS verified. Source/network permissions still block live-source execution.
+- Limitations: GET only; no source adapter/tool exposure, POST body, redirect following, auth/cookies, proxy, retry, parser or source-specific CA handling. M7-06 direct-fetch coverage is reconciled below; any new POST/redirect path must add its own targeted negative tests. Do not infer live-source permission or completed M7 from synthetic validation.
+- Handoff: Merge verified; M7-06 is satisfied by existing merged tests without duplicate implementation. Stop here; M3-06 is not started while source/egress permission remains unresolved. First BDDK request still needs Q-DATA-01/Q-NET-01/02 source/egress approval and the explicit verified CA bundle documented in [BDDK_SOURCE](BDDK_SOURCE.md); no live TLS recheck was made here. Its bulletin data endpoints are POST, so M3-06 will need bounded generic POST/form support before actual data loading. Documented direct HTTPS endpoints do not establish a redirect requirement: M7-04 is needed only if following a 3xx is required. M7-07/08 apply when parsing HTML/files, not merely retrieving bounded bytes. M6-01, main and the Day 0 stash remain untouched.
+
+### M7-06 acceptance reconciliation
+
+- Status: DONE for the enabled direct-GET boundary; no new code/tests required.
+- Owner: Çağatay (coverage review and existing delivery)
+- Branch: test implementations in `feature/m7-02-url-target-validation`, `feature/m7-03-dns-binding` and `feature/m7-05-bounded-http-fetch`; bookkeeping on `docs/m7-05-m7-06-completion` from latest `dev`.
+- PR / Commit: merged PRs [#36](https://github.com/cagatayeroglu/KKB-DataTrio/pull/36) (`be3a184`), [#37](https://github.com/cagatayeroglu/KKB-DataTrio/pull/37) (`4ef4415`) and [#38](https://github.com/cagatayeroglu/KKB-DataTrio/pull/38) (`bee17bd`); integrated at `dfcd7c5`.
+- Tests: existing validated delivery — 340 targeted / 892 unit tests, `make quick`, `make pr` and final-head Fast PR PASS (59s). Merge tree equality preserves this evidence; no application tests rerun for bookkeeping.
+
+| M7-06 requirement | Existing test/code evidence | Result |
+| --- | --- | --- |
+| Forbidden addresses/schemes | [URL policy tests](../tests/unit/test_url_targets.py): `test_invalid_urls_have_fixed_rejection_reasons`, `test_unsafe_literal_and_dns_addresses_are_rejected`; [boundary tests](../tests/unit/test_safe_fetch.py): `test_url_policy_precedes_worker_dispatch`. DNS/peer rejection also exercised through the worker. | Satisfied; blocked targets are not contacted |
+| Redirects | [Bounded fetch tests](../tests/unit/test_bounded_fetch.py): `test_redirects_never_follow_or_resolve_location`; [binding tests](../tests/unit/test_source_connection.py): fresh redirect validation and HTTPS downgrade rejection. | Satisfied for zero-hop policy; following/loop execution remains M7-04 |
+| Misleading content headers | `test_malformed_or_unsupported_metadata_rejected_before_body`, `test_malformed_headers_fail_closed`, `test_truncated_or_corrupt_payload_is_never_success` in bounded fetch tests. | Satisfied; explicit accepted types, framing/length checks |
+| Oversized streams | `test_body_exact_limit_and_one_over`, `test_missing_length_is_bounded_and_can_finish_at_eof`, `test_decompressed_budget_applies_to_identity_and_gzip`, `test_oversized_header_fails_before_body`, chunk/encoded-size cases. | Satisfied; header, encoded and decoded budgets |
+| Slow streams | `test_timeouts_return_fixed_outcomes_and_close_resources`, `test_real_child_is_killed_and_reaped_at_deadline_without_network`, `test_deadline_does_not_restart_after_connected_marker`. | Satisfied; connect/read/total failures and worker cleanup |
+
+- Blocker: none for this coverage scope. This does not complete M7 parsers, redirect following or source access approval.
+- Handoff: No duplicate generic security work. M3-06 still needs approved source/egress access, bounded POST/form support and an explicit verified CA bundle before the documented BDDK bulletin request. Tests for future POST/redirect capabilities belong with those changes; no live request or new task is started here.
 
 ## Acceptance criteria
 
@@ -977,10 +996,10 @@ Every enabled external retrieval uses the central boundary, including redirects 
 - Branch: —
 - PR: —
 - Commit: —
-- Tests: M7-01 contract checks PASS as recorded above; live fetch/parser controls remain unimplemented.
+- Tests: M7-01/02/03/05 delivery checks and M7-06 reconciliation PASS as recorded above; parser and live-source acceptance remain incomplete.
 - Benchmark: External-format and injection catalog planned.
 - Notes: Local file ingestion is not permission to fetch arbitrary URLs.
-- Known limitations: No URL/document/OCR runtime support. Vision/OCR availability is confirmed by DEC-129; demo internet/egress, required format scope and remaining request limits are unresolved. Obtain the literal organizer OCR prompt/`extra_body` before implementing that request.
+- Known limitations: Generic bounded direct GET is merged; source adapter/tool exposure and document/OCR runtime support remain incomplete. Vision/OCR availability is confirmed by DEC-129; demo internet/egress, required format scope and remaining request limits are unresolved. Obtain the literal organizer OCR prompt/`extra_body` before implementing that request.
 - Previous handoff (historical; current queue controls selection): Build M7-01/02 against fake transport after contract review; enable live paths only after controls and policy are confirmed.
 
 ## Handoff notes
