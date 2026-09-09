@@ -22,13 +22,26 @@ from kkb_agent.agent.registry import (
     ToolRegistry,
     ToolSpec,
 )
+from kkb_agent.agent.workspace import (
+    WORKSPACE_SCHEMA,
+    Artifact,
+    ArtifactKind,
+    Binding,
+    Workspace,
+    WorkspaceError,
+    artifact_id,
+)
 
 __all__ = [
     "BRIEF_TOOLS",
     "DEFAULT_BUDGET",
     "SYSTEM_PROMPT",
+    "WORKSPACE_SCHEMA",
     "AnalyticalPlan",
+    "Artifact",
+    "ArtifactKind",
     "ArgumentsRejected",
+    "Binding",
     "Budget",
     "ExecutionContext",
     "ExecutionOutcome",
@@ -44,6 +57,9 @@ __all__ = [
     "ToolStatus",
     "ValidatedPlan",
     "ValidatedStep",
+    "Workspace",
+    "WorkspaceError",
+    "artifact_id",
     "execute",
     "validate_plan",
 ]
