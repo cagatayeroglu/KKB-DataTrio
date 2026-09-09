@@ -1,4 +1,4 @@
-"""M7-01 contract oracles; no live source, DNS or HTTP access is permitted."""
+"""Fetch contract and pre-dispatch policy oracles; worker I/O is substituted."""
 
 import io
 import socket
@@ -30,7 +30,7 @@ def request(url: str = "https://example.test/series.csv") -> FetchRequest:
 
 @pytest.mark.parametrize(
     "field",
-    ["max_url_chars", "max_response_bytes", "max_decompressed_bytes"],
+    ["max_url_chars", "max_header_bytes", "max_response_bytes", "max_decompressed_bytes"],
 )
 @pytest.mark.parametrize("value", [0, -1, True, 1.5, "1024"])
 def test_byte_and_locator_limits_require_positive_integers(field, value) -> None:
@@ -78,7 +78,7 @@ def test_limits_round_trip_and_zero_redirect_policy() -> None:
         ("not a URL", FetchCode.INVALID_REQUEST),
     ],
 )
-def test_every_request_is_refused_before_dns_or_socket_use(monkeypatch, url, code) -> None:
+def test_url_policy_precedes_worker_dispatch(monkeypatch, url, code) -> None:
     calls = []
 
     def forbidden(*args, **kwargs):
@@ -87,15 +87,32 @@ def test_every_request_is_refused_before_dns_or_socket_use(monkeypatch, url, cod
 
     monkeypatch.setattr(socket, "getaddrinfo", forbidden)
     monkeypatch.setattr(socket, "socket", forbidden)
+    # This contract test substitutes the worker boundary; it never opens a socket.
+    from kkb_agent.ingest import _fetch_process
+
+    def fake_worker(candidate, limits):
+        calls.append("worker")
+        return FetchFailure(source_ref=candidate.source_ref, code=FetchCode.NETWORK_DISABLED)
+
+    monkeypatch.setattr(_fetch_process, "fetch_in_process", fake_worker)
     result = safe_fetch(request(url))
     assert isinstance(result, FetchFailure)
     assert result.source_ref == "source:synthetic-1"
     assert result.code == code
     assert (result.target_reason is None) == (code is FetchCode.NETWORK_DISABLED)
-    assert calls == []
+    assert calls == (["worker"] if code is FetchCode.NETWORK_DISABLED else [])
 
 
-def test_locator_budget_exact_boundary_and_one_over() -> None:
+def test_locator_budget_exact_boundary_and_one_over(monkeypatch) -> None:
+    from kkb_agent.ingest import _fetch_process
+
+    monkeypatch.setattr(
+        _fetch_process,
+        "fetch_in_process",
+        lambda candidate, limits: FetchFailure(
+            source_ref=candidate.source_ref, code=FetchCode.NETWORK_DISABLED
+        ),
+    )
     candidate = request()
     limit = len(candidate.url.get_secret_value())
     assert safe_fetch(candidate, limits=FetchLimits(max_url_chars=limit)).code == (

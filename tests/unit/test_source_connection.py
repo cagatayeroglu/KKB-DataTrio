@@ -9,7 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from kkb_agent.ingest._source_connection import SourceConnection, SourceConnectionError
-from kkb_agent.ingest.safe_fetch import FetchCode, FetchLimits, FetchRequest, safe_fetch
+from kkb_agent.ingest.safe_fetch import FetchCode, FetchLimits, FetchRequest
 from kkb_agent.ingest.url_targets import TargetReason
 
 PUBLIC = "8.8.8.8"
@@ -336,11 +336,6 @@ def test_http_has_no_tls_and_config_is_validated(network):
     connection.close()
     with pytest.raises(ValidationError):
         SourceConnection(request(), limits=FetchLimits().model_copy(update={"connect_seconds": -1}))
-
-
-def test_public_fetch_entry_point_stays_disabled_without_using_connection_primitive(network):
-    assert safe_fetch(request()).code is FetchCode.NETWORK_DISABLED
-    assert network.dns_calls == network.sockets == []
 
 
 def test_cleanup_error_cannot_replace_the_structured_rejection(network):

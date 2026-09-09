@@ -100,7 +100,7 @@ def validate_url_target(
     This never calls DNS. Empty, malformed or non-public answer sets fail
     closed; mixed public/private answers cannot be filtered into acceptance.
     The caller must use the returned canonical authority, not reparse the raw
-    input using a more permissive network client. Live fetch remains disabled.
+    input using a more permissive network client. This function does no I/O.
     """
 
     if type(max_url_chars) is not int or max_url_chars <= 0:

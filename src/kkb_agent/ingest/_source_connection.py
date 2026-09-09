@@ -1,4 +1,4 @@
-"""M7-03 internal connection primitive; not an enabled source-fetch API.
+"""DNS-bound connection primitive used by the bounded source-fetch worker.
 
 Own the stdlib HTTP client's connect hook so neither its initial connection nor
 an automatic reconnect can resolve a hostname independently of validation. All
@@ -6,8 +6,8 @@ DNS answers are checked, then a numeric address is passed directly to a socket.
 TLS still authenticates the original URL hostname, not the resolved IP.
 
 No proxy/environment routing, DNS cache, address retries or redirect following.
-M7-04/05 must integrate this with hop/loop and DNS/operation/response bounds;
-safe_fetch stays disabled until that work and the negative gates are complete.
+M7-05 supervises DNS/connect/total deadlines and bounded responses. M7-04
+owns redirect following; the current public fetch path rejects every redirect.
 """
 
 from __future__ import annotations
@@ -49,9 +49,9 @@ class SourceConnectionError(OSError):
 class SourceConnection(HTTPConnection):
     """One canonical origin; construction does not perform I/O.
 
-    This is an internal building block for the future bounded fetch driver.
+    This is an internal building block for the bounded fetch worker.
     Calling connect does DNS/TCP/TLS but does not send an HTTP request. Callers
-    must close the connection; no source/adapter currently invokes this class.
+    must close the connection and supervise its blocking DNS/total deadline.
     """
 
     def __init__(self, request: FetchRequest, *, limits: FetchLimits = DEFAULT_LIMITS) -> None:
