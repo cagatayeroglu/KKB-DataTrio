@@ -40,6 +40,7 @@ Acceptance: a teammate such as Eray or Arda, with zero previous ChatGPT/Codex co
 | Ingestion, normalization, analytics, provenance | [ARCHITECTURE](docs/ARCHITECTURE.md) |
 | BDDK bulletin transports, units, cumulative behaviour | [BDDK_SOURCE](docs/BDDK_SOURCE.md) |
 | EVDS access, catalog, series metadata, frequencies | [EVDS_SOURCE](docs/EVDS_SOURCE.md) |
+| Tables, columns, invariants, layout on disk | [DATABASE](docs/DATABASE.md) |
 | Security, URL/file boundary, auth, secrets, network | [SECURITY](docs/SECURITY.md) |
 | Benchmark, hidden cases, scoring, regression | [EVALUATION](docs/EVALUATION.md) |
 | Sequencing/priorities/handoff only | Relevant ROADMAP section is sufficient |

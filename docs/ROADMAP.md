@@ -1272,16 +1272,18 @@ M0-01 contracts and M1 loading for input; DEC-112 for the engine, DEC-114 for bu
 
 ### M12-DB active record
 
-- Status: IN PROGRESS — claim published before implementation
+- Status: PARTIAL — implemented and validated on the task branch; unchecked until its PR merges into `dev`
 - Owner: Eray
 - Branch: `feature/database-definition`; fresh `dev` base `dcefc5b`
-- PR: pending
-- Commit: pending
-- Objective: Close M12-01's remaining half. The schema exists in code but is spread across four modules with no document, and the brief lists database definitions as a required deliverable alongside the architecture drawings and the repository.
-- Scope: a written database definition, one entry point that applies every schema, and a test that keeps the two in step. No new tables, no behaviour change.
-- Tests: pending.
+- PR: [#30](https://github.com/cagatayeroglu/KKB-DataTrio/pull/30) -> `dev`; draft claim published before implementation
+- Commit: claim `0c0dc95`; implementation recorded in the PR
+- Objective: Close M12-01's remaining half. The schema worked but was spread across four modules with no document, and the brief lists database definitions as a deliverable alongside the architecture drawings and the repository.
+- Scope: a written definition, one entry point that applies every schema, and a test that keeps the two in step. No new tables, no behaviour change.
+- Implementation: [DATABASE.md](DATABASE.md) documents all nine tables — every column, the invariant each one protects, the layout on disk and how the layers connect. [database.py](../src/kkb_agent/database.py) holds `TABLES` and `apply_schema`, the only thing that creates them; `open_lakehouse` now calls it, so the workspace tables arrive with the rest instead of being applied separately.
+- The document is enforced rather than trusted. [test_database.py](../tests/unit/test_database.py) asserts every created table has a heading, every column appears in that table's own section, no documented table is fictional, each layer is introduced, applying the schema twice is a no-op, and every statement is `CREATE TABLE IF NOT EXISTS` — a bare `CREATE TABLE` would discard a demo-day database. A schema document nobody checks is worse than none, because it reads as authoritative while being wrong.
+- Tests: PASS (2026-09-09; Python 3.12.5). `pytest -q tests/unit/test_database.py` — 8 passed. Full gate: Ruff 0.16.6 format and lint clean over 49 files, `pytest -q tests/unit` — 475 passed, Bandit 1.9.4 clean, secret scan clean. `mypy src` reports 14 errors, **unchanged**.
 - Blocker: none.
-- Handoff: pending.
+- Handoff: M12-01's deliverable half is closed, and the document names what is still missing rather than implying completeness — catalog and alias tables arrive with M13, evaluation results with M9, and revisions remain unresolved because `silver_observations` permits one value per period and no restatement has been observed. Next is the first real tool, `lakehouse` over gold, which needs exactly this table list for its schema whitelist.
 
 ### M12-01/02/03 active record
 

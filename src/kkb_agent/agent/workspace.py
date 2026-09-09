@@ -130,6 +130,12 @@ class Workspace:
 
     @classmethod
     def open(cls, connection: DuckDBPyConnection, workspace_id: str = "default") -> Workspace:
+        """Open over any DuckDB connection, creating the tables if absent.
+
+        `open_lakehouse` already applies every schema through
+        `kkb_agent.database.apply_schema`, so this is a no-op there. It exists
+        so a workspace can also be opened over a bare connection.
+        """
         connection.execute(WORKSPACE_SCHEMA)
         return cls(connection, workspace_id)
 

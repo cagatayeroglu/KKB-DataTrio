@@ -31,7 +31,7 @@ from kkb_agent.core import (
     StockFlow,
     WeeklyAnchor,
 )
-from kkb_agent.lakehouse.lineage import LINEAGE_SCHEMA, Lineage
+from kkb_agent.lakehouse.lineage import Lineage
 from kkb_agent.lakehouse.records import Observation
 from kkb_agent.lakehouse.semantics import SeriesSemantics, check_period
 
@@ -295,13 +295,10 @@ def open_lakehouse(root: Path) -> Iterator[Lakehouse]:
         (root / layer).mkdir(parents=True, exist_ok=True)
     connection = duckdb.connect(str(root / DATABASE_NAME))
     try:
-        # Imported here so the gold module can speak in observations without
-        # importing the store back.
-        from kkb_agent.lakehouse.gold import GOLD_SCHEMA
+        # Imported here because the registry imports this module's schema back.
+        from kkb_agent.database import apply_schema
 
-        connection.execute(SCHEMA)
-        connection.execute(LINEAGE_SCHEMA)
-        connection.execute(GOLD_SCHEMA)
+        apply_schema(connection)
         yield Lakehouse(root=root, connection=connection)
     finally:
         connection.close()

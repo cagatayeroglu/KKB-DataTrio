@@ -51,6 +51,7 @@ Still externally blocked: the Kloudeks endpoint, authentication, model identifie
 | [docs/INGESTION_PROFILE.md](docs/INGESTION_PROFILE.md) | The ingestion and profile result contract |
 | [docs/BDDK_SOURCE.md](docs/BDDK_SOURCE.md) | What the BDDK bulletins publish: transports, parameters, units, measured cumulative behaviour |
 | [docs/EVDS_SOURCE.md](docs/EVDS_SOURCE.md) | How EVDS is accessed and what its catalog declares: frequencies, aggregation flags, archived and base-year variants |
+| [docs/DATABASE.md](docs/DATABASE.md) | The database definition deliverable: every table, column, invariant and the layout on disk |
 | [src/kkb_agent/](src/kkb_agent/) | Package. Delivered: `core/models.py`, `ingestion_policy.py`, `xlsx_sheets.py`, `xlsx_loader.py`, `_xlsx_package.py`. Planned packages under DEC-125: `app`, `agent`, `tools`, `ingest`, `transform`, `catalog`, `lineage`, `llm`, `eval` |
 | `web/` (not yet created) | Next.js client under DEC-123; lives outside the Python package |
 | [tests/unit/](tests/unit/) | 245 passing unit tests across contracts, admission, fixtures and the XLSX loader |
