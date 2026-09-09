@@ -18,10 +18,10 @@ This file owns **execution truth**. [ARCHITECTURE](ARCHITECTURE.md) owns technic
 
 # Current Project Status
 
-- Last verified `origin/dev`: **`26786133bb6344fd4492bd52bf7b823f22168b25`** (PR #36).
-- Verification: **2026-09-09**, after PR #36 merge; local `dev` fast-forwarded to `origin/dev`, merged tree equals validated `4716b30`, open/draft PRs and remote heads checked before claiming M7-03. Recheck claims before starting independent work.
+- Last verified `origin/dev`: **`2f9cde6eb76b35cdf3f9ea1254157b23e032a379`** (PR #37).
+- Verification: **2026-09-09**, after PR #37 merge; local `dev` fast-forwarded to `origin/dev`, merged tree equals validated `c3caa92`, open/draft PRs (none open) and remote heads checked before claiming M7-05. Recheck claims before starting independent work.
 - Phase: Foundation available; complete the **first real end-to-end slice**. The offline planner/registry/executor, lakehouse SQL tool, definition DAG and numeric-binding verifier exist. Real-source ingestion, complete result/workspace/proof integration and live Kloudeks remain delivery work.
-- Active task: **M7-03 / Çağatay / PARTIAL**, `feature/m7-03-dns-binding`; [PR #37](https://github.com/cagatayeroglu/KKB-DataTrio/pull/37) awaits review/merge. No conflicting claim after draft publication. M7-02 is merged as PR #36. Other teammate ownership and the independent READY queue are unchanged.
+- Active task: **M7-05 / Çağatay / IN PROGRESS**, `feature/m7-05-bounded-http-fetch`; draft claim PR pending. M7-03 is DONE after PR #37 merged with final Fast PR PASS (48s). Other teammate ownership and the independent READY queue are unchanged.
 - Product/retrieval documentation synchronization: **DONE**, PR [#34](https://github.com/cagatayeroglu/KKB-DataTrio/pull/34) merged into `dev` at `41e302c`; final content `e2029ea`, document checks and Fast PR gate PASS (55s). DEC-129/130 and the reconciled current status are present in the merged tree. No further documentation-polish task is needed.
 - Fast gate: M7-03 delivery on PR #37 — **243 targeted / 795 unit tests PASS**, `make quick` 14.59s, `make pr` 14.51s including Ruff format/lint, Bandit and secret scan (Python 3.12.2). Check the final delivery revision's Fast PR status in PR #37; claim-only CI is not implementation evidence.
 - Known failing gate: **M0-08** — 14 strict mypy errors reported through PR #32, originating in the XLSX modules. Full/release validation is not established. Do not infer a green release from a green `make pr`; no full/release checks run in this task.
@@ -31,7 +31,7 @@ This file owns **execution truth**. [ARCHITECTURE](ARCHITECTURE.md) owns technic
 
 ## Ordered next safe tasks
 
-All READY entries below are unowned, with Branch/PR/Commit **—**, Tests **NOT RUN for that task**, and no published claim at verification. Active M7-03 was triaged READY after M7-02 merged, is recorded separately below, and is excluded from this queue. Recheck claims immediately before starting. This is the single selection queue; unchecked backlog elsewhere is not implicitly READY.
+All READY entries below are unowned, with Branch/PR/Commit **—**, Tests **NOT RUN for that task**, and no published claim at verification. Active M7-05 was triaged READY after M7-03 merged, is recorded separately below, and is excluded from this queue. Recheck claims immediately before starting. This is the single selection queue; unchecked backlog elsewhere is not implicitly READY.
 
 | Order | Task / status | Satisfied prerequisites | Acceptance / handoff |
 | --- | --- | --- | --- |
@@ -870,7 +870,7 @@ Do not wait for advanced causality to deliver a tested change/association path. 
 <a id="m7"></a>
 # M7 — External source / URL / document ingestion
 
-Status: PARTIAL — M7-01/02 DONE (PRs #35/36 merged); M7-03 DNS/connection binding awaits review in PR #37. Live retrieval remains disabled pending M7-03..06 controls and source/network permissions.
+Status: PARTIAL — M7-01/02/03 DONE (PRs #35/36/37 merged); M7-05 bounded direct fetch claimed below. Redirect following remains deferred to M7-04; source/network permissions still apply.
 
 ## Objective
 
@@ -884,9 +884,9 @@ M1 ingestion contract, M2 relevant semantics, SEC-URL-01 and SEC-FILE-01/02 befo
 
 - [x] M7-01 — Status: DONE. Owner: Çağatay; Branch: `feature/m7-01-safe-fetch-contract`; PR: [#35](https://github.com/cagatayeroglu/KKB-DataTrio/pull/35) merged at `9185730`; Commit: `64654e7`. Define one source safe-fetch API and structured outcomes; configure limits before implementing retrieval. Evidence: [M7-01 active record](#m7-01-active-record).
 - [x] M7-02 — Status: DONE. Owner: Çağatay; Branch: `feature/m7-02-url-target-validation`; PR: [#36](https://github.com/cagatayeroglu/KKB-DataTrio/pull/36) merged at `2678613`; Commit: `be3a184`. Validate HTTP(S), reject credentials in URLs, and block loopback/private/link-local/metadata targets including IPv6. Evidence: [M7-02 active record](#m7-02-active-record).
-- [ ] M7-03 — Status: PARTIAL. Owner: Çağatay; Branch: `feature/m7-03-dns-binding`; PR: [#37](https://github.com/cagatayeroglu/KKB-DataTrio/pull/37) open; Commit: `4ef4415`. Validate DNS results and the actual connection destination; reject mixed public/private resolution and rebinding hazards. Evidence: [M7-03 active record](#m7-03-active-record).
+- [x] M7-03 — Status: DONE. Owner: Çağatay; Branch: `feature/m7-03-dns-binding`; PR: [#37](https://github.com/cagatayeroglu/KKB-DataTrio/pull/37) merged at `2f9cde6`; Commit: `4ef4415`. Validate DNS results and the actual connection destination; reject mixed public/private resolution and rebinding hazards. Evidence: [M7-03 active record](#m7-03-active-record).
 - [ ] M7-04 — Handle redirects explicitly; revalidate every destination, cap hops, and avoid forwarding credentials across origins.
-- [ ] M7-05 — Bound connect/read/total time, response/decompressed bytes, and content-type routing; do not buffer unlimited responses.
+- [ ] M7-05 — Status: IN PROGRESS. Owner: Çağatay; Branch: `feature/m7-05-bounded-http-fetch`; PR/Commit: pending. Bound connect/read/total time, response/decompressed bytes, and content-type routing; do not buffer unlimited responses.
 - [ ] M7-06 — Add negative tests for forbidden addresses/schemes, redirects, misleading content headers, and oversized/slow streams.
 - [ ] M7-07 — Extract HTML tables/text with source fragment identifiers; ignore embedded instructions/scripts as authority.
 - [ ] M7-08 — Route downloaded CSV/XLSX through the same local file guards and parser contracts as uploads.
@@ -934,20 +934,35 @@ M1 ingestion contract, M2 relevant semantics, SEC-URL-01 and SEC-FILE-01/02 befo
 
 ### M7-03 active record
 
-- Status: PARTIAL — implemented/validated; unchecked until merged into `dev`.
+- Status: DONE — PR #37 merged into `dev` at `2f9cde6eb76b35cdf3f9ea1254157b23e032a379`; merged tree equals validated delivery `c3caa92`.
 - Owner: Çağatay
 - Branch: `feature/m7-03-dns-binding`, from `dev` `26786133bb6344fd4492bd52bf7b823f22168b25`
-- PR: [#37](https://github.com/cagatayeroglu/KKB-DataTrio/pull/37), `feature/m7-03-dns-binding` -> `dev`; awaiting review/merge. Claim published before implementation; no conflicting PR/remote claim on recheck.
+- PR: [#37](https://github.com/cagatayeroglu/KKB-DataTrio/pull/37), `feature/m7-03-dns-binding` -> `dev`; merged; final Fast PR gate PASS (48s). Claim published before implementation; no conflicting PR/remote claim on recheck.
 - Commit: `4ef441593100fb4bc577a78a14798138ba2417a7` (implementation); claim `ad42699`.
 - Objective: Validate DNS results and the actual connection destination; reject mixed public/private resolution and rebinding hazards.
 - Readiness: Triaged READY after verified M7-02 merge and final CI PASS. Existing URL policy/fetch contracts and SEC-URL-01 provide prerequisites; no active owner, open PR or remote task claim, and no unresolved decision blocks this generic implementation with fake network tests. M6-01 is not started.
 - Acceptance: Validate all resolver answers before connecting; connect an explicit numeric IPv4/IPv6 socket and verify the actual peer matches the chosen address/port. Keep TLS certificate and original-hostname verification. Reconnects and redirect targets use fresh resolution and the same binding path. Fixed structured failures; no independent hostname resolution by an HTTP client, implicit proxy, automatic redirects or live fetch activation.
 - Approach: A small standard-library HTTPConnection subclass owns connection establishment; socket.connect receives only the checked numeric address, and ssl.create_default_context wraps it with the original hostname. No dependency/framework decision or DNS cache is introduced. Fake resolver/socket/TLS tests cover validation-to-connect changes and blocked IPv6.
 - Delivered: [internal SourceConnection](../src/kkb_agent/ingest/_source_connection.py) owns initial/reconnect DNS and socket creation; all answers pass the existing target policy before one numeric address is selected. The peer IP/port is checked before TLS/HTTP and again after TLS. Original hostname/SNI and required certificate checks are preserved; redirects create fresh bound connections. Fixed FetchFailure outcomes include PEER_MISMATCH; failed sockets close without leaking raw exceptions. No runtime adapter calls this primitive; safe_fetch remains NETWORK_DISABLED.
-- Tests: PASS (2026-09-09, Python 3.12.2). `pytest -q tests/unit/test_source_connection.py tests/unit/test_safe_fetch.py tests/unit/test_url_targets.py --disable-warnings --maxfail=1` — **243 passed / 0.30s** (47 new binding cases); `make quick` — **795 passed / 14.59s**; `make pr` — **795 passed / 14.51s**, Ruff format/lint, Bandit and secret scan clean. Fake DNS/socket [tests](../tests/unit/test_source_connection.py) use a real default SSLContext with a stubbed handshake and exercise the stdlib HTTP connect hook, IPv4/IPv6 rebinding, mixed answers, reconnect/redirect resolution, peer mismatch, failed TLS and cleanup/redaction. No live/full/release checks. Verify the final delivery Fast PR gate in PR #37 before merge.
+- Tests: PASS (2026-09-09, Python 3.12.2). `pytest -q tests/unit/test_source_connection.py tests/unit/test_safe_fetch.py tests/unit/test_url_targets.py --disable-warnings --maxfail=1` — **243 passed / 0.30s** (47 new binding cases); `make quick` — **795 passed / 14.59s**; `make pr` — **795 passed / 14.51s**, Ruff format/lint, Bandit and secret scan clean. Fake DNS/socket [tests](../tests/unit/test_source_connection.py) use a real default SSLContext with a stubbed handshake and exercise the stdlib HTTP connect hook, IPv4/IPv6 rebinding, mixed answers, reconnect/redirect resolution, peer mismatch, failed TLS and cleanup/redaction. No live/full/release checks. Final delivery Fast PR gate PASS (48s), verified before merge.
 - Limitations: Internal connection establishment only, not bounded HTTP retrieval. First validated address only; no address fallback/retry, pool or DNS-cache claims. Connect/read socket timeouts exist, but blocking OS DNS and the combined operation do not yet have an enforced wall-clock deadline (M7-05). DNS changes cannot redirect the already selected numeric socket; a reconnect/new redirect resolves and checks again. Trusts the OS socket/peer interface, retains TLS verification, and rejects proxy tunnels.
-- Blocker: merge/review for DONE; no unresolved architecture choice or new dependency. Live content fetching still needs the controls below and Q-DATA-01/Q-NET-01/02 access confirmation.
-- Handoff: Review/merge PR #37, then triage M7-04/M7-05. Before the first bounded byte fetch, M7-05 must wire this connection into safe_fetch with DNS/total deadlines, bounded HTTP headers/body/decompression and explicit content routing; M7-06 must prove the corresponding negative paths. Redirects need an explicit policy: reject all 3xx for a zero-hop first fetch, or complete M7-04 fresh binding/hop/loop limits and safe header handling before following any hop. A failing BDDK certificate chain requires an explicitly trusted CA bundle, never disabled verification. M7-08/file guards apply before parsing downloaded spreadsheets; HTML/PDF/OCR, workspace integration and broader extraction cases (M7-07/09..15) are not prerequisites for retrieving bounded bytes. Do not create enterprise hardening tasks or start M6-01.
+- Blocker: none for M7-03; merge and validation verified. Live content fetching still needs the controls below and Q-DATA-01/Q-NET-01/02 access confirmation.
+- Handoff: Merge verified; M7-05 triaged READY and claimed below. M7-04 remains deferred while direct fetch rejects redirects. Before the first bounded byte fetch, M7-05 must wire this connection into safe_fetch with DNS/total deadlines, bounded HTTP headers/body/decompression and explicit content routing; M7-06 must prove the corresponding negative paths. Redirects need an explicit policy: reject all 3xx for a zero-hop first fetch, or complete M7-04 fresh binding/hop/loop limits and safe header handling before following any hop. A failing BDDK certificate chain requires an explicitly trusted CA bundle, never disabled verification. M7-08/file guards apply before parsing downloaded spreadsheets; HTML/PDF/OCR, workspace integration and broader extraction cases (M7-07/09..15) are not prerequisites for retrieving bounded bytes. Do not create enterprise hardening tasks or start M6-01.
+
+
+### M7-05 active record
+
+- Status: IN PROGRESS
+- Owner: Çağatay
+- Branch: `feature/m7-05-bounded-http-fetch`, from `dev` `2f9cde6eb76b35cdf3f9ea1254157b23e032a379`
+- PR: pending draft claim; no open PR or remote M7-05 branch at pre-claim inspection.
+- Commit: pending
+- Objective: Bound connect/read/total time, response/decompressed bytes, and content-type routing; do not buffer unlimited responses.
+- Readiness: Triaged READY after M7-03 merge and final Fast PR PASS. M7-01/02/03 contracts/policy/pinned sockets and SEC-URL-01 are available; no competing owner or unresolved decision blocks synthetic-test implementation. Explicit user priority selects this source path. M7-04 is not a prerequisite when every 3xx fails closed; live source/egress permissions remain separate.
+- Acceptance: Actual direct bounded GET through the existing DNS-bound connection, connect/read and whole-operation deadlines (including blocking DNS), aggregate header/framing and encoded/decoded byte limits, strict accepted content type, structured sanitized failures. Reject redirects and unsupported transfer/content encodings; preserve verified TLS. No adapters, POST contract, parser, proxy or retry framework.
+- Tests: NOT RUN — claim only.
+- Blocker: none in M7-05 scope.
+- Handoff: Publish draft claim before implementation. Keep unchecked until validated and merged; record response/deadline negative cases and remaining source-access limitations. M6-01 and the Day 0 stash remain untouched.
 
 ## Acceptance criteria
 
