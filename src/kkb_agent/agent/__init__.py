@@ -22,6 +22,18 @@ from kkb_agent.agent.registry import (
     ToolRegistry,
     ToolSpec,
 )
+from kkb_agent.agent.verifier import (
+    DEFAULT_TOLERANCE,
+    NumberVerdict,
+    Verdict,
+    WrittenNumber,
+    extract_numbers,
+    parse_written,
+    verify,
+)
+from kkb_agent.agent.verifier import (
+    Binding as NumberBinding,
+)
 from kkb_agent.agent.workspace import (
     WORKSPACE_SCHEMA,
     Artifact,
@@ -35,6 +47,7 @@ from kkb_agent.agent.workspace import (
 __all__ = [
     "BRIEF_TOOLS",
     "DEFAULT_BUDGET",
+    "DEFAULT_TOLERANCE",
     "SYSTEM_PROMPT",
     "WORKSPACE_SCHEMA",
     "AnalyticalPlan",
@@ -44,6 +57,8 @@ __all__ = [
     "Binding",
     "Budget",
     "ExecutionContext",
+    "NumberBinding",
+    "NumberVerdict",
     "ExecutionOutcome",
     "PlanRejected",
     "PlanStep",
@@ -57,9 +72,14 @@ __all__ = [
     "ToolStatus",
     "ValidatedPlan",
     "ValidatedStep",
+    "Verdict",
+    "WrittenNumber",
     "Workspace",
     "WorkspaceError",
     "artifact_id",
     "execute",
+    "extract_numbers",
+    "parse_written",
     "validate_plan",
+    "verify",
 ]
