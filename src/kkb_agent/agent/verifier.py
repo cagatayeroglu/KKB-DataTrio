@@ -15,10 +15,13 @@ which is exactly the failure the EVDS inspection found in the source data.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import date
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
+
+from kkb_agent.core import AnalyticalResult, ResultStatus, ResultValue, Scale
 
 if TYPE_CHECKING:  # pragma: no cover
     from duckdb import DuckDBPyConnection
@@ -44,11 +47,36 @@ YEAR_RANGE = range(1900, 2101)
 
 
 class Binding(StrEnum):
+    #: Bound to a named value of a specific result: the only binding that
+    #: establishes *which* figure was quoted rather than that one like it exists.
+    RESULT = "result"
     CELL = "cell"
     OBSERVATION = "observation"
     CONTEXT = "context"
     YEAR = "year"
     UNBOUND = "unbound"
+
+
+#: Scale words as an answer writes them. Matched on whole words only: a
+#: suffixed form is skipped rather than guessed at, because failing to check is
+#: recoverable and wrongly rejecting a correct answer is not.
+SCALE_WORDS: Final[Mapping[str, Scale]] = {
+    "bin": Scale.THOUSAND,
+    "milyon": Scale.MILLION,
+    "milyar": Scale.BILLION,
+    "thousand": Scale.THOUSAND,
+    "million": Scale.MILLION,
+    "billion": Scale.BILLION,
+}
+
+#: Characters after a number in which its scale word may appear.
+QUALIFIER_WINDOW: Final = 24
+
+_SCALE_PATTERN: Final = re.compile(
+    r"\b(" + "|".join(sorted(SCALE_WORDS, key=len, reverse=True)) + r")\b", re.IGNORECASE
+)
+_YEAR_PATTERN: Final = re.compile(r"\b(?:19|20)\d{2}\b")
+_SENTENCE_BREAK: Final = re.compile(r"[.!?\n]\s")
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,10 +97,21 @@ class NumberVerdict:
     binding: Binding
     lineage_node: str | None = None
     source: str | None = None
+    #: The result and value this number was bound to, when it was bound to one.
+    result_id: str | None = None
+    value_label: str | None = None
+    #: Why a number that *was* found is still not presentable — a contradicted
+    #: scale, a contradicted period, semantics the result never established.
+    faults: tuple[str, ...] = ()
 
     @property
     def supported(self) -> bool:
-        return self.binding is not Binding.UNBOUND
+        """Bound *and* free of contradictions. Finding a match is not enough.
+
+        A figure quoted as million when the series is published in thousand
+        was found in the data and is still wrong by a factor of a thousand.
+        """
+        return self.binding is not Binding.UNBOUND and not self.faults
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,3 +259,276 @@ def _bind(
 
 def _close(left: float, right: float, tolerance: float) -> bool:
     return abs(left - right) <= abs(right) * tolerance + 1e-9
+
+
+# --------------------------------------------------------------------------
+# M8-06/07: binding a claim to one result rather than to the whole store.
+#
+# `verify` above answers "does a number like this exist anywhere?". That is a
+# weak question, and it accepts a right-looking figure taken from the wrong
+# series, the wrong period or the wrong scale. The functions below answer the
+# question that matters: "is this the number this analysis produced, and does
+# the sentence around it agree with what the analysis established?".
+# --------------------------------------------------------------------------
+
+
+def _sentence_around(text: str, position: int) -> str:
+    """The sentence a number sits in, which bounds every contextual check.
+
+    Scanning a fixed character window instead would drag in a neighbouring
+    sentence's year and reject a correct answer, and a verifier that rejects
+    correct answers gets switched off.
+    """
+    start = 0
+    for match in _SENTENCE_BREAK.finditer(text, 0, position):
+        start = match.end()
+    end = len(text)
+    tail = _SENTENCE_BREAK.search(text, position)
+    if tail is not None:
+        end = tail.start()
+    return text[start:end]
+
+
+def _scale_fault(answer: str, number: WrittenNumber, value: ResultValue) -> str | None:
+    """Catch a figure quoted at a scale the data does not carry.
+
+    This is the BDDK/FinTürk trap at the presentation layer: the bulletins
+    publish million TRY and FinTürk thousand, so "milyon" attached to a
+    thousand-scaled value is a thousandfold error that survives every check
+    based on the value alone.
+    """
+    window = answer[
+        number.start + len(number.text) : number.start + len(number.text) + QUALIFIER_WINDOW
+    ]
+    match = _SCALE_PATTERN.search(window)
+    if match is None:
+        return None
+    written = SCALE_WORDS[match.group().lower()]
+    if value.scale is Scale.UNKNOWN:
+        return (
+            f"{number.text!r} is written as {match.group()!r}, but the result never "
+            "established a scale for it"
+        )
+    if written is not value.scale:
+        return (
+            f"{number.text!r} is written as {match.group()!r} while the value is "
+            f"recorded as {value.scale.value}"
+        )
+    return None
+
+
+def _period_fault(answer: str, number: WrittenNumber, value: ResultValue) -> str | None:
+    """Catch a figure attributed to a period it does not cover.
+
+    Only a sentence whose years *all* fall outside the value's period counts as
+    a contradiction. One matching year is enough to accept, because a sentence
+    may legitimately mention a range alongside the figure's own period.
+    """
+    if value.period is None:
+        return None
+    years = {
+        int(found.group())
+        for found in _YEAR_PATTERN.finditer(_sentence_around(answer, number.start))
+    }
+    if not years:
+        return None
+    covered = range(value.period.start.year, value.period.end.year + 1)
+    if any(year in covered for year in years):
+        return None
+    return (
+        f"{number.text!r} is attributed to {sorted(years)} but its period is "
+        f"{value.period.start.isoformat()}..{value.period.end.isoformat()}"
+    )
+
+
+def _semantics_fault(number: WrittenNumber, value: ResultValue) -> str | None:
+    if not value.semantics_are_unresolved:
+        return None
+    missing = "unit" if value.unit is None else "scale"
+    return f"{number.text!r} rests on a value whose {missing} the result left unresolved"
+
+
+def _result_faults(result: AnalyticalResult, minimum_samples: int | None) -> list[str]:
+    """What disqualifies the whole result, before any number is looked at."""
+    faults: list[str] = []
+    if result.status is not ResultStatus.COMPUTED:
+        faults.append(
+            f"The result is {result.status.value} and establishes no value: "
+            f"{result.reason or 'no reason recorded'}"
+        )
+    if minimum_samples is not None:
+        used = result.samples.used if result.samples is not None else 0
+        if used < minimum_samples:
+            faults.append(f"{used} observations is below the {minimum_samples} this claim requires")
+    return faults
+
+
+def _evidence_faults(result: AnalyticalResult, connection: DuckDBPyConnection) -> list[str]:
+    """Resolve the references the result preserved, instead of trusting them.
+
+    An evidence reference that does not resolve is worse than an absent one: it
+    reads as provenance in every panel that renders it while pointing at
+    nothing. Table names and lineage nodes are the two forms a producer writes
+    today, and both are checked against the database.
+    """
+    if result.evidence is None:
+        return []
+    faults: list[str] = []
+    known = {
+        str(row[0])
+        for row in connection.execute("SELECT table_name FROM information_schema.tables").fetchall()
+    }
+    node = result.evidence.lineage_node
+    if node is not None:
+        found = connection.execute(
+            "SELECT 1 FROM lineage_nodes WHERE node_id = ?", [node]
+        ).fetchone()
+        if found is None:
+            faults.append(f"Lineage node {node!r} is referenced but not stored")
+    for reference in result.evidence.input_refs:
+        if reference in known:
+            continue
+        found = connection.execute(
+            "SELECT 1 FROM lineage_nodes WHERE node_id = ?", [reference]
+        ).fetchone()
+        if found is None:
+            faults.append(f"Input reference {reference!r} resolves to no table and no lineage node")
+    return faults
+
+
+def _stored_value(connection: DuckDBPyConnection, label: str, period_end: date) -> float | None:
+    """Read the value the store holds for one series at one period.
+
+    Keyed on identity rather than magnitude, and written here in fixed SQL, so
+    it is independent of whatever statement the model composed to produce the
+    result under test.
+    """
+    for statement in (
+        "SELECT value FROM silver_observations WHERE series_id = ? AND period_end = ?",
+        "SELECT value FROM gold_cells WHERE column_name = ? AND period_end = ?",
+    ):
+        row = connection.execute(statement, [label, period_end]).fetchone()
+        if row is not None and row[0] is not None:
+            return float(row[0])
+    return None
+
+
+def recheck_against_store(
+    result: AnalyticalResult,
+    connection: DuckDBPyConnection,
+    *,
+    tolerance: float = DEFAULT_TOLERANCE,
+) -> tuple[str, ...]:
+    """Recompute what can be recomputed, on a path the model did not write.
+
+    Only values that name a series and a period can be rechecked; an aggregate
+    labelled `value` has no identity to look up and is skipped rather than
+    guessed at. This is a second read of the same store, not an independent
+    derivation, so it catches a wrong join, a wrong period or an altered
+    figure — and it does not catch a wrong number that was stored wrongly.
+    """
+    faults: list[str] = []
+    for value in result.values:
+        if value.period is None:
+            continue
+        stored = _stored_value(connection, value.label, value.period.end)
+        if stored is None:
+            continue
+        if not _close(value.value, stored, tolerance):
+            faults.append(
+                f"{value.label!r} at {value.period.end.isoformat()} is stored as {stored} "
+                f"but the result reports {value.value}"
+            )
+    return tuple(faults)
+
+
+def verify_result(
+    answer: str,
+    result: AnalyticalResult,
+    connection: DuckDBPyConnection | None = None,
+    *,
+    allowed: Iterable[float] = (),
+    tolerance: float = DEFAULT_TOLERANCE,
+    accept_years: bool = True,
+    minimum_samples: int | None = None,
+) -> Verdict:
+    """Gate an answer against the result it claims to describe.
+
+    Unlike `verify`, a number here must belong to **this** result, to the
+    caller's justified context, or be a year. There is deliberately no fallback
+    to searching the whole store: "some cell holds a number like that" is the
+    weak guarantee this function exists to replace.
+    """
+    permitted = [float(value) for value in allowed]
+    faults = _result_faults(result, minimum_samples)
+    limitations = [
+        "Numbers are bound to this result's values, not to any stored value",
+        "No external cross-check was performed",
+    ]
+
+    if connection is None:
+        limitations.append("No store recheck was run: no database connection was supplied")
+    else:
+        faults.extend(_evidence_faults(result, connection))
+        faults.extend(recheck_against_store(result, connection, tolerance=tolerance))
+        limitations.append(
+            "The store recheck is a second read keyed on series and period, not an "
+            "independent derivation: it catches a wrong join, period or altered figure, "
+            "not a value that was stored wrongly"
+        )
+
+    if result.unresolved_semantics:
+        limitations.append(
+            "The result declares unresolved semantics: " + "; ".join(result.unresolved_semantics)
+        )
+
+    verdicts: list[NumberVerdict] = []
+    for number in extract_numbers(answer):
+        verdicts.append(_bind_to_result(answer, number, result, permitted, tolerance, accept_years))
+
+    rejected = list(faults)
+    for item in verdicts:
+        if item.binding is Binding.UNBOUND:
+            rejected.append(f"{item.number.text!r} does not match any value in this result")
+        rejected.extend(item.faults)
+    accepted = not rejected
+    return Verdict(accepted, tuple(verdicts), tuple(limitations), tuple(rejected))
+
+
+def _bind_to_result(
+    answer: str,
+    number: WrittenNumber,
+    result: AnalyticalResult,
+    permitted: Sequence[float],
+    tolerance: float,
+    accept_years: bool,
+) -> NumberVerdict:
+    if any(_close(number.value, value, tolerance) for value in permitted):
+        return NumberVerdict(number, Binding.CONTEXT)
+
+    node = result.evidence.lineage_node if result.evidence is not None else None
+    for value in result.values:
+        if not _close(number.value, value.value, tolerance):
+            continue
+        faults = tuple(
+            fault
+            for fault in (
+                _scale_fault(answer, number, value),
+                _period_fault(answer, number, value),
+                _semantics_fault(number, value),
+            )
+            if fault is not None
+        )
+        return NumberVerdict(
+            number,
+            Binding.RESULT,
+            lineage_node=node,
+            source=value.label,
+            result_id=result.result_id,
+            value_label=value.label,
+            faults=faults,
+        )
+
+    if accept_years and float(number.value).is_integer() and int(number.value) in YEAR_RANGE:
+        return NumberVerdict(number, Binding.YEAR)
+    return NumberVerdict(number, Binding.UNBOUND)
