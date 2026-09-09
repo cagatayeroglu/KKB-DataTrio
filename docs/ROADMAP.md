@@ -21,10 +21,10 @@ This file owns **execution truth**. [ARCHITECTURE](ARCHITECTURE.md) owns technic
 - Last verified `origin/dev`: **`41e302ce8959da480a8cecc826fd3ef39b6de899`** (PR #34).
 - Verification: **2026-09-09**, after PR #34 merge; local `dev` fast-forwarded to `origin/dev`, merged tree verified, open/draft PRs and remote heads checked before claiming M7-01. Recheck claims before starting independent work.
 - Phase: Foundation available; complete the **first real end-to-end slice**. The offline planner/registry/executor, lakehouse SQL tool, definition DAG and numeric-binding verifier exist. Real-source ingestion, complete result/workspace/proof integration and live Kloudeks remain delivery work.
-- Active task: **M7-01 / Çağatay**, `feature/m7-01-safe-fetch-contract`; claim PR pending publication. No other open/draft PR or active remote task branch at inspection. Eray retains responsibility for merged-but-incomplete scopes until an explicit handoff; M12-DB PR #30 is merged and its historical record below remains unchanged.
+- Active task: **M7-01 / Çağatay / PARTIAL**, `feature/m7-01-safe-fetch-contract`; PR [#35](https://github.com/cagatayeroglu/KKB-DataTrio/pull/35) open into `dev`, implementation validated and awaiting review/merge. No other open/draft PR or active remote task branch at inspection. Eray retains responsibility for merged-but-incomplete scopes until an explicit handoff; M12-DB PR #30 is merged and its historical record below remains unchanged.
 - Product/retrieval documentation synchronization: **DONE**, PR [#34](https://github.com/cagatayeroglu/KKB-DataTrio/pull/34) merged into `dev` at `41e302c`; final content `e2029ea`, document checks and Fast PR gate PASS (55s). DEC-129/130 and the reconciled current status are present in the merged tree. No further documentation-polish task is needed.
-- Fast gate: PR #32's implementation `f9c94bb` reports **37 verifier / 552 unit tests**, Ruff format/lint, Bandit and secret scan passing; GitHub shows **1 check passed**. PR #33 changes docs only. These are historical delivery results, not fresh application runs in this docs task.
-- Known failing gate: **M0-08** — 14 strict mypy errors reported through PR #32, originating in the XLSX modules. Full/release validation is not established. Do not infer a green release from a green `make pr`; no full/security/release checks run here.
+- Fast gate: M7-01 delivery on PR #35 — **67 targeted / 619 unit tests PASS**, `make quick` 25.92s, `make pr` 15.23s including Ruff format/lint, Bandit and secret scan (Python 3.12.2). GitHub status for the delivery commit is recorded in PR #35; claim-only CI does not validate the implementation.
+- Known failing gate: **M0-08** — 14 strict mypy errors reported through PR #32, originating in the XLSX modules. Full/release validation is not established. Do not infer a green release from a green `make pr`; no full/release checks run in this task.
 - Critical implementation gaps: CSV/profile and source adapters; safe fetch; typed financial results/run/snapshot identity; workspace stale-result rejection/recomputation and loop integration; second-path verifier and answer gate; catalog retrieval; remaining `web_search`, `web_url`, `anomaly`, `causality`, `change_detection`; benchmark runner; API/UI/deployment.
 - External blockers (Kloudeks update 2026-09-09): [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy) confirms endpoint/MIA-key auth, text/vision, embedding and OCR availability. Q-K-01 now concerns account-specific key provisioning/access; Q-K-02/03/04 cover remaining context/output limits, native tool/JSON guarantees and quotas/timeouts. Q-K-05 retains required dense-path dimension/prefix/limit configuration and optional dedicated-reranker questions. Dense retrieval is initial baseline under DEC-130; RRF/reranking still need held-out benchmark evidence. Q-DATA-01/03, Q-NET-01/02, Q-INFRA-01/02 and Q-DEMO-01/02/03 remain external source/egress/storage/delivery blockers. Q-TEAM-01..05 were answered in PR #19.
 - Current direction: [DEC-130](DECISIONS.md#dec-130--initial-hybrid-retrieval-baseline) supersedes DEC-127 with initial lexical + dense hybrid retrieval; DEC-115 remains historical/SUPERSEDED. [DEC-128](DECISIONS.md#dec-128--financial-question-validation-and-claim-level-evidence) records product direction. Neither claims implementation. Core ingestion/results/workspace/verifier/live provider/required tools precede broad differentiation.
@@ -870,7 +870,7 @@ Do not wait for advanced causality to deliver a tested change/association path. 
 <a id="m7"></a>
 # M7 — External source / URL / document ingestion
 
-Status: IN PROGRESS — M7-01 safe-fetch contract claimed; live retrieval remains disabled pending M7-02..06 controls and source/network permissions.
+Status: PARTIAL — M7-01 contract implemented/validated on PR #35, not yet merged; live retrieval remains disabled pending M7-02..06 controls and source/network permissions.
 
 ## Objective
 
@@ -882,7 +882,7 @@ M1 ingestion contract, M2 relevant semantics, SEC-URL-01 and SEC-FILE-01/02 befo
 
 ## Tasks
 
-- [ ] M7-01 — Status: IN PROGRESS. Owner: Çağatay; Branch: `feature/m7-01-safe-fetch-contract`; PR/Commit: pending. Define one source safe-fetch API and structured outcomes; configure limits before implementing retrieval. Evidence: [M7-01 active record](#m7-01-active-record).
+- [ ] M7-01 — Status: PARTIAL. Owner: Çağatay; Branch: `feature/m7-01-safe-fetch-contract`; PR: [#35](https://github.com/cagatayeroglu/KKB-DataTrio/pull/35) open; Commit: `64654e7`. Define one source safe-fetch API and structured outcomes; configure limits before implementing retrieval. Evidence: [M7-01 active record](#m7-01-active-record).
 - [ ] M7-02 — Validate HTTP(S), reject credentials in URLs, and block loopback/private/link-local/metadata targets including IPv6.
 - [ ] M7-03 — Validate DNS results and the actual connection destination; reject mixed public/private resolution and rebinding hazards.
 - [ ] M7-04 — Handle redirects explicitly; revalidate every destination, cap hops, and avoid forwarding credentials across origins.
@@ -901,17 +901,19 @@ M1 ingestion contract, M2 relevant semantics, SEC-URL-01 and SEC-FILE-01/02 befo
 
 ### M7-01 active record
 
-- Status: IN PROGRESS
+- Status: PARTIAL — implementation/validation complete, awaiting merge into `dev`
 - Owner: Çağatay
 - Branch: `feature/m7-01-safe-fetch-contract`, from `dev` `41e302ce8959da480a8cecc826fd3ef39b6de899`
-- PR: pending draft claim publication into `dev`
-- Commit: pending
+- PR: [#35](https://github.com/cagatayeroglu/KKB-DataTrio/pull/35) into `dev`; draft claim published before implementation, then updated for delivery. No conflicting claim on recheck.
+- Commit: implementation `64654e7e87081f1ac15363d9b5db19d4fdd6c316`; claim `7c4bd164b8f93c450a9355d46026419390a80bc0`
 - Objective: Define one source safe-fetch API and structured outcomes; configure limits before implementing retrieval.
-- Acceptance: Typed requests/outcomes and validated byte/time/redirect/content limits with focused contract/negative tests; live networking remains disabled. Reuse the M1 boundary contracts; no adapters, DNS/redirect enforcement, parsers or provider changes in this task.
-- Readiness: M1 contract/admission and SEC-URL policy exist; no model, live-source permission or unresolved architecture decision is needed for the offline contract. No other open/draft PR or remote task claim at selection. User prioritizes the real-source path ahead of other independent READY work.
-- Tests: NOT RUN — claim only; implementation follows published claim and collision recheck.
-- Blocker: none for M7-01; M7-02..06 and Q-DATA-01/Q-NET-01/02 still gate live adapters.
-- Handoff: Implement the narrow API/limits/outcomes with no default transport, then run targeted tests, `make quick` and `make pr`. Keep unchecked until review and merge; do not start another task.
+- Delivered: [safe_fetch](../src/kkb_agent/ingest/safe_fetch.py) provides typed immutable requests, success/failure outcomes, fixed error codes and validated locator/byte/time/redirect/media-type configuration. Uses existing `ContractModel` and M1 admission byte defaults. URLs and content are excluded from repr/ordinary exports; opaque source IDs link caller provenance. The entry point revalidates records and returns `NETWORK_DISABLED` (or locator `SIZE_LIMIT`) without DNS/socket I/O.
+- Limits: operator defaults — 4096 URL characters, 10 MiB encoded/decoded HTTP body budgets, 3 redirects, 5s connect/read and 30s total. These are configuration contracts; M7-02..06 must enforce them during live retrieval. Accepted media types are explicit per request. Archive/parser budgets remain owned by M1.
+- Readiness: M1 contract/admission and SEC-URL policy exist; the offline contract requires no model, live-source permission or unresolved architecture decision. User prioritizes the real-source path ahead of independent READY work. Teammate ownership is unchanged.
+- Tests: PASS (2026-09-09; Python 3.12.2). `python -m pytest -q tests/unit/test_safe_fetch.py --disable-warnings --maxfail=1` — **67 passed in 0.42s**; touched-code Ruff PASS. `make quick` — **619 passed in 25.14s**, 25.92s wall. `make pr` — **619 passed in 13.34s**, 15.23s wall; Ruff format/lint, Bandit and secret scan PASS. No full/release or live-network checks run.
+- Limitations: no HTTP transport, destination/DNS/redirect/stream enforcement, adapters, parsers or provider changes. Constructed success records are not proof of file admission, source permission or financial meaning; a synthetic CSV test explicitly passes the bytes through M1 admission. Do not log unfiltered Pydantic error dictionaries; only their sanitized text or fixed categories.
+- Blocker: PR review/merge for DONE; M7-02..06 and Q-DATA-01/Q-NET-01/02 still gate live adapters.
+- Handoff: Review/merge PR #35, then triage M7-02 URL/destination policy using this contract before enabling any transport. M6-01 remains the first independent READY task; M0-08 typing debt remains visible. Do not interpret this contract delivery as a completed real-source vertical slice.
 
 ## Acceptance criteria
 
@@ -923,7 +925,7 @@ Every enabled external retrieval uses the central boundary, including redirects 
 - Branch: —
 - PR: —
 - Commit: —
-- Tests: NOT RUN; fetch/parser boundaries absent.
+- Tests: M7-01 contract checks PASS as recorded above; live fetch/parser controls remain unimplemented.
 - Benchmark: External-format and injection catalog planned.
 - Notes: Local file ingestion is not permission to fetch arbitrary URLs.
 - Known limitations: No URL/document/OCR runtime support. Vision/OCR availability is confirmed by DEC-129; demo internet/egress, required format scope and remaining request limits are unresolved. Obtain the literal organizer OCR prompt/`extra_body` before implementing that request.
