@@ -1142,10 +1142,10 @@ M0-01 contracts and M1 loading for input; DEC-112 for the engine, DEC-114 for bu
 - [ ] M12-01 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m12-01-lakehouse-foundation`. Create the DuckDB database and the `bronze`/`silver`/`gold` Parquet layout with a documented schema per layer; commit the database definition, which is a required deliverable. Evidence: [M12-01/02/03 active record](#m12-010203-active-record).
 - [ ] M12-02 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m12-01-lakehouse-foundation`. Write every retrieved artifact to `bronze` with its bytes, SHA-256, source locator and retrieval timestamp; never edit a bronze object in place. Evidence: [M12-01/02/03 active record](#m12-010203-active-record).
 - [ ] M12-03 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m12-01-lakehouse-foundation`. Define the `silver` series row shape: series ID, period, value, unit, scale, frequency, stock/flow, cumulative behaviour, source vintage, and an explicit unknown for each semantic that is genuinely unknown. Evidence: [M12-01/02/03 active record](#m12-010203-active-record).
-- [ ] M12-04 — Implement the canonical time spine and period labelling, with inclusive/exclusive range behaviour and timezone/calendar conventions stated once.
-- [ ] M12-05 — Implement cumulative detection: distinguish a series cumulative since first publication, a series that resets each January, and a plain flow series, and report low confidence rather than guessing. Detection is **per series, not per source** — [BDDK_SOURCE](BDDK_SOURCE.md) shows monthly table 4 is a stock and table 2 resets every January, in the same bulletin.
-- [ ] M12-06 — Implement non-reset cumulative-to-flow differencing, requiring the preceding baseline for the first derived period. **No merge without unit tests.**
-- [ ] M12-07 — Implement yearly-reset cumulative conversion with January and missing-prior-period boundary cases. **No merge without unit tests.**
+- [ ] M12-04 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m12-05-cumulative-semantics`. Implement the canonical time spine and period labelling, with inclusive/exclusive range behaviour and timezone/calendar conventions stated once. Evidence: [M12-04..07 active record](#m12-0407-active-record).
+- [ ] M12-05 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m12-05-cumulative-semantics`. Implement cumulative detection: distinguish a series cumulative since first publication, a series that resets each January, and a plain flow series, and report low confidence rather than guessing. Detection is **per series, not per source** — [BDDK_SOURCE](BDDK_SOURCE.md) shows monthly table 4 is a stock and table 2 resets every January, in the same bulletin. Evidence: [M12-04..07 active record](#m12-0407-active-record).
+- [ ] M12-06 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m12-05-cumulative-semantics`. Implement non-reset cumulative-to-flow differencing, requiring the preceding baseline for the first derived period. **No merge without unit tests.** Evidence: [M12-04..07 active record](#m12-0407-active-record).
+- [ ] M12-07 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m12-05-cumulative-semantics`. Implement yearly-reset cumulative conversion with January and missing-prior-period boundary cases. **No merge without unit tests.** Evidence: [M12-04..07 active record](#m12-0407-active-record).
 - [ ] M12-08 — Implement frequency alignment for daily, weekly and monthly sources, including weeks that cross a month boundary; do not assume equal row spacing implies a known reporting calendar. Key on the declared frequency: EVDS publishes nine, including separate Friday and Wednesday weekly anchors and `İŞ GÜNÜ` distinct from `GÜNLÜK`. The reference scenario needs a weekly-Friday rate joined to a monthly stock, so this is on the critical path.
 - [ ] M12-09 — Store the aggregation policy in each series' metadata — stock to period end, flow summed, rate by its recorded rule — and read it from metadata rather than branching on the series name in code. EVDS already publishes this per series (`DEFAULT_AGG_METHOD`, `SUMABLE`, `AVGABLE`, ...); carry those flags through instead of re-deriving them, and honour `SUMABLE: 0`.
 - [ ] M12-10 — Implement unit and scale normalization for TRY, thousand TRY and million TRY with the applied factor recorded; make unit a required field and reject a series without one. This is not hypothetical: FinTürk publishes Bin TL while the monthly and weekly bulletins publish Milyon TL, and the unit appears only in a caption or a display label.
@@ -1156,6 +1156,19 @@ M0-01 contracts and M1 loading for input; DEC-112 for the engine, DEC-114 for bu
 - [ ] M12-15 — Add hand-calculated fixtures for each cumulative, aggregation, frequency and unit rule, plus negative tests for unknown unit, unknown frequency and unknown reset behaviour.
 - [ ] M12-16 — Run targeted normalization tests and touched-code lint; record which policies are implemented and which still need source confirmation.
 - [ ] M12-17 — Handle index base-year variants explicitly: the consumer price index exists as 2003=100 and 2025=100, the housing price index as 2010=100, 2017=100 and current. Parse the base from the title, require an explicit reference period, and verify overlap before rebasing.
+
+### M12-04..07 active record
+
+- Status: IN PROGRESS — claim published before implementation
+- Owner: Eray
+- Branch: `feature/m12-05-cumulative-semantics`; fresh `dev` base recorded on delivery
+- PR: pending
+- Commit: pending
+- Objective: Make cumulative series usable and safe — a canonical period spine, detection that distinguishes the three accumulation behaviours measured in the BDDK bulletin, and conversion to monthly flow that refuses rather than guesses where the inputs do not support it.
+- Scope: period arithmetic and cumulative semantics as pure functions over observations. No retrieval, no lineage writing, no gold joins, no frequency alignment.
+- Tests: pending.
+- Blocker: none.
+- Handoff: pending.
 
 ### M12-01/02/03 active record
 
