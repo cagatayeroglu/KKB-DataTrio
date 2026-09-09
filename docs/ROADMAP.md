@@ -18,9 +18,15 @@ This file owns **execution truth**. [ARCHITECTURE](ARCHITECTURE.md) owns technic
 
 # Current project status
 
-Latest verification (2026-09-09): M1-10 is DONE — [PR #16](https://github.com/cagatayeroglu/KKB-DataTrio/pull/16) merged into `dev` at `400fe58f49e2c9513f77799090030313dcc55088`, with the validated tree unchanged. [PR #17](https://github.com/cagatayeroglu/KKB-DataTrio/pull/17) then promoted `dev` to `main` at `722c2afaea419e5b270a8531bcd6690d44e53027`; both branches now hold the same tree, every task branch is deleted and no PR is open. No task is claimed or IN PROGRESS. Delivered runtime scope is file admission, bounded XLSX loading and the minimal core contracts; no CSV loader, profiler, adapter registry, provider, planner, analytics tool or UI exists. The older snapshot below is historical; current task records supersede it.
+Latest verification (2026-09-09, end of day): `dev` is at `ec1d783` after PR #32. Every task branch is deleted and no PR is open; nothing is claimed or IN PROGRESS. `main` is still at `722c2af` and is **many merges behind** — it has not been promoted since PR #17 and its release gate has never passed (M0-08).
 
-Architecture frozen (2026-09-09, M0-ARCH): the technology stack is decided and recorded as DEC-112 through DEC-126, and [Q-TEAM-01 through Q-TEAM-05](OPEN_QUESTIONS.md#priority-queue) are ANSWERED. DuckDB with Parquet and Pandas is the engine and lakehouse; orchestration is a custom bounded loop; retrieval is LanceDB with DuckDB FTS, RRF and an alias dictionary; the workspace is an artifact DAG in DuckDB; provenance is a typed lineage graph gating a verifier; causality reports association with stated limits; the six brief-named tools carry Pydantic schemas and restricted text-to-SQL; the front end is Next.js over FastAPI with SSE. Two milestones were added for work the previous plan had no home for: [M12](#m12) lakehouse and medallion normalization, and [M13](#m13) semantic catalog and retrieval. **No decision below is implemented code** — every one of them still has to be built.
+**A thin end-to-end path exists and is tested.** A question becomes a validated plan, the plan runs restricted SQL against the lakehouse, the query records its lineage, and a verifier refuses to release an answer containing a number that does not resolve to a stored cell. One test walks that whole chain and reads the original bronze bytes back through the graph. 552 unit tests pass; `make pr` is green.
+
+**Nothing is fed by a real source.** No adapter fetches a BDDK bulletin or an EVDS series, because M3-05 through M3-08 are unwritten and the safe-fetch layer does not exist. Everything above the data layer runs against fixtures and a scripted provider. There is no CSV loader, no catalog, no retrieval, no analytics tool beyond `lakehouse`, no UI and no deployment.
+
+Delivered and merged, by layer: **data** — file admission, bounded XLSX loading, the medallion store with an immutable bronze and a semantics-gated silver, cumulative detection and conversion, weekly-to-monthly alignment with coverage, gold joins on one spine, and the lineage graph. **Model** — the Kloudeks provider boundary with configuration, capability reporting, strict structured-output validation with repair, and a scripted double. **Agent** — typed plans, the tool registry, plan validation, the bounded executor, the planner loop, the workspace artifact DAG, and the verifier. **Tools** — `lakehouse` only. The older snapshot below is historical; current task records supersede it.
+
+Architecture frozen (2026-09-09, M0-ARCH): the technology stack is decided and recorded as DEC-112 through DEC-126, and [Q-TEAM-01 through Q-TEAM-05](OPEN_QUESTIONS.md#priority-queue) are ANSWERED. DuckDB with Parquet and Pandas is the engine and lakehouse; orchestration is a custom bounded loop; retrieval is LanceDB with DuckDB FTS, RRF and an alias dictionary; the workspace is an artifact DAG in DuckDB; provenance is a typed lineage graph gating a verifier; causality reports association with stated limits; the six brief-named tools carry Pydantic schemas and restricted text-to-SQL; the front end is Next.js over FastAPI with SSE. Two milestones were added for work the previous plan had no home for: [M12](#m12) lakehouse and medallion normalization, and [M13](#m13) semantic catalog and retrieval. **Most of that is now built.** DuckDB with Parquet, the bounded loop, the workspace DAG, the lineage graph, the verifier, the provider boundary and the `lakehouse` tool are merged and tested. Not built: retrieval and the catalog (M13), the other five tools, the front end, and deployment.
 
 The internal blockers are now gone; the remaining ones are organizer answers. Q-K-01/02/03 gate every live model path, Q-K-05 gates the dense half of retrieval, Q-NET-01/02 gate the `web_search` and `web_url` tools, Q-DATA-01 gates live source retrieval, and Q-INFRA-01 can override DEC-126. These have external latency, so ask them now rather than when the affected task starts.
 
@@ -709,7 +715,7 @@ Answer Q-DATA-01 in OPEN_QUESTIONS; do not scatter endpoint assumptions across c
 <a id="m4"></a>
 # M4 — LLM / Kloudeks integration
 
-Status: PARTIAL — non-networking stub exists. Live transport Status: BLOCKED on Q-K-01/02/03.
+Status: PARTIAL — the [provider boundary](../src/kkb_agent/llm/provider.py) is delivered: three methods, environment-driven configuration, reported capabilities, strict structured-output validation with repair, and a scripted double that fails the way the platform is expected to. Live transport (M4-07) remains BLOCKED on Q-K-01/02/03.
 
 ## Objective
 
@@ -779,7 +785,7 @@ Do not infer OpenAI-compatible transport from a desired interface or invent an a
 <a id="m5"></a>
 # M5 — Planning / tool routing
 
-Status: PARTIAL — plan/workspace models and tool/provider protocols exist; registry, planner, executor, and multi-turn service are absent.
+Status: PARTIAL — typed plans, the tool registry, plan validation, the bounded executor, the planner repair loop and the [workspace artifact DAG](../src/kkb_agent/agent/workspace.py) are delivered and tested against the scripted provider. Deterministic format routing (M5-07) and the failure taxonomy (M5-14) remain.
 
 ## Objective
 
@@ -871,7 +877,7 @@ Do not claim “typed plans implemented” means execution is safe. Keep structu
 <a id="m6"></a>
 # M6 — Deterministic analytics
 
-Status: NOT STARTED.
+Status: PARTIAL — the [`lakehouse` tool](../src/kkb_agent/tools/lakehouse.py) is delivered with its five security gates. The five other brief-named tools have no implementation.
 
 ## Objective
 
@@ -993,7 +999,7 @@ Model-suggested URLs still need full validation. If network-safe enforcement can
 <a id="m8"></a>
 # M8 — Verification / evidence / provenance
 
-Status: PARTIAL — SourceRef, TransformationRecord, EvidenceRecord and workspace evidence fields exist; ledger service/verifier are absent.
+Status: PARTIAL — the [lineage graph](../src/kkb_agent/lakehouse/lineage.py) and the [verifier](../src/kkb_agent/agent/verifier.py) are delivered: every gold column reaches a source file, and an answer containing a number with no stored cell behind it is refused. DEC-119's remaining rules — second-path recomputation, external cross-check, and the rule that model-extracted document content never enters a table unchecked — are not implemented, and the verdict says so in its own limitations.
 
 ## Objective
 
@@ -1221,7 +1227,7 @@ Keep the final record compact but reproducible: revision, environment, commands/
 <a id="m12"></a>
 # M12 — Lakehouse and medallion normalization
 
-Status: NOT STARTED. Unblocked by [DEC-112](DECISIONS.md#dec-112--duckdb-and-parquet-as-the-analytical-engine-and-lakehouse); no lakehouse code exists.
+Status: PARTIAL — the store, its semantics gate, cumulative handling, alignment, gold joins and lineage are delivered and tested against real published BDDK values; the schema is documented in [DATABASE](DATABASE.md). Not delivered: retrieval into bronze, revisions and vintages (M12-12), index rebasing (M12-17), and the unit and percentage conversions (M12-10/11).
 
 ## Objective
 
