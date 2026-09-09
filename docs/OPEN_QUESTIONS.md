@@ -2,9 +2,9 @@
 
 This file owns unresolved external/team questions and their evidence. [DECISIONS](DECISIONS.md) owns confirmed choices; [ROADMAP](ROADMAP.md) owns blocked/ready tasks. A temporary assumption is a planning aid, not organizer permission or an implementation fact.
 
-Snapshot: 2026-09-09. The five team-decision questions Q-TEAM-01 through Q-TEAM-05 are **ANSWERED** by M0-ARCH and recorded in DECISIONS; nothing in the architecture is now waiting on an internal choice. No organizer answer has been received yet, so every Q-K, Q-INFRA, Q-DATA, Q-NET, Q-DEMO, Q-DEV, Q-JUDGE and Q-COMP entry remains open and unassigned; suggested lanes refer to ROADMAP's rotating A/B/C roles, not actual commitments.
+Snapshot: 2026-09-09. The five team-decision questions Q-TEAM-01 through Q-TEAM-05 are **ANSWERED** by M0-ARCH and recorded in DECISIONS; those five choices are no longer blockers. Task-level proof/result schemas, reviewed concept-family membership and measured thresholds remain proposals until reviewed; they do not reopen those answered questions. No organizer answer has been received yet, so every Q-K, Q-INFRA, Q-DATA, Q-NET, Q-DEMO, Q-DEV, Q-JUDGE and Q-COMP entry remains open and unassigned; suggested lanes refer to ROADMAP's rotating A/B/C roles, not actual commitments.
 
-The organizer questions are now the project's only external blockers, and several of them gate long-lead work: Q-K-01/02/03 gate every live model path, Q-K-05 gates the embedding half of DEC-115, Q-NET-01/02 gate the `web_search` and `web_url` tools, Q-DATA-01 gates live source retrieval, and Q-INFRA-01 can override DEC-126. Ask them early rather than near the delivery date.
+The organizer questions are now the project's only external blockers, and several of them gate long-lead work: Q-K-01/02/03 gate every live model path, Q-K-05 gates only optional embedding/reranker experiments under DEC-127 (DEC-115 is SUPERSEDED), Q-NET-01/02 gate the `web_search` and `web_url` tools, Q-DATA-01 gates live source retrieval, and Q-INFRA-01 can override DEC-126. Ask them early rather than near the delivery date.
 
 ## How to use this list
 
@@ -18,7 +18,7 @@ The organizer questions are now the project's only external blockers, and severa
 
 | Priority | Questions | Why now | Independent work while waiting |
 | --- | --- | --- | --- |
-| First available organizer contact | Q-K-01/02/03, Q-NET-01/02, Q-DATA-01/02, Q-DEMO-01 | Determine live access and required input/demo scope | Day 0 validation, synthetic contracts/oracles |
+| First available organizer contact | Q-K-01/02/03, Q-NET-01/02, Q-DATA-01/02, Q-DEMO-01 | Determine live access and required input/demo scope | Offline provider/tool integration, synthetic contracts/oracles |
 | Before private data or deployment | Q-DATA-03, Q-INFRA-01/02, Q-COMP-01, Q-DEMO-02/03 | Determine retention, environment, session/fallback rules | Credential-free unit tests, operator-flow design |
 | Before final scope/experiments | Q-K-04/05, Q-DEV-01/02, Q-JUDGE-01/02, Q-COMP-02, Q-DATA-04 | Avoid unsupported tooling/scoring/resource assumptions | Core deterministic baseline |
 | ~~Before affected implementation choice~~ | Q-TEAM-01/02/03/04/05 — **ANSWERED 2026-09-09** | Resolved by M0-ARCH; see DEC-112, DEC-113, DEC-117, DEC-120, DEC-123 | No longer blocking; implementation may proceed |
@@ -29,9 +29,9 @@ The organizer questions are now the project's only external blockers, and severa
 
 - [ ] Record confirmed transport/authentication contract and unblock eligible M4 work.
 - Question: When/how will credentials arrive, which endpoint is approved, and what authentication/TLS/network contract must the application use?
-- Why it matters: The stub cannot become a live provider safely by guessing an endpoint or header.
+- Why it matters: The delivered offline provider boundary cannot become a live transport by guessing an endpoint or header.
 - Blocks which milestone? M4 live transport/auth (M4-03/07/12), M11 live-model demo.
-- Can we proceed before answer? NO for live transport/auth acceptance; YES for the existing offline stub/provider doubles.
+- Can we proceed before answer? NO for live transport/auth acceptance; YES for the merged offline interface/configuration/structured-output validation and provider doubles (PR #27).
 - Temporary assumption: Runtime is Kloudeks-only; endpoint/auth remain unknown. Current environment variable names are local provisional conventions.
 - Owner: Unassigned; suggested lane B / organizer liaison.
 - Status: OPEN.
@@ -76,13 +76,13 @@ The organizer questions are now the project's only external blockers, and severa
 ### Q-K-05 — Embeddings and rerankers
 
 - [ ] Record whether embeddings/rerankers exist and whether their use is necessary/permitted.
-- Question: Are embedding/reranking endpoints exposed; which models, quotas, and output contracts apply?
+- Question: Are embedding/reranking endpoints exposed; which model IDs, vector dimensions, query/passage prefix conventions, batch/token limits, quotas and output contracts apply?
 - Why it matters: Could improve discovery if a benchmark demonstrates a retrieval problem.
-- Blocks which milestone? Optional M3/M5 retrieval enhancements only; not the baseline critical path.
+- Blocks which milestone? Optional M13-05 embedding/LanceDB and M13-07 model-reranking experiments only; fusion also needs benchmark evidence. Not the mandatory normalizer/alias/metadata/lexical baseline or offline benchmark design.
 - Can we proceed before answer? YES.
 - Temporary assumption: No embedding/reranker dependency; use deterministic metadata filtering and the basic provider boundary.
 - Owner: Unassigned; suggested lane B.
-- Status: OPEN; implementation decision DEFERRED pending need.
+- Status: OPEN; optional activation is BENCHMARK-GATED by DEC-127. No current embedding/reranking contract is claimed.
 - Answer / evidence: None recorded.
 
 ## Organizer infrastructure
@@ -106,7 +106,7 @@ The organizer questions are now the project's only external blockers, and severa
 - Why it matters: Workspace semantics must match actual retention/durability expectations.
 - Blocks which milestone? M5 persistence acceptance, M10 reset/session behavior, M11 cleanup/restart demonstration.
 - Can we proceed before answer? YES for explicit in-process state and synthetic tests; NO for promised restart durability/private retention.
-- Temporary assumption: No persistence guarantee; do not commit or retain organizer data based on an assumption.
+- Temporary assumption: The merged workspace persists definition/binding/history tables, but result durability, cleanup and cross-session retention are not established. Do not commit or retain organizer data based on an assumption.
 - Owner: Unassigned; suggested lane B with C operator requirements.
 - Status: OPEN.
 - Answer / evidence: None recorded.
@@ -120,7 +120,7 @@ The organizer questions are now the project's only external blockers, and severa
 - Why it matters: Live adapters and semantic mappings require confirmed inputs; familiar source names do not prove access.
 - Blocks which milestone? M3 live integration and source-semantic acceptance; M11 representative live analysis.
 - Can we proceed before answer? NO for source-specific live acceptance; YES for generic ingestion and synthetic source-shaped fixtures.
-- Temporary assumption: BDDK/EVDS are likely integrations, not the only possible sources. Do not invent endpoints/series IDs or auth requirements.
+- Temporary assumption: BDDK/EVDS are likely integrations, not the only possible sources. PR #21/#22 source inventories record observed endpoints/series metadata, not organizer-approved runtime access or redistribution. Do not invent missing request payloads, permissions or auth requirements.
 - Owner: Unassigned; suggested lane A.
 - Status: OPEN.
 - Answer / evidence: None recorded.

@@ -4,7 +4,7 @@ This file owns constraints and reasons for choices. [ROADMAP](ROADMAP.md) owns i
 
 Evidence policy: organizer constraints below are carried forward from the original repository decision log and agent instructions. They are **team-reported**; no primary organizer rulebook or dated confirmation is attached. Add the actual response/reference when received. Do not invent an approval, quotation, or date. Record authorized changes here before changing a hard constraint.
 
-“Original date unrecorded” means exactly that. The review date is not a claimed decision date.
+“Original date unrecorded” means exactly that. The review date is not a claimed decision date. Status vocabulary: CONFIRMED is authorized direction; SUPERSEDED retains history but is no longer governing; PROPOSED needs review/evidence; BLOCKED needs the named answer; DEFERRED is outside the current delivery path. Implementation progress belongs only in ROADMAP.
 
 ## Confirmed organizer constraints
 
@@ -37,6 +37,7 @@ Evidence policy: organizer constraints below are carried forward from the origin
 - Alternatives: Analytical engine and orchestration choices remain open; absence of a fine-tuning requirement is not a ban on justified future experiments.
 - Consequences: Build a measurable baseline first; do not allocate a training pipeline by default.
 - Revisit trigger: Organizer correction or benchmark evidence supporting a time-boxed experiment.
+- Clarification (2026-09-09): Engine and orchestration were subsequently selected in DEC-112/113; the earlier open-choice wording is historical.
 
 ### DEC-004 — Understandable development history
 
@@ -79,6 +80,7 @@ Evidence policy: organizer constraints below are carried forward from the origin
 - Alternatives: BDDK/EVDS-specific core types and conversation-only state are rejected.
 - Consequences: Record selections, semantics, transformations, assumptions, results, and evidence. Storage engine/persistence format are not decided.
 - Revisit trigger: A concrete source or multi-turn requirement exposes a contract gap.
+- Clarification (2026-09-09): Storage and persistence were subsequently selected in DEC-112/117; the earlier undecided wording is historical.
 
 ### DEC-104 — Traceable answers and explicit transformations
 
@@ -99,6 +101,7 @@ Evidence policy: organizer constraints below are carried forward from the origin
 - Alternatives: Framework-first work or an elaborate agent topology without demonstrated need is deferred.
 - Consequences: This does not select a custom loop, LangGraph, router model, or multi-agent topology.
 - Revisit trigger: Repeated measured failures that a specific orchestration capability would resolve.
+- Clarification (2026-09-09): DEC-113 subsequently selected the custom bounded loop; this early decision did not select it by itself.
 
 ### DEC-106 — Boundary security and tiered checks
 
@@ -188,10 +191,11 @@ Evidence policy: organizer constraints below are carried forward from the origin
 - Alternatives: Routing bulletins through the M1-10 loader would force a multi-year corpus through a per-file spawned worker with a five-second deadline and a 100,000-row cap. Replacing openpyxl entirely would discard the delivered untrusted-input containment and the fixture writer.
 - Consequences: Two documented XLSX paths with a boundary rule: source retrieved and hashed by `ingest/` -> calamine; source named by a user, model or prompt URL -> M1-10 loader. Adds `python-calamine` and requires `pandas>=2.2`. Bronze retains the original bytes and hash regardless of path.
 - Revisit trigger: Calamine failing on an actual BDDK bulletin, or the two paths converging in practice.
+- Clarification (2026-09-09): Recorded provenance does not make external bytes trusted. This bulk-parser choice does not waive SEC-URL/SEC-FILE bounds, TLS, or source-use permission. The operator adapter is still target work.
 
 ### DEC-115 — Hybrid series retrieval over LanceDB and DuckDB FTS
 
-- Status: CONFIRMED — team decision on 2026-09-09; supersedes the deferred vector-database entry.
+- Status: SUPERSEDED by [DEC-127](#dec-127--benchmark-gated-retrieval) on 2026-09-09, explicitly authorized by Çağatay. The original decision below is retained as historical evidence, not an active mandatory pipeline.
 - Date: 2026-09-09.
 - Decision: Index series and column metadata in LanceDB for dense retrieval and in DuckDB's full-text index for BM25, fuse the two result sets with reciprocal rank fusion, take the top 20 and reduce to a final five by listwise reranking with a small model that returns JSON. A second LanceDB collection holds document chunks retrieved by the `web_url` tool.
 - Reason: EVDS exposes far more series than fit in a prompt, and Turkish financial phrasing rarely matches a series title exactly. Lexical search alone misses paraphrase; dense search alone misses exact codes and rare terms. RRF needs no score calibration between the two.
@@ -208,6 +212,7 @@ Evidence policy: organizer constraints below are carried forward from the origin
 - Alternatives: Trusting embeddings without an oracle set would leave a demo-day failure undetectable in advance. Separate normalization helpers were rejected precisely because they drift.
 - Consequences: M13 owns the dictionary, the normalizer and the recall measurement. A weak measured result shifts weight toward BM25 and the alias dictionary rather than triggering model changes we cannot make. The evaluation pairs feed M9.
 - Revisit trigger: A measured recall change after any catalog, embedding or normalization change.
+- Clarification (2026-09-09): DEC-127 now governs retrieval activation and requires held-out Recall@5/10, final selection and latency. Reviewed aliases may resolve an unambiguous concept but must not bypass metadata, archived-status or semantic checks; ambiguous mappings require resolution. Concept families describe catalog neighborhoods, never causal facts.
 
 ### DEC-117 — Analysis workspace as a persisted artifact DAG
 
@@ -218,6 +223,7 @@ Evidence policy: organizer constraints below are carried forward from the origin
 - Alternatives: Rebuilding from scratch per turn fails the stated requirement. Chat history as state is rejected by DEC-103. A separate persistence engine is unnecessary once DEC-112 puts DuckDB in the stack.
 - Consequences: Every artifact needs a stable content-addressed identity and recorded inputs. Session and workspace state live in DuckDB alongside the lakehouse. M5 implements it; M10 renders it.
 - Revisit trigger: A confirmed demo requirement for cross-process durability or reset semantics beyond a single-VM store (Q-INFRA-02, Q-DEMO-02).
+- Clarification (2026-09-09): The merged DAG hashes definitions, not immutable output values. `refresh` rebinds definitions; actual recomputation and stale-result rejection remain M5/M8 acceptance work. DEC-128 specifies the stronger proof direction without claiming it exists.
 
 ### DEC-118 — Lineage graph as the provenance substrate
 
@@ -228,6 +234,7 @@ Evidence policy: organizer constraints below are carried forward from the origin
 - Alternatives: A graph database is rejected by DEC-124 for a few thousand nodes. Free-text provenance notes cannot be verified mechanically.
 - Consequences: Every code path that produces a number must write lineage; M8 owns the writer and query surface, and M9 tests that provenance survives ingestion and normalization. Adds `networkx`.
 - Revisit trigger: Graph size or query patterns that DuckDB plus networkx cannot serve.
+- Clarification (2026-09-09): The merged implementation traverses ancestors directly; no networkx consumer is implemented. DEC-128 defers graph-heavy presentation and optional layout dependency activation; typed backend lineage remains required. Source ancestry alone is not complete claim-level proof.
 
 ### DEC-119 — Verifier gates the answer
 
@@ -238,6 +245,7 @@ Evidence policy: organizer constraints below are carried forward from the origin
 - Alternatives: Trusting the generation step, or checking only formatting, leaves exactly the failure mode the brief's trust layer exists to prevent.
 - Consequences: M8 implements the verifier; abstention is a first-class outcome with its own tests in M9. Adds latency per turn, which is accepted.
 - Revisit trigger: A measured verifier false-rejection rate that blocks correct answers.
+- Clarification (2026-09-09): PR #32 delivers a numeric-binding shell, not full acceptance of this decision. Independent recomputation, semantic/run/result binding and an integrated answer gate remain required; DEC-128 makes their evidence states explicit.
 
 ### DEC-120 — Causality reports association with stated limits
 
@@ -248,6 +256,7 @@ Evidence policy: organizer constraints below are carried forward from the origin
 - Alternatives: Structural causal models or instrumental variables need assumptions this data cannot support in the window. Omitting the tool would miss a named brief requirement.
 - Consequences: M6 implements the tool; its abstention and phrasing rules are tested in M9. Granger results are reported as predictive precedence, never as mechanism.
 - Revisit trigger: A dataset and identification strategy that genuinely support a stronger claim, plus statistical review.
+- Clarification (2026-09-09): DEC-128 scopes relationship stability to bounded windows; research-grade automatic regime segmentation and causal event attribution are DEFERRED. The named brief tool and deterministic-method decision remain in force.
 
 ### DEC-121 — Six brief-named tools with typed schemas and restricted SQL
 
@@ -278,6 +287,7 @@ Evidence policy: organizer constraints below are carried forward from the origin
 - Alternatives: Streamlit needs less work and remains the fallback if front-end capacity disappears, but it renders a lineage graph poorly. A static rendered report would not support the multi-turn scenario.
 - Consequences: The web client lives in `web/` at the repository root, outside the Python package (DEC-125). M10 owns it. The API contract must be stable before the front end is built against it; the front end is not a prerequisite for backend acceptance and must not gate M5–M8.
 - Revisit trigger: Front-end work measurably delaying backend acceptance, in which case the Streamlit fallback is taken deliberately and recorded.
+- Clarification (2026-09-09): DEC-128 defers graph-heavy proof UI. A concise claim/evidence view can serve the first UI; React Flow layout is not a prerequisite for the core slice. Framework choice remains confirmed.
 
 ### DEC-124 — Dependency manifest and excluded technologies
 
@@ -288,6 +298,7 @@ Evidence policy: organizer constraints below are carried forward from the origin
 - Alternatives: Considering each candidate ad hoc during implementation is how a stack grows past what a three-person team can deploy and debug.
 - Consequences: Statistics stay explainable rather than delegated to an opinionated forecasting library. Caching is a local disk cache, not a service. The implementation task that follows M0-ARCH reconciles `pyproject.toml` with this list, and may adopt `uv` for environment management provided `make install-dev`, `make quick`, `make pr` and `make full` keep their current names and behavior.
 - Revisit trigger: A measured, specific requirement that nothing in the manifest covers.
+- Clarification (2026-09-09): This is an allowed dependency manifest, not a claim that all packages are installed or mandatory. DEC-127 gates embedding/LanceDB, fusion and reranker activation on measured benefit; DEC-128 defers graph-heavy UI. This docs change removes no dependency or code.
 
 ### DEC-125 — Source layout with named module packages
 
@@ -309,6 +320,34 @@ Evidence policy: organizer constraints below are carried forward from the origin
 - Consequences: State lives on a mounted volume; a demo rehearsal must include a cold start. If the organizer supplies a fixed environment under Q-INFRA-01, this decision yields to it and is amended rather than defended.
 - Revisit trigger: The organizer's answer to Q-INFRA-01.
 
+### DEC-127 — Benchmark-gated retrieval
+
+- Status: CONFIRMED — explicitly authorized by Çağatay in the product/retrieval documentation synchronization task on 2026-09-09; supersedes DEC-115. This records team product direction, not an organizer answer.
+- Decision: **Turkish normalization + reviewed alias/concept mapping + metadata filtering + lexical/BM25 retrieval** is the mandatory baseline. Use one normalizer at index and query time. Preserve original titles and explicit unknown semantics; an alias or score never authorizes an invalid comparison.
+- Measurement: Benchmark that baseline on a teammate-reviewed held-out set before enabling more stages. Record Recall@5, Recall@10, final series-selection quality and latency, with catalog/config versions and failure categories. Select a meaningful-gain criterion before inspecting the holdout; no threshold or current score is invented here. See [evaluation tracks](EVALUATION.md#retrieval-and-product-evaluation-tracks).
+- Optional activation: Embedding/LanceDB retrieval is **BENCHMARK FIRST**, enabled only for a meaningful measured improvement. RRF/fusion is **BENCHMARK FIRST**, enabled only if lexical and dense paths provide complementary candidates and fusion improves held-out quality. Listwise/model reranking is **BENCHMARK FIRST**, enabled only if final-selection gain justifies latency, extra model calls, failure surface and weak-model instability. Each stage reports gain and cost separately; failed or unavailable optional stages must leave a usable baseline.
+- Two retrieval problems: Direct series retrieval resolves a named concept to the correct catalog series. **Catalog-bounded relationship discovery** starts from a target, applies a reviewed concept-family policy, searches metadata inside those families, diversifies/deduplicates, applies financial semantic filters, and returns a bounded candidate set. Direct-series Recall@K alone cannot validate family coverage or the ability to return no useful candidate. Family policy names neighborhoods worth investigating, not an economic causality table.
+- Reason: “Buy complexity only with measured quality.” A large catalog establishes the need for retrieval, not the need for every retrieval stage.
+- Alternatives: The always-on dense + lexical + RRF + reranker pipeline in DEC-115 is superseded. No existing code or dependency is deleted by this decision; it controls necessity and activation.
+- Consequences: M13 owns baseline/optional stages; M9 owns independent oracles and holdout protocol. Q-K-05 blocks only optional embedding/reranker experiments (model, dimension, prefixes, quotas). The baseline and synthetic benchmark design can proceed without model access. DuckDB/Pandas, custom orchestration and the Kloudeks-only runtime constraint remain unchanged.
+- Revisit trigger: A versioned benchmark demonstrates an additional stage's benefit and affordable cost, or a catalog change invalidates earlier measurements.
+
+### DEC-128 — Financial question validation and claim-level evidence
+
+- Status: CONFIRMED **product direction and scope**, explicitly authorized by Çağatay on 2026-09-09. Exact schemas, thresholds, family membership, windows/lags and UI interaction details remain PROPOSED until reviewed in their implementation tasks. No new organizer permission is asserted.
+- Decision: Reuse the existing planner/executor/workspace/lineage/verifier spine for the behaviors below; do not create separate agents/modules for each behavior.
+  - **Premise validation:** Before explanatory analysis, check the stated trend in the requested period where data permits, including nominal/real and stock/flow meaning. Correct or refine a false premise; ask when its semantics are unknown.
+  - **Catalog-bounded relationship discovery:** Investigate a small, diverse set from real, permitted BDDK/EVDS catalog metadata and reviewed concept families. Apply semantic checks before deterministic analysis. Return RELATIONSHIP SUPPORTED, WEAK, UNSTABLE, INSUFFICIENT or INVALID COMPARISON; do not force a winner or claim economic causes.
+  - **Finance semantic guard:** Check stock/flow, rate/amount, cumulative/reset meaning, frequency/aggregation, unit/scale, percentage representation, index base, coverage/missing periods and archived/stale status. Outcomes are ALLOW, NEEDS_TRANSFORM, NEEDS_INPUT or REJECT. A model cannot override them.
+  - **Relationship stability:** Use a bounded set of periods/windows to expose whether an observed relationship remains similar, weakens, reverses or becomes insufficient. Reuse analytics/change-detection boundaries; no research-grade regime-detection claim.
+  - **Claim-level proof:** Important values must eventually resolve through `Claim -> VerificationResult -> AnalysisRun -> ResultSnapshot -> InputSnapshots -> TransformationSpec -> Source`. Require sufficient immutable result/input identity, run identity, stale-result rejection, second-path recomputation and a verification gate. A graph or “Why?” panel alone does not satisfy this.
+  - **Evidence summary:** Numeric claims use VERIFIED / NOT VERIFIED; relationships use EXPLORATORY / STABILITY-SUPPORTED / INSUFFICIENT; causal evidence is NOT ESTABLISHED unless future evidence justifies otherwise. Optional dimensions (data quality, series match, semantic validity, statistical support, external evidence, causal evidence) use UNKNOWN / N/A when missing. Do not average them into a synthetic probability or claim calibrated “87% confidence.”
+- Optional: A small deterministic robustness set may compare another valid window/lag or missing-period sensitivity. No recursive model self-critique, debate agent or uncontrolled challenge loop.
+- DEFER / CUT IF BEHIND: Leading Indicator Miner, research-grade automatic regime segmentation, causal event attribution, graph-heavy proof UI, recursive challenge/debate and mandatory dense+RRF+rerank retrieval. Official-source web context may support context, never causal proof by itself.
+- Priority: These differentiators must not delay the first real end-to-end slice: permitted source ingestion, the existing lakehouse tool, deterministic result contracts, workspace integration, verifier, live Kloudeks and required brief tools come first. Retrieval baseline/benchmark design may unblock that slice; broad relationship exploration and presentation wait for their prerequisites.
+- Consequences: [ARCHITECTURE](ARCHITECTURE.md#product-behaviors-and-proof-target) owns integration boundaries; [EVALUATION](EVALUATION.md#retrieval-and-product-evaluation-tracks) owns separate behavioral tracks; ROADMAP sequences existing milestones and does not automatically promote this direction to READY.
+- Revisit trigger: Measured core-slice failure, a reviewed benchmark or an explicit team/organizer scope change. No implementation is delivered by this ADR.
+
 ## Proposed decisions
 
 Candidates below are not approved selections. Compare options in a bounded task; do not silently promote a proposal to CONFIRMED.
@@ -318,7 +357,7 @@ Candidates below are not approved selections. Compare options in a bounded task;
 | PROP-01 | RESOLVED by DEC-113 | Custom bounded loop selected; LangGraph and other frameworks rejected | Eray | None; implement in M5 |
 | PROP-02 | RESOLVED by DEC-112 | DuckDB with Parquet and Pandas selected; Polars rejected | Eray | None; implement in M12 |
 | PROP-03 | RESOLVED by DEC-123 | FastAPI with SSE behind Next.js selected; Streamlit retained as a recorded fallback | Eray | None; implement in M10 |
-| PROP-04 | Retry and latency budgets | Exact counts/timeouts depend on platform limits and baseline measurements | Unassigned | Obtain Q-K-04 and measure before fixing limits |
+| PROP-04 | PROPOSED: retry and latency budgets | Exact counts/timeouts depend on platform limits and baseline measurements | Unassigned | Obtain Q-K-04 and measure before fixing limits |
 | PROP-05 | RESOLVED by DEC-120 | Lagged correlation and Granger with mandatory stated limits; stronger identification rejected for this data | Eray | None; implement in M6 |
 
 ## Deferred decisions
@@ -326,7 +365,7 @@ Candidates below are not approved selections. Compare options in a bounded task;
 | Topic | Status | Why deferred | Revisit trigger |
 | --- | --- | --- | --- |
 | Router fine-tuning | DEFERRED; no training approach selected | No measured routing baseline or confirmed resources | Persistent routing errors after simpler fixes, plus time/compute |
-| Vector DB / embeddings / reranking | RESOLVED by DEC-115; LanceDB with DuckDB FTS, RRF and listwise reranking | Superseded: the EVDS series count makes catalog retrieval a requirement, not a scale question | Embedding model, dimension and prefixes still need Q-K-05 |
+| Dense retrieval / fusion / reranking | PROPOSED / BENCHMARK-GATED under DEC-127; DEC-115 SUPERSEDED | Additional complexity must earn activation through held-out gain and measured cost | Baseline comparison; optional model/dimension/prefix answers in Q-K-05 |
 | Multi-agent topology | DEFERRED; none selected | Added coordination cost is not justified | A bounded independent role measurably improves results |
 | Workspace persistence backend | RESOLVED by DEC-117; artifact DAG persisted in DuckDB | Superseded: DEC-112 already places DuckDB in the stack, so no separate engine is needed | Cross-process durability and reset semantics still need Q-INFRA-02 and Q-DEMO-02 |
 | GPU/training deployment | DEFERRED | Resource availability/need unknown | Q-COMP-01 answered and workload requires it |
