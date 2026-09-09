@@ -11,7 +11,7 @@ This file defines what correctness means and how to measure it. [ROADMAP M9](ROA
 - Exercise bounded recovery and latency under ordinary and adversarial inputs.
 - Use failures to choose the next engineering task, not merely to produce an aggregate score.
 
-Baseline as of 2026-09-08: `src/kkb_agent/evaluation/models.py`, `benchmarks/cases/synthetic.json`, and `tests/unit/test_evaluation.py` are local/untracked files, excluded from documentation delivery. They were inspected but not executed during this documentation task; a fresh clone needs separately authorized code delivery before the schema test can run. There is **no executing benchmark runner, numeric oracle field, scorecard generator, or eval Make target**. Three JSON questions do not establish analytical performance.
+Implementation boundary: merged unit tests exercise ingestion, semantics, lakehouse, planning, workspace definitions and numeric matching. [ROADMAP Current Project Status](ROADMAP.md#current-project-status) owns their revisions/results. They are not a benchmark scorecard. The Day 0 `evaluation/models.py`, case JSON and schema-test drafts are preserved in a local stash, not delivered or currently untracked files in dev. No executing benchmark runner, benchmark numerical-oracle schema, scorecard generator or eval Make target exists. This docs task runs document checks only.
 
 ## Metrics
 
@@ -69,7 +69,6 @@ These commands are present in [Makefile](../Makefile); results have not been est
 | `make quick` | Ruff check on src/tests/scripts and unit pytest |
 | `make pr` | Ruff format/check, unit pytest, Bandit, local secret-pattern script |
 | `make full` | Ruff format/check, mypy, full pytest, Bandit, local secret-pattern script, pip-audit |
-| `python -m pytest -q tests/unit/test_evaluation.py` | Requires the local/untracked Day 0 files; runs their case-schema loading test only, not analytical questions |
 
 `make eval-smoke`, `make eval-full`, and benchmark CLI commands **do not exist yet**. When M9 implements a runner, replace the planned entries below with actual commands and safe output locations. Do not document a placeholder as runnable.
 
@@ -81,7 +80,7 @@ These commands are present in [Makefile](../Makefile); results have not been est
 
 ## Case format and authoring workflow
 
-Present BenchmarkCase supports `case_id`, `question`, `synthetic_inputs`, `expectation`, and `tags`. Present expectation only supports required tools, required evidence, and expected warning codes. The following are **proposed extensions**, not accepted fields in the current Pydantic model:
+Historical Day 0 inspection described a BenchmarkCase draft with question/input/tool/evidence/warning fields, but that model is not delivered in dev. The runner/case schema remains M9 work. The following are **PROPOSED requirements**, not accepted keys in an existing runtime schema:
 
 - Family/tier, fixture/source versions, allowed source/series selections and tools.
 - Exact expected numeric values, units, dates, sample counts, and per-value tolerances.
@@ -94,7 +93,7 @@ Author one minimized case per material behavior. Include at least one failure ex
 
 ## Adversarial case catalog
 
-All checkboxes below track **validated executable coverage**, not the existence of a written scenario. None is checked in the current baseline. Individual progress belongs in M9; update a catalog checkbox only when its runnable case and passing assertion are recorded, not after every unrelated task.
+All checkboxes below track **validated executable coverage**, not the existence of a written scenario. The benchmark cases remain unchecked because no benchmark runner executes them; overlapping unit-test coverage exists and is recorded in ROADMAP, not counted as a benchmark run. Individual progress belongs in M9; update a catalog checkbox only when its runnable case and passing assertion are recorded, not after every unrelated task.
 
 ### Data semantics
 
@@ -174,6 +173,52 @@ Use inert synthetic markers and fake transports; tests must not actually exfiltr
 - [ ] TURN-04 — Preserve analysis state: a follow-up does not rely on the model remembering unstructured chat.
 - [ ] TURN-05 — Correct prior wrong assumption: record correction and invalidate all dependent transformations/claims.
 - [ ] TURN-06 — Failure during follow-up: prior accepted state remains usable; failed outputs cannot masquerade as current results.
+
+## Retrieval and product evaluation tracks
+
+This extends the existing plan under [DEC-130](DECISIONS.md#dec-130--initial-hybrid-retrieval-baseline) and [DEC-128](DECISIONS.md#dec-128--financial-question-validation-and-claim-level-evidence); it does not claim implemented metrics or passing scores. Reuse M9's case/runner/scorecard rather than creating separate product agents.
+
+### 1. Direct series retrieval
+
+Use reviewed question-to-catalog-ID or allowed-equivalent sets, with catalog versions, original titles and semantics. Keep development and teammate-authored holdout separate, including paraphrases, rare/exact terms, Turkish casing, near-identical names, ambiguous aliases and archived/stale variants.
+
+For lexical-only, dense-only and combined hybrid candidates, report **Recall@5**, **Recall@10**, final series-selection quality, wrong-near-match rate, archived/stale selection rate, ambiguity-resolution outcomes, latency and failure behavior. State denominators and whether multiple IDs are valid; an explicit needed clarification is distinct from a wrong selection. Selection requires unit/frequency/population/coverage agreement, not merely a text match.
+
+### 2. Candidate relationship discovery
+
+Score this separately from named-series retrieval. A target-only lexical or dense result full of target variants can have high direct recall and still fail discovery. Independently review which concept families are relevant to investigate, without labeling any as an economic cause.
+
+Measure relevant concept-family coverage, duplicate-family rate, target-copy/leakage rejection, invalid-semantic candidate rejection and the **null case: no useful candidate**. Include equivalent series under different names and duplicated/derived target copies; document exclusions before scoring. Evaluate lexical-only, dense-only and combined pools from hybrid retrieval within reviewed financial concept families, followed by diversity/deduplication and finance-semantic filtering. Embedding just the target phrase and returning twenty target-series variants fails this scope. Do not force a winning relationship when evidence is weak, unstable, insufficient or invalid.
+
+### 3. Finance semantic guard
+
+Measure both invalid-operation acceptance rate and valid-operation false-rejection rate. Cases must cover stock/flow, rate/amount, cumulative reset/baseline, frequency/aggregation, unit/scale, percentage representation, missing periods, coverage and index-base ambiguity; include archived/stale metadata where relevant. Assert ALLOW, NEEDS_TRANSFORM, NEEDS_INPUT or REJECT, and that rejected/unknown operations never execute. A valid explicit transformation must carry its policy and evidence.
+
+### 4. Premise validation
+
+Use independently specified true and false premises with expected periods and semantics. Measure false-premise detection and correct-premise preservation; include nominal-versus-real, stock-versus-flow and wrong-period assumptions. Verify correction/refinement of the question, not only a refusal sentence. Missing price-index/reference semantics must lead to clarification, not invented real values.
+
+### 5. Relationship stability
+
+Use stable synthetic relationships, independently constructed known drift/reversal cases, and insufficient-data controls. Report stable-case false alarms, known-drift detection and insufficient-data abstention. Fix bounded window/lag/minimum-sample policy before evaluation; report selection effects and missing observations. No research-grade regime-detection or causal-identification claim follows from passing these cases.
+
+### 6. Proof / verifier
+
+Test numeric recomputation against an independent oracle; missing-chain rejection; stale-result rejection; tampered-value detection; and source/run/result-ID validity. Include same numeric value in the wrong series/period/unit/workspace, a changed value behind an unchanged definition hash, a stale definition returned by a resolver, and a missing input or transformation. An allowed year/context number or numeric match in unrelated gold data must not count as verified material evidence.
+
+Assert the logical chain `Claim -> VerificationResult -> AnalysisRun -> ResultSnapshot -> InputSnapshots -> TransformationSpec -> Source`, sufficient immutable identity and an enforced answer gate. The existing number-binding tests establish only their narrower behavior. Numeric VERIFIED / NOT VERIFIED, relationship EXPLORATORY / STABILITY-SUPPORTED / INSUFFICIENT and causal NOT ESTABLISHED are distinct outcomes; missing evidence dimensions are UNKNOWN / N/A, never averaged into a probability.
+
+### Retrieval activation experiment
+
+DEC-130 confirms lexical+dense as the initial baseline; this experiment measures that baseline and gates only additional stages.
+
+1. Freeze reviewed development/holdout sets and catalog/model/index/config versions; agree evaluation budgets and additional-stage gain/cost criteria before inspecting holdout. No threshold is asserted here without results.
+2. Evaluate **lexical-only**, **dense-only** and **combined hybrid candidates** with the same normalization, reviewed aliases/concept-family policy and metadata/semantic constraints. Use the official Qwen3-Embedding-8B model and retained LanceDB index. Record candidate pooling/deduplication/order and per-path budgets; do not assume hybrid means RRF.
+3. Report Recall@5/10, final selection, latency (cold/warm and sample counts) and failure behavior for each mode. Include embedding timeout/unavailability, invalid vector/configuration and single-path degraded responses. Distinguish a labeled useful fallback from a successful full-hybrid run. Dense use is not conditional on lexical failure or positive incremental gain; results guide tuning and any later explicit decision.
+4. Try RRF only if the two paths demonstrably contribute complementary useful candidates. Enable it only when held-out fusion quality improves; record lost as well as gained cases and latency.
+5. Try listwise/model reranking only if meaningful final-selection gain pays for another model call, latency, token usage, malformed-output/retry failures and weak-model instability. Additional stages/vector infrastructure need measured benefit too; leave unjustified stages disabled.
+
+Keep direct-series selection and catalog-bounded relationship discovery as separate tracks. Optional-stage outages must preserve an explicitly labeled baseline outcome; dense-path outages must not be mislabeled full hybrid. Do not tune against holdout and retain its label; replace leaked/tuned cases. Expected numeric results must not be generated by the same function under test; prefer hand calculation or an independently reviewed deterministic path. LLM-independent oracles and catalog adjudication establish correctness, not a model's self-rating. These experiments do not add mandatory full/release runs to ordinary task feedback.
 
 ## Eventual scorecard format
 

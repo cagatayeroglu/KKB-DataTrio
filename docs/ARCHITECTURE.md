@@ -4,15 +4,13 @@ This file owns technical structure and contracts. [ROADMAP](ROADMAP.md) owns del
 
 ## Reading the design
 
-- **CONFIRMED**: an invariant/decision carried in DECISIONS, not a claim of completed code.
-- **PROPOSED**: a concrete design to test and refine before adoption.
-- **UNDECIDED**: requires a team or organizer answer; do not implement an assumption as a confirmed choice.
+- **CURRENTLY IMPLEMENTED** describes the source boundaries below; merged revisions, validation and remaining task acceptance are maintained only in [ROADMAP Current Project Status](ROADMAP.md#current-project-status).
+- **TARGET / CONFIRMED** describes authorized behavior, not delivery.
+- **PROPOSED / BENCHMARK-GATED** needs task review or measured benefit before adoption.
+- **BLOCKED BY EXTERNAL ANSWER** names the organizer/platform dependency in OPEN_QUESTIONS.
+- **DEFERRED** is outside the core slice unless a later explicit scope decision changes it.
 
-Implementation snapshot, 2026-09-09 (end of day): components 2, 3, 4, 8, 10, 12 and part of 6 exist in `dev`, plus the `lakehouse` tool and the workspace DAG. Concretely: [core contracts](../src/kkb_agent/core/models.py), [file admission](../src/kkb_agent/ingestion_policy.py), [bounded XLSX loading](../src/kkb_agent/xlsx_loader.py), the [medallion store](../src/kkb_agent/lakehouse/store.py) with [semantics](../src/kkb_agent/lakehouse/semantics.py), [cumulative handling](../src/kkb_agent/lakehouse/cumulative.py), [alignment](../src/kkb_agent/lakehouse/alignment.py), [gold](../src/kkb_agent/lakehouse/gold.py) and [lineage](../src/kkb_agent/lakehouse/lineage.py); the [provider boundary](../src/kkb_agent/llm/provider.py); [plans](../src/kkb_agent/agent/plan.py), [registry](../src/kkb_agent/agent/registry.py), [executor](../src/kkb_agent/agent/executor.py), [loop](../src/kkb_agent/agent/loop.py), [workspace](../src/kkb_agent/agent/workspace.py) and [verifier](../src/kkb_agent/agent/verifier.py); and the [`lakehouse` tool](../src/kkb_agent/tools/lakehouse.py).
-
-Not implemented: components 1, 5, 11 and 13 — request intake, source adapters, the answer/UI adapter and the semantic catalog — along with safe fetch, the CSV loader, the profiler, and five of the six tools. Nothing retrieves from a real source. Day 0 provider and evaluation drafts remain in a local stash and are not delivered.
-
-As of M0-ARCH the technology stack is decided; components below therefore describe agreed target behavior rather than open options. A decided component is still unwritten code until ROADMAP records it merged.
+The implemented spine consists of core records, bounded file admission/XLSX loading, DuckDB/Parquet storage and financial-semantics functions, gold/lineage, an offline Kloudeks provider boundary, typed planning/registry/execution, a workspace definition DAG, a restricted lakehouse SQL tool and a number-binding verifier shell. These are composable Python boundaries, not a delivered live application. Real adapters, safe fetch, CSV loading/profiling, catalog retrieval, the five other brief tools, complete second-path proof, web/URL ingestion, an evaluation runner, UI and deployment remain absent. The preserved Day 0 drafts are not a fresh clone's runtime.
 
 ## Goals and non-goals
 
@@ -27,7 +25,7 @@ CONFIRMED goals:
 
 Non-goals for this window: arbitrary generated-code execution, a general autonomous web crawler, a hosted warehouse platform, distributed agent infrastructure, enterprise tenancy/security systems, or a training pipeline.
 
-The stack is selected in DECISIONS and is not re-argued here: DuckDB with Parquet and Pandas (DEC-112), a custom bounded loop (DEC-113), LanceDB with DuckDB FTS (DEC-115), an artifact DAG in DuckDB (DEC-117), FastAPI with SSE behind Next.js (DEC-123), and the excluded-technology list (DEC-124). Router fine-tuning and multi-agent topology remain out of scope.
+The stack is selected in DECISIONS and is not re-argued here: DuckDB with Parquet and Pandas (DEC-112), a custom bounded loop (DEC-113), initial hybrid retrieval with benchmark-gated extensions (DEC-130; DEC-127/115 superseded), an artifact DAG in DuckDB (DEC-117), FastAPI with SSE behind Next.js (DEC-123), and the excluded-technology list (DEC-124). Router fine-tuning and multi-agent topology remain out of scope.
 
 ## Layer map
 
@@ -35,12 +33,12 @@ The stack is selected in DECISIONS and is not re-argued here: DuckDB with Parque
   6. Trust layer          lineage graph + verifier            -> components 10, 12
   5. Agent core           planner / router / executor         -> components 1, 3, 4
   4. Tool layer           the six brief-named tools           -> components 4, 9
-  3. Semantic layer       catalog, hybrid retrieval, aliases  -> component 13
+  3. Semantic layer       catalog, hybrid baseline, aliases  -> component 13
   2. Lakehouse            DuckDB + Parquet, bronze/silver/gold -> component 12
   1. Ingest               BDDK bulletins, EVDS API, uploads   -> components 5, 6, 7
 ```
 
-Source packages follow the same names under DEC-125: `src/kkb_agent/{app,agent,tools,ingest,transform,catalog,lineage,llm,eval}/`, with the web client in `web/`.
+Target packages follow DEC-125 (only existing source links below imply implementation): `src/kkb_agent/{app,agent,tools,ingest,transform,catalog,lineage,llm,eval}/`, with the web client in `web/`.
 
 ## End-to-end request lifecycle
 
@@ -121,7 +119,7 @@ model narrative proposal -----------------------------> verifier/claim gate
                                              displayed supported answer
 ```
 
-Preserve original observations independently of normalized/derived references. Never overwrite raw values to make a transformation convenient. Backend storage of those references is UNDECIDED; this is a logical separation, not a database mandate.
+Preserve original observations independently of normalized/derived references. Never overwrite raw values to make a transformation convenient. DuckDB/Parquet storage is confirmed by DEC-112/117. Immutable input/result snapshots and replay-safe identities remain target work, distinct from the current definition hashes and mutable gold cells.
 
 ## Component contracts
 
@@ -136,7 +134,7 @@ Each boundary below describes responsibility, inputs, outputs, prohibited behavi
 - Likely failures: Unknown workspace, ambiguous intent, stale references, deadline exhaustion, incompatible follow-up.
 - Validation expectations: Tests for no-work clarification, failed-turn state preservation, cancellation/deadline propagation, and follow-up invalidation.
 
-The loop is our own code: an explicit planner -> router -> executor -> verifier state machine with bounded retry, repair and cancellation. The router is a separate, cheaper call than the planner, because plan generation and tool selection have different accuracy and latency profiles. No framework mediates the transitions, so every state change is directly testable.
+CURRENTLY IMPLEMENTED: [Session](../src/kkb_agent/agent/loop.py) asks the provider for a plan and runs a validated registry execution. It creates a per-question ExecutionContext; it does not load/persist Workspace, synthesize an answer or invoke the verifier automatically. Step/repair/retry counts are bounded. Request deadlines, cancellation and state/answer gating remain TARGET. A separate cheaper router call is PROPOSED and needs model/latency evidence, not an existing second agent.
 
 ### 2. LLMProvider / Kloudeks boundary — CONFIRMED interface direction
 
@@ -147,9 +145,9 @@ The loop is our own code: an explicit planner -> router -> executor -> verifier 
 - Likely failures: Missing configuration, unavailable model, timeout/rate limit, context overflow, refusal, malformed JSON/schema mismatch.
 - Validation expectations: Offline provider doubles, strict response validation, all error branches, bounded retries, redaction tests, and separately recorded permitted live smoke.
 
-Present protocol methods are `generate_structured(prompt, response_model)`, `create_plan(request, workspace)`, and `synthesize(prompt)`. Present stub methods raise `KloudeksIntegrationPendingError` and perform no networking. `KLOUDEKS_ENDPOINT`, `KLOUDEKS_MODEL`, and `KLOUDEKS_CREDENTIAL` are provisional local configuration names, not a confirmed organizer API contract.
+CURRENTLY IMPLEMENTED: [provider.py](../src/kkb_agent/llm/provider.py), [config.py](../src/kkb_agent/llm/config.py), [structured.py](../src/kkb_agent/llm/structured.py) and [doubles.py](../src/kkb_agent/llm/doubles.py) provide the DEC-122 protocol, environment-driven configuration, local JSON/schema validation/repair and a scripted non-networking provider. Capability flags are configured expectations, not live-probed organizer guarantees. The old Day 0 protocol is not delivered.
 
-DEC-122 fixes the target surface at three methods, replacing the present protocol as implementation proceeds:
+DEC-122's three-method surface is:
 
 ```python
 complete(messages, *, model: str, schema: type[BaseModel] | None = None)
@@ -157,13 +155,13 @@ embed(texts: list[str], *, kind: Literal["query", "passage"])
 vision(image_bytes: bytes, prompt: str)
 ```
 
-Model identifier, base URL and whether structured output exists come from environment configuration, never from source constants. When the platform offers no structured-output mode, the provider validates against the schema, repairs with `json-repair`, and retries at most twice while feeding the validation error back to the model. The `kind` argument on `embed` exists because an E5-family model silently loses retrieval quality without its `query:`/`passage:` prefix; the convention itself is Q-K-05.
+Model identifier, base URL and whether structured output exists come from environment configuration, never from source constants. When the platform offers no structured-output mode, the provider validates against the schema, repairs with `json-repair`, and retries at most twice while feeding the validation error back to the model. The `kind` argument on `embed` preserves query/passage intent; the confirmed Qwen model's prefix convention remains Q-K-05. Do not assume an E5 convention applies.
 
-Model roles are assigned by measurement, not parameter count. The first provider task is a twenty-case tool-calling smoke test — Turkish question in, expected tool and arguments out — run against every available model, scoring correct-tool rate, argument-schema validity, JSON malformation rate and latency. The router base is chosen from that score. Expected shape: the larger model plans, verifies and writes the final narrative at no more than three calls per turn; a smaller model routes, reranks and classifies; the vision model serves the `web_url` tool's image branch.
+Model roles are assigned by measurement, not parameter count. A proposed live measurement is a twenty-case tool-selection smoke test — Turkish question in, expected tool and arguments out — against an eligible text model, scoring correct-tool rate, argument-schema validity, JSON malformation rate and latency. Use locally validated text responses unless native function/tool calling is separately confirmed; the compatible endpoint alone does not establish that feature. The router base is chosen from that score. Role/model splits and exact call budgets remain PROPOSED pending those measurements. Models may propose or summarize; deterministic code verifies material calculations. Reranking is optional under DEC-130. Vision, OCR and embedding availability are officially confirmed in [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy); live integration remains unimplemented.
 
-Still UNDECIDED and externally blocked: endpoint and authentication format (Q-K-01), exact model identifiers and context capacity (Q-K-02), native tool-calling and structured output (Q-K-03), quotas and concurrency (Q-K-04), embedding and reranker availability (Q-K-05). Native structured output would help but never replaces local validation. Any repair path stays inside Kloudeks and the configured attempt budget; DEC-002 forbids a third-party client, import or environment variable anywhere in the product.
+CONFIRMED: [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy) owns the exact host/base URL, MIA-key authentication, model IDs, endpoints and image-count limits. The `openai` SDK is allowed exclusively as the Kloudeks-compatible client; third-party hosted LLM destinations and fallback remain banned. The source still has no live transport, and its blanket SDK-name test needs a later implementation-policy correction (ROADMAP M4). Still unknown: key provisioning/access, context/output capacity, native tool calling/guaranteed JSON, quotas/concurrency/timeout behavior, embedding dimension/prefix and dedicated reranker availability (narrowed Q-K-01..05). Local response validation remains mandatory.
 
-### 3. Planner and plan validator — CONFIRMED separation; implementation pending
+### 3. Planner and plan validator — CONFIRMED separation; partial implementation
 
 - Responsibility: Translate intent into typed registered-tool steps and reject unsafe/invalid plans before execution.
 - Input: Request, allowed tool schemas, source candidates, current workspace references/assumptions.
@@ -172,9 +170,7 @@ Still UNDECIDED and externally blocked: endpoint and authentication format (Q-K-
 - Likely failures: Unknown tool, extra/invalid argument, bad dependency, unavailable input, too many steps, repeated invalid plan.
 - Validation expectations: Positive plan fixtures plus negative names/arguments/dependency/reference/capability cases; verify rejection occurs before any tool side effect.
 
-Present AnalyticalPlan fields: `plan_id`, `goal`, `required_inputs`, ordered `steps`. Present PlanStep fields: `step_id`, `tool`, JSON `arguments`, `dependencies`, `expected_output_type`, `verification_required`.
-
-Present model validators reject duplicate IDs and unknown/forward dependencies, plus self/duplicate step dependencies. **They do not validate tool membership, per-tool arguments, workspace reference existence, or semantic preconditions.** Those checks belong in the registry/validator. The `verification_required` field cannot authorize bypassing mandatory material-claim verification.
+CURRENTLY IMPLEMENTED: [AnalyticalPlan](../src/kkb_agent/agent/plan.py) contains `question` and `steps`; each step has `step_id`, `tool`, `arguments` and `depends_on`. [validate_plan](../src/kkb_agent/agent/executor.py) checks registered names and argument schemas, duplicate/self/unknown dependencies, cycles and step limits, then topologically orders the steps. It does not resolve workspace/data-reference ownership, require declared output types or enforce financial semantics. Those remain target checks; a parsed plan is not a proof of them.
 
 ### 4. Tool registry and executor — CONFIRMED tool set (DEC-121)
 
@@ -185,7 +181,7 @@ Present model validators reject duplicate IDs and unknown/forward dependencies, 
 - Likely failures: Invalid schema, tool timeout, empty data, numerical precondition failure, unknown semantics, resource exhaustion.
 - Validation expectations: Registry uniqueness, validation-before-dispatch, failure categorization, retry limits, stale-reference rejection, and valid/failed workspace effects.
 
-Present AnalyticalTool protocol exposes `name`, `arguments_model`, and `execute(arguments, workspace)`. It is not a dispatcher. Present ToolResult statuses are `success`, `failure`, `partial`; it contains run/tool IDs, result reference, evidence IDs, warnings, recoverability, and error category. Failure requires an error category; success forbids one. Result existence, warning taxonomy, and retry behavior remain to be enforced.
+CURRENTLY IMPLEMENTED: [ToolSpec / ToolRegistry](../src/kkb_agent/agent/registry.py) own names, Pydantic argument schemas and callable dispatch. [ToolResult](../src/kkb_agent/agent/executor.py) carries `status`, `step_id`, `tool`, an untyped `output`, error category, recoverability, warnings and optional lineage `evidence`. Statuses are success/failure/partial/not_run. Failure requires a category and success forbids one. Only `lakehouse` has a real tool implementation. Typed analytical result/run identity, output-reference validation and integrated workspace/verification gating remain target work.
 
 ### 5. Source discovery and adapters — CONFIRMED abstraction
 
@@ -196,9 +192,9 @@ Present AnalyticalTool protocol exposes `name`, `arguments_model`, and `execute(
 - Likely failures: Unknown/ambiguous series, schema drift, unavailable source, revisions, empty range, unexpected content type.
 - Validation expectations: Synthetic discovery/load fixtures, wrong-near-match selection tests, unfamiliar schemas, source outage, and stable provenance.
 
-Present protocol operations: `discover`, `inspect`, `load`, `profile`, `provenance`. `load` currently returns a string reference; `profile` a generic dictionary. A strict profile/selection contract and capability negotiation are PROPOSED work, not present types. Adapters unable to discover (for example, a single uploaded file) should report unsupported capability explicitly rather than invent source candidates.
+TARGET operations are discovery, inspection, loading, profiling and provenance. No SourceAdapter protocol or runtime BDDK/EVDS adapter is delivered. [INGESTION_PROFILE](INGESTION_PROFILE.md) specifies observable results; an executable shared adapter/selection interface remains implementation work. Adapters unable to discover (for example, a single uploaded file) should report unsupported capability explicitly rather than invent source candidates.
 
-### 6. Safe ingestion, extraction, and profiling — PROPOSED implementation
+### 6. Safe ingestion, extraction, and profiling — partial implementation; confirmed boundary
 
 - Responsibility: Validate and bound content, extract observations, and describe data quality without silently deciding financial meaning.
 - Input: Guarded upload/fetched bytes, explicit selection such as sheet/table/page, parser limits.
@@ -207,9 +203,9 @@ Present protocol operations: `discover`, `inspect`, `load`, `profile`, `provenan
 - Likely failures: Empty/corrupt/oversized file, ambiguous delimiter/date, archive expansion, multi-sheet ambiguity, scanned PDF, missing table.
 - Validation expectations: Exact row/type expectations; empty/malformed/oversized/content-mismatch negatives; sheet/page lineage; hostile-text cases.
 
-Spreadsheet reading is split by trust boundary, not by file type. A file whose retrieval `ingest/` performed and recorded — a BDDK bulletin, an EVDS export — is read with Pandas and calamine under DEC-114. A file named by a user, a model or a prompt-supplied URL goes through the M1-10 bounded loader under DEC-111, with admission checks, streamed package validation, resource budgets and a terminated worker. The rule is the provenance of the request to read, never the extension. Bronze retains the original bytes and their hash on both paths.
+Spreadsheet reading is split by trust boundary, not by file type. The TARGET operator-ingestion path for recorded BDDK/EVDS sources will read with Pandas and calamine under DEC-114. A file named by a user, a model or a prompt-supplied URL goes through the M1-10 bounded loader under DEC-111, with admission checks, streamed package validation, resource budgets and a terminated worker. The rule is the provenance of the request to read, never the extension. Both target paths must retain original bytes/hashes and enforce SEC-URL/SEC-FILE limits; a familiar source is not trusted content. The operator path is not yet implemented.
 
-Generic path: identify supported format -> enforce guards -> parse bounded content -> profile -> propose mapping -> confirm required semantics. Unknown source but supported format uses this path. Unknown format returns an unsupported-format outcome; it does not trigger code generation or unbounded scraping. CSV/XLSX is the first planned scope; HTML/PDF follows; image/OCR depends on confirmed requirements/capability.
+Generic path: identify supported format -> enforce guards -> parse bounded content -> profile -> propose mapping -> confirm required semantics. Unknown source but supported format uses this path. Unknown format returns an unsupported-format outcome; it does not trigger code generation or unbounded scraping. CURRENTLY IMPLEMENTED: [admission](../src/kkb_agent/ingestion_policy.py), [sheet selection](../src/kkb_agent/xlsx_sheets.py) and the [bounded XLSX loader](../src/kkb_agent/xlsx_loader.py). CSV loading/profiling remains target work; HTML/PDF follows. Vision/OCR capability is confirmed by DEC-129, but document/OCR ingestion is not implemented. OCR requires bounded PDF-to-page-image rendering where needed, the organizer's exact prompt/`extra_body`, and handling of untrusted layout-tag output; availability does not bypass file limits or prove numeric extraction.
 
 ### 7. DataContract and normalization — CONFIRMED semantic boundary
 
@@ -220,9 +216,9 @@ Generic path: identify supported format -> enforce guards -> parse bounded conte
 - Likely failures: Unknown unit/reset rule, incompatible periods, duplicate/revised observations, missing baseline, different index bases.
 - Validation expectations: Hand-calculated oracles, unit/frequency/cumulative negative cases, recorded parameters, and preserved originals.
 
-Present DataContract fields cover ID, SourceRef, title, unit, frequency, time column/semantics, stock-flow, cumulative/reset, aggregation, source period, transformations, confidence, and semantic warnings. Defaults explicitly preserve unknowns. Confidence is not proof of semantic correctness.
+CURRENTLY IMPLEMENTED: [DataContract](../src/kkb_agent/core/models.py) holds contract/source/title, optional unit/time metadata, frequency, stock/flow, nullable cumulative/reset, source period, transformations and semantic warnings. It has no confidence field. [SeriesSemantics](../src/kkb_agent/lakehouse/semantics.py) adds scale, weekly anchor, cumulative kind and aggregation; silver promotion rejects missing required meaning, while unknown aggregation remains representable until an operation requires it. These two vocabularies need explicit mapping, not implicit coercion.
 
-PROPOSED additions only when a real case needs them: explicit scale/currency, index base, vintage/publication time, timezone/calendar, missing/duplicate policies, and structured semantic evidence. Do not imply these are implemented fields.
+Period/cumulative functions and weekly-to-monthly alignment are implemented. Currency/rate conversions, source-vintage conflict handling, index rebasing/deflation and a unified finance semantic guard remain target work. Do not confuse metadata enums with implemented transformations.
 
 Operation prerequisites:
 
@@ -243,9 +239,9 @@ Operation prerequisites:
 - Likely failures: Dangling reference, partial write, stale derived data, accidental mutation of prior state, unavailable persisted data.
 - Validation expectations: Round-trip state, add-series/date-range follow-ups, failed-turn preservation, assumption correction, and dependent-result invalidation.
 
-Present model stores `workspace_id`, selected sources, data contracts, normalized refs, derived columns, transformations, evidence, assumptions, and results. No storage service or transaction mechanism is implemented yet.
+CURRENTLY IMPLEMENTED: [Workspace](../src/kkb_agent/agent/workspace.py) persists artifact definitions, workspace-scoped name bindings and revision history in DuckDB. Artifact identity hashes kind/name/parameters/ordered input IDs, **not output values, value_ref or lineage content**. Changing a binding marks dependents stale. `resolve` does not reject stale artifacts, and `refresh` rebinds a definition while retaining value_ref/lineage; it does not rerun a calculation. Historical definitions therefore do not guarantee historical values.
 
-DEC-117 fixes the shape: the workspace is a directed acyclic graph of artifacts persisted in DuckDB. A node is a table, a column, a chart or a derived value, addressed by a hash of its inputs and parameters. A follow-up that adds a column adds a node and computes only that node; existing nodes keep their computed cells, which is what "add a column without disturbing the table" actually requires. Replaying the graph reproduces a result, and node identity is the cache key, so invalidation follows edges rather than a separate mechanism.
+TARGET under DEC-117/128: connect actual tool results to immutable input/result snapshots and analysis runs, reject stale reads, recompute through recorded transformations, and publish only verified state transitions. The current Session is not wired to this persistence boundary. No claim of complete replay or end-to-end workspace isolation follows from names being scoped by workspace ID.
 
 Never regenerate the whole table per turn. That is how a value silently changes between two answers the user believes are the same table. Cross-process durability and reset semantics remain Q-INFRA-02 and Q-DEMO-02; do not advertise restart durability without implementation and tests.
 
@@ -258,7 +254,7 @@ Never regenerate the whole table per turn. That is how a value silently changes 
 - Likely failures: Too few observations, constant series, missing baseline, non-stationarity, incompatible real/nominal data, undefined statistic.
 - Validation expectations: Independent numerical oracles, per-case tolerances, prerequisite failures, lag-direction cases, and causality/abstention checks.
 
-Prefer small tools over one general “analyze everything” tool. Engine and exact anomaly/causality methods are UNDECIDED. Advanced causal inference is optional unless confirmed requirements make it mandatory; defensible abstention remains required.
+Prefer small tools over one general “analyze everything” tool. DuckDB/Pandas and the DEC-120 lagged-correlation/Granger direction are CONFIRMED. Exact anomaly parameters, window/lag policies and minimum samples need task-level review and tests. Research-grade inference is deferred under DEC-128; defensible abstention remains required. The existing lakehouse tool returns bounded columns/rows/truncation, not a complete typed financial-result contract.
 
 ### 10. Evidence ledger and verifier — CONFIRMED direction
 
@@ -271,9 +267,11 @@ Prefer small tools over one general “analyze everything” tool. Engine and ex
 
 Present SourceRef holds identity/type/locator and optional retrieval time/hash. Present TransformationRecord holds operation/parameters/input refs/output ref. Present EvidenceRecord holds claim, sources, optional run, transformations, period/columns, validation, limitations. Validation defaults to NOT_RUN. These records do not enforce a complete evidence chain; the ledger service and claim rules are still pending.
 
-DEC-118 makes provenance a typed graph rather than a set of records. Node kinds are `SourceFile`, `Series`, `Transform`, `Column`, `Metric` and `Claim`; edge kinds are `derives_from`, `aggregates`, `deflates_by` and `cites`. It is stored as `lineage_nodes` and `lineage_edges` in DuckDB with hash-addressed identifiers and traversed in memory with `networkx`. Every numeric claim carries a `claim_id` whose subgraph is exactly what the evidence panel draws. A cell without lineage is a defect, not a missing feature — every code path that produces a number writes lineage.
+CURRENTLY IMPLEMENTED: [Lineage](../src/kkb_agent/lakehouse/lineage.py) stores typed hash-addressed nodes/edges in DuckDB and traverses ancestors directly (no networkx consumer). Gold requires a source ancestor, but this is not proof that all inputs/values/semantics are complete. [lakehouse query records](../src/kkb_agent/tools/lakehouse.py) are optional and table-level: statement hash, purpose, table/column names, counts and truncation. They do not retain replayable SQL, immutable result cells or a complete input/run chain.
 
-DEC-119 makes the verifier a gate rather than a report. Before an answer reaches the user:
+[verify](../src/kkb_agent/agent/verifier.py) extracts numbers and finds a numerically close gold cell or silver observation; caller-allowed context values and years can also pass. Gold matching returns the first numeric match, without tying it to the requested period/unit/series/workspace/run. A verdict may reject unbound numbers, but acceptance is not independent recomputation, semantic correctness or sufficient claim-level proof. Ambiguous numeric locale interpretations also need explicit policy. The application answer gate is not wired into Session.
+
+TARGET / CONFIRMED: DEC-119 requires a gate, strengthened by DEC-128's proof chain. Before an answer reaches the user:
 
 1. Every number in the response text must resolve to a cell in an artifact. If one does not, the answer is rejected rather than annotated.
 2. Units and scales are checked against the contract, not inferred from magnitude.
@@ -303,7 +301,7 @@ claim ID -> tool run -> output reference
 - Likely failures: Missing evidence link, stale display after a follow-up, confusing partial result, unsuitable demo environment.
 - Validation expectations: Independent teammate runs happy path, clarification, outage, and multi-turn correction; displayed values match tool outputs.
 
-FastAPI serves the application and streams plan and tool progress over server-sent events, so a multi-step analysis is legible while it runs. The client is Next.js with Tailwind and shadcn/ui, TanStack Table for the analysis table, `react-plotly.js` for charts, and React Flow for the evidence panel that draws a claim's lineage subgraph. The logical UI contract above still does not depend on that stack: Streamlit remains the recorded fallback, and the front end must not gate backend acceptance.
+The TARGET FastAPI application will stream plan and tool progress over server-sent events, so a multi-step analysis is legible while it runs. The client is Next.js with Tailwind and shadcn/ui, TanStack Table for the analysis table, `react-plotly.js` for charts, with a concise claim/evidence view first. Graph-heavy React Flow presentation is DEFERRED under DEC-128. The logical UI contract above still does not depend on that stack: Streamlit remains the recorded fallback, and the front end must not gate backend acceptance.
 
 ### 12. Lakehouse and medallion layout — CONFIRMED storage (DEC-112)
 
@@ -321,22 +319,45 @@ silver/   one row per (series, period, value) with explicit unit, frequency,
 gold/     analysis-ready facts on a canonical time spine, joined and aligned
 ```
 
-`silver` carries the work that decides whether this project is correct. Cumulative detection and correction handles both forms the brief names: series cumulative since first publication, and series that reset each January. Frequency alignment maps daily, weekly and monthly sources onto one canonical spine. The aggregation policy lives in each series' metadata rather than in code — a stock series aggregates to period end, a flow series sums, a rate series uses the rule its metadata names — because hard-coding it is how a credit stock silently becomes a sum. Unit and scale normalization is mandatory metadata; thousand-versus-million confusion is the classic BDDK error. None of these transformations merges without unit tests.
+TARGET normalization scope (only the implemented subset identified above may be claimed): Cumulative detection and correction handles both forms the brief names: series cumulative since first publication, and series that reset each January. Frequency alignment maps daily, weekly and monthly sources onto one canonical spine. The aggregation policy lives in each series' metadata rather than in code — a stock series aggregates to period end, a flow series sums, a rate series uses the rule its metadata names — because hard-coding it is how a credit stock silently becomes a sum. Unit and scale normalization is mandatory metadata; thousand-versus-million confusion is the classic BDDK error. None of these transformations merges without unit tests.
 
-EVDS series codes are never hard-coded. They are pulled from the catalog endpoint, indexed, and found by search.
+TARGET adapters must retrieve/catalog series identifiers instead of hard-coding runtime selections. Example identifiers in source inventories are evidence, not an implemented selection policy.
 
-### 13. Semantic catalog and retrieval — CONFIRMED mechanism (DEC-115, DEC-116)
+### 13. Semantic catalog and retrieval — confirmed baseline; benchmark-gated extensions
 
-- Responsibility: Turn a Turkish financial question into the right series identifiers without hard-coded codes.
-- Input: Series and column metadata (Turkish name, unit, frequency, source, sample values); document chunks fetched by the `web_url` tool; a user question.
-- Output: A ranked, bounded candidate set with enough metadata for the router to choose and cite.
-- Must NOT: Normalize differently at index time and query time, return a candidate without its unit and frequency, or let retrieval scores substitute for confirmed semantics.
-- Likely failures: Near-identical series titles, paraphrase the embedding misses, an exact code the dense index ignores, Turkish casing and diacritic mismatches.
-- Validation expectations: Fifty hand-written question-to-series pairs with a measured recall@10; wrong-near-match cases that must be resolved explicitly rather than guessed.
+TARGET under [DEC-130](DECISIONS.md#dec-130--initial-hybrid-retrieval-baseline), superseding DEC-127; DEC-115 remains historical. No retrieval implementation currently exists.
 
-Two LanceDB collections: series metadata, and chunks from documents the `web_url` tool retrieved. Lexical retrieval uses DuckDB's full-text index, dense retrieval uses LanceDB, and the two are fused with reciprocal rank fusion — which needs no score calibration between them. The top twenty go to a small model for listwise reranking that returns the best five as JSON; this stands in for a cross-encoder, whose availability is unresolved (Q-K-05).
+Mandatory HYBRID baseline: one Turkish normalizer shared by query/index paths, reviewed aliases/concept families, metadata filters, lexical/BM25 and dense semantic retrieval using the organizer's Qwen3-Embedding-8B (exact model/endpoint in DEC-129). LanceDB remains the selected lightweight series-vector index. Dense retrieval starts in the baseline without waiting for lexical failure or a prior gain measurement. Candidates retain IDs, original titles, source, unit/scale/frequency, coverage and archived/unknown flags. Exact aliases do not bypass ambiguity or semantic checks.
 
-Above that sits a hand-written dictionary of roughly fifty concepts — konut kredisi, ihtiyaç kredisi, taşıt kredisi, TÜFE, ÜFE, politika faizi, konut fiyat endeksi, takipteki alacaklar, mevduat, BIST100, altın, ipotekli satış and their siblings. An exact alias hit skips retrieval entirely. All Turkish normalization — dotted and dotless i, case folding, diacritic removal — goes through **one** function shared by indexing and querying; two implementations drift and halve recall invisibly. Retrieval quality is measured before it is trusted, and a weak measurement moves weight to BM25 and the alias dictionary rather than to model changes we cannot make.
+Two distinct flows reuse this boundary:
+
+- **Direct series retrieval:** lexical+dense retrieval maps a named concept such as “konut kredisi faiz oranı” to the correct known series. Compare lexical-only, dense-only and combined candidates; evaluate Recall@5/10, final selection, latency and failure behavior.
+- **Catalog-bounded relationship discovery:** a target such as “konut kredilerindeki hareketi ne açıklayabilir?” leads to reviewed concept families, hybrid lexical+dense search inside those families, diversity/deduplication, finance-semantic filtering and a bounded candidate pool. Searching or embedding only the target phrase can return near-duplicate target variants and miss relevant families. The family policy defines catalog neighborhoods to investigate, not economic causes. Candidate quality has its own evaluation track.
+
+PROPOSED / BENCHMARK-GATED: RRF requires demonstrably complementary lexical/dense paths and held-out fusion gain; listwise reranking requires meaningful final-selection gain worth another model call, latency, token usage, failure surface and weak-model instability. Additional retrieval/vector infrastructure needs measured benefit. Record candidate pooling/deduplication and budgets for the combined baseline; hybrid does not itself prescribe RRF. Compare path/combined quality and failures in [EVALUATION](EVALUATION.md#retrieval-and-product-evaluation-tracks); label single-path fallback degraded, not full hybrid. Optional document-chunk indexing also needs permitted web_url ingestion. No implementation/dependency change is implied.
+
+## Product behaviors and proof target
+
+TARGET / CONFIRMED direction from [DEC-128](DECISIONS.md#dec-128--financial-question-validation-and-claim-level-evidence), implemented through the same spine after core prerequisites:
+
+1. **Premise validation:** Check claimed movement against the requested dates and semantics before explanatory execution. “Faiz düştü ama krediler artmadı” may need correction because nominal credit rose while real credit fell. Do not invent the price index/reference period needed to make that distinction.
+2. **Finance semantic guard:** Before an operation, check stock/flow, rate/amount, cumulative/reset, frequency/aggregation, unit/scale, percentage representation, index base, coverage/missing periods and archived/stale source status. Return ALLOW, NEEDS_TRANSFORM, NEEDS_INPUT or REJECT. Required transformations are explicit and recorded; source/model text cannot waive a guard.
+3. **Catalog-bounded relationship discovery:** On a permitted real catalog, produce a small reviewed-family candidate set, validate semantics, then run deterministic analyses. Report RELATIONSHIP SUPPORTED, WEAK, UNSTABLE, INSUFFICIENT or INVALID COMPARISON; no forced winner or causal claim.
+4. **Relationship stability:** Compare a bounded set of windows/periods to expose similar, weakening, reversed or insufficient relationships. Reuse analytics/change-detection contracts. Window/lag/minimum-sample policies remain PROPOSED, not a research-grade regime detector.
+5. **Claim-level proof:** Preserve the following logical chain. Exact storage schema/hash/transaction choices remain PROPOSED; implement only the minimum reproducible slice in M6/M5/M8 before adding presentation.
+
+```text
+Claim -> VerificationResult -> AnalysisRun -> ResultSnapshot
+      -> InputSnapshots -> TransformationSpec -> Source
+```
+
+Important values need sufficient immutable result/input identity, a run bound to those inputs and transformations, stale/tampered-result rejection, independent second-path recomputation and an enforced verification gate. Definition hashes, numeric equality to any cell or a source ancestor are insufficient. “Why?” is the presentation of this proof, not its substitute.
+
+Evidence states are claim-type-specific: numeric VERIFIED / NOT VERIFIED; relationship EXPLORATORY / STABILITY-SUPPORTED / INSUFFICIENT; causality NOT ESTABLISHED. Optional quality/match/semantics/statistical/external/causal dimensions use UNKNOWN / N/A when missing; never average them into a probability. Relationship strength labels describe the observed analysis, whereas evidence states describe its support.
+
+Optional bounded robustness checks may compare a small deterministic set of valid windows/lags or missing-period sensitivity. DEFER / CUT IF BEHIND: Leading Indicator Miner, research-grade regime segmentation, causal event attribution, graph-heavy proof UI, recursive challenge/debate and mandatory RRF/reranking or extra vector infrastructure. Dense semantic retrieval is part of the initial baseline under DEC-130. Official-source web context is contextual evidence only.
+
+Core first: permitted real ingestion, the existing lakehouse tool, deterministic result contracts, workspace integration, verification, live Kloudeks and required brief tools. These behaviors must not delay that vertical slice. ROADMAP owns their start conditions; confirmation here does not make a task READY.
 
 ## Multi-turn behavior
 
@@ -350,7 +371,7 @@ PROPOSED state transition rules, to validate in M5/M8:
 | Correct prior assumption | Original observation/history and correction record | Replace active assumption; invalidate every dependent transformation/claim |
 | Failed new request | Last coherent accepted workspace | Record failure metadata; do not silently replace verified results |
 
-Workspace state persists as the DuckDB artifact DAG of DEC-117, so these transitions are node additions and edge-following invalidations rather than table rebuilds. Exact persistence lifetime and reset semantics remain Q-DEMO-02 and Q-INFRA-02; never advertise restart durability without implementation and tests.
+TARGET transitions use the DuckDB artifact DAG of DEC-117, extending its existing definition/binding persistence with actual result recomputation and stale-read rejection. Exact persistence lifetime and reset semantics remain Q-DEMO-02 and Q-INFRA-02; never advertise restart durability without implementation and tests.
 
 ## Failure, retry, and recovery
 
@@ -380,6 +401,6 @@ Extension rules:
 4. New file format: confirm scope, guard/parser limits and fragment provenance, then add supported/unsupported/hostile cases.
 5. New persistence/UI/orchestration dependency: resolve the relevant decision with a small tested requirement first.
 
-Decided as of M0-ARCH and no longer open here: orchestration (DEC-113), analytical engine and lakehouse (DEC-112), spreadsheet paths (DEC-111, DEC-114), catalog and retrieval (DEC-115, DEC-116), workspace persistence (DEC-117), lineage (DEC-118), verification (DEC-119), causality method (DEC-120), tool surface (DEC-121), provider interface (DEC-122), API and frontend (DEC-123), dependencies (DEC-124), layout (DEC-125) and deployment topology (DEC-126).
+Decided as of M0-ARCH and no longer open here: orchestration (DEC-113), analytical engine and lakehouse (DEC-112), spreadsheet paths (DEC-111, DEC-114), hybrid catalog baseline and benchmark-gated extensions (DEC-116, DEC-130), workspace persistence (DEC-117), lineage (DEC-118), verification (DEC-119), causality method (DEC-120), tool surface (DEC-121), provider interface (DEC-122), API and frontend (DEC-123), dependencies (DEC-124), layout (DEC-125) and deployment topology (DEC-126).
 
-Still UNDECIDED, and externally blocked rather than open to preference: the Kloudeks endpoint, authentication, exact model identifiers, structured-output support, quotas, and the embedding and vision models (Q-K-01 through Q-K-05); retry and latency budgets, which need Q-K-04 plus measurement; live source access and redistribution (Q-DATA-01/03); network egress at demo time (Q-NET-01/02); and the runtime environment (Q-INFRA-01/02), which can override DEC-126. Router fine-tuning and multi-agent topology stay deferred. See DECISIONS and OPEN_QUESTIONS; this document does not settle them.
+DEC-129 answers Kloudeks endpoint/auth/model availability and listed image limits. Remaining external questions cover credential access, native tool/JSON guarantees, capacity/quotas/timeouts, embedding dimension/prefix and dedicated reranker (Q-K-01..05); measured retry/latency budgets; source access/redistribution (Q-DATA-01/03); demo egress (Q-NET-01/02); and runtime/storage (Q-INFRA-01/02), which can override DEC-126. Router fine-tuning and multi-agent topology stay deferred.

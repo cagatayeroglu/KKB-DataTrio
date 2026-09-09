@@ -9,7 +9,7 @@ Build a reliable agentic financial analyst in 8–9 days. Prioritize correct ans
 Treat these as hard unless [DECISIONS](docs/DECISIONS.md) records an authorized change with evidence:
 
 - Python is the primary backend/analytics language.
-- Delivered runtime LLM access goes through Kloudeks only. Do not add OpenAI/Anthropic/Gemini or other third-party LLM APIs to the product.
+- Delivered runtime LLM access goes through Kloudeks only. The `openai` Python SDK is allowed solely as an OpenAI-compatible HTTP client explicitly configured for the Kloudeks base URL in [DEC-129](docs/DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy). Never call `api.openai.com`, OpenAI-hosted GPT models, Anthropic-hosted models, Google-hosted LLM APIs or other third-party hosted LLM services; no default-host or fallback route. The SDK/import itself is not a hosted service.
 - Do not use Snowflake or hard-code the core to BDDK/EVDS.
 - LLMs may interpret, plan, route, propose schema mappings, and summarize.
 - Deterministic code performs material calculations and statistical tests.
@@ -21,11 +21,11 @@ Changing an organizer constraint requires organizer confirmation; a team prefere
 
 ## New session / teammate startup protocol
 
-Repository documentation and Git/PR history are the source of truth. Never require prior chat history to reconstruct project state. A teammate can start with only `Read AGENTS.md and continue with the next READY task.`
+Repository/Git evidence outranks stale documentation. ROADMAP's single Current Project Status is the maintained execution summary; source and merged PR evidence determine what it may claim. Never require prior chat history to reconstruct project state. A teammate can start with only `Read AGENTS.md and continue with the next READY task.`
 
 1. Inspect the repository root (`git rev-parse --show-toplevel`), current branch, `git status --short --branch --untracked-files=all`, relevant staged/unstaged diffs, remote URLs, and tracking state (`git branch -vv`). Preserve existing work and inspect applicable deeper agent instructions.
 2. For new implementation work, obtain latest `dev` safely using [Git workflow](#git-workflow). Do not carry unrelated files across branches, restore someone else's stash, or reset divergent history. An explicitly requested same-task resumption can use its existing branch after checking ownership and handoff.
-3. Read [Current project status](docs/ROADMAP.md#current-project-status), its ordered queue, and [DECISIONS](docs/DECISIONS.md). Distinguish confirmed decisions from proposals and unresolved answers. Read only the active/relevant milestone section once a candidate task is identified.
+3. If ROADMAP's Current Project Status conflicts with fetched `origin/dev` or merged PR history, **STOP automatic task selection**. Reconcile the relevant evidence or report the mismatch before selecting work; do not turn this into a read of every Markdown file. Read [Current project status](docs/ROADMAP.md#current-project-status), its ordered queue, and [DECISIONS](docs/DECISIONS.md). Distinguish confirmed decisions from proposals and unresolved answers. Read only the active/relevant milestone section once a candidate task is identified.
 4. Follow an explicitly assigned task if it is not BLOCKED and does not conflict with confirmed decisions; otherwise report the blocker. For “continue” / “next task,” select the first unchecked READY task with satisfied dependencies and no active owner. Check current task-branch/PR claims as well as `dev`; an unmerged claim may not yet appear in `dev`'s ROADMAP. Skip BLOCKED or already claimed tasks.
 5. Verify dependencies against concrete implementation and PR history. If ROADMAP disagrees with Git/repository state, report the mismatch, inspect the relevant implementation/PR, and reconcile only when evidence is clear. Never mark work DONE based on roadmap text alone. If selection requires an unresolved team decision, stop and report the exact decision instead of guessing. If ownership cannot be established, choose an independent unclaimed READY task or report the blocker.
 6. Read only the technical document relevant to the selected task below. Create its fresh branch from updated `dev`, claim it using the rules below, then implement only that task. Never reuse an old feature branch for unrelated work.
@@ -118,7 +118,7 @@ DEC-109 and this document own Git workflow, task completion, and validation-gate
 
 Mark DONE / `[x]` only after implementation exists, required targeted validation has passed, its PR is **merged into `dev`**, and roadmap evidence is updated. Documentation-only tasks also require verified edits and merge into `dev`. Local work, a commit, a push, an open/approved PR, or passing checks alone is PARTIAL / IN PROGRESS.
 
-After meaningful work, update affected task checkboxes and the milestone evidence/handoff only. Keep it short:
+After meaningful work, update only the affected ROADMAP task/evidence and necessary handoff. When a merge changes architecture or decision status, update the authoritative owning document (ARCHITECTURE or DECISIONS, and affected external questions) in the same task or a narrow follow-up docs PR. Do not rewrite unrelated docs or require every task to reread them all. Keep it short:
 
 ```text
 Task: actual roadmap ID
