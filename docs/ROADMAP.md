@@ -1139,9 +1139,9 @@ M0-01 contracts and M1 loading for input; DEC-112 for the engine, DEC-114 for bu
 
 ## Tasks
 
-- [ ] M12-01 — Create the DuckDB database and the `bronze`/`silver`/`gold` Parquet layout with a documented schema per layer; commit the database definition, which is a required deliverable.
-- [ ] M12-02 — Write every retrieved artifact to `bronze` with its bytes, SHA-256, source locator and retrieval timestamp; never edit a bronze object in place.
-- [ ] M12-03 — Define the `silver` series row shape: series ID, period, value, unit, scale, frequency, stock/flow, cumulative behaviour, source vintage, and an explicit unknown for each semantic that is genuinely unknown.
+- [ ] M12-01 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m12-01-lakehouse-foundation`. Create the DuckDB database and the `bronze`/`silver`/`gold` Parquet layout with a documented schema per layer; commit the database definition, which is a required deliverable. Evidence: [M12-01/02/03 active record](#m12-010203-active-record).
+- [ ] M12-02 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m12-01-lakehouse-foundation`. Write every retrieved artifact to `bronze` with its bytes, SHA-256, source locator and retrieval timestamp; never edit a bronze object in place. Evidence: [M12-01/02/03 active record](#m12-010203-active-record).
+- [ ] M12-03 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m12-01-lakehouse-foundation`. Define the `silver` series row shape: series ID, period, value, unit, scale, frequency, stock/flow, cumulative behaviour, source vintage, and an explicit unknown for each semantic that is genuinely unknown. Evidence: [M12-01/02/03 active record](#m12-010203-active-record).
 - [ ] M12-04 — Implement the canonical time spine and period labelling, with inclusive/exclusive range behaviour and timezone/calendar conventions stated once.
 - [ ] M12-05 — Implement cumulative detection: distinguish a series cumulative since first publication, a series that resets each January, and a plain flow series, and report low confidence rather than guessing. Detection is **per series, not per source** — [BDDK_SOURCE](BDDK_SOURCE.md) shows monthly table 4 is a stock and table 2 resets every January, in the same bulletin.
 - [ ] M12-06 — Implement non-reset cumulative-to-flow differencing, requiring the preceding baseline for the first derived period. **No merge without unit tests.**
@@ -1156,6 +1156,19 @@ M0-01 contracts and M1 loading for input; DEC-112 for the engine, DEC-114 for bu
 - [ ] M12-15 — Add hand-calculated fixtures for each cumulative, aggregation, frequency and unit rule, plus negative tests for unknown unit, unknown frequency and unknown reset behaviour.
 - [ ] M12-16 — Run targeted normalization tests and touched-code lint; record which policies are implemented and which still need source confirmation.
 - [ ] M12-17 — Handle index base-year variants explicitly: the consumer price index exists as 2003=100 and 2025=100, the housing price index as 2010=100, 2017=100 and current. Parse the base from the title, require an explicit reference period, and verify overlap before rebasing.
+
+### M12-01/02/03 active record
+
+- Status: IN PROGRESS — claim published before implementation
+- Owner: Eray
+- Branch: `feature/m12-01-lakehouse-foundation`; fresh `dev` base `074a874`
+- PR: pending
+- Commit: pending
+- Objective: Build the medallion container the rest of M12 writes into — the DuckDB database, an immutable bronze layer, and a silver layer that refuses to store a series whose semantics are not recorded.
+- Scope: storage and semantics only. No source adapter, no retrieval, no cumulative conversion, no frequency alignment, no gold joins; those are M12-04 onward and M3-05 onward.
+- Tests: pending.
+- Blocker: none.
+- Handoff: pending.
 
 ## Acceptance criteria
 
