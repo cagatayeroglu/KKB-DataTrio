@@ -42,8 +42,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
 from kkb_agent.agent.registry import ToolSpec
+from kkb_agent.core import AnalyticalResult, ResultStatus
 from kkb_agent.database import all_tables
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
+from kkb_agent.tools import _projection
 
 if TYPE_CHECKING:  # pragma: no cover
     from duckdb import DuckDBPyConnection
@@ -79,6 +81,27 @@ class QueryResult:
     @property
     def row_count(self) -> int:
         return len(self.rows)
+
+
+@dataclass(frozen=True, slots=True)
+class LakehouseOutput:
+    """What the tool hands back: the typed result, and the rows behind it.
+
+    Both are needed and neither substitutes for the other. `result` is the
+    verifiable part — values with units, periods and sample counts, carrying a
+    digest M5 and M8 can check. `table` is presentation data for a table or a
+    chart, and is what the model reads when it is looking rather than claiming.
+
+    Keeping them apart is what stops a rendering convenience from becoming an
+    analytical claim: nothing in `table` is evidence for anything.
+    """
+
+    result: AnalyticalResult
+    table: QueryResult
+
+    @property
+    def truncated(self) -> bool:
+        return self.table.truncated
 
 
 def _statement_is_a_single_select(sql: str) -> None:
@@ -230,15 +253,28 @@ def make_lakehouse_tool(
                 error_category="sql_rejected",
                 warnings=(str(error),),
             )
-        warnings: tuple[str, ...] = ()
+        tables = sorted(referenced_tables(_ast_of(arguments.sql)) & set(readable))
+        node = _record_query(lineage, arguments, result, tables)
+        typed = _projection.project(
+            result,
+            result_id=_result_id(arguments, node),
+            tables=tables,
+            lineage_node=node,
+            parameters={"purpose": arguments.purpose, "max_rows": max_rows},
+        )
+        warnings = tuple(typed.warnings)
         if result.truncated:
-            warnings = (f"Result truncated to {max_rows} rows; narrow the query",)
-        node = _record_query(lineage, arguments, result, readable)
+            warnings = (f"Result truncated to {max_rows} rows; narrow the query", *warnings)
+        if typed.status is not ResultStatus.COMPUTED and typed.reason is not None:
+            # The query ran, so this is not a failure. It is a successful call
+            # that established no measurement, and the model has to be told
+            # which of the two happened or it will report the rows as a figure.
+            warnings = (*warnings, typed.reason)
         return ToolResult(
             ToolStatus.SUCCESS,
             step_id="",
             tool="lakehouse",
-            output=result,
+            output=LakehouseOutput(result=typed, table=result),
             warnings=warnings,
             evidence=node,
         )
@@ -259,21 +295,34 @@ def _describe(readable: Iterable[str]) -> str:
     )
 
 
+def _statement_digest(sql: str) -> str:
+    return hashlib.sha256(sql.encode("utf-8")).hexdigest()
+
+
+def _result_id(arguments: LakehouseArguments, node: str | None) -> str:
+    """A stable handle for this query's result.
+
+    The lineage node when there is one, so a stored result and its provenance
+    share a name. Otherwise the statement digest, which is stable across two
+    identical queries and distinct between different ones.
+    """
+    return node if node is not None else f"lakehouse:{_statement_digest(arguments.sql)}"
+
+
 def _record_query(
     lineage: Lineage | None,
     arguments: LakehouseArguments,
     result: QueryResult,
-    readable: Sequence[str],
+    tables: Sequence[str],
 ) -> str | None:
     """Record the query as a transform node, or return None when unrecorded."""
     if lineage is None:
         return None
-    tables = sorted(referenced_tables(_ast_of(arguments.sql)) & set(readable))
     return lineage.record(
         NodeKind.TRANSFORM,
         "lakehouse_query",
         attributes={
-            "sql_sha256": hashlib.sha256(arguments.sql.encode("utf-8")).hexdigest(),
+            "sql_sha256": _statement_digest(arguments.sql),
             "purpose": arguments.purpose,
             "tables": ", ".join(tables),
             "columns": ", ".join(result.columns),
