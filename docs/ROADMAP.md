@@ -791,24 +791,37 @@ Validated M0 contracts; synthetic provider double or M4 live provider; at least 
 
 ## Tasks
 
-- [ ] M5-01 — Define a minimal request -> plan -> validation -> execution -> verification lifecycle fixture.
-- [ ] M5-02 — Resolve orchestration choice based on the bounded lifecycle; record the team decision before adding a framework.
-- [ ] M5-03 — Implement a tool registry with unique system-owned names and argument schemas.
-- [ ] M5-04 — Reject unknown tool names and validate per-tool arguments, rather than trusting the plan's generic argument dictionary.
-- [ ] M5-05 — Validate dependency order, input/output reference existence, workspace ownership, and declared output type.
-- [ ] M5-06 — Expose only relevant tool descriptions and source metadata to the planner.
+- [ ] M5-01 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m5-plan-registry-executor`. Define a minimal request -> plan -> validation -> execution -> verification lifecycle fixture. Evidence: [M5 loop record](#m5-loop-record).
+- [x] M5-02 — Status: DONE. Resolved by [DEC-113](DECISIONS.md#dec-113--custom-bounded-orchestration-loop) on 2026-09-09: a custom planner -> router -> executor -> verifier state machine, with LangChain, LangGraph and Celery rejected. No framework is added.
+- [ ] M5-03 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m5-plan-registry-executor`. Implement a tool registry with unique system-owned names and argument schemas. Evidence: [M5 loop record](#m5-loop-record).
+- [ ] M5-04 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m5-plan-registry-executor`. Reject unknown tool names and validate per-tool arguments, rather than trusting the plan's generic argument dictionary. Evidence: [M5 loop record](#m5-loop-record).
+- [ ] M5-05 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m5-plan-registry-executor`. Validate dependency order, input/output reference existence, workspace ownership, and declared output type. Evidence: [M5 loop record](#m5-loop-record).
+- [ ] M5-06 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m5-plan-registry-executor`. Expose only relevant tool descriptions and source metadata to the planner. Evidence: [M5 loop record](#m5-loop-record).
 - [ ] M5-07 — Implement deterministic format routing and metadata-based narrowing before semantic model routing.
-- [ ] M5-08 — Generate a constrained AnalyticalPlan using the provider boundary; separate source content from system instructions.
-- [ ] M5-09 — Execute the smallest valid plan using registered deterministic tools and structured ToolResult outcomes.
+- [ ] M5-08 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m5-plan-registry-executor`. Generate a constrained AnalyticalPlan using the provider boundary; separate source content from system instructions. Evidence: [M5 loop record](#m5-loop-record).
+- [ ] M5-09 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m5-plan-registry-executor`. Execute the smallest valid plan using registered deterministic tools and structured ToolResult outcomes. Evidence: [M5 loop record](#m5-loop-record).
 - [ ] M5-10 — Preserve explicit selected sources, contracts, derived references, assumptions, transformations, evidence, and tool results between turns.
 - [ ] M5-11 — Add a series/change-date-range follow-up using existing workspace references.
 - [ ] M5-12 — Invalidate/recompute dependent results when a selection or assumption changes; preserve historical lineage.
-- [ ] M5-13 — Bound plan repairs, tool retries, steps, and total request deadline; abort repeated identical invalid plans.
+- [ ] M5-13 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m5-plan-registry-executor`. Bound plan repairs, tool retries, steps, and total request deadline; abort repeated identical invalid plans. Evidence: [M5 loop record](#m5-loop-record).
 - [ ] M5-14 — Distinguish clarification, unsupported request, recoverable outage, partial result, and terminal failure in the orchestration layer.
 - [ ] M5-15 — Test invalid names/arguments/dependencies, stale references, partial tool failure, and failed-turn state preservation.
-- [ ] M5-16 — Test injected source text cannot authorize a tool, URL, file path, or code execution.
+- [ ] M5-16 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m5-plan-registry-executor`. Test injected source text cannot authorize a tool, URL, file path, or code execution. Evidence: [M5 loop record](#m5-loop-record).
 - [ ] M5-17 — Run targeted planner/executor contract and negative tests, lint, and the fast PR gate; reserve full checks for checkpoints or explicit requests.
 - [ ] M5-18 — Record supported lifecycle/turn operations, limits, validation, and next tool integration.
+
+### M5 loop record
+
+- Status: IN PROGRESS — claim published before implementation
+- Owner: Eray
+- Branch: `feature/m5-plan-registry-executor`; fresh `dev` base `69ff1d2`
+- PR: pending
+- Commit: pending
+- Objective: Deliver the DEC-113 loop's first half — a typed plan, a tool registry that owns the names and argument schemas, validation that decides what may run, and a bounded executor.
+- Scope: plan, registry, validation, execution and budgets against the scripted provider. Workspace state (M5-10/11/12) and the verifier are separate.
+- Tests: pending.
+- Blocker: none.
+- Handoff: pending.
 
 ## Acceptance criteria
 
