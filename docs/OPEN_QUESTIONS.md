@@ -2,9 +2,9 @@
 
 This file owns unresolved external/team questions and their evidence. [DECISIONS](DECISIONS.md) owns confirmed choices; [ROADMAP](ROADMAP.md) owns blocked/ready tasks. A temporary assumption is a planning aid, not organizer permission or an implementation fact.
 
-Snapshot: 2026-09-09. The five team-decision questions Q-TEAM-01 through Q-TEAM-05 are **ANSWERED** by M0-ARCH and recorded in DECISIONS; those five choices are no longer blockers. Task-level proof/result schemas, reviewed concept-family membership and measured thresholds remain proposals until reviewed; they do not reopen those answered questions. Official Kloudeks integration information relayed by Çağatay on 2026-09-09 answers endpoint/authentication, model availability and image-input limits; [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy) owns the exact capability contract. Q-K-01/02/05 are narrowed below. Other organizer categories have no newly recorded answers and remain open; suggested lanes are not assignments.
+Snapshot: 2026-09-10. Two organizer **primary documents** were reviewed on this date: the kick-off deck of 7 September 2026 and the `MIA · Hackathon Rehberi` integration guide received over Slack, together with the team's MIA API key. [DEC-131](DECISIONS.md#dec-131--organizer-kick-off-brief-schedule-delivery-form-and-demo-day-input-scope) owns the brief's schedule/delivery/demo-input constraints and the 2026-09-10 amendment to [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy) owns the literal OCR/embedding request contracts. Q-DEMO-01, Q-INFRA-01, Q-NET-02, Q-DATA-01 and Q-DEV-02 gained real evidence below and are narrowed rather than closed; Q-DEV-01 gained evidence that makes it **more urgent, not resolved**. The five team-decision questions Q-TEAM-01 through Q-TEAM-05 are **ANSWERED** by M0-ARCH and recorded in DECISIONS; those five choices are no longer blockers. Task-level proof/result schemas, reviewed concept-family membership and measured thresholds remain proposals until reviewed; they do not reopen those answered questions. Official Kloudeks integration information relayed by Çağatay on 2026-09-09 answers endpoint/authentication, model availability and image-input limits; [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy) owns the exact capability contract. Q-K-01/02/05 are narrowed below. Other organizer categories have no newly recorded answers and remain open; suggested lanes are not assignments.
 
-The organizer questions are now the project's only external blockers, and several of them gate long-lead work: remaining key provisioning/access (Q-K-01), capacity (Q-K-02/04) and capability guarantees (Q-K-03) constrain their respective live acceptance. Ordinary compatible text transport can be built against the confirmed contract with local schema validation; no native tool/JSON guarantee is needed for that path. Q-K-05 retains configuration questions for the now-required dense baseline and optional dedicated-reranker availability under DEC-130 (DEC-127/115 are SUPERSEDED); Q-NET-01/02 gate the `web_search` and `web_url` tools, Q-DATA-01 gates live source retrieval, and Q-INFRA-01 can override DEC-126. Ask them early rather than near the delivery date.
+The organizer questions are now the project's only external blockers, and several of them gate long-lead work: unexercised live access (Q-K-01), capacity (Q-K-02/04) and capability guarantees (Q-K-03) constrain their respective live acceptance. Ordinary compatible text transport can be built against the confirmed contract with local schema validation; no native tool/JSON guarantee is needed for that path. Q-K-05 retains configuration questions for the now-required dense baseline and optional dedicated-reranker availability under DEC-130 (DEC-127/115 are SUPERSEDED); Q-NET-01/02 gate the `web_search` and `web_url` tools, Q-DATA-01 gates live source retrieval, and Q-INFRA-01 can override DEC-126. Ask them early rather than near the delivery date.
 
 ## How to use this list
 
@@ -18,7 +18,9 @@ The organizer questions are now the project's only external blockers, and severa
 
 | Priority | Questions | Why now | Independent work while waiting |
 | --- | --- | --- | --- |
-| First available organizer contact | Q-K-01/02/03, Q-NET-01/02, Q-DATA-01/02, Q-DEMO-01 | Determine live access and required input/demo scope | Offline provider/tool integration, synthetic contracts/oracles |
+| Ask on Slack now | Q-DEV-01, Q-NET-02, Q-DATA-01, Q-NET-01 | Coding-assistant scope is ambiguous in the brief and affects the whole workflow; URL/source permission gates the confirmed demo-day capability | Safe-fetch boundary, parsers, offline provider/tool integration |
+| First available organizer contact | Q-K-02/03/04, Q-DATA-02, Q-DEMO-01 | Determine capacity, guarantees and remaining demo format | Synthetic contracts/oracles, conservative local budgets |
+| Answer ourselves with one authorized live call | Q-K-01 live smoke, Q-K-05 vector dimension | The key is provisioned and the guide prints the vector length; these need a measurement, not a question | Bounded transport implementation against fake transports |
 | Before private data or deployment | Q-DATA-03, Q-INFRA-01/02, Q-COMP-01, Q-DEMO-02/03 | Determine retention, environment, session/fallback rules | Credential-free unit tests, operator-flow design |
 | Before final scope/experiments | Q-K-04/05, Q-DEV-01/02, Q-JUDGE-01/02, Q-COMP-02, Q-DATA-04 | Avoid unsupported tooling/scoring/resource assumptions | Core deterministic baseline |
 | ~~Before affected implementation choice~~ | Q-TEAM-01/02/03/04/05 — **ANSWERED 2026-09-09** | Resolved by M0-ARCH; see DEC-112, DEC-113, DEC-117, DEC-120, DEC-123 | No longer blocking; implementation may proceed |
@@ -28,20 +30,21 @@ The organizer questions are now the project's only external blockers, and severa
 ### Q-K-01 — Endpoint, authentication, and credential delivery
 
 - [x] Record the official endpoint, MIA-key authentication and compatible-client contract in [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy).
-- [ ] Verify account-specific credential provisioning/access for a separately authorized live smoke; never record the key itself.
-- Remaining question: How is the team's MIA key provisioned, and is it usable for the confirmed endpoints? This docs task has not verified delivery/access.
-- Why it matters: Knowing the integration contract does not establish possession or successful live authentication.
+- [x] Obtain the team's MIA API key. Delivered over Slack on 2026-09-10 and stored **only** in the operator-local, git-ignored `.env`. The key value is not recorded here, in DECISIONS, or anywhere in Git.
+- [ ] Exercise one authorized live request to prove the key actually authenticates against the confirmed endpoints; never record the key itself.
+- Remaining question: Does the provisioned key authenticate successfully for chat, embedding and OCR, and are all three models reachable on this account?
+- Why it matters: Possessing a key is not proof of access. Per DEC-129 a `401`/`403` would mean an invalid key, a model this account cannot reach, or a mis-cased model identifier — three different failures that only a live call distinguishes.
 - Blocks which milestone? M4-12 live smoke and M11 live demo access; no longer the endpoint/auth design of M4-07.
 - Can we proceed before answer? YES for bounded transport implementation and fake-transport tests; NO for claiming live authentication passed.
-- Temporary assumption: Use only the confirmed Kloudeks destination and operator-supplied secret; no real request or hosted fallback by default.
-- Owner: Unassigned; suggested lane B / organizer liaison.
-- Status: OPEN only for credential provisioning/access; endpoint/auth/SDK subparts ANSWERED.
-- Answer / evidence: Official guidance relayed by Çağatay, 2026-09-09; DEC-129. No live request or real key recorded.
+- Temporary assumption: Use only the confirmed Kloudeks destination and the operator-supplied secret; no hosted fallback under any error, including `429`.
+- Owner: Unassigned; the live smoke is M4-12 work and needs explicit authorization, not a side effect of another task.
+- Status: OPEN only for verified live access; endpoint/auth/SDK and key provisioning are ANSWERED.
+- Answer / evidence: Official guidance relayed by Çağatay 2026-09-09, verified against the primary MIA guide 2026-09-10; DEC-129. Key provisioned 2026-09-10. **No live request has been made.**
 
 ### Q-K-02 — Available models and context capacity
 
 - [x] Record exact main chat/text/vision, embedding and OCR model IDs plus confirmed image-count limits in [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy).
-- [ ] Record context window and general maximum output tokens beyond example-specific values.
+- [ ] Record context window and general maximum output tokens beyond example-specific values. The primary guide's only figure is the OCR example's `max_tokens=8192`, which is an example setting rather than a documented ceiling.
 - Remaining question: What context/output-token capacity applies to each confirmed model? Example settings are not guaranteed maxima.
 - Why it matters: Bounded prompts and output budgets must fit the platform; availability is not a capacity measurement.
 - Blocks which milestone? M4/M5 validated context sizing and M11 capacity claims, not model-ID selection or offline integration.
@@ -61,12 +64,13 @@ The organizer questions are now the project's only external blockers, and severa
 - Temporary assumption: No guarantee of native structured output; model results must validate locally in all cases.
 - Owner: Unassigned; suggested lane B.
 - Status: OPEN.
-- Answer / evidence: DEC-129 confirms OpenAI-compatible transport, not native function/tool calling or guaranteed JSON/JSON-schema. No such guarantee recorded; add a sanitized response/schema example only when permitted.
+- Answer / evidence: DEC-129 confirms OpenAI-compatible transport, not native function/tool calling or guaranteed JSON/JSON-schema. The primary guide's `vllm_xargs` parameter shows a vLLM-based server behind the endpoint — an **observation about the stack, not a capability guarantee**. vLLM builds commonly expose guided decoding, but nothing organizer-supplied states that this deployment enables it, so `structured_output` stays false and the local repair loop stays the default. Probing it is a question for Slack or an authorized live smoke, not an inference.
 
 ### Q-K-04 — Quotas, timeouts, and retry behavior
 
-- [ ] Record request/token/concurrency limits, error semantics, and permitted retry behavior.
-- Question: What rate/token/request limits, timeouts, concurrency rules, and retry guidance apply during development and the demo?
+- [x] Record the documented error semantics: `401`/`403` for an invalid key or unreachable/mis-cased model, `429` for a rate or quota limit, with the guide directing a wait per the error message or a question to the organizer team (DEC-129, 2026-09-10 amendment).
+- [ ] Record the actual request/token/concurrency limits, timeouts, and permitted retry behavior behind that `429`.
+- Question: What rate/token/request limits, timeouts, concurrency rules, and retry guidance apply during development and the demo? Knowing that `429` exists does not give a number to budget against.
 - Why it matters: Exact attempt/deadline budgets and latency expectations need real constraints.
 - Blocks which milestone? M4 transport budgets; M5 bounded live loop; M9 live latency thresholds; M11 capacity rehearsal.
 - Can we proceed before answer? YES for configurable bounded behavior and offline tests; NO for claiming quotas or a validated live SLA.
@@ -78,7 +82,8 @@ The organizer questions are now the project's only external blockers, and severa
 ### Q-K-05 — Embeddings and rerankers
 
 - [x] Record the official embedding model and endpoint in [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy).
-- [ ] Resolve vector dimension, query/passage prefix convention, batch/token limits and whether a dedicated reranker is available.
+- [x] Record the literal embedding request shape: `/v1/embeddings` with `encoding_format="float"`, a single-string `input` in the official example, vector read from `data[0].embedding` (DEC-129, 2026-09-10 amendment).
+- [ ] Resolve vector dimension, query/passage prefix convention, batch/token limits and whether a dedicated reranker is available. **Dimension is now directly measurable** — the guide's own example prints `len(vector)` — so it should be captured from the first authorized live call under Q-K-01 and recorded, not asked about.
 - Remaining question: What are those embedding configuration/limit details, and can a dedicated reranker be provided? General request/rate/concurrency limits remain Q-K-04.
 - Why it matters: Availability alone does not define a valid index/configuration or establish retrieval quality.
 - Blocks which milestone? M13-05 dense-baseline index configuration (dimension/prefix/limits) and optional dedicated-reranker use under M13-07. Lexical work, contracts and offline benchmark design can proceed; full hybrid acceptance requires both retrieval paths. Dense use itself is confirmed by DEC-130, not gated on lexical failure.
@@ -92,15 +97,16 @@ The organizer questions are now the project's only external blockers, and severa
 
 ### Q-INFRA-01 — Runtime/deployment environment
 
-- [ ] Record OS/runtime/container/port/storage constraints and submission environment.
-- Question: Where must the application run, and what OS, Python/package installation, container, port, filesystem, and deployment restrictions apply?
-- Why it matters: Determines reproducible setup, parser availability, and UI delivery.
+- [x] Record the delivery form and the demo-day runtime expectation: teams develop in their own environment, keep code in a **private GitHub repository** and deliver by granting KKB access; on Final Day a **solution deployed and running live** is expected (DEC-131).
+- [ ] Record OS/runtime/container/port/storage constraints for that live deployment, and who hosts it.
+- Question: The brief requires a live deployed solution but names no hosting environment. Do we host it ourselves, and what OS, Python/package installation, container, port and filesystem restrictions apply?
+- Why it matters: Determines reproducible setup, parser availability, and UI delivery. "Deployed and live" is now a confirmed requirement rather than an assumption, which makes the hosting answer more urgent, not less.
 - Blocks which milestone? M0 final setup validation, M10 deployment choice, M11 rehearsal environment.
-- Can we proceed before answer? YES for local Python >=3.12 contracts/tests; NO for claiming deployment compatibility.
-- Temporary assumption: Local development is provisional; no Docker/hosting/GPU requirement is inferred.
+- Can we proceed before answer? YES for local Python >=3.12 contracts/tests and for the DEC-126 single-VM target; NO for claiming deployment compatibility with an unstated environment.
+- Temporary assumption: We provide the host ourselves under DEC-126 until told otherwise; no GPU requirement is inferred. DEC-126 yields to an organizer-supplied environment if one is named.
 - Owner: Unassigned; suggested lane B / organizer liaison.
-- Status: OPEN.
-- Answer / evidence: None recorded.
+- Status: OPEN for environment/hosting constraints; delivery form and the live-deployment requirement are ANSWERED.
+- Answer / evidence: Kick-off deck, 7 September 2026, reviewed 2026-09-10; DEC-131.
 
 ### Q-INFRA-02 — Storage lifetime and isolation
 
@@ -118,15 +124,16 @@ The organizer questions are now the project's only external blockers, and severa
 
 ### Q-DATA-01 — BDDK/EVDS and provided source access
 
-- [ ] Record actual source inventory, approved endpoints/formats, access requirements, and source-use permissions.
-- Question: Which datasets/series will be available, how do we access BDDK/EVDS or replacements, and which metadata/revision conventions are authoritative?
+- [x] Record the brief's named source scope: BDDK `Haftalık Bülten`, `Aylık Bülten` and `FinTürk - İllere Göre`, plus EVDS `tumSeriler`, all bounded to **January 2021 – June 2026** (DEC-131). BDDK is described as weekly/monthly and EVDS as daily/weekly/monthly, matching the [BDDK](BDDK_SOURCE.md) and [EVDS](EVDS_SOURCE.md) inventories.
+- [ ] Record approved access/formats, access requirements, and source-use permissions. A named dataset is not granted access.
+- Question: How may we access BDDK/EVDS at runtime, is retrieval from the live sites permitted, and which metadata/revision conventions are authoritative?
 - Why it matters: Live adapters and semantic mappings require confirmed inputs; familiar source names do not prove access.
 - Blocks which milestone? M3 live integration and source-semantic acceptance; M11 representative live analysis.
 - Can we proceed before answer? NO for source-specific live acceptance; YES for generic ingestion and synthetic source-shaped fixtures.
-- Temporary assumption: BDDK/EVDS are likely integrations, not the only possible sources. PR #21/#22 source inventories record observed endpoints/series metadata, not organizer-approved runtime access or redistribution. Do not invent missing request payloads, permissions or auth requirements.
+- Temporary assumption: BDDK/EVDS are confirmed intended sources but not the only possible ones; the brief also requires reading arbitrary prompt-supplied URLs (Q-NET-02). PR #21/#22 source inventories record observed endpoints/series metadata, not organizer-approved runtime access or redistribution. Do not invent missing request payloads, permissions or auth requirements. The 2021-01 – 2026-06 window is a scope bound, not a permission.
 - Owner: Unassigned; suggested lane A.
-- Status: OPEN.
-- Answer / evidence: None recorded.
+- Status: OPEN for access permission; the named source list and date window are ANSWERED.
+- Answer / evidence: Kick-off deck, 7 September 2026, reviewed 2026-09-10; DEC-131. No access or redistribution permission recorded.
 
 ### Q-DATA-02 — Hidden formats, schema variation, and size
 
@@ -180,29 +187,31 @@ The organizer questions are now the project's only external blockers, and severa
 
 ### Q-NET-02 — Allowed external source URLs
 
-- [ ] Record whether arbitrary public URLs, named domains, or only organizer-provided sources are permitted.
-- Question: May the app retrieve arbitrary external HTTP(S) sources, or must it use an organizer-approved allowlist, including redirect destinations?
-- Why it matters: Product capability policy is additional to technical SSRF protection.
-- Blocks which milestone? M3/M7 live retrieval exposure and M11 supported-source claims.
-- Can we proceed before answer? NO for enabling arbitrary external source fetching; YES for safe-fetch negative tests/design.
-- Temporary assumption: No assumption that arbitrary URLs are permitted; safe-fetch must still block private/metadata destinations for source retrieval.
+- [x] Record that reading **prompt-supplied URLs is a required demo-day capability**, not an optional extra: on Final Day URLs are handed to the system inside the prompt and meaning must be extracted from PDF, Excel, image and text content there. The brief illustrates this with the `borsaistanbul.com` precious-metals market-data page (values from its gold-transactions PDF) and the `xtumy` index page (BIST 100 daily/monthly change) (DEC-131).
+- [ ] Record whether arbitrary public URLs are permitted or an organizer-approved allowlist applies, including redirect destinations.
+- Question: The requirement to read prompt-supplied URLs is confirmed, but its boundary is not. May the app fetch any public HTTP(S) address, or only approved domains?
+- Why it matters: Product capability policy is additional to technical SSRF protection. The two named pages are **examples of a capability, not an allowlist and not a promise those URLs appear** — building only for them would fail an unseen address on the day.
+- Blocks which milestone? M7 live retrieval exposure and M11 supported-source claims; M3 source access is Q-DATA-01.
+- Can we proceed before answer? YES for the safe-fetch boundary, parsers and negative tests, which are now clearly required work; NO for enabling unrestricted fetching in a delivered build.
+- Temporary assumption: Build for an arbitrary public HTTPS address behind the M7 safe-fetch boundary, keep the enable switch operator-controlled, and never relax the private/metadata/loopback blocks. Do not hard-code the two example URLs into the product.
 - Owner: Unassigned; suggested lane B with A source needs.
-- Status: OPEN.
-- Answer / evidence: None recorded.
+- Status: OPEN for the permission boundary; the capability requirement itself is ANSWERED.
+- Answer / evidence: Kick-off deck, 7 September 2026, reviewed 2026-09-10; DEC-131.
 
 ## Demo format
 
 ### Q-DEMO-01 — Timing, format, and user interaction
 
-- [ ] Record event dates, actual preparation window, demo duration, required interface, and who enters questions.
-- Question: What are the exact deadline/demo format and duration, and will judges operate the app, upload files, or ask live follow-ups?
-- Why it matters: Confirms whether 8–9 workdays, UI choices, operator steps, and latency budgets fit the event.
-- Blocks which milestone? M10 UI/delivery acceptance and M11 timed rehearsal; schedule remains provisional.
+- [x] Record the event dates and the real preparation window: kick-off **7 September 2026**; online development over Slack **7–20 September 2026**; top-10 announcement **5 October 2026**; **Final Day 17 October 2026** with jury presentations (DEC-131). The development deadline is **20 September**, not the informal "8–9 day" window previously assumed.
+- [ ] Record demo duration, the required interface, and who enters the questions on Final Day.
+- Question: How long is each team's slot, and will judges operate the app themselves, upload files, or ask live follow-ups?
+- Why it matters: The dates are now fixed, so the remaining unknowns are interaction and latency budgets. Two separate gates exist: the **repository reviewed after 20 September** and the **live demo on 17 October** — work that only serves the second must not displace the first.
+- Blocks which milestone? M10 UI/delivery acceptance and M11 timed rehearsal; the schedule itself is no longer provisional.
 - Can we proceed before answer? YES for backend/flow specification; NO for final demo-format assumptions.
-- Temporary assumption: ROADMAP days are relative planning slots, not confirmed dates; prepare one clear analysis/evidence/follow-up path.
+- Temporary assumption: Prepare one clear analysis/evidence/follow-up path operable by someone who did not build it, since the brief says teams produce output from inputs handed to them on the day.
 - Owner: Unassigned; suggested lane C.
-- Status: OPEN.
-- Answer / evidence: None recorded.
+- Status: OPEN for demo format/interaction; dates and the preparation window are ANSWERED.
+- Answer / evidence: Kick-off deck, 7 September 2026, reviewed 2026-09-10; DEC-131.
 
 ### Q-DEMO-02 — Multi-turn state and reset semantics
 
@@ -225,34 +234,35 @@ The organizer questions are now the project's only external blockers, and severa
 - Can we proceed before answer? NO for treating prepared assets as an approved demo fallback; YES for synthetic development/recovery tests.
 - Temporary assumption: No silent fixture substitution or claim that a cache is live; no presumed fallback permission.
 - Owner: Unassigned; suggested lane C.
-- Status: OPEN.
-- Answer / evidence: None recorded; coordinate data permission with Q-DATA-03.
+- Status: OPEN — and the brief makes a permissive answer less likely.
+- Answer / evidence: The kick-off deck requires running the real scenario on Final Day and producing output from **inputs supplied on the day**, from a live deployed solution (DEC-131). That is evidence against prepared-asset substitution, but it is not an explicit ruling on what may be used if a live source or the provider fails, so the question stays open. Coordinate data permission with Q-DATA-03.
 
 ## Allowed development tooling
 
 ### Q-DEV-01 — Coding assistants during development
 
-- [ ] Record organizer policy on coding assistants used only to build the product.
+- [ ] Record organizer policy on coding assistants used only to build the product. **Raised to the top of the ask-now list on 2026-09-10.**
 - Question: Are Codex/Claude Code or other coding assistants permitted strictly as development tools while runtime uses only Kloudeks, and is disclosure required?
-- Why it matters: Development-tool permission is separate from confirmed runtime LLM restrictions.
-- Blocks which milestone? Organizer-compliance confirmation for development workflow and M11 submission; not offline architecture specification.
-- Can we proceed before answer? YES for the user-authorized local documentation work; do not claim organizer permission for assistant-assisted event development.
-- Temporary assumption: Runtime remains Kloudeks-only. Development-assistant allowance remains explicitly unconfirmed and should be clarified early.
-- Owner: Unassigned; suggested organizer liaison.
-- Status: OPEN.
-- Answer / evidence: None recorded.
+- Why it matters: Development-tool permission is separate from the confirmed runtime restriction — but the kick-off deck's wording may not keep them separate, and the whole repository is built with assistant help. Getting this wrong is a compliance problem discovered at submission, not a technical one.
+- Blocks which milestone? Organizer-compliance confirmation for the development workflow and M11 submission; not offline architecture specification.
+- Can we proceed before answer? YES for the user-authorized local work already under way; do not claim organizer permission for assistant-assisted event development, and do not assume it is forbidden either.
+- Temporary assumption: Runtime remains Kloudeks-only regardless of the answer. Development-assistant allowance remains explicitly unconfirmed; ask before the 20 September deadline rather than after.
+- Owner: Unassigned; needs an actual organizer liaison, on Slack, this week.
+- Status: OPEN — narrowed to a real ambiguity rather than an absence of evidence.
+- Answer / evidence: The kick-off deck answers "may we use cloud AI services?" with no, prohibits third-party LLM API services, and adds (deck, 7 September 2026): "Geliştirme süreçlerinde yalnızca Kloudeks platformu üzerinden erişilebilen açık kaynaklı dil modelleri kullanılmalıdır." The prohibition on third-party **runtime** LLM services is unambiguous and already recorded in DEC-002/DEC-129/DEC-131. What is ambiguous is the scope of "geliştirme süreçleri": it can be read narrowly, as the models the delivered product calls during development and demo, or broadly, as every model touched while building. The narrow reading fits the slide's own question about cloud AI services in the product; the broad reading is a plain-language possibility that cannot be dismissed. **Do not resolve this by picking the convenient reading** — ask the organizers directly and record their answer with a date.
 
 ### Q-DEV-02 — External tools, libraries, and code disclosure
 
+- [x] Record the stated technology expectations: **Python is the main development language** with no second backend language unless specifically needed, the frontend framework is free, **open-weights** models are expected (the deck names Qwen, Mistral, gpt-oss, Kimi) and **open-source libraries** are expected, with `pypdf`, Pandas, DuckDB, Plotly and LanceDB named explicitly (DEC-131). This corroborates the existing DEC-112/124/130 stack and authorizes no new dependency.
 - [ ] Record restrictions on packages, development-time internet/tools, external services, and required attribution/disclosure.
-- Question: Are there restrictions on third-party libraries, development services, pre-existing code, or generated assets beyond the known runtime constraints?
+- Question: Are there restrictions on third-party libraries, development services, pre-existing code, or generated assets beyond the known runtime constraints? "Open-source libraries are expected" is an expectation, not a published allowlist.
 - Why it matters: Avoid adopting tooling/assets that cannot be used in the submitted product.
 - Blocks which milestone? M0 setup policy, optional M7 extraction dependencies, M10 assets, M11 submission review.
 - Can we proceed before answer? YES with the existing minimal declared stack and explicit hard constraints; NO for claiming unrestricted additional tooling permission.
-- Temporary assumption: Add no speculative service dependency; record concrete package needs and ask before assuming event allowance.
+- Temporary assumption: Add no speculative service dependency; record concrete package needs and ask before assuming event allowance. Prefer the explicitly named libraries where they fit, since they are known-acceptable.
 - Owner: Unassigned; suggested organizer liaison with B technical input.
-- Status: OPEN.
-- Answer / evidence: None recorded.
+- Status: OPEN for restrictions/disclosure; language and library/model expectations are ANSWERED.
+- Answer / evidence: Kick-off deck, 7 September 2026, reviewed 2026-09-10; DEC-131.
 
 ## Scoring / judging
 
