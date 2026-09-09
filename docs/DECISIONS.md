@@ -296,7 +296,7 @@ Evidence policy: organizer constraints below are carried forward from the origin
 - Decision: Keep the installable `src/` layout and place the architecture's modules as packages beneath it: `src/kkb_agent/{app,agent,tools,ingest,transform,catalog,lineage,llm,eval}/`. The Next.js client lives in `web/` at the repository root; `docs/`, `scripts/` and `tests/` keep their current positions.
 - Reason: The module names make the architecture readable in the tree, while the `src/` layout preserves the working packaging, the strict mypy target, the Makefile commands and the CI paths. A flat top-level layout would rewrite all of those for a naming preference.
 - Alternatives: Top-level module directories match an external sketch more literally but move 245 passing tests and every tooling path for no functional gain.
-- Consequences: Imports stay `kkb_agent.<module>`. Existing modules move into these packages only when a task actually touches them; no bulk relocation is performed for its own sake.
+- Consequences: Imports stay `kkb_agent.<module>`. Existing modules move into these packages only when a task actually touches them; no bulk relocation is performed for its own sake. The list names the packages the architecture sketch implied; it is not a ceiling. A package that maps to a numbered ARCHITECTURE component may be added with its task — `lakehouse` was added by M12-01 for [component 12](ARCHITECTURE.md#12-lakehouse-and-medallion-layout--confirmed-storage-dec-112).
 - Revisit trigger: A packaging or deployment requirement the `src/` layout cannot meet.
 
 ### DEC-126 — Single-VM deployment with Docker Compose
