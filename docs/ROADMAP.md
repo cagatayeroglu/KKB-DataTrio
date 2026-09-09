@@ -18,10 +18,10 @@ This file owns **execution truth**. [ARCHITECTURE](ARCHITECTURE.md) owns technic
 
 # Current Project Status
 
-- Last verified `origin/dev`: **`41e302ce8959da480a8cecc826fd3ef39b6de899`** (PR #34).
-- Verification: **2026-09-09**, after PR #34 merge; local `dev` fast-forwarded to `origin/dev`, merged tree verified, open/draft PRs and remote heads checked before claiming M7-01. Recheck claims before starting independent work.
+- Last verified `origin/dev`: **`91857304a8fa7e7780d74db22acedbba42860483`** (PR #35).
+- Verification: **2026-09-09**, after PR #35 merge; local `dev` fast-forwarded to `origin/dev`, merged tree verified, open/draft PRs and remote heads checked before claiming M7-02. Recheck claims before starting independent work.
 - Phase: Foundation available; complete the **first real end-to-end slice**. The offline planner/registry/executor, lakehouse SQL tool, definition DAG and numeric-binding verifier exist. Real-source ingestion, complete result/workspace/proof integration and live Kloudeks remain delivery work.
-- Active task: **M7-01 / Çağatay / PARTIAL**, `feature/m7-01-safe-fetch-contract`; PR [#35](https://github.com/cagatayeroglu/KKB-DataTrio/pull/35) open into `dev`, implementation validated and awaiting review/merge. No other open/draft PR or active remote task branch at inspection. Eray retains responsibility for merged-but-incomplete scopes until an explicit handoff; M12-DB PR #30 is merged and its historical record below remains unchanged.
+- Active task: **M7-02 / Çağatay / IN PROGRESS**, `feature/m7-02-url-target-validation`; claim PR pending publication. No other open/draft PR or active remote task claim at inspection. M7-01 is merged as PR #35. Eray retains responsibility for merged-but-incomplete scopes until explicit handoff; M12-DB history remains unchanged.
 - Product/retrieval documentation synchronization: **DONE**, PR [#34](https://github.com/cagatayeroglu/KKB-DataTrio/pull/34) merged into `dev` at `41e302c`; final content `e2029ea`, document checks and Fast PR gate PASS (55s). DEC-129/130 and the reconciled current status are present in the merged tree. No further documentation-polish task is needed.
 - Fast gate: M7-01 delivery on PR #35 — **67 targeted / 619 unit tests PASS**, `make quick` 25.92s, `make pr` 15.23s including Ruff format/lint, Bandit and secret scan (Python 3.12.2). GitHub status for the delivery commit is recorded in PR #35; claim-only CI does not validate the implementation.
 - Known failing gate: **M0-08** — 14 strict mypy errors reported through PR #32, originating in the XLSX modules. Full/release validation is not established. Do not infer a green release from a green `make pr`; no full/release checks run in this task.
@@ -31,7 +31,7 @@ This file owns **execution truth**. [ARCHITECTURE](ARCHITECTURE.md) owns technic
 
 ## Ordered next safe tasks
 
-All READY entries below are unowned, with Branch/PR/Commit **—**, Tests **NOT RUN for that task**, and no published claim at verification. Active M7-01 is recorded separately below and excluded from this queue. Recheck claims immediately before starting. This is the single selection queue; unchecked backlog elsewhere is not implicitly READY.
+All READY entries below are unowned, with Branch/PR/Commit **—**, Tests **NOT RUN for that task**, and no published claim at verification. Active M7-02 was triaged READY after M7-01 merged, is recorded separately below, and is excluded from this queue. Recheck claims immediately before starting. This is the single selection queue; unchecked backlog elsewhere is not implicitly READY.
 
 | Order | Task / status | Satisfied prerequisites | Acceptance / handoff |
 | --- | --- | --- | --- |
@@ -870,7 +870,7 @@ Do not wait for advanced causality to deliver a tested change/association path. 
 <a id="m7"></a>
 # M7 — External source / URL / document ingestion
 
-Status: PARTIAL — M7-01 contract implemented/validated on PR #35, not yet merged; live retrieval remains disabled pending M7-02..06 controls and source/network permissions.
+Status: PARTIAL — M7-01 contract DONE (PR #35 merged); M7-02 URL/target validation claimed. Live retrieval remains disabled pending M7-02..06 controls and source/network permissions.
 
 ## Objective
 
@@ -882,8 +882,8 @@ M1 ingestion contract, M2 relevant semantics, SEC-URL-01 and SEC-FILE-01/02 befo
 
 ## Tasks
 
-- [ ] M7-01 — Status: PARTIAL. Owner: Çağatay; Branch: `feature/m7-01-safe-fetch-contract`; PR: [#35](https://github.com/cagatayeroglu/KKB-DataTrio/pull/35) open; Commit: `64654e7`. Define one source safe-fetch API and structured outcomes; configure limits before implementing retrieval. Evidence: [M7-01 active record](#m7-01-active-record).
-- [ ] M7-02 — Validate HTTP(S), reject credentials in URLs, and block loopback/private/link-local/metadata targets including IPv6.
+- [x] M7-01 — Status: DONE. Owner: Çağatay; Branch: `feature/m7-01-safe-fetch-contract`; PR: [#35](https://github.com/cagatayeroglu/KKB-DataTrio/pull/35) merged at `9185730`; Commit: `64654e7`. Define one source safe-fetch API and structured outcomes; configure limits before implementing retrieval. Evidence: [M7-01 active record](#m7-01-active-record).
+- [ ] M7-02 — Status: IN PROGRESS. Owner: Çağatay; Branch: `feature/m7-02-url-target-validation`; PR/Commit: pending. Validate HTTP(S), reject credentials in URLs, and block loopback/private/link-local/metadata targets including IPv6. Evidence: [M7-02 active record](#m7-02-active-record).
 - [ ] M7-03 — Validate DNS results and the actual connection destination; reject mixed public/private resolution and rebinding hazards.
 - [ ] M7-04 — Handle redirects explicitly; revalidate every destination, cap hops, and avoid forwarding credentials across origins.
 - [ ] M7-05 — Bound connect/read/total time, response/decompressed bytes, and content-type routing; do not buffer unlimited responses.
@@ -901,10 +901,10 @@ M1 ingestion contract, M2 relevant semantics, SEC-URL-01 and SEC-FILE-01/02 befo
 
 ### M7-01 active record
 
-- Status: PARTIAL — implementation/validation complete, awaiting merge into `dev`
+- Status: DONE — PR #35 merged into `dev` at `91857304a8fa7e7780d74db22acedbba42860483`; merged tree matches validated delivery `5366de6`
 - Owner: Çağatay
 - Branch: `feature/m7-01-safe-fetch-contract`, from `dev` `41e302ce8959da480a8cecc826fd3ef39b6de899`
-- PR: [#35](https://github.com/cagatayeroglu/KKB-DataTrio/pull/35) into `dev`; draft claim published before implementation, then updated for delivery. No conflicting claim on recheck.
+- PR: [#35](https://github.com/cagatayeroglu/KKB-DataTrio/pull/35) merged into `dev`; final Fast PR gate PASS (55s). Draft claim preceded implementation; no ownership collision.
 - Commit: implementation `64654e7e87081f1ac15363d9b5db19d4fdd6c316`; claim `7c4bd164b8f93c450a9355d46026419390a80bc0`
 - Objective: Define one source safe-fetch API and structured outcomes; configure limits before implementing retrieval.
 - Delivered: [safe_fetch](../src/kkb_agent/ingest/safe_fetch.py) provides typed immutable requests, success/failure outcomes, fixed error codes and validated locator/byte/time/redirect/media-type configuration. Uses existing `ContractModel` and M1 admission byte defaults. URLs and content are excluded from repr/ordinary exports; opaque source IDs link caller provenance. The entry point revalidates records and returns `NETWORK_DISABLED` (or locator `SIZE_LIMIT`) without DNS/socket I/O.
@@ -912,8 +912,22 @@ M1 ingestion contract, M2 relevant semantics, SEC-URL-01 and SEC-FILE-01/02 befo
 - Readiness: M1 contract/admission and SEC-URL policy exist; the offline contract requires no model, live-source permission or unresolved architecture decision. User prioritizes the real-source path ahead of independent READY work. Teammate ownership is unchanged.
 - Tests: PASS (2026-09-09; Python 3.12.2). `python -m pytest -q tests/unit/test_safe_fetch.py --disable-warnings --maxfail=1` — **67 passed in 0.42s**; touched-code Ruff PASS. `make quick` — **619 passed in 25.14s**, 25.92s wall. `make pr` — **619 passed in 13.34s**, 15.23s wall; Ruff format/lint, Bandit and secret scan PASS. No full/release or live-network checks run.
 - Limitations: no HTTP transport, destination/DNS/redirect/stream enforcement, adapters, parsers or provider changes. Constructed success records are not proof of file admission, source permission or financial meaning; a synthetic CSV test explicitly passes the bytes through M1 admission. Do not log unfiltered Pydantic error dictionaries; only their sanitized text or fixed categories.
-- Blocker: PR review/merge for DONE; M7-02..06 and Q-DATA-01/Q-NET-01/02 still gate live adapters.
-- Handoff: Review/merge PR #35, then triage M7-02 URL/destination policy using this contract before enabling any transport. M6-01 remains the first independent READY task; M0-08 typing debt remains visible. Do not interpret this contract delivery as a completed real-source vertical slice.
+- Blocker: none for M7-01; M7-02..06 and Q-DATA-01/Q-NET-01/02 still gate live adapters.
+- Handoff: Merge verified; M7-02 has been triaged and claimed below. Keep live transport disabled until the remaining controls and permissions are satisfied. M6-01 remains the first independent READY task; M0-08 typing debt remains visible. Do not interpret this contract delivery as a completed real-source vertical slice.
+
+### M7-02 active record
+
+- Status: IN PROGRESS
+- Owner: Çağatay
+- Branch: `feature/m7-02-url-target-validation`, from `dev` `91857304a8fa7e7780d74db22acedbba42860483`
+- PR: pending draft claim publication into `dev`
+- Commit: pending
+- Objective: Validate HTTP(S), reject credentials in URLs, and block loopback/private/link-local/metadata targets including IPv6.
+- Readiness: Triaged READY after M7-01 merged and its final CI passed. Typed fetch contracts and SEC-URL-01 policy are available; no owner/open PR/remote claim or unresolved organizer/team decision blocks this offline task. The user explicitly selects this source-path prerequisite; M6-01 is not started.
+- Acceptance: Deterministic URL/host/literal-IP validation; reject credentials, unsafe ports, local/private/link-local/metadata destinations and ambiguous IP forms; validate supplied resolution results and redirect destinations without HTTPS downgrade. Fixed rejection reasons; no live DNS/HTTP, TLS changes, adapters or tool orchestration. Actual DNS/connection binding and redirect execution remain M7-03/04.
+- Tests: NOT RUN — claim only; implementation follows published claim and collision recheck.
+- Blocker: none for this offline validation scope; M7-03..06 and source/network permission still gate live fetch.
+- Handoff: Implement only M7-02 with synthetic negative tests, then targeted checks, `make quick`, `make pr`; keep unchecked until merge.
 
 ## Acceptance criteria
 
