@@ -176,19 +176,19 @@ Use inert synthetic markers and fake transports; tests must not actually exfiltr
 
 ## Retrieval and product evaluation tracks
 
-This extends the existing plan under [DEC-127](DECISIONS.md#dec-127--benchmark-gated-retrieval) and [DEC-128](DECISIONS.md#dec-128--financial-question-validation-and-claim-level-evidence); it does not claim implemented metrics or passing scores. Reuse M9's case/runner/scorecard rather than creating separate product agents.
+This extends the existing plan under [DEC-130](DECISIONS.md#dec-130--initial-hybrid-retrieval-baseline) and [DEC-128](DECISIONS.md#dec-128--financial-question-validation-and-claim-level-evidence); it does not claim implemented metrics or passing scores. Reuse M9's case/runner/scorecard rather than creating separate product agents.
 
 ### 1. Direct series retrieval
 
 Use reviewed question-to-catalog-ID or allowed-equivalent sets, with catalog versions, original titles and semantics. Keep development and teammate-authored holdout separate, including paraphrases, rare/exact terms, Turkish casing, near-identical names, ambiguous aliases and archived/stale variants.
 
-Report **Recall@5**, **Recall@10**, final series-selection quality, wrong-near-match rate, archived/stale selection rate, ambiguity-resolution outcomes and latency. State denominators and whether multiple IDs are valid; an explicit needed clarification is distinct from a wrong selection. Selection requires unit/frequency/population/coverage agreement, not merely a text match.
+For lexical-only, dense-only and combined hybrid candidates, report **Recall@5**, **Recall@10**, final series-selection quality, wrong-near-match rate, archived/stale selection rate, ambiguity-resolution outcomes, latency and failure behavior. State denominators and whether multiple IDs are valid; an explicit needed clarification is distinct from a wrong selection. Selection requires unit/frequency/population/coverage agreement, not merely a text match.
 
 ### 2. Candidate relationship discovery
 
-Score this separately from named-series retrieval. A target-only lexical result full of target variants can have high direct recall and still fail discovery. Independently review which concept families are relevant to investigate, without labeling any as an economic cause.
+Score this separately from named-series retrieval. A target-only lexical or dense result full of target variants can have high direct recall and still fail discovery. Independently review which concept families are relevant to investigate, without labeling any as an economic cause.
 
-Measure relevant concept-family coverage, duplicate-family rate, target-copy/leakage rejection, invalid-semantic candidate rejection and the **null case: no useful candidate**. Include equivalent series under different names and duplicated/derived target copies; document exclusions before scoring. Evaluate the bounded pool after reviewed-family metadata search, diversity/deduplication and semantic filtering. Do not force a winning relationship when evidence is weak, unstable, insufficient or invalid.
+Measure relevant concept-family coverage, duplicate-family rate, target-copy/leakage rejection, invalid-semantic candidate rejection and the **null case: no useful candidate**. Include equivalent series under different names and duplicated/derived target copies; document exclusions before scoring. Evaluate lexical-only, dense-only and combined pools from hybrid retrieval within reviewed financial concept families, followed by diversity/deduplication and finance-semantic filtering. Embedding just the target phrase and returning twenty target-series variants fails this scope. Do not force a winning relationship when evidence is weak, unstable, insufficient or invalid.
 
 ### 3. Finance semantic guard
 
@@ -210,13 +210,15 @@ Assert the logical chain `Claim -> VerificationResult -> AnalysisRun -> ResultSn
 
 ### Retrieval activation experiment
 
-1. Freeze reviewed development/holdout sets and catalog/config versions; agree meaningful-gain and acceptable-cost criteria before inspecting holdout. No threshold is asserted here without results.
-2. Benchmark **normalizer + reviewed alias/concept mapping + metadata filters + lexical/BM25** first. Report quality and latency, cold/warm conditions and sample counts.
-3. Compare dense/embedding retrieval only when permitted Kloudeks capability exists. Report incremental Recall@5/10 and final selection, latency, calls and failures. Activate LanceDB/dense only for meaningful gain.
-4. Try RRF only if the two paths contribute complementary useful candidates. Keep it only if held-out quality improves; record lost as well as gained cases.
-5. Try reranking only if selection gain pays for latency, model calls, malformed-output/retry failures and variability on the available weaker models. Measure those costs; leave it disabled when unsupported or unjustified.
+DEC-130 confirms lexical+dense as the initial baseline; this experiment measures that baseline and gates only additional stages.
 
-For every stage, preserve the baseline comparison and failure attribution. Optional-stage outages must not silently disable the lexical baseline. Do not tune against holdout and retain its label; replace leaked/tuned holdout cases. Expected numeric results must not be generated by the same function under test; prefer hand calculation or an independently reviewed deterministic path. LLM-independent oracles and catalog adjudication establish correctness, not a model's self-rating. These experiments do not add mandatory full/release runs to ordinary task feedback.
+1. Freeze reviewed development/holdout sets and catalog/model/index/config versions; agree evaluation budgets and additional-stage gain/cost criteria before inspecting holdout. No threshold is asserted here without results.
+2. Evaluate **lexical-only**, **dense-only** and **combined hybrid candidates** with the same normalization, reviewed aliases/concept-family policy and metadata/semantic constraints. Use the official Qwen3-Embedding-8B model and retained LanceDB index. Record candidate pooling/deduplication/order and per-path budgets; do not assume hybrid means RRF.
+3. Report Recall@5/10, final selection, latency (cold/warm and sample counts) and failure behavior for each mode. Include embedding timeout/unavailability, invalid vector/configuration and single-path degraded responses. Distinguish a labeled useful fallback from a successful full-hybrid run. Dense use is not conditional on lexical failure or positive incremental gain; results guide tuning and any later explicit decision.
+4. Try RRF only if the two paths demonstrably contribute complementary useful candidates. Enable it only when held-out fusion quality improves; record lost as well as gained cases and latency.
+5. Try listwise/model reranking only if meaningful final-selection gain pays for another model call, latency, token usage, malformed-output/retry failures and weak-model instability. Additional stages/vector infrastructure need measured benefit too; leave unjustified stages disabled.
+
+Keep direct-series selection and catalog-bounded relationship discovery as separate tracks. Optional-stage outages must preserve an explicitly labeled baseline outcome; dense-path outages must not be mislabeled full hybrid. Do not tune against holdout and retain its label; replace leaked/tuned cases. Expected numeric results must not be generated by the same function under test; prefer hand calculation or an independently reviewed deterministic path. LLM-independent oracles and catalog adjudication establish correctness, not a model's self-rating. These experiments do not add mandatory full/release runs to ordinary task feedback.
 
 ## Eventual scorecard format
 

@@ -293,7 +293,7 @@ Acceptance: Visibility/settings are evidenced, published changes contain only in
 
 ## SEC-DEP-01 — Dependency policy
 
-Status: PARTIAL — dependency integration/installation evidence is recorded in M1-03 and merged fast gates. No new audit/installation runs were performed here; release reproducibility/audit remain checkpoint work. DEC-124 is an allowlist, not a requirement to install all packages; optional retrieval is gated by DEC-127.
+Status: PARTIAL — dependency integration/installation evidence is recorded in M1-03 and merged fast gates. No new audit/installation runs were performed here; release reproducibility/audit remain checkpoint work. DEC-124 is an allowlist, not a requirement to install all packages; DEC-130 requires the hybrid lexical+dense baseline with the retained lightweight LanceDB index, while RRF/reranking and extra retrieval infrastructure remain benchmark-gated. This does not claim those dependencies or runtime paths are delivered.
 
 Threat: Unnecessary or unsuitable dependencies add parser/network vulnerabilities, slow setup, or make the demo irreproducible.
 

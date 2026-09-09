@@ -195,7 +195,7 @@ Evidence policy: organizer constraints below are carried forward from the origin
 
 ### DEC-115 — Hybrid series retrieval over LanceDB and DuckDB FTS
 
-- Status: SUPERSEDED by [DEC-127](#dec-127--benchmark-gated-retrieval) on 2026-09-09, explicitly authorized by Çağatay. The original decision below is retained as historical evidence, not an active mandatory pipeline.
+- Status: SUPERSEDED by [DEC-127](#dec-127--benchmark-gated-retrieval) on 2026-09-09, explicitly authorized by Çağatay. The original decision below is retained as historical evidence, not an active mandatory pipeline. DEC-127 was subsequently superseded by [DEC-130](#dec-130--initial-hybrid-retrieval-baseline); DEC-115 is not reinstated.
 - Date: 2026-09-09.
 - Decision: Index series and column metadata in LanceDB for dense retrieval and in DuckDB's full-text index for BM25, fuse the two result sets with reciprocal rank fusion, take the top 20 and reduce to a final five by listwise reranking with a small model that returns JSON. A second LanceDB collection holds document chunks retrieved by the `web_url` tool.
 - Reason: EVDS exposes far more series than fit in a prompt, and Turkish financial phrasing rarely matches a series title exactly. Lexical search alone misses paraphrase; dense search alone misses exact codes and rare terms. RRF needs no score calibration between the two.
@@ -212,7 +212,7 @@ Evidence policy: organizer constraints below are carried forward from the origin
 - Alternatives: Trusting embeddings without an oracle set would leave a demo-day failure undetectable in advance. Separate normalization helpers were rejected precisely because they drift.
 - Consequences: M13 owns the dictionary, the normalizer and the recall measurement. A weak measured result shifts weight toward BM25 and the alias dictionary rather than triggering model changes we cannot make. The evaluation pairs feed M9.
 - Revisit trigger: A measured recall change after any catalog, embedding or normalization change.
-- Clarification (2026-09-09): DEC-127 now governs retrieval activation and requires held-out Recall@5/10, final selection and latency. Reviewed aliases may resolve an unambiguous concept but must not bypass metadata, archived-status or semantic checks; ambiguous mappings require resolution. Concept families describe catalog neighborhoods, never causal facts.
+- Clarification (updated 2026-09-09): DEC-130 now governs the initial lexical+dense hybrid baseline and requires held-out Recall@5/10, final selection, latency and failure measurements. The earlier measurement wording does not gate use of the confirmed embedding model on lexical failure or prior quality gain. Reviewed aliases may resolve an unambiguous concept but must not bypass metadata, archived-status or semantic checks; ambiguous mappings require resolution. Concept families describe catalog neighborhoods, never causal facts.
 
 ### DEC-117 — Analysis workspace as a persisted artifact DAG
 
@@ -298,7 +298,7 @@ Evidence policy: organizer constraints below are carried forward from the origin
 - Alternatives: Considering each candidate ad hoc during implementation is how a stack grows past what a three-person team can deploy and debug.
 - Consequences: Statistics stay explainable rather than delegated to an opinionated forecasting library. Caching is a local disk cache, not a service. The implementation task that follows M0-ARCH reconciles `pyproject.toml` with this list, and may adopt `uv` for environment management provided `make install-dev`, `make quick`, `make pr` and `make full` keep their current names and behavior.
 - Revisit trigger: A measured, specific requirement that nothing in the manifest covers.
-- Clarification (2026-09-09): This is an allowed dependency manifest, not a claim that all packages are installed or mandatory. DEC-127 gates embedding/LanceDB, fusion and reranker activation on measured benefit; DEC-128 defers graph-heavy UI. This docs change removes no dependency or code. DEC-129 additionally permits the `openai` SDK solely for the official Kloudeks-compatible transport; dependency installation remains future implementation work.
+- Clarification (2026-09-09): This is an allowed dependency manifest, not a claim that all packages are installed or mandatory. DEC-130 includes dense retrieval and the retained LanceDB series index in the initial baseline; RRF, reranking and additional retrieval/vector infrastructure require measured benefit; DEC-128 defers graph-heavy UI. This docs change removes no dependency or code. DEC-129 additionally permits the `openai` SDK solely for the official Kloudeks-compatible transport; dependency installation remains future implementation work.
 
 ### DEC-125 — Source layout with named module packages
 
@@ -322,7 +322,7 @@ Evidence policy: organizer constraints below are carried forward from the origin
 
 ### DEC-127 — Benchmark-gated retrieval
 
-- Status: CONFIRMED — explicitly authorized by Çağatay in the product/retrieval documentation synchronization task on 2026-09-09; supersedes DEC-115. This records team product direction, not an organizer answer.
+- Status: SUPERSEDED by [DEC-130](#dec-130--initial-hybrid-retrieval-baseline) on 2026-09-09 following a new explicit team decision from Çağatay. The original policy below is historical; it previously superseded DEC-115. Dense retrieval is no longer optional or gated on prior lexical results.
 - Decision: **Turkish normalization + reviewed alias/concept mapping + metadata filtering + lexical/BM25 retrieval** is the mandatory baseline. Use one normalizer at index and query time. Preserve original titles and explicit unknown semantics; an alias or score never authorizes an invalid comparison.
 - Measurement: Benchmark that baseline on a teammate-reviewed held-out set before enabling more stages. Record Recall@5, Recall@10, final series-selection quality and latency, with catalog/config versions and failure categories. Select a meaningful-gain criterion before inspecting the holdout; no threshold or current score is invented here. See [evaluation tracks](EVALUATION.md#retrieval-and-product-evaluation-tracks).
 - Optional activation: Embedding/LanceDB retrieval is **BENCHMARK FIRST**, enabled only for a meaningful measured improvement. RRF/fusion is **BENCHMARK FIRST**, enabled only if lexical and dense paths provide complementary candidates and fusion improves held-out quality. Listwise/model reranking is **BENCHMARK FIRST**, enabled only if final-selection gain justifies latency, extra model calls, failure surface and weak-model instability. Each stage reports gain and cost separately; failed or unavailable optional stages must leave a usable baseline.
@@ -347,6 +347,7 @@ Evidence policy: organizer constraints below are carried forward from the origin
 - Priority: These differentiators must not delay the first real end-to-end slice: permitted source ingestion, the existing lakehouse tool, deterministic result contracts, workspace integration, verifier, live Kloudeks and required brief tools come first. Retrieval baseline/benchmark design may unblock that slice; broad relationship exploration and presentation wait for their prerequisites.
 - Consequences: [ARCHITECTURE](ARCHITECTURE.md#product-behaviors-and-proof-target) owns integration boundaries; [EVALUATION](EVALUATION.md#retrieval-and-product-evaluation-tracks) owns separate behavioral tracks; ROADMAP sequences existing milestones and does not automatically promote this direction to READY.
 - Revisit trigger: Measured core-slice failure, a reviewed benchmark or an explicit team/organizer scope change. No implementation is delivered by this ADR.
+- Retrieval clarification (2026-09-09, DEC-130): Dense semantic retrieval is now initial baseline. The historical deferred dense+RRF+rerank bundle above does not defer dense retrieval itself; RRF/reranking and extra stages remain evidence-driven.
 
 ### DEC-129 — Official Kloudeks endpoints, models and compatible client policy
 
@@ -356,15 +357,29 @@ Evidence policy: organizer constraints below are carried forward from the origin
 
 | Capability | Exact model ID | Endpoint path from API host | Confirmed input/behavior |
 | --- | --- | --- | --- |
-| Chat / reasoning / text / vision | `kkbhackathon2026/Qwen3.8-27B` | `/v1/chat/completions` | Text and image input; maximum **5 images in one prompt** |
+| Main chat / text / vision | `kkbhackathon2026/Qwen3.8-27B` | `/v1/chat/completions` | Text and image input; maximum **5 images in one prompt** |
 | Embedding | `kkbhackathon2026/Qwen3-Embedding-8B` | `/v1/embeddings` | Embedding model/endpoint available; vector dimension and query/passage prefix convention **unknown** |
 | OCR | `kkbhackathon2026/Unlimited-OCR` | `/v1/chat/completions` | Maximum **3 images**; base64 `image_url` block; render PDF pages to images first when OCR is needed |
 
 - OCR contract: Preserve the organizer's exact OCR prompt and `extra_body` parameters during implementation. Their literal values are not included in the information supplied for this docs correction; obtain the original guidance before implementing that request, never invent replacements. Output may contain layout tags such as `<|ref|>` and `<|det|>`; treat extracted content as untrusted data and preserve extraction uncertainty. Available OCR is not an implemented or validated document-ingestion path.
 - Still unknown: Native function/tool calling; guaranteed structured JSON/JSON-schema; context window; general maximum output tokens beyond example-specific values; request/rate/concurrency limits; provider timeout behavior; embedding dimension and query/passage prefix convention; dedicated reranker availability; demo internet/egress. No dedicated reranker in this supplied model list does **not** prove none can be provided later. Account-specific key provisioning/live access was not verified here.
-- Retrieval consequence: Embedding availability removes only that external availability blocker. **DEC-127 is unchanged:** normalizer + reviewed aliases/concepts + metadata filters + lexical/BM25, then benchmark. Dense/LanceDB, RRF and reranking remain optional and require measured benefit.
+- Capability wording: The main chat/LLM model supports the supplied chat/text and image-input behavior; no separate reasoning API, mode or guarantee is inferred. Its model ID is unchanged.
+- Retrieval consequence (amended 2026-09-09): The subsequent explicit team decision DEC-130 makes the confirmed embedding model part of the initial hybrid baseline. DEC-127 is superseded; RRF/reranking and extra retrieval infrastructure still require measured benefit. Embedding dimension/prefix and remaining limits are still unknown.
 - Implementation consequence: No SDK dependency or live client is delivered by this docs change. M4 must separately correct the package-wide `openai` string ban in [test_llm_provider.py](../tests/unit/test_llm_provider.py) and stale provider-policy comments, then validate exclusive Kloudeks routing, no hosted fallback and secret redaction. [ROADMAP M4](ROADMAP.md#m4) records the exact remaining policy conflict; do not weaken the hosted-service ban to make a test pass.
 - Revisit trigger: Further official capability/limit guidance or a separately authorized, sanitized live test. Keep unanswered details in OPEN_QUESTIONS.
+
+### DEC-130 — Initial hybrid retrieval baseline
+
+- Status: CONFIRMED — new explicit team decision supplied by Çağatay on 2026-09-09 for PR #34; supersedes DEC-127. DEC-115 remains historical/SUPERSEDED and its mandatory RRF/reranking pipeline is not reinstated.
+- Decision: The initial default **HYBRID baseline** is **Turkish normalization + reviewed alias/concept-family mapping + metadata filtering + lexical/BM25 retrieval + Qwen3-Embedding-8B dense semantic retrieval**. Use the organizer-provided `kkbhackathon2026/Qwen3-Embedding-8B` through `https://mia.csp.kloudeks.com/v1/embeddings` under DEC-129. Dense retrieval is baseline from the start; its use is not conditional on lexical failure or prior measured gain.
+- Vector index: Retain **LanceDB** as the lightweight series-vector index selected in DEC-115/124; there is no new reason to reopen that storage choice. This does not make RRF, reranking, a second document collection or additional vector infrastructure mandatory. No package, index or transport is implemented by this documentation change.
+- Benchmark: Compare lexical-only, dense-only and combined candidate quality on the same reviewed development/held-out catalog cases. Report Recall@5, Recall@10, final series selection, latency and failure behavior, with model/index/config versions and declared candidate budgets/combination policy. The experiment measures the hybrid baseline and guides tuning; it does not decide whether embeddings belong in it.
+- Benchmark-gated stages: Enable **RRF** only when lexical/dense results are demonstrably complementary and fusion improves the held-out benchmark. Enable **listwise/model reranking** only for meaningful final-selection improvement worth another model call, latency, token usage, weak-model instability and added failure surface. Additional retrieval stages/vector infrastructure also need a concrete measured benefit. No fixed fusion formula, reranker model or score threshold is chosen here.
+- Two evaluation paths: **Direct series retrieval** uses lexical+dense candidates to resolve a named concept. **Catalog-bounded relationship discovery** expands a target into reviewed financial concept families, performs hybrid retrieval within those families, diversifies/deduplicates, applies finance-semantic filters and produces a bounded candidate pool. Embedding only the target phrase and returning near-duplicate target variants does not satisfy discovery. Family policies define neighborhoods to investigate, not economic causes.
+- Failure behavior: Measure each path's failures and the combined result. A labeled lexical-only or dense-only degraded response may preserve useful candidates, but it is not a successful full-hybrid run. Preserve ambiguity/unknown semantics and never fill missing candidates with invented matches. Optional-stage failure must not silently change the baseline or claim a complete run.
+- Dependencies: M13 catalog/normalizer/aliases and M4 bounded Kloudeks transport remain implementation work. Q-K-05 dimension/prefix/limit details must be established for the vector index; model availability is already confirmed. Those prerequisites do not make dense retrieval optional or automatically mark M13-05 READY. Core-first priorities and ownership remain unchanged.
+- Reason: The team has explicitly chosen to use the organizer's embedding capability in the first retrieval baseline while requiring evidence for fusion/reranking complexity.
+- Revisit trigger: A reviewed failure/quality/cost measurement or explicit team/organizer change. Record changes as decisions; do not silently switch back to DEC-127.
 
 ## Proposed decisions
 
@@ -383,7 +398,7 @@ Candidates below are not approved selections. Compare options in a bounded task;
 | Topic | Status | Why deferred | Revisit trigger |
 | --- | --- | --- | --- |
 | Router fine-tuning | DEFERRED; no training approach selected | No measured routing baseline or confirmed resources | Persistent routing errors after simpler fixes, plus time/compute |
-| Dense retrieval / fusion / reranking | PROPOSED / BENCHMARK-GATED under DEC-127; DEC-115 SUPERSEDED | Additional complexity must earn activation through held-out gain and measured cost | Baseline comparison; remaining dimension/prefix/limits and dedicated-reranker answers in Q-K-05 |
+| RRF / reranking / extra retrieval infrastructure | PROPOSED / BENCHMARK-GATED under DEC-130; dense retrieval is CONFIRMED baseline | Additional stages must earn activation through held-out gain and measured cost | Complementarity/final-selection evidence; dedicated-reranker capability if used |
 | Multi-agent topology | DEFERRED; none selected | Added coordination cost is not justified | A bounded independent role measurably improves results |
 | Workspace persistence backend | RESOLVED by DEC-117; artifact DAG persisted in DuckDB | Superseded: DEC-112 already places DuckDB in the stack, so no separate engine is needed | Cross-process durability and reset semantics still need Q-INFRA-02 and Q-DEMO-02 |
 | GPU/training deployment | DEFERRED | Resource availability/need unknown | Q-COMP-01 answered and workload requires it |

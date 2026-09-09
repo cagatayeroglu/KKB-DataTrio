@@ -25,7 +25,7 @@ CONFIRMED goals:
 
 Non-goals for this window: arbitrary generated-code execution, a general autonomous web crawler, a hosted warehouse platform, distributed agent infrastructure, enterprise tenancy/security systems, or a training pipeline.
 
-The stack is selected in DECISIONS and is not re-argued here: DuckDB with Parquet and Pandas (DEC-112), a custom bounded loop (DEC-113), benchmark-gated retrieval (DEC-127, superseding DEC-115), an artifact DAG in DuckDB (DEC-117), FastAPI with SSE behind Next.js (DEC-123), and the excluded-technology list (DEC-124). Router fine-tuning and multi-agent topology remain out of scope.
+The stack is selected in DECISIONS and is not re-argued here: DuckDB with Parquet and Pandas (DEC-112), a custom bounded loop (DEC-113), initial hybrid retrieval with benchmark-gated extensions (DEC-130; DEC-127/115 superseded), an artifact DAG in DuckDB (DEC-117), FastAPI with SSE behind Next.js (DEC-123), and the excluded-technology list (DEC-124). Router fine-tuning and multi-agent topology remain out of scope.
 
 ## Layer map
 
@@ -33,7 +33,7 @@ The stack is selected in DECISIONS and is not re-argued here: DuckDB with Parque
   6. Trust layer          lineage graph + verifier            -> components 10, 12
   5. Agent core           planner / router / executor         -> components 1, 3, 4
   4. Tool layer           the six brief-named tools           -> components 4, 9
-  3. Semantic layer       catalog, lexical baseline, aliases  -> component 13
+  3. Semantic layer       catalog, hybrid baseline, aliases  -> component 13
   2. Lakehouse            DuckDB + Parquet, bronze/silver/gold -> component 12
   1. Ingest               BDDK bulletins, EVDS API, uploads   -> components 5, 6, 7
 ```
@@ -157,7 +157,7 @@ vision(image_bytes: bytes, prompt: str)
 
 Model identifier, base URL and whether structured output exists come from environment configuration, never from source constants. When the platform offers no structured-output mode, the provider validates against the schema, repairs with `json-repair`, and retries at most twice while feeding the validation error back to the model. The `kind` argument on `embed` preserves query/passage intent; the confirmed Qwen model's prefix convention remains Q-K-05. Do not assume an E5 convention applies.
 
-Model roles are assigned by measurement, not parameter count. A proposed live measurement is a twenty-case tool-selection smoke test — Turkish question in, expected tool and arguments out — against an eligible text model, scoring correct-tool rate, argument-schema validity, JSON malformation rate and latency. Use locally validated text responses unless native function/tool calling is separately confirmed; the compatible endpoint alone does not establish that feature. The router base is chosen from that score. Role/model splits and exact call budgets remain PROPOSED pending those measurements. Models may propose or summarize; deterministic code verifies material calculations. Reranking is optional under DEC-127. Vision, OCR and embedding availability are officially confirmed in [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy); live integration remains unimplemented.
+Model roles are assigned by measurement, not parameter count. A proposed live measurement is a twenty-case tool-selection smoke test — Turkish question in, expected tool and arguments out — against an eligible text model, scoring correct-tool rate, argument-schema validity, JSON malformation rate and latency. Use locally validated text responses unless native function/tool calling is separately confirmed; the compatible endpoint alone does not establish that feature. The router base is chosen from that score. Role/model splits and exact call budgets remain PROPOSED pending those measurements. Models may propose or summarize; deterministic code verifies material calculations. Reranking is optional under DEC-130. Vision, OCR and embedding availability are officially confirmed in [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy); live integration remains unimplemented.
 
 CONFIRMED: [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy) owns the exact host/base URL, MIA-key authentication, model IDs, endpoints and image-count limits. The `openai` SDK is allowed exclusively as the Kloudeks-compatible client; third-party hosted LLM destinations and fallback remain banned. The source still has no live transport, and its blanket SDK-name test needs a later implementation-policy correction (ROADMAP M4). Still unknown: key provisioning/access, context/output capacity, native tool calling/guaranteed JSON, quotas/concurrency/timeout behavior, embedding dimension/prefix and dedicated reranker availability (narrowed Q-K-01..05). Local response validation remains mandatory.
 
@@ -325,16 +325,16 @@ TARGET adapters must retrieve/catalog series identifiers instead of hard-coding 
 
 ### 13. Semantic catalog and retrieval — confirmed baseline; benchmark-gated extensions
 
-TARGET under [DEC-127](DECISIONS.md#dec-127--benchmark-gated-retrieval), superseding DEC-115. No retrieval implementation currently exists.
+TARGET under [DEC-130](DECISIONS.md#dec-130--initial-hybrid-retrieval-baseline), superseding DEC-127; DEC-115 remains historical. No retrieval implementation currently exists.
 
-Mandatory baseline: one Turkish normalizer shared by query/index paths, reviewed aliases/concepts, metadata filters, and lexical/BM25 retrieval. Candidates retain IDs, original titles, source, unit/scale/frequency, coverage and archived/unknown flags. Exact aliases do not bypass ambiguity or semantic checks.
+Mandatory HYBRID baseline: one Turkish normalizer shared by query/index paths, reviewed aliases/concept families, metadata filters, lexical/BM25 and dense semantic retrieval using the organizer's Qwen3-Embedding-8B (exact model/endpoint in DEC-129). LanceDB remains the selected lightweight series-vector index. Dense retrieval starts in the baseline without waiting for lexical failure or a prior gain measurement. Candidates retain IDs, original titles, source, unit/scale/frequency, coverage and archived/unknown flags. Exact aliases do not bypass ambiguity or semantic checks.
 
 Two distinct flows reuse this boundary:
 
-- **Direct series retrieval:** a named concept such as “konut kredisi faiz oranı” maps to the correct known series. Evaluate Recall@5/10, final selection and wrong near matches.
-- **Catalog-bounded relationship discovery:** a target such as “konut kredilerindeki hareketi ne açıklayabilir?” leads to reviewed concept families, metadata search inside those families, diversity/deduplication, finance-semantic filtering and a bounded candidate pool. Searching only the target's words can return duplicates of the target and miss relevant families. The family policy defines catalog neighborhoods to investigate, not economic causes. Candidate quality has its own evaluation track.
+- **Direct series retrieval:** lexical+dense retrieval maps a named concept such as “konut kredisi faiz oranı” to the correct known series. Compare lexical-only, dense-only and combined candidates; evaluate Recall@5/10, final selection, latency and failure behavior.
+- **Catalog-bounded relationship discovery:** a target such as “konut kredilerindeki hareketi ne açıklayabilir?” leads to reviewed concept families, hybrid lexical+dense search inside those families, diversity/deduplication, finance-semantic filtering and a bounded candidate pool. Searching or embedding only the target phrase can return near-duplicate target variants and miss relevant families. The family policy defines catalog neighborhoods to investigate, not economic causes. Candidate quality has its own evaluation track.
 
-PROPOSED / BENCHMARK-GATED: embeddings/LanceDB require meaningful held-out gain; RRF requires complementary paths and fusion gain; listwise reranking requires selection gain worth its latency, calls, failure surface and weak-model instability. Record each stage's gain and latency against the baseline in [EVALUATION](EVALUATION.md#retrieval-and-product-evaluation-tracks). Optional document-chunk indexing additionally needs an implemented, permitted web_url path. No code or dependency deletion is implied.
+PROPOSED / BENCHMARK-GATED: RRF requires demonstrably complementary lexical/dense paths and held-out fusion gain; listwise reranking requires meaningful final-selection gain worth another model call, latency, token usage, failure surface and weak-model instability. Additional retrieval/vector infrastructure needs measured benefit. Record candidate pooling/deduplication and budgets for the combined baseline; hybrid does not itself prescribe RRF. Compare path/combined quality and failures in [EVALUATION](EVALUATION.md#retrieval-and-product-evaluation-tracks); label single-path fallback degraded, not full hybrid. Optional document-chunk indexing also needs permitted web_url ingestion. No implementation/dependency change is implied.
 
 ## Product behaviors and proof target
 
@@ -355,7 +355,7 @@ Important values need sufficient immutable result/input identity, a run bound to
 
 Evidence states are claim-type-specific: numeric VERIFIED / NOT VERIFIED; relationship EXPLORATORY / STABILITY-SUPPORTED / INSUFFICIENT; causality NOT ESTABLISHED. Optional quality/match/semantics/statistical/external/causal dimensions use UNKNOWN / N/A when missing; never average them into a probability. Relationship strength labels describe the observed analysis, whereas evidence states describe its support.
 
-Optional bounded robustness checks may compare a small deterministic set of valid windows/lags or missing-period sensitivity. DEFER / CUT IF BEHIND: Leading Indicator Miner, research-grade regime segmentation, causal event attribution, graph-heavy proof UI, recursive challenge/debate and mandatory dense+RRF+rerank. Official-source web context is contextual evidence only.
+Optional bounded robustness checks may compare a small deterministic set of valid windows/lags or missing-period sensitivity. DEFER / CUT IF BEHIND: Leading Indicator Miner, research-grade regime segmentation, causal event attribution, graph-heavy proof UI, recursive challenge/debate and mandatory RRF/reranking or extra vector infrastructure. Dense semantic retrieval is part of the initial baseline under DEC-130. Official-source web context is contextual evidence only.
 
 Core first: permitted real ingestion, the existing lakehouse tool, deterministic result contracts, workspace integration, verification, live Kloudeks and required brief tools. These behaviors must not delay that vertical slice. ROADMAP owns their start conditions; confirmation here does not make a task READY.
 
@@ -401,6 +401,6 @@ Extension rules:
 4. New file format: confirm scope, guard/parser limits and fragment provenance, then add supported/unsupported/hostile cases.
 5. New persistence/UI/orchestration dependency: resolve the relevant decision with a small tested requirement first.
 
-Decided as of M0-ARCH and no longer open here: orchestration (DEC-113), analytical engine and lakehouse (DEC-112), spreadsheet paths (DEC-111, DEC-114), catalog baseline and benchmark-gated retrieval (DEC-116, DEC-127), workspace persistence (DEC-117), lineage (DEC-118), verification (DEC-119), causality method (DEC-120), tool surface (DEC-121), provider interface (DEC-122), API and frontend (DEC-123), dependencies (DEC-124), layout (DEC-125) and deployment topology (DEC-126).
+Decided as of M0-ARCH and no longer open here: orchestration (DEC-113), analytical engine and lakehouse (DEC-112), spreadsheet paths (DEC-111, DEC-114), hybrid catalog baseline and benchmark-gated extensions (DEC-116, DEC-130), workspace persistence (DEC-117), lineage (DEC-118), verification (DEC-119), causality method (DEC-120), tool surface (DEC-121), provider interface (DEC-122), API and frontend (DEC-123), dependencies (DEC-124), layout (DEC-125) and deployment topology (DEC-126).
 
 DEC-129 answers Kloudeks endpoint/auth/model availability and listed image limits. Remaining external questions cover credential access, native tool/JSON guarantees, capacity/quotas/timeouts, embedding dimension/prefix and dedicated reranker (Q-K-01..05); measured retry/latency budgets; source access/redistribution (Q-DATA-01/03); demo egress (Q-NET-01/02); and runtime/storage (Q-INFRA-01/02), which can override DEC-126. Router fine-tuning and multi-agent topology stay deferred.

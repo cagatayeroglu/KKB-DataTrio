@@ -4,7 +4,7 @@ This file owns unresolved external/team questions and their evidence. [DECISIONS
 
 Snapshot: 2026-09-09. The five team-decision questions Q-TEAM-01 through Q-TEAM-05 are **ANSWERED** by M0-ARCH and recorded in DECISIONS; those five choices are no longer blockers. Task-level proof/result schemas, reviewed concept-family membership and measured thresholds remain proposals until reviewed; they do not reopen those answered questions. Official Kloudeks integration information relayed by Çağatay on 2026-09-09 answers endpoint/authentication, model availability and image-input limits; [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy) owns the exact capability contract. Q-K-01/02/05 are narrowed below. Other organizer categories have no newly recorded answers and remain open; suggested lanes are not assignments.
 
-The organizer questions are now the project's only external blockers, and several of them gate long-lead work: remaining key provisioning/access (Q-K-01), capacity (Q-K-02/04) and capability guarantees (Q-K-03) constrain their respective live acceptance. Ordinary compatible text transport can be built against the confirmed contract with local schema validation; no native tool/JSON guarantee is needed for that path. Q-K-05 gates optional embedding configuration/dedicated-reranker questions under DEC-127 (DEC-115 is SUPERSEDED); Q-NET-01/02 gate the `web_search` and `web_url` tools, Q-DATA-01 gates live source retrieval, and Q-INFRA-01 can override DEC-126. Ask them early rather than near the delivery date.
+The organizer questions are now the project's only external blockers, and several of them gate long-lead work: remaining key provisioning/access (Q-K-01), capacity (Q-K-02/04) and capability guarantees (Q-K-03) constrain their respective live acceptance. Ordinary compatible text transport can be built against the confirmed contract with local schema validation; no native tool/JSON guarantee is needed for that path. Q-K-05 retains configuration questions for the now-required dense baseline and optional dedicated-reranker availability under DEC-130 (DEC-127/115 are SUPERSEDED); Q-NET-01/02 gate the `web_search` and `web_url` tools, Q-DATA-01 gates live source retrieval, and Q-INFRA-01 can override DEC-126. Ask them early rather than near the delivery date.
 
 ## How to use this list
 
@@ -40,7 +40,7 @@ The organizer questions are now the project's only external blockers, and severa
 
 ### Q-K-02 — Available models and context capacity
 
-- [x] Record exact text/reasoning/vision, embedding and OCR model IDs plus confirmed image-count limits in [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy).
+- [x] Record exact main chat/text/vision, embedding and OCR model IDs plus confirmed image-count limits in [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy).
 - [ ] Record context window and general maximum output tokens beyond example-specific values.
 - Remaining question: What context/output-token capacity applies to each confirmed model? Example settings are not guaranteed maxima.
 - Why it matters: Bounded prompts and output budgets must fit the platform; availability is not a capacity measurement.
@@ -81,9 +81,9 @@ The organizer questions are now the project's only external blockers, and severa
 - [ ] Resolve vector dimension, query/passage prefix convention, batch/token limits and whether a dedicated reranker is available.
 - Remaining question: What are those embedding configuration/limit details, and can a dedicated reranker be provided? General request/rate/concurrency limits remain Q-K-04.
 - Why it matters: Availability alone does not define a valid index/configuration or establish retrieval quality.
-- Blocks which milestone? Optional M13-05 embedding configuration and dedicated-reranker use under M13-07, plus their benchmark gates. Not the mandatory normalizer/alias/metadata/lexical baseline or offline benchmark design.
-- Can we proceed before answer? YES for baseline/benchmark work; do not invent dimension/prefix values for an optional vector index.
-- Temporary assumption: Keep DEC-127's measured activation policy. Do not copy an E5 prefix convention onto the confirmed Qwen model. The supplied list's omission of a dedicated reranker is not proof one can never be offered.
+- Blocks which milestone? M13-05 dense-baseline index configuration (dimension/prefix/limits) and optional dedicated-reranker use under M13-07. Lexical work, contracts and offline benchmark design can proceed; full hybrid acceptance requires both retrieval paths. Dense use itself is confirmed by DEC-130, not gated on lexical failure.
+- Can we proceed before answer? YES for lexical work and hybrid contracts/benchmark design; do not invent vector dimension/prefix values or claim complete hybrid integration while those prerequisites remain unresolved.
+- Temporary assumption: Keep DEC-130's mandatory lexical+dense baseline and measured activation policy for RRF/reranking/extra stages. Do not copy an E5 prefix convention onto the confirmed Qwen model. The supplied list's omission of a dedicated reranker is not proof one can never be offered.
 - Owner: Unassigned; suggested lane B.
 - Status: OPEN only for remaining embedding details/dedicated reranker; embedding availability ANSWERED.
 - Answer / evidence: Official guidance relayed by Çağatay, 2026-09-09; DEC-129. No dimension, prefix convention or dedicated-reranker answer supplied.
