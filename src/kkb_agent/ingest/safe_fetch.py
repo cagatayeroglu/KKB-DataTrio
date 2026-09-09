@@ -1,4 +1,4 @@
-"""M7-01 source-fetch contract, with live I/O deliberately disabled.
+"""Source-fetch contract and offline URL policy; live I/O remains disabled.
 
 Adapters will call ``safe_fetch`` with an opaque SourceRef.source_id, a locator
 and explicit accepted media types. Success means retrieved bytes, not admitted
@@ -6,9 +6,9 @@ files, parsed observations or verified financial semantics. CSV/XLSX still pass
 through M1 admission/loader checks; other parser routes remain separate tasks.
 
 Limits below are local operator budgets, not organizer/platform guarantees.
-M7-02..06 must implement destination/DNS/connection validation, redirects and
-stream/decompression/deadline enforcement before this entry point can fetch.
-Constructing a request or success record does not perform those controls.
+M7-02 validates URLs and literal targets here. M7-03..06 must bind DNS to the
+actual connection and enforce redirects/stream/decompression/deadline controls
+before this entry point can fetch. Constructed records are not network permission.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from typing import Annotated, Literal, Self
 from pydantic import ConfigDict, Field, SecretStr, StringConstraints, model_validator
 
 from kkb_agent.core.models import ContractModel
+from kkb_agent.ingest.url_targets import TargetReason, TargetRejection, validate_url_target
 from kkb_agent.ingestion_policy import DEFAULT_LIMITS as ADMISSION_LIMITS
 
 SourceId = Annotated[
@@ -68,8 +69,8 @@ class FetchRequest(ContractModel):
 
     Only the opaque source ID crosses into diagnostics. The locator is masked
     in repr and excluded from ordinary model exports; a future transport must
-    explicitly unwrap it. Credentials/URL schemes/hosts are not validated here:
-    every request is currently refused before any resolution or connection.
+    explicitly unwrap it. Construction alone does not validate the destination;
+    safe_fetch applies the offline policy before refusing all live connections.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -102,6 +103,7 @@ class FetchFailure(ContractModel):
     status: Literal["failure"] = "failure"
     source_ref: SourceId
     code: FetchCode
+    target_reason: TargetReason | None = None
 
 
 class FetchSuccess(ContractModel):
@@ -130,13 +132,19 @@ def safe_fetch(request: FetchRequest, *, limits: FetchLimits = DEFAULT_LIMITS) -
 
     Revalidate at this boundary so an unchecked model_copy/model_construct
     cannot silently supply an invalid budget. Invalid contracts raise sanitized
-    Pydantic ValidationError text. The only runtime outcomes currently emitted
-    are SIZE_LIMIT (locator budget) and NETWORK_DISABLED; other categories and
-    success are contracts for subsequent controlled-transport tasks.
+    Pydantic ValidationError text. URL-policy failures carry fixed rejection
+    reasons. Passing that policy still returns NETWORK_DISABLED: no DNS lookup,
+    peer validation, HTTP transport or complete SSRF protection exists yet.
     """
 
     request = FetchRequest.model_validate(request)
     limits = FetchLimits.model_validate(limits)
-    if len(request.url.get_secret_value()) > limits.max_url_chars:
-        return FetchFailure(source_ref=request.source_ref, code=FetchCode.SIZE_LIMIT)
+    target = validate_url_target(request.url.get_secret_value(), max_url_chars=limits.max_url_chars)
+    if isinstance(target, TargetRejection):
+        code = FetchCode.INVALID_REQUEST
+        if target.reason is TargetReason.URL_TOO_LONG:
+            code = FetchCode.SIZE_LIMIT
+        elif target.reason in (TargetReason.LOCAL_HOST, TargetReason.NON_PUBLIC_IP):
+            code = FetchCode.BLOCKED_DESTINATION
+        return FetchFailure(source_ref=request.source_ref, code=code, target_reason=target.reason)
     return FetchFailure(source_ref=request.source_ref, code=FetchCode.NETWORK_DISABLED)

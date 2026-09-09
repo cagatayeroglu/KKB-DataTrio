@@ -62,18 +62,23 @@ def test_limits_round_trip_and_zero_redirect_policy() -> None:
 
 
 @pytest.mark.parametrize(
-    "url",
+    ("url", "code"),
     [
-        "https://example.test/series.csv",
-        "http://127.0.0.1/private",
-        "http://[::1]/private",
-        "http://169.254.169.254/latest/meta-data/",
-        "file:///private/synthetic",
-        "https://name:synthetic-secret@example.test/data?key=synthetic-secret",
-        "not a URL",
+        ("https://example.test/series.csv", FetchCode.NETWORK_DISABLED),
+        ("http://8.8.8.8/", FetchCode.NETWORK_DISABLED),
+        ("https://[2606:4700:4700::1111]/", FetchCode.NETWORK_DISABLED),
+        ("http://127.0.0.1/private", FetchCode.BLOCKED_DESTINATION),
+        ("http://[::1]/private", FetchCode.BLOCKED_DESTINATION),
+        ("http://169.254.169.254/latest/meta-data/", FetchCode.BLOCKED_DESTINATION),
+        ("file:///private/synthetic", FetchCode.INVALID_REQUEST),
+        (
+            "https://name:synthetic-secret@example.test/data?key=synthetic-secret",
+            FetchCode.INVALID_REQUEST,
+        ),
+        ("not a URL", FetchCode.INVALID_REQUEST),
     ],
 )
-def test_every_request_is_disabled_before_dns_or_socket_use(monkeypatch, url) -> None:
+def test_every_request_is_refused_before_dns_or_socket_use(monkeypatch, url, code) -> None:
     calls = []
 
     def forbidden(*args, **kwargs):
@@ -83,7 +88,10 @@ def test_every_request_is_disabled_before_dns_or_socket_use(monkeypatch, url) ->
     monkeypatch.setattr(socket, "getaddrinfo", forbidden)
     monkeypatch.setattr(socket, "socket", forbidden)
     result = safe_fetch(request(url))
-    assert result == FetchFailure(source_ref="source:synthetic-1", code=FetchCode.NETWORK_DISABLED)
+    assert isinstance(result, FetchFailure)
+    assert result.source_ref == "source:synthetic-1"
+    assert result.code == code
+    assert (result.target_reason is None) == (code is FetchCode.NETWORK_DISABLED)
     assert calls == []
 
 
