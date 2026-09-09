@@ -2,7 +2,11 @@
 
 An evidence-backed financial-data analyst for the KKB Hackathon. The intended product accepts supported data sources and questions, produces a typed analytical plan, computes results with deterministic Python tools, and presents answers/tables/charts with source, transformation, and verification evidence. Follow-up questions use an explicit analysis workspace.
 
-**Current state:** foundation only, not a runnable end-to-end analyst. `dev` contains the minimal core contracts, the file admission policy, XLSX sheet discovery and a bounded XLSX loader, with synthetic CSV and XLSX fixtures; `make pr` passes with 245 tests. There is no lakehouse, catalog, CSV loader, profiler, provider, planner, tool, verifier or UI yet. The architecture and technology stack were frozen on 2026-09-09 and are recorded as decisions; none of it is built. Day 0 provider and evaluation drafts remain in a local stash that a fresh clone does not contain. See [current status and next safe tasks](docs/ROADMAP.md#current-project-status) for the authoritative handoff.
+**Current state:** a thin end-to-end path exists and is tested; no real source feeds it yet.
+
+A question becomes a validated plan, the plan runs restricted SQL against the lakehouse, the query records its lineage, and a verifier refuses to release an answer containing a number that does not resolve to a stored cell — one test walks that chain and reads the original bytes back through the graph. `make pr` passes with 552 tests.
+
+What is missing is retrieval and everything above the answer: no adapter fetches a BDDK bulletin or an EVDS series, there is no safe-fetch layer, no CSV loader, no catalog or retrieval, only one of the six tools, no front end and no deployment. Day 0 provider and evaluation drafts remain in a local stash that a fresh clone does not contain. See [current status and next safe tasks](docs/ROADMAP.md#current-project-status) for the authoritative handoff.
 
 ## Constraints and architecture
 
