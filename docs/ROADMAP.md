@@ -1159,16 +1159,22 @@ M0-01 contracts and M1 loading for input; DEC-112 for the engine, DEC-114 for bu
 
 ### M12-13/14 active record
 
-- Status: IN PROGRESS — claim published before implementation
+- Status: PARTIAL — implemented and validated on the task branch; unchecked until its PR merges into `dev`
 - Owner: Eray
 - Branch: `feature/m12-13-gold-and-lineage`; fresh `dev` base `d01edf1`
-- PR: pending
-- Commit: pending
-- Objective: Join normalized series onto one spine as gold, and make every produced cell traceable to the bronze bytes it came from through the transformations that made it. A cell without lineage is a defect.
+- PR: [#26](https://github.com/cagatayeroglu/KKB-DataTrio/pull/26) -> `dev`; draft claim published before implementation
+- Commit: claim `53fe043`; implementation recorded in the PR
+- Objective: Join normalized series onto one spine as gold, and make every produced cell traceable to the bronze bytes it came from.
 - Scope: gold joins and the lineage graph. No retrieval, no verifier, no UI.
-- Tests: pending.
+- Implementation: [lakehouse/lineage.py](../src/kkb_agent/lakehouse/lineage.py) and [lakehouse/gold.py](../src/kkb_agent/lakehouse/gold.py), with `Observation` moved to [records.py](../src/kkb_agent/lakehouse/records.py) so the layers can speak in observations without importing each other. Both schemas are applied by `open_lakehouse`, and an open lakehouse exposes `.lineage`.
+- Lineage is content-addressed. A node id is a SHA-256 over its kind, label, sorted attributes and sorted upstream ids, so the same derivation reached twice is one node and a replayed pipeline converges on the same graph instead of duplicating it. An edge whose upstream does not exist is refused: an edge leading nowhere looks like provenance and is worse than none. `trace` walks ancestors breadth-first, `sources_of` filters them to bronze artifacts, and `missing_provenance` is meant to fail a build rather than warn.
+- Gold enforces two rules. A period a series did not publish is **null** — absent and explicitly-missing are treated alike, and nothing is filled forward, because a flat line drawn from a fill is indistinguishable from a real one. And a column with no upstream lineage is **refused at construction**, so an untraceable column cannot reach a table; failing there is cheaper than discovering it in a demo. Coverage is recorded on the column node itself.
+- End-to-end slice: a test assembles the reference scenario's shape — the monthly BDDK housing-credit stock beside the weekly EVDS rate reduced onto the same spine — then asserts every column reaches a source file, that the rate column's trace contains the reduction's exact parameters, that the stock column's trace contains no transform, and that the bronze bytes behind a persisted cell are still readable through the graph.
+- Tests: PASS (2026-09-09; Python 3.12.5). `pytest -q tests/unit/test_gold_lineage.py` — 23 passed. Full gate: Ruff 0.16.6 format and lint clean over 33 files, `pytest -q tests/unit` — 367 passed in 8.62s, Bandit 1.9.4 clean, secret scan clean. `mypy src` reports 14 errors, **unchanged**; the new modules are strict-clean.
+- A circular import appeared and was fixed structurally rather than papered over. `store` needed the gold schema while `gold` needed `Observation` from `store`; moving the value type into its own dependency-free module removed the cycle without lazy imports in the hot path.
+- One speculative method was written and removed. DEC-118 names a networkx export for graph layout, but nothing consumes it: `trace` answers every question the pipeline asks today, and the method would have meant an undeclared dependency serving dead code. A comment records where it belongs, and it arrives with the UI task that needs a layout.
 - Blocker: none.
-- Handoff: pending.
+- Handoff: M12's correctness chain is complete — bronze bytes, semantics-gated silver, cumulative conversion, frequency alignment, gold on one spine, and provenance for every cell. What is missing before an answer can be produced is everything above the data layer: no adapter fetches a real bulletin, no planner routes a question, no verifier checks a claim against a cell. The agreed next lane is M4, the Kloudeks provider interface, which can be built against a synthetic double while Q-K-01/02/03 remain unanswered.
 
 ### M12-08 active record
 

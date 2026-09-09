@@ -31,6 +31,8 @@ from kkb_agent.core import (
     StockFlow,
     WeeklyAnchor,
 )
+from kkb_agent.lakehouse.lineage import LINEAGE_SCHEMA, Lineage
+from kkb_agent.lakehouse.records import Observation
 from kkb_agent.lakehouse.semantics import SeriesSemantics, check_period
 
 if TYPE_CHECKING:  # pragma: no cover - import cost only
@@ -89,15 +91,6 @@ class BronzeArtifact:
 
 
 @dataclass(frozen=True, slots=True)
-class Observation:
-    """One published value. `value` is None for a genuinely missing observation."""
-
-    period_start: date
-    period_end: date
-    value: float | None
-
-
-@dataclass(frozen=True, slots=True)
 class Lakehouse:
     """An open medallion store. Not thread-safe; one connection, one caller."""
 
@@ -115,6 +108,11 @@ class Lakehouse:
     @property
     def gold(self) -> Path:
         return self.root / "gold"
+
+    @property
+    def lineage(self) -> Lineage:
+        """Provenance graph over this connection."""
+        return Lineage(self.connection)
 
     # -- bronze ---------------------------------------------------------------
 
@@ -297,7 +295,13 @@ def open_lakehouse(root: Path) -> Iterator[Lakehouse]:
         (root / layer).mkdir(parents=True, exist_ok=True)
     connection = duckdb.connect(str(root / DATABASE_NAME))
     try:
+        # Imported here so the gold module can speak in observations without
+        # importing the store back.
+        from kkb_agent.lakehouse.gold import GOLD_SCHEMA
+
         connection.execute(SCHEMA)
+        connection.execute(LINEAGE_SCHEMA)
+        connection.execute(GOLD_SCHEMA)
         yield Lakehouse(root=root, connection=connection)
     finally:
         connection.close()
