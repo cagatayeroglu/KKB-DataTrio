@@ -738,16 +738,23 @@ M0 contracts for offline validation; organizer endpoint/auth/model contract for 
 
 ### M4 provider record
 
-- Status: IN PROGRESS — claim published before implementation
+- Status: PARTIAL — implemented and validated on the task branch; unchecked until its PR merges into `dev`
 - Owner: Eray
 - Branch: `feature/m4-provider-interface`; fresh `dev` base `726f97a`
-- PR: pending
-- Commit: pending
+- PR: [#27](https://github.com/cagatayeroglu/KKB-DataTrio/pull/27) -> `dev`; draft claim published before implementation
+- Commit: claim `4ae5127`; implementation recorded in the PR
 - Objective: Deliver the DEC-122 provider boundary so everything above it can be built and tested while the platform's endpoint, models and capabilities stay unanswered.
 - Scope: interface, configuration, structured-output fallback, synthetic doubles and redaction. **No live transport** — M4-07 stays blocked on Q-K-01/02/03.
-- Tests: pending.
-- Blocker: none for the offline boundary.
-- Handoff: pending.
+- Implementation: [llm/provider.py](../src/kkb_agent/llm/provider.py) holds the three-method protocol and the error taxonomy; [llm/config.py](../src/kkb_agent/llm/config.py) reads every platform value from the environment; [llm/structured.py](../src/kkb_agent/llm/structured.py) extracts, repairs and strictly validates model JSON; [llm/doubles.py](../src/kkb_agent/llm/doubles.py) is a scripted provider that runs the real repair loop and performs no networking.
+- Nothing platform-specific is a constant. Model identifiers, base URL, capability flags, timeout and attempt budget all come from the environment, because Q-K-01 through Q-K-05 are unanswered and a constant written today would be a guess that outlives the guessing. Configuration errors name every faulty setting at once rather than one per restart, and name the setting rather than its value.
+- Capabilities are reported, not assumed. `capabilities()` derives `embed` and `vision` from whether a model is configured, and `structured_output` defaults to **false**, so the repair loop is the default path until Q-K-03 says otherwise. A caller that needs embeddings finds out at configuration rather than at the first retrieval.
+- Strict validation is the gate. Extra fields are rejected rather than ignored, because DEC-101 requires the schema to decide what may execute — a test feeds a plan carrying an unexpected `shell` field and asserts it is refused. On failure the loop appends the model's own answer plus a correction naming the fault and restating the schema, then retries within a bounded budget; an unchanged prompt tends to reproduce the same malformation.
+- Redaction is tested, not assumed: prompt content and completion text are excluded from representations, the credential is a `SecretStr` and absent from both `repr` and configuration errors, and a schema violation reports field locations and error types without the offending values, which are model output derived from a prompt that may hold source rows.
+- A test walks the whole package asserting no third-party LLM client, import or environment variable appears anywhere, which is what makes [DEC-002](DECISIONS.md#dec-002--delivered-llm-access-through-kloudeks) checkable by inspection rather than by trust.
+- Tests: PASS (2026-09-09; Python 3.12.5). `pytest -q tests/unit/test_llm_provider.py` — 48 passed. Full gate: Ruff 0.16.6 format and lint clean over 39 files, `pytest -q tests/unit` — 415 passed in 8.60s, Bandit 1.9.4 clean, secret scan clean. `mypy src` reports 14 errors, **unchanged**; the `llm` package is strict-clean.
+- The repository secret scan flagged a test constant named like a key, correctly. It was renamed to an obvious canary rather than excused: a control that has to be suppressed for the test proving it works is not a control. `json-repair` was added from the DEC-124 allowlist; [.env.example](../.env.example) now lists the real settings, which also closes the naming half of M0-05.
+- Blocker: none for the offline boundary. M4-07 live transport still needs Q-K-01/02/03; M4-12's live measurement needs a credential.
+- Handoff: the planner, router and tools can now be written and exercised against a provider that fails the way the platform is expected to fail. The next lane is M5 — the DEC-113 planner/router/executor loop with a typed plan and a registry, built against the scripted provider. When Kloudeks answers arrive, the live transport slots in behind this interface and nothing above it changes.
 
 ## Acceptance criteria
 
