@@ -1082,7 +1082,7 @@ Validated M0 record models; M1 source references; M5 tool runs; M2/M6 outputs as
 - [ ] M8-03 — Implement evidence registration and stable IDs tied to workspace/tool runs.
 - [ ] M8-04 — Validate source, input/output, tool-run, and transformation references resolve; reject orphan evidence.
 - [ ] M8-05 — Attach lineage at ingestion, transformation, and analytical execution time, not only during synthesis.
-- [ ] M8-06 — Status: PARTIAL. Owner: Eray; Branch: `feature/m8-06-07-result-verification` from `dev` `2060f31`; PR: [#44](https://github.com/cagatayeroglu/KKB-DataTrio/pull/44) open; Commit: pending. Implement deterministic verification for basic change/numeric results against preserved input references. Evidence: [M8-06/07 result verification record](#m8-0607-result-verification-record).
+- [ ] M8-06 — Status: PARTIAL. Owner: Eray; Branch: `feature/m8-06-07-result-verification` from `dev` `2060f31`; PR: [#44](https://github.com/cagatayeroglu/KKB-DataTrio/pull/44) open; Commit: `ba922f3`. Implement deterministic verification for basic change/numeric results against preserved input references. Evidence: [M8-06/07 result verification record](#m8-0607-result-verification-record).
 - [ ] M8-07 — Status: PARTIAL — value, scale, period and sample checks land in PR [#44](https://github.com/cagatayeroglu/KKB-DataTrio/pull/44); **transformation-prerequisite validation remains unimplemented** and waits on M6-13 deflation. Resumed by its recorded owner. Owner: Eray; Branch: `feature/m8-06-07-result-verification` from `dev` `2060f31` (original merged scope on `feature/m8-verifier`); PR/Commit: pending. Verify units, periods, sample counts, and transformation prerequisites alongside values. Evidence: [M8-06/07 result verification record](#m8-0607-result-verification-record).
 - [ ] M8-08 — Distinguish passed, failed, and not-run validation; partial results must identify exactly which claims are supported.
 - [ ] M8-09 — Detect conflicting sources/vintages and surface the disagreement instead of choosing silently.
@@ -1100,8 +1100,8 @@ Validated M0 record models; M1 source references; M5 tool runs; M2/M6 outputs as
 - Status: PARTIAL — implemented and validated; unchecked until merged into `dev`.
 - Owner: Eray (recorded owner of the original M8-07 scope; same owner resumes, so no transfer is needed)
 - Branch: `feature/m8-06-07-result-verification`, from `dev` `2060f31bd9422c448c67a7191b59a5be7614d568`
-- PR: pending
-- Commit: pending
+- PR: [#44](https://github.com/cagatayeroglu/KKB-DataTrio/pull/44), `feature/m8-06-07-result-verification` -> `dev`; awaiting review/merge. Draft claim published before implementation; no collision on post-publication remote recheck.
+- Commit: `ba922f3` (implementation); claim `efb6b01`.
 - Objective: Make the verifier check a claim against a specific `AnalyticalResult` — its own values, periods, units and preserved input references — instead of against any stored value of similar magnitude. Add a store recheck independent of the model's SQL. Not a full proof engine.
 - Implementation: [agent/verifier.py](../src/kkb_agent/agent/verifier.py) gains `verify_result` beside the existing `verify`, plus `recheck_against_store` and a `Binding.RESULT`. `NumberVerdict` gains `result_id`, `value_label` and `faults`; `supported` now requires a binding **and** no faults, because finding a match is not the same as the match being presentable.
 - The old gate's weakness, stated plainly: `verify` asks "does a number like this exist anywhere in the store?". A figure taken from the wrong series, the wrong period or the wrong scale passes that question. `verify_result` asks whether the number is one **this** result produced. There is deliberately no fallback to a store-wide search — that fallback is the behaviour being replaced — so a number must bind to a result value, to a caller-justified context figure, or be a year.
