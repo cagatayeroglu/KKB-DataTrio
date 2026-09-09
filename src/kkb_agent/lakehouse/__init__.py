@@ -1,5 +1,15 @@
 """Medallion lakehouse: immutable bronze, semantics-gated silver."""
 
+from kkb_agent.lakehouse.cumulative import (
+    FIRM_RESET_BOUNDARIES,
+    MIN_OBSERVATIONS,
+    Confidence,
+    CumulativeError,
+    CumulativeVerdict,
+    detect_cumulative,
+    to_flow,
+)
+from kkb_agent.lakehouse.periods import add_months, is_january, month_end, spine
 from kkb_agent.lakehouse.semantics import (
     KNOWN_UNITS,
     REQUIRED_SEMANTICS,
@@ -23,11 +33,16 @@ from kkb_agent.lakehouse.store import (
 
 __all__ = [
     "DATABASE_NAME",
+    "FIRM_RESET_BOUNDARIES",
     "KNOWN_UNITS",
     "LAYERS",
+    "MIN_OBSERVATIONS",
     "REQUIRED_SEMANTICS",
     "SCHEMA",
     "BronzeArtifact",
+    "Confidence",
+    "CumulativeError",
+    "CumulativeVerdict",
     "Lakehouse",
     "LakehouseError",
     "Observation",
@@ -35,7 +50,13 @@ __all__ = [
     "SemanticsError",
     "SeriesSemantics",
     "UnresolvedSemantics",
+    "add_months",
     "check_period",
+    "detect_cumulative",
+    "is_january",
+    "month_end",
     "open_lakehouse",
     "period_bounds",
+    "spine",
+    "to_flow",
 ]

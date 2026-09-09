@@ -1159,16 +1159,21 @@ M0-01 contracts and M1 loading for input; DEC-112 for the engine, DEC-114 for bu
 
 ### M12-04..07 active record
 
-- Status: IN PROGRESS — claim published before implementation
+- Status: PARTIAL — implemented and validated on the task branch; unchecked until its PR merges into `dev`
 - Owner: Eray
-- Branch: `feature/m12-05-cumulative-semantics`; fresh `dev` base recorded on delivery
-- PR: pending
-- Commit: pending
-- Objective: Make cumulative series usable and safe — a canonical period spine, detection that distinguishes the three accumulation behaviours measured in the BDDK bulletin, and conversion to monthly flow that refuses rather than guesses where the inputs do not support it.
+- Branch: `feature/m12-05-cumulative-semantics`; fresh `dev` base `26e801d`
+- PR: [#24](https://github.com/cagatayeroglu/KKB-DataTrio/pull/24) -> `dev`; draft claim published before implementation
+- Commit: claim `4900c43`; implementation recorded in the PR
+- Objective: Make cumulative series usable and safe — a canonical period spine, detection that distinguishes the accumulation behaviours measured in the BDDK bulletin, and conversion to flow that refuses rather than guesses.
 - Scope: period arithmetic and cumulative semantics as pure functions over observations. No retrieval, no lineage writing, no gold joins, no frequency alignment.
-- Tests: pending.
+- Implementation: [lakehouse/periods.py](../src/kkb_agent/lakehouse/periods.py) generates the canonical spine so two series that both call themselves monthly cannot disagree about which day a month ends on; [lakehouse/cumulative.py](../src/kkb_agent/lakehouse/cumulative.py) holds `detect_cumulative` and `to_flow`.
+- Detection is deliberately unable to answer some questions. A fall outside January rules accumulation out with high confidence. A fall at every observed January boundary rules yearly reset in, at high confidence from two boundaries and low from one. A series that only ever rises returns **UNKNOWN with low confidence and a stated reason**: a since-inception cumulative and a growing stock are identical in the values, and the measured housing-credit series is exactly that case for months at a time. Resolving it needs source metadata, not arithmetic.
+- Conversion refuses more than it computes. `to_flow` takes the **declared** kind, never a verdict, so a low-confidence guess cannot authorize a transformation. A yearly-reset January is returned as the published value because the year restarts there; the cross-boundary difference — which would have been −852,934 for net profit at 2026-01 — is never produced. A period with no usable predecessor, a gap in the spine or a missing input comes back `None` rather than a number spanning two periods or an implicit zero. A since-inception series needs an explicit baseline for its first period and returns `None` without one.
+- Tests: PASS (2026-09-09; Python 3.12.5). `pytest -q tests/unit/test_cumulative.py` — 32 passed. Full gate: Ruff 0.16.6 format and lint clean over 27 files, `pytest -q tests/unit` — 322 passed in 8.57s, Bandit 1.9.4 clean, secret scan clean. `mypy src` reports 14 errors, **unchanged**; the new modules are strict-clean and M0-08 still owns the XLSX ones.
+- Fixtures are real. Every series in the tests is published BDDK data quoted from the M3-02 retrieval: the housing-credit stock over its falling 2023/7–2024/3 stretch, the same stock rising monotonically through January 2026, and net profit across two real reset boundaries. Synthetic numbers would not have produced the case that matters, which is a genuine stock that looks cumulative.
+- Two tests failed first and both were the test's fault, not the code's. One expected high confidence from a window containing a single January boundary; the code was right to say low, so the fixture was widened to two real boundaries. The other built a mixed-reset case too short to judge at all. Bandit then rejected a type-narrowing `assert`, correctly — asserts vanish under `-O` — so the loop was restructured to filter missing values up front instead.
 - Blocker: none.
-- Handoff: pending.
+- Handoff: cumulative series can now be converted safely, and a stock can no longer be differenced into a fake disbursement series by accident. Nothing is persisted or attributed yet: `to_flow` returns observations and writes no lineage, which M12-14 and DEC-118 still require. Next is M12-08 frequency alignment, where the weekly Friday-anchored rate from EVDS meets the monthly stock from BDDK — the reference scenario needs that join and no monthly variant of the rate exists.
 
 ### M12-01/02/03 active record
 
