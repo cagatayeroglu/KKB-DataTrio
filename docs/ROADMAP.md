@@ -1151,11 +1151,24 @@ M0-01 contracts and M1 loading for input; DEC-112 for the engine, DEC-114 for bu
 - [ ] M12-10 — Implement unit and scale normalization for TRY, thousand TRY and million TRY with the applied factor recorded; make unit a required field and reject a series without one. This is not hypothetical: FinTürk publishes Bin TL while the monthly and weekly bulletins publish Milyon TL, and the unit appears only in a caption or a display label.
 - [ ] M12-11 — Implement percentage, decimal and basis-point conversion, distinguishing percentage points from relative percent change.
 - [ ] M12-12 — Preserve revisions and source vintages; never collapse conflicting historical observations silently.
-- [ ] M12-13 — Build `gold` joins on the canonical spine with explicit missing-value treatment and observed sample counts.
-- [ ] M12-14 — Write lineage nodes and edges for every transformation in this milestone; a produced cell without lineage fails review.
+- [ ] M12-13 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m12-13-gold-and-lineage`. Build `gold` joins on the canonical spine with explicit missing-value treatment and observed sample counts. Evidence: [M12-13/14 active record](#m12-1314-active-record).
+- [ ] M12-14 — Status: IN PROGRESS. Owner: Eray; Branch: `feature/m12-13-gold-and-lineage`. Write lineage nodes and edges for every transformation in this milestone; a produced cell without lineage fails review. Evidence: [M12-13/14 active record](#m12-1314-active-record).
 - [ ] M12-15 — Add hand-calculated fixtures for each cumulative, aggregation, frequency and unit rule, plus negative tests for unknown unit, unknown frequency and unknown reset behaviour.
 - [ ] M12-16 — Run targeted normalization tests and touched-code lint; record which policies are implemented and which still need source confirmation.
 - [ ] M12-17 — Handle index base-year variants explicitly: the consumer price index exists as 2003=100 and 2025=100, the housing price index as 2010=100, 2017=100 and current. Parse the base from the title, require an explicit reference period, and verify overlap before rebasing.
+
+### M12-13/14 active record
+
+- Status: IN PROGRESS — claim published before implementation
+- Owner: Eray
+- Branch: `feature/m12-13-gold-and-lineage`; fresh `dev` base `d01edf1`
+- PR: pending
+- Commit: pending
+- Objective: Join normalized series onto one spine as gold, and make every produced cell traceable to the bronze bytes it came from through the transformations that made it. A cell without lineage is a defect.
+- Scope: gold joins and the lineage graph. No retrieval, no verifier, no UI.
+- Tests: pending.
+- Blocker: none.
+- Handoff: pending.
 
 ### M12-08 active record
 
