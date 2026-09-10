@@ -209,7 +209,13 @@ class TestTheVerdictCarriesItsEvidenceAndItsLimits:
         assert "external cross-check" in joined
 
 
-class TestTheQueryRecordsThatItRan:
+class TestSourceBackedQueriesReceiveLineage:
+    sql = (
+        "SELECT o.series_id, o.period_start, o.period_end, o.value, s.unit, s.scale"
+        " FROM silver_observations o JOIN silver_series s ON s.series_id = o.series_id"
+        " ORDER BY o.period_end"
+    )
+
     def registry(self, house, lineage=True):
         registry = ToolRegistry()
         registry.register(
@@ -222,7 +228,7 @@ class TestTheQueryRecordsThatItRan:
         return spec.run(LakehouseArguments(sql=sql, purpose="test"), ExecutionContext(question="q"))
 
     def test_a_successful_query_produces_a_transform_node(self, house):
-        result = self.run(house, "SELECT max(value) FROM gold_cells")
+        result = self.run(house, self.sql)
         assert result.status is ToolStatus.SUCCESS
         assert result.evidence is not None
         node = house.lineage.node(result.evidence)
@@ -230,24 +236,26 @@ class TestTheQueryRecordsThatItRan:
         assert node.label == "lakehouse_query"
 
     def test_the_node_records_the_statement_and_what_it_read(self, house):
-        node = house.lineage.node(self.run(house, "SELECT value FROM gold_cells").evidence)
-        assert node.attributes["tables"] == "gold_cells"
+        node = house.lineage.node(self.run(house, self.sql).evidence)
+        assert node.attributes["tables"] == "silver_observations, silver_series"
         assert len(node.attributes["sql_sha256"]) == 64
         assert node.attributes["rows"] == "3"
-        assert node.attributes["columns"] == "value"
+        assert (
+            node.attributes["columns"] == "series_id, period_start, period_end, value, unit, scale"
+        )
 
     def test_the_record_is_honest_about_its_granularity(self, house):
-        node = house.lineage.node(self.run(house, "SELECT value FROM gold_cells").evidence)
+        node = house.lineage.node(self.run(house, self.sql).evidence)
         assert "table-level" in node.attributes["provenance"]
 
     def test_the_same_query_records_one_node(self, house):
-        first = self.run(house, "SELECT value FROM gold_cells").evidence
-        second = self.run(house, "SELECT value FROM gold_cells").evidence
+        first = self.run(house, self.sql).evidence
+        second = self.run(house, self.sql).evidence
         assert first == second
 
     def test_a_different_query_records_a_different_node(self, house):
-        first = self.run(house, "SELECT value FROM gold_cells").evidence
-        second = self.run(house, "SELECT period_end FROM gold_cells").evidence
+        first = self.run(house, self.sql).evidence
+        second = self.run(house, self.sql + " LIMIT 1").evidence
         assert first != second
 
     def test_a_rejected_query_records_nothing(self, house):
@@ -259,7 +267,7 @@ class TestTheQueryRecordsThatItRan:
         assert after == before
 
     def test_lineage_is_optional(self, house):
-        assert self.run(house, "SELECT value FROM gold_cells", lineage=False).evidence is None
+        assert self.run(house, self.sql, lineage=False).evidence is None
 
 
 class TestTheChainEndToEnd:

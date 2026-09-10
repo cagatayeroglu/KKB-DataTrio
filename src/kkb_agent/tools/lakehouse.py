@@ -227,13 +227,13 @@ def make_lakehouse_tool(
 ) -> ToolSpec:
     """Bind the tool to one database. The registry holds the closure, not the data.
 
-    When a `lineage` is supplied, each successful query is recorded as a
+    When a `lineage` is supplied, each source-backed computed query is recorded as a
     transform node carrying the statement's hash, the tables it read and the
     shape it returned. That provenance is **table-level**: deriving which
     individual cells produced a result needs a full column analyzer, and
-    claiming more than we compute would be worse than claiming less. Cell-exact
-    binding happens where DEC-119 puts it, in the verifier, which resolves each
-    number in an answer to a stored cell and reads that cell's own lineage.
+    claiming more than we compute would be worse than claiming less. M6-23
+    checks direct column origins and exact stored identity before promotion;
+    unsupported projections carry no result evidence or query lineage node.
     """
 
     def run(arguments: BaseModel, context: ExecutionContext) -> ToolResult:
@@ -253,15 +253,26 @@ def make_lakehouse_tool(
                 error_category="sql_rejected",
                 warnings=(str(error),),
             )
-        tables = sorted(referenced_tables(_ast_of(arguments.sql)) & set(readable))
-        node = _record_query(lineage, arguments, result, tables)
+        ast = _ast_of(arguments.sql)
+        tables = sorted(referenced_tables(ast) & set(readable))
         typed = _projection.project(
             result,
-            result_id=_result_id(arguments, node),
+            ast=ast,
+            connection=connection,
+            result_id=_result_id(arguments, None),
             tables=tables,
-            lineage_node=node,
             parameters={"purpose": arguments.purpose, "max_rows": max_rows},
         )
+        node = None
+        if typed.status is ResultStatus.COMPUTED:
+            node = _record_query(lineage, arguments, result, tables)
+            if node is not None and typed.evidence is not None:
+                typed = typed.model_copy(
+                    update={
+                        "result_id": node,
+                        "evidence": typed.evidence.model_copy(update={"lineage_node": node}),
+                    }
+                )
         warnings = tuple(typed.warnings)
         if result.truncated:
             warnings = (f"Result truncated to {max_rows} rows; narrow the query", *warnings)
@@ -292,6 +303,9 @@ def _describe(readable: Iterable[str]) -> str:
         "Run one read-only SELECT over the analysis tables. "
         f"Readable tables: {', '.join(sorted(readable))}. "
         "Only SELECT is accepted; no table functions, no writes, no other tables."
+        " Measurements require direct silver_observations columns joined to silver_series"
+        " by series_id, selecting series_id, period_start, period_end, value, unit and scale."
+        " Expressions and other projections return inspection rows only, not financial evidence."
     )
 
 
@@ -328,7 +342,9 @@ def _record_query(
             "columns": ", ".join(result.columns),
             "rows": str(result.row_count),
             "truncated": str(result.truncated).lower(),
-            "provenance": "table-level; cell binding is the verifier's job",
+            "provenance": (
+                "table-level query record; direct column origins and stored row identity checked"
+            ),
         },
     )
 
