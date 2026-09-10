@@ -1086,7 +1086,7 @@ Validated M0 record models; M1 source references; M5 tool runs; M2/M6 outputs as
 - [ ] M8-07 — Status: PARTIAL — value, scale, period and sample checks are merged (PR [#44](https://github.com/cagatayeroglu/KKB-DataTrio/pull/44) / `32ab2f3`); **transformation-prerequisite validation remains unimplemented** and waits on M6-13 deflation. Resumed by its recorded owner. Owner: Eray; Branch: `feature/m8-06-07-result-verification` from `dev` `2060f31` (original merged scope on `feature/m8-verifier`); PR/Commit: pending. Verify units, periods, sample counts, and transformation prerequisites alongside values. Evidence: [M8-06/07 result verification record](#m8-0607-result-verification-record).
 - [ ] M8-08 — Distinguish passed, failed, and not-run validation; partial results must identify exactly which claims are supported.
 - [ ] M8-09 — Detect conflicting sources/vintages and surface the disagreement instead of choosing silently.
-- [ ] M8-10 — Status: PARTIAL. Owner: Eray; Branch: `feature/m8-10-answer-gate` from `dev` `32ab2f3`; PR: [#45](https://github.com/cagatayeroglu/KKB-DataTrio/pull/45) open; Commit: pending. Gate answer assembly so unsupported claims are omitted, qualified, or answered with abstention. Evidence: [M8-10 answer gate record](#m8-10-answer-gate-record).
+- [ ] M8-10 — Status: PARTIAL. Owner: Eray; Branch: `feature/m8-10-answer-gate` from `dev` `32ab2f3`; PR: [#45](https://github.com/cagatayeroglu/KKB-DataTrio/pull/45) open; Commit: `6b5ea54`. Gate answer assembly so unsupported claims are omitted, qualified, or answered with abstention. Evidence: [M8-10 answer gate record](#m8-10-answer-gate-record).
 - [ ] M8-11 — Keep source citations separate from computation verification; a URL alone cannot prove a calculation.
 - [ ] M8-12 — Test stale evidence after changed dates/assumptions and invalidate dependent claims.
 - [ ] M8-13 — Render concise evidence summaries with safe locators and limitations for M10.
@@ -1100,8 +1100,8 @@ Validated M0 record models; M1 source references; M5 tool runs; M2/M6 outputs as
 - Status: PARTIAL — implemented and validated; unchecked until merged into `dev`.
 - Owner: Eray
 - Branch: `feature/m8-10-answer-gate`, from `dev` `32ab2f309b47a3b74b782216274fbce009b0a147`
-- PR: pending
-- Commit: pending
+- PR: [#45](https://github.com/cagatayeroglu/KKB-DataTrio/pull/45), `feature/m8-10-answer-gate` -> `dev`; awaiting review/merge. Draft claim published before implementation; no collision on post-publication remote recheck.
+- Commit: `6b5ea54` (implementation); claim `712c8a7`.
 - Objective: Put `verify_result` on the path an answer actually takes. Omit sentences carrying unsupported numbers, qualify what survives with the verdict's limitations, and abstain when nothing is presentable. Add the minimum answer assembly the gate needs to be reachable; not a full presentation layer.
 - Implementation: [agent/verifier.py](../src/kkb_agent/agent/verifier.py) gains `gate_answer`, `GatedAnswer`, `OmittedSentence` and `AnswerStatus`. [agent/loop.py](../src/kkb_agent/agent/loop.py) gains `Session.answer`, `Session.draft`, `collect_results`, `render_result` and the `Answered` record. **This is the first end-to-end slice**: a question now reaches a gated answer through the real planner, registry, lakehouse tool, typed result and verifier, with only the model scripted.
 - Why a gate and not a report. Verification nothing routes through is a report. The decision here is mechanical rather than advisory: a sentence carrying a number the verifier could not support is **withheld**, what survives is **qualified** by the verdict's own limitations, and a draft with nothing left becomes an **abstention** rather than a shorter claim. A shortened claim is the dangerous outcome — it reads as a complete answer.
