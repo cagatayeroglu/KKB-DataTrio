@@ -36,8 +36,9 @@ bronze_artifacts ──┐
                                                                  ▲
 workspace_bindings ──► workspace_artifacts ── lineage_node ──────┘
    (name → current)      (immutable definition)
-workspace_history
-   (every revision)
+workspace_history            │
+   (every revision)          └── value_ref ──► workspace_results
+                                                (immutable typed values)
 ```
 
 Read it as one sentence: bytes arrive and are hashed, a series says what those numbers mean, observations carry the values, gold puts several series on one spine, lineage records how every cell got there, and the workspace remembers what the analysis currently consists of.
@@ -140,7 +141,7 @@ Read it as one sentence: bytes arrive and are hashed, a series says what those n
 | `name` | TEXT | The slot it was defined for |
 | `parameters` | TEXT | JSON. The definition, not the result |
 | `inputs` | TEXT | JSON array of artifact ids, order significant |
-| `value_ref` | TEXT | Points at a gold table or lineage node; no data is stored here |
+| `value_ref` | TEXT | Content address of the stored result in `workspace_results`, or null for a definition that holds no value |
 | `lineage_node` | TEXT | Its node in the graph above |
 
 ### `workspace_bindings`
@@ -162,7 +163,17 @@ Read it as one sentence: bytes arrive and are hashed, a series says what those n
 | `revision` | INTEGER | Which revision |
 | `artifact_id` | TEXT | What the slot held then |
 
-**Rules.** Artifacts are immutable and addressed by their definition, so adding a column adds a node and leaves every existing artifact id unchanged — the mechanism behind "without disturbing the table". Changing an input marks exactly its transitive dependents stale and recomputes nothing, because whether they should be recomputed is the caller's decision and doing it silently is how a stale result hides. `refresh` refuses to run before a name's own inputs are refreshed. Nothing is deleted, so what the analysis said before a change stays answerable. Input order is part of the id because a ratio of A to B is not the ratio of B to A. [DEC-117](DECISIONS.md#dec-117--analysis-workspace-as-a-persisted-artifact-dag) records the model.
+### `workspace_results`
+
+| Column | Type | Meaning |
+| --- | --- | --- |
+| `result_digest` | TEXT PK | SHA-256 over the result's content, excluding its caller-chosen `result_id` |
+| `result_id` | TEXT | The producer's handle for the same result |
+| `payload` | TEXT | JSON of the `AnalyticalResult`: values, units, periods, sample counts, evidence |
+
+**Rules.** Keyed by content, so storing the same result twice is one row and differing content can never overwrite what an earlier turn recorded. A read recomputes the digest and refuses a row that no longer hashes true, which is the only thing standing between a mutated row and an answer that cites it as evidence. Values are never edited in place; a changed analysis writes a new row and the old one stays readable, which is what keeps a superseded answer answerable.
+
+**Rules.** Artifacts are immutable and addressed by their definition, so adding a column adds a node and leaves every existing artifact id unchanged — the mechanism behind "without disturbing the table". Changing an input marks exactly its transitive dependents stale and recomputes nothing, because whether they should be recomputed is the caller's decision and doing it silently is how a stale result hides. `refresh` refuses to run before a name's own inputs are refreshed, and a name that holds a value additionally requires a recomputer — rebinding a valued artifact without recomputing would clear the stale flag while leaving the old number in place, which is the exact failure this mechanism exists to prevent. Reading a stale name is refused rather than served with a caveat. Nothing is deleted, so what the analysis said before a change stays answerable. Input order is part of the id because a ratio of A to B is not the ratio of B to A. [DEC-117](DECISIONS.md#dec-117--analysis-workspace-as-a-persisted-artifact-dag) records the model.
 
 ## Conventions
 

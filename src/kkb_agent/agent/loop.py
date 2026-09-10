@@ -30,6 +30,7 @@ from kkb_agent.agent.executor import (
 from kkb_agent.agent.plan import AnalyticalPlan
 from kkb_agent.agent.registry import ToolRegistry
 from kkb_agent.agent.verifier import AnswerStatus, GatedAnswer, Verdict, gate_answer
+from kkb_agent.agent.workspace import ArtifactKind, Workspace
 from kkb_agent.core import AnalyticalResult, ResultStatus, Scale
 from kkb_agent.llm.provider import LLMProvider, Message, Role, SchemaViolation
 
@@ -183,13 +184,25 @@ class Session:
         return planned, outcome
 
     def answer(
-        self, question: str, connection: DuckDBPyConnection | None = None, **gate: object
+        self,
+        question: str,
+        connection: DuckDBPyConnection | None = None,
+        *,
+        workspace: Workspace | None = None,
+        remember: str | None = None,
+        **gate: object,
     ) -> Answered:
         """Plan, execute, draft an answer, and let the verifier decide what shows.
 
         The draft never reaches a caller unexamined. `gate_answer` withholds a
         sentence whose numbers did not bind, and returns an abstention rather
         than a shortened claim when nothing survives (M8-10, DEC-119).
+
+        Passing a `workspace` and a `remember` name records the computed result
+        under that name, so the next turn can build on this one instead of
+        starting over (M5-10). Only a result that established something is
+        recorded: storing an abstention under a name would make the workspace
+        assert that the analysis holds a value it does not.
         """
         planned, outcome = self.run(question)
         results = collect_results(outcome)
@@ -221,6 +234,8 @@ class Session:
                     abstention=result.reason or f"The analysis is {result.status.value}",
                 ),
             )
+        if workspace is not None and remember is not None:
+            workspace.record(remember, ArtifactKind.VALUE, result)
         draft = self.draft(question, result)
         return Answered(
             planned,
