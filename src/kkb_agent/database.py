@@ -25,7 +25,12 @@ TABLES: Mapping[str, tuple[str, ...]] = {
     "silver": ("silver_series", "silver_observations"),
     "gold": ("gold_cells",),
     "lineage": ("lineage_nodes", "lineage_edges"),
-    "workspace": ("workspace_artifacts", "workspace_bindings", "workspace_history"),
+    "workspace": (
+        "workspace_artifacts",
+        "workspace_bindings",
+        "workspace_history",
+        "workspace_results",
+    ),
 }
 
 

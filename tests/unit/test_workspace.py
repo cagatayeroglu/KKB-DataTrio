@@ -45,11 +45,25 @@ class TestTurnOneBuildsTheTable:
         assert again.artifact_id == before.artifact_id
         assert workspace.history("konut_stok") == [before]
 
-    def test_the_id_is_the_definition_not_the_value(self):
+    def test_the_id_is_the_definition_not_the_underlying_data(self):
         first = artifact_id(COLUMN, "c", {"series": "a"}, ["x"])
         assert first == artifact_id(COLUMN, "c", {"series": "a"}, ["x"])
         assert first != artifact_id(COLUMN, "c", {"series": "b"}, ["x"])
         assert first != artifact_id(COLUMN, "c", {"series": "a"}, ["y"])
+
+    def test_a_recorded_value_participates_in_the_id(self):
+        # Without this, recording a new result under an unchanged definition
+        # would be treated as a no-op: the old number stays bound and no
+        # dependent is marked stale.
+        definition = artifact_id(COLUMN, "c", {"series": "a"}, ["x"])
+        with_value = artifact_id(COLUMN, "c", {"series": "a"}, ["x"], "digest-1")
+
+        assert with_value != definition
+        assert with_value != artifact_id(COLUMN, "c", {"series": "a"}, ["x"], "digest-2")
+
+    def test_a_definition_hashes_as_it_did_before_values_existed(self):
+        # Adding the argument must not renumber every artifact already stored.
+        assert artifact_id(COLUMN, "c", {}, []) == artifact_id(COLUMN, "c", {}, [], None)
 
     def test_input_order_matters(self):
         # A ratio of A to B is not the ratio of B to A.
@@ -161,7 +175,7 @@ class TestRefreshing:
     def test_refresh_rebinds_to_the_current_inputs(self, workspace):
         turn_one(workspace)
         workspace.define("range", SOURCE, parameters={"from": "2021-01", "to": "2026-06"})
-        stale_id = workspace.resolve("konut_stok").artifact_id
+        stale_id = workspace.resolve("konut_stok", allow_stale=True).artifact_id
 
         refreshed = workspace.refresh("konut_stok")
 
