@@ -159,12 +159,26 @@ When asked to implement a roadmap task, Codex may perform the following Git/term
 3. Create a separate short-lived task branch from that freshly updated `dev`. Prefer `feature/<milestone>-<task>`, `fix/<short-description>`, or `docs/<short-description>`; examples: `feature/m1-csv-ingestion`, `feature/m2-frequency-alignment`, `fix/url-fetch-timeout`.
 4. Publish the small ROADMAP claim and draft PR as described in [Task claiming and ownership](#task-claiming-and-ownership), then implement only the selected task. Run targeted tests/lint or `make quick`, apply the fast PR gate, and update only its ROADMAP record. Keep its checkbox unchecked while awaiting merge.
 5. Stage only intended task files, commit with a clear message, push that task branch normally, and update its PR **into `dev`** for review. Record actual Commit/PR/check results and a concise Handoff; do not wait for remote CI unless asked.
-6. After review and a verified merge into `dev`, remove the short-lived branch locally/remotely when it contains no unmerged work and is no longer active in a checkout. Branch cleanup is part of this workflow; never delete `dev`/`main` or force-delete unmerged work.
+6. After review and a verified merge into `dev`, complete the mandatory [post-merge task cleanup](#post-merge-task-cleanup) before starting another task.
 7. Start the next task from freshly updated `dev` on another new branch, never from the previous feature branch. Any branch based on another unfinished feature branch requires an explicit instruction and a documented dependency/base exception.
 
 Codex must not merge its own PR unless explicitly told, push directly to `dev`/`main`, force-push shared branches, reuse an old branch for unrelated work, or change repository settings without explicit authorization. Follow explicit task-specific branch constraints. The original workflow update stayed on `feature/day0-core` by exception; PR #1 has since merged, and that exception does not authorize future branch reuse.
 
 Approximately every 3–4 days, or at an important stable milestone, prepare a `dev -> main` PR if the integrated state is demo-ready. `main` is not updated after every task. Run full/release checks at that gate and leave promotion/merge to review and explicit merge authorization; an elapsed calendar interval alone does not justify promotion.
+
+### Post-merge task cleanup
+
+After a task PR is merged into `dev`, cleanup is mandatory:
+
+1. Fetch `origin`; verify both the merged task commit and task-branch tip are reachable from `origin/dev`.
+2. Verify no open/stacked PR, active ROADMAP claim or dependent task/worktree still needs the branch.
+3. Delete the remote task branch.
+4. Delete the local task branch with `git branch -d`, switching away first if needed; never delete a branch used by another worktree.
+5. Prune stale remote-tracking refs.
+6. Return to `dev`, update with `git pull --ff-only origin dev`, and verify a clean working tree without discarding unrelated work.
+7. Only then begin the next task from updated `dev` on a fresh branch.
+
+Routine cleanup of the same branch whose PR was just merged needs no separate user approval when these safety conditions hold. If safety cannot be proven, preserve the branch and report why. Never delete `main`/`dev` or force-delete uncertain work.
 
 ## Definition of done and handoff
 
