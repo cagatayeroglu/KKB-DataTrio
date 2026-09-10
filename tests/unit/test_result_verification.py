@@ -224,9 +224,7 @@ class TestScaleIsCheckedAgainstTheData:
     def test_no_scale_word_means_no_scale_check(self, house):
         assert verify_result("Değer 801.438 TL.", synthetic(), house.connection).accepted
 
-    def test_a_suffixed_scale_word_is_skipped_rather_than_guessed(self, house):
-        # Failing to check is recoverable; wrongly rejecting a correct answer
-        # gets the verifier switched off. "milyonu" is not matched.
+    def test_a_supported_suffixed_scale_word_is_accepted(self, house):
         assert verify_result("Toplam 801.438 milyonu aştı.", synthetic(), house.connection).accepted
 
 
@@ -239,10 +237,9 @@ class TestThePeriodIsCheckedAgainstTheSentence:
         assert not verdict.accepted
         assert any("attributed to" in fault for fault in quoted(verdict, "801.438").faults)
 
-    def test_a_range_that_includes_the_period_is_accepted(self, house):
-        # "2021-2026 arasında" mentions years the value does not cover, but one
-        # of them does; a sentence may name a range beside its own figure.
-        assert verify_result(
+    def test_one_matching_year_does_not_prove_a_wider_period(self, house):
+        # A June 2026 level does not establish the maximum over 2021-2026.
+        assert not verify_result(
             "2021-2026 arasında en yüksek değer 801.438 milyon TL.",
             synthetic(),
             house.connection,
@@ -254,13 +251,13 @@ class TestThePeriodIsCheckedAgainstTheSentence:
         answer = "Seri 2019'da başlıyor. Haziran 2026'da 801.438 milyon TL."
         assert verify_result(answer, synthetic(), house.connection).accepted
 
-    def test_a_value_without_a_period_is_not_period_checked(self, house):
+    def test_an_explicit_year_requires_an_established_period(self, house):
         undated = synthetic(
             values=[
                 ResultValue(label="bddk:konut", value=801438.0, unit="TRY", scale=Scale.MILLION)
             ]
         )
-        assert verify_result("2023'te 801.438 milyon TL.", undated, house.connection).accepted
+        assert not verify_result("2023'te 801.438 milyon TL.", undated, house.connection).accepted
 
 
 class TestAResultThatEstablishedNothing:
