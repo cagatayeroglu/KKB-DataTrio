@@ -1000,6 +1000,24 @@ M1 data references, M2 operation-specific semantic policies, M5 tool registratio
 - Blocker: none known in scope.
 - Handoff: The contract exists and is exported from `kkb_agent.core`. The next step that turns it into product value is making the `lakehouse` tool return an `AnalyticalResult` instead of a bare `QueryResult`, which then lets M8 bind a claim to a period/unit/run rather than to any nearby number. M6-02/03 (change and comparison) are the natural first producers and can now be written against a settled output shape. Do not extend this module with proof, storage or recomputation logic; those belong to M8 and M5.
 
+- [ ] M6-23 — Status: IN PROGRESS. Owner: Çağatay; Branch: `feature/m6-23-projection-provenance`. Reject fabricated lakehouse measurements and semantics. Critical correctness regression in M6-21: referencing an allowed table does not establish provenance for projected values or metadata. Evidence: [M6-23 record](#m6-23-projection-provenance-record).
+
+### M6-23 projection provenance record
+
+- Status: IN PROGRESS
+- Owner: Çağatay
+- Branch: `feature/m6-23-projection-provenance`, from latest `dev` `706007b343f14c7ed37317e02a049133951f2492`
+- PR: pending
+- Commit: pending
+- Severity: CRITICAL — blocks the first trusted live vertical slice.
+- Prerequisites: M6-01 (#42), M6-20 (#31), M6-21 (#43), M8-06 (#44) and M8-10 (#45) are merged. No live data, provider, organizer answer or Day 0 recovery is needed.
+- Reproduction: synthetic in-memory queries with an allowed `FROM` and fabricated measurements, series identity, periods or unit/scale columns receive COMPUTED evidence and pass the answer gate. Missing identity also bypasses the store recheck. Reproduced on `706007b` before implementation.
+- Acceptance: A COMPUTED measurement must trace its value and required semantic identity to permitted stored inputs or an explicitly supported deterministic transformation. Source-table presence alone is insufficient. Literal/fabricated values, identities, periods, units and scales cannot acquire trusted evidence. Unsupported or ambiguous projections abstain with no material values; canonical source-backed queries remain supported. Blocking synthetic regressions cover these cases through the answer gate.
+- Scope: Conservative SQL-to-result provenance gate, relevant tests and this record only. Existing SQL security controls remain independent. No general SQL provenance engine, claim/prose binding changes, M6-24, M0-08 or M6-11 work.
+- Tests: NOT RUN for implementation; six pre-fix in-memory bypass variants reproduced.
+- Blocker: none known in scope; no open PR/remote claim at the pre-claim check.
+- Handoff: Publish the draft claim, implement the narrow provenance gate, run targeted tests plus `make quick`/`make pr`, and verify Fast PR before the explicitly authorized merge. Keep unchecked until merge; separate completion bookkeeping is not authorized to merge automatically.
+
 ### M6-21 typed lakehouse result record
 
 - Status: DONE — PR #43 merged into `dev` at `2060f31bd9422c448c67a7191b59a5be7614d568`; merged tree equals validated `aa0ba65`.
