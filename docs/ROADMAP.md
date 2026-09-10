@@ -1007,7 +1007,7 @@ M1 data references, M2 operation-specific semantic policies, M5 tool registratio
 - Owner: Çağatay
 - Branch: `feature/m6-23-projection-provenance`, from latest `dev` `706007b343f14c7ed37317e02a049133951f2492`
 - PR: [#62](https://github.com/cagatayeroglu/KKB-DataTrio/pull/62), draft into `dev`; claim publication and collision recheck complete
-- Commit: claim `60851bc`; implementation pending
+- Commit: implementation `4c88be2fc0472568fd4659d08d949af5c72f297e`; claim `60851bc`
 - Severity: CRITICAL — blocks the first trusted live vertical slice.
 - Prerequisites: M6-01 (#42), M6-20 (#31), M6-21 (#43), M8-06 (#44) and M8-10 (#45) are merged. No live data, provider, organizer answer or Day 0 recovery is needed.
 - Reproduction: synthetic in-memory queries with an allowed `FROM` and fabricated measurements, series identity, periods or unit/scale columns receive COMPUTED evidence and pass the answer gate. Missing identity also bypasses the store recheck. Reproduced on `706007b` before implementation.
