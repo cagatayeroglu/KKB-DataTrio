@@ -532,3 +532,151 @@ def _bind_to_result(
     if accept_years and float(number.value).is_integer() and int(number.value) in YEAR_RANGE:
         return NumberVerdict(number, Binding.YEAR)
     return NumberVerdict(number, Binding.UNBOUND)
+
+
+# --------------------------------------------------------------------------
+# M8-10: the gate itself.
+#
+# Verification that nothing routes through is a report, not a gate. Everything
+# below decides what may actually be shown, and the decision is mechanical: a
+# sentence carrying a number the verifier could not support is withheld, what
+# survives is qualified by the verdict's own limitations, and an answer with
+# nothing left becomes an abstention rather than a shorter claim.
+# --------------------------------------------------------------------------
+
+
+class AnswerStatus(StrEnum):
+    ACCEPTED = "accepted"
+    QUALIFIED = "qualified"
+    ABSTAINED = "abstained"
+
+
+@dataclass(frozen=True, slots=True)
+class OmittedSentence:
+    """A sentence withheld from the answer, and why it was withheld.
+
+    Withholding is recorded rather than performed silently. An answer that
+    quietly loses a sentence is indistinguishable from one that never made the
+    claim, and the operator needs to see the difference.
+    """
+
+    text: str
+    reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class GatedAnswer:
+    """What may be shown, what was withheld, and what must be said alongside."""
+
+    status: AnswerStatus
+    text: str
+    verdict: Verdict
+    omitted: tuple[OmittedSentence, ...] = ()
+    limitations: tuple[str, ...] = ()
+    #: Set when nothing is presentable: the reason to show instead of an answer.
+    abstention: str | None = None
+
+    @property
+    def presentable(self) -> bool:
+        return self.status is not AnswerStatus.ABSTAINED
+
+
+def _sentence_spans(text: str) -> list[tuple[int, int]]:
+    """Every sentence as a (start, end) span, covering the whole string."""
+    spans: list[tuple[int, int]] = []
+    start = 0
+    for match in _SENTENCE_BREAK.finditer(text):
+        spans.append((start, match.start() + 1))
+        start = match.end()
+    if start < len(text):
+        spans.append((start, len(text)))
+    return spans or [(0, len(text))]
+
+
+def gate_answer(
+    draft: str,
+    result: AnalyticalResult,
+    connection: DuckDBPyConnection | None = None,
+    *,
+    allowed: Iterable[float] = (),
+    tolerance: float = DEFAULT_TOLERANCE,
+    accept_years: bool = True,
+    minimum_samples: int | None = None,
+) -> GatedAnswer:
+    """Decide what of `draft` may be shown, given what `result` established.
+
+    The order of the three outcomes is not arbitrary. A result that failed as a
+    whole — it established nothing, its evidence does not resolve, its values
+    disagree with the store — poisons every sentence, so no sentence survives
+    it. Only when the result itself is sound does the gate fall back to
+    withholding the individual sentences whose numbers did not bind.
+    """
+    verdict = verify_result(
+        draft,
+        result,
+        connection,
+        allowed=allowed,
+        tolerance=tolerance,
+        accept_years=accept_years,
+        minimum_samples=minimum_samples,
+    )
+    limitations = verdict.limitations
+
+    disqualifying = _result_faults(result, minimum_samples)
+    if connection is not None:
+        disqualifying.extend(_evidence_faults(result, connection))
+        disqualifying.extend(recheck_against_store(result, connection, tolerance=tolerance))
+    if disqualifying:
+        # Nothing in the draft can be trusted, including its unnumbered prose,
+        # because the prose describes the same broken result.
+        return GatedAnswer(
+            AnswerStatus.ABSTAINED,
+            "",
+            verdict,
+            omitted=(OmittedSentence(draft.strip(), tuple(disqualifying)),)
+            if draft.strip()
+            else (),
+            limitations=limitations,
+            abstention="; ".join(disqualifying),
+        )
+
+    failures: dict[tuple[int, int], list[str]] = {}
+    spans = _sentence_spans(draft)
+    for item in verdict.numbers:
+        if item.supported:
+            continue
+        for span in spans:
+            if span[0] <= item.number.start < span[1]:
+                reasons = failures.setdefault(span, [])
+                reasons.extend(
+                    item.faults
+                    or (f"{item.number.text!r} does not match any value in this result",)
+                )
+                break
+
+    kept: list[str] = []
+    omitted: list[OmittedSentence] = []
+    for span in spans:
+        sentence = draft[span[0] : span[1]].strip()
+        if not sentence:
+            continue
+        if span in failures:
+            omitted.append(OmittedSentence(sentence, tuple(failures[span])))
+        else:
+            kept.append(sentence)
+
+    if not kept:
+        return GatedAnswer(
+            AnswerStatus.ABSTAINED,
+            "",
+            verdict,
+            omitted=tuple(omitted),
+            limitations=limitations,
+            abstention=(
+                "No sentence in the answer could be supported by this result"
+                if omitted
+                else "The answer was empty"
+            ),
+        )
+    status = AnswerStatus.QUALIFIED if omitted else AnswerStatus.ACCEPTED
+    return GatedAnswer(status, " ".join(kept), verdict, tuple(omitted), limitations)
