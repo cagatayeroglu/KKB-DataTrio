@@ -178,7 +178,7 @@ Acceptance: Rejected files never reach parsers; accepted files remain inside con
 
 ## SEC-FILE-02 — Parser and document resource limits
 
-Status: PARTIAL — bounded XLSX package validation, explicit selection, active-content rejection and terminated parser worker delivered in M1-09/10 (#11/#16). CSV loader, HTML/PDF/image parsing and operator bulk-path containment are not delivered.
+Status: PARTIAL — bounded XLSX package validation, explicit selection, active-content rejection and terminated parser worker delivered in M1-09/10 (#11/#16). The bounded CSV loader followed in M1-06 (#53): structural row/column/cell/field limits run before row allocation, and a terminated spawn worker bounds parse time, output size and (on Linux) address space. HTML/PDF/image parsing and operator bulk-path containment are not delivered.
 
 Threat: XLSX/other containers expand massively, PDFs/images consume excessive resources, embedded formulas/macros/scripts execute, or parser uncertainty becomes fabricated analytical data.
 
