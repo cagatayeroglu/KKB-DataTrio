@@ -21,6 +21,17 @@ from datetime import date
 from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
+from kkb_agent.agent.claim_qualifiers import SCALE_WORDS as SCALE_WORDS
+from kkb_agent.agent.claim_qualifiers import (
+    amount_qualifiers,
+    causal_fault,
+    clause_context,
+    has_amount_context,
+    identity_fault,
+    is_date_token,
+    period_fault,
+    unit_fault,
+)
 from kkb_agent.core import AnalyticalResult, ResultStatus, ResultValue, Scale
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -42,7 +53,7 @@ NUMBER = re.compile(r"(?<![\w.,])[+-]?(?:\d{1,3}(?:[.,  ]\d{3})+|\d+)(?:[.,]\d+
 #: answers; this permits presentation rounding and nothing more.
 DEFAULT_TOLERANCE = 5e-4
 
-#: Four-digit integers in this span are read as years unless a cell matches.
+#: Calendar-like integers; attached amount qualifiers disable the exception.
 YEAR_RANGE = range(1900, 2101)
 
 
@@ -57,25 +68,6 @@ class Binding(StrEnum):
     UNBOUND = "unbound"
 
 
-#: Scale words as an answer writes them. Matched on whole words only: a
-#: suffixed form is skipped rather than guessed at, because failing to check is
-#: recoverable and wrongly rejecting a correct answer is not.
-SCALE_WORDS: Final[Mapping[str, Scale]] = {
-    "bin": Scale.THOUSAND,
-    "milyon": Scale.MILLION,
-    "milyar": Scale.BILLION,
-    "thousand": Scale.THOUSAND,
-    "million": Scale.MILLION,
-    "billion": Scale.BILLION,
-}
-
-#: Characters after a number in which its scale word may appear.
-QUALIFIER_WINDOW: Final = 24
-
-_SCALE_PATTERN: Final = re.compile(
-    r"\b(" + "|".join(sorted(SCALE_WORDS, key=len, reverse=True)) + r")\b", re.IGNORECASE
-)
-_YEAR_PATTERN: Final = re.compile(r"\b(?:19|20)\d{2}\b")
 _SENTENCE_BREAK: Final = re.compile(r"[.!?\n]\s")
 
 
@@ -210,7 +202,10 @@ def verify(
     permitted = [float(value) for value in allowed]
     verdicts: list[NumberVerdict] = []
     for number in extract_numbers(answer):
-        verdicts.append(_bind(number, connection, permitted, tolerance, accept_years))
+        calendar_allowed = accept_years and not has_amount_context(
+            answer, number.start, number.start + len(number.text)
+        )
+        verdicts.append(_bind(number, connection, permitted, tolerance, calendar_allowed))
 
     unbound = [item for item in verdicts if not item.supported]
     rejected = tuple(f"{item.number.text!r} does not match any stored value" for item in unbound)
@@ -272,7 +267,7 @@ def _close(left: float, right: float, tolerance: float) -> bool:
 # --------------------------------------------------------------------------
 
 
-def _sentence_around(text: str, position: int) -> str:
+def _sentence_around(text: str, position: int) -> tuple[str, int]:
     """The sentence a number sits in, which bounds every contextual check.
 
     Scanning a fixed character window instead would drag in a neighbouring
@@ -286,7 +281,7 @@ def _sentence_around(text: str, position: int) -> str:
     tail = _SENTENCE_BREAK.search(text, position)
     if tail is not None:
         end = tail.start()
-    return text[start:end]
+    return text[start:end], start
 
 
 def _scale_fault(answer: str, number: WrittenNumber, value: ResultValue) -> str | None:
@@ -297,48 +292,20 @@ def _scale_fault(answer: str, number: WrittenNumber, value: ResultValue) -> str 
     thousand-scaled value is a thousandfold error that survives every check
     based on the value alone.
     """
-    window = answer[
-        number.start + len(number.text) : number.start + len(number.text) + QUALIFIER_WINDOW
-    ]
-    match = _SCALE_PATTERN.search(window)
-    if match is None:
+    written, _ = amount_qualifiers(answer, number.start, number.start + len(number.text))
+    if written is None:
         return None
-    written = SCALE_WORDS[match.group().lower()]
     if value.scale is Scale.UNKNOWN:
         return (
-            f"{number.text!r} is written as {match.group()!r}, but the result never "
+            f"{number.text!r} is written as {written.value!r}, but the result never "
             "established a scale for it"
         )
     if written is not value.scale:
         return (
-            f"{number.text!r} is written as {match.group()!r} while the value is "
+            f"{number.text!r} is written as {written.value!r} while the value is "
             f"recorded as {value.scale.value}"
         )
     return None
-
-
-def _period_fault(answer: str, number: WrittenNumber, value: ResultValue) -> str | None:
-    """Catch a figure attributed to a period it does not cover.
-
-    Only a sentence whose years *all* fall outside the value's period counts as
-    a contradiction. One matching year is enough to accept, because a sentence
-    may legitimately mention a range alongside the figure's own period.
-    """
-    if value.period is None:
-        return None
-    years = {
-        int(found.group())
-        for found in _YEAR_PATTERN.finditer(_sentence_around(answer, number.start))
-    }
-    if not years:
-        return None
-    covered = range(value.period.start.year, value.period.end.year + 1)
-    if any(year in covered for year in years):
-        return None
-    return (
-        f"{number.text!r} is attributed to {sorted(years)} but its period is "
-        f"{value.period.start.isoformat()}..{value.period.end.isoformat()}"
-    )
 
 
 def _semantics_fault(number: WrittenNumber, value: ResultValue) -> str | None:
@@ -510,6 +477,8 @@ def verify_claims(
     limitations = [
         "Numbers are bound to these results' values, not to any stored value",
         "No external cross-check was performed",
+        "Explicit identifiers, calendar and financial qualifiers use a bounded deterministic "
+        "vocabulary; arbitrary prose and causal meaning are not proved",
     ]
     if connection is None:
         limitations.append("No store recheck was run: no database connection was supplied")
@@ -535,6 +504,9 @@ def verify_claims(
     ]
 
     rejected: list[str] = []
+    for start, end in _sentence_spans(answer):
+        if fault := causal_fault(answer[start:end]):
+            rejected.append(fault)
     if named and len(disqualified) == len(named):
         # Nothing in the draft can be trusted, including its unnumbered prose,
         # because the prose describes the same broken analysis.
@@ -566,9 +538,20 @@ def _bind_to_results(
     tolerance: float,
     accept_years: bool,
 ) -> NumberVerdict:
-    if any(_close(number.value, value, tolerance) for value in permitted):
-        return NumberVerdict(number, Binding.CONTEXT)
-
+    end = number.start + len(number.text)
+    amount_context = has_amount_context(answer, number.start, end)
+    if (
+        accept_years
+        and not amount_context
+        and (
+            is_date_token(answer, number.start, end)
+            or (number.value.is_integer() and int(number.value) in YEAR_RANGE)
+        )
+    ):
+        return NumberVerdict(number, Binding.YEAR)
+    sentence, sentence_start = _sentence_around(answer, number.start)
+    clause, prefix = clause_context(sentence, number.start - sentence_start)
+    candidates: list[NumberVerdict] = []
     for name, result in named.items():
         node = result.evidence.lineage_node if result.evidence is not None else None
         for value in result.values:
@@ -578,25 +561,52 @@ def _bind_to_results(
                 fault
                 for fault in (
                     _scale_fault(answer, number, value),
-                    _period_fault(answer, number, value),
+                    period_fault(clause, prefix, value),
+                    unit_fault(answer, number.start, end, value),
+                    identity_fault(clause, prefix, name, result, value, named),
                     _semantics_fault(number, value),
                 )
                 if fault is not None
             )
             # A number resting on a disqualified result is not presentable,
             # however well it matches: the result it came from is the problem.
-            return NumberVerdict(
-                number,
-                Binding.RESULT,
-                lineage_node=node,
-                source=name,
-                result_id=result.result_id,
-                value_label=value.label,
-                faults=faults + disqualified.get(name, ()),
+            candidates.append(
+                NumberVerdict(
+                    number,
+                    Binding.RESULT,
+                    lineage_node=node,
+                    source=name,
+                    result_id=result.result_id,
+                    value_label=value.label,
+                    faults=faults + disqualified.get(name, ()),
+                )
             )
 
-    if accept_years and float(number.value).is_integer() and int(number.value) in YEAR_RANGE:
-        return NumberVerdict(number, Binding.YEAR)
+    supported = [candidate for candidate in candidates if candidate.supported]
+    if len(supported) == 1:
+        return supported[0]
+    if len(supported) > 1:
+        return NumberVerdict(
+            number,
+            Binding.UNBOUND,
+            faults=(
+                "Ambiguous result/value identity: multiple values match the explicit qualifiers",
+            ),
+        )
+    if candidates:
+        # Preserve a failed single binding for diagnostics. No failed candidate
+        # may fall through to caller context or the calendar exception.
+        if len(candidates) == 1:
+            return candidates[0]
+        return NumberVerdict(
+            number,
+            Binding.UNBOUND,
+            faults=tuple(
+                dict.fromkeys(fault for candidate in candidates for fault in candidate.faults)
+            ),
+        )
+    if any(_close(number.value, value, tolerance) for value in permitted):
+        return NumberVerdict(number, Binding.CONTEXT)
     return NumberVerdict(number, Binding.UNBOUND)
 
 
@@ -708,6 +718,9 @@ def gate_answer(
 
     failures: dict[tuple[int, int], list[str]] = {}
     spans = _sentence_spans(draft)
+    for span in spans:
+        if fault := causal_fault(draft[span[0] : span[1]]):
+            failures.setdefault(span, []).append(fault)
     for item in verdict.numbers:
         if item.supported:
             continue
