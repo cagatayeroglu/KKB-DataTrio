@@ -442,9 +442,49 @@ def recheck_against_store(
     return tuple(faults)
 
 
-def verify_result(
+def _as_named(
+    results: AnalyticalResult | Sequence[AnalyticalResult] | Mapping[str, AnalyticalResult],
+) -> dict[str, AnalyticalResult]:
+    """Accept one result, several, or several under workspace names.
+
+    A name is how an answer about a table refers to its columns, so when the
+    caller has one — the workspace slot — it is kept and reported in the
+    verdict. Without one, the result's own id is the name.
+    """
+    if isinstance(results, AnalyticalResult):
+        return {results.result_id: results}
+    if isinstance(results, Mapping):
+        return dict(results)
+    return {item.result_id: item for item in results}
+
+
+def result_faults(
+    named: Mapping[str, AnalyticalResult],
+    connection: DuckDBPyConnection | None = None,
+    *,
+    tolerance: float = DEFAULT_TOLERANCE,
+    minimum_samples: int | None = None,
+) -> dict[str, tuple[str, ...]]:
+    """What disqualifies each result, before any number is looked at.
+
+    Keyed by name and prefixed with it, because "which column is broken" is
+    the first thing an operator needs and the last thing a flat list of
+    reasons tells them.
+    """
+    found: dict[str, tuple[str, ...]] = {}
+    for name, result in named.items():
+        faults = _result_faults(result, minimum_samples)
+        if connection is not None:
+            faults.extend(_evidence_faults(result, connection))
+            faults.extend(recheck_against_store(result, connection, tolerance=tolerance))
+        if faults:
+            found[name] = tuple(f"{name}: {fault}" for fault in faults)
+    return found
+
+
+def verify_claims(
     answer: str,
-    result: AnalyticalResult,
+    results: AnalyticalResult | Sequence[AnalyticalResult] | Mapping[str, AnalyticalResult],
     connection: DuckDBPyConnection | None = None,
     *,
     allowed: Iterable[float] = (),
@@ -452,53 +492,76 @@ def verify_result(
     accept_years: bool = True,
     minimum_samples: int | None = None,
 ) -> Verdict:
-    """Gate an answer against the result it claims to describe.
+    """Gate an answer against the results it claims to describe.
 
-    Unlike `verify`, a number here must belong to **this** result, to the
-    caller's justified context, or be a year. There is deliberately no fallback
-    to searching the whole store: "some cell holds a number like that" is the
-    weak guarantee this function exists to replace.
+    Unlike `verify`, a number here must belong to one of **these** results, to
+    the caller's justified context, or be a year. There is deliberately no
+    fallback to searching the whole store: "some cell holds a number like
+    that" is the weak guarantee this function exists to replace.
+
+    Disqualification is per result rather than per answer. A broken
+    `konut_faiz` must not silence a sound claim about `konut_stok`; it faults
+    exactly the numbers resting on it. Only when **every** result is
+    disqualified does the whole draft fall — which is also what happens when
+    there is one result and it is the broken one.
     """
+    named = _as_named(results)
     permitted = [float(value) for value in allowed]
-    faults = _result_faults(result, minimum_samples)
     limitations = [
-        "Numbers are bound to this result's values, not to any stored value",
+        "Numbers are bound to these results' values, not to any stored value",
         "No external cross-check was performed",
     ]
-
     if connection is None:
         limitations.append("No store recheck was run: no database connection was supplied")
     else:
-        faults.extend(_evidence_faults(result, connection))
-        faults.extend(recheck_against_store(result, connection, tolerance=tolerance))
         limitations.append(
             "The store recheck is a second read keyed on series and period, not an "
             "independent derivation: it catches a wrong join, period or altered figure, "
             "not a value that was stored wrongly"
         )
 
-    if result.unresolved_semantics:
-        limitations.append(
-            "The result declares unresolved semantics: " + "; ".join(result.unresolved_semantics)
-        )
+    disqualified = result_faults(
+        named, connection, tolerance=tolerance, minimum_samples=minimum_samples
+    )
+    for name, result in named.items():
+        if result.unresolved_semantics:
+            limitations.append(
+                f"{name} declares unresolved semantics: " + "; ".join(result.unresolved_semantics)
+            )
 
-    verdicts: list[NumberVerdict] = []
-    for number in extract_numbers(answer):
-        verdicts.append(_bind_to_result(answer, number, result, permitted, tolerance, accept_years))
+    verdicts = [
+        _bind_to_results(answer, number, named, disqualified, permitted, tolerance, accept_years)
+        for number in extract_numbers(answer)
+    ]
 
-    rejected = list(faults)
+    rejected: list[str] = []
+    if named and len(disqualified) == len(named):
+        # Nothing in the draft can be trusted, including its unnumbered prose,
+        # because the prose describes the same broken analysis.
+        for faults in disqualified.values():
+            rejected.extend(faults)
     for item in verdicts:
         if item.binding is Binding.UNBOUND:
-            rejected.append(f"{item.number.text!r} does not match any value in this result")
+            rejected.append(f"{item.number.text!r} does not match any value in these results")
         rejected.extend(item.faults)
-    accepted = not rejected
-    return Verdict(accepted, tuple(verdicts), tuple(limitations), tuple(rejected))
+    return Verdict(not rejected, tuple(verdicts), tuple(limitations), tuple(rejected))
 
 
-def _bind_to_result(
+def verify_result(
+    answer: str,
+    result: AnalyticalResult,
+    connection: DuckDBPyConnection | None = None,
+    **options: object,
+) -> Verdict:
+    """Gate an answer against one result: `verify_claims` with a single entry."""
+    return verify_claims(answer, result, connection, **options)  # type: ignore[arg-type]
+
+
+def _bind_to_results(
     answer: str,
     number: WrittenNumber,
-    result: AnalyticalResult,
+    named: Mapping[str, AnalyticalResult],
+    disqualified: Mapping[str, tuple[str, ...]],
     permitted: Sequence[float],
     tolerance: float,
     accept_years: bool,
@@ -506,28 +569,31 @@ def _bind_to_result(
     if any(_close(number.value, value, tolerance) for value in permitted):
         return NumberVerdict(number, Binding.CONTEXT)
 
-    node = result.evidence.lineage_node if result.evidence is not None else None
-    for value in result.values:
-        if not _close(number.value, value.value, tolerance):
-            continue
-        faults = tuple(
-            fault
-            for fault in (
-                _scale_fault(answer, number, value),
-                _period_fault(answer, number, value),
-                _semantics_fault(number, value),
+    for name, result in named.items():
+        node = result.evidence.lineage_node if result.evidence is not None else None
+        for value in result.values:
+            if not _close(number.value, value.value, tolerance):
+                continue
+            faults = tuple(
+                fault
+                for fault in (
+                    _scale_fault(answer, number, value),
+                    _period_fault(answer, number, value),
+                    _semantics_fault(number, value),
+                )
+                if fault is not None
             )
-            if fault is not None
-        )
-        return NumberVerdict(
-            number,
-            Binding.RESULT,
-            lineage_node=node,
-            source=value.label,
-            result_id=result.result_id,
-            value_label=value.label,
-            faults=faults,
-        )
+            # A number resting on a disqualified result is not presentable,
+            # however well it matches: the result it came from is the problem.
+            return NumberVerdict(
+                number,
+                Binding.RESULT,
+                lineage_node=node,
+                source=name,
+                result_id=result.result_id,
+                value_label=value.label,
+                faults=faults + disqualified.get(name, ()),
+            )
 
     if accept_years and float(number.value).is_integer() and int(number.value) in YEAR_RANGE:
         return NumberVerdict(number, Binding.YEAR)
@@ -595,7 +661,7 @@ def _sentence_spans(text: str) -> list[tuple[int, int]]:
 
 def gate_answer(
     draft: str,
-    result: AnalyticalResult,
+    results: AnalyticalResult | Sequence[AnalyticalResult] | Mapping[str, AnalyticalResult],
     connection: DuckDBPyConnection | None = None,
     *,
     allowed: Iterable[float] = (),
@@ -603,17 +669,19 @@ def gate_answer(
     accept_years: bool = True,
     minimum_samples: int | None = None,
 ) -> GatedAnswer:
-    """Decide what of `draft` may be shown, given what `result` established.
+    """Decide what of `draft` may be shown, given what `results` established.
 
-    The order of the three outcomes is not arbitrary. A result that failed as a
-    whole — it established nothing, its evidence does not resolve, its values
-    disagree with the store — poisons every sentence, so no sentence survives
-    it. Only when the result itself is sound does the gate fall back to
-    withholding the individual sentences whose numbers did not bind.
+    The order of the three outcomes is not arbitrary. When **every** result
+    failed as a whole — established nothing, evidence does not resolve, values
+    disagree with the store — the prose is describing the same broken analysis,
+    so no sentence survives. When only some failed, or none did, the gate falls
+    back to withholding the individual sentences whose numbers did not bind,
+    which is what lets a sound column still be reported beside a broken one.
     """
-    verdict = verify_result(
+    named = _as_named(results)
+    verdict = verify_claims(
         draft,
-        result,
+        named,
         connection,
         allowed=allowed,
         tolerance=tolerance,
@@ -622,13 +690,11 @@ def gate_answer(
     )
     limitations = verdict.limitations
 
-    disqualifying = _result_faults(result, minimum_samples)
-    if connection is not None:
-        disqualifying.extend(_evidence_faults(result, connection))
-        disqualifying.extend(recheck_against_store(result, connection, tolerance=tolerance))
-    if disqualifying:
+    broken = result_faults(named, connection, tolerance=tolerance, minimum_samples=minimum_samples)
+    if named and len(broken) == len(named):
+        disqualifying = [fault for faults in broken.values() for fault in faults]
         # Nothing in the draft can be trusted, including its unnumbered prose,
-        # because the prose describes the same broken result.
+        # because the prose describes the same broken analysis.
         return GatedAnswer(
             AnswerStatus.ABSTAINED,
             "",
@@ -650,7 +716,7 @@ def gate_answer(
                 reasons = failures.setdefault(span, [])
                 reasons.extend(
                     item.faults
-                    or (f"{item.number.text!r} does not match any value in this result",)
+                    or (f"{item.number.text!r} does not match any value in these results",)
                 )
                 break
 
@@ -673,7 +739,7 @@ def gate_answer(
             omitted=tuple(omitted),
             limitations=limitations,
             abstention=(
-                "No sentence in the answer could be supported by this result"
+                "No sentence in the answer could be supported by these results"
                 if omitted
                 else "The answer was empty"
             ),

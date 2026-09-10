@@ -22,6 +22,7 @@ from kkb_agent.agent.loop import (
     Session,
     collect_results,
     render_result,
+    render_results,
 )
 from kkb_agent.agent.plan import AnalyticalPlan, PlanStep
 from kkb_agent.agent.registry import (
@@ -44,7 +45,9 @@ from kkb_agent.agent.verifier import (
     gate_answer,
     parse_written,
     recheck_against_store,
+    result_faults,
     verify,
+    verify_claims,
     verify_result,
 )
 from kkb_agent.agent.verifier import (
@@ -107,8 +110,11 @@ __all__ = [
     "gate_answer",
     "parse_written",
     "recheck_against_store",
+    "result_faults",
     "render_result",
+    "render_results",
     "validate_plan",
     "verify",
+    "verify_claims",
     "verify_result",
 ]

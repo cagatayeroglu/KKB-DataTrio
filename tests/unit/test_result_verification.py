@@ -155,7 +155,7 @@ class TestAClaimBindsToThisResult:
 
         assert not verdict.accepted
         assert quoted(verdict, "999.999").binding is Binding.UNBOUND
-        assert any("does not match any value in this result" in r for r in verdict.rejected)
+        assert any("does not match any value in these results" in r for r in verdict.rejected)
 
     def test_a_stored_value_outside_this_result_is_still_refused(self, house):
         # 767314 is genuinely in the lakehouse, so the old `verify` accepts it.
