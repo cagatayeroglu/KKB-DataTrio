@@ -266,6 +266,7 @@ Evidence policy: organizer constraints below are carried forward from the origin
 - Reason: Matching the brief's tool names makes the deliverable legible to the jury. A single schema source removes the drift between what the model is told and what the executor accepts. Restricting SQL keeps DEC-101's determinism and AGENTS' prohibition on executing model-generated code intact while still allowing natural-language querying.
 - Alternatives: Renaming the tools obscures the mapping to the brief. Duplicating schemas by hand drifts. Free-form generated Python is prohibited outright.
 - Consequences: M5 owns the registry and the argument validation; M6 owns `anomaly`, `causality` and `change_detection`; M7 owns `web_search` and `web_url`. Tool additions need their own decision entry.
+- Scope clarification (2026-09-10, M6-22): a tool name may cover several operations, named in an `operation` argument rather than split into a new tool. `change_detection` implements `compare` — the level change between two published periods — with breakpoint and trend-break detection joining the same schema when M6-05/06 gives it a method. Keeping an unimplemented operation **out** of the schema is deliberate: a planner cannot request what it is never offered. This uses an existing brief name rather than the addition clause above, which stays unused.
 - Revisit trigger: An organizer clarification changing the tool set or its names.
 
 ### DEC-122 — LLMProvider interface and structured-output fallback
