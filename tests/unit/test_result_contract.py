@@ -118,14 +118,17 @@ class TestSampleCountsSurviveIntoTheAnswer:
         with pytest.raises(ValidationError):
             SampleCounts(used="60")  # type: ignore[arg-type]
 
-    def test_a_sample_below_its_own_stated_floor_is_refused(self) -> None:
-        with pytest.raises(ValidationError, match="below the stated minimum"):
-            SampleCounts(used=3, minimum_required=24)
+    def test_a_shortfall_is_described_rather_than_refused(self) -> None:
+        # The counts alone cannot see the status they belong to, and an
+        # INSUFFICIENT result has to be able to report how far short it fell.
+        counts = SampleCounts(used=3, minimum_required=24)
 
-    def test_zero_used_with_a_floor_is_allowed_so_insufficient_can_state_it(self) -> None:
-        # An INSUFFICIENT result still has to report the floor it failed.
-        counts = SampleCounts(used=0, missing=24, minimum_required=24)
+        assert counts.below_floor
         assert counts.minimum_required == 24
+
+    def test_a_sample_at_or_above_its_floor_is_not_a_shortfall(self) -> None:
+        assert not SampleCounts(used=24, minimum_required=24).below_floor
+        assert not SampleCounts(used=3).below_floor
 
 
 class TestAValueStatesItsUnit:
@@ -183,6 +186,22 @@ class TestAComputedResultCarriesItsEvidence:
     def test_a_computed_result_cannot_rest_on_zero_observations(self) -> None:
         with pytest.raises(ValidationError, match="zero observations"):
             computed(samples=SampleCounts(used=0, missing=66))
+
+    def test_a_computed_result_may_not_fall_below_its_own_floor(self) -> None:
+        # Where the rule belongs: reporting a value is what the floor forbids,
+        # and only the result knows whether a value is being reported.
+        with pytest.raises(ValidationError, match="below the stated minimum"):
+            computed(samples=SampleCounts(used=3, minimum_required=24))
+
+    def test_an_insufficient_result_may_report_its_shortfall(self) -> None:
+        result = computed(
+            status=ResultStatus.INSUFFICIENT,
+            values=[],
+            samples=SampleCounts(used=3, minimum_required=24),
+            reason="3 of 24 required observations are present",
+        )
+        assert result.samples is not None
+        assert result.samples.below_floor
 
     def test_an_unresolved_unit_must_be_declared_on_the_result(self) -> None:
         with pytest.raises(ValidationError, match="unknown unit or scale"):
