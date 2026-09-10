@@ -1112,7 +1112,7 @@ Validated M0 record models; M1 source references; M5 tool runs; M2/M6 outputs as
 - [ ] M8-13 — Render concise evidence summaries with safe locators and limitations for M10.
 - [ ] M8-14 — Test missing source/run/transformation links, altered numeric output, and unsupported causal statements.
 - [x] M8-15 — Status: DONE for the delivered numeric-binding scope. Run targeted evidence/verifier/contract tests, lint, and the fast PR gate when changing shared models. Evidence: PR #32, 37 targeted / 552 unit tests and fast checks; this is not full proof validation.
-- [ ] M8-17 — Status: PARTIAL. Owner: Eray; Branch: `feature/m8-17-multi-result-answer` from `dev` `ccb35db`; PR: [#47](https://github.com/cagatayeroglu/KKB-DataTrio/pull/47) open; Commit: pending. Let one gated answer cite several named results instead of one, faulting only the numbers that rest on a disqualified result, and gate `Session.answer` over the workspace's current values. Added under the M6-20/M6-21 precedent, where a numbered task is created when the need appears. Evidence: [M8-17 multi-result answer record](#m8-17-multi-result-answer-record).
+- [ ] M8-17 — Status: PARTIAL. Owner: Eray; Branch: `feature/m8-17-multi-result-answer` from `dev` `ccb35db`; PR: [#47](https://github.com/cagatayeroglu/KKB-DataTrio/pull/47) open; Commit: `09d1741`. Let one gated answer cite several named results instead of one, faulting only the numbers that rest on a disqualified result, and gate `Session.answer` over the workspace's current values. Added under the M6-20/M6-21 precedent, where a numbered task is created when the need appears. Evidence: [M8-17 multi-result answer record](#m8-17-multi-result-answer-record).
 - [x] M8-16 — Status: DONE for the delivered-scope handoff. Record verified claim types, evidence gaps, and the next tool needing verification. Evidence: PR #32's limitations and the reconciled record below; second-path verification remains unimplemented.
 
 <a id="m8-17-multi-result-answer-record"></a>
@@ -1121,8 +1121,8 @@ Validated M0 record models; M1 source references; M5 tool runs; M2/M6 outputs as
 - Status: PARTIAL — implemented and validated; unchecked until merged into `dev`.
 - Owner: Eray
 - Branch: `feature/m8-17-multi-result-answer`, from `dev` `ccb35db99c964175acf8d0ee3f971bb10cb218d8`
-- PR: pending
-- Commit: pending
+- PR: [#47](https://github.com/cagatayeroglu/KKB-DataTrio/pull/47), `feature/m8-17-multi-result-answer` -> `dev`; awaiting review/merge. Draft claim published before implementation; no collision on post-publication remote recheck.
+- Commit: `09d1741` (implementation); claim `3b19ddf`.
 - Objective: Bind a claim to any of several named results, fault only the numbers resting on a disqualified one, and let `Session.answer` gate over the workspace's current values. The reference scenario's answer is about a table with several columns, not a single figure.
 - Implementation: [agent/verifier.py](../src/kkb_agent/agent/verifier.py) gains `verify_claims`, `result_faults` and `_as_named`; `verify_result` becomes `verify_claims` with a single entry, and `gate_answer` accepts one result, a sequence, or a name-to-result mapping. [agent/loop.py](../src/kkb_agent/agent/loop.py) gains `render_results` and gates `Session.answer` over `Workspace.values()` merged with this turn's result.
 - Why one result was never enough. The reference scenario's answer is about a **table** — housing credit beside its rate, then a price index added without disturbing either. Gating that against a single result cannot work: the moment a sentence cites two columns, one number is unbound and the sentence is withheld. A test states the removed limitation directly — the same sentence that now passes against the table abstains against either column alone.
