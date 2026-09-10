@@ -91,7 +91,7 @@ Acceptance: Hostile source content remains data and cannot bypass registry, fetc
 
 ## SEC-TOOL-01 — Tool-call validation and bounded execution
 
-Status: PARTIAL — registry, per-tool arguments, dependency ordering and count budgets exist (#28). Workspace/data-reference ownership, declared output types, total deadline/cancellation and mandatory verifier integration remain incomplete.
+Status: PARTIAL — registry, per-tool arguments, dependency ordering and count budgets exist (#28). `Session.answer` now applies result verification and multi-result gating (#44/#45/#47). Workspace/data-reference ownership, declared output types, total deadline/cancellation and enforcement for other callers remain incomplete.
 
 Threat: Malformed/generated tool calls access unauthorized references, execute the wrong capability, bypass verification, or loop until budget exhaustion.
 
@@ -156,7 +156,7 @@ Acceptance: No supported product input provides arbitrary Python/shell execution
 
 ## SEC-FILE-01 — File admission and safe storage
 
-Status: PARTIAL — local admission/storage checks and negatives delivered in M1-02 (#5), specified in [FILE_ADMISSION](FILE_ADMISSION.md). Network-stream enforcement awaits M7; do not infer safe downloads from local file checks.
+Status: PARTIAL — local admission/storage checks and negatives delivered in M1-02 (#5), specified in [FILE_ADMISSION](FILE_ADMISSION.md). M7-05 (#38) now bounds direct-GET response/decompression streams. Fetched bytes are not yet wired into file admission/parser routing; local file checks alone do not establish safe downloads.
 
 Threat: Uploaded/downloaded filenames escape storage roots; misleading extensions/MIME route malicious content; large inputs exhaust memory; private uploads leak into Git/artifacts.
 
@@ -201,7 +201,7 @@ Acceptance: Enabled parsers cannot exceed documented tested limits silently or e
 
 ## SEC-URL-01 — Central safe fetch / SSRF / redirects
 
-Status: NOT STARTED.
+Status: PARTIAL — M7-01/02/03/05/06 are merged and validated (#35–38; 340 targeted / 892 unit at #38 delivery). [safe_fetch](../src/kkb_agent/ingest/safe_fetch.py) implements direct GET with DNS-to-socket binding, verified TLS and bounded response handling. All 3xx are rejected; redirect following, POST, source trust configuration and adapter/parser integration remain incomplete. Live exposure still requires Q-DATA-01/Q-NET-01/02.
 
 Threat: User/model URLs target localhost, private services, link-local/cloud metadata, redirect to forbidden targets, rebind DNS, steal credentials, or stream excessive content.
 
@@ -210,17 +210,17 @@ Required control: All external **source retrieval** uses one safe-fetch boundary
 When: M7 safe fetch, before M3/M7 live source retrieval. Network-policy answers do not replace technical controls.
 
 - [ ] Centralize source fetching; reject direct HTTP bypasses in adapters/parsers.
-- [ ] Allow only HTTP/HTTPS; reject userinfo/credential-bearing URLs and non-approved port behavior.
-- [ ] Normalize/validate hosts and resolved addresses, including alternate IP notation and IPv6.
-- [ ] Block localhost/loopback, private RFC1918, IPv6 local ranges, link-local, unspecified/reserved unsafe destinations, and cloud-metadata addresses/hostnames.
-- [ ] Validate all resolved DNS addresses; reject mixed public/private results.
-- [ ] Bind validation to the actual connection target to address DNS rebinding/time-of-check mismatch; test the chosen approach.
-- [ ] Handle redirects explicitly and revalidate every hop before connecting.
+- [x] Allow only HTTP/HTTPS; reject userinfo/credential-bearing URLs and non-approved port behavior.
+- [x] Normalize/validate hosts and resolved addresses, including alternate IP notation and IPv6.
+- [x] Block localhost/loopback, private RFC1918, IPv6 local ranges, link-local, unspecified/reserved unsafe destinations, and cloud-metadata addresses/hostnames.
+- [x] Validate all resolved DNS addresses; reject mixed public/private results.
+- [x] Bind validation to the actual connection target to address DNS rebinding/time-of-check mismatch; test the chosen approach.
+- [ ] Handle redirects explicitly and revalidate every followed hop before connecting. Current direct-GET policy rejects every 3xx; following remains M7-04.
 - [ ] Enforce redirect cap and loop detection; never forward credentials/cookies to a new origin automatically.
-- [ ] Configure connect/read/total deadlines and bound compressed/decompressed response bytes.
+- [x] Configure connect/read/total deadlines and bound compressed/decompressed response bytes.
 - [ ] Validate content type and bytes before parser routing; limit streams even when Content-Length is absent/false.
-- [ ] Control proxy/environment behavior so it cannot silently bypass destination policy.
-- [ ] Return sanitized structured blocked/timeout/size/content errors and record safe destination metadata.
+- [x] Control proxy/environment behavior so it cannot silently bypass destination policy.
+- [x] Return sanitized structured blocked/timeout/size/content errors and record safe destination metadata.
 - [ ] Add negative tests for schemes, public-to-private redirects, IPv4/IPv6, metadata, mixed DNS, rebinding, slow/oversized streams, and redirect loops.
 
 Intended tests: Fake DNS/transport or controlled local test doubles that simulate destinations; do not actually contact metadata/private services. Assert forbidden destinations are never contacted, not merely that the final response is rejected.
