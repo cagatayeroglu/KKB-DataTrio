@@ -138,35 +138,31 @@ class TestAFullyJoinedQueryProducesATypedResult:
         assert evidence.input_refs == ["silver_observations", "silver_series"]
 
 
-class TestAnUnjoinedNumberAdmitsWhatItDoesNotKnow:
-    def test_a_bare_value_has_no_unit_and_says_so(self, house):
+class TestAnUnjoinedNumberCannotBecomeEvidence:
+    def test_a_bare_value_without_identity_abstains(self, house):
         result = run(house, "SELECT value FROM silver_observations").output.result
 
-        assert result.status is ResultStatus.COMPUTED
-        assert result.values[0].unit is None
-        assert result.values[0].scale is Scale.UNKNOWN
-        assert any("unit is unresolved" in note for note in result.unresolved_semantics)
+        assert result.status is ResultStatus.ABSTAINED
+        assert result.values == []
+        assert result.evidence is None
 
-    def test_the_missing_scale_names_the_error_it_prevents(self, house):
-        # BDDK publishes million TRY and FinTürk thousand; the note has to say
-        # why an unrecorded scale matters, not merely that one is absent.
+    def test_the_refusal_names_the_required_identity_and_semantics(self, house):
         result = run(house, "SELECT value FROM silver_observations").output.result
-        assert any("FinTürk" in note for note in result.unresolved_semantics)
+        assert "series_id, period_start, period_end, value, unit and scale" in result.reason
 
-    def test_a_value_without_a_period_says_the_period_is_unresolved(self, house):
+    def test_a_value_without_a_period_claims_no_coverage(self, house):
         result = run(house, "SELECT value FROM silver_observations").output.result
 
-        assert result.values[0].period is None
+        assert result.values == []
         assert result.coverage is None
-        assert any("period is unresolved" in note for note in result.unresolved_semantics)
 
-    def test_an_aggregate_is_still_a_number_without_semantics(self, house):
-        result = run(house, "SELECT max(value) AS value FROM silver_observations").output.result
+    def test_an_aggregate_without_identity_is_only_an_inspection_row(self, house):
+        output = run(house, "SELECT max(value) AS value FROM silver_observations").output
 
-        assert result.status is ResultStatus.COMPUTED
-        assert result.values[0].value == pytest.approx(801438.0)
-        assert result.values[0].unit is None
-        assert result.unresolved_semantics
+        assert output.result.status is ResultStatus.ABSTAINED
+        assert output.result.values == []
+        assert output.result.evidence is None
+        assert output.table.rows[0][0] == pytest.approx(801438.0)
 
 
 class TestAQueryThatEstablishesNothing:
@@ -206,9 +202,8 @@ class TestAQueryThatEstablishesNothing:
         assert result.samples.used == 0
 
     def test_an_all_null_column_is_insufficient_not_a_computed_zero(self, house):
-        result = run(
-            house, "SELECT CAST(NULL AS DOUBLE) AS value FROM silver_observations"
-        ).output.result
+        house.connection.execute("UPDATE silver_observations SET value = NULL")
+        result = run(house, FULLY_TYPED).output.result
 
         assert result.status is ResultStatus.INSUFFICIENT
         assert result.samples is not None
@@ -219,9 +214,9 @@ class TestAQueryThatEstablishesNothing:
         result = run(house, "SELECT 'yaklasik' AS value FROM silver_observations").output.result
 
         assert result.status is ResultStatus.ABSTAINED
-        assert result.samples is not None
-        assert result.samples.excluded == 3
-        assert "non-numeric" in (result.reason or "")
+        assert result.values == []
+        assert result.evidence is None
+        assert "provenance" in result.reason
 
     def test_a_boolean_column_is_not_a_measurement(self, house):
         # `bool` is an `int` in Python, so this would otherwise become 1.0.
@@ -233,38 +228,35 @@ class TestAQueryThatEstablishesNothing:
 
 class TestPartialAndInconsistentData:
     def test_a_null_period_is_counted_as_missing_not_dropped(self, house):
-        result = run(
-            house,
-            "SELECT value FROM silver_observations UNION ALL SELECT CAST(NULL AS DOUBLE) AS value",
-        ).output.result
+        house.connection.execute(
+            "INSERT INTO silver_observations VALUES "
+            "('bddk:konut', '2026-07-01', '2026-07-31', NULL)"
+        )
+        result = run(house, FULLY_TYPED).output.result
 
         assert result.samples is not None
         assert result.samples.used == 3
         assert result.samples.missing == 1
 
     def test_truncation_is_reported_as_a_partial_series(self, house):
-        outcome = run(house, "SELECT value FROM silver_observations", max_rows=2)
+        outcome = run(house, FULLY_TYPED, max_rows=2)
 
         assert outcome.output.result.status is ResultStatus.COMPUTED
         assert any("partial series" in w for w in outcome.output.result.warnings)
         assert outcome.output.truncated
 
-    def test_a_weekly_row_without_its_anchor_does_not_claim_a_weekly_period(self, house):
-        # A weekly period must name its anchor. Rather than assert one, the
-        # calendar degrades to unknown and says why.
+    def test_a_literal_weekly_frequency_cannot_change_a_stored_calendar(self, house):
         result = run(
             house,
             "SELECT o.period_start, o.period_end, o.value, 'weekly' AS frequency"
             " FROM silver_observations o",
         ).output.result
 
-        assert result.values[0].period is not None
-        assert result.values[0].period.frequency is Frequency.UNKNOWN
-        assert any("weekly anchor is unresolved" in n for n in result.unresolved_semantics)
+        assert result.status is ResultStatus.ABSTAINED
+        assert result.values == []
+        assert result.evidence is None
 
-    def test_a_stored_anchor_that_contradicts_the_date_is_reported(self, house):
-        # 2026-06-30 is a Tuesday, so a Friday anchor is stored data that
-        # disagrees with itself. Say so instead of quietly accepting either.
+    def test_a_literal_anchor_cannot_acquire_stored_semantic_authority(self, house):
         result = run(
             house,
             "SELECT o.period_start, o.period_end, o.value, 'weekly' AS frequency,"
@@ -272,9 +264,9 @@ class TestPartialAndInconsistentData:
             " WHERE o.period_end = DATE '2026-06-30'",
         ).output.result
 
-        assert result.values[0].period is not None
-        assert result.values[0].period.frequency is Frequency.UNKNOWN
-        assert any("disagrees with a period" in n for n in result.unresolved_semantics)
+        assert result.status is ResultStatus.ABSTAINED
+        assert result.values == []
+        assert result.evidence is None
 
     def test_an_unrecognised_scale_is_reported_rather_than_guessed(self, house):
         result = run(
@@ -282,8 +274,9 @@ class TestPartialAndInconsistentData:
             "SELECT o.value, 'katrilyon' AS scale FROM silver_observations o",
         ).output.result
 
-        assert result.values[0].scale is Scale.UNKNOWN
-        assert any("katrilyon" in note for note in result.unresolved_semantics)
+        assert result.status is ResultStatus.ABSTAINED
+        assert result.values == []
+        assert result.evidence is None
 
 
 class TestTheRowsAndTheResultStayApart:

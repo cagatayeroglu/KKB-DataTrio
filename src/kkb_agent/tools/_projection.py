@@ -1,31 +1,9 @@
-"""Turn a validated lakehouse query into a typed result (M6-21).
+"""Project source-backed lakehouse rows into typed results (M6-21/M6-23).
 
-The `lakehouse` tool returns rows. Rows are not a result: nothing downstream
-can tell whether `801438` is million TRY or thousand, which period it covers,
-or how many observations stand behind it. The verifier's consequence is
-visible today — it binds a written number to any stored value of similar
-magnitude, because there is nothing better to bind to.
-
-This module supplies what is missing by reading semantics the lakehouse already
-stores rather than inferring any. `silver_series` records unit, scale,
-frequency, anchor and observation kind as the exact enum values written by the
-store, so recognising those columns is a lookup, not a guess. That is the whole
-design rule here: **a column we did not select is a semantic we do not know**,
-and an unknown semantic is declared, never filled in.
-
-Two refusals matter more than the projection itself.
-
-A query that reads no lakehouse table produces no measurement, whatever it
-returns. `SELECT 42 AS konut_kredisi` is valid SQL and passes every security
-gate, because refusing it was never the gates' job — they stop SQL from
-reaching the filesystem, not from inventing a figure. Here it becomes an
-ABSTAINED result with no values, so a fabricated number cannot acquire the
-authority of a computed one.
-
-A value column the query did not join to its semantics yields a number with
-`unit=None`, which forces the result to declare unresolved semantics. That is
-deliberate pressure: a planner that wants a typed number has to join
-`silver_series` and say what the number means.
+SQL capability validation is not financial provenance. Before producing any
+measurement, prove the selected columns' stored origins and recheck their
+identity, value and semantics against fixed SQL. Unsupported projections keep
+their raw rows for inspection but abstain with no values or result evidence.
 """
 
 from __future__ import annotations
@@ -47,8 +25,11 @@ from kkb_agent.core import (
     StockFlow,
     WeeklyAnchor,
 )
+from kkb_agent.tools._projection_provenance import provenance_fault
 
 if TYPE_CHECKING:  # pragma: no cover
+    from duckdb import DuckDBPyConnection
+
     from kkb_agent.tools.lakehouse import QueryResult
 
 #: Lakehouse column names whose meaning is fixed by the schema. Nothing else is
@@ -197,6 +178,8 @@ def _abstain(result_id: str, reason: str, parameters: dict[str, Any]) -> Analyti
 def project(
     query: QueryResult,
     *,
+    ast: dict[str, Any],
+    connection: DuckDBPyConnection,
     result_id: str,
     tables: Sequence[str],
     lineage_node: str | None = None,
@@ -252,6 +235,10 @@ def project(
             samples=SampleCounts(used=0),
             reason="The query returned no rows",
         )
+
+    fault = provenance_fault(query, ast, connection)
+    if fault is not None:
+        return _abstain(result_id, fault, shared)
 
     values: list[ResultValue] = []
     notes: set[str] = set()
