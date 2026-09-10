@@ -163,18 +163,16 @@ class SampleCounts(ContractModel):
         """Observations the tool looked at, whether or not it kept them."""
         return self.used + self.missing + self.excluded
 
-    @model_validator(mode="after")
-    def _check_floor(self) -> Self:
-        if (
-            self.minimum_required is not None
-            and self.used > 0
-            and self.used < self.minimum_required
-        ):
-            raise ValueError(
-                f"{self.used} observations is below the stated minimum of "
-                f"{self.minimum_required}; report INSUFFICIENT instead of a value"
-            )
-        return self
+    @property
+    def below_floor(self) -> bool:
+        """True when fewer observations were used than the tool's own policy needs.
+
+        Not an error on its own. An INSUFFICIENT result *should* report counts
+        below its floor — that is what makes it explain itself. Only a COMPUTED
+        result may not, and `AnalyticalResult` enforces that, because the counts
+        alone cannot see the status they belong to.
+        """
+        return self.minimum_required is not None and self.used < self.minimum_required
 
 
 class ResultValue(ContractModel):
@@ -279,6 +277,11 @@ class AnalyticalResult(ContractModel):
             raise ValueError(
                 "A computed result cannot rest on zero observations; "
                 "report INSUFFICIENT with a reason instead"
+            )
+        if self.samples is not None and self.samples.below_floor:
+            raise ValueError(
+                f"{self.samples.used} observations is below the stated minimum of "
+                f"{self.samples.minimum_required}; report INSUFFICIENT instead of a value"
             )
         if self.kind in RELATIONAL_KINDS and not self.limitations:
             raise ValueError(

@@ -1,5 +1,6 @@
-"""The six brief-named tools. `lakehouse` and `change_detection` are implemented."""
+"""The six brief-named tools. `lakehouse`, `change_detection` and `anomaly` exist."""
 
+from kkb_agent.tools.anomaly import AnomalyArguments, make_anomaly_tool
 from kkb_agent.tools.change_detection import (
     ChangeDetectionArguments,
     SeriesUnknown,
@@ -21,6 +22,7 @@ from kkb_agent.tools.lakehouse import (
 
 __all__ = [
     "DEFAULT_MAX_ROWS",
+    "AnomalyArguments",
     "ChangeDetectionArguments",
     "DEFAULT_READABLE",
     "LakehouseArguments",
@@ -29,6 +31,7 @@ __all__ = [
     "SeriesUnknown",
     "SqlRejected",
     "check_sql",
+    "make_anomaly_tool",
     "make_change_detection_tool",
     "make_lakehouse_tool",
     "read_series",
