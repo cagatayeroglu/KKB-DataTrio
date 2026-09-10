@@ -1242,6 +1242,21 @@ Validated M0 record models; M1 source references; M5 tool runs; M2/M6 outputs as
 - [x] M8-17 — Status: DONE — merged/validated (PR [#47](https://github.com/cagatayeroglu/KKB-DataTrio/pull/47) / `b5b09a5`, 17 targeted / 1080 unit tests). Owner: Eray; Branch: `feature/m8-17-multi-result-answer`; Commit: `09d1741`. Let one gated answer cite several named results instead of one, faulting only the numbers that rest on a disqualified result, and gate `Session.answer` over the workspace's current values. Added under the M6-20/M6-21 precedent, where a numbered task is created when the need appears. Evidence: [M8-17 multi-result answer record](#m8-17-multi-result-answer-record).
 - [x] M8-16 — Status: DONE for the delivered-scope handoff. Record verified claim types, evidence gaps, and the next tool needing verification. Evidence: PR #32's limitations and the reconciled record below; fixed-query store rereads exist via #44, independent second-path recomputation remains unimplemented.
 
+- [ ] M8-18 — Status: IN PROGRESS — Bind accepted claims to result identity and semantics. Owner: Çağatay; Branch: `feature/m8-18-claim-semantic-binding`. Narrow regression correction; historical M8 ownership is retained. Evidence: [M8-18 record](#m8-18-claim-semantic-binding-record).
+
+<a id="m8-18-claim-semantic-binding-record"></a>
+### M8-18 claim semantic binding record
+
+- Status: IN PROGRESS
+- Owner: Çağatay
+- Branch: `feature/m8-18-claim-semantic-binding`, from verified `dev` `0e27976cbfb02c1f86feb627dcf2a3f70d631a90` (M6-23 implementation #62 and completion #63 merged).
+- PR: pending; draft claim precedes implementation.
+- Commit: pending.
+- Scope: Deterministic binding to supported result/value identity and explicit period, unit/currency and scale; conflicting or ambiguous qualifiers fail closed. Reject unsupported causal wording and prevent amount-qualified year-like numbers escaping validation. No broad semantic guard, deflation, or changes to other audit blockers.
+- Tests: NOT RUN before implementation; latest-dev reproduction accepted wrong month/currency/explicit series identity, unsupported causal prose and `2024 milyon TL`. Wrong scale already rejected.
+- Blocker: none known in this narrow scope.
+- Handoff: Sole active implementation task under the team's sequential workflow. M6-11 remains reserved for Eray and inactive; M0-08 remains READY/unowned but deferred behind correctness blockers. Historical Eray ownership on M8-01/M8-07 remains unchanged. Add synthetic regressions, run focused verifier/gate checks and `make quick` / `make pr`, then deliver this task only.
+
 <a id="m8-17-multi-result-answer-record"></a>
 ### M8-17 multi-result answer record
 
