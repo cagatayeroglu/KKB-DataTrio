@@ -13,6 +13,7 @@ to spend the whole repair budget on a loop it is clearly not going to escape.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -94,6 +95,16 @@ def collect_results(outcome: ExecutionOutcome) -> tuple[AnalyticalResult, ...]:
         elif isinstance(item.output, AnalyticalResult):
             found.append(item.output)
     return tuple(found)
+
+
+def render_results(named: Mapping[str, AnalyticalResult]) -> str:
+    """Every current value the answer may draw on, under its workspace name.
+
+    The name is what makes a multi-column answer writable at all: "konut_stok"
+    and "konut_faiz" are how the reference scenario's table refers to itself,
+    and a writer given two anonymous number lists cannot say which is which.
+    """
+    return "\n\n".join(f"[{name}]\n{render_result(result)}" for name, result in named.items())
 
 
 def render_result(result: AnalyticalResult) -> str:
@@ -218,9 +229,6 @@ class Session:
                     abstention="No tool produced an analytical result for this question",
                 ),
             )
-        # One result per answer for now: choosing among several, or writing an
-        # answer that spans them, needs the workspace this loop does not yet
-        # hold. Taking the last is a stated limitation, not a selection policy.
         result = results[-1]
         if result.status is not ResultStatus.COMPUTED:
             return Answered(
@@ -234,17 +242,28 @@ class Session:
                     abstention=result.reason or f"The analysis is {result.status.value}",
                 ),
             )
-        if workspace is not None and remember is not None:
-            workspace.record(remember, ArtifactKind.VALUE, result)
-        draft = self.draft(question, result)
+
+        name = remember or "result"
+        available: dict[str, AnalyticalResult] = {name: result}
+        if workspace is not None:
+            if remember is not None:
+                workspace.record(remember, ArtifactKind.VALUE, result)
+            # Everything the workspace currently holds, this turn's result
+            # included. Stale names are already excluded by `values()`, so a
+            # superseded column cannot re-enter the answer through the back
+            # door — and a follow-up can speak about the whole table rather
+            # than only about what this turn recomputed.
+            available = {**workspace.values(), **available}
+
+        draft = self.draft(question, available)
         return Answered(
             planned,
             outcome,
             results,
-            gate_answer(draft, result, connection, **gate),  # type: ignore[arg-type]
+            gate_answer(draft, available, connection, **gate),  # type: ignore[arg-type]
         )
 
-    def draft(self, question: str, result: AnalyticalResult) -> str:
+    def draft(self, question: str, available: Mapping[str, AnalyticalResult]) -> str:
         """Ask the model to put the computed values into a sentence.
 
         It is given the values and nothing else — no rows, no SQL, no source
@@ -254,7 +273,7 @@ class Session:
         completion = self.provider.complete(
             [
                 Message(Role.SYSTEM, SYNTHESIS_PROMPT),
-                Message(Role.SYSTEM, render_result(result)),
+                Message(Role.SYSTEM, render_results(available)),
                 Message(Role.USER, question),
             ],
             model=self.model,

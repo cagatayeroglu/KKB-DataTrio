@@ -116,7 +116,7 @@ class TestASupportedAnswerPassesThrough:
 
     def test_the_limitations_travel_with_it(self, house):
         gated = gate_answer(SUPPORTED, result(), house.connection)
-        assert any("bound to this result's values" in item for item in gated.limitations)
+        assert any("bound to these results' values" in item for item in gated.limitations)
 
     def test_prose_without_numbers_is_kept(self, house):
         draft = f"{SUPPORTED} Seri aylık yayımlanmaktadır."
