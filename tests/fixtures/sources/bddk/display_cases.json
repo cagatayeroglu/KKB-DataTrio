@@ -1,0 +1,46 @@
+{
+  "fixture_kind": "project_owned_synthetic_display_cases",
+  "weekly": {
+    "transport": "server-rendered HTML",
+    "options": [
+      {
+        "donemId": 90001,
+        "label": "Ocak/2 (1. Hafta)",
+        "caption": "Sektör / Krediler (2 Ocak 2026 Cuma) (Milyon TL)"
+      },
+      {
+        "donemId": 90002,
+        "label": "Ocak/9 (2. Hafta)",
+        "caption": "Sektör / Krediler (9 Ocak 2026 Cuma) (Milyon TL)"
+      }
+    ]
+  },
+  "finturk": {
+    "period_options": [
+      "2026-3",
+      "2026-6"
+    ],
+    "display_metadata": [
+      {
+        "table": "Krediler",
+        "unit_text": [
+          "Bin TL"
+        ]
+      },
+      {
+        "table": "Oranlar",
+        "unit_text": [
+          "%"
+        ]
+      },
+      {
+        "table": "Şubeler ve Nüfusa Göre Dağılım",
+        "unit_text": [
+          "Adet",
+          "TL"
+        ]
+      }
+    ],
+    "column_units": "unknown"
+  }
+}

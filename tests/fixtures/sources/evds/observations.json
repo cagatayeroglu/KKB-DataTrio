@@ -1,0 +1,25 @@
+{
+  "totalCount": 2,
+  "items": [
+    {
+      "Tarih": "02-01-2026",
+      "YEARWEEK": "2026-1",
+      "TP_SYNTH_M304_A": "46,750",
+      "TP_SYNTH_M304_B": "12,345",
+      "F-1": "77,007",
+      "UNIXTIME": {
+        "$numberLong": "1767301200"
+      }
+    },
+    {
+      "Tarih": "09-01-2026",
+      "YEARWEEK": "2026-2",
+      "TP_SYNTH_M304_A": "47,125",
+      "TP_SYNTH_M304_B": "13,001",
+      "F-1": "78,125",
+      "UNIXTIME": {
+        "$numberLong": "1767906000"
+      }
+    }
+  ]
+}

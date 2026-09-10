@@ -1,0 +1,34 @@
+{
+  "success": true,
+  "Json": {
+    "caption": "Tüketici Kredileri (milyon TL), Dönem:2026/2",
+    "colNames": [
+      "",
+      "",
+      "",
+      "BasitFont",
+      "TP",
+      "YP",
+      "Toplam"
+    ],
+    "data": {
+      "page": "1",
+      "total": "1",
+      "records": "1",
+      "rows": [
+        {
+          "id": "9001",
+          "cell": [
+            "Sektör",
+            9001,
+            "Tüketici Kredileri - Konut",
+            "",
+            295,
+            4,
+            299
+          ]
+        }
+      ]
+    }
+  }
+}
