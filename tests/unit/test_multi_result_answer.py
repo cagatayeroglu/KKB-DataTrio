@@ -196,8 +196,8 @@ class TestWhatTheWriterSees:
 
         assert "[konut_stok]" in rendered
         assert "[konut_faiz]" in rendered
-        assert "801438.0" in rendered
-        assert "46.75" in rendered
+        assert "display 801.438 milyon TL" in rendered
+        assert "display 46,75 yüzde" in rendered
 
     def test_units_stay_attached_to_the_right_column(self):
         rendered = render_results(TABLE)
