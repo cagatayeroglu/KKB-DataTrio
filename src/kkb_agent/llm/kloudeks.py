@@ -47,6 +47,7 @@ from kkb_agent.llm.provider import (
     ProviderError,
     RateLimited,
     Refused,
+    Role,
     TransportError,
 )
 from kkb_agent.llm.structured import complete_with_repair
@@ -149,10 +150,7 @@ class KloudeksProvider:
         def ask(conversation: list[Message]) -> tuple[str, str | None]:
             body: dict[str, object] = {
                 "model": chosen,
-                "messages": [
-                    {"role": message.role.value, "content": message.content}
-                    for message in conversation
-                ],
+                "messages": _wire_messages(conversation),
                 # Plans and summaries should not change between identical runs.
                 "temperature": 0.0,
             }
@@ -246,6 +244,28 @@ class KloudeksProvider:
         if not isinstance(document, dict):
             raise ProviderError("Kloudeks returned JSON that is not an object")
         return document
+
+
+def _wire_messages(conversation: Sequence[Message]) -> list[dict[str, str]]:
+    """The conversation in the shape the platform accepts.
+
+    The served chat model rejects a request carrying two system messages (400,
+    observed in M4-15's live run on 2026-09-11), while the product keeps its
+    instructions and its tool list as separate system turns. The leading
+    system turns are joined into one, in order; nothing else changes.
+    """
+    leading = 0
+    while leading < len(conversation) and conversation[leading].role is Role.SYSTEM:
+        leading += 1
+    wire: list[dict[str, str]] = []
+    if leading:
+        joined = "\n\n".join(message.content for message in conversation[:leading])
+        wire.append({"role": Role.SYSTEM.value, "content": joined})
+    wire.extend(
+        {"role": message.role.value, "content": message.content}
+        for message in conversation[leading:]
+    )
+    return wire
 
 
 def _check_status(status: int) -> None:

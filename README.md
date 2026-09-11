@@ -77,7 +77,7 @@ make quick
 
 Normal code tasks use targeted tests/lint or `make quick`; task PRs to `dev` use the fast `make pr` gate. `make full` belongs to stable `dev -> main`/final demo checkpoints or explicit requests. Boundary changes still need targeted negative tests. Documentation-only tasks/PRs use diff/link/status checks, not application/security/release checks. [AGENTS](AGENTS.md#validation-tiers-and-speed-limits) owns the gate rules; these command definitions are not claimed passing results.
 
-There is no `eval-smoke`/`eval-full` Make target, benchmark runner or UI launch command yet. `python -m kkb_agent.llm.smoke` is an operator-run live check of the Kloudeks transport, never part of a gate. [EVALUATION](docs/EVALUATION.md#implemented-command-registry) separates existing commands from planned tiers. `make full` does not run a benchmark.
+There is no `eval-smoke`/`eval-full` Make target, benchmark runner or UI launch command yet. `python -m kkb_agent.llm.smoke` (transport) and `python -m kkb_agent.live_check` (one question end to end on synthetic data) are operator-run live checks, never part of a gate. [EVALUATION](docs/EVALUATION.md#implemented-command-registry) separates existing commands from planned tiers. `make full` does not run a benchmark.
 
 ## Branches and collaboration
 
