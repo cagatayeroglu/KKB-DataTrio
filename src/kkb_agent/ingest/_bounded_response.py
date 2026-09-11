@@ -147,6 +147,20 @@ def read_response(
     media_type = content_type.split(";", 1)[0].strip().lower() if content_type else ""
     if media_type not in request.accepted_media_types:
         raise ResponseRejected(FetchCode.CONTENT_TYPE)
+    if media_type == "text/html":
+        # The normalized FetchSuccess omits parameters: refuse non-UTF-8 before
+        # losing this declaration rather than silently decoding another charset.
+        parameters = content_type.lower().split(";")[1:]
+        if len(parameters) > 1:
+            raise ResponseRejected(FetchCode.CONTENT_TYPE)
+        for parameter in parameters:
+            key, sep, value = parameter.strip().partition("=")
+            if (
+                key.strip() != "charset"
+                or not sep
+                or value.strip().strip('"') not in {"utf-8", "utf8"}
+            ):
+                raise ResponseRejected(FetchCode.CONTENT_TYPE)
     encoding = _single_header(response, "Content-Encoding")
     encoding = encoding.lower() if encoding is not None else None
     if encoding is not None and encoding not in ("identity", "gzip"):

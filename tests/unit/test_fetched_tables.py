@@ -64,7 +64,7 @@ def not_a_workbook() -> bytes:
 class TestTheUploadPathIsTheOnlyPath:
     def test_the_accepted_types_are_exactly_the_loadable_ones(self):
         assert TABLE_MEDIA_TYPES == (CSV, XLSX)
-        assert DOCUMENT_MEDIA_TYPES == (CSV, XLSX, PDF)
+        assert DOCUMENT_MEDIA_TYPES == (CSV, XLSX, PDF, "text/html")
 
     def test_a_fetched_csv_loads_exactly_as_the_same_upload(self):
         downloaded = load_fetched(fetched(TABLE, CSV), source=SOURCE, delimiter=",")
@@ -118,7 +118,8 @@ class TestTheUploadPathIsTheOnlyPath:
         assert kwargs["content_type"] == media_type
 
     @pytest.mark.parametrize(
-        "media_type", ["text/html", "application/octet-stream", "text/plain", "image/png"]
+        "media_type",
+        ["application/xhtml+xml", "application/octet-stream", "text/plain", "image/png"],
     )
     def test_types_no_loader_reads_are_refused_before_parsing(self, monkeypatch, media_type):
         def forbidden(*args, **kwargs):

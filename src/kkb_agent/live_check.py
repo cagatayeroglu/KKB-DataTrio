@@ -261,6 +261,8 @@ _DOCUMENT_CODES = frozenset(code.value for code in RejectionCode) | {
     "ENCRYPTED",
     "MALFORMED_DOCUMENT",
     "NO_TEXT_LAYER",
+    "NO_STATIC_CONTENT",
+    "UNSUPPORTED_TABLE",
     "OCR_FAILED",
     "OCR_EMPTY",
     "OCR_INCOMPLETE",

@@ -1,14 +1,14 @@
 """M7-08: a downloaded file passes the same guards and loaders as an upload.
 
 `safe_fetch` bounds the transfer; it says nothing about the bytes. Here they
-meet the M1 admission checks and the bounded CSV/XLSX/PDF loaders exactly as an
+meet the M1 admission checks and the bounded CSV/XLSX/PDF/HTML loaders exactly as an
 uploaded file does, so there is one set of file rules rather than a weaker one
 for whatever arrived over the network.
 
 The loader is chosen by the response media type, which `safe_fetch` already
 matched against the request, never by the URL: a link ending in `.csv` that
-serves a workbook is a workbook, and one serving HTML never reaches a table
-parser. The server's label is not trusted either — admission re-checks the
+serves a workbook is a workbook, and HTML reaches only the static HTML parser.
+The server's label is not trusted either — admission re-checks the
 bytes, so a PDF sent as `text/csv` fails the content check rather than being
 parsed. Generic types such as `application/octet-stream` are refused instead of
 sniffed.
@@ -23,6 +23,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from kkb_agent.core import SourceRef
 from kkb_agent.csv_loader import CsvLoadResult, load_csv
+from kkb_agent.html_loader import HtmlLoadResult, load_html
 from kkb_agent.ingest.safe_fetch import FetchSuccess
 from kkb_agent.ingest.url_targets import TargetRejection, validate_url_target
 from kkb_agent.ingestion_policy import (
@@ -39,7 +40,11 @@ from kkb_agent.xlsx_loader import XlsxLoadResult, load_xlsx
 
 #: The media types this path can load, and so the only ones worth accepting.
 TABLE_MEDIA_TYPES: tuple[str, ...] = (MIME_TYPES[FileKind.CSV], MIME_TYPES[FileKind.XLSX])
-DOCUMENT_MEDIA_TYPES: tuple[str, ...] = (*TABLE_MEDIA_TYPES, MIME_TYPES[FileKind.PDF])
+DOCUMENT_MEDIA_TYPES: tuple[str, ...] = (
+    *TABLE_MEDIA_TYPES,
+    MIME_TYPES[FileKind.PDF],
+    MIME_TYPES[FileKind.HTML],
+)
 _KINDS = {media_type: kind for kind, media_type in MIME_TYPES.items()}
 
 SOURCE_TYPE = "web_url"
@@ -82,7 +87,7 @@ def load_fetched(
     sheet: str | None = None,
     limits: AdmissionLimits = DEFAULT_LIMITS,
     ocr: OcrProvider | None = None,
-) -> CsvLoadResult | XlsxLoadResult | PdfLoadResult:
+) -> CsvLoadResult | XlsxLoadResult | PdfLoadResult | HtmlLoadResult:
     """Admit and load fetched bytes through the upload path for their media type.
 
     The filename handed to admission is fixed by the media type, so nothing in
@@ -100,6 +105,10 @@ def load_fetched(
         raise AdmissionError(RejectionCode.UNSUPPORTED_FORMAT)
     stream = io.BytesIO(fetched.content)
     filename = f"download.{kind.value}"
+    if kind is FileKind.HTML:
+        return load_html(
+            stream, filename=filename, content_type=fetched.media_type, source=source, limits=limits
+        )
     if kind is FileKind.PDF:
         return load_pdf(
             stream,
