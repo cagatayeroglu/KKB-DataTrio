@@ -27,6 +27,9 @@ dependencies = [
   # The Kloudeks transport behind LLMProvider (DEC-129, DEC-124 allowlist).
   # Redirects and environment settings are switched off in llm/kloudeks.py.
   "httpx>=0.28.1,<0.29",
+  # Bounded PDF text and ruled-table extraction for web_url (M7-09, DEC-124
+  # allowlist). Its Ghostscript repair path is never used.
+  "pdfplumber>=0.11.10,<0.12",
 ]
 
 [project.optional-dependencies]

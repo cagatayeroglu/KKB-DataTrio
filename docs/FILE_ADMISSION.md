@@ -10,8 +10,9 @@ Admission checks establish whether input may proceed to a future bounded loader.
 | --- | --- | --- |
 | `.csv` | `text/csv`; optional UTF-8 charset | Bounded bytes, UTF-8/UTF-8 BOM decoding, nonempty text, no binary control characters, reject leading markup/PDF signatures. No delimiter, header, numeric/date conversion, row dropping, or locale inference. |
 | `.xlsx` | `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` | ZIP local-header signature, readable central directory, required OOXML part names (`[Content_Types].xml`, `_rels/.rels`, `xl/workbook.xml`, at least one worksheet), bounded archive metadata. No extraction or XML/cell interpretation. |
+| `.pdf` | `application/pdf` | Bounded bytes and a `%PDF-` header within the first 1,024 bytes (M7-09). Objects, streams, encryption and pages are validated by the bounded [PDF loader](../src/kkb_agent/pdf_loader.py), not here. |
 
-Extension and MIME are case-normalized; missing/generic/mismatched MIME is rejected rather than guessed. CSV MIME parameters other than UTF-8 charset are rejected. `.xls`, `.xlsm`, PDF, HTML, and other formats remain unsupported. These are initial local policy choices, not claims about the organizer's hidden input set; add formats only with their own bounded path and tests.
+Extension and MIME are case-normalized; missing/generic/mismatched MIME is rejected rather than guessed. CSV MIME parameters other than UTF-8 charset are rejected. `.xls`, `.xlsm`, HTML, and other formats remain unsupported. These are initial local policy choices, not claims about the organizer's hidden input set; add formats only with their own bounded path and tests.
 
 Original filenames must be nonempty basenames of at most 255 UTF-8 bytes with no path separators, colon, control characters, or leading/trailing whitespace. They never select a storage destination. A valid unfamiliar basename is treated exactly like a familiar one. Filename/provenance retention belongs to the caller and must not leak through logs.
 
@@ -32,6 +33,7 @@ Both initial formats use `AdmissionLimits`; callers may supply explicitly review
 | XLSX expanded size | 50 MiB total | Declared ZIP sizes checked before any extraction; future loader must enforce actual expanded-byte limits too. |
 | XLSX compression ratio | 100:1 per member | Declared uncompressed/compressed sizes; may conservatively reject highly repetitive workbooks. |
 | Parser time | 5 seconds | Configuration only; no parser runs here. Future parser must have enforceable cancellation/resource bounds; an outer timeout alone is insufficient. |
+| PDF pages / parser time | 30 / 10 seconds | Used by the PDF loader (M7-09): pages counted before any is laid out; its terminated worker has its own deadline because layout analysis is slower than a spreadsheet read. Page text and cells reuse the field limit, tables the row/column/cell limits. |
 
 Exact limits are inclusive; limit + 1 fails. Dimension checks accept zero while counting incrementally, but the completed loader must reject zero-row/header-only input per M1-01/M1-13. Row/cell/profile/time limits are not advertised as enforced over an uploaded file until the corresponding loader/profile calls these guards.
 
