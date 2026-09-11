@@ -18,7 +18,7 @@ This file owns **execution truth**. [ARCHITECTURE](ARCHITECTURE.md) owns technic
 
 # Current Project Status
 
-- Latest completion: **M5-19 — DONE**, Owner Çağatay, PR [#91](https://github.com/cagatayeroglu/KKB-DataTrio/pull/91) merged into `dev` at **`62e4c9591cf403e3682c4093a18abb103d153858`**. The merged tree equals final head `da139c6`, whose Fast PR passed; implementation `28baebf` and the task-branch tip are reachable from `origin/dev`. No implementation is active or newly claimed; M8-20 is next READY.
+- Latest completion: **M5-19 — DONE**, Owner Çağatay, PR [#91](https://github.com/cagatayeroglu/KKB-DataTrio/pull/91) merged into `dev` at **`62e4c9591cf403e3682c4093a18abb103d153858`**. The merged tree equals final head `da139c6`, whose Fast PR passed; implementation `28baebf` and the task-branch tip are reachable from `origin/dev`. M8-20 is now the sole IN PROGRESS task, owned by Çağatay on `feature/m8-20-readable-verified-figures`; claim PR pending.
 
 - Previous completion: **M7-04 — DONE**, Owner Çağatay, PR [#89](https://github.com/cagatayeroglu/KKB-DataTrio/pull/89) merged into `dev` at **`85739c8a030cb723d93c5dd1e66ccf2dd83aa19c`** on 2026-09-11. The merged tree equals validated final head `5095b15`; implementation `8f18881` and the task-branch tip are reachable from `origin/dev`. Earlier handover snapshots below are historical.
 
@@ -43,11 +43,11 @@ This file owns **execution truth**. [ARCHITECTURE](ARCHITECTURE.md) owns technic
 
 ## Ordered next safe tasks
 
-Rechecked after M5-19 merged in PR #91 at `62e4c95` on 2026-09-11. M5-19 is DONE and removed from the queue; no new implementation is claimed. The remaining entries stay READY with no owner: the next developer claims one on a fresh branch from `dev` with the usual draft PR. For those unclaimed entries, Owner **unassigned**, Branch/PR/Commit **—**, Tests **NOT RUN**. The open correctness blockers D and E are not queue entries until their definitions allow triage, and M6-13 still waits on M2-14/15. The queue covers triaged work, not every unchecked backlog item; recheck published claims immediately before starting.
+Rechecked after M5-19 merged in PR #91 at `62e4c95` on 2026-09-11. M5-19 is DONE and removed from the queue; M8-20 is claimed by Çağatay as recorded below. The other entries stay READY with no owner: the next developer claims one on a fresh branch from `dev` with the usual draft PR. For those unclaimed entries, Owner **unassigned**, Branch/PR/Commit **—**, Tests **NOT RUN**. The open correctness blockers D and E are not queue entries until their definitions allow triage, and M6-13 still waits on M2-14/15. The queue covers triaged work, not every unchecked backlog item; recheck published claims immediately before starting.
 
 | Order | Task / status | Satisfied prerequisites | Acceptance / handoff |
 | --- | --- | --- | --- |
-| 1 | **M8-20 — READY** — readable figures the gate still binds | M4-15 finding: answers copy raw floats ("767314.0 milyon TRY", "yüzde 4.447201536789372"); `render_result` and `SYNTHESIS_PROMPT` in `agent/loop.py`; gate tolerance `DEFAULT_TOLERANCE` = 5e-4 relative in `agent/verifier.py` | Render each value for the writer in Turkish grouping with enough significant digits to stay inside the gate tolerance; tests that the rendered figure binds, that rounding past the tolerance is withheld, and that scale and unit words stay consistent. No tolerance change without a recorded reason. |
+| 1 | **M8-20 — IN PROGRESS** — readable figures the gate still binds | M4-15 finding: answers copy raw floats ("767314.0 milyon TRY", "yüzde 4.447201536789372"); `render_result` and `SYNTHESIS_PROMPT` in `agent/loop.py`; gate tolerance `DEFAULT_TOLERANCE` = 5e-4 relative in `agent/verifier.py` | Render each value for the writer in Turkish grouping with enough significant digits to stay inside the gate tolerance; tests that the rendered figure binds, that rounding past the tolerance is withheld, and that scale and unit words stay consistent. No tolerance change without a recorded reason. |
 | 2 | **M7-19 — READY offline; a live run needs approval** — operator command for a document question | `web_url` (M7-08/09/17/18); the `live_check` pattern (M4-15); `KloudeksProvider` | An operator command (a new module or an extension of `live_check`) registers `web_url` bound to the lakehouse lineage beside the four analytical tools and runs one prompt-supplied-URL question through `Session.answer`, reporting each stage like `live_check`; offline tests with a fake fetch and a scripted provider. A live run fetches a public address and calls Kloudeks, so it needs explicit owner approval for each run and an accepted position on Q-NET-01/02; the M7-04 redirect prerequisite is now merged (#89). |
 | 3 | **M7-11 — READY offline; live OCR needs approval** — OCR for scanned pages | DEC-129's literal OCR contract; `pypdfium2` installed with `pdfplumber`; the `NO_TEXT_LAYER` refusal (M7-10); `KloudeksProvider.vision` sends one image with a prompt but not the OCR request shape | Bounded rendering of text-less pages to PNG (page and pixel caps), the exact OCR request (`"<image>\ndocument parsing"`, `max_tokens=8192`, `temperature=0.0`, `extra_body` with `window_size` 128 for one image and 1024 for several), layout tags stripped and the text kept as untrusted; OCR text only, no answerable value without a total or consistency check (DEC-119). OCR access is unverified (Q-K-01), so a live call needs owner approval. |
 | 4 | **M7-07 — READY** — HTML text and tables | Safe fetch and `load_fetched` routing; no HTML parser in the DEC-124 manifest, so the standard library's `html.parser` | `text/html` admitted with bounds; tables and text extracted with fragment identifiers, scripts and styles ignored, links never followed; M7-18's cell selection works over HTML tables. The organizer's example index page may be filled in by JavaScript: check what its static HTML holds before relying on it. |
@@ -1469,7 +1469,19 @@ Validated M0 record models; M1 source references; M5 tool runs; M2/M6 outputs as
 
 - [x] M8-18 — Status: DONE — Bind accepted claims to result identity and semantics. PR #64 merged and validated at `e7630a8`. Owner: Çağatay; Branch: `feature/m8-18-claim-semantic-binding`. Narrow regression correction; historical M8 ownership is retained. Evidence: [M8-18 record](#m8-18-claim-semantic-binding-record).
 - [x] M8-19 — Status: DONE — merged/validated (PR [#71](https://github.com/cagatayeroglu/KKB-DataTrio/pull/71) / `04905f5`, 141 targeted / 1638 unit tests). Owner: Eray; Branch: `feature/m8-19-causal-wording` (deleted after merge); Commit: `1f17f43`. Withhold causal wording the M8-18 vocabulary misses — present-tense and hedged forms, Granger phrasing and causal attributions — so no gated answer asserts that one series moves another (DEC-120). Added under the M6-20/M8-17 precedent after M6-11 made Granger phrasing likely. Evidence: [M8-19 record](#m8-19-causal-wording-record).
-- [ ] M8-20 — Status: READY — added and triaged at the 2026-09-11 handover (queue order 1) from M4-15's live finding. Render values for the answer writer readably (Turkish grouping, bounded significant digits) while every written figure still binds within the gate tolerance; answers currently copy raw floats such as `4.447201536789372`.
+- [ ] M8-20 — Status: IN PROGRESS — Owner: Çağatay; Branch: `feature/m8-20-readable-verified-figures`. added and triaged at the 2026-09-11 handover (queue order 1) from M4-15's live finding. Render values for the answer writer readably (Turkish grouping, bounded significant digits) while every written figure still binds within the gate tolerance; answers currently copy raw floats such as `4.447201536789372`.
+
+<a id="m8-20-readable-figures-record"></a>
+### M8-20 readable verified figures record
+
+- Status: IN PROGRESS
+- Owner: Çağatay
+- Branch: `feature/m8-20-readable-verified-figures`, from verified `dev` `4676ebc42512ea3aa352f947c48e97f6363ef3ba`.
+- PR: pending; draft claim publication before implementation.
+- Commit: pending.
+- Tests: NOT RUN for implementation. Baseline reproduction confirms raw float rendering and rejection of `4,45` against `4.447201536789372` (relative error 0.000629264 > 0.0005).
+- Blocker: none in scope; READY prerequisites and no conflicting open PR verified.
+- Handoff: Implement a separate deterministic Turkish display representation; retain original values/digests and existing tolerance/semantic binding. Only M8-20; no live calls or later task.
 
 <a id="m8-19-causal-wording-record"></a>
 ### M8-19 causal wording record
