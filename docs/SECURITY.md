@@ -192,7 +192,7 @@ When: M1 parser implementation and each additional M7 format before enablement.
 - [ ] Disable external-link/resource resolution where applicable.
 - [ ] Bound PDF page/object/text processing and image/OCR dimensions/work; reject unsupported encrypted/scanned content explicitly.
 - [x] Ensure parser work can stop within configured time/resource limits; an outer timeout alone must not leave runaway work.
-- [ ] Preserve page/sheet/table/cell location and low-confidence extraction warnings.
+- [x] Preserve page/sheet/table/cell location and low-confidence extraction warnings.
 - [x] Test corrupt containers, excessive expansion, malformed documents, embedded instructions, and limit exhaustion.
 
 Intended tests: Small synthetic pathological fixtures rather than huge harmful files; instrumented bounded parser behavior and maximum-output assertions.
