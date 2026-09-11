@@ -272,15 +272,38 @@ class TestOptionalCapabilities:
 
 
 class TestTheBoundaryHoldsTheLine:
-    def test_no_third_party_provider_appears_in_the_package(self):
-        # DEC-002 is checkable by inspection precisely because everything
-        # model-facing lives in this one package.
+    def test_no_third_party_hosted_llm_is_named_in_the_package(self):
+        # DEC-129 permits the openai SDK as a Kloudeks-only client, so an
+        # import name proves nothing either way (M4-07, blocker F). Hosted
+        # endpoints, their key variables and other vendors' SDKs do; where the
+        # key actually goes is tested against the transport in
+        # test_kloudeks_provider.py.
         from pathlib import Path
 
         package = Path(__file__).resolve().parents[2] / "src/kkb_agent"
         source = "\n".join(path.read_text(encoding="utf-8") for path in package.rglob("*.py"))
-        for banned in ("openai", "anthropic", "google.generativeai", "OPENAI_API_KEY"):
+        for banned in (
+            "api.openai.com",
+            "OPENAI_API_KEY",
+            "OPENAI_BASE_URL",
+            "anthropic",
+            "google.generativeai",
+            "generativelanguage.googleapis.com",
+        ):
             assert banned not in source
+
+    def test_only_the_kloudeks_module_builds_a_model_client(self):
+        # DEC-002 stays checkable by inspection: one module holds the client
+        # that carries the key, so a second route would have to add another.
+        from pathlib import Path
+
+        package = Path(__file__).resolve().parents[2] / "src/kkb_agent"
+        clients = {
+            path.relative_to(package).as_posix()
+            for path in package.rglob("*.py")
+            if "import httpx" in path.read_text(encoding="utf-8")
+        }
+        assert clients == {"llm/kloudeks.py"}
 
     def test_the_scripted_provider_satisfies_the_protocol(self):
         from kkb_agent.llm import LLMProvider

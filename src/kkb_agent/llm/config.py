@@ -1,9 +1,10 @@
 """Provider configuration from the environment (M4-06).
 
-Every platform-specific value is read here and nowhere else. No model
-identifier, base URL or capability flag appears as a constant in source, because
-Q-K-01 through Q-K-05 are unanswered and a constant written today would be a
-guess that outlives the guessing.
+Every platform-specific value is read here and nowhere else. Model identifiers,
+the base URL and capability flags come from the operator's environment, not
+source constants; DEC-129 supplies the confirmed values (see `.env.example`).
+The one rule fixed in source is where the key may go: `kloudeks` refuses any
+base URL but DEC-129's, because the environment is where a wrong one would hide.
 
 Errors name the setting that is wrong. They never carry its value, since the
 value in question is often a credential.
@@ -19,8 +20,8 @@ from pydantic import SecretStr
 
 from kkb_agent.llm.provider import ConfigurationError
 
-#: The provisional environment names. They are local conventions until Q-K-01
-#: confirms the platform's contract, which is why they live in one place.
+#: The environment names. DEC-129 fixes the values, not the names; these are
+#: local conventions, which is why they live in one place.
 PREFIX = "KLOUDEKS_"
 BASE_URL = f"{PREFIX}BASE_URL"
 CREDENTIAL = f"{PREFIX}API_KEY"

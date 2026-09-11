@@ -24,6 +24,9 @@ dependencies = [
   # Granger tests in the causality tool (DEC-120). Brings scipy with it; both
   # are on the DEC-124 allowlist.
   "statsmodels>=0.14.2,<0.16",
+  # The Kloudeks transport behind LLMProvider (DEC-129, DEC-124 allowlist).
+  # Redirects and environment settings are switched off in llm/kloudeks.py.
+  "httpx>=0.28.1,<0.29",
 ]
 
 [project.optional-dependencies]

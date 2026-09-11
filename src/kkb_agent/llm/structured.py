@@ -14,10 +14,14 @@ rejected rather than ignored.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable, Sequence
 
 from pydantic import BaseModel, ValidationError
 
-from kkb_agent.llm.provider import SchemaViolation
+from kkb_agent.llm.provider import Completion, Message, Role, SchemaViolation
+
+#: One model turn: the text it returned and, when the platform says, why it stopped.
+Ask = Callable[[list[Message]], tuple[str, str | None]]
 
 #: Only the first this many characters of a validation error are fed back. The
 #: message names fields and types, and a long one wastes a small context window.
@@ -83,6 +87,49 @@ def parse_structured[ModelT: BaseModel](text: str, schema: type[ModelT]) -> Mode
         return schema.model_validate(payload)
     except ValidationError as error:
         raise SchemaViolation(_summarize(error)) from error
+
+
+def complete_with_repair(
+    ask: Ask,
+    messages: Sequence[Message],
+    *,
+    schema: type[BaseModel] | None,
+    max_attempts: int,
+    model: str,
+) -> Completion:
+    """Ask, validate against `schema`, and on failure ask again with the fault.
+
+    Shared by every provider so the loop a test scripts is the loop that runs
+    against the platform. Without a schema the first answer is returned.
+    """
+    conversation = list(messages)
+    last_problem = ""
+    for attempt in range(1, max_attempts + 1):
+        text, finish_reason = ask(conversation)
+        if schema is None:
+            return Completion(text=text, model=model, attempts=attempt, finish_reason=finish_reason)
+        try:
+            parsed = parse_structured(text, schema)
+        except SchemaViolation as error:
+            last_problem = str(error)
+            if attempt == max_attempts:
+                break
+            # Feed the fault back rather than retrying the same prompt: an
+            # unchanged prompt tends to reproduce the same malformation.
+            conversation = [
+                *conversation,
+                Message(Role.ASSISTANT, text),
+                Message(Role.USER, repair_feedback(schema, last_problem)),
+            ]
+            continue
+        return Completion(
+            text=text,
+            model=model,
+            attempts=attempt,
+            parsed=parsed,
+            finish_reason=finish_reason,
+        )
+    raise SchemaViolation(f"Schema not satisfied after {max_attempts} attempt(s): {last_problem}")
 
 
 def repair_feedback(schema: type[BaseModel], problem: str) -> str:
