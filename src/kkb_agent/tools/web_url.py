@@ -208,6 +208,12 @@ def make_web_url_tool(
             raise TypeError("fetch returned neither a success nor a failure")
 
         source = fetched_source(arguments.url, outcome.content, retrieved_at=clock())
+        if outcome.effective_locator is not None:
+            # Retain the authorized request identity and exact content hash, but
+            # identify where these bytes were fetched, not the redirecting page.
+            source = source.model_copy(
+                update={"locator": outcome.effective_locator.get_secret_value()}
+            )
         try:
             loaded = load_fetched(
                 outcome, source=source, delimiter=arguments.delimiter, sheet=arguments.sheet

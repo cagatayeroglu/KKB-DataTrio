@@ -1,4 +1,4 @@
-"""Single bounded direct source GET boundary, with no automatic redirects.
+"""Single bounded source GET boundary, with explicitly validated redirects.
 
 Explicit accepted media types route bounded bytes; success is not file admission,
 parsed observations, source permission or verified financial semantics. CSV/XLSX
@@ -83,6 +83,7 @@ class FetchCode(StrEnum):
     BLOCKED_DESTINATION = "BLOCKED_DESTINATION"
     DNS_FAILURE = "DNS_FAILURE"
     REDIRECT_LIMIT = "REDIRECT_LIMIT"
+    REDIRECT_LOOP = "REDIRECT_LOOP"
     TIMEOUT = "TIMEOUT"
     SIZE_LIMIT = "SIZE_LIMIT"
     CONTENT_TYPE = "CONTENT_TYPE"
@@ -106,8 +107,9 @@ class FetchSuccess(ContractModel):
 
     A transport must enforce the request's limits before assembling this
     in-memory record. Raw content is excluded from repr/ordinary model exports;
-    a parser receives it explicitly. No redirect URL, headers or inferred
-    financial meaning is exposed. The source ID links back to caller provenance.
+    a parser receives it explicitly. Redirect provenance contains only a masked,
+    query/fragment-free final locator, never headers or financial meaning. The
+    source ID still identifies the caller's original request.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -117,17 +119,29 @@ class FetchSuccess(ContractModel):
     content: bytes = Field(strict=True, repr=False, exclude=True)
     media_type: MediaType
     http_status: Annotated[int, Field(strict=True, ge=200, le=299)]
+    effective_locator: SecretStr | None = Field(default=None, repr=False, exclude=True)
+
+    @model_validator(mode="after")
+    def safe_effective_locator(self) -> Self:
+        if self.effective_locator is not None:
+            from urllib.parse import urlsplit
+
+            value = self.effective_locator.get_secret_value()
+            target = validate_url_target(value)
+            if isinstance(target, TargetRejection) or urlsplit(value).query or "#" in value:
+                raise ValueError("effective locator must be a valid redacted public URL")
+        return self
 
 
 FetchOutcome = Annotated[FetchSuccess | FetchFailure, Field(discriminator="status")]
 
 
 def safe_fetch(request: FetchRequest, *, limits: FetchLimits = DEFAULT_LIMITS) -> FetchOutcome:
-    """Validate, then perform a bounded direct GET with DNS/peer/TLS checks.
+    """Perform bounded GETs with fresh DNS/peer/TLS checks for every redirect.
 
     A fixed child process makes blocking OS DNS cancellable without abandoning
-    threads. Unsupported encodings, malformed framing and all redirects fail
-    closed; max_redirects is reserved for M7-04 and never enables following here.
+    threads. Redirects share the total deadline and framing budget; only the
+    final response's body is read. Unsupported encodings/framing fail closed.
     Invalid contracts still raise sanitized ValidationError text. Callers own
     source/network authorization; no adapter/tool is enabled by this function.
     """

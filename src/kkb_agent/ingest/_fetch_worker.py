@@ -2,7 +2,7 @@
 
 Not a command runner: the executable/module are constant, input is validated
 JSON on stdin, and the only operation is a bounded source GET. stdout contains
-one fixed connection marker and one bounded JSON result; stderr is discarded.
+bounded connection-phase markers and one bounded JSON result; stderr is discarded.
 """
 
 from __future__ import annotations
@@ -11,13 +11,21 @@ import base64
 import json
 import socket
 import sys
+import time
 import zlib
 from collections.abc import Callable
 from contextlib import suppress
 from http.client import HTTPException
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 
-from kkb_agent.ingest._bounded_response import BoundedResponse, ResponseRejected, read_response
+from pydantic import SecretStr
+
+from kkb_agent.ingest._bounded_response import (
+    BoundedResponse,
+    ResponseRejected,
+    read_response,
+    redirect_location,
+)
 from kkb_agent.ingest._source_connection import SourceConnection, SourceConnectionError
 from kkb_agent.ingest.safe_fetch import (
     FetchCode,
@@ -33,14 +41,22 @@ MAX_INPUT_BYTES = 64 * 1024
 
 
 def fetch_once(
-    request: FetchRequest, limits: FetchLimits, connected: Callable[[], None]
+    request: FetchRequest,
+    limits: FetchLimits,
+    connected: Callable[[], None],
+    *,
+    connecting: Callable[[], None] = lambda: None,
 ) -> FetchOutcome:
-    """Internal worker body; public callers must use safe_fetch's supervisor."""
+    """One supervised request lifecycle, including explicitly checked GET hops."""
 
     connection = None
     response = None
+    deadline = time.monotonic() + limits.total_seconds
+    header_remaining = limits.max_header_bytes
     try:
         connection = SourceConnection(request, limits=limits)
+        visited = {connection.url.get_secret_value()}
+        hops = 0
 
         class LimitedResponse(BoundedResponse):
             def __init__(
@@ -55,27 +71,65 @@ def fetch_once(
                     debuglevel=debuglevel,
                     method=method,
                     url=url,
-                    header_limit=limits.max_header_bytes,
+                    header_limit=header_remaining,
                 )
 
-        connection.response_class = LimitedResponse
-        connection.connect()
-        connected()  # Parent can distinguish blocked DNS/connect from body work.
-        parsed = urlsplit(connection.url.get_secret_value())
-        path = quote(parsed.path or "/", safe="/%:@!$&'()*+,;=-._~")
-        if parsed.query:
-            path += "?" + quote(parsed.query, safe="/%?:@!$&'()*+,;=-._~")
-        connection.request(
-            "GET",
-            path,
-            headers={
-                "Accept": ", ".join(request.accepted_media_types),
-                "Accept-Encoding": "gzip, identity",
-                "Connection": "close",
-            },
-        )
-        response = connection.getresponse()
-        return read_response(response, request, limits)
+        while True:
+            if time.monotonic() >= deadline:
+                raise TimeoutError
+            connection.response_class = LimitedResponse
+            if hops:
+                connecting()  # Parent also bounds each subsequent DNS/TLS phase.
+            connection.connect()
+            connected()
+            if time.monotonic() >= deadline:
+                raise TimeoutError
+            parsed = urlsplit(connection.url.get_secret_value())
+            path = quote(parsed.path or "/", safe="/%:@!$&'()*+,;=-._~")
+            if parsed.query:
+                path += "?" + quote(parsed.query, safe="/%?:@!$&'()*+,;=-._~")
+            connection.request(
+                "GET",
+                path,
+                headers={
+                    "Accept": ", ".join(request.accepted_media_types),
+                    "Accept-Encoding": "gzip, identity",
+                    "Connection": "close",
+                },
+            )
+            response = connection.getresponse()
+            if not isinstance(response, BoundedResponse):  # Internal factory invariant.
+                raise ResponseRejected(FetchCode.HTTP_FAILURE)
+            header_remaining = response.remaining_header_bytes
+            location = redirect_location(response)
+            if location is None:
+                result = read_response(response, request, limits)
+                if time.monotonic() >= deadline:
+                    raise TimeoutError
+                if hops:
+                    result = result.model_copy(
+                        update={
+                            "effective_locator": SecretStr(
+                                urlunsplit(
+                                    (parsed.scheme, parsed.netloc, parsed.path or "/", "", "")
+                                )
+                            )
+                        }
+                    )
+                return result
+            # Never drain/decompress a redirect body or accept any of its cookies.
+            response.close()
+            response = None
+            connection.close()
+            if hops >= limits.max_redirects:
+                raise ResponseRejected(FetchCode.REDIRECT_LIMIT)
+            next_connection = connection.redirect_connection(location)
+            destination = next_connection.url.get_secret_value()
+            if destination in visited:
+                raise ResponseRejected(FetchCode.REDIRECT_LOOP)
+            visited.add(destination)
+            connection = next_connection
+            hops += 1
     except SourceConnectionError as error:
         return error.failure
     except ResponseRejected as error:
@@ -109,10 +163,18 @@ def main() -> int:
             sys.stdout.buffer.write(CONNECTED)
             sys.stdout.buffer.flush()
 
-        result = fetch_once(request, limits, connected)
+        def connecting() -> None:
+            # A timestamp, not a locator. Same-host monotonic clock as the parent.
+            message = f"CONNECTING {time.monotonic() + limits.connect_seconds:.9f}\n"
+            sys.stdout.buffer.write(message.encode("ascii"))
+            sys.stdout.buffer.flush()
+
+        result = fetch_once(request, limits, connected, connecting=connecting)
         encoded = result.model_dump(mode="json")
         if isinstance(result, FetchSuccess):
             encoded["content"] = base64.b64encode(result.content).decode("ascii")
+            if result.effective_locator is not None:
+                encoded["effective_locator"] = result.effective_locator.get_secret_value()
         sys.stdout.buffer.write(json.dumps(encoded).encode("ascii"))
         sys.stdout.buffer.flush()
         return 0

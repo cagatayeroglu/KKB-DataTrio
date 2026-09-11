@@ -68,6 +68,11 @@ class BoundedResponse(HTTPResponse):
         super().__init__(sock, debuglevel=debuglevel, method=method, url=url)
         self._framing = _HeaderReader(self.fp, header_limit)
 
+    @property
+    def remaining_header_bytes(self) -> int:
+        """Unused framing budget, shared with the next redirect response."""
+        return self._framing.remaining
+
     def _read_status(self) -> tuple[str, int, str]:
         # CPython hook is absent from typeshed; wire tests exercise it directly.
         version, status, reason = super()._read_status()  # type: ignore[misc]
@@ -115,6 +120,18 @@ def _single_header(response: HTTPResponse, name: str) -> str | None:
     if len(values) > 1:
         raise ResponseRejected(FetchCode.HTTP_FAILURE)
     return values[0].strip() if values else None
+
+
+def redirect_location(response: HTTPResponse) -> str | None:
+    """Only the five GET redirect statuses may select one untrusted Location."""
+    if not 300 <= response.status < 400:
+        return None
+    if response.status not in (301, 302, 303, 307, 308):
+        raise ResponseRejected(FetchCode.HTTP_FAILURE)
+    location = _single_header(response, "Location")
+    if not location:
+        raise ResponseRejected(FetchCode.HTTP_FAILURE)
+    return location
 
 
 def read_response(
