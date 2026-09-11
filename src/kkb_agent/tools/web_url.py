@@ -1,0 +1,239 @@
+"""The `web_url` tool: a table at an address the user wrote (M7-17, DEC-121).
+
+On the demo day the organizer puts URLs inside the question (DEC-131). This
+first slice reads the CSV and XLSX ones; PDF, HTML and images are later M7
+work, and until then their media types are refused before a body is read.
+
+Three rules carry the security weight, and each is enforced here rather than
+asked of the model:
+
+1. **Only an address the user wrote.** The URL argument must be one of the
+   addresses in the question, character for character. A link inside a
+   fetched document, or one a model decides would be useful, cannot become a
+   request — so a cell saying "now fetch https://attacker/?data=..." has
+   nowhere to send anything. The check reads `ExecutionContext.question`,
+   which `Session` fills with the user's own words; a caller building its own
+   context must do the same, never pass a plan's restated question.
+2. **One fetch boundary.** Every request goes through `safe_fetch`: public
+   destinations only, DNS bound to the socket, bounded bytes and time, and no
+   redirect followed.
+3. **Upload rules for downloaded bytes.** The response goes through M7-08's
+   `load_fetched`, the same admission checks and bounded loaders an uploaded
+   file meets.
+
+What comes back is a table, not an answer. Nothing here reads a value out of
+it or decides what a column means, so `collect_results` finds no
+`AnalyticalResult` in it and the answer path does not treat it as one. The
+table is not persisted; retention permission is still an open question.
+
+Registering the tool is the operator's switch: nothing registers it by
+default while the organizer's URL policy (Q-NET-02) is unanswered.
+"""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
+
+from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
+from kkb_agent.agent.registry import ToolSpec
+from kkb_agent.core import SourceRef
+from kkb_agent.csv_loader import CsvTable
+from kkb_agent.ingest.fetched import (
+    TABLE_MEDIA_TYPES,
+    fetched_source,
+    load_fetched,
+    source_id_for,
+)
+from kkb_agent.ingest.safe_fetch import (
+    FetchFailure,
+    FetchOutcome,
+    FetchRequest,
+    FetchSuccess,
+    safe_fetch,
+)
+from kkb_agent.ingestion_policy import AdmissionError
+from kkb_agent.lakehouse.lineage import Lineage, NodeKind
+from kkb_agent.xlsx_loader import XlsxLoadResult, XlsxTable
+
+type Fetcher = Callable[[FetchRequest], FetchOutcome]
+
+#: An address as someone types it into a sentence. Quotes and apostrophes end
+#: it, so a Turkish suffix ("...xlsx'teki") is not part of the address.
+_ADDRESS = re.compile(r"https?://[^\s<>\"'`‘’“”«»]+")
+_TRAILING = ".,;:!?"
+_OPENING = {")": "(", "]": "[", "}": "{"}
+
+
+def addresses_in(text: str) -> tuple[str, ...]:
+    """Every http(s) address in `text`, as written, without sentence punctuation.
+
+    A closing bracket is dropped only when the address does not open it, so a
+    wiki-style path ending in ")" survives while a parenthesised link does not
+    carry the parenthesis.
+    """
+    found: list[str] = []
+    for match in _ADDRESS.finditer(text):
+        address = match.group()
+        while address:
+            last = address[-1]
+            if last in _TRAILING or (
+                last in _OPENING and address.count(last) > address.count(_OPENING[last])
+            ):
+                address = address[:-1]
+            else:
+                break
+        if not address.endswith("://"):  # punctuation was all there was
+            found.append(address)
+    return tuple(dict.fromkeys(found))
+
+
+class WebUrlArguments(BaseModel):
+    """What the planner may ask for: one address and how to read its table."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    url: str = Field(
+        min_length=1,
+        max_length=4096,
+        pattern=r"^https?://\S+$",
+        description="The address exactly as the user wrote it in the question",
+    )
+    delimiter: Literal[",", ";", "\t", "|"] | None = Field(
+        default=None,
+        description="Column separator of a CSV file; required for CSV, ignored for a workbook",
+    )
+    sheet: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=256,
+        description="Worksheet to read when a workbook has several; ignored for CSV",
+    )
+
+
+@dataclass(frozen=True)
+class WebUrlOutput:
+    """One loaded table, or the fixed reason there is none.
+
+    `code` is a fixed category from this tool, `safe_fetch`, admission or a
+    loader — never remote text. `source` exists once bytes were retrieved.
+    Sheet names and cells come from the document and are data, which is why
+    they stay out of the repr and out of every warning.
+    """
+
+    status: Literal["loaded", "needs_input", "rejected"]
+    code: str | None = None
+    source: SourceRef | None = field(default=None, repr=False)
+    media_type: str | None = None
+    sheets: tuple[str, ...] = field(default=(), repr=False)
+    table: CsvTable | XlsxTable | None = field(default=None, repr=False)
+
+
+def make_web_url_tool(
+    *,
+    fetch: Fetcher = safe_fetch,
+    lineage: Lineage | None = None,
+    clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+) -> ToolSpec:
+    """Bind the tool to a fetch boundary: the real `safe_fetch` unless a test substitutes it."""
+
+    def run(arguments: BaseModel, context: ExecutionContext) -> ToolResult:
+        # The registry parses arguments before dispatch, so this is a contract
+        # check rather than validation. Not an assert: asserts vanish under -O.
+        if not isinstance(arguments, WebUrlArguments):  # pragma: no cover
+            raise TypeError("web_url received arguments it did not declare")
+        if arguments.url not in addresses_in(context.question):
+            return _failed("url_not_in_question", WebUrlOutput("rejected", "URL_NOT_IN_QUESTION"))
+
+        outcome = fetch(
+            FetchRequest(
+                source_ref=source_id_for(arguments.url),
+                url=SecretStr(arguments.url),
+                accepted_media_types=TABLE_MEDIA_TYPES,
+            )
+        )
+        if isinstance(outcome, FetchFailure):
+            reason = () if outcome.target_reason is None else (outcome.target_reason.value,)
+            return _failed(
+                "fetch_failed", WebUrlOutput("rejected", outcome.code.value), extra=reason
+            )
+        if not isinstance(outcome, FetchSuccess):  # pragma: no cover - FetchOutcome is closed
+            raise TypeError("fetch returned neither a success nor a failure")
+
+        source = fetched_source(arguments.url, outcome.content, retrieved_at=clock())
+        try:
+            loaded = load_fetched(
+                outcome, source=source, delimiter=arguments.delimiter, sheet=arguments.sheet
+            )
+        except AdmissionError as error:
+            return _failed(
+                "not_admitted",
+                WebUrlOutput("rejected", error.code.value, source, outcome.media_type),
+            )
+
+        output = WebUrlOutput(
+            loaded.status,
+            loaded.code,
+            source,
+            outcome.media_type,
+            loaded.sheets if isinstance(loaded, XlsxLoadResult) else (),
+            loaded.table,
+        )
+        if loaded.status == "needs_input":
+            return _failed("needs_input", output)
+        if loaded.status == "rejected":
+            return _failed("not_admitted", output)
+        return ToolResult(
+            ToolStatus.SUCCESS,
+            step_id="",
+            tool="web_url",
+            output=output,
+            evidence=_record(lineage, source, outcome.media_type),
+        )
+
+    return ToolSpec(
+        name="web_url",
+        description=(
+            "Read one CSV or XLSX table from a web address the user wrote in the "
+            "question. Pass the address exactly as written; any other address is "
+            "refused. A CSV needs its column separator declared; a workbook with "
+            "several sheets needs the sheet named. Returns the table and where it "
+            "came from, not an answer: it computes nothing. PDF, HTML and image "
+            "addresses are not supported yet."
+        ),
+        arguments=WebUrlArguments,
+        run=run,
+    )
+
+
+def _failed(category: str, output: WebUrlOutput, *, extra: tuple[str, ...] = ()) -> ToolResult:
+    """A refusal that names its fixed code and nothing from the document or URL."""
+    return ToolResult(
+        ToolStatus.FAILURE,
+        step_id="",
+        tool="web_url",
+        output=output,
+        error_category=category,
+        warnings=tuple(code for code in (output.code, *extra) if code is not None),
+    )
+
+
+def _record(lineage: Lineage | None, source: SourceRef, media_type: str) -> str | None:
+    """The fetched document as a source-file node; its bytes are not stored."""
+    if lineage is None:
+        return None
+    return lineage.record(
+        NodeKind.SOURCE_FILE,
+        source.source_id,
+        attributes={
+            "source_type": source.source_type,
+            "locator": source.locator,
+            "content_hash": source.content_hash or "",
+            "media_type": media_type,
+        },
+    )

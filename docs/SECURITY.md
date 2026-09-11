@@ -69,7 +69,7 @@ Acceptance: Only the confirmed configured provider can receive credentials; malf
 
 ## SEC-TRUST-01 — External content and prompt injection
 
-Status: PARTIAL — registry/argument injection negatives and user/system-role separation exist (#28). Document extraction, permitted-reference enforcement and live URL/tool integration remain incomplete.
+Status: PARTIAL — registry/argument injection negatives and user/system-role separation exist (#28). `web_url` (M7-17) fetches only an address written in the user's question, so neither a fetched cell nor a plan's restated question can pick a destination; its tests cover both. Document extraction beyond CSV/XLSX, workspace/data permitted-reference enforcement and live URL use remain incomplete.
 
 Threat: A PDF, spreadsheet cell, HTML page, image/OCR result, metadata field, or model response instructs the agent to disclose secrets, change rules, invoke unsafe tools, or fabricate evidence.
 
@@ -156,7 +156,7 @@ Acceptance: No supported product input provides arbitrary Python/shell execution
 
 ## SEC-FILE-01 — File admission and safe storage
 
-Status: PARTIAL — local admission/storage checks and negatives delivered in M1-02 (#5), specified in [FILE_ADMISSION](FILE_ADMISSION.md). M7-05 (#38) now bounds direct-GET response/decompression streams. Fetched bytes are not yet wired into file admission/parser routing; local file checks alone do not establish safe downloads.
+Status: PARTIAL — local admission/storage checks and negatives delivered in M1-02 (#5), specified in [FILE_ADMISSION](FILE_ADMISSION.md). M7-05 (#38) now bounds direct-GET response/decompression streams. Fetched CSV/XLSX bytes pass the same admission checks and loaders as uploads (M7-08), with the loader chosen by the validated response media type and the bytes re-checked against it; other downloaded formats have no parser route.
 
 Threat: Uploaded/downloaded filenames escape storage roots; misleading extensions/MIME route malicious content; large inputs exhaust memory; private uploads leak into Git/artifacts.
 
@@ -201,7 +201,7 @@ Acceptance: Enabled parsers cannot exceed documented tested limits silently or e
 
 ## SEC-URL-01 — Central safe fetch / SSRF / redirects
 
-Status: PARTIAL — M7-01/02/03/05/06 are merged and validated (#35–38; 340 targeted / 892 unit at #38 delivery). [safe_fetch](../src/kkb_agent/ingest/safe_fetch.py) implements direct GET with DNS-to-socket binding, verified TLS and bounded response handling. All 3xx are rejected; redirect following, POST, source trust configuration and adapter/parser integration remain incomplete. Live exposure still requires Q-DATA-01/Q-NET-01/02.
+Status: PARTIAL — M7-01/02/03/05/06 are merged and validated (#35–38; 340 targeted / 892 unit at #38 delivery). [safe_fetch](../src/kkb_agent/ingest/safe_fetch.py) implements direct GET with DNS-to-socket binding, verified TLS and bounded response handling. All 3xx are rejected; redirect following, POST, source trust configuration and adapter integration remain incomplete. Downloaded CSV/XLSX reach the upload parsers only through `web_url` (M7-08/M7-17). Live exposure still requires Q-DATA-01/Q-NET-01/02.
 
 Threat: User/model URLs target localhost, private services, link-local/cloud metadata, redirect to forbidden targets, rebind DNS, steal credentials, or stream excessive content.
 
