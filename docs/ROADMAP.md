@@ -18,7 +18,7 @@ This file owns **execution truth**. [ARCHITECTURE](ARCHITECTURE.md) owns technic
 
 # Current Project Status
 
-- Latest completion: **M7-19 — DONE (offline operator implementation)**, Owner Çağatay, PR [#95](https://github.com/cagatayeroglu/KKB-DataTrio/pull/95) merged into `dev` at **`4dafc9008c25871c7a82578dbcd58561abd4567e`**. Implementation `10e138c` and final head `2999eb5` are reachable from `origin/dev`; the merged tree equals the validated final head whose Fast PR passed. **LIVE DOCUMENT ACCEPTANCE NOT YET RUN.** M7-20 is the sole active claim (Çağatay), a narrow offline operator-report bug follow-up; M7-11 remains unclaimed.
+- Latest completion: **M7-19 — DONE (offline operator implementation)**, Owner Çağatay, PR [#95](https://github.com/cagatayeroglu/KKB-DataTrio/pull/95) merged into `dev` at **`4dafc9008c25871c7a82578dbcd58561abd4567e`**. Implementation `10e138c` and final head `2999eb5` are reachable from `origin/dev`; the merged tree equals the validated final head whose Fast PR passed. **LIVE DOCUMENT ACCEPTANCE NOT PASSED.** M7-20 is the sole active claim (Çağatay), a narrow offline operator-report bug follow-up; M7-11 remains unclaimed.
 
 - Previous completion: **M8-20 — DONE**, Owner Çağatay, PR [#93](https://github.com/cagatayeroglu/KKB-DataTrio/pull/93) merged into `dev` at **`bf918cca93cca43088075c87e540e077b9c4a098`**. The merged tree equals final head `d7d4b5f`, whose Fast PR passed; implementation `ddb3aa6` and the task-branch tip are reachable from `origin/dev`.
 
@@ -47,7 +47,7 @@ This file owns **execution truth**. [ARCHITECTURE](ARCHITECTURE.md) owns technic
 
 ## Ordered next safe tasks
 
-Rechecked after M7-19 merged in PR #95 at `4dafc90` on 2026-09-11. M7-19's offline operator implementation is DONE and removed from the queue; live document acceptance has not been run. No implementation is claimed. The remaining entries stay READY with Owner **unassigned**, Branch/PR/Commit **—**, Tests **NOT RUN**. The open correctness blockers D and E are not queue entries until their definitions allow triage, and M6-13 still waits on M2-14/15. Recheck published claims immediately before starting; no next task was started in this completion.
+Rechecked after M7-19 merged in PR #95 at `4dafc90` on 2026-09-11. M7-19's offline operator implementation is DONE and removed from the queue; live document acceptance has not passed. M7-20 is the sole active offline bug-fix claim; the following feature entries remain unclaimed. The remaining entries stay READY with Owner **unassigned**, Branch/PR/Commit **—**, Tests **NOT RUN**. The open correctness blockers D and E are not queue entries until their definitions allow triage, and M6-13 still waits on M2-14/15. Recheck published claims immediately before starting; no next task was started in this completion.
 
 | Order | Task / status | Satisfied prerequisites | Acceptance / handoff |
 | --- | --- | --- | --- |
@@ -1257,18 +1257,20 @@ M1 ingestion contract, M2 relevant semantics, SEC-URL-01 and SEC-FILE-01/02 befo
 - [x] M7-18 — Status: DONE — merged/validated (PR [#86](https://github.com/cagatayeroglu/KKB-DataTrio/pull/86) / `021f05a`, 207 targeted / 1946 unit tests, offline). Owner: Eray; Branch: `feature/m7-18-document-value` (deleted after merge); Commit: `6ed14dc`. Answer with one value read from a fetched table or PDF: select a cell by column header and row label, parse it without guessing its number format, take unit and scale only from what the column header states, and return a typed result the answer gate can bind, with cell provenance and lineage. Added under the M6-22 precedent; advances M7-12's cell metadata. Evidence: [M7-18 record](#m7-18-document-value-record).
 - [x] M7-19 — Status: DONE (offline operator implementation); Owner: Çağatay; Branch: `feature/m7-19-document-check`; a live run needs owner approval — added and triaged at the 2026-09-11 handover (queue order 1) under the M4-15 precedent. An operator command that registers `web_url` bound to the lakehouse lineage beside the four analytical tools and runs one prompt-supplied-URL question through `Session.answer` with the live provider, reporting each stage; offline tests first.
 
-- [ ] M7-20 — Status: IN PROGRESS; Owner: Çağatay; Branch: `fix/m7-20-operator-fetch-code`. Preserve existing safe `FetchCode` in the document operator report; no new taxonomy or user-answer behavior. Triaged from the authorized M7-19 diagnostic follow-up: prerequisites M7-01/17/19 are merged, no competing claim or external decision blocks offline work.
+- [ ] M7-20 — Status: PARTIAL; Owner: Çağatay; Branch: `fix/m7-20-operator-fetch-code`. Preserve existing safe `FetchCode` in the document operator report; no new taxonomy or user-answer behavior. Triaged from the authorized M7-19 diagnostic follow-up: prerequisites M7-01/17/19 are merged, no competing claim or external decision blocks offline work.
 
 ### M7-20 operator fetch-code bug record
 
-- Status: IN PROGRESS
+- Status: PARTIAL — implementation validated locally; awaiting PR merge.
 - Owner: Çağatay
 - Branch: `fix/m7-20-operator-fetch-code`, from `dev` `b3a08a3e3d0f646b41b8557f0a4ed47133ea7649`.
-- PR / Commit: pending claim publication.
+- PR: [#97](https://github.com/cagatayeroglu/KKB-DataTrio/pull/97), claim published before implementation; no competing PR.
+- Commit: claim `7aca3c1`; implementation pending.
+- Diagnosis: `FetchFailure.code` survives worker JSON validation and `web_url` as `WebUrlOutput.code`; only `live_check` omits it. One prior authorized live run failed as `fetch_failed` (3.147s, planner completion 1, repairs 0, gate ABSTAINED). Its detailed code was not retained in the report and cannot be inferred retroactively. No live retry in M7-20.
 - Acceptance: Expose only existing enum-approved fetch codes from `WebUrlOutput.code`; preserve fail-closed user answers and redaction. Test URL/DNS/transport (including TLS)/redirect/time/size/media failures offline. No live retry, new fetch behavior or dependency.
-- Tests: NOT RUN.
+- Tests: `pytest -q tests/unit/test_document_check.py tests/unit/test_live_check.py tests/unit/test_web_url_tool.py tests/unit/test_safe_fetch.py tests/unit/test_source_connection.py tests/unit/test_bounded_fetch.py tests/unit/test_safe_redirects.py` — **398 passed / 16.98s**. `make quick` — **2101 passed / 65.17s wall**. `make pr` — **2101 passed / 56.89s wall**, Ruff format/lint, Bandit and secret scan clean. All offline; 18 added cases cover enum propagation, user-answer isolation and untrusted/non-fetch code rejection. Fast PR pending final push.
 - Blocker: none for offline fix. Existing TLS errors share TRANSPORT_FAILURE; do not invent finer categories.
-- Handoff: Publish claim, implement only operator classification, validate and open PR into dev; stop before merge.
+- Handoff: Operator classification implemented; review PR #97 and its Fast PR result before any authorized merge. No live retry; M7-11 remains unclaimed. Unknown/non-fetch codes export null; user-facing abstention is unchanged.
 
 <a id="m7-19-document-check-record"></a>
 ### M7-19 offline document operator record

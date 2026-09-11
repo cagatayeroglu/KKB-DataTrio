@@ -48,7 +48,7 @@ from kkb_agent.core import (
     StockFlow,
 )
 from kkb_agent.ingest.fetched import DOCUMENT_MEDIA_TYPES
-from kkb_agent.ingest.safe_fetch import safe_fetch
+from kkb_agent.ingest.safe_fetch import FetchCode, safe_fetch
 from kkb_agent.lakehouse import Observation, SeriesSemantics, open_lakehouse
 from kkb_agent.lakehouse.lineage import EdgeKind, Lineage, NodeKind
 from kkb_agent.llm import (
@@ -305,6 +305,13 @@ def run_document_check(
                                 "not_admitted",
                                 "needs_input",
                             }
+                            else None,
+                            # WebUrlOutput.code is a string shared with parser
+                            # outcomes. Export only the existing fetch enum,
+                            # never arbitrary diagnostic text or source data.
+                            "fetch_code": output.code
+                            if result.error_category == "fetch_failed"
+                            and output.code in {code.value for code in FetchCode}
                             else None,
                         }
                     )

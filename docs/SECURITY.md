@@ -229,7 +229,7 @@ Acceptance: Every enabled source network path enforces destination checks throug
 
 ## SEC-LOG-01 — Logging, redaction, and evidence exports
 
-Status: PARTIAL — provider representations and validation errors have targeted redaction tests (#27). No integrated logging/export sanitization service exists. Source locators and query-purpose metadata still need consumer-side sanitization.
+Status: PARTIAL — provider representations and validation errors have targeted redaction tests (#27). No integrated logging/export sanitization service exists. Source locators and query-purpose metadata still need consumer-side sanitization. M7-20 adds only enum-allowlisted `FetchCode` to the document operator report for fetch failures; arbitrary reason strings, URLs, DNS addresses and raw exceptions are excluded. This does not establish a general logging/export service.
 
 Threat: Logs/traces/scorecards leak credentials, signed query strings, private document contents, or cross-workspace data; raw exceptions expose sensitive configuration.
 

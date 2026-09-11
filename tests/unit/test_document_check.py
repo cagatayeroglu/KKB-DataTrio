@@ -315,3 +315,76 @@ def test_cli_document_dispatch(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(live_check, "run_document_check", fake)
     assert live_check.main(["--document", "--question", QUESTION]) == 0
     assert json.loads(capsys.readouterr().out) == {"passed": True, "mode": "document"}
+
+
+@pytest.mark.parametrize("code", list(FetchCode))
+def test_operator_preserves_only_existing_fetch_codes(tmp_path, code):
+    report = run(tmp_path, fetch=FakeFetch(code=code))
+    stage = report["stages"][0]
+    assert stage["failure"] == "fetch_failed"
+    assert stage["fetch_code"] == code.value
+    assert report["passed"] is False
+    assert report["answer_status"] == "abstained"
+    assert report["completions"] == [1]  # No writer after a fetch failure.
+    for forbidden in (URL, "SECRET-QUERY", "PRIVATE-PATH", "RAW-CONTENT"):
+        assert forbidden not in json.dumps(report)
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        FetchCode.DNS_FAILURE,
+        FetchCode.TRANSPORT_FAILURE,
+        FetchCode.CONTENT_TYPE,
+        FetchCode.BLOCKED_DESTINATION,
+    ],
+)
+def test_user_answer_still_withholds_low_level_codes(tmp_path, code):
+    from kkb_agent.agent import Session, ToolRegistry
+    from kkb_agent.lakehouse import open_lakehouse
+
+    with open_lakehouse(tmp_path / "lake") as lake:
+        registry = ToolRegistry()
+        registry.register(
+            live_check.make_web_url_tool(fetch=FakeFetch(code=code), lineage=lake.lineage)
+        )
+        answered = Session(scripted(plan()), registry).answer(QUESTION, lake.connection)
+        assert answered.answer.status.value == "abstained"
+        assert answered.answer.text == ""
+        shown = str(answered.answer)
+        for forbidden in (code.value, URL, "SECRET-QUERY", "PRIVATE-PATH"):
+            assert forbidden not in shown
+
+
+@pytest.mark.parametrize(
+    "category,code",
+    [
+        ("fetch_failed", "https://private.test/?Authorization=SECRET raw exception"),
+        ("fetch_failed", None),
+        ("not_admitted", "DNS_FAILURE"),
+    ],
+)
+def test_untrusted_or_nonfetch_code_is_not_exported(tmp_path, monkeypatch, category, code):
+    original = live_check.make_web_url_tool
+
+    def factory(**kwargs):
+        spec = original(**kwargs)
+
+        def result(arguments, context):
+            from kkb_agent.tools.web_url import WebUrlOutput
+
+            return ToolResult(
+                ToolStatus.FAILURE,
+                "",
+                "web_url",
+                output=WebUrlOutput("rejected", code),
+                error_category=category,
+            )
+
+        return replace(spec, run=result)
+
+    monkeypatch.setattr(live_check, "make_web_url_tool", factory)
+    report = run(tmp_path)
+    assert report["stages"][0]["fetch_code"] is None
+    assert "SECRET" not in json.dumps(report)
+    assert "raw exception" not in json.dumps(report)
