@@ -137,7 +137,9 @@ class SourceConnection(HTTPConnection):
         if (
             self.host != self._target.hostname
             or self.port != self._target.port
-            or self._tunnel_host
+            # HTTPConnection.__init__ always sets it; typeshed omits private
+            # attributes. Read directly so a missing one still fails loudly.
+            or self._tunnel_host  # type: ignore[attr-defined]
         ):
             self._reject(FetchCode.INVALID_REQUEST)
         addresses = self._resolve()  # Every answer passes before any socket exists.

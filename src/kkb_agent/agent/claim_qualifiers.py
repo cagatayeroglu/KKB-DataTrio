@@ -137,9 +137,9 @@ def amount_qualifiers(text: str, start: int, end: int) -> tuple[Scale | None, tu
     for match in UNIT.finditer(text[:start]):
         if not text[match.end() : start].strip():
             units.append(UNITS[_fold(match[1])])
-    match = UNIT.match(unit_tail.lstrip())
-    if match:
-        units.append(UNITS[_fold(match[1])])
+    trailing = UNIT.match(unit_tail.lstrip())
+    if trailing:
+        units.append(UNITS[_fold(trailing[1])])
     return scale, tuple(units)
 
 

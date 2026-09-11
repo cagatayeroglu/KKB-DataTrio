@@ -18,7 +18,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import BinaryIO, Literal
+from typing import Any, BinaryIO, Literal
 from uuid import uuid4
 
 from kkb_agent.core import DataContract, SourceRef
@@ -131,7 +131,7 @@ def _check_structure(text: str, delimiter: str, limits: AdmissionLimits) -> None
         raise _CsvRejected("EMPTY_TABLE")
 
 
-def _parse(content: bytes, delimiter: str, limits: AdmissionLimits) -> dict:
+def _parse(content: bytes, delimiter: str, limits: AdmissionLimits) -> dict[str, object]:
     text = content.decode("utf-8-sig", errors="strict")
     _check_structure(text, delimiter, limits)
     # Process-local setting: never changes a caller's csv module/global limit.
@@ -147,14 +147,14 @@ def _parse(content: bytes, delimiter: str, limits: AdmissionLimits) -> dict:
     headers = next(reader)
     if not any(headers):
         raise _CsvRejected("MALFORMED_TABLE")
-    rows = []
+    rows: list[list[str | None]] = []
     for row in reader:
         limits.check_table_size(rows=len(rows) + 1, columns=len(row))
         rows.append([value if value != "" else None for value in row])
     return {"status": "loaded", "headers": headers, "rows": rows}
 
 
-def _write_result(output: Path, result: dict, limit: int) -> None:
+def _write_result(output: Path, result: dict[str, object], limit: int) -> None:
     size = 0
     with open(os.open(output, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600), "wb") as stream:
         for chunk in json.JSONEncoder(ensure_ascii=True).iterencode(result):
@@ -186,7 +186,7 @@ def _worker(content: bytes, delimiter: str, limits: AdmissionLimits, output: Pat
     _write_result(output, {"status": "rejected", "code": code}, 1024)
 
 
-def _run_worker(content: bytes, delimiter: str, limits: AdmissionLimits) -> dict:
+def _run_worker(content: bytes, delimiter: str, limits: AdmissionLimits) -> dict[str, Any]:
     context = multiprocessing.get_context("spawn")
     with tempfile.TemporaryDirectory(prefix="kkb-csv-") as directory:
         output = Path(directory) / "result.json"
@@ -209,7 +209,8 @@ def _run_worker(content: bytes, delimiter: str, limits: AdmissionLimits) -> dict
                 data = stream.read(cap + 1)
             if len(data) > cap:
                 return {"status": "rejected", "code": "LIMIT_EXCEEDED"}
-            return json.loads(data)
+            payload: dict[str, Any] = json.loads(data)  # written by _worker above
+            return payload
         finally:
             if process.is_alive():
                 process.kill()

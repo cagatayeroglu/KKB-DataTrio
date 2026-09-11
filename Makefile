@@ -16,6 +16,11 @@ pr:
 	bandit -q -r src
 	python scripts/check_secrets.py
 
+# Reviewed audit exceptions, each with its reason in ROADMAP's M0-08 record.
+# PYSEC-2026-113: Arrow C++ IPC pre-buffering, not reachable through pyarrow.
+# PYSEC-2026-1845: pytest's shared /tmp directory; a development-only tool.
+AUDIT_EXCEPTIONS = --ignore-vuln PYSEC-2026-113 --ignore-vuln PYSEC-2026-1845
+
 # dev -> main / explicit release gate.
 full:
 	ruff format --check src tests scripts
@@ -24,4 +29,4 @@ full:
 	pytest -q --disable-warnings
 	bandit -q -r src
 	python scripts/check_secrets.py
-	pip-audit
+	pip-audit $(AUDIT_EXCEPTIONS)

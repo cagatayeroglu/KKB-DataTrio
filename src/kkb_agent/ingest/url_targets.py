@@ -93,7 +93,9 @@ def validate_url_target(
     url: str,
     *,
     max_url_chars: int = 4096,
-    resolved_addresses: tuple[str, ...] | None = None,
+    # Resolver answers are untrusted: each is type-checked below, which is why
+    # the annotation accepts anything a resolver record can carry.
+    resolved_addresses: tuple[object, ...] | None = None,
 ) -> TargetOutcome:
     """Validate one URL and, optionally, *all* supplied resolver answers.
 
@@ -170,7 +172,7 @@ def validate_url_target(
         if _NUMERIC_LABEL.fullmatch(labels[-1]):
             return TargetRejection(TargetReason.AMBIGUOUS_IP)
 
-    addresses = (str(literal),) if literal is not None else None
+    addresses: tuple[str, ...] | None = (str(literal),) if literal is not None else None
     if resolved_addresses is not None:
         if not isinstance(resolved_addresses, tuple) or not resolved_addresses:
             return TargetRejection(TargetReason.INVALID_RESOLUTION)
