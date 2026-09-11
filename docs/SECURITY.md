@@ -46,7 +46,7 @@ Acceptance: No real credential is required for unit tests; configured secret sen
 
 ## SEC-KLO-01 — Kloudeks transport configuration
 
-Status: PARTIAL — merged offline provider/config/schema-repair/doubles (#27); [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy) records official transport/auth/models and image limits. M4-07 adds the transport ([kloudeks.py](../src/kkb_agent/llm/kloudeks.py)): DEC-129's host only, fixed paths and configured models, no redirects and no ambient proxy/environment settings, responses bounded in time and size, sanitized errors, and destination tests in place of the former `openai` name ban. Live validation (M4-12) is unexercised; native tool/JSON guarantees and remaining limits are still open. Availability/configuration is not a passing live test.
+Status: PARTIAL — merged offline provider/config/schema-repair/doubles (#27); [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy) records official transport/auth/models and image limits. M4-07 adds the transport ([kloudeks.py](../src/kkb_agent/llm/kloudeks.py)): DEC-129's host only, fixed paths and configured models, no redirects and no ambient proxy/environment settings, responses bounded in time and size, sanitized errors, and destination tests in place of the former `openai` name ban. M4-12's authorized live smoke passed for chat and embedding on 2026-09-11, reporting only safe metadata; OCR access, native tool/JSON guarantees and limits are still open. Availability/configuration is not a passing live test.
 
 Threat: User/model text selects an attacker endpoint, credentials go to an unintended host, requests exceed quotas, or a silent third-party LLM fallback violates constraints.
 

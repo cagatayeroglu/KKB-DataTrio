@@ -31,15 +31,15 @@ The organizer questions are now the project's only external blockers, and severa
 
 - [x] Record the official endpoint, MIA-key authentication and compatible-client contract in [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy).
 - [x] Obtain the team's MIA API key. Delivered over Slack on 2026-09-10 and stored **only** in the operator-local, git-ignored `.env`. The key value is not recorded here, in DECISIONS, or anywhere in Git.
-- [ ] Exercise one authorized live request to prove the key actually authenticates against the confirmed endpoints; never record the key itself.
-- Remaining question: Does the provisioned key authenticate successfully for chat, embedding and OCR, and are all three models reachable on this account?
+- [x] Exercise one authorized live request to prove the key actually authenticates against the confirmed endpoints; never record the key itself. Done for chat and embedding on 2026-09-11 (M4-12, DEC-129); OCR not called.
+- Remaining question: Is the OCR model (`kkbhackathon2026/Unlimited-OCR`) reachable on this account? Chat and embedding authenticated in the 2026-09-11 smoke.
 - Why it matters: Possessing a key is not proof of access. Per DEC-129 a `401`/`403` would mean an invalid key, a model this account cannot reach, or a mis-cased model identifier — three different failures that only a live call distinguishes.
 - Blocks which milestone? M4-12 live smoke and M11 live demo access; no longer the endpoint/auth design of M4-07.
 - Can we proceed before answer? YES for bounded transport implementation and fake-transport tests; NO for claiming live authentication passed.
 - Temporary assumption: Use only the confirmed Kloudeks destination and the operator-supplied secret; no hosted fallback under any error, including `429`.
 - Owner: Unassigned; the live smoke is M4-12 work and needs explicit authorization, not a side effect of another task.
-- Status: OPEN only for verified live access; endpoint/auth/SDK and key provisioning are ANSWERED.
-- Answer / evidence: Official guidance relayed by Çağatay 2026-09-09, verified against the primary MIA guide 2026-09-10; DEC-129. Key provisioned 2026-09-10. **No live request has been made.**
+- Status: OPEN only for OCR access; endpoint/auth/SDK, key provisioning and live chat/embedding authentication are ANSWERED.
+- Answer / evidence: Official guidance relayed by Çağatay 2026-09-09, verified against the primary MIA guide 2026-09-10; DEC-129. Key provisioned 2026-09-10. Live smoke 2026-09-11 11:35 +0300 (M4-12, explicitly authorized): chat and embedding succeeded through the M4-07 transport; no key or model text recorded.
 
 ### Q-K-02 — Available models and context capacity
 
@@ -83,7 +83,8 @@ The organizer questions are now the project's only external blockers, and severa
 
 - [x] Record the official embedding model and endpoint in [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy).
 - [x] Record the literal embedding request shape: `/v1/embeddings` with `encoding_format="float"`, a single-string `input` in the official example, vector read from `data[0].embedding` (DEC-129, 2026-09-10 amendment).
-- [ ] Resolve vector dimension, query/passage prefix convention, batch/token limits and whether a dedicated reranker is available. **Dimension is now directly measurable** — the guide's own example prints `len(vector)` — so it should be captured from the first authorized live call under Q-K-01 and recorded, not asked about.
+- [x] Measure the vector dimension: **4096**, from the first authorized live call (2026-09-11, M4-12; DEC-129).
+- [ ] Resolve the query/passage prefix convention, batch/token limits and whether a dedicated reranker is available.
 - Remaining question: What are those embedding configuration/limit details, and can a dedicated reranker be provided? General request/rate/concurrency limits remain Q-K-04.
 - Why it matters: Availability alone does not define a valid index/configuration or establish retrieval quality.
 - Blocks which milestone? M13-05 dense-baseline index configuration (dimension/prefix/limits) and optional dedicated-reranker use under M13-07. Lexical work, contracts and offline benchmark design can proceed; full hybrid acceptance requires both retrieval paths. Dense use itself is confirmed by DEC-130, not gated on lexical failure.
@@ -91,7 +92,7 @@ The organizer questions are now the project's only external blockers, and severa
 - Temporary assumption: Keep DEC-130's mandatory lexical+dense baseline and measured activation policy for RRF/reranking/extra stages. Do not copy an E5 prefix convention onto the confirmed Qwen model. The supplied list's omission of a dedicated reranker is not proof one can never be offered.
 - Owner: Unassigned; suggested lane B.
 - Status: OPEN only for remaining embedding details/dedicated reranker; embedding availability ANSWERED.
-- Answer / evidence: Official guidance relayed by Çağatay, 2026-09-09; DEC-129. No dimension, prefix convention or dedicated-reranker answer supplied.
+- Answer / evidence: Official guidance relayed by Çağatay, 2026-09-09; DEC-129. Dimension measured as 4096 on 2026-09-11 (M4-12). No prefix convention or dedicated-reranker answer supplied.
 
 ## Organizer infrastructure
 
