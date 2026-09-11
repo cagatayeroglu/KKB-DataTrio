@@ -49,6 +49,7 @@ from kkb_agent.core import (
 )
 from kkb_agent.ingest.fetched import DOCUMENT_MEDIA_TYPES
 from kkb_agent.ingest.safe_fetch import FetchCode, safe_fetch
+from kkb_agent.ingestion_policy import RejectionCode
 from kkb_agent.lakehouse import Observation, SeriesSemantics, open_lakehouse
 from kkb_agent.lakehouse.lineage import EdgeKind, Lineage, NodeKind
 from kkb_agent.llm import (
@@ -247,6 +248,22 @@ def _document_evidence(output: WebUrlOutput, lineage: Lineage) -> bool:
     return False
 
 
+# Existing loader codes, allowlisted for operator output only. This does not
+# change admission/parser behavior or expose arbitrary WebUrlOutput.code text.
+_DOCUMENT_CODES = frozenset(code.value for code in RejectionCode) | {
+    "EMPTY_TABLE",
+    "MALFORMED_TABLE",
+    "PARSER_FAILED",
+    "PARSING_DECLARATION_REQUIRED",
+    "UNSUPPORTED_DELIMITER",
+    "UNSUPPORTED_CELL",
+    "EMPTY_DOCUMENT",
+    "ENCRYPTED",
+    "MALFORMED_DOCUMENT",
+    "NO_TEXT_LAYER",
+}
+
+
 def run_document_check(
     provider: LLMProvider,
     root: Path,
@@ -307,8 +324,12 @@ def run_document_check(
                             }
                             else None,
                             # WebUrlOutput.code is a string shared with parser
-                            # outcomes. Export only the existing fetch enum,
+                            # outcomes. Export only allowlisted existing codes,
                             # never arbitrary diagnostic text or source data.
+                            "document_code": output.code
+                            if result.error_category in {"not_admitted", "needs_input"}
+                            and output.code in _DOCUMENT_CODES
+                            else None,
                             "fetch_code": output.code
                             if result.error_category == "fetch_failed"
                             and output.code in {code.value for code in FetchCode}

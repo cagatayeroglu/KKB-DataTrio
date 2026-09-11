@@ -234,3 +234,37 @@ class TestProvenance:
             fetched_source(url, TABLE, retrieved_at=NOW)
         assert "synthetic-secret" not in str(refused.value)
         assert "169.254" not in str(refused.value)
+
+
+@pytest.mark.parametrize(
+    "locator",
+    [
+        "https://example.test/",
+        "https://example.test/wrong.xlsx",
+        "https://example.test/../unsafe.csv?filename=../x",
+    ],
+)
+def test_synthetic_distance_fare_csv_uses_controlled_metadata(locator):
+    # Synthetic shape only: not captured public bytes and no claim about the live failure.
+    content = b"Distance (miles),Fare ($)\n4.5,18.00\n"
+    source = SOURCE.model_copy(update={"locator": locator})
+    downloaded = load_fetched(fetched(content, CSV), source=source, delimiter=",")
+    uploaded = load_csv(
+        io.BytesIO(content), filename="upload.csv", content_type=CSV, source=source, delimiter=","
+    )
+    assert downloaded.status == uploaded.status == "loaded"
+    assert downloaded.table.headers == ("Distance (miles)", "Fare ($)")
+    assert downloaded.table.rows == uploaded.table.rows == (("4.5", "18.00"),)
+
+
+def test_strict_csv_parser_rejection_is_not_an_admission_failure():
+    from kkb_agent.ingestion_policy import admit_upload
+
+    content = b'Distance (miles), "Fare ($)"\n4.5,18.00\n'
+    assert (
+        admit_upload(io.BytesIO(content), filename="download.csv", content_type=CSV).kind
+        == FileKind.CSV
+    )
+    loaded = load_fetched(fetched(content, CSV), source=SOURCE, delimiter=",")
+    assert loaded.status == "rejected"
+    assert loaded.code == "MALFORMED_TABLE"

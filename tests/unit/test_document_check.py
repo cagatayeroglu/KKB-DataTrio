@@ -388,3 +388,78 @@ def test_untrusted_or_nonfetch_code_is_not_exported(tmp_path, monkeypatch, categ
     assert report["stages"][0]["fetch_code"] is None
     assert "SECRET" not in json.dumps(report)
     assert "raw exception" not in json.dumps(report)
+
+
+@pytest.mark.parametrize(
+    "content,expected",
+    [
+        (b"<html>SECRET body</html>", "FORMAT_MISMATCH"),
+        (b"\xff", "UNSUPPORTED_ENCODING"),
+        (b"", "EMPTY_INPUT"),
+        (b"a,b\n1,2,3\n", "MALFORMED_TABLE"),
+        (b"a,b\n", "EMPTY_TABLE"),
+    ],
+)
+def test_document_rejection_code_and_user_isolation(tmp_path, content, expected):
+    from kkb_agent.agent import Session, ToolRegistry
+    from kkb_agent.lakehouse import open_lakehouse
+
+    report = run(tmp_path, fetch=FakeFetch(content))
+    stage = report["stages"][0]
+    assert stage["failure"] == "not_admitted"
+    assert stage["document_code"] == expected
+    assert stage["fetch_code"] is None
+    assert report["answer_status"] == "abstained"
+    assert report["completions"] == [1]
+    assert not report["passed"]
+    for secret in ("SECRET", URL, "RAW-CONTENT"):
+        assert secret not in json.dumps(report)
+    with open_lakehouse(tmp_path / "user-lake") as lake:
+        registry = ToolRegistry()
+        registry.register(
+            live_check.make_web_url_tool(fetch=FakeFetch(content), lineage=lake.lineage)
+        )
+        result = Session(scripted(plan()), registry).answer(QUESTION, lake.connection)
+        assert result.answer.text == ""
+        assert expected not in str(result.answer)
+
+
+def test_missing_csv_declaration_is_distinct_from_rejection(tmp_path):
+    planned = json.loads(plan())
+    del planned["steps"][0]["arguments"]["delimiter"]
+    report = run(tmp_path, planned=json.dumps(planned))
+    assert report["stages"][0]["failure"] == "needs_input"
+    assert report["stages"][0]["document_code"] == "PARSING_DECLARATION_REQUIRED"
+
+
+@pytest.mark.parametrize(
+    "category,code",
+    [
+        ("not_admitted", "SECRET raw exception /private?token=SECRET"),
+        ("not_admitted", None),
+        ("fetch_failed", "FORMAT_MISMATCH"),
+    ],
+)
+def test_document_code_allowlist(tmp_path, monkeypatch, category, code):
+    from kkb_agent.tools.web_url import WebUrlOutput
+
+    original = live_check.make_web_url_tool
+
+    def factory(**kwargs):
+        spec = original(**kwargs)
+        return replace(
+            spec,
+            run=lambda arguments, context: ToolResult(
+                ToolStatus.FAILURE,
+                "",
+                "web_url",
+                output=WebUrlOutput("rejected", code),
+                error_category=category,
+            ),
+        )
+
+    monkeypatch.setattr(live_check, "make_web_url_tool", factory)
+    report = run(tmp_path)
+    assert report["stages"][0]["document_code"] is None
+    assert "SECRET" not in json.dumps(report)
+    assert "raw exception" not in json.dumps(report)
