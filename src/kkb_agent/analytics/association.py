@@ -15,7 +15,8 @@ stops meaning what its label says.
 
 **Sample.** Correlation over a handful of points is noise with a decimal
 point. A floor applies, and each lag reports its own count because a lag of
-k periods discards k overlapping observations.
+k periods discards at least k overlapping observations — more when a gap
+leaves a period without its partner k declared periods away.
 
 **Shape.** Pearson measures *linear* association. Spearman measures monotone
 association and is unmoved by a single extreme pair. When they disagree
@@ -32,6 +33,7 @@ difference: that would answer a question nobody asked.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date
 from math import sqrt
 from typing import Final
@@ -47,8 +49,9 @@ from kkb_agent.core import (
     SampleCounts,
     Scale,
 )
+from kkb_agent.lakehouse.periods import spine
 from kkb_agent.lakehouse.records import Observation
-from kkb_agent.lakehouse.semantics import SeriesSemantics
+from kkb_agent.lakehouse.semantics import PeriodMismatch, SemanticsError, SeriesSemantics
 
 #: Aligned pairs needed before a correlation means anything. Two years of
 #: monthly data. PROPOSED: no benchmark has measured it.
@@ -180,7 +183,51 @@ def _prepare(
             f"({left_semantics.frequency.value} and {right_semantics.frequency.value}); "
             "align them explicitly rather than comparing across calendars"
         )
+    if left_semantics.anchor is not right_semantics.anchor:
+        return (
+            f"The weekly series end their weeks on different days "
+            f"({left_semantics.anchor} and {right_semantics.anchor}); "
+            "align them explicitly rather than comparing across calendars"
+        )
     return _aligned(_window(left, start, end), _window(right, start, end))
+
+
+def _calendar_positions(periods: Sequence[date], semantics: SeriesSemantics) -> list[int] | str:
+    """Where each aligned period sits on the declared calendar, or why it cannot be placed.
+
+    A lag counts declared periods, not surviving rows. Positions come from the
+    canonical spine rather than from the list, because a period nobody
+    published would otherwise vanish and pull its neighbours one step closer —
+    turning a two-month gap into a one-month lag without a trace in the output.
+    """
+    if not periods:
+        return []
+    frequency = semantics.frequency.value
+    try:
+        calendar = spine(semantics.frequency, periods[0], periods[-1], anchor=semantics.anchor)
+    except PeriodMismatch as error:
+        return (
+            f"An aligned period does not fall on the declared {frequency} calendar ({error}), "
+            "so the distance between periods cannot be counted"
+        )
+    except SemanticsError as error:
+        return (
+            f"A lag is counted in declared periods and {frequency} has no canonical period "
+            f"step here ({error}); compare the same periods with the association operation"
+        )
+    index = {period_end: place for place, (_, period_end) in enumerate(calendar)}
+    positions: list[int] = []
+    for period in periods:
+        place = index.get(period)
+        if place is None:
+            return (
+                f"Period ending {period.isoformat()} does not fall on the declared {frequency} "
+                "calendar, so the distance between periods cannot be counted"
+            )
+        positions.append(place)
+    if len(set(positions)) != len(positions):
+        return "A period appears more than once, so a lag pair would not be unique"
+    return positions
 
 
 def _window(
@@ -347,6 +394,12 @@ def lagged_association(
     lag with the strongest correlation therefore means the **first series moves
     first**. Getting this backwards inverts the entire reading, which is why it
     is in the label, the parameters and a warning rather than in a comment.
+
+    `k` counts **declared calendar periods**, never surviving rows. Both `t`
+    and `t + k` must be periods both series published; when one of them is
+    not, that pair does not exist, and the offset's sample count says so. A
+    calendar without a canonical step, or a date off it, abstains rather than
+    guessing how far apart two periods are.
     """
     identifier = result_id or f"lag:{left_id}:{right_id}"
     if not 0 <= max_lag <= LAG_CAP:
@@ -369,11 +422,16 @@ def lagged_association(
             left_semantics.unresolved + right_semantics.unresolved,
         )
     periods, xs, ys, dropped = prepared
+    positions = _calendar_positions(periods, left_semantics)
+    if isinstance(positions, str):
+        return _refuse(
+            identifier, ResultKind.LAG, ResultStatus.ABSTAINED, positions, SampleCounts(used=0)
+        )
 
     values: list[ResultValue] = []
-    strongest: tuple[int, float] | None = None
+    strongest: _Offset | None = None
     for lag in range(-max_lag, max_lag + 1):
-        paired_x, paired_y = _shift(xs, ys, lag)
+        paired_x, paired_y = _shift(positions, xs, ys, lag)
         if len(paired_x) < minimum_pairs:
             continue
         correlation = _pearson(paired_x, paired_y)
@@ -390,20 +448,20 @@ def lagged_association(
                 samples=SampleCounts(used=len(paired_x)),
             )
         )
-        if strongest is None or abs(correlation) > abs(strongest[1]):
-            strongest = (lag, correlation)
+        if strongest is None or abs(correlation) > abs(strongest.correlation):
+            strongest = _Offset(lag, correlation, paired_x, paired_y)
 
     if strongest is None:
         return _refuse(
             identifier,
             ResultKind.LAG,
             ResultStatus.INSUFFICIENT,
-            f"No offset in +/-{max_lag} had {minimum_pairs} aligned pairs with variance in "
-            f"both series; {len(xs)} period(s) aligned before shifting",
+            f"No offset in +/-{max_lag} had {minimum_pairs} calendar-valid pairs with variance "
+            f"in both series; {len(xs)} period(s) aligned before shifting",
             SampleCounts(used=len(xs), missing=dropped, minimum_required=minimum_pairs),
         )
 
-    lead, correlation = strongest
+    lead, correlation = strongest.lag, strongest.correlation
     warnings = [
         f"Lag sign: a lag of k pairs {left_id} at period t with {right_id} at t+k, so "
         f"the strongest offset {lead:+d} means "
@@ -417,7 +475,17 @@ def lagged_association(
         f"The strongest of {len(values)} offsets was selected, so its apparent strength "
         "is inflated by the search itself; it is not a tested hypothesis",
     ]
-    warnings.extend(_diagnostics(xs, ys, correlation, _spearman(xs, ys), dropped))
+    # Diagnose the pairs behind the reported number. Lag 0's pairs would set
+    # the rank figure of one alignment against the linear figure of another.
+    warnings.extend(
+        _diagnostics(
+            strongest.xs,
+            strongest.ys,
+            correlation,
+            _spearman(strongest.xs, strongest.ys),
+            dropped,
+        )
+    )
 
     return AnalyticalResult(
         result_id=identifier,
@@ -435,6 +503,10 @@ def lagged_association(
                 f"lag k pairs {left_id} at t with {right_id} at t+k; "
                 f"positive k means {left_id} leads"
             ),
+            "lag_unit": (
+                f"declared {left_semantics.frequency.value} periods; a pair needs both "
+                "periods published by both series, so a gap is never bridged"
+            ),
             "strongest_lag": lead,
             "offsets_examined": len(values),
             "minimum_pairs": minimum_pairs,
@@ -450,10 +522,30 @@ def lagged_association(
     )
 
 
-def _shift(xs: Sequence[float], ys: Sequence[float], lag: int) -> tuple[list[float], list[float]]:
-    """Pair x at t with y at t+k, dropping the k periods that fall off the end."""
-    if lag > 0:
-        return list(xs[:-lag]), list(ys[lag:])
-    if lag < 0:
-        return list(xs[-lag:]), list(ys[:lag])
-    return list(xs), list(ys)
+@dataclass(frozen=True, slots=True)
+class _Offset:
+    """The strongest offset so far, with the pairs its correlation came from."""
+
+    lag: int
+    correlation: float
+    xs: list[float]
+    ys: list[float]
+
+
+def _shift(
+    positions: Sequence[int], xs: Sequence[float], ys: Sequence[float], lag: int
+) -> tuple[list[float], list[float]]:
+    """Pair x at calendar position t with y at t+k; no aligned partner, no pair.
+
+    Keyed by calendar position, not list index. Slicing the aligned lists
+    would pair across any gap the alignment removed.
+    """
+    partner = {position: index for index, position in enumerate(positions)}
+    paired_x: list[float] = []
+    paired_y: list[float] = []
+    for index, position in enumerate(positions):
+        other = partner.get(position + lag)
+        if other is not None:
+            paired_x.append(xs[index])
+            paired_y.append(ys[other])
+    return paired_x, paired_y
