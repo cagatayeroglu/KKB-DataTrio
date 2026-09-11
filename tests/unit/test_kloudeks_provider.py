@@ -135,6 +135,34 @@ class TestTheKeyGoesToOneDestination:
         assert body["temperature"] == 0.0
         assert "response_format" not in body
 
+    def test_leading_system_turns_travel_as_one(self):
+        # M4-15's live run: the served model answers 400 to two system
+        # messages, and the product sends its instructions and tool list as
+        # two. They are joined in order; the rest of the turn is untouched.
+        server = Server(chat("ok"))
+        provider(server).complete(
+            [
+                Message(Role.SYSTEM, "talimat"),
+                Message(Role.SYSTEM, "araçlar"),
+                Message(Role.USER, PROMPT),
+                Message(Role.ASSISTANT, "önceki cevap"),
+                Message(Role.USER, "düzelt"),
+            ]
+        )
+
+        (body,) = server.bodies()
+        assert body["messages"] == [
+            {"role": "system", "content": "talimat\n\naraçlar"},
+            {"role": "user", "content": PROMPT},
+            {"role": "assistant", "content": "önceki cevap"},
+            {"role": "user", "content": "düzelt"},
+        ]
+
+    def test_a_turn_without_system_messages_is_sent_as_it_is(self):
+        server = Server(chat("ok"))
+        ask(provider(server))
+        assert server.bodies()[0]["messages"] == [{"role": "user", "content": PROMPT}]
+
     @pytest.mark.parametrize(
         "url",
         [
