@@ -79,7 +79,7 @@ Normal code tasks use targeted tests/lint or `make quick`; task PRs to `dev` use
 
 There is no `eval-smoke`/`eval-full` Make target, benchmark runner or UI launch command yet. `python -m kkb_agent.llm.smoke` (transport) and `python -m kkb_agent.live_check` (one question end to end on synthetic data) are operator-run live checks, never part of a gate. [EVALUATION](docs/EVALUATION.md#implemented-command-registry) separates existing commands from planned tiers. `make full` does not run a benchmark.
 
-M7-19 adds an explicit document mode to `live_check`. **Offline operator path implemented; live document acceptance not passed.** The following is a future operator invocation, not an offline test: it calls Kloudeks and fetches the URL in the question. Use it only after separate approval for that run and an accepted network/source boundary (Q-NET-01/02; Q-DATA where relevant). Supply the actual question, URL, column and row; no address is injected by the command.
+M7-19 adds an explicit document mode to `live_check`. **One live public CSV acceptance passed** ([evidence and limits](docs/EVALUATION.md#m7-19-live-csv-acceptance)). The following is a future operator invocation, not an offline test: it calls Kloudeks and fetches the URL in the question. Use it only after separate approval for that run and an accepted network/source boundary (Q-NET-01/02; Q-DATA where relevant). Supply the actual question, URL, column and row; no address is injected by the command.
 
 ```sh
 # Only after explicit live-run approval; replace the placeholder question.
