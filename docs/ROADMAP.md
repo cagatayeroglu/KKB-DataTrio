@@ -1245,7 +1245,7 @@ M1 ingestion contract, M2 relevant semantics, SEC-URL-01 and SEC-FILE-01/02 befo
 ### M7-04 safe redirects record
 
 - Status: PARTIAL (awaiting merge). Owner: Çağatay. Branch: `feature/m7-04-safe-redirects`, based on latest `dev` `407b987`.
-- PR: [#89](https://github.com/cagatayeroglu/KKB-DataTrio/pull/89). Commit: pending implementation commit.
+- PR: [#89](https://github.com/cagatayeroglu/KKB-DataTrio/pull/89). Implementation commit: `8f18881`.
 - Tests: `pytest -q tests/unit/test_safe_redirects.py tests/unit/test_bounded_fetch.py tests/unit/test_source_connection.py tests/unit/test_url_targets.py tests/unit/test_safe_fetch.py tests/unit/test_web_url_tool.py --disable-warnings --maxfail=1` — **470 passed / 10.02s** (62 new redirect/provenance cases). `make quick` — **2008 passed / 62.56s wall**; `make pr` — **2008 passed / 52.01s wall**, Ruff format/lint, Bandit and secret scan clean; Python 3.12.2. GitHub final-head Fast PR pending. These are the existing focused safe-fetch security suites; there is no separate security Make target. Local documentation paths/new record anchor and `git diff --check` pass.
 - Readiness: M7-02/03/05 are merged; no competing open PR or active claim at publication. No unresolved decision blocks offline implementation.
 - Scope: GET-only 301/302/303/307/308 following with per-hop target/DNS/peer/TLS validation, hop/loop limits and unchanged total time/byte budgets; focused negatives and `web_url` integration.
