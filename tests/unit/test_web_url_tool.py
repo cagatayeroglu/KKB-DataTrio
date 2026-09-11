@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from pdf_builder import Page, build, ruled_table
 
 from kkb_agent.agent import (
     AnswerStatus,
@@ -25,7 +26,7 @@ from kkb_agent.agent import (
 )
 from kkb_agent.agent.loop import collect_results
 from kkb_agent.csv_loader import CsvTable
-from kkb_agent.ingest.fetched import TABLE_MEDIA_TYPES, source_id_for
+from kkb_agent.ingest.fetched import DOCUMENT_MEDIA_TYPES, source_id_for
 from kkb_agent.ingest.safe_fetch import FetchCode, FetchFailure, FetchRequest, FetchSuccess
 from kkb_agent.ingestion_policy import MIME_TYPES, FileKind
 from kkb_agent.lakehouse import open_lakehouse
@@ -37,7 +38,8 @@ from kkb_agent.xlsx_loader import XlsxTable
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures/ingestion"
 SINGLE = (FIXTURES / "single_sheet.xlsx").read_bytes()
 MULTI = (FIXTURES / "multi_sheet.xlsx").read_bytes()
-CSV, XLSX = MIME_TYPES[FileKind.CSV], MIME_TYPES[FileKind.XLSX]
+CSV, XLSX, PDF = (MIME_TYPES[kind] for kind in (FileKind.CSV, FileKind.XLSX, FileKind.PDF))
+GOLD = ruled_table(50, 700, [["Tarih", "Altin (kg)"], ["2026-06-01", "1.234,56"]])
 TABLE = b"as_of,measure\n2026-01-31,100\n2026-02-28,125\n"
 NOW = datetime(2026, 9, 11, 12, 0, tzinfo=UTC)
 URL = "https://data.example.test/files/rates.csv?token=synthetic-secret"
@@ -200,7 +202,7 @@ class TestTheFetchBoundary:
         run(fetch)
 
         (request,) = fetch.requests
-        assert request.accepted_media_types == TABLE_MEDIA_TYPES
+        assert request.accepted_media_types == DOCUMENT_MEDIA_TYPES
         assert request.url.get_secret_value() == URL
         assert request.source_ref == source_id_for(URL)
 
@@ -318,10 +320,52 @@ class TestTablesComeBackTyped:
             assert lake.connection.execute("SELECT count(*) FROM lineage_nodes").fetchone() == (0,)
 
     def test_a_type_no_loader_reads_is_refused_even_from_a_substituted_fetch(self):
-        result = run(FakeFetch(b"%PDF-1.7\nsynthetic", "application/pdf"))
+        result = run(FakeFetch(b"<html><body>synthetic</body></html>", "text/html"))
 
         assert result.error_category == "not_admitted"
         assert result.warnings == ("UNSUPPORTED_FORMAT",)
+
+    def test_a_pdf_comes_back_as_a_document_with_provenance_and_lineage(self, tmp_path):
+        content = build([GOLD])
+        with open_lakehouse(tmp_path / "lake") as lake:
+            result = run(FakeFetch(content, PDF), lineage=lake.lineage)
+
+            assert result.status is ToolStatus.SUCCESS
+            assert result.warnings == ()
+            output = result.output
+            assert (output.status, output.media_type, output.table) == ("loaded", PDF, None)
+            (table,) = output.document.tables
+            assert (table.page, table.bbox) == (1, (50.0, 92.0, 250.0, 132.0))
+            assert table.rows == (("Tarih", "Altin (kg)"), ("2026-06-01", "1.234,56"))
+            assert output.document.contract.source == output.source
+            node = lake.lineage.node(result.evidence)
+            assert node.attributes["media_type"] == PDF
+            assert node.attributes["content_hash"] == output.source.content_hash
+            assert_nothing_leaks(result)
+            assert "1.234,56" not in repr(result) + repr(output)
+
+    def test_a_pdf_page_without_text_surfaces_as_a_fixed_warning(self):
+        result = run(FakeFetch(build([GOLD, Page(lines=[(10, 10, 90, 90)])]), PDF))
+
+        assert result.status is ToolStatus.SUCCESS
+        assert result.warnings == ("PAGES_WITHOUT_TEXT",)
+        assert [page.has_text for page in result.output.document.pages] == [True, False]
+
+    @pytest.mark.parametrize(
+        ("content", "code"),
+        [
+            (build([Page(lines=[(10, 10, 90, 90)])]), "NO_TEXT_LAYER"),
+            (b"%PDF-1.4\nnot a document\n", "MALFORMED_DOCUMENT"),
+            (b"no header at all", "FORMAT_MISMATCH"),
+        ],
+    )
+    def test_an_unreadable_pdf_is_refused_with_a_fixed_code(self, content, code):
+        result = run(FakeFetch(content, PDF))
+
+        assert result.status is ToolStatus.FAILURE
+        assert result.error_category == "not_admitted"
+        assert result.warnings == (code,)
+        assert result.output.document is None
 
     def test_a_workbook_with_several_sheets_needs_one_named(self):
         needs = run(FakeFetch(MULTI, XLSX))

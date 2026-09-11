@@ -1,8 +1,10 @@
-"""The `web_url` tool: a table at an address the user wrote (M7-17, DEC-121).
+"""The `web_url` tool: a file at an address the user wrote (M7-17, M7-09, DEC-121).
 
 On the demo day the organizer puts URLs inside the question (DEC-131). This
-first slice reads the CSV and XLSX ones; PDF, HTML and images are later M7
-work, and until then their media types are refused before a body is read.
+reads CSV and XLSX tables and the text and ruled tables of a PDF with a text
+layer; HTML, images and scanned PDFs are later M7 work, and until then their
+media types are refused before a body is read or their content is refused
+with a fixed code.
 
 Three rules carry the security weight, and each is enforced here rather than
 asked of the model:
@@ -21,10 +23,10 @@ asked of the model:
    `load_fetched`, the same admission checks and bounded loaders an uploaded
    file meets.
 
-What comes back is a table, not an answer. Nothing here reads a value out of
-it or decides what a column means, so `collect_results` finds no
+What comes back is a table or a document, not an answer. Nothing here reads a
+value out of it or decides what a column means, so `collect_results` finds no
 `AnalyticalResult` in it and the answer path does not treat it as one. The
-table is not persisted; retention permission is still an open question.
+content is not persisted; retention permission is still an open question.
 
 Registering the tool is the operator's switch: nothing registers it by
 default while the organizer's URL policy (Q-NET-02) is unanswered.
@@ -45,7 +47,7 @@ from kkb_agent.agent.registry import ToolSpec
 from kkb_agent.core import SourceRef
 from kkb_agent.csv_loader import CsvTable
 from kkb_agent.ingest.fetched import (
-    TABLE_MEDIA_TYPES,
+    DOCUMENT_MEDIA_TYPES,
     fetched_source,
     load_fetched,
     source_id_for,
@@ -59,6 +61,7 @@ from kkb_agent.ingest.safe_fetch import (
 )
 from kkb_agent.ingestion_policy import AdmissionError
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
+from kkb_agent.pdf_loader import PdfDocument, PdfLoadResult
 from kkb_agent.xlsx_loader import XlsxLoadResult, XlsxTable
 
 type Fetcher = Callable[[FetchRequest], FetchOutcome]
@@ -94,7 +97,7 @@ def addresses_in(text: str) -> tuple[str, ...]:
 
 
 class WebUrlArguments(BaseModel):
-    """What the planner may ask for: one address and how to read its table."""
+    """What the planner may ask for: one address and how to read what it serves."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -106,24 +109,25 @@ class WebUrlArguments(BaseModel):
     )
     delimiter: Literal[",", ";", "\t", "|"] | None = Field(
         default=None,
-        description="Column separator of a CSV file; required for CSV, ignored for a workbook",
+        description="Column separator of a CSV file; required for CSV, ignored otherwise",
     )
     sheet: str | None = Field(
         default=None,
         min_length=1,
         max_length=256,
-        description="Worksheet to read when a workbook has several; ignored for CSV",
+        description="Worksheet to read when a workbook has several; ignored otherwise",
     )
 
 
 @dataclass(frozen=True)
 class WebUrlOutput:
-    """One loaded table, or the fixed reason there is none.
+    """One loaded table or PDF document, or the fixed reason there is none.
 
     `code` is a fixed category from this tool, `safe_fetch`, admission or a
     loader — never remote text. `source` exists once bytes were retrieved.
-    Sheet names and cells come from the document and are data, which is why
-    they stay out of the repr and out of every warning.
+    Sheet names, page text and cells come from the document and are data,
+    which is why they stay out of the repr and out of every warning; a PDF's
+    own `warnings` are fixed codes.
     """
 
     status: Literal["loaded", "needs_input", "rejected"]
@@ -132,6 +136,7 @@ class WebUrlOutput:
     media_type: str | None = None
     sheets: tuple[str, ...] = field(default=(), repr=False)
     table: CsvTable | XlsxTable | None = field(default=None, repr=False)
+    document: PdfDocument | None = field(default=None, repr=False)
 
 
 def make_web_url_tool(
@@ -154,7 +159,7 @@ def make_web_url_tool(
             FetchRequest(
                 source_ref=source_id_for(arguments.url),
                 url=SecretStr(arguments.url),
-                accepted_media_types=TABLE_MEDIA_TYPES,
+                accepted_media_types=DOCUMENT_MEDIA_TYPES,
             )
         )
         if isinstance(outcome, FetchFailure):
@@ -176,35 +181,42 @@ def make_web_url_tool(
                 WebUrlOutput("rejected", error.code.value, source, outcome.media_type),
             )
 
-        output = WebUrlOutput(
-            loaded.status,
-            loaded.code,
-            source,
-            outcome.media_type,
-            loaded.sheets if isinstance(loaded, XlsxLoadResult) else (),
-            loaded.table,
-        )
+        if isinstance(loaded, PdfLoadResult):
+            output = WebUrlOutput(
+                loaded.status, loaded.code, source, outcome.media_type, document=loaded.document
+            )
+        else:
+            output = WebUrlOutput(
+                loaded.status,
+                loaded.code,
+                source,
+                outcome.media_type,
+                loaded.sheets if isinstance(loaded, XlsxLoadResult) else (),
+                loaded.table,
+            )
         if loaded.status == "needs_input":
             return _failed("needs_input", output)
         if loaded.status == "rejected":
             return _failed("not_admitted", output)
+        warnings = output.document.warnings if output.document is not None else ()
         return ToolResult(
             ToolStatus.SUCCESS,
             step_id="",
             tool="web_url",
             output=output,
+            warnings=warnings,
             evidence=_record(lineage, source, outcome.media_type),
         )
 
     return ToolSpec(
         name="web_url",
         description=(
-            "Read one CSV or XLSX table from a web address the user wrote in the "
-            "question. Pass the address exactly as written; any other address is "
-            "refused. A CSV needs its column separator declared; a workbook with "
-            "several sheets needs the sheet named. Returns the table and where it "
-            "came from, not an answer: it computes nothing. PDF, HTML and image "
-            "addresses are not supported yet."
+            "Read a CSV or XLSX table, or the text and ruled tables of a PDF, from a "
+            "web address the user wrote in the question. Pass the address exactly as "
+            "written; any other address is refused. A CSV needs its column separator "
+            "declared; a workbook with several sheets needs the sheet named. Returns "
+            "the content and where it came from, not an answer: it computes nothing. "
+            "Scanned PDFs, HTML and image addresses are not supported yet."
         ),
         arguments=WebUrlArguments,
         run=run,

@@ -1,7 +1,7 @@
-"""M7-08: a downloaded table passes the same guards and loaders as an upload.
+"""M7-08: a downloaded file passes the same guards and loaders as an upload.
 
 `safe_fetch` bounds the transfer; it says nothing about the bytes. Here they
-meet the M1 admission checks and the bounded CSV/XLSX loaders exactly as an
+meet the M1 admission checks and the bounded CSV/XLSX/PDF loaders exactly as an
 uploaded file does, so there is one set of file rules rather than a weaker one
 for whatever arrived over the network.
 
@@ -33,10 +33,12 @@ from kkb_agent.ingestion_policy import (
     FileKind,
     RejectionCode,
 )
+from kkb_agent.pdf_loader import PdfLoadResult, load_pdf
 from kkb_agent.xlsx_loader import XlsxLoadResult, load_xlsx
 
 #: The media types this path can load, and so the only ones worth accepting.
 TABLE_MEDIA_TYPES: tuple[str, ...] = (MIME_TYPES[FileKind.CSV], MIME_TYPES[FileKind.XLSX])
+DOCUMENT_MEDIA_TYPES: tuple[str, ...] = (*TABLE_MEDIA_TYPES, MIME_TYPES[FileKind.PDF])
 _KINDS = {media_type: kind for kind, media_type in MIME_TYPES.items()}
 
 SOURCE_TYPE = "web_url"
@@ -78,17 +80,17 @@ def load_fetched(
     delimiter: str | None = None,
     sheet: str | None = None,
     limits: AdmissionLimits = DEFAULT_LIMITS,
-) -> CsvLoadResult | XlsxLoadResult:
+) -> CsvLoadResult | XlsxLoadResult | PdfLoadResult:
     """Admit and load fetched bytes through the upload path for their media type.
 
     The filename handed to admission is fixed by the media type, so nothing in
     the URL or a response header names or routes the file. `delimiter` applies
     only to CSV and `sheet` only to a workbook: each is a declaration about one
-    format and is not consulted for the other. Everything else — byte, row,
-    column and cell budgets, the terminated parser worker, explicit delimiter
-    and sheet selection, formula and macro rejection — is the loaders' own
-    behaviour, unchanged. Raises AdmissionError for a media type neither loader
-    reads, before any byte is parsed.
+    format and is not consulted for the others. Everything else — byte, row,
+    column, cell and page budgets, the terminated parser worker, explicit
+    delimiter and sheet selection, formula and macro rejection — is the
+    loaders' own behaviour, unchanged. Raises AdmissionError for a media type
+    no loader reads, before any byte is parsed.
     """
     fetched = FetchSuccess.model_validate(fetched)
     kind = _KINDS.get(fetched.media_type)
@@ -96,6 +98,14 @@ def load_fetched(
         raise AdmissionError(RejectionCode.UNSUPPORTED_FORMAT)
     stream = io.BytesIO(fetched.content)
     filename = f"download.{kind.value}"
+    if kind is FileKind.PDF:
+        return load_pdf(
+            stream,
+            filename=filename,
+            content_type=fetched.media_type,
+            source=source,
+            limits=limits,
+        )
     if kind is FileKind.CSV:
         return load_csv(
             stream,

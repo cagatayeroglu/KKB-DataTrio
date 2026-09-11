@@ -13,11 +13,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from pdf_builder import build, ruled_table
 
 from kkb_agent.core import SourceRef
 from kkb_agent.csv_loader import load_csv
 from kkb_agent.ingest import fetched as module
 from kkb_agent.ingest.fetched import (
+    DOCUMENT_MEDIA_TYPES,
     TABLE_MEDIA_TYPES,
     fetched_source,
     load_fetched,
@@ -31,13 +33,15 @@ from kkb_agent.ingestion_policy import (
     FileKind,
     RejectionCode,
 )
+from kkb_agent.pdf_loader import load_pdf
 from kkb_agent.xlsx_loader import load_xlsx
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures/ingestion"
 SINGLE = (FIXTURES / "single_sheet.xlsx").read_bytes()
 MULTI = (FIXTURES / "multi_sheet.xlsx").read_bytes()
-CSV, XLSX = MIME_TYPES[FileKind.CSV], MIME_TYPES[FileKind.XLSX]
+CSV, XLSX, PDF = (MIME_TYPES[kind] for kind in (FileKind.CSV, FileKind.XLSX, FileKind.PDF))
 TABLE = b"as_of,measure\n2026-01-31,100\n2026-02-28,125\n"
+DOCUMENT = build([ruled_table(50, 700, [["as_of", "measure"], ["2026-01-31", "100"]])])
 NOW = datetime(2026, 9, 11, 12, 0, tzinfo=UTC)
 SOURCE = SourceRef(
     source_id="web:fixture", source_type="web_url", locator="https://example.test/data"
@@ -60,6 +64,7 @@ def not_a_workbook() -> bytes:
 class TestTheUploadPathIsTheOnlyPath:
     def test_the_accepted_types_are_exactly_the_loadable_ones(self):
         assert TABLE_MEDIA_TYPES == (CSV, XLSX)
+        assert DOCUMENT_MEDIA_TYPES == (CSV, XLSX, PDF)
 
     def test_a_fetched_csv_loads_exactly_as_the_same_upload(self):
         downloaded = load_fetched(fetched(TABLE, CSV), source=SOURCE, delimiter=",")
@@ -84,12 +89,23 @@ class TestTheUploadPathIsTheOnlyPath:
         assert downloaded.table.headers == uploaded.table.headers
         assert downloaded.table.rows == uploaded.table.rows
 
-    @pytest.mark.parametrize(("media_type", "loader"), [(CSV, "load_csv"), (XLSX, "load_xlsx")])
+    def test_a_fetched_pdf_loads_exactly_as_the_same_upload(self):
+        downloaded = load_fetched(fetched(DOCUMENT, PDF), source=SOURCE, delimiter=",", sheet="x")
+        uploaded = load_pdf(io.BytesIO(DOCUMENT), filename="u.pdf", content_type=PDF, source=SOURCE)
+
+        assert downloaded.status == uploaded.status == "loaded"
+        assert downloaded.document is not None and uploaded.document is not None
+        assert downloaded.document.pages == uploaded.document.pages
+        assert downloaded.document.tables[0].rows == (("as_of", "measure"), ("2026-01-31", "100"))
+
+    @pytest.mark.parametrize(
+        ("media_type", "loader"), [(CSV, "load_csv"), (XLSX, "load_xlsx"), (PDF, "load_pdf")]
+    )
     def test_the_media_type_picks_the_loader_and_names_the_file(
         self, monkeypatch, media_type, loader
     ):
         calls = []
-        for name in ("load_csv", "load_xlsx"):
+        for name in ("load_csv", "load_xlsx", "load_pdf"):
             monkeypatch.setattr(
                 module, name, lambda stream, name=name, **kwargs: calls.append((name, kwargs))
             )
@@ -102,14 +118,14 @@ class TestTheUploadPathIsTheOnlyPath:
         assert kwargs["content_type"] == media_type
 
     @pytest.mark.parametrize(
-        "media_type", ["application/pdf", "text/html", "application/octet-stream", "text/plain"]
+        "media_type", ["text/html", "application/octet-stream", "text/plain", "image/png"]
     )
-    def test_types_neither_loader_reads_are_refused_before_parsing(self, monkeypatch, media_type):
+    def test_types_no_loader_reads_are_refused_before_parsing(self, monkeypatch, media_type):
         def forbidden(*args, **kwargs):
             pytest.fail("a loader ran for a media type it does not read")
 
-        monkeypatch.setattr(module, "load_csv", forbidden)
-        monkeypatch.setattr(module, "load_xlsx", forbidden)
+        for name in ("load_csv", "load_xlsx", "load_pdf"):
+            monkeypatch.setattr(module, name, forbidden)
 
         with pytest.raises(AdmissionError) as refused:
             load_fetched(fetched(TABLE, media_type), source=SOURCE, delimiter=",")
@@ -126,12 +142,17 @@ class TestTheServersLabelIsCheckedAgainstTheBytes:
             (not_a_workbook(), XLSX, "FORMAT_MISMATCH"),
             (SINGLE, CSV, "UNSUPPORTED_ENCODING"),
             (b"", CSV, "EMPTY_INPUT"),
+            (TABLE, PDF, "FORMAT_MISMATCH"),
+            (b"<html>%PDF-1.7</html>" + b" " * 1024, PDF, "MALFORMED_DOCUMENT"),
+            (DOCUMENT, CSV, "UNSUPPORTED_ENCODING"),
         ],
     )
     def test_bytes_that_contradict_the_declared_type_are_rejected(self, content, media_type, code):
         result = load_fetched(fetched(content, media_type), source=SOURCE, delimiter=",")
 
-        assert (result.status, result.code, result.table) == ("rejected", code, None)
+        assert (result.status, result.code) == ("rejected", code)
+        assert getattr(result, "table", None) is None
+        assert getattr(result, "document", None) is None
 
     def test_upload_budgets_bound_fetched_bytes_exactly(self):
         at_limit = AdmissionLimits(max_bytes=len(TABLE))

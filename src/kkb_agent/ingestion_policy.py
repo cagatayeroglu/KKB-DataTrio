@@ -18,6 +18,7 @@ from typing import BinaryIO
 class FileKind(StrEnum):
     CSV = "csv"
     XLSX = "xlsx"
+    PDF = "pdf"
 
 
 class RejectionCode(StrEnum):
@@ -70,6 +71,10 @@ class AdmissionLimits:
     max_expanded_bytes: int = 50 * 1024 * 1024
     max_compression_ratio: int = 100
     max_parser_seconds: int = 5
+    #: PDF layout analysis is slower per byte than a spreadsheet, so it has its
+    #: own page cap and deadline rather than stretching the shared one.
+    max_pdf_pages: int = 30
+    max_pdf_parser_seconds: int = 10
 
     def __post_init__(self) -> None:
         for item in fields(self):
@@ -97,6 +102,7 @@ DEFAULT_LIMITS = AdmissionLimits()
 MIME_TYPES = {
     FileKind.CSV: "text/csv",
     FileKind.XLSX: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    FileKind.PDF: "application/pdf",
 }
 
 
@@ -172,6 +178,16 @@ def _check_csv_content(content: bytes) -> None:
     # still require an explicit parsing declaration and the future bounded loader.
 
 
+def _check_pdf_header(content: bytes) -> None:
+    """A `%PDF-` header in the first 1024 bytes, where readers look for it.
+
+    Only the signature is checked here. Objects, streams, encryption and pages
+    are the bounded parser's to validate; nothing is decompressed or resolved.
+    """
+    if content.find(b"%PDF-", 0, 1024) < 0:
+        raise AdmissionError(RejectionCode.FORMAT_MISMATCH)
+
+
 def _check_xlsx_envelope(content: bytes, limits: AdmissionLimits) -> None:
     """Inspect bounded ZIP metadata only; never extract or execute workbook data."""
     if not content.startswith(b"PK\x03\x04"):
@@ -230,6 +246,8 @@ def admit_upload(
     content = _bounded_read(stream, limits.max_bytes)
     if kind == FileKind.CSV:
         _check_csv_content(content)
+    elif kind == FileKind.PDF:
+        _check_pdf_header(content)
     else:
         try:
             _check_xlsx_envelope(content, limits)

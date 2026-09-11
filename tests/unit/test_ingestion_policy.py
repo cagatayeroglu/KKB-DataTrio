@@ -66,10 +66,39 @@ def test_unsafe_filename_rejected_before_any_read(filename):
     assert str(error.value) == "INVALID_FILENAME"
 
 
-@pytest.mark.parametrize("filename", ["x.xls", "x.xlsm", "x.pdf", "x.csv.exe", ".csv"])
+@pytest.mark.parametrize("filename", ["x.xls", "x.xlsm", "x.html", "x.csv.exe", ".csv"])
 def test_unsupported_extensions(filename):
     with pytest.raises(AdmissionError, match="^UNSUPPORTED_FORMAT$"):
         admit(filename=filename)
+
+
+PDF = MIME_TYPES[FileKind.PDF]
+
+
+@pytest.mark.parametrize("content", [b"%PDF-1.7\n", b"\n" * 1019 + b"%PDF-1.4"])
+def test_pdf_admitted_on_its_header_within_the_first_kilobyte(content):
+    result = admit(content, filename="report.pdf", content_type=PDF)
+
+    assert result.kind is FileKind.PDF
+    assert result.content == content
+
+
+@pytest.mark.parametrize(
+    "content",
+    [CSV, b"PK\x03\x04synthetic", b" " * 1020 + b"%PDF-1.7", b"%PS-Adobe-3.0\n"],
+)
+def test_pdf_without_its_header_is_a_format_mismatch(content):
+    with pytest.raises(AdmissionError, match="^FORMAT_MISMATCH$"):
+        admit(content, filename="report.pdf", content_type=PDF)
+
+
+@pytest.mark.parametrize(
+    ("filename", "content_type"),
+    [("report.pdf", "text/csv"), ("report.csv", PDF), ("report.pdf", PDF + "; charset=utf-8")],
+)
+def test_pdf_metadata_must_agree(filename, content_type):
+    with pytest.raises(AdmissionError, match="^FORMAT_MISMATCH$"):
+        admit(b"%PDF-1.7\n", filename=filename, content_type=content_type)
 
 
 @pytest.mark.parametrize(

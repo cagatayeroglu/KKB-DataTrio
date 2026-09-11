@@ -143,7 +143,7 @@ The organizer questions are now the project's only external blockers, and severa
 - Why it matters: Defines required parsers, limits, OCR scope, and adversarial coverage.
 - Blocks which milestone? M1/M7 final format scope, M9 required coverage, M11 support claims.
 - Can we proceed before answer? YES for bounded CSV/XLSX baseline and explicit unsupported-format behavior; NO for claiming full hidden-format coverage.
-- Temporary assumption: CSV/XLSX first; HTML/PDF planned. Vision/OCR availability is confirmed by DEC-129; required input scope and safe document/OCR implementation remain separate questions. All enabled parsers need tested limits.
+- Temporary assumption: CSV/XLSX first; PDFs with a text layer are extracted offline (M7-09), HTML is planned. Vision/OCR availability is confirmed by DEC-129; required input scope and safe document/OCR implementation remain separate questions. All enabled parsers need tested limits.
 - Owner: Unassigned; suggested lane A with C coverage.
 - Status: OPEN.
 - Answer / evidence: None recorded.

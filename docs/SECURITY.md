@@ -156,7 +156,7 @@ Acceptance: No supported product input provides arbitrary Python/shell execution
 
 ## SEC-FILE-01 — File admission and safe storage
 
-Status: PARTIAL — local admission/storage checks and negatives delivered in M1-02 (#5), specified in [FILE_ADMISSION](FILE_ADMISSION.md). M7-05 (#38) now bounds direct-GET response/decompression streams. Fetched CSV/XLSX bytes pass the same admission checks and loaders as uploads (M7-08), with the loader chosen by the validated response media type and the bytes re-checked against it; other downloaded formats have no parser route.
+Status: PARTIAL — local admission/storage checks and negatives delivered in M1-02 (#5), specified in [FILE_ADMISSION](FILE_ADMISSION.md). M7-05 (#38) now bounds direct-GET response/decompression streams. Fetched CSV/XLSX bytes pass the same admission checks and loaders as uploads (M7-08), and PDF bytes likewise (M7-09), with the loader chosen by the validated response media type and the bytes re-checked against it; other downloaded formats have no parser route.
 
 Threat: Uploaded/downloaded filenames escape storage roots; misleading extensions/MIME route malicious content; large inputs exhaust memory; private uploads leak into Git/artifacts.
 
@@ -178,7 +178,7 @@ Acceptance: Rejected files never reach parsers; accepted files remain inside con
 
 ## SEC-FILE-02 — Parser and document resource limits
 
-Status: PARTIAL — bounded XLSX package validation, explicit selection, active-content rejection and terminated parser worker delivered in M1-09/10 (#11/#16). The bounded CSV loader followed in M1-06 (#53): structural row/column/cell/field limits run before row allocation, and a terminated spawn worker bounds parse time, output size and (on Linux) address space. HTML/PDF/image parsing and operator bulk-path containment are not delivered.
+Status: PARTIAL — bounded XLSX package validation, explicit selection, active-content rejection and terminated parser worker delivered in M1-09/10 (#11/#16). The bounded CSV loader followed in M1-06 (#53): structural row/column/cell/field limits run before row allocation, and a terminated spawn worker bounds parse time, output size and (on Linux) address space. The PDF loader (M7-09/M7-10) uses the same worker with a page cap, field/table/cell budgets and its own deadline, and refuses encrypted, malformed and text-less PDFs with fixed codes; its tests include a 6 KB file that expands into runaway work and is killed at the deadline. HTML/image parsing, OCR and operator bulk-path containment are not delivered.
 
 Threat: XLSX/other containers expand massively, PDFs/images consume excessive resources, embedded formulas/macros/scripts execute, or parser uncertainty becomes fabricated analytical data.
 
@@ -201,7 +201,7 @@ Acceptance: Enabled parsers cannot exceed documented tested limits silently or e
 
 ## SEC-URL-01 — Central safe fetch / SSRF / redirects
 
-Status: PARTIAL — M7-01/02/03/05/06 are merged and validated (#35–38; 340 targeted / 892 unit at #38 delivery). [safe_fetch](../src/kkb_agent/ingest/safe_fetch.py) implements direct GET with DNS-to-socket binding, verified TLS and bounded response handling. All 3xx are rejected; redirect following, POST, source trust configuration and adapter integration remain incomplete. Downloaded CSV/XLSX reach the upload parsers only through `web_url` (M7-08/M7-17). Live exposure still requires Q-DATA-01/Q-NET-01/02.
+Status: PARTIAL — M7-01/02/03/05/06 are merged and validated (#35–38; 340 targeted / 892 unit at #38 delivery). [safe_fetch](../src/kkb_agent/ingest/safe_fetch.py) implements direct GET with DNS-to-socket binding, verified TLS and bounded response handling. All 3xx are rejected; redirect following, POST, source trust configuration and adapter integration remain incomplete. Downloaded CSV/XLSX/PDF reach the upload parsers only through `web_url` (M7-08/M7-17/M7-09). Live exposure still requires Q-DATA-01/Q-NET-01/02.
 
 Threat: User/model URLs target localhost, private services, link-local/cloud metadata, redirect to forbidden targets, rebind DNS, steal credentials, or stream excessive content.
 
