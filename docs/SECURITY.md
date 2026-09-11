@@ -2,7 +2,7 @@
 
 Protect the boundaries relevant to this short-window product — development closes 20 September 2026 under [DEC-131](DECISIONS.md#dec-131--organizer-kick-off-brief-schedule-delivery-form-and-demo-day-input-scope) — without making ordinary development a security-release ceremony. [ROADMAP](ROADMAP.md) owns execution status, [AGENTS](../AGENTS.md) check triggers, and [EVALUATION](EVALUATION.md) adversarial coverage. These controls are required behavior for enabled capabilities, not a claim that those capabilities exist.
 
-Implementation evidence lives in [ROADMAP Current Project Status](ROADMAP.md#current-project-status) and the linked task records. Delivered boundaries include ignore/config hygiene, fast CI, file admission and bounded XLSX parsing, the offline provider/config/repair path, registry/argument/count validation, restricted lakehouse SQL and partial workspace/lineage/numeric matching. Safe fetch, live provider transport, end-to-end stale/reference isolation and complete proof gating remain incomplete. This docs task performs no application/security scan or full/release check; existing delivery results are not new runs.
+Implementation evidence lives in [ROADMAP Current Project Status](ROADMAP.md#current-project-status) and the linked task records. Delivered boundaries include ignore/config hygiene, fast CI, file admission with bounded CSV/XLSX/PDF parsing, bounded direct-GET safe fetch, the Kloudeks transport with its destination and redaction controls, registry/argument/count validation, restricted lakehouse SQL, `web_url`'s binding to addresses the user wrote, and partial workspace/lineage/numeric matching. Redirect following, end-to-end stale/reference isolation and complete proof gating remain incomplete. This docs task performs no application/security scan or full/release check; existing delivery results are not new runs.
 
 ## Threat model and scope
 
@@ -24,7 +24,7 @@ This is not a production multi-tenant platform. Kubernetes security, enterprise 
 
 ## SEC-KEY-01 — Secrets and credential storage
 
-Status: PARTIAL — M0-04 (#3) validated ignore/config hygiene; M4 (#27) tests configuration and structured-error redaction; the secret-pattern scan is in fast CI. Full logging/export and live credential handling are not established. **A real MIA API key now exists** (delivered 2026-09-10) in the operator-local, git-ignored `.env`; it has not been used in a request, and no key value appears in this repository. This raises the stakes on the untested export/logging paths below rather than closing anything.
+Status: PARTIAL — M0-04 (#3) validated ignore/config hygiene; M4 (#27) tests configuration and structured-error redaction; the secret-pattern scan is in fast CI. Full logging/export and live credential handling are not established. **A real MIA API key now exists** (delivered 2026-09-10) in the operator-local, git-ignored `.env`; it has been used only in operator runs Eray explicitly authorized on 2026-09-11 (the M4-12 smoke and the M4-15 live question), and no key value appears in this repository. This raises the stakes on the untested export/logging paths below rather than closing anything.
 
 Threat: Keys or private credentials leak through Git, fixtures, logs, screenshots, exception representations, or CI output.
 
@@ -293,7 +293,7 @@ Acceptance: Visibility/settings are evidenced, published changes contain only in
 
 ## SEC-DEP-01 — Dependency policy
 
-Status: PARTIAL — dependency integration/installation evidence is recorded in M1-03 and merged fast gates. Since M0-08, `make full` runs `pip-audit` with two named, reviewed exceptions (PYSEC-2026-113, Arrow C++ IPC pre-buffering that pyarrow does not expose; PYSEC-2026-1845, pytest's shared `/tmp` directory in a development-only tool); any other finding fails the gate. Reasons live in ROADMAP's M0-08 record; release reproducibility remains checkpoint work. DEC-124 is an allowlist, not a requirement to install all packages; DEC-130 requires the hybrid lexical+dense baseline with the retained lightweight LanceDB index, while RRF/reranking and extra retrieval infrastructure remain benchmark-gated. This does not claim those dependencies or runtime paths are delivered.
+Status: PARTIAL — dependency integration/installation evidence is recorded in M1-03 and merged fast gates. Since M0-08, `make full` runs `pip-audit` with two named, reviewed exceptions (PYSEC-2026-113, Arrow C++ IPC pre-buffering that pyarrow does not expose; PYSEC-2026-1845, pytest's shared `/tmp` directory in a development-only tool); any other finding fails the gate. Reasons live in ROADMAP's M0-08 record; release reproducibility remains checkpoint work. `pdfplumber` joined the runtime manifest from the DEC-124 allowlist for M7-09 (with `pdfminer.six`, `pypdfium2`, `Pillow` and `cryptography`), and `make full` on that head found nothing new; its Ghostscript repair path is never called. DEC-124 is an allowlist, not a requirement to install all packages; DEC-130 requires the hybrid lexical+dense baseline with the retained lightweight LanceDB index, while RRF/reranking and extra retrieval infrastructure remain benchmark-gated. This does not claim those dependencies or runtime paths are delivered.
 
 Threat: Unnecessary or unsuitable dependencies add parser/network vulnerabilities, slow setup, or make the demo irreproducible.
 

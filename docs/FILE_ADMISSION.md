@@ -53,4 +53,4 @@ The context manager removes staging on normal exit and downstream exceptions; ca
 
 Run `PYTHONPATH=src python3.12 -m pytest -q tests/unit/test_ingestion_policy.py` and touched-file Ruff checks. Tests use small synthetic text/ZIP buffers, exact-limit/one-over cases, rejected-input instrumentation, ambiguous values preserved byte-for-byte, and temporary storage cleanup/permissions. They do not prove future loader/profile behavior.
 
-M1-03 still requires the team's Q-TEAM-02 decision. M1-04 is the next independent candidate: add the committed synthetic CSV fixture and expected values without choosing an engine. Loader tasks later integrate these guards with validated M0 contracts and must add real byte/row/column/parser-call instrumentation under M1-14; this task does not mark those tasks complete.
+Since M1-02, DEC-112 selected the engine, and these guards are called by the CSV (M1-06), XLSX (M1-10) and PDF (M7-09) loaders; downloaded files reach the same path through `load_fetched` (M7-08). No loader produces the full M1-01 profile yet. [ROADMAP](ROADMAP.md#current-project-status) holds the current status.

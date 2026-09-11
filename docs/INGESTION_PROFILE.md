@@ -1,6 +1,6 @@
 # M1-01 — Ingestion/profile result specification
 
-This is the reviewable specification for [M1-01](ROADMAP.md#m1), with synthetic examples. It defines planned observable results, not implemented CSV/XLSX support or new shared runtime types. [DEC-103/104](DECISIONS.md#dec-103--common-data-contracts-and-explicit-workspace) require generic references and explicit semantics; the analytical engine remains undecided.
+This is the reviewable specification for [M1-01](ROADMAP.md#m1), with synthetic examples. It defines planned observable results, not implemented CSV/XLSX support or new shared runtime types. [DEC-103/104](DECISIONS.md#dec-103--common-data-contracts-and-explicit-workspace) require generic references and explicit semantics; the analytical engine, undecided when this was written, was later selected by [DEC-112](DECISIONS.md#dec-112--duckdb-and-parquet-as-the-analytical-engine-and-lakehouse).
 
 ## Integration boundary
 
@@ -133,4 +133,4 @@ These are synthetic specification examples, not claims of implemented parser beh
 
 M1-01 review should verify every ROADMAP result field is specified, the example counts/ratios agree with the synthetic input, unknown semantics remain explicit, candidate ambiguity never silently transforms data, and accepted versus rejected/selection-required shapes are distinguishable. Review the reporting caps as proposed metadata limits; numerical file/parser limits remain M1-02 work.
 
-Merge of this specification does not enable loaders or validate stash-only interfaces. M1-02 is the next specification candidate: define practical file admission/resource limits and storage policy before parsing. It is not yet marked READY in ROADMAP; triage its prerequisites and ownership before starting. M1-03 still needs Q-TEAM-02; runtime ingestion additionally needs validated M0 contracts. No framework, database, planner/routing architecture, live source adapter, or private-data retention decision is made here.
+Merge of this specification did not enable loaders or validate stash-only interfaces, and made no framework, database, planner/routing architecture, live source adapter, or private-data retention decision. Since then, M1-02 admission, the CSV (M1-06), XLSX (M1-10) and PDF (M7-09) loaders and the engine choice (DEC-112) have been delivered or decided; no loader produces the full profile specified here yet. [ROADMAP](ROADMAP.md#current-project-status) holds the current status.
