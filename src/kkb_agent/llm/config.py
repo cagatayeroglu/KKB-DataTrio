@@ -27,6 +27,7 @@ BASE_URL = f"{PREFIX}BASE_URL"
 CREDENTIAL = f"{PREFIX}API_KEY"
 PLANNER_MODEL = f"{PREFIX}PLANNER_MODEL"
 ROUTER_MODEL = f"{PREFIX}ROUTER_MODEL"
+OCR_MODEL = f"{PREFIX}OCR_MODEL"
 VISION_MODEL = f"{PREFIX}VISION_MODEL"
 EMBEDDING_MODEL = f"{PREFIX}EMBEDDING_MODEL"
 STRUCTURED_OUTPUT = f"{PREFIX}STRUCTURED_OUTPUT"
@@ -56,6 +57,7 @@ class ProviderConfig:
     embedding_model: str | None = None
     request_timeout: float = 30.0
     max_attempts: int = 3
+    ocr_model: str | None = None
 
     def __post_init__(self) -> None:
         if not self.base_url.startswith("https://"):
@@ -84,6 +86,7 @@ class ProviderConfig:
             router_model=source[ROUTER_MODEL].strip(),
             structured_output=_flag(source, STRUCTURED_OUTPUT, default=False),
             vision_model=_optional(source, VISION_MODEL),
+            ocr_model=_optional(source, OCR_MODEL),
             embedding_model=_optional(source, EMBEDDING_MODEL),
             request_timeout=_number(source, REQUEST_TIMEOUT, default=30.0),
             max_attempts=int(_number(source, MAX_ATTEMPTS, default=3.0)),

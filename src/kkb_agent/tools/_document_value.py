@@ -139,6 +139,8 @@ def grids(table: CsvTable | XlsxTable | None, document: PdfDocument | None) -> l
     found: list[Grid] = []
     if document is not None:
         for page in document.pages:
+            if page.ocr_text is not None:
+                continue  # DEC-119: OCR text is not a validated table/cell.
             for index, pdf_table in enumerate(page.tables, 1):
                 if pdf_table.rows:
                     header, *rows = pdf_table.rows
