@@ -191,9 +191,9 @@ When: M1 parser implementation and each additional M7 format before enablement.
 - [x] Make formula cached-value handling explicit; never silently imply recalculation or trustworthy freshness.
 - [ ] Disable external-link/resource resolution where applicable.
 - [ ] Bound PDF page/object/text processing and image/OCR dimensions/work; reject unsupported encrypted/scanned content explicitly.
-- [ ] Ensure parser work can stop within configured time/resource limits; an outer timeout alone must not leave runaway work.
+- [x] Ensure parser work can stop within configured time/resource limits; an outer timeout alone must not leave runaway work.
 - [ ] Preserve page/sheet/table/cell location and low-confidence extraction warnings.
-- [ ] Test corrupt containers, excessive expansion, malformed documents, embedded instructions, and limit exhaustion.
+- [x] Test corrupt containers, excessive expansion, malformed documents, embedded instructions, and limit exhaustion.
 
 Intended tests: Small synthetic pathological fixtures rather than huge harmful files; instrumented bounded parser behavior and maximum-output assertions.
 
