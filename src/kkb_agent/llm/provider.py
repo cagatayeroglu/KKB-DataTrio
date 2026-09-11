@@ -1,13 +1,14 @@
 """The provider boundary (DEC-122, implementing DEC-102).
 
 Everything the system knows about a language model passes through this
-interface. Kloudeks' endpoint, model identifiers and structured-output support
-are all unresolved (Q-K-01 through Q-K-05), so confining that uncertainty here
-means answering those questions later edits one module rather than the planner,
+interface. DEC-129 has since fixed Kloudeks' endpoint and model identifiers, and
+`kloudeks.KloudeksProvider` is the one transport behind it. What is still open —
+structured-output guarantees, limits, the embedding dimension (Q-K-02..05) —
+stays confined here, so an answer edits one package rather than the planner,
 the router and every tool.
 
-It also makes DEC-002 checkable by inspection: if no third-party client, import
-or environment variable appears in this package, none appears in the product.
+It also keeps DEC-002 checkable by inspection: one module builds the client
+that carries the key, and no hosted-LLM endpoint or key variable appears here.
 """
 
 from __future__ import annotations
