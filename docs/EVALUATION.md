@@ -44,6 +44,8 @@ Expected values come from hand calculations or an independently reviewed determi
 
 Declare tolerances per output, for example `abs(actual - expected) <= atol + rtol * abs(expected)`. Choose tolerances for the actual operation, not to make a failing output pass. Specify handling of rounding, zero denominators, NaN/infinity, and undefined statistics. Compare full calculation precision before display rounding when the case requires it.
 
+M8-20's offline rendering regressions in [test_answer_gate.py](../tests/unit/test_answer_gate.py) check Turkish display text against unchanged analytical values/digests and the existing result-bound gate (`5e-4` relative plus `1e-9` absolute). They cover integer grouping, six-significant-digit fractions, negative/tiny values, three-decimal ambiguity, unit/scale/period/identity contradictions and writer over-rounding. `4,4472` binds to `4.447201536789372`; `4,45` is withheld. These are presentation/binding tests, not new analytical tolerances or live-model quality measurements; M8-18 semantic regressions remain required.
+
 ### Claim and plan scoring
 
 Use the executed trace, not the model's assertion that it ran a tool. Permit equivalent registered-tool paths when they satisfy the same prerequisites and result/evidence contract. Automated numerical and structural assertions are primary. A teammate reviews ambiguous semantic/causal wording against a written rubric; an LLM grader alone cannot establish numeric correctness or security compliance.
