@@ -61,7 +61,7 @@ When: M4 live transport/auth implementation, before any real credential is used.
 - [x] Set connection/read/total timeouts, response limits, and bounded attempts. (M4-07; transport retries remain M4-10)
 - [x] Validate structured response locally and sanitize provider errors. (M4-07, #76)
 - [x] Test exclusive Kloudeks routing and absence of third-party hosted LLM fallback, allowing the compatible SDK import itself. The blanket `openai` string-ban test was replaced in M4-07 (#76).
-- [ ] Add offline negative tests plus a separately authorized live smoke with safe metadata. Offline half delivered by M4-07 (#76); the live smoke is M4-12.
+- [x] Add offline negative tests plus a separately authorized live smoke with safe metadata. Offline tests by M4-07 (#76); the authorized live smoke by M4-12 (#78), passed 2026-09-11.
 
 Intended tests: Fake provider transport for alternate endpoint injection, redirect, timeout, oversized response, malformed model output, missing credentials, and failed TLS/config paths where applicable.
 
