@@ -18,7 +18,7 @@ This file owns **execution truth**. [ARCHITECTURE](ARCHITECTURE.md) owns technic
 
 # Current Project Status
 
-- Latest completion: **M7-19 — DONE (offline operator implementation)**, Owner Çağatay, PR [#95](https://github.com/cagatayeroglu/KKB-DataTrio/pull/95) merged into `dev` at **`4dafc9008c25871c7a82578dbcd58561abd4567e`**. Implementation `10e138c` and final head `2999eb5` are reachable from `origin/dev`; the merged tree equals the validated final head whose Fast PR passed. **LIVE DOCUMENT ACCEPTANCE NOT YET RUN.** No active implementation claim; M7-11 is next READY offline.
+- Latest completion: **M7-19 — DONE (offline operator implementation)**, Owner Çağatay, PR [#95](https://github.com/cagatayeroglu/KKB-DataTrio/pull/95) merged into `dev` at **`4dafc9008c25871c7a82578dbcd58561abd4567e`**. Implementation `10e138c` and final head `2999eb5` are reachable from `origin/dev`; the merged tree equals the validated final head whose Fast PR passed. **LIVE DOCUMENT ACCEPTANCE NOT YET RUN.** M7-20 is the sole active claim (Çağatay), a narrow offline operator-report bug follow-up; M7-11 remains unclaimed.
 
 - Previous completion: **M8-20 — DONE**, Owner Çağatay, PR [#93](https://github.com/cagatayeroglu/KKB-DataTrio/pull/93) merged into `dev` at **`bf918cca93cca43088075c87e540e077b9c4a098`**. The merged tree equals final head `d7d4b5f`, whose Fast PR passed; implementation `ddb3aa6` and the task-branch tip are reachable from `origin/dev`.
 
@@ -1256,6 +1256,19 @@ M1 ingestion contract, M2 relevant semantics, SEC-URL-01 and SEC-FILE-01/02 befo
 - [x] M7-17 — Status: DONE — merged/validated (PR [#82](https://github.com/cagatayeroglu/KKB-DataTrio/pull/82) / `7bb5837`, 78 targeted / 1808 unit tests, offline). Owner: Eray; Branch: `feature/m7-08-web-url-tables` (deleted after merge); Commit: `5f37716`. Expose the M7-08 path as the brief-named `web_url` tool under [DEC-121](DECISIONS.md#dec-121--six-brief-named-tools-with-typed-schemas-and-restricted-sql): typed arguments, only an address the user wrote in the question, a typed table-or-reason output and untrusted source provenance. Added under the M6-22 precedent. Evidence: [M7-08/M7-17 record](#m7-08-m7-17-web-url-tables-record).
 - [x] M7-18 — Status: DONE — merged/validated (PR [#86](https://github.com/cagatayeroglu/KKB-DataTrio/pull/86) / `021f05a`, 207 targeted / 1946 unit tests, offline). Owner: Eray; Branch: `feature/m7-18-document-value` (deleted after merge); Commit: `6ed14dc`. Answer with one value read from a fetched table or PDF: select a cell by column header and row label, parse it without guessing its number format, take unit and scale only from what the column header states, and return a typed result the answer gate can bind, with cell provenance and lineage. Added under the M6-22 precedent; advances M7-12's cell metadata. Evidence: [M7-18 record](#m7-18-document-value-record).
 - [x] M7-19 — Status: DONE (offline operator implementation); Owner: Çağatay; Branch: `feature/m7-19-document-check`; a live run needs owner approval — added and triaged at the 2026-09-11 handover (queue order 1) under the M4-15 precedent. An operator command that registers `web_url` bound to the lakehouse lineage beside the four analytical tools and runs one prompt-supplied-URL question through `Session.answer` with the live provider, reporting each stage; offline tests first.
+
+- [ ] M7-20 — Status: IN PROGRESS; Owner: Çağatay; Branch: `fix/m7-20-operator-fetch-code`. Preserve existing safe `FetchCode` in the document operator report; no new taxonomy or user-answer behavior. Triaged from the authorized M7-19 diagnostic follow-up: prerequisites M7-01/17/19 are merged, no competing claim or external decision blocks offline work.
+
+### M7-20 operator fetch-code bug record
+
+- Status: IN PROGRESS
+- Owner: Çağatay
+- Branch: `fix/m7-20-operator-fetch-code`, from `dev` `b3a08a3e3d0f646b41b8557f0a4ed47133ea7649`.
+- PR / Commit: pending claim publication.
+- Acceptance: Expose only existing enum-approved fetch codes from `WebUrlOutput.code`; preserve fail-closed user answers and redaction. Test URL/DNS/transport (including TLS)/redirect/time/size/media failures offline. No live retry, new fetch behavior or dependency.
+- Tests: NOT RUN.
+- Blocker: none for offline fix. Existing TLS errors share TRANSPORT_FAILURE; do not invent finer categories.
+- Handoff: Publish claim, implement only operator classification, validate and open PR into dev; stop before merge.
 
 <a id="m7-19-document-check-record"></a>
 ### M7-19 offline document operator record
