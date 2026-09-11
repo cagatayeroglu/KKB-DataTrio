@@ -91,11 +91,37 @@ EXPLICIT_ID = re.compile(
     re.I,
 )
 HEADER_ID = re.compile(r"^\s*[`\"']?([\w.:-]+?)[`\"']?:\s")
-CAUSAL = re.compile(r"\b(?:neden\s+oldu|sebep\s+oldu|yol\s+açtı|caused|led\s+to)\b", re.I)
+#: Wording that asserts one thing moves another, which DEC-120 forbids an
+#: answer to say. Still a bounded vocabulary: an unlisted causative verb
+#: ("artırdı", "affected") is not caught, and nothing here parses prose.
+#: Matched on folded text, so case and dotted/dotless i do not matter. A
+#: sentence that denies a cause in these words is withheld as well; the
+#: result's limitations already say it, and negation handling is how an
+#: assertion would slip through. "nedensellik", "nedensel" and "causation"
+#: are deliberately absent: they mostly appear in exactly those denials.
+CAUSAL_PHRASES = (
+    # The cause verbs and nouns, in every tense and hedge.
+    r"caus(?:e|es|ed|ing)",
+    r"neden\s+ol\w*",
+    r"sebep\s+ol\w*",
+    r"sebebiyet\s+ver\w*",
+    r"yol\s+aç\w*",
+    r"neden(?:i|ler)\w*",
+    r"sebe(?:bi|pler)\w*",
+    # Granger's causal vocabulary. Granger results say "precedes" instead.
+    r"granger[\s-]+(?:caus|nedensel)\w*",
+    # Attributions: a movement explained by something else.
+    r"due\s+to",
+    r"because\s+of",
+    r"driven\s+by",
+    r"le(?:d|ads?|ading)\s+to",
+    r"yüzünden",
+)
+CAUSAL = re.compile(r"\b(?:" + "|".join(CAUSAL_PHRASES) + r")\b", re.I)
 
 
 def causal_fault(text: str) -> str | None:
-    if CAUSAL.search(text):
+    if CAUSAL.search(_fold(text)):
         # Even ResultKind.CAUSALITY is association-only under DEC-120.
         return "Unsupported causal assertion: numeric/association results do not establish cause"
     return None

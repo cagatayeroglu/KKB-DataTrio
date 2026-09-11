@@ -26,7 +26,7 @@ from statsmodels.regression.linear_model import OLS
 from statsmodels.tsa.stattools import grangercausalitytests
 
 from kkb_agent.agent import ArgumentsRejected, ExecutionContext, ToolRegistry, ToolStatus
-from kkb_agent.agent.claim_qualifiers import CAUSAL
+from kkb_agent.agent.claim_qualifiers import causal_fault
 from kkb_agent.analytics import (
     BASE_LIMITATIONS,
     GRANGER_LIMITATIONS,
@@ -367,7 +367,7 @@ class TestNoMechanism:
         ]
 
         assert all(not re.search(r"\bcause[sd]?\b", text, re.I) for text in texts)
-        assert all(CAUSAL.search(text) is None for text in texts)
+        assert all(causal_fault(text) is None for text in texts)
 
     def test_the_reading_is_spelled_out(self):
         result = granger()

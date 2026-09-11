@@ -1,11 +1,16 @@
-"""M8-18: a matching amount does not prove a financial claim."""
+"""M8-18: a matching amount does not prove a financial claim.
+
+M8-19 widens the causal-wording check at the end of this file.
+"""
 
 from datetime import date
 
 import duckdb
 import pytest
 
+from kkb_agent.agent.claim_qualifiers import causal_fault
 from kkb_agent.agent.verifier import AnswerStatus, Binding, gate_answer, verify, verify_claims
+from kkb_agent.analytics import BASE_LIMITATIONS, GRANGER_LIMITATIONS
 from kkb_agent.core import (
     AnalyticalResult,
     Frequency,
@@ -201,3 +206,80 @@ def test_unknown_unit_is_not_invented():
         }
     )
     assert not verify_claims("Ocak 2025'te 100 milyon TL.", unknown).accepted
+
+
+# M8-19: causal wording beyond the exact past tense. M6-11 gives the writer
+# Granger results, and "Granger-causes" is the phrase econometrics teaches.
+
+WIDER_CAUSAL_WORDING = [
+    # The cause verbs in other tenses and hedges.
+    "Faiz düşüşü kredilerin artmasına neden oluyor",
+    "Faiz düşüşü kredilerin artmasına neden olur",
+    "Faiz düşüşü kredilerin artmasına neden olabilir",
+    "Faiz düşüşü kredilerin artmasına yol açıyor",
+    "Faiz düşüşü artışa sebebiyet verdi",
+    "The policy rate causes housing credit to rise",
+    # Granger's causal vocabulary.
+    "The policy rate Granger-causes housing credit",
+    "There is Granger causality from the rate to credit",
+    "Faiz, kredilerin Granger nedenidir",
+    "Faiz, krediler üzerinde Granger nedenselliğine sahiptir",
+    # Attributions.
+    "Krediler faiz düşüşü nedeniyle arttı",
+    "Krediler faiz yüzünden arttı",
+    "Artışın sebebi faizdir",
+    "Artışın nedenleri faiz ve kurdur",
+    "Credit rose due to lower rates",
+    "Credit rose because of lower rates",
+    "Credit growth was driven by rates",
+    "Lower rates lead to more credit",
+    # Case and the dotted capital İ.
+    "KREDİLER FAİZ DÜŞÜŞÜ NEDENİYLE ARTTI",
+]
+
+
+@pytest.mark.parametrize("sentence", WIDER_CAUSAL_WORDING)
+@pytest.mark.parametrize("with_number", [False, True])
+def test_wider_causal_wording_is_withheld(connection, sentence, with_number):
+    draft = sentence + ("; Ocak 2025'te 100 milyon TL" if with_number else "") + "."
+    gated = gate_answer(draft, result(), connection)
+
+    assert gated.status is AnswerStatus.ABSTAINED
+    assert any("causal" in reason for reason in gated.omitted[0].reasons)
+    assert not verify_claims(draft, result(), connection).accepted
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "Faizin geçmiş değerleri konut kredisi tahminini iyileştirdi",
+        "The policy rate precedes housing credit in the Granger sense",
+        "Granger testi birinci derecede öncelik gösteriyor",
+        "Bu bir ilişki ölçüsüdür; nedensellik kanıtı değildir",
+        "This is association, not causation",
+        "Nedensel bir yorum yapılamaz",
+        "Krediler neden arttı sorusunu bu analiz yanıtlamaz",
+    ],
+)
+def test_precedence_wording_and_disclaimers_still_pass(connection, sentence):
+    gated = gate_answer(f"Ocak 2025'te 100 milyon TL. {sentence}.", result(), connection)
+
+    assert gated.status is AnswerStatus.ACCEPTED
+    assert not gated.omitted
+
+
+@pytest.mark.parametrize("text", [*BASE_LIMITATIONS, *GRANGER_LIMITATIONS])
+def test_the_analytics_own_limitations_are_not_causal_wording(text):
+    # The writer is shown these; quoting one must not cost the sentence.
+    assert causal_fault(text) is None
+
+
+def test_a_denial_in_causal_words_is_withheld_too(connection):
+    # Deliberate: telling "neden olmadı" from "neden oldu" is negation parsing,
+    # and a parser that gets it wrong lets an assertion through. The result's
+    # own limitations already carry the denial.
+    draft = "Ocak 2025'te 100 milyon TL. Faiz düşüşü kredilerin artmasına neden olmadı."
+    gated = gate_answer(draft, result(), connection)
+
+    assert gated.status is AnswerStatus.QUALIFIED
+    assert gated.text == "Ocak 2025'te 100 milyon TL."
