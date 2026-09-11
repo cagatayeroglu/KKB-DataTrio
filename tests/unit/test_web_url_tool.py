@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import json
 import socket
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from pdf_builder import Page, build, ruled_table
@@ -25,6 +26,7 @@ from kkb_agent.agent import (
     ToolStatus,
 )
 from kkb_agent.agent.loop import collect_results
+from kkb_agent.core import Scale
 from kkb_agent.csv_loader import CsvTable
 from kkb_agent.ingest.fetched import DOCUMENT_MEDIA_TYPES, source_id_for
 from kkb_agent.ingest.safe_fetch import FetchCode, FetchFailure, FetchRequest, FetchSuccess
@@ -408,3 +410,145 @@ class TestTheAnswerPath:
         assert collect_results(answered.outcome) == ()
         assert answered.answer.status is AnswerStatus.ABSTAINED
         assert len(fetch.requests) == 1
+
+
+PRICES = b'Tarih,Tutar (Milyon TL),Adet\n2026-01-31,"1.234,56",4\n2026-02-28,"1.100,00",1.234\n'
+
+
+class TestOneFigureFromADocument:
+    """M7-18: a named cell becomes a result the answer gate can bind."""
+
+    def test_column_and_row_come_together_or_not_at_all(self):
+        spec = make_web_url_tool(fetch=FakeFetch())
+
+        for raw in ({"url": URL, "column": "Tutar"}, {"url": URL, "row": "2026-01-31"}):
+            with pytest.raises(ArgumentsRejected):
+                spec.parse(raw)
+
+    def test_a_named_csv_cell_comes_back_as_a_result_with_lineage(self, tmp_path):
+        with open_lakehouse(tmp_path / "lake") as lake:
+            result = run(FakeFetch(PRICES), lineage=lake.lineage, column="Tutar", row="2026-01-31")
+
+            assert result.status is ToolStatus.SUCCESS
+            value_result = result.output.result
+            (value,) = value_result.values
+            assert (value.label, value.value, value.unit, value.scale) == (
+                "Tutar | 2026-01-31",
+                1234.56,
+                "TRY",
+                Scale.MILLION,
+            )
+            assert value.period.start == value.period.end == date(2026, 1, 31)
+            cell_node = lake.lineage.node(result.evidence)
+            assert (cell_node.kind, cell_node.label) == (NodeKind.TRANSFORM, "web_url_cell")
+            ((source_node, _),) = lake.lineage.parents(result.evidence)
+            assert lake.lineage.node(source_node).kind is NodeKind.SOURCE_FILE
+            assert value_result.evidence.lineage_node == result.evidence
+            assert value_result.evidence.input_refs == [source_node]
+            outcome = SimpleNamespace(results=(result,))
+            assert collect_results(outcome) == (value_result,)
+            assert_nothing_leaks(result)
+
+    def test_a_named_pdf_cell_carries_its_page_and_table(self):
+        result = run(FakeFetch(build([GOLD]), PDF), column="Altin", row="2026-06-01")
+
+        value_result = result.output.result
+        assert value_result.values[0].value == 1234.56
+        assert (value_result.values[0].unit, value_result.values[0].scale) == ("kg", Scale.ONE)
+        assert value_result.parameters["page"] == 1
+        assert value_result.parameters["table"] == 1
+
+    def test_a_workbook_cell_without_a_stated_unit_stays_unresolved(self):
+        result = run(FakeFetch(SINGLE, XLSX), column="measure", row="2026-01-31")
+
+        value_result = result.output.result
+        assert value_result.values[0].value == 100.0
+        assert value_result.values[0].unit is None
+        assert value_result.unresolved_semantics
+        assert value_result.parameters["sheet"] == "Observations"
+
+    @pytest.mark.parametrize(
+        ("column", "row", "code"),
+        [
+            ("Faiz", "2026-01-31", "VALUE_NOT_FOUND"),
+            ("Adet", "2026-02-28", "AMBIGUOUS_NUMBER"),
+            ("Tarih", "4", "NOT_A_NUMBER"),
+        ],
+    )
+    def test_a_cell_that_cannot_be_read_gives_a_code_and_records_nothing(
+        self, tmp_path, column, row, code
+    ):
+        with open_lakehouse(tmp_path / "lake") as lake:
+            result = run(FakeFetch(PRICES), lineage=lake.lineage, column=column, row=row)
+
+            assert result.status is ToolStatus.FAILURE
+            assert (result.error_category, result.warnings) == ("needs_input", (code,))
+            assert (result.output.status, result.output.result) == ("needs_input", None)
+            assert result.output.table is not None
+            assert lake.connection.execute("SELECT count(*) FROM lineage_nodes").fetchone() == (0,)
+
+
+class TestAFigureThroughTheGate:
+    """The whole turn: plan, fetch, one cell, a drafted sentence, the gate."""
+
+    QUESTION = f"{URL} adresindeki tabloya göre 2026-01-31 tutarı nedir?"
+
+    def answer(self, lake, draft, *, column="Tutar", content=PRICES):
+        registry = ToolRegistry()
+        registry.register(
+            make_web_url_tool(fetch=FakeFetch(content), lineage=lake.lineage, clock=lambda: NOW)
+        )
+        plan = {
+            "question": self.QUESTION,
+            "steps": [
+                {
+                    "step_id": "s1",
+                    "tool": "web_url",
+                    "arguments": {
+                        "url": URL,
+                        "delimiter": ",",
+                        "column": column,
+                        "row": "2026-01-31",
+                    },
+                }
+            ],
+        }
+        session = Session(scripted(json.dumps(plan), draft), registry)
+        return session.answer(self.QUESTION, lake.connection)
+
+    def test_a_correctly_quoted_figure_is_accepted(self, tmp_path):
+        with open_lakehouse(tmp_path / "lake") as lake:
+            answered = self.answer(lake, "2026-01-31 tarihinde tutar 1.234,56 milyon TL.")
+
+            gated = answered.answer
+            assert gated.status is AnswerStatus.ACCEPTED, gated.verdict.rejected
+            assert "1.234,56 milyon TL" in gated.text
+            (number,) = [item for item in gated.verdict.numbers if item.value_label]
+            assert number.value_label == "Tutar | 2026-01-31"
+
+    @pytest.mark.parametrize(
+        "draft",
+        [
+            "2026-01-31 tarihinde tutar 1.234,56 milyar TL.",  # wrong scale
+            "2026-01-31 tarihinde tutar 1.234,56 milyon USD.",  # wrong currency
+            "2026-02-28 tarihinde tutar 1.234,56 milyon TL.",  # wrong day
+            "2026-01-31 tarihinde tutar 1.500 milyon TL.",  # a figure the cell never held
+        ],
+    )
+    def test_a_wrong_scale_currency_day_or_figure_is_withheld(self, tmp_path, draft):
+        with open_lakehouse(tmp_path / "lake") as lake:
+            answered = self.answer(lake, draft)
+
+            assert answered.answer.status is AnswerStatus.ABSTAINED
+            assert answered.answer.omitted
+
+    def test_a_figure_whose_unit_the_header_never_stated_is_withheld(self, tmp_path):
+        content = b'Tarih,Tutar\n2026-01-31,"1.234,56"\n'
+        with open_lakehouse(tmp_path / "lake") as lake:
+            answered = self.answer(lake, "Tutar 1.234,56 idi.", content=content)
+
+            assert answered.answer.status is AnswerStatus.ABSTAINED
+            reasons = " ".join(
+                reason for item in answered.answer.omitted for reason in item.reasons
+            )
+            assert "unresolved" in reasons

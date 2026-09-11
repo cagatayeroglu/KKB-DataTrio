@@ -69,7 +69,7 @@ Acceptance: Only the confirmed configured provider can receive credentials; malf
 
 ## SEC-TRUST-01 — External content and prompt injection
 
-Status: PARTIAL — registry/argument injection negatives and user/system-role separation exist (#28). `web_url` (M7-17) fetches only an address written in the user's question, so neither a fetched cell nor a plan's restated question can pick a destination; its tests cover both. Document extraction beyond CSV/XLSX, workspace/data permitted-reference enforcement and live URL use remain incomplete.
+Status: PARTIAL — registry/argument injection negatives and user/system-role separation exist (#28). `web_url` (M7-17) fetches only an address written in the user's question, so neither a fetched cell nor a plan's restated question can pick a destination; its tests cover both. A value it returns (M7-18) is labelled with the plan's column and row, never document text, so a header cannot write into the answer prompt. Document extraction beyond CSV/XLSX, workspace/data permitted-reference enforcement and live URL use remain incomplete.
 
 Threat: A PDF, spreadsheet cell, HTML page, image/OCR result, metadata field, or model response instructs the agent to disclose secrets, change rules, invoke unsafe tools, or fabricate evidence.
 
