@@ -165,8 +165,8 @@ Required control: One admission boundary for uploaded and downloaded files, with
 When: M1 CSV/XLSX ingestion; reuse at M7. Implement before any upload/download parsing exposure.
 
 - [x] Define supported formats and per-format byte/row/column limits.
-- [ ] Enforce byte limits before full buffering/parsing, including streamed downloads.
-- [ ] Check extension, declared MIME, and content signature/structure; reject mismatches or route only under an explicit safe policy.
+- [x] Enforce byte limits before full buffering/parsing, including streamed downloads.
+- [x] Check extension, declared MIME, and content signature/structure; reject mismatches or route only under an explicit safe policy.
 - [ ] Normalize/validate storage paths and generate internal names; reject traversal, absolute paths, and unauthorized symlink escapes.
 - [ ] Separate raw/derived/temp data from source code and Git-tracked fixtures.
 - [ ] Return sanitized errors for empty, malformed, oversized, unsupported, and ambiguous input.
@@ -218,7 +218,7 @@ When: M7 safe fetch, before M3/M7 live source retrieval. Network-policy answers 
 - [ ] Handle redirects explicitly and revalidate every followed hop before connecting. Current direct-GET policy rejects every 3xx; following remains M7-04.
 - [ ] Enforce redirect cap and loop detection; never forward credentials/cookies to a new origin automatically.
 - [x] Configure connect/read/total deadlines and bound compressed/decompressed response bytes.
-- [ ] Validate content type and bytes before parser routing; limit streams even when Content-Length is absent/false.
+- [x] Validate content type and bytes before parser routing; limit streams even when Content-Length is absent/false.
 - [x] Control proxy/environment behavior so it cannot silently bypass destination policy.
 - [x] Return sanitized structured blocked/timeout/size/content errors and record safe destination metadata.
 - [ ] Add negative tests for schemes, public-to-private redirects, IPv4/IPv6, metadata, mixed DNS, rebinding, slow/oversized streams, and redirect loops.
