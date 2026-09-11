@@ -15,7 +15,8 @@
   convention and is refused.
 - **Unit and scale.** Only from a recognised unit in the column header's
   trailing parentheses — `(Milyon TL)`, `(%)`, `(TL/kg)`. Anything else stays
-  unresolved, and the answer gate then withholds the figure (DEC-104).
+  unresolved: analytical claims are withheld (DEC-104); exact literal quotation
+  needs the selected-cell proof and bounded presentation in DEC-132.
 - **Period.** Only when the row label is a full date, `2026-06-01` or
   `01.06.2026`, and then that single day. A month or a year label sets none.
 
@@ -26,6 +27,7 @@ and cell text are kept in the result's parameters and provenance.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -36,6 +38,7 @@ from typing import TYPE_CHECKING
 from kkb_agent.catalog.normalization import normalize_search_text
 from kkb_agent.core import (
     AnalyticalResult,
+    ClaimKind,
     Period,
     ResultEvidence,
     ResultKind,
@@ -254,6 +257,7 @@ def read_cell(cell: Cell) -> Reading:
 
 def record_cell(lineage: Lineage, source_node: str, cell: Cell) -> str:
     """The cell as a transform of the source file it was read from."""
+    reading = read_cell(cell)
     return lineage.record(
         NodeKind.TRANSFORM,
         "web_url_cell",
@@ -261,6 +265,16 @@ def record_cell(lineage: Lineage, source_node: str, cell: Cell) -> str:
             "location": json.dumps(cell.location, ensure_ascii=False, sort_keys=True),
             "header": cell.header,
             "row_label": cell.row_label,
+            "cell_digest": hashlib.sha256(_text(cell.raw).encode()).hexdigest(),
+            "reading": json.dumps(
+                {
+                    "value": reading.value,
+                    "unit": reading.unit,
+                    "scale": reading.scale.value,
+                    "period": reading.period.model_dump(mode="json") if reading.period else None,
+                },
+                sort_keys=True,
+            ),
         },
         upstream=[(source_node, EdgeKind.DERIVES_FROM)],
     )
@@ -301,6 +315,7 @@ def document_value(
         )
     return AnalyticalResult(
         result_id=f"web_url:{source.source_id}:{location}",
+        claim_kind=ClaimKind.LITERAL_SOURCE_VALUE,
         kind=ResultKind.LEVEL,
         status=ResultStatus.COMPUTED,
         tool="web_url",

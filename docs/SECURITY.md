@@ -341,3 +341,7 @@ Run this at M11, not after ordinary prompts. Record command/review evidence in M
 - [ ] Confirm retention/cache/fallback permissions and test cleanup/workspace separation.
 - [ ] Rehearse a hostile input, provider/source outage, and recovery within the actual demo workflow.
 - [ ] Record remaining limitations and go/no-go; do not enable an untested risky capability to make the demo appear broader.
+
+### Literal document claims (DEC-132)
+
+External document values remain untrusted until exact source/value binding succeeds. The execution-owned literal tag is not a model argument. Its selected-reading snapshot, raw-cell digest, coordinates and source fragment must match the content-addressed lineage nodes in the current store; source presence alone, a changed value or an analytical transformation is insufficient. Only a fixed source-quotation answer can use unresolved semantics, with an explicit unspecified-unit/scale statement; it grants no currency, percent, index, comparison or transformation permission. Internal result/evidence/lineage handles are withheld. Full source bytes remain unpersisted; the proof retains only bounded selected-cell metadata. No fetch, admission, parser or OCR guard is relaxed.

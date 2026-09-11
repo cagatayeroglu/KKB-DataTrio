@@ -1308,6 +1308,8 @@ M1 ingestion contract, M2 relevant semantics, SEC-URL-01 and SEC-FILE-01/02 befo
 <a id="m7-18-document-value-record"></a>
 ### M7-18 document value record
 
+- Literal-source follow-up: Status PARTIAL; Owner Çağatay; Branch `feature/m7-18-literal-source-claims`, from `ad2d2e5`; PR [#103](https://github.com/cagatayeroglu/KKB-DataTrio/pull/103), claim `f6e45e2`; implementation `39a5b17`. Explicitly authorized product rule: unknown semantics block interpretation/transformation, not exact source quotation. Scope: typed literal eligibility from exact document selection and resolved value/cell lineage, bounded writer presentation, existing verifier and M7-19 acceptance; analytical protections unchanged. Delivered: execution-owned ClaimKind, exact selected-reading/cell/source lineage proof, bounded literal presentation, unchanged analytical semantics; DEC-132. Baseline new acceptance test failed before production changes. Focused suites 504 PASS / 24.03s, final literal suite 38 PASS / 8.68s (two additional cases beyond focused run). make quick 2167 PASS / 67.12s wall; make pr 2167 PASS / 67.91s wall, Ruff/Bandit/secret checks clean. Blocker: awaiting final-head Fast PR and merge. Unknown literals require the complete fixed quotation; alternate prose and multiple literal synthesis are not supported. No live calls or M7-11/M7-07 work.
+
 - Status: DONE — PR #86 merged into `dev` at `021f05a6371391627d1c573d3ce94c5d2d1270ab`; merged tree equals validated head `6ed14dc59860475c446bd4ea830a45f17339c63a`. Claim and implementation commits are reachable from `origin/dev`.
 - Owner: Eray
 - Branch: `feature/m7-18-document-value`, from `dev` `f0bdedbffc4617bad3c67c24ec767edd8520b825`; deleted locally and remotely after the verified merge.

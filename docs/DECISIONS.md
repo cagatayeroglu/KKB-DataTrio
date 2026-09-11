@@ -407,6 +407,15 @@ Evidence policy: organizer constraints below are carried forward from the origin
 - Reason: These constraints determine the deadline, the delivery mechanism and the required `web_url` capability surface. Leaving them unrecorded made the roadmap plan against an invented schedule and treat URL-document extraction as optional.
 - Revisit trigger: An organizer schedule change, a published allowlist, or Slack answers to Q-INFRA-01, Q-NET-02, Q-DEMO-01/03 or Q-DEV-01.
 
+### DEC-132 — Literal document quotation versus analytical meaning
+
+- Status: CONFIRMED — explicit Çağatay product authorization, 2026-09-12.
+- Decision: **Unknown semantics block interpretation and transformation, not exact source quotation.** Execution may mark an exact document-cell result `LITERAL_SOURCE_VALUE`; the default remains `ANALYTICAL_VALUE`. A model cannot request this privilege. It is usable only after the selected value, cell coordinates, result identity and source/transform lineage snapshot resolve in the same store, without analytical transformations.
+- Reason: A correctly parsed source number with no declared unit can still be quoted as source text; it cannot be interpreted as currency, percent, an index, or a transformed/comparable amount.
+- Consequences: DEC-104/119 analytical guards remain. Unknown literal values use one bounded Turkish source-quotation template, explicitly saying unit or scale is unspecified; extra interpretation is refused. No generic prose semantic understanding is claimed. Known-unit analytical presentation remains unchanged. M7-19 requires a supported retained claim bound to the exact document result, including an eligible literal claim; accepted prose alone is insufficient. Persist only the selected reading/cell proof metadata, never the whole downloaded document. Old cell nodes without a reading snapshot are ineligible until the document is selected again.
+- Alternatives: Guessing a unit, weakening all unresolved-semantic checks, trusting a model's literal label, or treating a source URL alone as proof are rejected.
+- Revisit trigger: A separately specified need for multiple literal values, alternate verified quotation templates or metadata outside the selected header. No new framework or live call is authorized by this decision.
+
 ## Proposed decisions
 
 Candidates below are not approved selections. Compare options in a bounded task; do not silently promote a proposal to CONFIRMED.
