@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 
 # Fixed interpreter/module only; no shell or user command.
 import subprocess  # nosec B404
@@ -22,16 +23,41 @@ from kkb_agent.ingest.safe_fetch import (
 
 CONNECTED = b"CONNECTED\n"
 MAX_INPUT_BYTES = 64 * 1024
+PROGRESS_POLL_SECONDS = 0.1
+
+
+def _progress(output: bytes, started: float, limits: FetchLimits) -> tuple[bytes, float | None]:
+    """Separate bounded phase markers from JSON; a redirect never resets total time."""
+    deadline: float | None = started + limits.connect_seconds
+    connections = 0
+    while b"\n" in output:
+        line, _, rest = output.partition(b"\n")
+        if line == b"CONNECTED":
+            if deadline is None:
+                raise ValueError("unexpected connection marker")
+            connections += 1
+            if connections > limits.max_redirects + 1:
+                raise ValueError("too many connection markers")
+            deadline = None
+        elif line.startswith(b"CONNECTING "):
+            if deadline is not None or not connections or len(line) > 64:
+                raise ValueError("unexpected redirect marker")
+            deadline = float(line.removeprefix(b"CONNECTING "))
+            if not math.isfinite(deadline) or deadline < started:
+                raise ValueError("invalid connection deadline")
+        else:
+            break
+        output = rest
+    return output, deadline
 
 
 def fetch_in_process(request: FetchRequest, limits: FetchLimits) -> FetchOutcome:
     """Bound DNS/connect first, then the whole operation including worker IPC.
 
-    communicate may be resumed after TimeoutExpired. A fixed marker is emitted
-    only after DNS, numeric connect, peer and verified TLS checks succeed. Until
-    it arrives, connect_seconds also bounds blocking resolver/TLS work and worker
-    startup. The total deadline never restarts. On timeout kill and reap the
-    worker, which owns every socket; no abandoned resolver thread remains.
+    Phase markers distinguish DNS/connect from body work, including later hops.
+    Poll while reading so a later DNS phase cannot hide behind the total timeout.
+    Its absolute connect deadline and the one total deadline never restart on
+    polling. Kill/reap the same worker on timeout; no abandoned DNS thread remains.
     """
 
     started = time.monotonic()
@@ -55,34 +81,47 @@ def fetch_in_process(request: FetchRequest, limits: FetchLimits) -> FetchOutcome
         connect_remaining = limits.connect_seconds - (time.monotonic() - started)
         if min(remaining, connect_remaining) <= 0:
             raise subprocess.TimeoutExpired("source-fetch", 0)
-        try:
-            output, _ = process.communicate(payload, timeout=min(remaining, connect_remaining))
-        except subprocess.TimeoutExpired as error:
-            if not (error.output or b"").startswith(CONNECTED):
-                raise
-            remaining = limits.total_seconds - (time.monotonic() - started)
-            if remaining <= 0:
-                raise
-            output, _ = process.communicate(timeout=remaining)
+        wait = min(remaining, connect_remaining)
+        pending: bytes | None = payload
+        while True:
+            try:
+                output, _ = process.communicate(pending, timeout=wait)
+                break
+            except subprocess.TimeoutExpired as error:
+                pending = None
+                _, connect_deadline = _progress(error.output or b"", started, limits)
+                now = time.monotonic()
+                remaining = started + limits.total_seconds - now
+                if remaining <= 0 or (connect_deadline is not None and now >= connect_deadline):
+                    raise
+                wait = min(
+                    remaining,
+                    PROGRESS_POLL_SECONDS if connect_deadline is None else connect_deadline - now,
+                )
         if time.monotonic() - started >= limits.total_seconds:
             return FetchFailure(source_ref=request.source_ref, code=FetchCode.TIMEOUT)
         if process.returncode != 0:
             return failure
         # The trusted worker emits one bounded payload; independently validate
         # its size, identity, accepted type and decoded bytes before returning.
-        if len(output) > 4 * ((limits.max_decompressed_bytes + 2) // 3) + 4096:
+        overhead = 4096 + 6 * limits.max_url_chars + 64 * (2 * limits.max_redirects + 1)
+        if len(output) > 4 * ((limits.max_decompressed_bytes + 2) // 3) + overhead:
             return FetchFailure(source_ref=request.source_ref, code=FetchCode.SIZE_LIMIT)
-        result = json.loads(output.removeprefix(CONNECTED))
+        body, connect_deadline = _progress(output, started, limits)
+        result = json.loads(body)
         if not isinstance(result, dict):
             return failure
         if result.get("source_ref") != request.source_ref:
             return failure
         if result.get("status") == "failure":
             return FetchFailure.model_validate(result)
-        if not output.startswith(CONNECTED):
+        if not output.startswith(CONNECTED) or connect_deadline is not None:
             return failure
         result["content"] = base64.b64decode(result["content"], validate=True)
         success = FetchSuccess.model_validate(result)
+        if success.effective_locator is not None:
+            if len(success.effective_locator.get_secret_value()) > limits.max_url_chars:
+                return FetchFailure(source_ref=request.source_ref, code=FetchCode.SIZE_LIMIT)
         if len(success.content) > limits.max_decompressed_bytes:
             return FetchFailure(source_ref=request.source_ref, code=FetchCode.SIZE_LIMIT)
         if success.media_type not in request.accepted_media_types:

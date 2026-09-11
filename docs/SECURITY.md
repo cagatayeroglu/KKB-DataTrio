@@ -2,7 +2,7 @@
 
 Protect the boundaries relevant to this short-window product — development closes 20 September 2026 under [DEC-131](DECISIONS.md#dec-131--organizer-kick-off-brief-schedule-delivery-form-and-demo-day-input-scope) — without making ordinary development a security-release ceremony. [ROADMAP](ROADMAP.md) owns execution status, [AGENTS](../AGENTS.md) check triggers, and [EVALUATION](EVALUATION.md) adversarial coverage. These controls are required behavior for enabled capabilities, not a claim that those capabilities exist.
 
-Implementation evidence lives in [ROADMAP Current Project Status](ROADMAP.md#current-project-status) and the linked task records. Delivered boundaries include ignore/config hygiene, fast CI, file admission with bounded CSV/XLSX/PDF parsing, bounded direct-GET safe fetch, the Kloudeks transport with its destination and redaction controls, registry/argument/count validation, restricted lakehouse SQL, `web_url`'s binding to addresses the user wrote, and partial workspace/lineage/numeric matching. Redirect following, end-to-end stale/reference isolation and complete proof gating remain incomplete. This docs task performs no application/security scan or full/release check; existing delivery results are not new runs.
+Implementation evidence lives in [ROADMAP Current Project Status](ROADMAP.md#current-project-status) and the linked task records. Delivered boundaries include ignore/config hygiene, fast CI, file admission with bounded CSV/XLSX/PDF parsing, bounded GET safe fetch with validated redirects, the Kloudeks transport with its destination and redaction controls, registry/argument/count validation, restricted lakehouse SQL, `web_url`'s binding to addresses the user wrote, and partial workspace/lineage/numeric matching. End-to-end stale/reference isolation and complete proof gating remain incomplete. M7-04 adds offline redirect negatives; validation and merge state are recorded in its ROADMAP record.
 
 ## Threat model and scope
 
@@ -201,7 +201,7 @@ Acceptance: Enabled parsers cannot exceed documented tested limits silently or e
 
 ## SEC-URL-01 — Central safe fetch / SSRF / redirects
 
-Status: PARTIAL — M7-01/02/03/05/06 are merged and validated (#35–38; 340 targeted / 892 unit at #38 delivery). [safe_fetch](../src/kkb_agent/ingest/safe_fetch.py) implements direct GET with DNS-to-socket binding, verified TLS and bounded response handling. All 3xx are rejected; redirect following, POST, source trust configuration and adapter integration remain incomplete. Downloaded CSV/XLSX/PDF reach the upload parsers only through `web_url` (M7-08/M7-17/M7-09). Live exposure still requires Q-DATA-01/Q-NET-01/02.
+Status: PARTIAL — M7-01/02/03/05/06 are merged and validated (#35–38; 340 targeted / 892 unit at #38 delivery). [safe_fetch](../src/kkb_agent/ingest/safe_fetch.py) implements GET with DNS-to-socket binding, verified TLS and bounded response handling. M7-04 follows only 301/302/303/307/308, with fresh validation/binding per hop, a default cap of 3 and canonical-URL loop detection. Headers share one aggregate budget, redirect bodies are closed unread, and the same supervised worker retains one total deadline plus per-hop DNS/connect deadlines. POST, source trust configuration and adapter integration remain incomplete. Downloaded CSV/XLSX/PDF reach the upload parsers only through `web_url` (M7-08/M7-17/M7-09). Live exposure still requires Q-DATA-01/Q-NET-01/02.
 
 Threat: User/model URLs target localhost, private services, link-local/cloud metadata, redirect to forbidden targets, rebind DNS, steal credentials, or stream excessive content.
 
@@ -215,13 +215,13 @@ When: M7 safe fetch, before M3/M7 live source retrieval. Network-policy answers 
 - [x] Block localhost/loopback, private RFC1918, IPv6 local ranges, link-local, unspecified/reserved unsafe destinations, and cloud-metadata addresses/hostnames.
 - [x] Validate all resolved DNS addresses; reject mixed public/private results.
 - [x] Bind validation to the actual connection target to address DNS rebinding/time-of-check mismatch; test the chosen approach.
-- [ ] Handle redirects explicitly and revalidate every followed hop before connecting. Current direct-GET policy rejects every 3xx; following remains M7-04.
-- [ ] Enforce redirect cap and loop detection; never forward credentials/cookies to a new origin automatically.
+- [x] Handle redirects explicitly and revalidate every followed hop before connecting. M7-04 requires exactly one usable Location; malformed/unsupported redirects fail closed.
+- [x] Enforce redirect cap and loop detection; never forward credentials/cookies to a new origin automatically. M7-04 rebuilds only fixed GET headers and preserves hostname/TLS checks.
 - [x] Configure connect/read/total deadlines and bound compressed/decompressed response bytes.
 - [x] Validate content type and bytes before parser routing; limit streams even when Content-Length is absent/false.
 - [x] Control proxy/environment behavior so it cannot silently bypass destination policy.
 - [x] Return sanitized structured blocked/timeout/size/content errors and record safe destination metadata.
-- [ ] Add negative tests for schemes, public-to-private redirects, IPv4/IPv6, metadata, mixed DNS, rebinding, slow/oversized streams, and redirect loops.
+- [x] Add negative tests for schemes, public-to-private redirects, IPv4/IPv6, metadata, mixed DNS, rebinding, slow/oversized streams, and redirect loops. M7-02/03/05 and `test_safe_redirects.py` cover the enabled GET boundary offline.
 
 Intended tests: Fake DNS/transport or controlled local test doubles that simulate destinations; do not actually contact metadata/private services. Assert forbidden destinations are never contacted, not merely that the final response is rejected.
 

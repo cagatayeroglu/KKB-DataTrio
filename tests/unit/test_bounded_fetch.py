@@ -258,7 +258,7 @@ def test_redirects_never_follow_or_resolve_location(transport, status):
     transport.wire = wire(
         headers=[("Location", "http://169.254.169.254/latest/meta-data/")], status=status
     )
-    assert transport.fetch(max_redirects=3).code == FetchCode.REDIRECT_LIMIT
+    assert transport.fetch(max_redirects=0).code == FetchCode.REDIRECT_LIMIT
     assert transport.resolutions == [("example.test", 443)]
     assert transport.connected == [(PUBLIC, 443)]
     assert transport.sockets[0].stream.sizes == []
@@ -459,7 +459,7 @@ else:
             b'{"source_ref":"source:bounded-1","status":"success","content":"!"}',
             FetchCode.TRANSPORT_FAILURE,
         ),
-        (b"x" * 4101, FetchCode.SIZE_LIMIT),
+        (b"x" * 40_000, FetchCode.SIZE_LIMIT),
     ],
 )
 def test_worker_output_is_bounded_validated_and_diagnostics_stay_fixed(monkeypatch, result, code):
@@ -515,7 +515,7 @@ def test_deadline_does_not_restart_after_connected_marker(monkeypatch):
     monkeypatch.setattr(_fetch_process.time, "monotonic", lambda: clock[0])
     monkeypatch.setattr(_fetch_process.subprocess, "Popen", lambda *a, **k: worker)
     assert safe_fetch(request(), limits=FetchLimits(total_seconds=8)).code == FetchCode.TIMEOUT
-    assert worker.timeouts == [5.0, 3.0]
+    assert worker.timeouts == [5.0, _fetch_process.PROGRESS_POLL_SECONDS]
     assert worker.killed and worker.waited
 
 

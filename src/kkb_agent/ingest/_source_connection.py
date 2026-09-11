@@ -7,7 +7,7 @@ TLS still authenticates the original URL hostname, not the resolved IP.
 
 No proxy/environment routing, DNS cache, address retries or redirect following.
 M7-05 supervises DNS/connect/total deadlines and bounded responses. M7-04
-owns redirect following; the current public fetch path rejects every redirect.
+owns redirect following and its shared budgets; this class only binds each hop.
 """
 
 from __future__ import annotations
