@@ -1308,6 +1308,8 @@ M1 ingestion contract, M2 relevant semantics, SEC-URL-01 and SEC-FILE-01/02 befo
 <a id="m7-18-document-value-record"></a>
 ### M7-18 document value record
 
+- Literal-source follow-up: Status IN PROGRESS; Owner Çağatay; Branch `feature/m7-18-literal-source-claims`, from `ad2d2e5`; PR/Commit pending. Explicitly authorized product rule: unknown semantics block interpretation/transformation, not exact source quotation. Scope: typed literal eligibility from exact document selection and resolved value/cell lineage, bounded writer presentation, existing verifier and M7-19 acceptance; analytical protections unchanged. Tests NOT RUN; blocker none for offline work. No live calls or M7-11/M7-07 work.
+
 - Status: DONE — PR #86 merged into `dev` at `021f05a6371391627d1c573d3ce94c5d2d1270ab`; merged tree equals validated head `6ed14dc59860475c446bd4ea830a45f17339c63a`. Claim and implementation commits are reachable from `origin/dev`.
 - Owner: Eray
 - Branch: `feature/m7-18-document-value`, from `dev` `f0bdedbffc4617bad3c67c24ec767edd8520b825`; deleted locally and remotely after the verified merge.
