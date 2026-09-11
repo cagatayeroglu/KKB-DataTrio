@@ -55,13 +55,13 @@ Required control: The DEC-129 endpoint/auth contract is trusted operator configu
 When: M4 live transport/auth implementation, before any real credential is used.
 
 - Contract evidence: DEC-129 records the organizer endpoint/auth/model contract without credentials; this answers the documentation subpart, not the unfinished runtime control acceptance below.
-- [ ] Restrict endpoint selection to trusted configuration; user/source/model content cannot override it.
-- [ ] Validate approved destination policy and require secure transport for credentials.
-- [ ] Define redirects explicitly; reject unexpected origin changes and credential forwarding.
-- [ ] Set connection/read/total timeouts, response limits, and bounded attempts.
-- [ ] Validate structured response locally and sanitize provider errors.
-- [ ] Test exclusive Kloudeks routing and absence of third-party hosted LLM fallback, allowing the compatible SDK import itself. Correct the existing blanket `openai` string-ban test in a later M4 implementation PR; see ROADMAP M4.
-- [ ] Add offline negative tests plus a separately authorized live smoke with safe metadata.
+- [x] Restrict endpoint selection to trusted configuration; user/source/model content cannot override it. (M4-07, #76)
+- [x] Validate approved destination policy and require secure transport for credentials. (M4-07, #76)
+- [x] Define redirects explicitly; reject unexpected origin changes and credential forwarding. (M4-07: never followed)
+- [x] Set connection/read/total timeouts, response limits, and bounded attempts. (M4-07; transport retries remain M4-10)
+- [x] Validate structured response locally and sanitize provider errors. (M4-07, #76)
+- [x] Test exclusive Kloudeks routing and absence of third-party hosted LLM fallback, allowing the compatible SDK import itself. The blanket `openai` string-ban test was replaced in M4-07 (#76).
+- [ ] Add offline negative tests plus a separately authorized live smoke with safe metadata. Offline half delivered by M4-07 (#76); the live smoke is M4-12.
 
 Intended tests: Fake provider transport for alternate endpoint injection, redirect, timeout, oversized response, malformed model output, missing credentials, and failed TLS/config paths where applicable.
 
