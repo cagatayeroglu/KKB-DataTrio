@@ -79,14 +79,14 @@ Normal code tasks use targeted tests/lint or `make quick`; task PRs to `dev` use
 
 There is no `eval-smoke`/`eval-full` Make target, benchmark runner or UI launch command yet. `python -m kkb_agent.llm.smoke` (transport) and `python -m kkb_agent.live_check` (one question end to end on synthetic data) are operator-run live checks, never part of a gate. [EVALUATION](docs/EVALUATION.md#implemented-command-registry) separates existing commands from planned tiers. `make full` does not run a benchmark.
 
-M7-19 adds an explicit document mode to `live_check`. **Offline operator path implemented; live document acceptance not yet run.** The following is a future operator invocation, not an offline test: it calls Kloudeks and fetches the URL in the question. Use it only after separate approval for that run and an accepted network/source boundary (Q-NET-01/02; Q-DATA where relevant). Supply the actual question, URL, column and row; no address is injected by the command.
+M7-19 adds an explicit document mode to `live_check`. **Offline operator path implemented; live document acceptance not passed.** The following is a future operator invocation, not an offline test: it calls Kloudeks and fetches the URL in the question. Use it only after separate approval for that run and an accepted network/source boundary (Q-NET-01/02; Q-DATA where relevant). Supply the actual question, URL, column and row; no address is injected by the command.
 
 ```sh
 # Only after explicit live-run approval; replace the placeholder question.
 ( set -a; . ./.env; set +a; python -m kkb_agent.live_check --document --question 'QUESTION CONTAINING THE APPROVED PUBLIC URL AND REQUESTED CELL' )
 ```
 
-The application reads configuration from `os.environ`, never `.env` itself. The document report contains stage/status/timing, hashed identities, numeric cell coordinates and verification counts, not question/answer/document text or URLs. Exit 0 requires a retained numeric claim bound to the fetched cell with resolvable source/transform lineage; loading a file alone is not success. The existing no-argument synthetic mode is unchanged. CSV/XLSX/text-layer PDF are supported; HTML, scanned-PDF OCR and live acceptance remain separate work.
+The application reads configuration from `os.environ`, never `.env` itself. The document report contains stage/status/timing, hashed identities, numeric cell coordinates and verification counts, not question/answer/document text or URLs. Exit 0 requires a retained numeric claim bound to the fetched cell with resolvable source/transform lineage; loading a file alone is not success. On `fetch_failed`, the operator-only `fetch_code` reports an existing `FetchCode` or null; TLS and other transport errors remain grouped as `TRANSPORT_FAILURE`. No raw failure text is exported. The existing no-argument synthetic mode is unchanged. CSV/XLSX/text-layer PDF are supported; HTML, scanned-PDF OCR and live acceptance remain separate work.
 
 ## Branches and collaboration
 
