@@ -17,8 +17,8 @@ asked of the model:
    which `Session` fills with the user's own words; a caller building its own
    context must do the same, never pass a plan's restated question.
 2. **One fetch boundary.** Every request goes through `safe_fetch`: public
-   destinations only, DNS bound to the socket, bounded bytes and time, and no
-   redirect followed.
+   destinations only, DNS bound to the socket, bounded bytes and time, and
+   bounded redirects with fresh validation/binding at every hop; no TLS downgrade.
 3. **Upload rules for downloaded bytes.** The response goes through M7-08's
    `load_fetched`, the same admission checks and bounded loaders an uploaded
    file meets.

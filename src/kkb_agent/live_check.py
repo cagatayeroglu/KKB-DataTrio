@@ -12,22 +12,33 @@ data is synthetic, so the plan and the gated answer are shown as they are.
 No gate calls this. A run makes a few live calls under an explicit operator
 authorization (SEC-KLO-01); the offline tests drive `run_live_check` with a
 scripted provider instead.
+
+M7-19 adds explicit `--document --question '...URL...'` mode with the same
+Session path and no synthetic seed. Its report contains only bounded metadata;
+success requires a retained numeric claim bound to the fetched document's cell.
+The application never reads .env; a separately approved operator run may export
+configuration before invoking the command.
 """
 
 from __future__ import annotations
 
+import argparse
+import hashlib
 import json
 import sys
 import tempfile
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 
 from pydantic import BaseModel
 
 from kkb_agent.agent import AnswerStatus, PlanningFailed, Session, ToolRegistry
+from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
+from kkb_agent.agent.registry import ToolSpec
+from kkb_agent.agent.verifier import Binding, verify_claims
 from kkb_agent.core import (
     Aggregation,
     CumulativeKind,
@@ -36,7 +47,10 @@ from kkb_agent.core import (
     SourceRef,
     StockFlow,
 )
+from kkb_agent.ingest.fetched import DOCUMENT_MEDIA_TYPES
+from kkb_agent.ingest.safe_fetch import safe_fetch
 from kkb_agent.lakehouse import Observation, SeriesSemantics, open_lakehouse
+from kkb_agent.lakehouse.lineage import EdgeKind, Lineage, NodeKind
 from kkb_agent.llm import (
     Completion,
     EmbeddingKind,
@@ -51,6 +65,7 @@ from kkb_agent.tools import (
     make_change_detection_tool,
     make_lakehouse_tool,
 )
+from kkb_agent.tools.web_url import Fetcher, WebUrlOutput, make_web_url_tool
 
 #: The planner has no series catalog yet (M13), so the question names its series.
 QUESTION = (
@@ -202,22 +217,214 @@ def run_live_check(
     }
 
 
-def main() -> int:
+def _digest(value: str) -> str:
+    # Result IDs may include a document's sheet name. Never print them raw.
+    return hashlib.sha256(value.encode()).hexdigest()
+
+
+def _document_evidence(output: WebUrlOutput, lineage: Lineage) -> bool:
+    """Resolve the selected transform and its source in this session's store."""
+    result, source = output.result, output.source
+    if result is None or source is None or output.status != "loaded":
+        return False
+    cell = result.evidence.lineage_node
+    if not cell or not lineage.exists(cell):
+        return False
+    node = lineage.node(cell)
+    if node.kind is not NodeKind.TRANSFORM or node.label != "web_url_cell":
+        return False
+    for parent, edge in lineage.parents(cell):
+        original = lineage.node(parent)
+        if (
+            edge is EdgeKind.DERIVES_FROM
+            and parent in result.evidence.input_refs
+            and original.kind is NodeKind.SOURCE_FILE
+            and original.label == source.source_id
+            and original.attributes.get("content_hash") == source.content_hash
+            and source.content_hash
+        ):
+            return True
+    return False
+
+
+def run_document_check(
+    provider: LLMProvider,
+    root: Path,
+    *,
+    question: str,
+    fetch: Fetcher = safe_fetch,
+    clock: Clock = time.perf_counter,
+) -> dict[str, object]:
+    """One document question through Session.answer; no URL or content in the report.
+
+    The default fetch/provider are live only when an operator explicitly invokes
+    this mode. Offline callers inject the existing fetch boundary and provider.
+    The lakehouse is deliberately not seeded with the synthetic mode's figures.
+    """
+    started = clock()
+    stages: list[dict[str, object]] = []
+    documents: list[tuple[WebUrlOutput, bool]] = []
+    counted = _Counting(provider)
+    report: dict[str, object] = {
+        "mode": "document",
+        "passed": False,
+        "stages": stages,
+        "completions": counted.attempts,
+    }
+    with open_lakehouse(root) as lake:
+
+        def observe(spec: ToolSpec) -> ToolSpec:
+            def run(arguments: BaseModel, context: ExecutionContext) -> ToolResult:
+                before = clock()
+                result = spec.run(arguments, context)
+                entry: dict[str, object] = {
+                    "stage": "tool",
+                    "tool": spec.name,
+                    "status": result.status.value,
+                    "elapsed_ms": round((clock() - before) * 1000),
+                }
+                if spec.name == "web_url" and isinstance(result.output, WebUrlOutput):
+                    output = result.output
+                    resolved = result.status is ToolStatus.SUCCESS and _document_evidence(
+                        output, lake.lineage
+                    )
+                    documents.append((output, resolved))
+                    entry.update(
+                        {
+                            "loaded": output.status == "loaded",
+                            "cell_selected": output.result is not None,
+                            "lineage_resolved": resolved,
+                            "media_type": output.media_type
+                            if output.media_type in DOCUMENT_MEDIA_TYPES
+                            else None,
+                            "failure": result.error_category
+                            if result.error_category
+                            in {
+                                "url_not_in_question",
+                                "fetch_failed",
+                                "not_admitted",
+                                "needs_input",
+                            }
+                            else None,
+                        }
+                    )
+                    if output.source is not None:
+                        entry["source_digest"] = _digest(output.source.source_id)
+                        entry["content_digest"] = _digest(output.source.content_hash or "")
+                    if output.result is not None:
+                        entry["result_digest"] = _digest(output.result.result_id)
+                        entry["coordinates"] = {
+                            key: value
+                            for key, value in output.result.parameters.items()
+                            if key in {"page", "table", "row_index", "column_index"}
+                            and type(value) is int
+                        }
+                stages.append(entry)
+                return result
+
+            return replace(spec, run=run)
+
+        registry = ToolRegistry()
+        for make in (
+            make_lakehouse_tool,
+            make_change_detection_tool,
+            make_anomaly_tool,
+            make_causality_tool,
+        ):
+            registry.register(observe(make(lake.connection, lineage=lake.lineage)))
+        registry.register(observe(make_web_url_tool(fetch=fetch, lineage=lake.lineage)))
+        session = Session(counted, registry)
+        try:
+            answered = session.answer(question, lake.connection)
+        except (PlanningFailed, ProviderError) as error:
+            report["failure"] = (
+                "planning_failed" if isinstance(error, PlanningFailed) else "provider_failed"
+            )
+            report["plan_rejections"] = len(session.rejections)
+        else:
+            gated = answered.answer
+            # Session.answer without a workspace drafts against its last result.
+            # Recheck ONLY retained text: the original verdict can contain a
+            # supported number in a sentence withheld for another bad number.
+            last = answered.results[-1] if answered.results else None
+            verification_started = clock()
+            retained = (
+                verify_claims(gated.text, {"result": last}, lake.connection) if last else None
+            )
+            bound = (
+                sum(
+                    1
+                    for item in retained.numbers
+                    if item.supported
+                    and item.binding is Binding.RESULT
+                    and any(
+                        resolved
+                        and output.result is not None
+                        and output.result == last
+                        and item.result_id == output.result.result_id
+                        and item.lineage_node == output.result.evidence.lineage_node
+                        for output, resolved in documents
+                    )
+                )
+                if retained
+                else 0
+            )
+            report.update(
+                {
+                    "plan_repairs": answered.planned.attempts - 1,
+                    "answer_status": gated.status.value,
+                    "withheld_sentences": len(gated.omitted),
+                    "document_numeric_claims": bound,
+                    "passed": gated.status in (AnswerStatus.ACCEPTED, AnswerStatus.QUALIFIED)
+                    and bound > 0,
+                }
+            )
+            stages.append(
+                {
+                    "stage": "verification",
+                    "status": "passed" if report["passed"] else "failed",
+                    "elapsed_ms": round((clock() - verification_started) * 1000),
+                }
+            )
+    report["elapsed_ms"] = round((clock() - started) * 1000)
+    return report
+
+
+def main(argv: Sequence[str] = ()) -> int:
+    parser = argparse.ArgumentParser(
+        description="Operator smoke; live calls require prior approval."
+    )
+    parser.add_argument(
+        "--document", action="store_true", help="Use the document path instead of synthetic data"
+    )
+    parser.add_argument("--question", help="Actual document question including its URL")
+    arguments, unknown = parser.parse_known_args(argv)
+    if unknown:
+        parser.error("Unsupported arguments")
+    if arguments.document != (arguments.question is not None):
+        # Never echo a question or URL in an error.
+        parser.error("--document and --question must be supplied together")
     try:
         provider = KloudeksProvider.from_env()
     except ProviderError as error:
         # Configuration errors name settings, never their values.
         print(
             json.dumps(
-                {"passed": False, "configuration": type(error).__name__, "detail": str(error)}
+                {"passed": False, "configuration": "provider_configuration_failed"}
+                if arguments.document
+                else {"passed": False, "configuration": type(error).__name__, "detail": str(error)}
             )
         )
         return 2
     with provider, tempfile.TemporaryDirectory(prefix="kkb-live-check-") as directory:
-        report = run_live_check(provider, Path(directory) / "lake")
+        report = (
+            run_document_check(provider, Path(directory) / "lake", question=arguments.question)
+            if arguments.document
+            else run_live_check(provider, Path(directory) / "lake")
+        )
     print(json.dumps(report, indent=2, ensure_ascii=False))
     return 0 if report["passed"] else 1
 
 
 if __name__ == "__main__":  # pragma: no cover - operator entry point
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))

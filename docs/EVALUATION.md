@@ -72,6 +72,10 @@ These commands are present in [Makefile](../Makefile); results have not been est
 | `make pr` | Ruff format/check, unit pytest, Bandit, local secret-pattern script |
 | `make full` | Ruff format/check, mypy, full pytest, Bandit, local secret-pattern script, pip-audit |
 
+M7-19's operator command is `python -m kkb_agent.live_check --document --question '…URL…'` ([approved-run setup](../README.md)). It is never invoked by a gate. Offline tests inject a fake fetch and scripted provider through the normal `Session.answer` path. **OFFLINE OPERATOR PATH IMPLEMENTED; LIVE DOCUMENT ACCEPTANCE NOT YET RUN.** A future live run requires separate operator approval and an accepted Q-NET-01/02 boundary; no network question is closed by these tests.
+
+Document smoke success requires executed `web_url`, admitted/loaded content, a selected cell's `AnalyticalResult`, its transform-to-source edge resolving in the same lakehouse, and at least one retained accepted numeric claim bound to that exact result. ACCEPTED/QUALIFIED alone, another tool's answer, a year-only/non-numeric answer, or a supported number inside a withheld sentence cannot pass. Wrong figure/unit/scale/period, ambiguous cell numbers, missing lineage and fetch/parser/provider failure are tested offline. This proves binding to the published cell, not independent recomputation, external corroboration or arbitrary prose correctness. Reports expose only bounded stage metadata/counts, numeric coordinates and SHA-256 digests of source/content/result identities; no raw URLs, prompts, answers, cells or sheet names.
+
 `make eval-smoke`, `make eval-full`, and benchmark CLI commands **do not exist yet**. When M9 implements a runner, replace the planned entries below with actual commands and safe output locations. Do not document a placeholder as runnable.
 
 | Planned tier | Runner command | Result location | Status |
