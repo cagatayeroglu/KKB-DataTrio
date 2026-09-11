@@ -19,6 +19,7 @@ class FileKind(StrEnum):
     CSV = "csv"
     XLSX = "xlsx"
     PDF = "pdf"
+    HTML = "html"
 
 
 class RejectionCode(StrEnum):
@@ -103,6 +104,7 @@ MIME_TYPES = {
     FileKind.CSV: "text/csv",
     FileKind.XLSX: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     FileKind.PDF: "application/pdf",
+    FileKind.HTML: "text/html",
 }
 
 
@@ -135,7 +137,7 @@ def _metadata_kind(filename: str, content_type: str) -> FileKind:
     for parameter in parts[1:]:
         key, separator, value = parameter.strip().partition("=")
         if (
-            kind != FileKind.CSV
+            kind not in (FileKind.CSV, FileKind.HTML)
             or key.strip() != "charset"
             or not separator
             or value.strip().strip('"') not in {"utf-8", "utf8"}
@@ -246,6 +248,15 @@ def admit_upload(
     content = _bounded_read(stream, limits.max_bytes)
     if kind == FileKind.CSV:
         _check_csv_content(content)
+    elif kind == FileKind.HTML:
+        try:
+            text = content.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            raise AdmissionError(RejectionCode.UNSUPPORTED_ENCODING) from None
+        if not text.lstrip().startswith("<") or any(
+            ord(c) < 32 and c not in "\t\r\n" or ord(c) == 127 for c in text
+        ):
+            raise AdmissionError(RejectionCode.FORMAT_MISMATCH)
     elif kind == FileKind.PDF:
         _check_pdf_header(content)
     else:

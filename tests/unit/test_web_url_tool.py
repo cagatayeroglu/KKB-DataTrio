@@ -322,7 +322,7 @@ class TestTablesComeBackTyped:
             assert lake.connection.execute("SELECT count(*) FROM lineage_nodes").fetchone() == (0,)
 
     def test_a_type_no_loader_reads_is_refused_even_from_a_substituted_fetch(self):
-        result = run(FakeFetch(b"<html><body>synthetic</body></html>", "text/html"))
+        result = run(FakeFetch(b"<html><body>synthetic</body></html>", "application/xhtml+xml"))
 
         assert result.error_category == "not_admitted"
         assert result.warnings == ("UNSUPPORTED_FORMAT",)

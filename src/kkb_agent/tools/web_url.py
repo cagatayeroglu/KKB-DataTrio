@@ -2,8 +2,8 @@
 
 On the demo day the organizer puts URLs inside the question (DEC-131). This
 reads CSV and XLSX tables and the text and ruled tables of a PDF with a text
-layer; optional injected OCR returns untrusted text for scanned pages. HTML
-and image addresses are later M7 work; their
+layer; optional injected OCR returns untrusted text for scanned pages. Static
+HTML returns bounded text and rectangular tables. Image addresses remain unsupported; their
 media types are refused before a body is read or their content is refused
 with a fixed code.
 
@@ -50,6 +50,7 @@ from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
 from kkb_agent.agent.registry import ToolSpec
 from kkb_agent.core import AnalyticalResult, SourceRef
 from kkb_agent.csv_loader import CsvTable
+from kkb_agent.html_loader import HtmlDocument, HtmlLoadResult
 from kkb_agent.ingest.fetched import (
     DOCUMENT_MEDIA_TYPES,
     fetched_source,
@@ -173,7 +174,7 @@ class WebUrlOutput:
     media_type: str | None = None
     sheets: tuple[str, ...] = field(default=(), repr=False)
     table: CsvTable | XlsxTable | None = field(default=None, repr=False)
-    document: PdfDocument | None = field(default=None, repr=False)
+    document: PdfDocument | HtmlDocument | None = field(default=None, repr=False)
     #: The selected cell as a result, when the planner named one (M7-18).
     result: AnalyticalResult | None = field(default=None, repr=False)
 
@@ -231,7 +232,7 @@ def make_web_url_tool(
                 WebUrlOutput("rejected", error.code.value, source, outcome.media_type),
             )
 
-        if isinstance(loaded, PdfLoadResult):
+        if isinstance(loaded, (PdfLoadResult, HtmlLoadResult)):
             output = WebUrlOutput(
                 loaded.status, loaded.code, source, outcome.media_type, document=loaded.document
             )
@@ -293,7 +294,7 @@ def make_web_url_tool(
     return ToolSpec(
         name="web_url",
         description=(
-            "Read a CSV or XLSX table, or the text and ruled tables of a PDF, from a "
+            "Read CSV/XLSX tables, PDF text/ruled tables, or static HTML text/tables from a "
             "web address the user wrote in the question. Pass the address exactly as "
             "written; any other address is refused. A CSV needs its column separator "
             "declared; a workbook with several sheets needs the sheet named. On its "
@@ -302,8 +303,9 @@ def make_web_url_tool(
             "in that row, such as a date); the figure's unit and scale are only what "
             "the header states in parentheses, like '(Milyon TL)'. It computes "
             "nothing. OCR, when explicitly enabled by the operator, returns unverified "
-            "text only and cannot answer a numeric question. HTML and image "
-            "addresses are not supported yet."
+            "text only and cannot answer a numeric question. HTML requires explicit "
+            "rectangular tables; no JavaScript, CSS rendering or linked-resource "
+            "fetching. Image addresses are not supported."
         ),
         arguments=WebUrlArguments,
         run=run,

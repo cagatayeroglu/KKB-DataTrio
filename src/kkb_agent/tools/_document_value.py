@@ -48,6 +48,7 @@ from kkb_agent.core import (
     SourceRef,
 )
 from kkb_agent.csv_loader import CsvTable
+from kkb_agent.html_loader import HtmlDocument
 from kkb_agent.lakehouse.lineage import EdgeKind, Lineage, NodeKind
 from kkb_agent.xlsx_loader import XlsxTable
 
@@ -129,13 +130,20 @@ class Reading:
     period: Period | None
 
 
-def grids(table: CsvTable | XlsxTable | None, document: PdfDocument | None) -> list[Grid]:
+def grids(
+    table: CsvTable | XlsxTable | None, document: PdfDocument | HtmlDocument | None
+) -> list[Grid]:
     """Every table the loaded content offers; a PDF table's first row is its header."""
     if table is not None:
         location: dict[str, str | int] = {"table": 1}
         if isinstance(table, XlsxTable):
             location["sheet"] = table.selection
         return [Grid(location, tuple(table.headers), tuple(table.rows))]
+    if isinstance(document, HtmlDocument):
+        return [
+            Grid({"table": table.number}, table.rows[0], table.rows[1:])
+            for table in document.tables
+        ]
     found: list[Grid] = []
     if document is not None:
         for page in document.pages:

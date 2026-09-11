@@ -66,10 +66,15 @@ def test_unsafe_filename_rejected_before_any_read(filename):
     assert str(error.value) == "INVALID_FILENAME"
 
 
-@pytest.mark.parametrize("filename", ["x.xls", "x.xlsm", "x.html", "x.csv.exe", ".csv"])
+@pytest.mark.parametrize("filename", ["x.xls", "x.xlsm", "x.xhtml", "x.csv.exe", ".csv"])
 def test_unsupported_extensions(filename):
     with pytest.raises(AdmissionError, match="^UNSUPPORTED_FORMAT$"):
         admit(filename=filename)
+
+
+def test_html_extension_with_csv_mime_still_rejected():
+    with pytest.raises(AdmissionError, match="^FORMAT_MISMATCH$"):
+        admit(filename="x.html")
 
 
 PDF = MIME_TYPES[FileKind.PDF]
