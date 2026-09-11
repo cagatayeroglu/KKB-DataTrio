@@ -20,7 +20,7 @@ import httpx
 import pytest
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
-from kkb_agent.agent import Session, ToolRegistry, ToolResult, ToolSpec, ToolStatus
+from kkb_agent.agent import AnalyticalPlan, Session, ToolRegistry, ToolResult, ToolSpec, ToolStatus
 from kkb_agent.llm import (
     APPROVED_HOSTS,
     CapabilityUnavailable,
@@ -40,6 +40,7 @@ from kkb_agent.llm import (
     kloudeks,
 )
 from kkb_agent.llm import config as env
+from kkb_agent.llm.structured import schema_instructions
 
 DEC_129_URL = "https://mia.csp.kloudeks.com/v1"
 CHAT_MODEL = "kkbhackathon2026/Qwen3.8-27B"
@@ -476,3 +477,8 @@ class TestItIsTheProductsProvider:
 
         assert [item.step.tool for item in planned.plan.steps] == ["lakehouse"]
         assert server.bodies()[0]["messages"][-1] == {"role": "user", "content": "konut kredisi"}
+        assert len(server.requests) == 1  # In-process MockTransport, never a live call.
+        messages = server.bodies()[0]["messages"]
+        assert [message["role"] for message in messages] == ["system", "user"]
+        assert messages[0]["content"].count(schema_instructions(AnalyticalPlan)) == 1
+        assert messages[0]["content"].count("Available tools:\n") == 1

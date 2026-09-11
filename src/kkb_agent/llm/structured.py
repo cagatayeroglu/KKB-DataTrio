@@ -132,17 +132,21 @@ def complete_with_repair(
     raise SchemaViolation(f"Schema not satisfied after {max_attempts} attempt(s): {last_problem}")
 
 
+def schema_instructions(schema: type[BaseModel]) -> str:
+    """Render one system-owned response contract identically for planning and repair."""
+    return (
+        "Reply with a single JSON object and nothing else, matching this schema:\n"
+        f"{json.dumps(schema.model_json_schema(), ensure_ascii=False, sort_keys=True)}"
+    )
+
+
 def repair_feedback(schema: type[BaseModel], problem: str) -> str:
     """The correction handed back to the model on a retry.
 
     It states the fault and restates the schema, because a model that produced
     the wrong shape once will usually produce it again without both.
     """
-    return (
-        f"The previous response was rejected: {problem}\n"
-        "Reply with a single JSON object and nothing else, matching this schema:\n"
-        f"{json.dumps(schema.model_json_schema(), ensure_ascii=False, sort_keys=True)}"
-    )
+    return f"The previous response was rejected: {problem}\n{schema_instructions(schema)}"
 
 
 def _repair(document: str) -> object:

@@ -3,8 +3,8 @@
 Our own state machine, not a framework: ask for a plan, refuse it if it is not
 runnable, tell the planner exactly why, and try again within a budget.
 
-Two rules keep it honest. The planner is shown the registry's tool descriptions
-and the question, and nothing else — no source content becomes an instruction,
+Two rules keep it honest. The planner is shown the typed plan contract, the
+registry's tool descriptions and the question — no source content becomes an instruction,
 because source content never reaches the system role. And a planner that
 proposes the same invalid plan twice is stopped immediately rather than allowed
 to spend the whole repair budget on a loop it is clearly not going to escape.
@@ -34,6 +34,7 @@ from kkb_agent.agent.verifier import AnswerStatus, GatedAnswer, Verdict, gate_an
 from kkb_agent.agent.workspace import ArtifactKind, Workspace
 from kkb_agent.core import AnalyticalResult, ResultStatus, Scale
 from kkb_agent.llm.provider import LLMProvider, Message, Role, SchemaViolation
+from kkb_agent.llm.structured import schema_instructions
 
 if TYPE_CHECKING:  # pragma: no cover
     from duckdb import DuckDBPyConnection
@@ -144,7 +145,7 @@ class Session:
     def plan(self, question: str) -> Planned:
         """Obtain a plan the registry will accept, or fail with the reasons why."""
         messages = [
-            Message(Role.SYSTEM, SYSTEM_PROMPT),
+            Message(Role.SYSTEM, SYSTEM_PROMPT + "\n\n" + schema_instructions(AnalyticalPlan)),
             Message(Role.SYSTEM, self._tools_prompt()),
             Message(Role.USER, question),
         ]
