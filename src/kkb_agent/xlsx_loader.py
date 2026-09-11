@@ -19,7 +19,7 @@ import warnings
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
-from typing import BinaryIO, Literal
+from typing import Any, BinaryIO, Literal
 from uuid import uuid4
 
 from kkb_agent._xlsx_package import XlsxRejected, inspect_package
@@ -34,6 +34,9 @@ from kkb_agent.ingestion_policy import (
 from kkb_agent.xlsx_sheets import select_sheet
 
 type CellValue = str | int | float | bool | datetime | date | time | timedelta | None
+#: A cell as the worker writes it to JSON: plain values as they are, temporal
+#: values as {"type": ..., "value": ...}.
+type EncodedCell = str | int | float | bool | dict[str, Any] | None
 
 
 @dataclass(frozen=True)
@@ -64,7 +67,7 @@ class XlsxLoadResult:
     table: XlsxTable | None = field(default=None, repr=False)
 
 
-def _encode_cell(value: CellValue, limits: AdmissionLimits, *, header: bool = False):
+def _encode_cell(value: object, limits: AdmissionLimits, *, header: bool = False) -> EncodedCell:
     if isinstance(value, str):
         limits.check_field(value, label=header)
     if isinstance(value, float) and not math.isfinite(value):
@@ -73,21 +76,28 @@ def _encode_cell(value: CellValue, limits: AdmissionLimits, *, header: bool = Fa
         return {"type": type(value).__name__, "value": value.isoformat()}
     if isinstance(value, timedelta):
         return {"type": "timedelta", "value": value.total_seconds()}
-    if value is None or type(value) in {str, int, float, bool}:
+    # Exact types only; the isinstance only lets the checker see what passed.
+    if value is None or (
+        isinstance(value, str | int | float | bool) and type(value) in {str, int, float, bool}
+    ):
         return value
     raise XlsxRejected("UNSUPPORTED_CELL")
 
 
-def _decode_cell(value) -> CellValue:
+def _decode_cell(value: EncodedCell) -> CellValue:
     if not isinstance(value, dict):
         return value
-    constructors = {"datetime": datetime, "date": date, "time": time}
+    constructors: dict[str, type[datetime] | type[date] | type[time]] = {
+        "datetime": datetime,
+        "date": date,
+        "time": time,
+    }
     if value["type"] == "timedelta":
         return timedelta(seconds=value["value"])
     return constructors[value["type"]].fromisoformat(value["value"])
 
 
-def _parse(content: bytes, selection: str | None, limits: AdmissionLimits) -> dict:
+def _parse(content: bytes, selection: str | None, limits: AdmissionLimits) -> dict[str, object]:
     # Import in the worker; input XML is validated before the library opens it.
     from openpyxl import load_workbook
 
@@ -102,6 +112,8 @@ def _parse(content: bytes, selection: str | None, limits: AdmissionLimits) -> di
             if choice.status != "selected":
                 return {"status": choice.status, "code": choice.code, "sheets": choice.sheets}
             selected = choice.selection
+            if selected is None:  # select_sheet names the sheet whenever it selects one
+                raise XlsxRejected("PARSER_FAILED")
             height, width = sizes[selected]
             if height < 2 or not width:
                 raise XlsxRejected("EMPTY_TABLE")
@@ -134,7 +146,7 @@ def _parse(content: bytes, selection: str | None, limits: AdmissionLimits) -> di
             workbook.close()
 
 
-def _write_result(path: Path, result: dict, limit: int) -> None:
+def _write_result(path: Path, result: dict[str, object], limit: int) -> None:
     # Private generated path, never selected by a document. Bound serialization too.
     size = 0
     with open(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600), "wb") as output:
@@ -167,7 +179,7 @@ def _worker(content: bytes, selection: str | None, limits: AdmissionLimits, outp
         _write_result(output, {"status": "rejected", "code": "FORMAT_MISMATCH"}, 1024)
 
 
-def _run_worker(content: bytes, selection: str | None, limits: AdmissionLimits) -> dict:
+def _run_worker(content: bytes, selection: str | None, limits: AdmissionLimits) -> dict[str, Any]:
     context = multiprocessing.get_context("spawn")
     with tempfile.TemporaryDirectory(prefix="kkb-xlsx-") as directory:
         output = Path(directory) / "result.json"
@@ -189,7 +201,8 @@ def _run_worker(content: bytes, selection: str | None, limits: AdmissionLimits) 
                 data = stream.read(max(limits.max_expanded_bytes, 1024) + 1)
             if len(data) > max(limits.max_expanded_bytes, 1024):
                 return {"status": "rejected", "code": "LIMIT_EXCEEDED"}
-            return json.loads(data)
+            payload: dict[str, Any] = json.loads(data)  # written by _worker above
+            return payload
         finally:
             if process.is_alive():
                 process.kill()

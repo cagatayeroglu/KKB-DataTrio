@@ -1,0 +1,147 @@
+"""Single bounded direct source GET boundary, with no automatic redirects.
+
+Explicit accepted media types route bounded bytes; success is not file admission,
+parsed observations, source permission or verified financial semantics. CSV/XLSX
+must still pass M1 guards. Budgets are operator limits, not provider guarantees.
+"""
+
+from __future__ import annotations
+
+from enum import StrEnum
+from typing import Annotated, Literal, Self
+
+from pydantic import ConfigDict, Field, SecretStr, StringConstraints, model_validator
+
+from kkb_agent.core.models import ContractModel
+from kkb_agent.ingest.url_targets import TargetReason, TargetRejection, validate_url_target
+from kkb_agent.ingestion_policy import DEFAULT_LIMITS as ADMISSION_LIMITS
+
+SourceId = Annotated[
+    str, StringConstraints(strict=True, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+]
+MediaType = Annotated[
+    str,
+    StringConstraints(
+        strict=True, max_length=128, pattern=r"^[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+$"
+    ),
+]
+PositiveInt = Annotated[int, Field(strict=True, gt=0)]
+PositiveSeconds = Annotated[float, Field(strict=True, gt=0, allow_inf_nan=False)]
+
+
+class FetchLimits(ContractModel):
+    """Budgets enforced by the direct-fetch worker and its deadline supervisor.
+
+    Response bytes count the encoded HTTP body; decompressed bytes count the
+    decoded HTTP body, independently of XLSX archive expansion in M1. Read time
+    limits a stalled read; total time bounds the entire operation. No retries
+    or automatic proxy/cookie/credential behavior are authorized by this type.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    max_url_chars: PositiveInt = 4096
+    max_header_bytes: PositiveInt = 32 * 1024
+    max_response_bytes: PositiveInt = ADMISSION_LIMITS.max_bytes
+    max_decompressed_bytes: PositiveInt = ADMISSION_LIMITS.max_bytes
+    max_redirects: Annotated[int, Field(strict=True, ge=0)] = 3
+    connect_seconds: PositiveSeconds = 5.0
+    read_seconds: PositiveSeconds = 5.0
+    total_seconds: PositiveSeconds = 30.0
+
+    @model_validator(mode="after")
+    def coherent_deadlines(self) -> Self:
+        if max(self.connect_seconds, self.read_seconds) > self.total_seconds:
+            raise ValueError("connect/read deadlines must not exceed the total deadline")
+        return self
+
+
+DEFAULT_LIMITS = FetchLimits()
+
+
+class FetchRequest(ContractModel):
+    """Untrusted locator plus caller-owned identity; never a network permission.
+
+    Only the opaque source ID crosses into diagnostics. The locator is masked
+    in repr and excluded from ordinary model exports; the transport must
+    explicitly unwrap it. Construction alone does not validate the destination;
+    safe_fetch validates it before the worker resolves and pins the connection.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    source_ref: SourceId
+    url: SecretStr = Field(min_length=1, repr=False, exclude=True)
+    accepted_media_types: Annotated[tuple[MediaType, ...], Field(min_length=1, max_length=8)]
+
+
+class FetchCode(StrEnum):
+    """Fixed categories, without response text, URLs or raw exception messages."""
+
+    NETWORK_DISABLED = "NETWORK_DISABLED"
+    INVALID_REQUEST = "INVALID_REQUEST"
+    BLOCKED_DESTINATION = "BLOCKED_DESTINATION"
+    DNS_FAILURE = "DNS_FAILURE"
+    REDIRECT_LIMIT = "REDIRECT_LIMIT"
+    TIMEOUT = "TIMEOUT"
+    SIZE_LIMIT = "SIZE_LIMIT"
+    CONTENT_TYPE = "CONTENT_TYPE"
+    TRANSPORT_FAILURE = "TRANSPORT_FAILURE"
+    HTTP_FAILURE = "HTTP_FAILURE"
+
+
+class FetchFailure(ContractModel):
+    """Safe outcome for callers/logs; never includes a remote body or locator."""
+
+    model_config = ConfigDict(frozen=True)
+
+    status: Literal["failure"] = "failure"
+    source_ref: SourceId
+    code: FetchCode
+    target_reason: TargetReason | None = None
+
+
+class FetchSuccess(ContractModel):
+    """Bounded transport result; metadata is not proof of content validity.
+
+    A transport must enforce the request's limits before assembling this
+    in-memory record. Raw content is excluded from repr/ordinary model exports;
+    a parser receives it explicitly. No redirect URL, headers or inferred
+    financial meaning is exposed. The source ID links back to caller provenance.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    status: Literal["success"] = "success"
+    source_ref: SourceId
+    content: bytes = Field(strict=True, repr=False, exclude=True)
+    media_type: MediaType
+    http_status: Annotated[int, Field(strict=True, ge=200, le=299)]
+
+
+FetchOutcome = Annotated[FetchSuccess | FetchFailure, Field(discriminator="status")]
+
+
+def safe_fetch(request: FetchRequest, *, limits: FetchLimits = DEFAULT_LIMITS) -> FetchOutcome:
+    """Validate, then perform a bounded direct GET with DNS/peer/TLS checks.
+
+    A fixed child process makes blocking OS DNS cancellable without abandoning
+    threads. Unsupported encodings, malformed framing and all redirects fail
+    closed; max_redirects is reserved for M7-04 and never enables following here.
+    Invalid contracts still raise sanitized ValidationError text. Callers own
+    source/network authorization; no adapter/tool is enabled by this function.
+    """
+
+    request = FetchRequest.model_validate(request)
+    limits = FetchLimits.model_validate(limits)
+    target = validate_url_target(request.url.get_secret_value(), max_url_chars=limits.max_url_chars)
+    if isinstance(target, TargetRejection):
+        code = FetchCode.INVALID_REQUEST
+        if target.reason is TargetReason.URL_TOO_LONG:
+            code = FetchCode.SIZE_LIMIT
+        elif target.reason in (TargetReason.LOCAL_HOST, TargetReason.NON_PUBLIC_IP):
+            code = FetchCode.BLOCKED_DESTINATION
+        return FetchFailure(source_ref=request.source_ref, code=code, target_reason=target.reason)
+    from kkb_agent.ingest._fetch_process import fetch_in_process
+
+    return fetch_in_process(request, limits)

@@ -1,0 +1,29 @@
+[
+  {
+    "DATAGROUP_CODE": "synthetic_m304_friday",
+    "DATAGROUP_TYPE": "Sentetik Konut Faizleri",
+    "FREQUENCY_STR": "HAFTALIK(CUMA)",
+    "DATASOURCE": "BANKALAR",
+    "METADATA_LINK": "https://metadata.example.invalid/synthetic/friday",
+    "APP_CHA_LINK": "https://metadata.example.invalid/synthetic/changes"
+  },
+  {
+    "DATAGROUP_CODE": "synthetic_m304_wednesday",
+    "DATAGROUP_TYPE": "Sentetik Çarşamba Faizleri",
+    "FREQUENCY_STR": "HAFTALIK(ÇARŞAMBA)",
+    "DATASOURCE": "Bankalar"
+  },
+  {
+    "DATAGROUP_CODE": "synthetic_m304_index_old",
+    "DATAGROUP_TYPE": "Sentetik Fiyat Endeksi (2003=100) (Arşiv)",
+    "FREQUENCY_STR": "AYLIK",
+    "DATASOURCE": "SENTETİK KAYNAK",
+    "REV_POL_LINK": "https://metadata.example.invalid/synthetic/revisions"
+  },
+  {
+    "DATAGROUP_CODE": "synthetic_m304_index_new",
+    "DATAGROUP_TYPE": "Sentetik Fiyat Endeksi (2025=100)",
+    "FREQUENCY_STR": "AYLIK",
+    "DATASOURCE": "SENTETİK KAYNAK"
+  }
+]

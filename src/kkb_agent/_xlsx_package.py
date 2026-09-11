@@ -4,6 +4,7 @@ import io
 import posixpath
 import re
 from dataclasses import dataclass, field
+from typing import NoReturn
 from urllib.parse import unquote, urlsplit
 from xml.parsers import expat
 from zipfile import ZipFile
@@ -24,7 +25,7 @@ class XlsxRejected(ValueError):
         super().__init__(code)
 
 
-def _reject(code: str = "UNSAFE_XLSX") -> None:
+def _reject(code: str = "UNSAFE_XLSX") -> NoReturn:
     raise XlsxRejected(code)
 
 

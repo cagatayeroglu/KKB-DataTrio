@@ -1,0 +1,129 @@
+"""Provider configuration from the environment (M4-06).
+
+Every platform-specific value is read here and nowhere else. No model
+identifier, base URL or capability flag appears as a constant in source, because
+Q-K-01 through Q-K-05 are unanswered and a constant written today would be a
+guess that outlives the guessing.
+
+Errors name the setting that is wrong. They never carry its value, since the
+value in question is often a credential.
+"""
+
+from __future__ import annotations
+
+import os
+from collections.abc import Mapping
+from dataclasses import dataclass
+
+from pydantic import SecretStr
+
+from kkb_agent.llm.provider import ConfigurationError
+
+#: The provisional environment names. They are local conventions until Q-K-01
+#: confirms the platform's contract, which is why they live in one place.
+PREFIX = "KLOUDEKS_"
+BASE_URL = f"{PREFIX}BASE_URL"
+CREDENTIAL = f"{PREFIX}API_KEY"
+PLANNER_MODEL = f"{PREFIX}PLANNER_MODEL"
+ROUTER_MODEL = f"{PREFIX}ROUTER_MODEL"
+VISION_MODEL = f"{PREFIX}VISION_MODEL"
+EMBEDDING_MODEL = f"{PREFIX}EMBEDDING_MODEL"
+STRUCTURED_OUTPUT = f"{PREFIX}STRUCTURED_OUTPUT"
+REQUEST_TIMEOUT = f"{PREFIX}REQUEST_TIMEOUT"
+MAX_ATTEMPTS = f"{PREFIX}MAX_ATTEMPTS"
+
+REQUIRED = (BASE_URL, CREDENTIAL, PLANNER_MODEL, ROUTER_MODEL)
+
+_TRUE = frozenset({"1", "true", "yes", "on"})
+_FALSE = frozenset({"0", "false", "no", "off"})
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderConfig:
+    """Resolved settings for one deployment.
+
+    `credential` is a `SecretStr`, so printing this object, logging it or
+    including it in a traceback shows `**********` rather than the key.
+    """
+
+    base_url: str
+    credential: SecretStr
+    planner_model: str
+    router_model: str
+    structured_output: bool = False
+    vision_model: str | None = None
+    embedding_model: str | None = None
+    request_timeout: float = 30.0
+    max_attempts: int = 3
+
+    def __post_init__(self) -> None:
+        if not self.base_url.startswith("https://"):
+            # A plaintext endpoint would send the credential in the clear.
+            raise ConfigurationError(f"{BASE_URL} must be an https URL")
+        if self.request_timeout <= 0:
+            raise ConfigurationError(f"{REQUEST_TIMEOUT} must be positive")
+        if self.max_attempts < 1:
+            raise ConfigurationError(f"{MAX_ATTEMPTS} must be at least 1")
+
+    @classmethod
+    def from_env(cls, environ: Mapping[str, str] | None = None) -> ProviderConfig:
+        """Build from the environment, naming every missing or unusable setting.
+
+        All problems are reported at once. Discovering configuration faults one
+        restart at a time is how a demo-day deployment burns twenty minutes.
+        """
+        source = os.environ if environ is None else environ
+        missing = [name for name in REQUIRED if not source.get(name, "").strip()]
+        if missing:
+            raise ConfigurationError("Missing required settings: " + ", ".join(sorted(missing)))
+        return cls(
+            base_url=source[BASE_URL].strip(),
+            credential=SecretStr(source[CREDENTIAL].strip()),
+            planner_model=source[PLANNER_MODEL].strip(),
+            router_model=source[ROUTER_MODEL].strip(),
+            structured_output=_flag(source, STRUCTURED_OUTPUT, default=False),
+            vision_model=_optional(source, VISION_MODEL),
+            embedding_model=_optional(source, EMBEDDING_MODEL),
+            request_timeout=_number(source, REQUEST_TIMEOUT, default=30.0),
+            max_attempts=int(_number(source, MAX_ATTEMPTS, default=3.0)),
+        )
+
+    def capabilities(self) -> dict[str, bool]:
+        """What this deployment can actually do (M4-05).
+
+        Reported from configuration rather than assumed, so a caller that needs
+        embeddings finds out here instead of at the first retrieval.
+        """
+        return {
+            "complete": True,
+            "structured_output": self.structured_output,
+            "embed": self.embedding_model is not None,
+            "vision": self.vision_model is not None,
+        }
+
+
+def _optional(source: Mapping[str, str], name: str) -> str | None:
+    value = source.get(name, "").strip()
+    return value or None
+
+
+def _flag(source: Mapping[str, str], name: str, *, default: bool) -> bool:
+    raw = source.get(name, "").strip().lower()
+    if not raw:
+        return default
+    if raw in _TRUE:
+        return True
+    if raw in _FALSE:
+        return False
+    raise ConfigurationError(f"{name} must be a boolean flag")
+
+
+def _number(source: Mapping[str, str], name: str, *, default: float) -> float:
+    raw = source.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError as error:
+        # The value is deliberately not echoed; it came from the environment.
+        raise ConfigurationError(f"{name} must be a number") from error

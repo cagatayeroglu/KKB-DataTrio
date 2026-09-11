@@ -2,41 +2,58 @@
 
 An evidence-backed financial-data analyst for the KKB Hackathon. The intended product accepts supported data sources and questions, produces a typed analytical plan, computes results with deterministic Python tools, and presents answers/tables/charts with source, transformation, and verification evidence. Follow-up questions use an explicit analysis workspace.
 
-**Current state:** Day 0 foundation, not a runnable end-to-end analyst. [PR #1](https://github.com/cagatayeroglu/KKB-DataTrio/pull/1) merged the execution/workflow documentation into `dev` at `fe5d44a`. The 11 Day 0 core/provider/evaluation/fixture/test files remain only in a verified local stash, excluded from documentation delivery; a fresh clone does not contain them. No passing application validation was established. See [current status and next safe tasks](docs/ROADMAP.md#current-project-status), including local recovery details, for the authoritative handoff.
+The repository contains an offline end-to-end analysis path: guarded CSV/XLSX input and bounded direct-GET safe fetch, DuckDB/Parquet storage and financial semantics, typed analytical results, validated planning/tool execution, persisted workspace values and multi-result answer verification. Four brief tools exist: `lakehouse`, `change_detection` (comparison), `anomaly`, and `causality` (association, lag and Granger precedence). The composed tests use synthetic data and a scripted model. Live source adapters/Kloudeks, CSV profiling, full proof/replay, breakpoint detection, `web_search`/`web_url`, catalog retrieval, UI and deployment remain incomplete. [ROADMAP Current Project Status](docs/ROADMAP.md#current-project-status) is the single delivery and next-task summary.
 
 ## Constraints and architecture
 
-Python is the primary backend/analytics language. Delivered runtime LLM access uses Kloudeks only; no third-party runtime LLM API or Snowflake. BDDK/EVDS are intended adapters, not assumptions embedded in the core. Material calculations are deterministic, unknown semantics stay explicit, and external/model content is untrusted.
+Python is the backend/analytics language; delivered runtime LLM access uses Kloudeks only. DuckDB/Parquet and Pandas are confirmed, with custom bounded orchestration and a DuckDB workspace/lineage graph. Material calculations are deterministic, unknown semantics stay explicit, and external/model content remains untrusted. BDDK/EVDS are intended adapters, not hard-coded core assumptions. No Snowflake or third-party hosted LLM services. The `openai` SDK is permitted only as a client exclusively configured for Kloudeks; [DEC-129](docs/DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy) owns the official endpoints, MIA-key authentication, confirmed text/vision, embedding and OCR models, and the literal OCR/embedding request contracts. Availability does not imply implemented live transport or native tool/JSON support; no live request has been made. [DEC-131](docs/DECISIONS.md#dec-131--organizer-kick-off-brief-schedule-delivery-form-and-demo-day-input-scope) records the organizer calendar (development closes **20 September 2026**, Final Day **17 October 2026**), delivery by private-repository access, the expectation of a live deployed solution, and prompt-supplied URL documents as required demo-day scope.
+
+Target flow:
 
 ```text
 Question + explicit workspace
-  -> Kloudeks planner -> typed plan / validated registered tools
-  -> guarded source ingestion -> contract / explicit normalization
-  -> deterministic analytics -> verifier
-  -> answer + table/chart + source/transformation/validation evidence
+  -> validated typed plan / registered tools
+  -> guarded ingestion + explicit financial semantics
+  -> deterministic analysis + run/result/input evidence
+  -> independent verification gate
+  -> answer/table/chart + concise claim-level Why?
 ```
 
-This is the target flow; most runtime components remain to be built. Framework, analytical engine, frontend, persistence, exact model, and causality method remain unresolved. See [architecture](docs/ARCHITECTURE.md) and [decisions](docs/DECISIONS.md).
+The answer gate binds numbers to typed results, checks scale/period contradictions, resolves preserved input references and can reread identified values from the store. It withholds unsupported sentences and can abstain. Workspace result digests and stale-read rejection preserve prior values across turns; they do not prove independent recomputation, complete run/input provenance or replay. [ARCHITECTURE](docs/ARCHITECTURE.md) separates implemented boundaries from confirmed targets and remaining gaps.
+
+Retrieval's initial hybrid baseline is Turkish normalization, reviewed alias/concept-family mapping, metadata filtering, lexical/BM25 and the organizer's Qwen3-Embedding-8B dense retrieval, with LanceDB retained as the lightweight vector index ([DEC-130](docs/DECISIONS.md#dec-130--initial-hybrid-retrieval-baseline); DEC-127/115 are superseded). Benchmarks compare lexical-only, dense-only and combined quality/latency/failures; dense use does not wait for lexical failure. RRF, reranking and extra infrastructure require measured benefit. Direct retrieval and catalog-bounded relationship discovery remain separate evaluation paths.
+
+[DEC-128](docs/DECISIONS.md#dec-128--financial-question-validation-and-claim-level-evidence) records intended premise validation, finance semantic guard, bounded relationship stability and claim-level proof on the same spine. Core integration comes first; none is a claim of completed product behavior. FastAPI/SSE + Next.js and single-VM deployment remain confirmed targets, subject to organizer constraints; graph-heavy proof UI is deferred.
 
 ## Repository guide
 
 | Path | Purpose / current scope |
 | --- | --- |
 | [AGENTS.md](AGENTS.md) | Coding-agent scope, targeted reading, validation, Git authorization, handoff rules |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Main execution truth: relative days, M0–M11, checkboxes, READY queue, evidence/handoffs |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Main execution truth: relative days, M0–M13, checkboxes, READY queue, evidence/handoffs |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Component boundaries, contracts, state, data flow, failure behavior |
 | [docs/EVALUATION.md](docs/EVALUATION.md) | Metrics, benchmark tiers, adversarial cases, scorecard plan |
 | [docs/SECURITY.md](docs/SECURITY.md) | Required controls for enabled boundaries and their validation |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Confirmed constraints/decisions, proposals, deferred choices |
 | [docs/OPEN_QUESTIONS.md](docs/OPEN_QUESTIONS.md) | Actionable organizer/team unknowns, owners, evidence, blockers |
-| [src/kkb_agent/](src/kkb_agent/) | Package; in-progress core/provider/evaluation scaffolding |
-| [tests/unit/](tests/unit/) | Package smoke plus in-progress Day 0 unit tests |
-| `benchmarks/cases/` (local stash only) | Three synthetic questions, excluded from documentation delivery; no numerical scoring runner yet |
+| [docs/FILE_ADMISSION.md](docs/FILE_ADMISSION.md) | Extension/MIME/content checks, limits and staging for uploaded files |
+| [docs/INGESTION_PROFILE.md](docs/INGESTION_PROFILE.md) | The ingestion and profile result contract |
+| [docs/BDDK_SOURCE.md](docs/BDDK_SOURCE.md) | What the BDDK bulletins publish: transports, parameters, units, measured cumulative behaviour |
+| [docs/EVDS_SOURCE.md](docs/EVDS_SOURCE.md) | How EVDS is accessed and what its catalog declares: frequencies, aggregation flags, archived and base-year variants |
+| [docs/DATABASE.md](docs/DATABASE.md) | The database definition deliverable: every table, column, invariant and the layout on disk |
+| [src/kkb_agent/](src/kkb_agent/) | Core/input and safe-fetch boundaries, lakehouse/database, llm, agent, analytics and four tools; ARCHITECTURE describes their limits |
+| `web/` (not yet created) | Next.js client under DEC-123; lives outside the Python package |
+| [tests/unit/](tests/unit/) | Targeted contract, input, lakehouse, orchestration, workspace and verifier tests; observed results live in ROADMAP |
+| [tests/fixtures/ingestion/](tests/fixtures/ingestion/) | Synthetic CSV and XLSX fixtures with their documented expected parsing |
+| M9 / [EVALUATION](docs/EVALUATION.md) | Benchmark plan; Day 0 drafts are local-stash-only, no delivered scoring runner |
 | [scripts/check_secrets.py](scripts/check_secrets.py) | Lightweight local file pattern scan; not a history scanner |
-| [Makefile](Makefile), [pyproject.toml](pyproject.toml) | Existing setup/check targets and Python >=3.12 dependencies |
+| [scripts/generate_xlsx_fixtures.py](scripts/generate_xlsx_fixtures.py) | Deterministic regeneration of the synthetic XLSX fixtures |
+| [.github/workflows/fast-pr.yml](.github/workflows/fast-pr.yml) | Fast PR gate on pull requests targeting `dev` |
+| [Makefile](Makefile), [pyproject.toml](pyproject.toml) | Setup and check targets, Python >=3.12 dependencies |
+| [.env.example](.env.example), [.gitignore](.gitignore) | Blank local configuration template and ignore rules for credentials, private data and generated output |
 | [GITHUB_SETUP.md](GITHUB_SETUP.md) | Legacy setup examples; the current branch/workflow rules in AGENTS and DEC-109 take precedence |
 
-This checkout currently lacks `.gitignore`, `.env.example`, and `.github/` workflows. Their implementation/validation is tracked in M0. Do not store real credentials or private data in repository files while assuming ignore rules exist.
+Copy `.env.example` to an ignored `.env` for local configuration; never put a real credential in a tracked file. Private and downloaded data belongs under the ignored `data/` and `uploads/` paths, and storing organizer data at all is a separate unresolved permission question.
 
 ## Fast development workflow
 
@@ -64,12 +81,12 @@ There is no `eval-smoke`/`eval-full` Make target, benchmark runner, UI launch co
 
 ## Branches and collaboration
 
-`main` is the stable/demo-ready checkpoint branch; `dev` is shared integration. Never implement on or push directly to either branch.
+This is the team's private-repository workflow; verify remote access/settings through authorized setup, never treat privacy as a secret store. `main` is the stable/demo-ready checkpoint branch; `dev` is shared integration. Never implement on or push directly to either branch.
 
 Every meaningful task starts from latest `dev` on its own short-lived branch. Preferred names: `feature/<milestone>-<task>`, `fix/<short-description>`, and `docs/<short-description>`; for example `feature/m1-csv-ingestion`, `feature/m2-frequency-alignment`, or `fix/url-fetch-timeout`. After targeted validation, commit clearly, push the task branch, and open a PR into `dev`. Delete the branch after review and verified merge, once it has no unmerged work. The next task starts from freshly updated `dev`, never from the previous feature branch.
 
-Codex may perform normal fetch/switch/update/branch/commit/push/PR operations for an assigned task. Preserve existing work and use the [Git workflow](AGENTS.md#git-workflow) safety rules. Do not merge your own PR without explicit instruction, force-push shared branches, or branch from unfinished feature work without an explicit documented exception. The PR #1 branch exception was specific to that merged task; the bootstrap documentation uses fresh `docs/team-handoff-protocol` from updated `dev`.
+Codex may perform normal fetch/switch/update/branch/commit/push/PR operations for an assigned task. Preserve existing work and use the [Git workflow](AGENTS.md#git-workflow) safety rules. Do not merge your own PR without explicit instruction, force-push shared branches, or branch from unfinished feature work without an explicit documented exception. The PR #1 branch exception was specific to that historical task, not permission to reuse its branch.
 
 Approximately every 3–4 days, or at an important stable milestone, create a `dev -> main` PR only if the integrated state is demo-ready. Run full/release checks there; do not update `main` after every task or promote an unstable candidate to meet a calendar date.
 
-Progress belongs in ROADMAP, reasons in DECISIONS, and missing answers in OPEN_QUESTIONS. Keep technical docs current when contracts change; leave enough short evidence that another teammate can resume without chat history.
+Progress belongs in ROADMAP, reasons in DECISIONS, and missing answers in OPEN_QUESTIONS. If current status conflicts with Git/merged PR evidence, stop automatic selection and reconcile it. Update the owning technical/decision document when its contract changes; leave enough short evidence that another teammate can resume without chat history.

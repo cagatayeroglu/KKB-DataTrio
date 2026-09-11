@@ -1,0 +1,62 @@
+[
+  {
+    "SERIE_CODE": "TP.SYNTH.M304.A",
+    "SERIE_NAME": "Sentetik Konut Kredisi, (TL, Akım, %)",
+    "FREQUENCY_STR": "HAFTALIK(CUMA)",
+    "DEFAULT_AGG_METHOD": "avg",
+    "AVGABLE": 1,
+    "SUMABLE": 0,
+    "FIRSTABLE": 1,
+    "LASTABLE": 1,
+    "MAXABLE": 1,
+    "MINABLE": 1
+  },
+  {
+    "SERIE_CODE": "TP.SYNTH.M304.B",
+    "SERIE_NAME": "Sentetik Konut Kredisi (TL, Akım, %)",
+    "FREQUENCY_STR": "HAFTALIK(CUMA)",
+    "DEFAULT_AGG_METHOD": "avg",
+    "AVGABLE": 1,
+    "SUMABLE": 0,
+    "FIRSTABLE": 1,
+    "LASTABLE": 1,
+    "MAXABLE": 1,
+    "MINABLE": 1
+  },
+  {
+    "SERIE_CODE": "TP.SYNTH.M304.C",
+    "SERIE_NAME": "Sentetik Konut Kredisi (TL, Stok, %)",
+    "FREQUENCY_STR": "AYLIK",
+    "DEFAULT_AGG_METHOD": "avg",
+    "AVGABLE": 1,
+    "SUMABLE": 0,
+    "FIRSTABLE": 1,
+    "LASTABLE": 1,
+    "MAXABLE": 1,
+    "MINABLE": 1
+  },
+  {
+    "SERIE_CODE": "TP.SYNTH.M304.D",
+    "SERIE_NAME": "Sentetik Konut Kredisi (TL, Stok, %)",
+    "FREQUENCY_STR": "AYLIK",
+    "DEFAULT_AGG_METHOD": "avg",
+    "AVGABLE": 1,
+    "SUMABLE": 0,
+    "FIRSTABLE": 1,
+    "LASTABLE": 1,
+    "MAXABLE": 1,
+    "MINABLE": 1
+  },
+  {
+    "SERIE_CODE": "TP.SYNTH.M304.E",
+    "SERIE_NAME": "Sentetik Çarşamba Faizi (%)",
+    "FREQUENCY_STR": "HAFTALIK(ÇARŞAMBA)",
+    "DEFAULT_AGG_METHOD": "avg",
+    "AVGABLE": 1,
+    "SUMABLE": 0,
+    "FIRSTABLE": 1,
+    "LASTABLE": 1,
+    "MAXABLE": 1,
+    "MINABLE": 1
+  }
+]

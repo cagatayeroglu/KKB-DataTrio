@@ -6,7 +6,9 @@ import multiprocessing
 import os
 import time
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from datetime import time as time_of_day
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile
@@ -487,3 +489,29 @@ def test_blank_sheet_title_fails_safely_before_shared_contract_construction():
     result = load(content)
     assert result.status == "rejected" and result.code == "FORMAT_MISMATCH"
     assert result.table is None
+
+
+class _Text(str):
+    """A str subclass, as a library-specific rich-text type can be."""
+
+
+@pytest.mark.parametrize("plain", ["label", 7, 1.5, True, None])
+def test_plain_cell_values_pass_through_unchanged(plain):
+    assert loader._encode_cell(plain, DEFAULT_LIMITS) == plain
+
+
+@pytest.mark.parametrize("unusual", [Decimal("1.5"), _Text("rich"), [1], b"raw"])
+def test_only_exact_plain_types_are_accepted(unusual):
+    # M0-08 typed this path; the exact-type rule it enforces must not loosen.
+    with pytest.raises(package.XlsxRejected, match="UNSUPPORTED_CELL"):
+        loader._encode_cell(unusual, DEFAULT_LIMITS)
+
+
+@pytest.mark.parametrize(
+    "temporal",
+    [datetime(2026, 1, 31, 12, 30), date(2026, 1, 31), time_of_day(9, 15), timedelta(days=2)],
+)
+def test_temporal_cells_survive_the_json_round_trip(temporal):
+    encoded = loader._encode_cell(temporal, DEFAULT_LIMITS)
+
+    assert loader._decode_cell(json.loads(json.dumps(encoded))) == temporal
