@@ -1,4 +1,4 @@
-"""The `web_url` tool: a file at an address the user wrote (M7-17, M7-09, DEC-121).
+"""The `web_url` tool: a file at an address the user wrote (M7-17/09/18, DEC-121).
 
 On the demo day the organizer puts URLs inside the question (DEC-131). This
 reads CSV and XLSX tables and the text and ruled tables of a PDF with a text
@@ -23,10 +23,13 @@ asked of the model:
    `load_fetched`, the same admission checks and bounded loaders an uploaded
    file meets.
 
-What comes back is a table or a document, not an answer. Nothing here reads a
-value out of it or decides what a column means, so `collect_results` finds no
-`AnalyticalResult` in it and the answer path does not treat it as one. The
-content is not persisted; retention permission is still an open question.
+What comes back is a table or a document. It becomes an answer only when the
+planner names one cell by its column header and row label (M7-18): then the
+output also carries a `LEVEL` `AnalyticalResult` for that cell, which
+`collect_results` finds and the answer gate binds like any other result. The
+unit, scale and period rules live in `_document_value`; without a selection
+nothing is read out of the content. The content is not persisted; retention
+permission is still an open question.
 
 Registering the tool is the operator's switch: nothing registers it by
 default while the organizer's URL policy (Q-NET-02) is unanswered.
@@ -36,15 +39,15 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
 from kkb_agent.agent.registry import ToolSpec
-from kkb_agent.core import SourceRef
+from kkb_agent.core import AnalyticalResult, SourceRef
 from kkb_agent.csv_loader import CsvTable
 from kkb_agent.ingest.fetched import (
     DOCUMENT_MEDIA_TYPES,
@@ -62,6 +65,14 @@ from kkb_agent.ingest.safe_fetch import (
 from kkb_agent.ingestion_policy import AdmissionError
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.pdf_loader import PdfDocument, PdfLoadResult
+from kkb_agent.tools._document_value import (
+    ValueNotSelected,
+    document_value,
+    grids,
+    read_cell,
+    record_cell,
+    select_cell,
+)
 from kkb_agent.xlsx_loader import XlsxLoadResult, XlsxTable
 
 type Fetcher = Callable[[FetchRequest], FetchOutcome]
@@ -117,6 +128,30 @@ class WebUrlArguments(BaseModel):
         max_length=256,
         description="Worksheet to read when a workbook has several; ignored otherwise",
     )
+    column: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=256,
+        description=(
+            "To answer with one figure: the column header holding it, as the user "
+            "named it; a unit in parentheses may be left out. Needs row."
+        ),
+    )
+    row: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=256,
+        description=(
+            "With column: a label written in the same row, such as a date or a name, "
+            "that picks out exactly one row"
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _column_and_row_together(self) -> WebUrlArguments:
+        if (self.column is None) != (self.row is None):
+            raise ValueError("column and row name one cell together; give both or neither")
+        return self
 
 
 @dataclass(frozen=True)
@@ -137,6 +172,8 @@ class WebUrlOutput:
     sheets: tuple[str, ...] = field(default=(), repr=False)
     table: CsvTable | XlsxTable | None = field(default=None, repr=False)
     document: PdfDocument | None = field(default=None, repr=False)
+    #: The selected cell as a result, when the planner named one (M7-18).
+    result: AnalyticalResult | None = field(default=None, repr=False)
 
 
 def make_web_url_tool(
@@ -199,13 +236,45 @@ def make_web_url_tool(
         if loaded.status == "rejected":
             return _failed("not_admitted", output)
         warnings = output.document.warnings if output.document is not None else ()
+        if arguments.column is None or arguments.row is None:
+            return ToolResult(
+                ToolStatus.SUCCESS,
+                step_id="",
+                tool="web_url",
+                output=output,
+                warnings=warnings,
+                evidence=_record(lineage, source, outcome.media_type),
+            )
+
+        # Everything that can refuse runs before anything is recorded.
+        try:
+            cell = select_cell(
+                grids(output.table, output.document), arguments.column, arguments.row
+            )
+            reading = read_cell(cell)
+        except ValueNotSelected as error:
+            return _failed("needs_input", replace(output, status="needs_input", code=error.code))
+        source_node = _record(lineage, source, outcome.media_type)
+        cell_node = (
+            record_cell(lineage, source_node, cell)
+            if lineage is not None and source_node is not None
+            else None
+        )
+        result = document_value(
+            cell,
+            reading,
+            source=source,
+            label=f"{arguments.column} | {arguments.row}",
+            source_node=source_node,
+            cell_node=cell_node,
+        )
         return ToolResult(
             ToolStatus.SUCCESS,
             step_id="",
             tool="web_url",
-            output=output,
+            output=replace(output, result=result),
             warnings=warnings,
-            evidence=_record(lineage, source, outcome.media_type),
+            evidence=cell_node or source_node,
         )
 
     return ToolSpec(
@@ -214,9 +283,12 @@ def make_web_url_tool(
             "Read a CSV or XLSX table, or the text and ruled tables of a PDF, from a "
             "web address the user wrote in the question. Pass the address exactly as "
             "written; any other address is refused. A CSV needs its column separator "
-            "declared; a workbook with several sheets needs the sheet named. Returns "
-            "the content and where it came from, not an answer: it computes nothing. "
-            "Scanned PDFs, HTML and image addresses are not supported yet."
+            "declared; a workbook with several sheets needs the sheet named. On its "
+            "own it returns the content and where it came from, not an answer. To "
+            "answer with one figure, also give column (its header) and row (a label "
+            "in that row, such as a date); the figure's unit and scale are only what "
+            "the header states in parentheses, like '(Milyon TL)'. It computes "
+            "nothing. Scanned PDFs, HTML and image addresses are not supported yet."
         ),
         arguments=WebUrlArguments,
         run=run,
