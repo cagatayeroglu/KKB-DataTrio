@@ -311,3 +311,7 @@ On 2026-09-12, Çağatay authorized and confirmed one live document smoke on `de
 - Verifier supported the claim; retained document-bound numeric claims **1**; gate **ACCEPTED**. One planner and one writer call, zero repairs, elapsed **8.262 s**; exactly one Session.answer invocation and no retry in this run.
 
 This is the first successful live external-document E2E with a verified document-bound numeric claim. It proves one public HTTPS CSV path and literal quotation under DEC-132, not OCR, arbitrary HTML, every URL/media variant, financial interpretation, or independent corroboration. No secrets or raw provider output are recorded. Later live runs still require separate authorization; this record closes no general network/source-access question.
+
+### M7-11 offline OCR regressions
+
+Synthetic PDFs and mocked HTTP/provider responses exercise native-text priority, mixed/textless pages, individual bounded PNG rendering, exact DEC-129 one/multiple-image HTTP fields, disabled/misconfigured OCR, page/pixel/PNG/deadline caps, encryption/malformed input, unmapped glyphs, empty/truncated/oversized OCR and provider failures without retry or secret leakage. OCR instructions/table-shaped numeric text stay untrusted; OCR-only Session.answer abstains without a writer or analytical result. Native PDF and DEC-132 literal regressions must stay green. No live OCR/network/model request belongs to this suite. A future OCR numeric acceptance needs separately specified schema and consistency checks and exact source/value proof; rendered/model text alone cannot pass.

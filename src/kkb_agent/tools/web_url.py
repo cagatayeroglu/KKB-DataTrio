@@ -2,7 +2,8 @@
 
 On the demo day the organizer puts URLs inside the question (DEC-131). This
 reads CSV and XLSX tables and the text and ruled tables of a PDF with a text
-layer; HTML, images and scanned PDFs are later M7 work, and until then their
+layer; optional injected OCR returns untrusted text for scanned pages. HTML
+and image addresses are later M7 work; their
 media types are refused before a body is read or their content is refused
 with a fixed code.
 
@@ -65,6 +66,7 @@ from kkb_agent.ingest.safe_fetch import (
 from kkb_agent.ingestion_policy import AdmissionError
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.pdf_loader import PdfDocument, PdfLoadResult
+from kkb_agent.pdf_ocr import OcrProvider
 from kkb_agent.tools._document_value import (
     ValueNotSelected,
     document_value,
@@ -180,6 +182,7 @@ def make_web_url_tool(
     *,
     fetch: Fetcher = safe_fetch,
     lineage: Lineage | None = None,
+    ocr: OcrProvider | None = None,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> ToolSpec:
     """Bind the tool to a fetch boundary: the real `safe_fetch` unless a test substitutes it."""
@@ -216,7 +219,11 @@ def make_web_url_tool(
             )
         try:
             loaded = load_fetched(
-                outcome, source=source, delimiter=arguments.delimiter, sheet=arguments.sheet
+                outcome,
+                source=source,
+                delimiter=arguments.delimiter,
+                sheet=arguments.sheet,
+                ocr=ocr,
             )
         except AdmissionError as error:
             return _failed(
@@ -294,7 +301,9 @@ def make_web_url_tool(
             "answer with one figure, also give column (its header) and row (a label "
             "in that row, such as a date); the figure's unit and scale are only what "
             "the header states in parentheses, like '(Milyon TL)'. It computes "
-            "nothing. Scanned PDFs, HTML and image addresses are not supported yet."
+            "nothing. OCR, when explicitly enabled by the operator, returns unverified "
+            "text only and cannot answer a numeric question. HTML and image "
+            "addresses are not supported yet."
         ),
         arguments=WebUrlArguments,
         run=run,

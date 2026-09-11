@@ -215,6 +215,46 @@ class KloudeksProvider:
         text, finish_reason = _choice(self._post(CHAT_PATH, body))
         return Completion(text=text, model=model, finish_reason=finish_reason)
 
+    def ocr(self, images: Sequence[bytes]) -> Completion:
+        """DEC-129 OCR, inline PNG only; no arbitrary prompt or model override.
+
+        SDK extra_body entries are top-level HTTP JSON fields (httpx sends
+        the wire body directly). PDF extraction calls this once per page.
+        """
+        model = self._config.ocr_model
+        if model is None:
+            raise CapabilityUnavailable("This deployment has no OCR model")
+        if model != "kkbhackathon2026/Unlimited-OCR":
+            raise ConfigurationError("OCR model must match DEC-129")
+        if not 1 <= len(images) <= 3:
+            raise ProviderError("OCR requires one to three images")
+        blocks = []
+        for png in images:
+            if not png.startswith(b"\x89PNG\r\n\x1a\n") or len(png) > MAX_IMAGE_BYTES:
+                raise ProviderError("OCR requires bounded PNG images")
+            inline = base64.b64encode(png).decode("ascii")
+            blocks.append(
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{inline}"}}
+            )
+        blocks.append({"type": "text", "text": "<image>\ndocument parsing"})
+        text, finish = _choice(
+            self._post(
+                CHAT_PATH,
+                {
+                    "model": model,
+                    "messages": [{"role": "user", "content": blocks}],
+                    "max_tokens": 8192,
+                    "temperature": 0.0,
+                    "skip_special_tokens": False,
+                    "vllm_xargs": {
+                        "ngram_size": 35,
+                        "window_size": 128 if len(images) == 1 else 1024,
+                    },
+                },
+            )
+        )
+        return Completion(text=text, model=model, finish_reason=finish)
+
     def _post(self, path: str, body: dict[str, object]) -> dict[str, Any]:
         if path not in (CHAT_PATH, EMBEDDINGS_PATH):
             raise ProviderError("Unknown provider path")

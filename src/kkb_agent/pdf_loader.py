@@ -20,13 +20,14 @@ Unreadable input is refused with a fixed code rather than approximated
 (M7-10): a password-protected or unsupported encryption (`ENCRYPTED`), a
 document pdfminer cannot parse (`MALFORMED_DOCUMENT`), no pages
 (`EMPTY_DOCUMENT`), and no text on any page (`NO_TEXT_LAYER` — a scan, which
-needs OCR, M7-11). A text-less page inside a readable document is flagged, and
+needs explicit OCR capability, M7-11). A text-less page inside a readable document is flagged, and
 glyphs without a Unicode mapping are reported, instead of being filled in.
 pdfplumber's repair option is never used: it runs Ghostscript.
 """
 
 from __future__ import annotations
 
+import base64
 import io
 import json
 import multiprocessing
@@ -47,6 +48,7 @@ from kkb_agent.ingestion_policy import (
     FileKind,
     admit_upload,
 )
+from kkb_agent.pdf_ocr import OcrError, OcrProvider, extract_text, render_pages
 
 if TYPE_CHECKING:  # pragma: no cover - the parser is imported in the worker only
     from pdfplumber.pdf import PDF
@@ -72,6 +74,7 @@ class PdfPage:
     has_text: bool
     text: str = field(repr=False)
     tables: tuple[PdfTable, ...] = field(repr=False)
+    ocr_text: str | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -119,7 +122,7 @@ def _open(content: bytes) -> PDF:
         raise _PdfRejected("MALFORMED_DOCUMENT") from None
 
 
-def _parse(content: bytes, limits: AdmissionLimits) -> dict[str, object]:
+def _parse(content: bytes, limits: AdmissionLimits, ocr_enabled: bool = False) -> dict[str, object]:
     from pdfminer.pdfpage import PDFPage
 
     pdf = _open(content)
@@ -174,7 +177,9 @@ def _parse(content: bytes, limits: AdmissionLimits) -> dict[str, object]:
     finally:
         pdf.close()
 
-    if not any(page["has_text"] for page in pages):
+    if ocr_enabled:
+        render_pages(content, pages)
+    if not ocr_enabled and not any(page["has_text"] for page in pages):
         raise _PdfRejected("NO_TEXT_LAYER")
     warnings = []
     if not all(page["has_text"] for page in pages):
@@ -195,7 +200,9 @@ def _write_result(output: Path, result: dict[str, object], limit: int) -> None:
             stream.write(data)
 
 
-def _worker(content: bytes, limits: AdmissionLimits, output: Path) -> None:
+def _worker(
+    content: bytes, limits: AdmissionLimits, output: Path, ocr_enabled: bool = False
+) -> None:
     import logging
     import warnings
 
@@ -209,10 +216,16 @@ def _worker(content: bytes, limits: AdmissionLimits, output: Path) -> None:
 
             memory = max(512 * 1024 * 1024, limits.max_expanded_bytes * 8)
             resource.setrlimit(resource.RLIMIT_AS, (memory, memory))
-        _write_result(output, _parse(content, limits), limits.max_expanded_bytes)
+        _write_result(
+            output,
+            _parse(content, limits, True) if ocr_enabled else _parse(content, limits),
+            limits.max_expanded_bytes,
+        )
         return
     except (AdmissionError, _PdfRejected) as error:
         code = str(error.code)
+    except OcrError as error:
+        code = str(error)
     except MemoryError:
         code = "LIMIT_EXCEEDED"
     except Exception as error:
@@ -225,11 +238,16 @@ def _worker(content: bytes, limits: AdmissionLimits, output: Path) -> None:
     _write_result(output, {"status": "rejected", "code": code}, 1024)
 
 
-def _run_worker(content: bytes, limits: AdmissionLimits) -> dict[str, Any]:
+def _run_worker(
+    content: bytes, limits: AdmissionLimits, ocr_enabled: bool = False
+) -> dict[str, Any]:
     context = multiprocessing.get_context("spawn")
     with tempfile.TemporaryDirectory(prefix="kkb-pdf-") as directory:
         output = Path(directory) / "result.json"
-        process = context.Process(target=_worker, args=(content, limits, output))
+        process = context.Process(
+            target=_worker,
+            args=(content, limits, output, True) if ocr_enabled else (content, limits, output),
+        )
         deadline = time.monotonic() + limits.max_pdf_parser_seconds
         try:
             process.start()
@@ -264,6 +282,7 @@ def load_pdf(
     content_type: str,
     source: SourceRef,
     limits: AdmissionLimits = DEFAULT_LIMITS,
+    ocr: OcrProvider | None = None,
 ) -> PdfLoadResult:
     """Admit and extract one PDF under the budgets in `limits`.
 
@@ -272,6 +291,10 @@ def load_pdf(
     each table by the row/column caps, all tables together by `max_cells`, and
     the serialized result by `max_expanded_bytes`. Exceeding any is a
     rejection, never a truncation. Input I/O timeout belongs to the caller.
+    With explicit `ocr`, only text-less pages are rendered in that worker:
+    at most three pages, 4 million pixels and 8 MiB PNG per page. OCR calls
+    run once per page under the provider transport deadline, without retries.
+    OCR text stays separate from native text/tables and cannot become a cell.
     Spawn applications need the usual `__main__` guard.
     """
     source = SourceRef.model_validate(source)
@@ -279,13 +302,34 @@ def load_pdf(
         admitted = admit_upload(stream, filename=filename, content_type=content_type, limits=limits)
         if admitted.kind != FileKind.PDF:
             return PdfLoadResult("rejected", source, "UNSUPPORTED_FORMAT")
-        result = _run_worker(admitted.content, limits)
+        result = (
+            _run_worker(admitted.content, limits)
+            if ocr is None
+            else _run_worker(admitted.content, limits, True)
+        )
     except AdmissionError as error:
         return PdfLoadResult("rejected", source, error.code.value)
     except OSError:
         return PdfLoadResult("rejected", source, "PARSER_FAILED")
     if result["status"] != "loaded":
         return PdfLoadResult("rejected", source, result["code"])
+
+    if ocr is not None:
+        try:
+            for page in result["pages"]:
+                png = page.pop("ocr_png", None)
+                if png is not None:
+                    page["ocr_text"] = extract_text(
+                        ocr, base64.b64decode(png, validate=True), max_chars=limits.max_field_chars
+                    )
+                    # OCR is never inserted into native text or tables.
+                    page["tables"] = []
+            if any(page.get("ocr_text") is not None for page in result["pages"]):
+                result["warnings"].append("OCR_UNVERIFIED")
+            if len(json.dumps(result, ensure_ascii=True).encode()) > limits.max_expanded_bytes:
+                raise OcrError("LIMIT_EXCEEDED")
+        except OcrError as error:
+            return PdfLoadResult("rejected", source, str(error))
 
     pages = tuple(
         PdfPage(
@@ -294,6 +338,7 @@ def load_pdf(
             height=page["height"],
             has_text=page["has_text"],
             text=page["text"],
+            ocr_text=page.get("ocr_text"),
             tables=tuple(
                 PdfTable(
                     page=page["number"],

@@ -34,6 +34,7 @@ from kkb_agent.ingestion_policy import (
     RejectionCode,
 )
 from kkb_agent.pdf_loader import PdfLoadResult, load_pdf
+from kkb_agent.pdf_ocr import OcrProvider
 from kkb_agent.xlsx_loader import XlsxLoadResult, load_xlsx
 
 #: The media types this path can load, and so the only ones worth accepting.
@@ -80,6 +81,7 @@ def load_fetched(
     delimiter: str | None = None,
     sheet: str | None = None,
     limits: AdmissionLimits = DEFAULT_LIMITS,
+    ocr: OcrProvider | None = None,
 ) -> CsvLoadResult | XlsxLoadResult | PdfLoadResult:
     """Admit and load fetched bytes through the upload path for their media type.
 
@@ -105,6 +107,7 @@ def load_fetched(
             content_type=fetched.media_type,
             source=source,
             limits=limits,
+            ocr=ocr,
         )
     if kind is FileKind.CSV:
         return load_csv(
