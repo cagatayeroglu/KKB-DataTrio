@@ -1275,6 +1275,8 @@ M1 ingestion contract, M2 relevant semantics, SEC-URL-01 and SEC-FILE-01/02 befo
 <a id="m7-19-document-check-record"></a>
 ### M7-19 offline document operator record
 
+- Admission-report follow-up: Status IN PROGRESS; Owner Çağatay; Branch `fix/m7-19-admission-report` from `0cea914`; PR/Commit pending. Existing M7-19 operator reporting scope, not a new task. Preserve original DONE delivery below. Normal fetched CSV tests pass; admission/parser detail is retained by web_url but omitted from the operator report. No live retry; no admission-policy change. Tests/evidence pending; publish claim before implementation.
+
 - Status: DONE (offline operator implementation) — merged and validated. **OFFLINE OPERATOR PATH IMPLEMENTED; LIVE DOCUMENT ACCEPTANCE NOT YET RUN.**
 - Owner: Çağatay
 - Branch: `feature/m7-19-document-check`, from verified `dev` `fa12290b011806bf5b28d752153d2d1861fce766`.
