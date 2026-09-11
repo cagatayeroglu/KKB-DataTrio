@@ -1265,10 +1265,10 @@ M1 ingestion contract, M2 relevant semantics, SEC-URL-01 and SEC-FILE-01/02 befo
 - Owner: Çağatay
 - Branch: `fix/m7-20-operator-fetch-code`, from `dev` `b3a08a3e3d0f646b41b8557f0a4ed47133ea7649`.
 - PR: [#97](https://github.com/cagatayeroglu/KKB-DataTrio/pull/97), claim published before implementation; no competing PR.
-- Commit: claim `7aca3c1`; implementation pending.
+- Commit: implementation `5e727ee`; claim `7aca3c1`.
 - Diagnosis: `FetchFailure.code` survives worker JSON validation and `web_url` as `WebUrlOutput.code`; only `live_check` omits it. One prior authorized live run failed as `fetch_failed` (3.147s, planner completion 1, repairs 0, gate ABSTAINED). Its detailed code was not retained in the report and cannot be inferred retroactively. No live retry in M7-20.
 - Acceptance: Expose only existing enum-approved fetch codes from `WebUrlOutput.code`; preserve fail-closed user answers and redaction. Test URL/DNS/transport (including TLS)/redirect/time/size/media failures offline. No live retry, new fetch behavior or dependency.
-- Tests: `pytest -q tests/unit/test_document_check.py tests/unit/test_live_check.py tests/unit/test_web_url_tool.py tests/unit/test_safe_fetch.py tests/unit/test_source_connection.py tests/unit/test_bounded_fetch.py tests/unit/test_safe_redirects.py` — **398 passed / 16.98s**. `make quick` — **2101 passed / 65.17s wall**. `make pr` — **2101 passed / 56.89s wall**, Ruff format/lint, Bandit and secret scan clean. All offline; 18 added cases cover enum propagation, user-answer isolation and untrusted/non-fetch code rejection. Fast PR pending final push.
+- Tests: `pytest -q tests/unit/test_document_check.py tests/unit/test_live_check.py tests/unit/test_web_url_tool.py tests/unit/test_safe_fetch.py tests/unit/test_source_connection.py tests/unit/test_bounded_fetch.py tests/unit/test_safe_redirects.py` — **398 passed / 16.98s**. `make quick` — **2101 passed / 65.17s wall**. `make pr` — **2101 passed / 56.89s wall**, Ruff format/lint, Bandit and secret scan clean. All offline; 18 added cases cover enum propagation, user-answer isolation and untrusted/non-fetch code rejection. Fast PR status is tracked on PR #97 for its final head; local gates passed.
 - Blocker: none for offline fix. Existing TLS errors share TRANSPORT_FAILURE; do not invent finer categories.
 - Handoff: Operator classification implemented; review PR #97 and its Fast PR result before any authorized merge. No live retry; M7-11 remains unclaimed. Unknown/non-fetch codes export null; user-facing abstention is unchanged.
 
