@@ -268,3 +268,57 @@ def test_strict_csv_parser_rejection_is_not_an_admission_failure():
     loaded = load_fetched(fetched(content, CSV), source=SOURCE, delimiter=",")
     assert loaded.status == "rejected"
     assert loaded.code == "MALFORMED_TABLE"
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize(
+    "header,row,expected",
+    [
+        (
+            "Distance (miles),Fare ($)",
+            "4.5,18.00",
+            (("Distance (miles)", "Fare ($)"), ("4.5", "18.00")),
+        ),
+        (
+            "Distance (miles), Fare ($)",
+            "4.5, 18.00",
+            (("Distance (miles)", " Fare ($)"), ("4.5", " 18.00")),
+        ),
+        ('Distance (miles), "Fare ($)"', "4.5, 18.00", None),
+        (
+            '"Distance (miles)","Fare ($)"',
+            '"4.5","18.00"',
+            (("Distance (miles)", "Fare ($)"), ("4.5", "18.00")),
+        ),
+        (
+            'Distance (miles)," Fare ($)"',
+            '4.5," 18.00"',
+            (("Distance (miles)", " Fare ($)"), ("4.5", " 18.00")),
+        ),
+        ('Distance (miles),"Fare ($)" ', "4.5,18.00", None),
+    ],
+)
+def test_csv_quote_whitespace_contract_through_fetched_worker(newline, header, row, expected):
+    from kkb_agent.ingestion_policy import admit_upload
+
+    content = (header + newline + row + newline).encode("utf-8")
+    admitted = admit_upload(io.BytesIO(content), filename="download.csv", content_type=CSV)
+    assert admitted.content == content  # Admission does not trim or repair the bytes.
+    loaded = load_fetched(fetched(content, CSV), source=SOURCE, delimiter=",")
+    if expected is None:
+        assert loaded.status == "rejected"
+        assert loaded.code == "MALFORMED_TABLE"
+        assert loaded.table is None
+    else:
+        assert loaded.status == "loaded"
+        assert (loaded.table.headers, loaded.table.rows[0]) == expected
+
+
+@pytest.mark.parametrize("content", [b' "', b'h\n "', b'a, "\n1,2\n'])
+def test_minimal_space_quote_trigger(content):
+    from kkb_agent.csv_loader import _check_structure, _CsvRejected
+    from kkb_agent.ingestion_policy import DEFAULT_LIMITS
+
+    with pytest.raises(_CsvRejected) as rejected:
+        _check_structure(content.decode(), ",", DEFAULT_LIMITS)
+    assert rejected.value.code == "MALFORMED_TABLE"
