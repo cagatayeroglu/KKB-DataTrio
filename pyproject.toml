@@ -21,6 +21,9 @@ dependencies = [
   # Repairing malformed model JSON when the platform has no structured output
   # (DEC-122). Open-weight models make this the likely path, not a contingency.
   "json-repair>=0.30,<1",
+  # Granger tests in the causality tool (DEC-120). Brings scipy with it; both
+  # are on the DEC-124 allowlist.
+  "statsmodels>=0.14.2,<0.16",
 ]
 
 [project.optional-dependencies]
@@ -39,6 +42,12 @@ where = ["src"]
 python_version = "3.12"
 strict = true
 warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+# statsmodels ships neither a py.typed marker nor a stubs package. Scoped to
+# that one library so strict typing stays on for everything else.
+module = ["statsmodels.*"]
+ignore_missing_imports = true
 
 [tool.ruff]
 target-version = "py312"

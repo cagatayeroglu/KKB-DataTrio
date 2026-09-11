@@ -799,15 +799,17 @@ class TestTheTool:
         described = self.registry(house).descriptions()[0]["description"]
 
         assert "ASSOCIATION ONLY" in described
-        assert "Granger testing is not available yet" in described
+        assert "predictive precedence at most" in described
 
-    def test_granger_is_not_in_the_schema(self, house):
+    def test_an_operation_that_does_not_exist_is_not_in_the_schema(self, house):
+        # Granger joined in M6-11 (tests/unit/test_granger.py); anything else
+        # the planner invents is still refused before it can run.
         from kkb_agent.agent import ArgumentsRejected
 
         with pytest.raises(ArgumentsRejected):
             self.registry(house).get("causality").parse(
                 {
-                    "operation": "granger",
+                    "operation": "cointegration",
                     "left_series_id": "bddk:konut",
                     "right_series_id": "evds:faiz",
                 }

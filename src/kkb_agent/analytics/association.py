@@ -149,13 +149,14 @@ def _refuse(
     reason: str,
     samples: SampleCounts,
     unresolved: Sequence[str] = (),
+    method: str = "pearson",
 ) -> AnalyticalResult:
     return AnalyticalResult(
         result_id=result_id,
         kind=kind,
         status=status,
         tool="analytics",
-        method="pearson",
+        method=method,
         samples=samples,
         reason=reason,
         unresolved_semantics=list(unresolved),

@@ -1,26 +1,25 @@
-"""The `causality` tool: what it can honestly say (M6-07..M6-10, DEC-120).
+"""The `causality` tool: what it can honestly say (M6-07..M6-11, DEC-120).
 
 The name is the brief's. What the tool does is narrower than the name, and
 every result it returns says so in mandatory limitations — the M6-01 contract
 refuses a relational result that omits them, so this is enforced by the type
 rather than by a reviewer noticing.
 
-Two operations, both correlation:
+Three operations, none of them a causal finding:
 
 - `association` — how closely two series moved together over the periods both
   published.
 - `lag` — the same at each offset in a bounded window, with the sign
   convention stated in the label, the parameters and a warning.
-
-**Granger is absent from this schema.** DEC-120 puts it in this tool, and it
-belongs here, but it needs `statsmodels` from the DEC-124 allowlist and lands
-with M6-11. Offering an operation before it exists would let the planner ask
-for a test that silently does not run.
+- `granger` — whether one series' past improved a prediction of the other's
+  beyond its own past, at each order up to the window, in both directions.
+  That is predictive precedence, and the result never calls it more.
 
 The `max_lag` window *is* a planner argument, unlike the anomaly threshold: how
 far a relationship might lag is a question about the domain, not a knob for
 making a number look better. It is capped, and the result says how many
-offsets were searched, because the strongest of many is inflated by the search.
+offsets or orders were searched, because the strongest of many is inflated by
+the search.
 """
 
 from __future__ import annotations
@@ -32,7 +31,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
 from kkb_agent.agent.registry import ToolSpec
-from kkb_agent.analytics import DEFAULT_MAX_LAG, LAG_CAP, associate, lagged_association
+from kkb_agent.analytics import (
+    DEFAULT_MAX_LAG,
+    LAG_CAP,
+    associate,
+    granger_precedence,
+    lagged_association,
+)
 from kkb_agent.core import AnalyticalResult, ResultStatus
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.tools.change_detection import SeriesUnknown, read_series
@@ -52,10 +57,12 @@ class CausalityArguments(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    operation: Literal["association", "lag"] = Field(
+    operation: Literal["association", "lag", "granger"] = Field(
         description=(
             "association: correlation over the periods both series published. "
-            "lag: the same at each offset within max_lag."
+            "lag: the same at each offset within max_lag. "
+            "granger: whether each series' past improved predictions of the other's, "
+            "at every order up to max_lag, in both directions."
         )
     )
     left_series_id: str = Field(min_length=1, max_length=200)
@@ -64,7 +71,10 @@ class CausalityArguments(BaseModel):
         default=DEFAULT_MAX_LAG,
         ge=0,
         le=LAG_CAP,
-        description="Offsets to search on each side; ignored by the association operation",
+        description=(
+            "Offsets to search on each side for lag, or the highest order for granger "
+            "(at least 1); ignored by the association operation"
+        ),
     )
     start: date | None = Field(default=None, description="Earliest period end to include")
     end: date | None = Field(default=None, description="Latest period end to include")
@@ -107,13 +117,22 @@ def make_causality_tool(
                 right.semantics,
                 **shared,  # type: ignore[arg-type]
             )
-        else:
+        elif arguments.operation == "lag":
             result = lagged_association(
                 left.observations,
                 left.semantics,
                 right.observations,
                 right.semantics,
                 max_lag=arguments.max_lag,
+                **shared,  # type: ignore[arg-type]
+            )
+        else:
+            result = granger_precedence(
+                left.observations,
+                left.semantics,
+                right.observations,
+                right.semantics,
+                max_order=arguments.max_lag,
                 **shared,  # type: ignore[arg-type]
             )
 
@@ -138,12 +157,13 @@ def make_causality_tool(
     return ToolSpec(
         name="causality",
         description=(
-            "Measure whether two registered series moved together, optionally at a lag. "
-            "This reports ASSOCIATION ONLY and cannot establish that one series moves "
-            "the other; every result carries that limitation and a third factor moving "
-            "both would produce the same number. Series must share a frequency and are "
-            "compared only on periods both published. Needs about two years of aligned "
-            "observations. Granger testing is not available yet."
+            "Measure whether two registered series moved together, optionally at a lag, "
+            "or whether one series' past improved predictions of the other's (Granger). "
+            "This reports ASSOCIATION ONLY — Granger gives predictive precedence at most — "
+            "and cannot establish that one series moves the other; every result carries "
+            "that limitation and a third factor moving both would produce the same number. "
+            "Series must share a frequency and are compared only on periods both "
+            "published. Needs about two years of aligned observations."
         ),
         arguments=CausalityArguments,
         run=run,
@@ -162,7 +182,11 @@ def _record(
             "left": arguments.left_series_id,
             "right": arguments.right_series_id,
             "max_lag": str(arguments.max_lag),
-            "claim": "association only; not a causal finding",
+            "claim": (
+                "predictive precedence only; not a causal finding"
+                if arguments.operation == "granger"
+                else "association only; not a causal finding"
+            ),
             "provenance": "series-level; the compared periods are named in the result",
         },
     )

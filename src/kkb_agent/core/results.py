@@ -192,8 +192,9 @@ class ResultValue(ContractModel):
     scale: Scale = Scale.UNKNOWN
     measure: StockFlow = StockFlow.UNKNOWN
     period: Period | None = None
-    #: Offset in periods for a lag result. Negative means the first series
-    #: leads the second; the sign convention is recorded per M6-09.
+    #: Offset in periods for a lag result. Positive means the first series
+    #: leads the second (M6-09 pairs it at t with the second at t+k), and each
+    #: lag result also states its convention in words.
     lag: Annotated[int, Field(strict=True)] | None = None
     #: Per-value counts, which a lag or per-window result needs because each
     #: offset is computed over a different number of overlapping observations.
