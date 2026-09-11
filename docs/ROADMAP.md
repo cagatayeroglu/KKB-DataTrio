@@ -1263,7 +1263,7 @@ M1 ingestion contract, M2 relevant semantics, SEC-URL-01 and SEC-FILE-01/02 befo
 - Owner: Çağatay
 - Branch: `feature/m7-19-document-check`, from verified `dev` `fa12290b011806bf5b28d752153d2d1861fce766`.
 - PR: [#95](https://github.com/cagatayeroglu/KKB-DataTrio/pull/95); draft claim published before implementation; no competing claim.
-- Commit: implementation pending; claim `29da57a`.
+- Commit: implementation `10e138c`; claim `29da57a`.
 - Tests: `pytest -q tests/unit/test_document_check.py tests/unit/test_live_check.py` — **37 passed / 6.99s** (31 new document cases); relevant web_url/document-value/fetched/safe-fetch/redirect/URL-target/CSV/XLSX/PDF/verifier/answer-gate regression set including those tests — **742 passed / 34.72s**. `make quick` — **2083 passed / 55.44s wall**. `make pr` — **2083 passed / 64.45s wall**, Ruff format/lint, Bandit and secret scan clean; Python 3.12.2. GitHub exact-head Fast PR pending. Documentation local paths and `git diff --check` pass.
 - Delivered: Explicit `live_check --document --question` mode; the four analytical tools and `web_url` share the lakehouse/lineage and use normal `Session.answer`. Success requires a loaded selected cell, resolvable transform/source edge and a retained numeric claim bound to that exact document result. Bounded report uses counts, timings, numeric coordinates and hashed identities; no question/answer/URL/document text. Default synthetic mode unchanged; no dependency added.
 - Blocker: none for offline delivery. Live execution needs separate operator approval and an accepted Q-NET-01/02 boundary; source-specific Q-DATA restrictions remain open.
