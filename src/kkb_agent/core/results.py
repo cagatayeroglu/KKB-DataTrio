@@ -70,6 +70,13 @@ StrictFloat = Annotated[float, Field(strict=True)]
 Count = Annotated[int, Field(strict=True, ge=0)]
 
 
+class ClaimKind(StrEnum):
+    """Execution-owned eligibility, never a planner argument or semantic upgrade."""
+
+    ANALYTICAL_VALUE = "analytical_value"
+    LITERAL_SOURCE_VALUE = "literal_source_value"
+
+
 class ResultKind(StrEnum):
     """What question a result answers, which decides how it may be read.
 
@@ -235,6 +242,7 @@ class AnalyticalResult(ContractModel):
     """
 
     result_id: NonEmptyText
+    claim_kind: ClaimKind = ClaimKind.ANALYTICAL_VALUE
     kind: ResultKind
     status: ResultStatus
     tool: NonEmptyText

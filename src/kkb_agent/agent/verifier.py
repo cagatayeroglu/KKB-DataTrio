@@ -32,7 +32,8 @@ from kkb_agent.agent.claim_qualifiers import (
     period_fault,
     unit_fault,
 )
-from kkb_agent.core import AnalyticalResult, ResultStatus, ResultValue, Scale
+from kkb_agent.agent.literal import exposes_literal_identity, literal_proof, literal_text
+from kkb_agent.core import AnalyticalResult, ClaimKind, ResultStatus, ResultValue, Scale
 
 if TYPE_CHECKING:  # pragma: no cover
     from duckdb import DuckDBPyConnection
@@ -441,6 +442,10 @@ def result_faults(
     found: dict[str, tuple[str, ...]] = {}
     for name, result in named.items():
         faults = _result_faults(result, minimum_samples)
+        if result.claim_kind is ClaimKind.LITERAL_SOURCE_VALUE and not literal_proof(
+            result, connection
+        ):
+            faults.append("Literal source value does not resolve to its exact recorded cell")
         if connection is not None:
             faults.extend(_evidence_faults(result, connection))
             faults.extend(recheck_against_store(result, connection, tolerance=tolerance))
@@ -504,6 +509,8 @@ def verify_claims(
     ]
 
     rejected: list[str] = []
+    if exposes_literal_identity(answer, list(named.values())):
+        rejected.append("Internal document proof identifiers are not answer text")
     for start, end in _sentence_spans(answer):
         if fault := causal_fault(answer[start:end]):
             rejected.append(fault)
@@ -564,7 +571,13 @@ def _bind_to_results(
                     period_fault(clause, prefix, value),
                     unit_fault(answer, number.start, end, value),
                     identity_fault(clause, prefix, name, result, value, named),
-                    _semantics_fault(number, value),
+                    None
+                    if (
+                        result.claim_kind is ClaimKind.LITERAL_SOURCE_VALUE
+                        and name not in disqualified
+                        and answer.strip() == literal_text(result)
+                    )
+                    else _semantics_fault(number, value),
                 )
                 if fault is not None
             )
@@ -719,6 +732,10 @@ def gate_answer(
     failures: dict[tuple[int, int], list[str]] = {}
     spans = _sentence_spans(draft)
     for span in spans:
+        if exposes_literal_identity(draft[span[0] : span[1]], list(named.values())):
+            failures.setdefault(span, []).append(
+                "Internal document proof identifiers are not answer text"
+            )
         if fault := causal_fault(draft[span[0] : span[1]]):
             failures.setdefault(span, []).append(fault)
     for item in verdict.numbers:
