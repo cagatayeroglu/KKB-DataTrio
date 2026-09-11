@@ -2,7 +2,7 @@
 
 An evidence-backed financial-data analyst for the KKB Hackathon. The intended product accepts supported data sources and questions, produces a typed analytical plan, computes results with deterministic Python tools, and presents answers/tables/charts with source, transformation, and verification evidence. Follow-up questions use an explicit analysis workspace.
 
-The repository contains an offline end-to-end analysis path: guarded CSV/XLSX input and bounded direct-GET safe fetch, DuckDB/Parquet storage and financial semantics, typed analytical results, validated planning/tool execution, persisted workspace values and multi-result answer verification. Four brief tools exist: `lakehouse`, `change_detection` (comparison), `anomaly`, and `causality` (association, lag and Granger precedence). The composed tests use synthetic data and a scripted model. Live source adapters/Kloudeks, CSV profiling, full proof/replay, breakpoint detection, `web_search`/`web_url`, catalog retrieval, UI and deployment remain incomplete. [ROADMAP Current Project Status](docs/ROADMAP.md#current-project-status) is the single delivery and next-task summary.
+The repository contains an offline end-to-end analysis path: guarded CSV/XLSX input and bounded direct-GET safe fetch, DuckDB/Parquet storage and financial semantics, typed analytical results, validated planning/tool execution, persisted workspace values and multi-result answer verification. Five brief tools exist: `lakehouse`, `change_detection` (comparison), `anomaly`, `causality` (association, lag and Granger precedence) and `web_url` for a CSV/XLSX table at an address the user wrote. The composed tests use synthetic data and a scripted model. Live source adapters/Kloudeks, CSV profiling, full proof/replay, breakpoint detection, `web_search`, `web_url`'s PDF/HTML/image extraction, catalog retrieval, UI and deployment remain incomplete. [ROADMAP Current Project Status](docs/ROADMAP.md#current-project-status) is the single delivery and next-task summary.
 
 ## Constraints and architecture
 
@@ -41,7 +41,7 @@ Retrieval's initial hybrid baseline is Turkish normalization, reviewed alias/con
 | [docs/BDDK_SOURCE.md](docs/BDDK_SOURCE.md) | What the BDDK bulletins publish: transports, parameters, units, measured cumulative behaviour |
 | [docs/EVDS_SOURCE.md](docs/EVDS_SOURCE.md) | How EVDS is accessed and what its catalog declares: frequencies, aggregation flags, archived and base-year variants |
 | [docs/DATABASE.md](docs/DATABASE.md) | The database definition deliverable: every table, column, invariant and the layout on disk |
-| [src/kkb_agent/](src/kkb_agent/) | Core/input and safe-fetch boundaries, lakehouse/database, llm, agent, analytics and four tools; ARCHITECTURE describes their limits |
+| [src/kkb_agent/](src/kkb_agent/) | Core/input and safe-fetch boundaries, lakehouse/database, llm, agent, analytics and five tools; ARCHITECTURE describes their limits |
 | `web/` (not yet created) | Next.js client under DEC-123; lives outside the Python package |
 | [tests/unit/](tests/unit/) | Targeted contract, input, lakehouse, orchestration, workspace and verifier tests; observed results live in ROADMAP |
 | [tests/fixtures/ingestion/](tests/fixtures/ingestion/) | Synthetic CSV and XLSX fixtures with their documented expected parsing |

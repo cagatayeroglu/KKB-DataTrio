@@ -1,4 +1,4 @@
-"""The six brief-named tools. Four exist; `web_search` and `web_url` do not."""
+"""The six brief-named tools. Five exist; `web_search` does not."""
 
 from kkb_agent.tools.anomaly import AnomalyArguments, make_anomaly_tool
 from kkb_agent.tools.causality import CausalityArguments, make_causality_tool
@@ -20,6 +20,12 @@ from kkb_agent.tools.lakehouse import (
     referenced_tables,
     run_query,
 )
+from kkb_agent.tools.web_url import (
+    WebUrlArguments,
+    WebUrlOutput,
+    addresses_in,
+    make_web_url_tool,
+)
 
 __all__ = [
     "DEFAULT_MAX_ROWS",
@@ -32,11 +38,15 @@ __all__ = [
     "QueryResult",
     "SeriesUnknown",
     "SqlRejected",
+    "WebUrlArguments",
+    "WebUrlOutput",
+    "addresses_in",
     "check_sql",
     "make_anomaly_tool",
     "make_causality_tool",
     "make_change_detection_tool",
     "make_lakehouse_tool",
+    "make_web_url_tool",
     "read_series",
     "referenced_tables",
     "run_query",
