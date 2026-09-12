@@ -207,6 +207,20 @@ Every additional tool must define closed typed input and output contracts before
 
 The planner receives only registered implementations through `ToolRegistry.descriptions`; proposed names and operations stay out of runtime prompts until implemented. Executor argument validation and limits remain mandatory. Material calculations are deterministic; source/model text is untrusted. Semantic guards, security guards, lineage recording and verifier/gate run as harness requirements, never optional `semantic_guard`, `security_guard`, `lineage_recorder` or `verifier` calls. `proof` stays API/UI over the existing graph; `document_search` is excluded. Typed output validation/ownership gaps described above remain work, not a completed capability.
 
+### Web search implementation plan (M7-21/22)
+
+CONFIRMED design, runtime not yet implemented: [DEC-134](DECISIONS.md#dec-134--provider-neutral-web-search-with-mandatory-live-acceptance). M7-21 approves the abstraction; M7-22 delivers only the offline/provider-neutral tool.
+
+`Qwen planner -> web_search ToolSpec -> SearchBackend.search -> configured backend`. SearchBackend is an internal interface, not a provider API. Use a closed bounded query/max_results input and typed ranked candidates (title, sanitized URL, snippet, domain, rank, supplied publication date or unknown), plus provider-neutral status. No optional domain/recency knobs until separately justified. Provider adapters translate to this stable contract; credentials, configuration and raw wire payloads are never planner inputs or outputs.
+
+FakeSearchBackend exists only for deterministic offline tests. The real production adapter remains absent until separately selected, configured and validated; no default fake backend, automatic provider selection or fallback. M7-22 requires no API key, account or external call. Execution must bound query/result sizes, candidate count, response handling and backend time; map timeout/malformed replies/backend errors to fixed safe outcomes. Validate output before exposure, exclude unsafe URLs, deduplicate deterministically, preserve missing metadata and strip sensitive locator material without granting a new destination permission. Snippets/titles remain inert untrusted data and never become verified AnalyticalResults merely by being returned.
+
+`web_url` still requires the exact URL in the original user question (`addresses_in` / `URL_NOT_IN_QUESTION`). Discovery never authorizes a later fetch, nor weakens safe-fetch DNS/TLS/redirect checks. Registry/planner expose only implemented tools; schema validation, security controls, lineage and verifier/gate remain mandatory. DEC-133's five additional tools remain unregistered.
+
+Offline acceptance covers valid/empty/oversized queries, zero results, caps/order/duplicates, malformed replies, backend timeout/error redaction, unsafe URLs, missing metadata, injection-looking text, credential/config isolation, unknown args, planner discovery-vs-fetch distinction and regressions for the five existing tools. Only test-injected backends run.
+
+**Before final submission/demo acceptance, at least one real production search backend must be configured and a live hidden-like web search smoke must PASS.** The separately triaged [production acceptance record](ROADMAP.md#web-search-production-acceptance) must cover official endpoint/auth/config, retention/privacy, network policy, real adapter and sanitized unseen-query evidence. Q-NET-01/02 remain open. Offline completion alone never satisfies production acceptance.
+
 ### 5. Source discovery and adapters — CONFIRMED abstraction
 
 - Responsibility: Discover/inspect/load/profile a source through the common data boundary and return source provenance.
