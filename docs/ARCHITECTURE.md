@@ -399,6 +399,8 @@ TARGET under [DEC-130](DECISIONS.md#dec-130--initial-hybrid-retrieval-baseline),
 
 Mandatory HYBRID baseline: one Turkish normalizer shared by query/index paths, reviewed aliases/concept families, metadata filters, lexical/BM25 and dense semantic retrieval using the organizer's Qwen3-Embedding-8B (exact model/endpoint in DEC-129). LanceDB remains the selected lightweight series-vector index. Dense retrieval starts in the baseline without waiting for lexical failure or a prior gain measurement. Candidates retain IDs, original titles, source, unit/scale/frequency, coverage and archived/unknown flags. Exact aliases do not bypass ambiguity or semantic checks.
 
+M13-08 adds a [reviewed offline demo snapshot and exact alias mapping](CATALOG_MAPPING.md) over ten repository-evidenced identities. The shared record/normalizer are reused; unresolved BDDK/CPI identities stay absent. No lexical/dense retriever or catalog_search tool is implemented by this artifact.
+
 Two distinct flows reuse this boundary:
 
 - **Direct series retrieval:** lexical+dense retrieval maps a named concept such as “konut kredisi faiz oranı” to the correct known series. Compare lexical-only, dense-only and combined candidates; evaluate Recall@5/10, final selection, latency and failure behavior.
