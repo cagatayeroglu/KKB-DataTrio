@@ -439,6 +439,17 @@ Candidates below are not approved selections. Compare options in a bounded task;
 | PROP-03 | RESOLVED by DEC-123 | FastAPI with SSE behind Next.js selected; Streamlit retained as a recorded fallback | Eray | None; implement in M10 |
 | PROP-04 | PROPOSED: retry and latency budgets | Exact counts/timeouts depend on platform limits and baseline measurements | Unassigned | Obtain Q-K-04 and measure before fixing limits |
 | PROP-05 | RESOLVED by DEC-120 | Lagged correlation and Granger with mandatory stated limits; stronger identification rejected for this data | Eray | None; implement in M6 |
+| PROP-06 | PROPOSED: web_search provider/API | No provider selected; explicit team choice and primary API contract required by M7-21 | Çağatay | [Complete provider decision](#web-search-provider-decision-m7-21); M7-22 stays BLOCKED |
+
+### Web search provider decision (M7-21)
+
+Status: OPEN / PROPOSED, not a confirmed provider selection. M7-21 owns this decision; [PR #113](https://github.com/cagatayeroglu/KKB-DataTrio/pull/113) publishes Çağatay's documentation-only claim. DEC-121/133 approve the `web_search` name, not a third-party service. DEC-129's Kloudeks chat/vision/embedding/OCR capabilities do not establish a search endpoint. No new confirmed DEC ID is allocated while the choice is unresolved.
+
+Before approval, record the provider/service and official API documentation, endpoint/method, auth placement and secret configuration, request/response/error fields, supported filters, provider limits versus repository caps, billing/quota/access requirements and query retention/privacy implications. All these provider-specific values are **UNRESOLVED**; no credential was inspected and neither credential presence nor absence is asserted. Do not invent environment variable names, API paths, fields, quotas or guarantees.
+
+Provider choice must be explicitly agreed, with dated team approval and primary-source contract evidence before M7-22 can start. Search-only metadata access must not introduce third-party hosted LLM generation contrary to AGENTS; no fallback provider or implicit answer-generation service. Q-NET-01/02 still govern live availability/exposure; a provider contract is not permission for unrestricted destination fetches. No live search is authorized by this task.
+
+Implementation planning is in [ARCHITECTURE](ARCHITECTURE.md#web-search-implementation-plan-m7-2122). Merge of incomplete triage cannot be represented as a selected provider or completed decision. After the actual decision is approved, use the next available confirmed DEC ID, retain this proposal's history, and complete M7-21 through normal validated merge/bookkeeping. Do not start M7-22 in the decision session.
 
 ## Deferred decisions
 
