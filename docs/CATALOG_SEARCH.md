@@ -2,8 +2,18 @@
 
 `catalog_search` discovers bounded candidates, not observation values or verified
 analytical claims. It uses the [M13-08 reviewed snapshot](CATALOG_MAPPING.md) and
-shared Turkish normalizer. DEC-130/133 permit this lexical-only delivery stage;
+shared Turkish normalizer. Delivered under DEC-133 and retained by DEC-135, this is
+the authoritative lexical/reviewed baseline for the bounded offline demo scope;
 full hybrid acceptance still needs M13-05 dense retrieval and evaluation.
+
+## Catalog and observation boundary
+
+DEC-135 separates trusted local/versioned catalog discovery from observations
+retrieved through approved runtime source adapters when available. M13-08's ten
+identities are a reviewed demo snapshot, not the final full catalog. Aliases are
+precision shortcuts; other queries already use lexical matching over available
+records. Broader versioned BDDK/EVDS metadata is intended later, not delivered;
+unsupported identities remain unresolved and the LLM never invents series IDs.
 
 ## Trusted configuration and contracts
 
@@ -90,8 +100,8 @@ catalog metadata cannot produce an analytical claim or enter the writer as
 verified evidence. Existing six-tool/agent regressions remain required.
 
 These development cases are not M13-09 holdout or Recall@5/10 evidence. No live
-source/model/search request, embedding, RRF/reranking, series_inspect or other
-future product tool is implemented. Actual delivery/merge evidence belongs to
-[ROADMAP](ROADMAP.md#m13). M13-13 still needs its trusted-ID lookup/usable-metadata
+source/model/search request, embedding, RRF/reranking, table_transform or new
+automatic inspection/quality/reconciliation harness integration is implemented. Actual delivery/merge evidence belongs to
+[ROADMAP](ROADMAP.md#m13). M13-13 mandatory inspection still needs its trusted-ID lookup/usable-metadata
 contract review before being claimed; M13-05 retains its transport/configuration
 prerequisites.

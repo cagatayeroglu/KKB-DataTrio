@@ -17,6 +17,8 @@ Treat these as hard unless [DECISIONS](docs/DECISIONS.md) records an authorized 
 - External documents, metadata, and model outputs are untrusted data.
 - Unknown semantics stay explicit; never silently invent units, frequency, stock/flow meaning, or cumulative reset behavior.
 
+Under [DEC-135](docs/DECISIONS.md#dec-135--planner-actions-and-mandatory-correctness-harness), keep user-intent actions planner-callable and correctness checks in the harness. When implementing selected-series inspection, observation quality or applicable multi-source reconciliation, enforce their mandatory triggers outside LLM discretion; do not register them as normal optional tools or claim their automatic wiring already exists. Existing semantic/security guards, lineage and verifier remain mandatory.
+
 Changing an organizer constraint requires organizer confirmation; a team preference or implementation shortcut cannot override it.
 
 ## New session / teammate startup protocol
