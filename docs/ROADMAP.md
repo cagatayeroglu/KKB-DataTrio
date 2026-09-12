@@ -1718,7 +1718,7 @@ A minimal M1/M4/M5/M6/M8 slice for live integration; confirmed demo environment/
 
 ## Tasks
 
-- [ ] M10-01 — Status: PARTIAL; Owner: Çağatay; Branch: `docs/m10-01-operator-contract`; PR: [#110](https://github.com/cagatayeroglu/KKB-DataTrio/pull/110); Commit: pending; Tests: document/code-contract review and local links PASS; focused backend 183 PASS / 12.82s; make quick 2272 PASS / 84.99s; make pr 2272 PASS / 84.70s, Ruff format/lint, Bandit and secret scan clean; Blocker: awaiting merge only for specification; Handoff: [operator flow and API/evidence requirements](OPERATOR_FLOW.md); no runtime app, executable wire schema, proof adapter or frontend. Specify operator steps: load/select source, ask question, inspect plan, inspect result/evidence, follow up, recover/reset.
+- [ ] M10-01 — Status: PARTIAL; Owner: Çağatay; Branch: `docs/m10-01-operator-contract`; PR: [#110](https://github.com/cagatayeroglu/KKB-DataTrio/pull/110); Commit: `f1e8381`; Tests: document/code-contract review and local links PASS; focused backend 183 PASS / 12.82s; make quick 2272 PASS / 84.99s; make pr 2272 PASS / 84.70s, Ruff format/lint, Bandit and secret scan clean; Blocker: awaiting merge only for specification; Handoff: [operator flow and API/evidence requirements](OPERATOR_FLOW.md); no runtime app, executable wire schema, proof adapter or frontend. Specify operator steps: load/select source, ask question, inspect plan, inspect result/evidence, follow up, recover/reset.
 - [ ] M10-02 — Status: PARTIAL — dates are confirmed by DEC-131 (development to 20 September 2026; Final Day 17 October 2026) and a live deployed solution is required. Confirm the remaining demo duration, environment, audience interaction and allowed fallback assets in Q-DEMO-01/02/03 and Q-INFRA-01.
 - [ ] M10-03 — Scaffold the DEC-123 client in `web/` — Next.js, Tailwind, shadcn/ui, TanStack Table, react-plotly.js; graph-heavy React Flow presentation is deferred under DEC-128 — against the agreed API contract; record installation and runtime consequences.
 - [ ] M10-04 — Implement source upload/selection UI through validated backend boundaries.
@@ -1743,7 +1743,7 @@ An uninstructed teammate can run the agreed demo script, inspect evidence, under
 - Owner: Çağatay for M10-01 only; remaining M10 tasks unclaimed.
 - Branch: `docs/m10-01-operator-contract` (M10-01 only).
 - PR: [#110](https://github.com/cagatayeroglu/KKB-DataTrio/pull/110).
-- Commit: —
+- Commit: `f1e8381` (M10-01 specification).
 - Tests: M10-01 document review and 183 existing backend regressions PASS; UI/API tests NOT RUN because no implementation exists.
 - Benchmark: Operator rehearsal not run.
 - Notes: DEC-123 selects the frontend/API stack; M10-01 specifies the operator flow. No runtime API/UI exists. M10-02 remains PARTIAL/external; M10-03..15 are untriaged/unimplemented, not READY. M10-03 requires an agreed executable API contract, whose runtime task is absent and must be triaged separately before scaffolding. DEC-128 defers graph-heavy proof UI.
