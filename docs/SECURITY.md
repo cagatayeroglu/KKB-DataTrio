@@ -359,3 +359,7 @@ HTML never grants authority. Only the original question URL reaches unchanged sa
 ### M10 operator/API boundary requirements
 
 [M10-01](OPERATOR_FLOW.md) specifies session-scoped references, safe answer/evidence projection and bounded read-only proof requirements. No HTTP boundary is implemented or declared secure by this specification. The current default workspace, shared artifact lookup, mutable Session, pre-gate result recording and unbounded Lineage.trace must not be exposed directly. A later adapter must enforce ownership, bounds and redaction, preserve gate states and distinguish recorded source ancestry from value proof. Retention/auth/deployment questions remain open; no live service is authorized here.
+
+## Product tool boundary (DEC-133)
+
+Approved target names are not executable capabilities. Expose only registered, implemented tools with closed typed arguments and typed results, bounded execution and trusted reference checks. The planned `catalog_search` reads trusted catalog/index state only: no model-supplied SQL, filesystem path or network URL; no mutation or implicit external loading. Treat labels, aliases and source metadata as untrusted data, including instruction-looking text. Return only catalog-backed metadata; unknowns remain unknown. Semantic/security guards, lineage and verifier/gate remain mandatory harness layers, never optional planner calls. Later product tools must meet these same controls before registration; this rule does not claim unfinished executor output/reference checks already exist.

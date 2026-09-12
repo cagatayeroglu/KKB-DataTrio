@@ -323,3 +323,9 @@ Synthetic inline HTML and fake fetch/provider fixtures cover Turkish UTF-8/BOM, 
 ### M10-01 operator specification
 
 [OPERATOR_FLOW](OPERATOR_FLOW.md) defines the operator happy path, abstention, tool/source failure, follow-up and reset limitations. Acceptance here is document/code-contract review, not a UI rehearsal or API test. Its final section enumerates offline API/session/table/proof/SSE security tests for the later runtime implementation. Existing session, verifier and lineage regressions support backend facts only; no app/health/HTTP/SSE surface is claimed.
+
+## Catalog tool acceptance (DEC-133)
+
+M13-04 owns the planned `catalog_search` callable; tests are not yet implemented. Reuse M13 cases and reviewed catalog/alias versions rather than inventing live source IDs. Before delivery cover exact aliases and shared Turkish/punctuation/case normalization; multiple plausible candidates; source/frequency/archive filtering (archive excluded by policy); stable IDs and explicit unknowns; preserved stock/flow and rate/amount distinctions; deterministic ordering/caps; empty query, no-match and no fabricated records. Catalog injection-looking text remains inert. Reject unknown arguments and planned/unknown tools, expose only registered implementations, and regress the existing base tools. Offline synthetic test records must be labelled synthetic and never promoted to a trusted runtime catalog.
+
+Measure lexical-only, dense-only and combined retrieval under DEC-130 separately; an offline lexical stage is not hybrid acceptance. Validate dimension/config if dense is used. No live access is required or authorized by these tests. Later tool acceptance must preserve mandatory semantics, security, lineage and verification; `data_quality` and `reconcile_sources` do not make those layers optional. No benchmark or new-tool implementation is claimed by this documentation update.

@@ -32,7 +32,7 @@ The stack is selected in DECISIONS and is not re-argued here: DuckDB with Parque
 ```text
   6. Trust layer          lineage graph + verifier            -> components 10, 12
   5. Agent core           planner / router / executor         -> components 1, 3, 4
-  4. Tool layer           the six brief-named tools           -> components 4, 9
+  4. Tool layer           six base + five planned additions  -> components 4, 9
   3. Semantic layer       catalog, hybrid baseline, aliases  -> component 13
   2. Lakehouse            DuckDB + Parquet, bronze/silver/gold -> component 12
   1. Ingest               BDDK bulletins, EVDS API, uploads   -> components 5, 6, 7
@@ -174,7 +174,7 @@ CONFIRMED: [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-an
 
 CURRENTLY IMPLEMENTED: [AnalyticalPlan](../src/kkb_agent/agent/plan.py) contains `question` and `steps`; each step has `step_id`, `tool`, `arguments` and `depends_on`. The initial `Session.plan` system prompt includes this model's JSON schema via `schema_instructions`, the same renderer used by schema repair (M5-19); registry-owned argument schemas appear once beside it. This supplies the contract before the first response without changing validation or retry budgets. No workspace/source text is added to system instructions. [validate_plan](../src/kkb_agent/agent/executor.py) checks registered names and argument schemas, duplicate/self/unknown dependencies, cycles and step limits, then topologically orders the steps. It does not resolve workspace/data-reference ownership, require declared output types or enforce financial semantics. Those remain target checks; a parsed plan is not a proof of them.
 
-### 4. Tool registry and executor — CONFIRMED tool set (DEC-121)
+### 4. Tool registry and executor — approved target (DEC-121/133)
 
 - Responsibility: Map approved names to deterministic implementations, validate argument schemas, apply limits, and record structured outcomes.
 - Input: Validated plan steps, typed arguments, permitted workspace references, configured budgets.
@@ -184,6 +184,28 @@ CURRENTLY IMPLEMENTED: [AnalyticalPlan](../src/kkb_agent/agent/plan.py) contains
 - Validation expectations: Registry uniqueness, validation-before-dispatch, failure categorization, retry limits, stale-reference rejection, and valid/failed workspace effects.
 
 CURRENTLY IMPLEMENTED: [ToolSpec / ToolRegistry](../src/kkb_agent/agent/registry.py) own names, Pydantic argument schemas and callable dispatch. [ToolResult](../src/kkb_agent/agent/executor.py) carries `status`, `step_id`, `tool`, an untyped `output`, error category, recoverability, warnings and optional lineage `evidence`. Statuses are success/failure/partial/not_run. Failure requires a category and success forbids one. Five tools have implementations: `lakehouse`, `change_detection`, `anomaly`, `causality` (association/lag) and `web_url`, whose `output` is a `WebUrlOutput` — a loaded table or PDF document, or a fixed reason; only when the planner names one cell by column header and row label does it also carry a `LEVEL` `AnalyticalResult` (M7-18). The lakehouse `output` is a `LakehouseOutput` pairing an M6-01 `AnalyticalResult` with the rows behind it; `output` itself stays `object`, so the typing is the tool's discipline rather than the executor's. A successful call that established no measurement stays SUCCESS and reports the reason as a warning — the query ran, and conflating that with a failure would hide which of the two happened. Output-reference/ownership validation remains target work. `Session.answer` integrates workspace values and verification, while lower-level execution alone is not an answer gate.
+
+### Approved tool surface
+
+[DEC-133](DECISIONS.md#dec-133--eleven-tool-product-target-and-mandatory-harness) approves this eleven-tool target. Status describes callable delivery, not everything suggested by a name. Factories exist for five base tools; each Session sees only the tools actually registered in that instance. The current six-name registry allowlist is unchanged by this documentation decision and must be extended only with a tested implementation.
+
+| Tool | Status | Delivered scope or planned responsibility |
+| --- | --- | --- |
+| `lakehouse` | IMPLEMENTED, bounded scope | Restricted read-only SQL and typed result/provenance output; not full replay/proof |
+| `web_search` | PLANNED | Source discovery; no callable implementation |
+| `web_url` | IMPLEMENTED, bounded scope | Guarded CSV/XLSX/PDF/static HTML and exact-cell evidence; bounded offline OCR fallback; no browser/JS or general image-address extraction |
+| `anomaly` | IMPLEMENTED, bounded scope | Existing deterministic method subset; not every anomaly technique |
+| `causality` | IMPLEMENTED, bounded scope | Association, lag and Granger precedence with stated limits; not causal identification |
+| `change_detection` | PARTIAL | Callable period `compare`; breakpoint/trend-break methods remain absent |
+| `catalog_search` | PLANNED | Natural-language query to bounded ranked trusted CatalogRecord candidates; M13-04 |
+| `series_inspect` | PLANNED | Inspect one trusted stable series ID and declared semantics/coverage/aggregation constraints; M13-13 |
+| `table_transform` | PLANNED | Explicit deterministic operations on trusted references, preserving existing columns/state/lineage; M5-20 |
+| `data_quality` | PLANNED | Coverage/missingness/duplicates/frequency diagnostics and known stale/archive warnings; M1-12 |
+| `reconcile_sources` | PLANNED | Compare trusted measures with unit/scale/period/frequency/semantic checks; M8-09 |
+
+Every additional tool must define closed typed input and output contracts before registration. Query/filter/candidate limits reuse existing metadata enums; unknown or unavailable fields remain explicit. Candidate IDs, labels, unit/scale, frequency, stock/flow/cumulative kind, archive state and aggregation/coverage declarations come from trusted catalog state. Concept families and observation-kind metadata may be returned only when represented by reviewed source-backed contracts; retrieval must not manufacture them. Multiple plausible candidates remain multiple candidates, not a silently authoritative top-1.
+
+The planner receives only registered implementations through `ToolRegistry.descriptions`; proposed names and operations stay out of runtime prompts until implemented. Executor argument validation and limits remain mandatory. Material calculations are deterministic; source/model text is untrusted. Semantic guards, security guards, lineage recording and verifier/gate run as harness requirements, never optional `semantic_guard`, `security_guard`, `lineage_recorder` or `verifier` calls. `proof` stays API/UI over the existing graph; `document_search` is excluded. Typed output validation/ownership gaps described above remain work, not a completed capability.
 
 ### 5. Source discovery and adapters — CONFIRMED abstraction
 
@@ -429,7 +451,7 @@ Extension rules:
 4. New file format: confirm scope, guard/parser limits and fragment provenance, then add supported/unsupported/hostile cases.
 5. New persistence/UI/orchestration dependency: resolve the relevant decision with a small tested requirement first.
 
-Decided as of M0-ARCH and no longer open here: orchestration (DEC-113), analytical engine and lakehouse (DEC-112), spreadsheet paths (DEC-111, DEC-114), hybrid catalog baseline and benchmark-gated extensions (DEC-116, DEC-130), workspace persistence (DEC-117), lineage (DEC-118), verification (DEC-119), causality method (DEC-120), tool surface (DEC-121), provider interface (DEC-122), API and frontend (DEC-123), dependencies (DEC-124), layout (DEC-125) and deployment topology (DEC-126).
+Decided as of M0-ARCH and no longer open here: orchestration (DEC-113), analytical engine and lakehouse (DEC-112), spreadsheet paths (DEC-111, DEC-114), hybrid catalog baseline and benchmark-gated extensions (DEC-116, DEC-130), workspace persistence (DEC-117), lineage (DEC-118), verification (DEC-119), causality method (DEC-120), tool surface (DEC-121/133), provider interface (DEC-122), API and frontend (DEC-123), dependencies (DEC-124), layout (DEC-125) and deployment topology (DEC-126).
 
 DEC-129 answers Kloudeks endpoint/auth/model availability and listed image limits. Remaining external questions cover OCR access, native tool/JSON guarantees, capacity/quotas/timeouts, the embedding prefix convention and dedicated reranker (Q-K-01..05; the key authenticated live and the embedding dimension is measured at 4096); measured retry/latency budgets; source access/redistribution (Q-DATA-01/03); demo egress (Q-NET-01/02); and runtime/storage (Q-INFRA-01/02), which can override DEC-126. Router fine-tuning and multi-agent topology stay deferred.
 
