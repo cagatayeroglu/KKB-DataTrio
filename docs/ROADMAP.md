@@ -49,11 +49,11 @@ This file owns **execution truth**. [ARCHITECTURE](ARCHITECTURE.md) owns technic
 
 ## Ordered next safe tasks
 
-Rechecked after M7-19 merged in PR #95 at `4dafc90` on 2026-09-11. M7-19's offline operator implementation is DONE and removed from the queue; one live public CSV acceptance subsequently passed on `598cdf8` ([evidence](EVALUATION.md#m7-19-live-csv-acceptance)). M7-20 is DONE after PR #97; M7-19 admission reporting is DONE (PR #99); CSV contract regression is DONE (PR #101), and M7-11 offline OCR is DONE after PR #106 (`3c0932a`); no live OCR was performed. M7-07 is DONE after PR #108 (`7b879da`); no live HTML acceptance is claimed. There are no remaining triaged READY entries. Selecting another task requires a separate scope/readiness review. The open correctness blockers D and E are not queue entries until their definitions allow triage, and M6-13 still waits on M2-14/15. Recheck published claims immediately before starting; no next task was started in this completion.
+Rechecked after M7-19 merged in PR #95 at `4dafc90` on 2026-09-11. M7-19's offline operator implementation is DONE and removed from the queue; one live public CSV acceptance subsequently passed on `598cdf8` ([evidence](EVALUATION.md#m7-19-live-csv-acceptance)). M7-20 is DONE after PR #97; M7-19 admission reporting is DONE (PR #99); CSV contract regression is DONE (PR #101), and M7-11 offline OCR is DONE after PR #106 (`3c0932a`); no live OCR was performed. M7-07 is DONE after PR #108 (`7b879da`); no live HTML acceptance is claimed. The 2026-09-12 M10 triage selects M10-01 specification as the first task; claimed below. No other task is started. The open correctness blockers D and E are not queue entries until their definitions allow triage, and M6-13 still waits on M2-14/15. Recheck published claims immediately before starting; no next task was started in this completion.
 
 | Order | Task / status | Satisfied prerequisites | Acceptance / handoff |
 | --- | --- | --- | --- |
-| — | No triaged READY task | — | Re-triage separately; do not treat recommendations or untriaged backlog as READY. |
+| 1 | M10-01 — IN PROGRESS; Çağatay; `docs/m10-01-operator-contract` | Existing backend slice; DEC-123 stack confirmed; spec does not depend on deployment answers | Operator steps and safe API/proof requirements; runtime/UI remain separate work. |
 
 Completed M1-06, M3-04, M13-01/03, M5-01/10/11/12/19, M6-01/02/03/04/05/06/07/08/09/10/11/21/22/23/24, M0-08, M4-07/12/15, M7-04/07/08/09/10/11/17/18/19 and M8-06/10/17/18/19/20 are excluded. M8-07 stays PARTIAL for transformation prerequisites. M13 alias/holdout authoring follows catalog/normalizer contracts. PRs #57/59 deliver the M13-01 catalog record and M13-03 shared normalizer only; M12's remaining calendar/vintage/conversion/lineage acceptance and M13's unimplemented retrieval remain unchanged. PARTIAL scopes Eray held are now Çağatay's by the handover above; other owned PARTIAL scopes are not automatically released for takeover.
 
@@ -1718,7 +1718,7 @@ A minimal M1/M4/M5/M6/M8 slice for live integration; confirmed demo environment/
 
 ## Tasks
 
-- [ ] M10-01 — Specify operator steps: load/select source, ask question, inspect plan, inspect result/evidence, follow up, recover/reset.
+- [ ] M10-01 — Status: IN PROGRESS; Owner: Çağatay; Branch: `docs/m10-01-operator-contract`; PR/Commit: pending; Tests: NOT RUN; Blocker: none for specification; Handoff: publish operator flow and API/evidence requirements only; no runtime app or frontend. Specify operator steps: load/select source, ask question, inspect plan, inspect result/evidence, follow up, recover/reset.
 - [ ] M10-02 — Status: PARTIAL — dates are confirmed by DEC-131 (development to 20 September 2026; Final Day 17 October 2026) and a live deployed solution is required. Confirm the remaining demo duration, environment, audience interaction and allowed fallback assets in Q-DEMO-01/02/03 and Q-INFRA-01.
 - [ ] M10-03 — Scaffold the DEC-123 client in `web/` — Next.js, Tailwind, shadcn/ui, TanStack Table, react-plotly.js; graph-heavy React Flow presentation is deferred under DEC-128 — against the agreed API contract; record installation and runtime consequences.
 - [ ] M10-04 — Implement source upload/selection UI through validated backend boundaries.
