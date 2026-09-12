@@ -1,4 +1,7 @@
-"""The six brief-named tools. Five exist; `web_search` does not."""
+"""Six brief-named tool factories; web_search requires an explicitly injected backend.
+
+No production search adapter or default fake is included (DEC-134).
+"""
 
 from kkb_agent.tools.anomaly import AnomalyArguments, make_anomaly_tool
 from kkb_agent.tools.causality import CausalityArguments, make_causality_tool
@@ -20,6 +23,16 @@ from kkb_agent.tools.lakehouse import (
     referenced_tables,
     run_query,
 )
+from kkb_agent.tools.web_search import (
+    BackendHit,
+    SearchBackend,
+    SearchCandidate,
+    SearchCode,
+    SearchReply,
+    SearchRequest,
+    WebSearchOutput,
+    make_web_search_tool,
+)
 from kkb_agent.tools.web_url import (
     WebUrlArguments,
     WebUrlOutput,
@@ -28,6 +41,14 @@ from kkb_agent.tools.web_url import (
 )
 
 __all__ = [
+    "BackendHit",
+    "SearchBackend",
+    "SearchCandidate",
+    "SearchCode",
+    "SearchReply",
+    "SearchRequest",
+    "WebSearchOutput",
+    "make_web_search_tool",
     "DEFAULT_MAX_ROWS",
     "AnomalyArguments",
     "CausalityArguments",
