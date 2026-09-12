@@ -63,6 +63,8 @@ No implementation is claimed by this decision update. M13-08 is prerequisite rev
 
 ## Ordered next safe tasks
 
+Current override (2026-09-12): **M7-21 is claimed by Çağatay** on `docs/m7-21-web-search-provider-decision` for documentation-only provider/API decision work. It is not a runtime implementation claim. No READY implementation task is added; provider selection remains unresolved. The completion narrative below is historical.
+
 Rechecked after M7-19 merged in PR #95 at `4dafc90` on 2026-09-11. M7-19's offline operator implementation is DONE and removed from the queue; one live public CSV acceptance subsequently passed on `598cdf8` ([evidence](EVALUATION.md#m7-19-live-csv-acceptance)). M7-20 is DONE after PR #97; M7-19 admission reporting is DONE (PR #99); CSV contract regression is DONE (PR #101), and M7-11 offline OCR is DONE after PR #106 (`3c0932a`); no live OCR was performed. M7-07 is DONE after PR #108 (`7b879da`); no live HTML acceptance is claimed. The 2026-09-12 M10 triage selected M10-01 specification as the first task; it is DONE after PR #110 merged at `964d107`. No triaged READY entry remains. No other task is started. The open correctness blockers D and E are not queue entries until their definitions allow triage, and M6-13 still waits on M2-14/15. Recheck published claims immediately before starting; no next task was started in this completion.
 
 | Order | Task / status | Satisfied prerequisites | Acceptance / handoff |
@@ -1274,6 +1276,8 @@ M1 ingestion contract, M2 relevant semantics, SEC-URL-01 and SEC-FILE-01/02 befo
 - [x] M7-19 — Status: DONE (offline operator implementation); Owner: Çağatay; Branch: `feature/m7-19-document-check`; a live run needs owner approval — added and triaged at the 2026-09-11 handover (queue order 1) under the M4-15 precedent. An operator command that registers `web_url` bound to the lakehouse lineage beside the four analytical tools and runs one prompt-supplied-URL question through `Session.answer` with the live provider, reporting each stage; offline tests first.
 
 - [x] M7-20 — Status: DONE; Owner: Çağatay; Branch: `fix/m7-20-operator-fetch-code`. Preserve existing safe `FetchCode` in the document operator report; no new taxonomy or user-answer behavior. Triaged from the authorized M7-19 diagnostic follow-up: prerequisites M7-01/17/19 are merged, no competing claim or external decision blocks offline work.
+
+- [ ] M7-21 — Status: IN PROGRESS; Owner: Çağatay; Branch: `docs/m7-21-web-search-provider-decision`, from `ad7292e`; PR/Commit: pending. Objective: select and document the explicitly approved `web_search` provider/API contract and bounded implementation plan. Scope is documentation only; task creation/claim authorized by Çağatay on 2026-09-12. Acceptance: approved provider and official API evidence; endpoint/method/auth/config, supported inputs/outputs, limits/errors, network/privacy and discovery-to-fetch boundary; a separate blocked implementation task with offline acceptance. Tests: NOT RUN (claim only). Blocker: no provider has been selected; awaiting explicit team choice or direction to compare candidates. Handoff: publish this claim as a draft PR; no live search, credentials inspection, runtime backend or second task. Do not call this decision complete until the provider contract is actually approved and recorded.
 
 ### M7-20 operator fetch-code bug record
 
