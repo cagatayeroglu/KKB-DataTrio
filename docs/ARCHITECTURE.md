@@ -10,7 +10,7 @@ This file owns technical structure and contracts. [ROADMAP](ROADMAP.md) owns del
 - **BLOCKED BY EXTERNAL ANSWER** names the organizer/platform dependency in OPEN_QUESTIONS.
 - **DEFERRED** is outside the core slice unless a later explicit scope decision changes it.
 
-The implemented spine includes bounded file admission, CSV/XLSX loading and safe GET with validated redirects, DuckDB/Parquet storage and financial semantics, typed results, the Kloudeks transport (tested offline; one authorized live smoke and one live end-to-end question passed), validated planning/execution, content-addressed workspace values and multi-result answer gating. Six brief tool factories exist (search is offline-only): `lakehouse`, `change_detection` (comparison), `anomaly`, `causality` (association, lag and Granger precedence), `web_search` with an explicitly injected backend, and `web_url`, which reads a CSV/XLSX table, a PDF's text and ruled tables, or bounded static HTML text/tables at an address the user wrote, and can return one named cell as a result the answer gate binds. Synthetic tests compose an end-to-end answer with a scripted model. Live source adapters, provider retries and limits, CSV/XLSX profiling, catalog retrieval, breakpoint detection, complete proof/replay, production `web_search`, `web_url`'s JavaScript-rendered/image-address extraction, evaluation runner, UI and deployment remain incomplete. Day 0 drafts remain outside the shared runtime.
+The implemented spine includes bounded file admission, CSV/XLSX loading and safe GET with validated redirects, DuckDB/Parquet storage and financial semantics, typed results, the Kloudeks transport (tested offline; one authorized live smoke and one live end-to-end question passed), validated planning/execution, content-addressed workspace values and multi-result answer gating. Seven callable factories exist: M13-04 `catalog_search` plus the six brief tools (search is offline-only): `lakehouse`, `change_detection` (comparison), `anomaly`, `causality` (association, lag and Granger precedence), `web_search` with an explicitly injected backend, and `web_url`, which reads a CSV/XLSX table, a PDF's text and ruled tables, or bounded static HTML text/tables at an address the user wrote, and can return one named cell as a result the answer gate binds. Synthetic tests compose an end-to-end answer with a scripted model. Live source adapters, provider retries and limits, CSV/XLSX profiling, full hybrid/catalog coverage, breakpoint detection, complete proof/replay, production `web_search`, `web_url`'s JavaScript-rendered/image-address extraction, evaluation runner, UI and deployment remain incomplete. Day 0 drafts remain outside the shared runtime.
 
 ## Goals and non-goals
 
@@ -32,7 +32,7 @@ The stack is selected in DECISIONS and is not re-argued here: DuckDB with Parque
 ```text
   6. Trust layer          lineage graph + verifier            -> components 10, 12
   5. Agent core           planner / router / executor         -> components 1, 3, 4
-  4. Tool layer           six base + catalog_search + four planned additions  -> components 4, 9
+  4. Tool layer           six base + catalog_search + planned table_transform  -> components 4, 9
   3. Semantic layer       catalog, hybrid baseline, aliases  -> component 13
   2. Lakehouse            DuckDB + Parquet, bronze/silver/gold -> component 12
   1. Ingest               BDDK bulletins, EVDS API, uploads   -> components 5, 6, 7
@@ -183,11 +183,11 @@ CURRENTLY IMPLEMENTED: [AnalyticalPlan](../src/kkb_agent/agent/plan.py) contains
 - Likely failures: Invalid schema, tool timeout, empty data, numerical precondition failure, unknown semantics, resource exhaustion.
 - Validation expectations: Registry uniqueness, validation-before-dispatch, failure categorization, retry limits, stale-reference rejection, and valid/failed workspace effects.
 
-CURRENTLY IMPLEMENTED: [ToolSpec / ToolRegistry](../src/kkb_agent/agent/registry.py) own names, Pydantic argument schemas and callable dispatch. [ToolResult](../src/kkb_agent/agent/executor.py) carries `status`, `step_id`, `tool`, an untyped `output`, error category, recoverability, warnings and optional lineage `evidence`. Statuses are success/failure/partial/not_run. Failure requires a category and success forbids one. Five tools have implementations: `lakehouse`, `change_detection`, `anomaly`, `causality` (association/lag) and `web_url`, whose `output` is a `WebUrlOutput` — a loaded table or PDF document, or a fixed reason; only when the planner names one cell by column header and row label does it also carry a `LEVEL` `AnalyticalResult` (M7-18). The lakehouse `output` is a `LakehouseOutput` pairing an M6-01 `AnalyticalResult` with the rows behind it; `output` itself stays `object`, so the typing is the tool's discipline rather than the executor's. A successful call that established no measurement stays SUCCESS and reports the reason as a warning — the query ran, and conflating that with a failure would hide which of the two happened. Output-reference/ownership validation remains target work. `Session.answer` integrates workspace values and verification, while lower-level execution alone is not an answer gate.
+CURRENTLY IMPLEMENTED: [ToolSpec / ToolRegistry](../src/kkb_agent/agent/registry.py) own names, Pydantic argument schemas and callable dispatch. [ToolResult](../src/kkb_agent/agent/executor.py) carries `status`, `step_id`, `tool`, an untyped `output`, error category, recoverability, warnings and optional lineage `evidence`. Statuses are success/failure/partial/not_run. Failure requires a category and success forbids one. Seven factories have implementations, including offline `web_search` and `catalog_search` alongside `lakehouse`, `change_detection`, `anomaly`, `causality` (association/lag) and `web_url`, whose `output` is a `WebUrlOutput` — a loaded table or PDF document, or a fixed reason; only when the planner names one cell by column header and row label does it also carry a document-bound `AnalyticalResult` (M7-18 and DEC-132 literal-source policy). The lakehouse `output` is a `LakehouseOutput` pairing an M6-01 `AnalyticalResult` with the rows behind it; `output` itself stays `object`, so the typing is the tool's discipline rather than the executor's. A successful call that established no measurement stays SUCCESS and reports the reason as a warning — the query ran, and conflating that with a failure would hide which of the two happened. Output-reference/ownership validation remains target work. `Session.answer` integrates workspace values and verification, while lower-level execution alone is not an answer gate.
 
 ### Approved tool surface
 
-[DEC-133](DECISIONS.md#dec-133--eleven-tool-product-target-and-mandatory-harness) approves this eleven-tool target. Status describes callable delivery, not everything suggested by a name. Factories exist for six base tools and M13-04 catalog_search; each Session sees only explicitly registered tools. DEC-133 extends the runtime allowlist only for this tested product implementation; four later additions remain unavailable.
+[DEC-135](DECISIONS.md#dec-135--planner-actions-and-mandatory-correctness-harness) supersedes DEC-133’s planner-callable portion with the eight-tool target below. Seven factories are implemented; `table_transform` is planned. Each Session sees only explicitly registered implementations. No runtime allowlist or registration changes are made by this decision.
 
 | Tool | Status | Delivered scope or planned responsibility |
 | --- | --- | --- |
@@ -198,14 +198,25 @@ CURRENTLY IMPLEMENTED: [ToolSpec / ToolRegistry](../src/kkb_agent/agent/registry
 | `causality` | IMPLEMENTED, bounded scope | Association, lag and Granger precedence with stated limits; not causal identification |
 | `change_detection` | PARTIAL | Callable period `compare`; breakpoint/trend-break methods remain absent |
 | `catalog_search` | OFFLINE IMPLEMENTED | Natural-language query to bounded ranked trusted CatalogRecord candidates; M13-04 |
-| `series_inspect` | PLANNED | Inspect one trusted stable series ID and declared semantics/coverage/aggregation constraints; M13-13 |
 | `table_transform` | PLANNED | Explicit deterministic operations on trusted references, preserving existing columns/state/lineage; M5-20 |
-| `data_quality` | PLANNED | Coverage/missingness/duplicates/frequency diagnostics and known stale/archive warnings; M1-12 |
-| `reconcile_sources` | PLANNED | Compare trusted measures with unit/scale/period/frequency/semantic checks; M8-09 |
 
 Every additional tool must define closed typed input and output contracts before registration. Query/filter/candidate limits reuse existing metadata enums; unknown or unavailable fields remain explicit. Candidate IDs, labels, unit/scale, frequency, stock/flow/cumulative kind, archive state and aggregation/coverage declarations come from trusted catalog state. Concept families and observation-kind metadata may be returned only when represented by reviewed source-backed contracts; retrieval must not manufacture them. Multiple plausible candidates remain multiple candidates, not a silently authoritative top-1.
 
 The planner receives only registered implementations through `ToolRegistry.descriptions`; proposed names and operations stay out of runtime prompts until implemented. Executor argument validation and limits remain mandatory. Material calculations are deterministic; source/model text is untrusted. Semantic guards, security guards, lineage recording and verifier/gate run as harness requirements, never optional `semantic_guard`, `security_guard`, `lineage_recorder` or `verifier` calls. `proof` stays API/UI over the existing graph; `document_search` is excluded. Typed output validation/ownership gaps described above remain work, not a completed capability.
+
+### Mandatory correctness harness
+
+The planner selects user-intent-dependent actions. The following triggers are system obligations under DEC-135, not optional tool calls:
+
+| Trigger | Required capability | Delivery boundary |
+| --- | --- | --- |
+| Financial series selected | Deterministic series_inspect: trusted source/ID, frequency, unit/scale, archive, stock/flow/rate, aggregation and coverage | M13-13 future wiring; unavailable metadata stays unknown |
+| Observations retrieved for analysis | Deterministic data_quality: bounded missing-period/coverage/gap/frequency/validity checks and supported stale/archive evidence before analysis-ready | M1-12 future wiring; never model confidence |
+| Financial transformation | Semantic compatibility guard | Existing semantic guard layer; remaining operation/prerequisite gaps stay explicit |
+| Multiple trusted sources/results support the same measure | Conditional deterministic/hybrid reconcile_sources over semantics, period, frequency, unit, scale and values | M8-09 future wiring; CONSISTENT / DIFFERENT / NOT_COMPARABLE / NEEDS_TRANSFORM / NEEDS_INPUT |
+| Numeric final claim | Lineage/evidence binding and verifier/gate | Existing result-bound path; a citation or metadata candidate alone is not measurement proof |
+
+The LLM must not skip correctness-critical checks. The first, second and fourth rows are required architecture, **not implemented automatic integrations**. Existing guards/security/lineage/verifier remain mandatory system layers; no unfinished control is declared complete. A later explicit user comparison could expose reconciliation if separately designed, without making its correctness trigger discretionary.
 
 ### Web search implementation plan (M7-21/22)
 
@@ -215,7 +226,7 @@ IMPLEMENTED offline contract: [DEC-134](DECISIONS.md#dec-134--provider-neutral-w
 
 FakeSearchBackend exists only for deterministic offline tests. The real production adapter remains absent until separately selected, configured and validated; no default fake backend, automatic provider selection or fallback. M7-22 requires no API key, account or external call. Execution must bound query/result sizes, candidate count, response handling and backend time; map timeout/malformed replies/backend errors to fixed safe outcomes. Validate output before exposure, exclude unsafe URLs, deduplicate deterministically, preserve missing metadata and strip sensitive locator material without granting a new destination permission. Snippets/titles remain inert untrusted data and never become verified AnalyticalResults merely by being returned.
 
-`web_url` still requires the exact URL in the original user question (`addresses_in` / `URL_NOT_IN_QUESTION`). Discovery never authorizes a later fetch, nor weakens safe-fetch DNS/TLS/redirect checks. Registry/planner expose only implemented tools; schema validation, security controls, lineage and verifier/gate remain mandatory. DEC-133's catalog_search is now implemented offline; the four later additions remain unregistered.
+`web_url` still requires the exact URL in the original user question (`addresses_in` / `URL_NOT_IN_QUESTION`). Discovery never authorizes a later fetch, nor weakens safe-fetch DNS/TLS/redirect checks. Registry/planner expose only implemented tools; schema validation, security controls, lineage and verifier/gate remain mandatory. M13-04 catalog_search is implemented offline; table_transform remains unregistered. DEC-135 inspection, quality and reconciliation are future harness integrations, not additional normal planner tools.
 
 The callable factory is `make_web_search_tool(backend=..., timeout_seconds=5.0)`, registered explicitly on a ToolRegistry. The injected trusted adapter must be spawn-serializable and implement `search(SearchRequest) -> SearchReply`. No changes to planner schemas are needed to replace the backend. There is no automatic registration in operator live commands.
 
@@ -223,7 +234,7 @@ Input permits only `query` (1–512 characters, nonblank, no controls) and `max_
 
 One spawned worker bounds backend time (default 5 s including startup; operator maximum 30 s), is terminated/reaped on deadline, suppresses backend stdout/stderr, and returns validated JSON capped at 64 KiB. Typed fields bound serialization before projection; the future adapter must also bound wire I/O before constructing a reply. This is not a sandbox for untrusted adapter code. Existing offline URL policy excludes unsafe targets without DNS/network access. Canonical display locators strip query/fragment, flag this loss, and deduplicate first-ranked hits conservatively; distinct query resources may collapse. Redacted locators are not equivalent fetch targets. No public-DNS claim is made, and a later authorized fetch still needs full safe_fetch validation.
 
-Offline acceptance covers valid/empty/oversized queries, zero results, caps/order/duplicates, malformed replies, backend timeout/error redaction, unsafe URLs, missing metadata, injection-looking text, credential/config isolation, unknown args, planner discovery-vs-fetch distinction and regressions for the five existing tools. Only test-injected backends run.
+Offline acceptance covers valid/empty/oversized queries, zero results, caps/order/duplicates, malformed replies, backend timeout/error redaction, unsafe URLs, missing metadata, injection-looking text, credential/config isolation, unknown args, planner discovery-vs-fetch distinction and regressions for the five pre-M7-22 tools; M13-04 subsequently verifies seven-factory coexistence. Only test-injected backends run.
 
 **Before final submission/demo acceptance, at least one real production search backend must be configured and a live hidden-like web search smoke must PASS.** The separately triaged [production acceptance record](ROADMAP.md#web-search-production-acceptance) must cover official endpoint/auth/config, retention/privacy, network policy, real adapter and sanitized unseen-query evidence. Q-NET-01/02 remain open. Offline completion alone never satisfies production acceptance.
 
@@ -395,7 +406,9 @@ TARGET adapters must retrieve/catalog series identifiers instead of hard-coding 
 
 ### 13. Semantic catalog and retrieval — confirmed baseline; benchmark-gated extensions
 
-TARGET under [DEC-130](DECISIONS.md#dec-130--initial-hybrid-retrieval-baseline), superseding DEC-127; DEC-115 remains historical. No retrieval implementation currently exists.
+DEC-135 separates trusted **local/versioned catalog metadata and discovery** from **runtime observation retrieval through approved source adapters**, when available. catalog_search consumes reviewed catalog state; it does not fetch observations or invent IDs. The M13-08 demo snapshot is not a permanent full-catalog ceiling: reviewed aliases are precision shortcuts, not the only catalog knowledge. Broader versioned BDDK/EVDS metadata coverage is intended later and remains unimplemented; unseen concepts may use catalog retrieval without an exact alias, while unsupported identities remain unresolved.
+
+TARGET under [DEC-130](DECISIONS.md#dec-130--initial-hybrid-retrieval-baseline), superseding DEC-127; DEC-115 remains historical. M13-04 supplies the reviewed offline lexical stage; dense and full hybrid retrieval remain unimplemented.
 
 Mandatory HYBRID baseline: one Turkish normalizer shared by query/index paths, reviewed aliases/concept families, metadata filters, lexical/BM25 and dense semantic retrieval using the organizer's Qwen3-Embedding-8B (exact model/endpoint in DEC-129). LanceDB remains the selected lightweight series-vector index. Dense retrieval starts in the baseline without waiting for lexical failure or a prior gain measurement. Candidates retain IDs, original titles, source, unit/scale/frequency, coverage and archived/unknown flags. Exact aliases do not bypass ambiguity or semantic checks.
 

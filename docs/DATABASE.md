@@ -183,6 +183,6 @@ Foreign keys are declared for readability. DuckDB enforces them, but the applica
 
 ## What is not here yet
 
-The series catalog and its search indexes ([M13](ROADMAP.md#m13)) will add DuckDB tables for series metadata and the alias dictionary, plus a DuckDB full-text index. Vectors live in LanceDB, outside this file, under [DEC-115](DECISIONS.md#dec-115--hybrid-series-retrieval-over-lancedb-and-duckdb-fts). Evaluation results ([M9](ROADMAP.md#m9)) and a turn log will add tables here. No second relational database is planned.
+Catalog discovery ([M13](ROADMAP.md#m13)) currently uses the M13-08 versioned local reviewed JSON snapshot and M13-04 in-memory pure-Python BM25; no DuckDB FTS extension/index was installed. [DEC-135](DECISIONS.md#dec-135--planner-actions-and-mandatory-correctness-harness) separates catalog metadata from approved runtime observation paths. A broader versioned BDDK/EVDS metadata snapshot remains future work; its storage expansion is not delivered or selected here. Mandatory dense retrieval with the retained LanceDB choice remains planned under DEC-130; DEC-115 is historical/superseded. Evaluation results ([M9](ROADMAP.md#m9)) and a turn log will add tables here. No second relational database is planned.
 
 Revisions and source vintages ([M12-12](ROADMAP.md#m12)) are unresolved: `silver_observations` currently permits one value per period, and whether BDDK or EVDS restate a published figure has not been tested.

@@ -70,8 +70,17 @@ The exact key `konut kredisi` belongs to both the generic and balance concepts. 
 
 `tests/unit/test_catalog_mappings.py` pins the real ID set and repository evidence, validates ambiguity, unknowns, group-vs-series boundaries, family exclusions, normalization, deterministic serialization and hostile/inconsistent inputs. It is development validation only. No M13-09 query-to-series holdout is authored or consumed.
 
+## Current catalog boundary
+
+DEC-135 retains this reviewed local/versioned artifact as demo input, not the
+entire final BDDK/EVDS catalog. Aliases are precision shortcuts rather than the
+only catalog knowledge. Broader reviewed metadata coverage remains future work;
+observation retrieval belongs to approved runtime source adapters. Neither path
+may invent identities. M13-04 is now DONE for bounded offline lexical retrieval;
+see [the delivered catalog_search contract](CATALOG_SEARCH.md).
+
 ## Handoff to M13-04
 
-After this task merges, the reviewed mapping and usable bounded CatalogRecord input prerequisites for **offline demo-scope M13-04** are satisfied. M13-04 still implements its own bounded typed tool, lexical/BM25 and metadata filters. Review DuckDB FTS extension/index requirements without relaxing the existing hardened lakehouse connection; no index design is selected here. This snapshot cannot resolve BDDK/CPI questions or claim full-source coverage.
+**Historical handoff at M13-08 delivery:** After this task merges, the reviewed mapping and usable bounded CatalogRecord input prerequisites for **offline demo-scope M13-04** are satisfied. M13-04 still implements its own bounded typed tool, lexical/BM25 and metadata filters. Review DuckDB FTS extension/index requirements without relaxing the existing hardened lakehouse connection; no index design is selected here. This snapshot cannot resolve BDDK/CPI questions or claim full-source coverage.
 
 DEC-130 remains unchanged: M13-05 dense retrieval is required for full hybrid acceptance; RRF/reranking remain benchmark-gated. This task starts none of those stages and closes no live-access or source-use question.
