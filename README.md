@@ -99,3 +99,5 @@ Codex may perform normal fetch/switch/update/branch/commit/push/PR operations fo
 Approximately every 3–4 days, or at an important stable milestone, create a `dev -> main` PR only if the integrated state is demo-ready. Run full/release checks there; do not update `main` after every task or promote an unstable candidate to meet a calendar date.
 
 Progress belongs in ROADMAP, reasons in DECISIONS, and missing answers in OPEN_QUESTIONS. If current status conflicts with Git/merged PR evidence, stop automatic selection and reconcile it. Update the owning technical/decision document when its contract changes; leave enough short evidence that another teammate can resume without chat history.
+
+M10 starts with the [operator-flow specification](docs/OPERATOR_FLOW.md): source selection, question, progress, gated answer, evidence, follow-up and recovery. FastAPI/SSE, executable API schemas and the Next.js UI are still unimplemented; this is not an API startup command.

@@ -319,3 +319,7 @@ Synthetic PDFs and mocked HTTP/provider responses exercise native-text priority,
 ### M7-07 offline static HTML acceptance
 
 Synthetic inline HTML and fake fetch/provider fixtures cover Turkish UTF-8/BOM, entities/block text, th/td and multiple tables, missing cells, deterministic fragments, span/nested/ragged/malformed refusals, inactive elements/attributes/resources, prompt injection, meta refresh, charset policy, depth/text/cell/row/column/table/input/worker limits, empty JS shells and safe operator errors. Real Session.answer/lineage/verifier tests require exact HTML cell binding for DEC-132 literal quotation; inferred USD/scale/interpretation and ambiguous table matches fail. Captions do not grant financial semantics. Existing CSV/XLSX/PDF/OCR/safe-fetch regressions remain required. Static placeholder text is not a verified answer; no JS execution/DOM repair/CSS layout or live HTML acceptance is claimed. Future live source checks require separate approval.
+
+### M10-01 operator specification
+
+[OPERATOR_FLOW](OPERATOR_FLOW.md) defines the operator happy path, abstention, tool/source failure, follow-up and reset limitations. Acceptance here is document/code-contract review, not a UI rehearsal or API test. Its final section enumerates offline API/session/table/proof/SSE security tests for the later runtime implementation. Existing session, verifier and lineage regressions support backend facts only; no app/health/HTTP/SSE surface is claimed.
