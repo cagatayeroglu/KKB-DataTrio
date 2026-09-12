@@ -1,0 +1,1341 @@
+{
+  "schema_version": 1,
+  "snapshot_version": "m13-08-demo-v1",
+  "purpose": "demo_development",
+  "review_owner": "Çağatay",
+  "review_date": "2026-09-12",
+  "review_revision": "r1",
+  "review_pr": "https://github.com/cagatayeroglu/KKB-DataTrio/pull/117",
+  "review_note": "Explicit user-approved repository-backed scope; PR is team/owner review provenance. Not a live catalog, original source capture or M13-09 holdout. KFE display titles are inventory descriptions, not claimed verbatim provider titles.",
+  "evidence": [
+    {
+      "evidence_id": "evds_rates",
+      "path": "docs/EVDS_SOURCE.md",
+      "revision": "904e22dd9e70100e0a7b69b02aa08dffb5daa905",
+      "file_sha256": "305856eff8d5988c90773b6fc564b6879b7385aeeff0a4cd616cce056e5753eb",
+      "section": "The demo's own series are genuinely ambiguous"
+    },
+    {
+      "evidence_id": "evds_metadata",
+      "path": "docs/EVDS_SOURCE.md",
+      "revision": "904e22dd9e70100e0a7b69b02aa08dffb5daa905",
+      "file_sha256": "305856eff8d5988c90773b6fc564b6879b7385aeeff0a4cd616cce056e5753eb",
+      "section": "The catalog is the semantic layer, already built"
+    },
+    {
+      "evidence_id": "evds_archives",
+      "path": "docs/EVDS_SOURCE.md",
+      "revision": "904e22dd9e70100e0a7b69b02aa08dffb5daa905",
+      "file_sha256": "305856eff8d5988c90773b6fc564b6879b7385aeeff0a4cd616cce056e5753eb",
+      "section": "A third of the catalog is archived"
+    },
+    {
+      "evidence_id": "evds_indices",
+      "path": "docs/EVDS_SOURCE.md",
+      "revision": "904e22dd9e70100e0a7b69b02aa08dffb5daa905",
+      "file_sha256": "305856eff8d5988c90773b6fc564b6879b7385aeeff0a4cd616cce056e5753eb",
+      "section": "Base-year variants make deflation a trap"
+    },
+    {
+      "evidence_id": "bddk_monthly",
+      "path": "docs/BDDK_SOURCE.md",
+      "revision": "904e22dd9e70100e0a7b69b02aa08dffb5daa905",
+      "file_sha256": "a85c6a3c9acc5429e17734544d8a776b3eb39462ab62567771a726fc3f413df2",
+      "section": "Aylık Bülten"
+    },
+    {
+      "evidence_id": "bddk_semantics",
+      "path": "docs/BDDK_SOURCE.md",
+      "revision": "904e22dd9e70100e0a7b69b02aa08dffb5daa905",
+      "file_sha256": "a85c6a3c9acc5429e17734544d8a776b3eb39462ab62567771a726fc3f413df2",
+      "section": "The reference scenario needs a clarification, not a lookup"
+    },
+    {
+      "evidence_id": "bddk_weekly",
+      "path": "docs/BDDK_SOURCE.md",
+      "revision": "904e22dd9e70100e0a7b69b02aa08dffb5daa905",
+      "file_sha256": "a85c6a3c9acc5429e17734544d8a776b3eb39462ab62567771a726fc3f413df2",
+      "section": "Haftalık Bülten"
+    },
+    {
+      "evidence_id": "bddk_finturk",
+      "path": "docs/BDDK_SOURCE.md",
+      "revision": "904e22dd9e70100e0a7b69b02aa08dffb5daa905",
+      "file_sha256": "a85c6a3c9acc5429e17734544d8a776b3eb39462ab62567771a726fc3f413df2",
+      "section": "FinTürk"
+    }
+  ],
+  "series": [
+    {
+      "record": {
+        "series_id": "EVDS:TP.KBK.TRY.18",
+        "provider": "EVDS",
+        "source_series_id": "TP.KBK.TRY.18",
+        "title": "Konut Kredisi, (TL, Akım, %)",
+        "source": {
+          "source_id": "inventory:TP.KBK.TRY.18",
+          "source_type": "repository_inventory",
+          "locator": "repo:904e22dd9e70100e0a7b69b02aa08dffb5daa905:docs/EVDS_SOURCE.md",
+          "retrieved_at": null,
+          "content_hash": "305856eff8d5988c90773b6fc564b6879b7385aeeff0a4cd616cce056e5753eb"
+        },
+        "description": null,
+        "labels": [],
+        "group": {
+          "group_id": null,
+          "group_title": null,
+          "category_id": null,
+          "category_title": null,
+          "publisher": null
+        },
+        "status": "unknown",
+        "unit": "percent",
+        "scale": "one",
+        "frequency": "weekly",
+        "weekly_anchor": "friday",
+        "stock_flow": "rate",
+        "cumulative": "unknown",
+        "aggregation": {
+          "default": "unknown",
+          "sum": null,
+          "average": null,
+          "first": null,
+          "last": null,
+          "min": null,
+          "max": null
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_rates",
+        "evds_metadata"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "new_credit",
+      "geography": null,
+      "note": "Repository-reviewed declaration, not live validation. Missing metadata stays unknown; no calculation permission."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.KTF12",
+        "provider": "EVDS",
+        "source_series_id": "TP.KTF12",
+        "title": "Konut Kredisi (TL, Akım, %)",
+        "source": {
+          "source_id": "inventory:TP.KTF12",
+          "source_type": "repository_inventory",
+          "locator": "repo:904e22dd9e70100e0a7b69b02aa08dffb5daa905:docs/EVDS_SOURCE.md",
+          "retrieved_at": null,
+          "content_hash": "305856eff8d5988c90773b6fc564b6879b7385aeeff0a4cd616cce056e5753eb"
+        },
+        "description": null,
+        "labels": [],
+        "group": {
+          "group_id": null,
+          "group_title": null,
+          "category_id": null,
+          "category_title": null,
+          "publisher": null
+        },
+        "status": "unknown",
+        "unit": "percent",
+        "scale": "one",
+        "frequency": "weekly",
+        "weekly_anchor": "friday",
+        "stock_flow": "rate",
+        "cumulative": "unknown",
+        "aggregation": {
+          "default": "average",
+          "sum": false,
+          "average": true,
+          "first": true,
+          "last": true,
+          "min": true,
+          "max": true
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_rates",
+        "evds_metadata"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "new_credit",
+      "geography": null,
+      "note": "Repository-reviewed declaration, not live validation. Missing metadata stays unknown; no calculation permission."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.BKR.TRY.18",
+        "provider": "EVDS",
+        "source_series_id": "TP.BKR.TRY.18",
+        "title": "Konut Kredisi (TL, Stok, %)",
+        "source": {
+          "source_id": "inventory:TP.BKR.TRY.18",
+          "source_type": "repository_inventory",
+          "locator": "repo:904e22dd9e70100e0a7b69b02aa08dffb5daa905:docs/EVDS_SOURCE.md",
+          "retrieved_at": null,
+          "content_hash": "305856eff8d5988c90773b6fc564b6879b7385aeeff0a4cd616cce056e5753eb"
+        },
+        "description": null,
+        "labels": [],
+        "group": {
+          "group_id": null,
+          "group_title": null,
+          "category_id": null,
+          "category_title": null,
+          "publisher": null
+        },
+        "status": "unknown",
+        "unit": "percent",
+        "scale": "one",
+        "frequency": "monthly",
+        "weekly_anchor": null,
+        "stock_flow": "rate",
+        "cumulative": "unknown",
+        "aggregation": {
+          "default": "unknown",
+          "sum": null,
+          "average": null,
+          "first": null,
+          "last": null,
+          "min": null,
+          "max": null
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_rates"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "outstanding_portfolio",
+      "geography": null,
+      "note": "Repository-reviewed declaration, not live validation. Missing metadata stays unknown; no calculation permission."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.KKP.TRY.18",
+        "provider": "EVDS",
+        "source_series_id": "TP.KKP.TRY.18",
+        "title": "Konut Kredisi (TL, Stok, %)",
+        "source": {
+          "source_id": "inventory:TP.KKP.TRY.18",
+          "source_type": "repository_inventory",
+          "locator": "repo:904e22dd9e70100e0a7b69b02aa08dffb5daa905:docs/EVDS_SOURCE.md",
+          "retrieved_at": null,
+          "content_hash": "305856eff8d5988c90773b6fc564b6879b7385aeeff0a4cd616cce056e5753eb"
+        },
+        "description": null,
+        "labels": [],
+        "group": {
+          "group_id": null,
+          "group_title": null,
+          "category_id": null,
+          "category_title": null,
+          "publisher": null
+        },
+        "status": "unknown",
+        "unit": "percent",
+        "scale": "one",
+        "frequency": "monthly",
+        "weekly_anchor": null,
+        "stock_flow": "rate",
+        "cumulative": "unknown",
+        "aggregation": {
+          "default": "unknown",
+          "sum": null,
+          "average": null,
+          "first": null,
+          "last": null,
+          "min": null,
+          "max": null
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_rates"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "outstanding_portfolio",
+      "geography": null,
+      "note": "Repository-reviewed declaration, not live validation. Missing metadata stays unknown; no calculation permission."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.KFE.TR",
+        "provider": "EVDS",
+        "source_series_id": "TP.KFE.TR",
+        "title": "Konut Fiyat Endeksi — Türkiye",
+        "source": {
+          "source_id": "inventory:TP.KFE.TR",
+          "source_type": "repository_inventory",
+          "locator": "repo:904e22dd9e70100e0a7b69b02aa08dffb5daa905:docs/EVDS_SOURCE.md",
+          "retrieved_at": null,
+          "content_hash": "305856eff8d5988c90773b6fc564b6879b7385aeeff0a4cd616cce056e5753eb"
+        },
+        "description": null,
+        "labels": [],
+        "group": {
+          "group_id": "bie_kfe",
+          "group_title": "Konut Fiyat Endeksi",
+          "category_id": null,
+          "category_title": null,
+          "publisher": null
+        },
+        "status": "unknown",
+        "unit": null,
+        "scale": "unknown",
+        "frequency": "monthly",
+        "weekly_anchor": null,
+        "stock_flow": "index",
+        "cumulative": "unknown",
+        "aggregation": {
+          "default": "unknown",
+          "sum": null,
+          "average": null,
+          "first": null,
+          "last": null,
+          "min": null,
+          "max": null
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_indices",
+        "evds_metadata"
+      ],
+      "title_basis": "inventory_description",
+      "rate_basis": "unknown",
+      "geography": "Türkiye",
+      "note": "Repository-reviewed declaration, not live validation. Missing metadata stays unknown; no calculation permission."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.KFE.TR10",
+        "provider": "EVDS",
+        "source_series_id": "TP.KFE.TR10",
+        "title": "Konut Fiyat Endeksi — İstanbul",
+        "source": {
+          "source_id": "inventory:TP.KFE.TR10",
+          "source_type": "repository_inventory",
+          "locator": "repo:904e22dd9e70100e0a7b69b02aa08dffb5daa905:docs/EVDS_SOURCE.md",
+          "retrieved_at": null,
+          "content_hash": "305856eff8d5988c90773b6fc564b6879b7385aeeff0a4cd616cce056e5753eb"
+        },
+        "description": null,
+        "labels": [],
+        "group": {
+          "group_id": "bie_kfe",
+          "group_title": "Konut Fiyat Endeksi",
+          "category_id": null,
+          "category_title": null,
+          "publisher": null
+        },
+        "status": "unknown",
+        "unit": null,
+        "scale": "unknown",
+        "frequency": "monthly",
+        "weekly_anchor": null,
+        "stock_flow": "index",
+        "cumulative": "unknown",
+        "aggregation": {
+          "default": "unknown",
+          "sum": null,
+          "average": null,
+          "first": null,
+          "last": null,
+          "min": null,
+          "max": null
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_indices",
+        "evds_metadata"
+      ],
+      "title_basis": "inventory_description",
+      "rate_basis": "unknown",
+      "geography": "İstanbul",
+      "note": "Repository-reviewed declaration, not live validation. Missing metadata stays unknown; no calculation permission."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.KFE.TR51",
+        "provider": "EVDS",
+        "source_series_id": "TP.KFE.TR51",
+        "title": "Konut Fiyat Endeksi — Ankara",
+        "source": {
+          "source_id": "inventory:TP.KFE.TR51",
+          "source_type": "repository_inventory",
+          "locator": "repo:904e22dd9e70100e0a7b69b02aa08dffb5daa905:docs/EVDS_SOURCE.md",
+          "retrieved_at": null,
+          "content_hash": "305856eff8d5988c90773b6fc564b6879b7385aeeff0a4cd616cce056e5753eb"
+        },
+        "description": null,
+        "labels": [],
+        "group": {
+          "group_id": "bie_kfe",
+          "group_title": "Konut Fiyat Endeksi",
+          "category_id": null,
+          "category_title": null,
+          "publisher": null
+        },
+        "status": "unknown",
+        "unit": null,
+        "scale": "unknown",
+        "frequency": "monthly",
+        "weekly_anchor": null,
+        "stock_flow": "index",
+        "cumulative": "unknown",
+        "aggregation": {
+          "default": "unknown",
+          "sum": null,
+          "average": null,
+          "first": null,
+          "last": null,
+          "min": null,
+          "max": null
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_indices",
+        "evds_metadata"
+      ],
+      "title_basis": "inventory_description",
+      "rate_basis": "unknown",
+      "geography": "Ankara",
+      "note": "Repository-reviewed declaration, not live validation. Missing metadata stays unknown; no calculation permission."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.KFE.TR31",
+        "provider": "EVDS",
+        "source_series_id": "TP.KFE.TR31",
+        "title": "Konut Fiyat Endeksi — İzmir",
+        "source": {
+          "source_id": "inventory:TP.KFE.TR31",
+          "source_type": "repository_inventory",
+          "locator": "repo:904e22dd9e70100e0a7b69b02aa08dffb5daa905:docs/EVDS_SOURCE.md",
+          "retrieved_at": null,
+          "content_hash": "305856eff8d5988c90773b6fc564b6879b7385aeeff0a4cd616cce056e5753eb"
+        },
+        "description": null,
+        "labels": [],
+        "group": {
+          "group_id": "bie_kfe",
+          "group_title": "Konut Fiyat Endeksi",
+          "category_id": null,
+          "category_title": null,
+          "publisher": null
+        },
+        "status": "unknown",
+        "unit": null,
+        "scale": "unknown",
+        "frequency": "monthly",
+        "weekly_anchor": null,
+        "stock_flow": "index",
+        "cumulative": "unknown",
+        "aggregation": {
+          "default": "unknown",
+          "sum": null,
+          "average": null,
+          "first": null,
+          "last": null,
+          "min": null,
+          "max": null
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_indices",
+        "evds_metadata"
+      ],
+      "title_basis": "inventory_description",
+      "rate_basis": "unknown",
+      "geography": "İzmir",
+      "note": "Repository-reviewed declaration, not live validation. Missing metadata stays unknown; no calculation permission."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.VK02",
+        "provider": "EVDS",
+        "source_series_id": "TP.VK02",
+        "title": "A) KONUT (Arşiv)",
+        "source": {
+          "source_id": "inventory:TP.VK02",
+          "source_type": "repository_inventory",
+          "locator": "repo:904e22dd9e70100e0a7b69b02aa08dffb5daa905:docs/EVDS_SOURCE.md",
+          "retrieved_at": null,
+          "content_hash": "305856eff8d5988c90773b6fc564b6879b7385aeeff0a4cd616cce056e5753eb"
+        },
+        "description": null,
+        "labels": [],
+        "group": {
+          "group_id": null,
+          "group_title": null,
+          "category_id": null,
+          "category_title": null,
+          "publisher": null
+        },
+        "status": "archived",
+        "unit": null,
+        "scale": "unknown",
+        "frequency": "unknown",
+        "weekly_anchor": null,
+        "stock_flow": "unknown",
+        "cumulative": "unknown",
+        "aggregation": {
+          "default": "unknown",
+          "sum": null,
+          "average": null,
+          "first": null,
+          "last": null,
+          "min": null,
+          "max": null
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_archives"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "unknown",
+      "geography": null,
+      "note": "Repository-reviewed declaration, not live validation. Missing metadata stays unknown; no calculation permission."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.TK02",
+        "provider": "EVDS",
+        "source_series_id": "TP.TK02",
+        "title": "IA- KONUT (Arşiv)",
+        "source": {
+          "source_id": "inventory:TP.TK02",
+          "source_type": "repository_inventory",
+          "locator": "repo:904e22dd9e70100e0a7b69b02aa08dffb5daa905:docs/EVDS_SOURCE.md",
+          "retrieved_at": null,
+          "content_hash": "305856eff8d5988c90773b6fc564b6879b7385aeeff0a4cd616cce056e5753eb"
+        },
+        "description": null,
+        "labels": [],
+        "group": {
+          "group_id": null,
+          "group_title": null,
+          "category_id": null,
+          "category_title": null,
+          "publisher": null
+        },
+        "status": "archived",
+        "unit": null,
+        "scale": "unknown",
+        "frequency": "unknown",
+        "weekly_anchor": null,
+        "stock_flow": "unknown",
+        "cumulative": "unknown",
+        "aggregation": {
+          "default": "unknown",
+          "sum": null,
+          "average": null,
+          "first": null,
+          "last": null,
+          "min": null,
+          "max": null
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_archives"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "unknown",
+      "geography": null,
+      "note": "Repository-reviewed declaration, not live validation. Missing metadata stays unknown; no calculation permission."
+    }
+  ],
+  "contexts": [
+    {
+      "context_id": "bddk_monthly",
+      "evidence_ids": [
+        "bddk_monthly",
+        "bddk_semantics"
+      ],
+      "facts": [
+        "Aylık Bülten; tabloNo=4; row id=2; Tüketici Kredileri - Konut",
+        "taraf=10001 Sektör; other bank groups are distinct selectors",
+        "paraBirimi=TL or USD; TP / YP / Toplam are separate columns",
+        "Documented housing balance is monthly outstanding stock; caption declares Milyon TL and period",
+        "Differencing the stock is net change, not disbursement"
+      ],
+      "unresolved": "No repository-delivered stable composite series selector; no BDDK CatalogRecord is fabricated. Uninspected bank/currency variants remain unresolved."
+    },
+    {
+      "context_id": "bddk_weekly",
+      "evidence_ids": [
+        "bddk_weekly"
+      ],
+      "facts": [
+        "Haftalık Bülten; form POST; server-rendered HTML",
+        "yil / donemId / para selectors; donemId is not a date",
+        "Friday captions declare Milyon TL; do not infer missing row/series identity"
+      ],
+      "unresolved": "Documented source shape only; no supported housing series identity or full row schema."
+    },
+    {
+      "context_id": "bddk_finturk",
+      "evidence_ids": [
+        "bddk_finturk"
+      ],
+      "facts": [
+        "FinTürk is quarterly (3/6/9/12), not monthly",
+        "Selectors include bank group, province and table",
+        "Krediler / Mevduat / Bireysel Bankacılık: Bin TL",
+        "Oranlar: %; Şubeler ve Nüfusa Göre Dağılım: mixed Adet and TL",
+        "Do not substitute a province for national coverage or infer column-level unit"
+      ],
+      "unresolved": "No documented series selector/column mapping for the requested housing concept."
+    },
+    {
+      "context_id": "cpi_groups",
+      "evidence_ids": [
+        "evds_indices"
+      ],
+      "facts": [
+        "bie_tukfiy2025: CPI group, 2025=100",
+        "bie_tukfiy2003: CPI group, 2003=100",
+        "bie_tukfiy4: archived CPI group, 2003=100",
+        "Group identities are not series identities; an index level is not inflation rate"
+      ],
+      "unresolved": "No CPI series code documented here; no index or inflation-rate candidate fabricated. Base-year choice/reference period remains explicit."
+    },
+    {
+      "context_id": "kfe_old_groups",
+      "evidence_ids": [
+        "evds_indices"
+      ],
+      "facts": [
+        "bie_kfe: current documented group; base year not stated here",
+        "bie_tkfe: archived group, 2010=100",
+        "bie_hkfe: archived group, 2017=100"
+      ],
+      "unresolved": "Old-group series codes are not documented. No base year or active status is inferred for the four current-group identities."
+    }
+  ],
+  "concepts": [
+    {
+      "concept_id": "housing_credit",
+      "definition": "Unqualified housing credit: amount versus rate requires clarification.",
+      "aliases": [
+        {
+          "original": "konut kredisi",
+          "normalized": "konut kredisi"
+        },
+        {
+          "original": "konut kredileri",
+          "normalized": "konut kredileri"
+        },
+        {
+          "original": "konut finansmanı",
+          "normalized": "konut finansmani"
+        },
+        {
+          "original": "mortgage kredisi",
+          "normalized": "mortgage kredisi"
+        },
+        {
+          "original": "mortgage",
+          "normalized": "mortgage"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.KBK.TRY.18",
+        "EVDS:TP.KTF12",
+        "EVDS:TP.BKR.TRY.18",
+        "EVDS:TP.KKP.TRY.18"
+      ],
+      "resolution": "PARTIAL",
+      "clarification_required": true,
+      "conditions": [
+        "Do not default to a rate when the user means an amount."
+      ],
+      "family_ids": [
+        "housing_rates"
+      ],
+      "evidence_ids": [
+        "evds_rates",
+        "bddk_semantics"
+      ],
+      "context_ids": [
+        "bddk_monthly"
+      ],
+      "exclusions": [
+        "No alias grants calculation, transformation or causal authority."
+      ],
+      "unresolved": [
+        "Housing amount/disbursement identities are unresolved."
+      ]
+    },
+    {
+      "concept_id": "housing_balance",
+      "definition": "Outstanding housing balance, not new disbursement.",
+      "aliases": [
+        {
+          "original": "konut kredisi",
+          "normalized": "konut kredisi"
+        },
+        {
+          "original": "konut kredisi bakiyesi",
+          "normalized": "konut kredisi bakiyesi"
+        },
+        {
+          "original": "konut kredisi stoku",
+          "normalized": "konut kredisi stoku"
+        },
+        {
+          "original": "toplam konut kredisi bakiyesi",
+          "normalized": "toplam konut kredisi bakiyesi"
+        },
+        {
+          "original": "konut kredisi hacmi",
+          "normalized": "konut kredisi hacmi"
+        }
+      ],
+      "candidate_series_ids": [],
+      "resolution": "UNRESOLVED",
+      "clarification_required": true,
+      "conditions": [
+        "Resolve stock versus disbursement and bank/currency/column scope."
+      ],
+      "family_ids": [
+        "housing_amount"
+      ],
+      "evidence_ids": [
+        "bddk_monthly",
+        "bddk_semantics"
+      ],
+      "context_ids": [
+        "bddk_monthly",
+        "bddk_weekly",
+        "bddk_finturk"
+      ],
+      "exclusions": [
+        "No alias grants calculation, transformation or causal authority."
+      ],
+      "unresolved": [
+        "No stable BDDK housing series identity delivered."
+      ]
+    },
+    {
+      "concept_id": "housing_disbursement",
+      "definition": "New housing loan disbursement amount.",
+      "aliases": [
+        {
+          "original": "yeni konut kredisi kullandırımı",
+          "normalized": "yeni konut kredisi kullandirimi"
+        },
+        {
+          "original": "kullandırılan konut kredileri",
+          "normalized": "kullandirilan konut kredileri"
+        },
+        {
+          "original": "konut kredisi akımı",
+          "normalized": "konut kredisi akimi"
+        },
+        {
+          "original": "yeni kullandırılan konut kredisi",
+          "normalized": "yeni kullandirilan konut kredisi"
+        }
+      ],
+      "candidate_series_ids": [],
+      "resolution": "UNRESOLVED",
+      "clarification_required": true,
+      "conditions": [
+        "A balance difference cannot substitute for disbursement."
+      ],
+      "family_ids": [
+        "housing_amount"
+      ],
+      "evidence_ids": [
+        "bddk_semantics"
+      ],
+      "context_ids": [
+        "bddk_monthly"
+      ],
+      "exclusions": [
+        "No alias grants calculation, transformation or causal authority."
+      ],
+      "unresolved": [
+        "No evidenced real disbursement series identity."
+      ]
+    },
+    {
+      "concept_id": "housing_rate",
+      "definition": "Housing interest rate, retaining both rate bases.",
+      "aliases": [
+        {
+          "original": "konut kredisi faiz oranı",
+          "normalized": "konut kredisi faiz orani"
+        },
+        {
+          "original": "konut kredi faizi",
+          "normalized": "konut kredi faizi"
+        },
+        {
+          "original": "konut kredisi faizleri",
+          "normalized": "konut kredisi faizleri"
+        },
+        {
+          "original": "mortgage faiz oranı",
+          "normalized": "mortgage faiz orani"
+        },
+        {
+          "original": "konut finansmanı faiz oranı",
+          "normalized": "konut finansmani faiz orani"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.KBK.TRY.18",
+        "EVDS:TP.KTF12",
+        "EVDS:TP.BKR.TRY.18",
+        "EVDS:TP.KKP.TRY.18"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Choose new-credit versus outstanding-portfolio rate; names alone cannot choose within either pair."
+      ],
+      "family_ids": [
+        "housing_rates"
+      ],
+      "evidence_ids": [
+        "evds_rates"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias grants calculation, transformation or causal authority."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "housing_rate_new",
+      "definition": "Rate on newly extended housing loans.",
+      "aliases": [
+        {
+          "original": "konut kredisi akım faiz oranı",
+          "normalized": "konut kredisi akim faiz orani"
+        },
+        {
+          "original": "yeni konut kredisi faiz oranı",
+          "normalized": "yeni konut kredisi faiz orani"
+        },
+        {
+          "original": "yeni kullandırılan konut kredisi faizi",
+          "normalized": "yeni kullandirilan konut kredisi faizi"
+        },
+        {
+          "original": "konut kredisi faizi (akım)",
+          "normalized": "konut kredisi faizi akim"
+        },
+        {
+          "original": "konut kredisi faiz oranı (TL, Akım, %)",
+          "normalized": "konut kredisi faiz orani tl akim %"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.KBK.TRY.18",
+        "EVDS:TP.KTF12"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Both weekly candidates remain; only source-backed metadata may distinguish them.",
+        "RATE is retained; rate_basis=new_credit is distinct from an amount FLOW."
+      ],
+      "family_ids": [
+        "housing_rates"
+      ],
+      "evidence_ids": [
+        "evds_rates",
+        "evds_metadata"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias grants calculation, transformation or causal authority."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "housing_rate_portfolio",
+      "definition": "Average rate on outstanding housing portfolio.",
+      "aliases": [
+        {
+          "original": "konut kredisi stok faiz oranı",
+          "normalized": "konut kredisi stok faiz orani"
+        },
+        {
+          "original": "mevcut konut kredisi faiz oranı",
+          "normalized": "mevcut konut kredisi faiz orani"
+        },
+        {
+          "original": "konut kredisi portföy faizi",
+          "normalized": "konut kredisi portfoy faizi"
+        },
+        {
+          "original": "konut kredisi faiz oranı (TL, Stok, %)",
+          "normalized": "konut kredisi faiz orani tl stok %"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.BKR.TRY.18",
+        "EVDS:TP.KKP.TRY.18"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Both monthly candidates remain; no preferred top-1."
+      ],
+      "family_ids": [
+        "housing_rates"
+      ],
+      "evidence_ids": [
+        "evds_rates"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias grants calculation, transformation or causal authority."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "cpi_level",
+      "definition": "Consumer price index level.",
+      "aliases": [
+        {
+          "original": "TÜFE",
+          "normalized": "tufe"
+        },
+        {
+          "original": "tüketici fiyat endeksi",
+          "normalized": "tuketici fiyat endeksi"
+        },
+        {
+          "original": "TÜFE endeks düzeyi",
+          "normalized": "tufe endeks duzeyi"
+        },
+        {
+          "original": "tüketici fiyatları endeksi",
+          "normalized": "tuketici fiyatlari endeksi"
+        }
+      ],
+      "candidate_series_ids": [],
+      "resolution": "UNRESOLVED",
+      "clarification_required": true,
+      "conditions": [
+        "Require series identity and explicit base/reference year; index is not a rate."
+      ],
+      "family_ids": [
+        "consumer_prices"
+      ],
+      "evidence_ids": [
+        "evds_indices"
+      ],
+      "context_ids": [
+        "cpi_groups"
+      ],
+      "exclusions": [
+        "No alias grants calculation, transformation or causal authority."
+      ],
+      "unresolved": [
+        "Only datagroup identities are documented."
+      ]
+    },
+    {
+      "concept_id": "inflation_rate",
+      "definition": "Inflation rate; not the raw CPI index level.",
+      "aliases": [
+        {
+          "original": "enflasyon oranı",
+          "normalized": "enflasyon orani"
+        },
+        {
+          "original": "TÜFE değişim oranı",
+          "normalized": "tufe degisim orani"
+        },
+        {
+          "original": "tüketici fiyat enflasyonu",
+          "normalized": "tuketici fiyat enflasyonu"
+        },
+        {
+          "original": "TÜFE artış oranı",
+          "normalized": "tufe artis orani"
+        }
+      ],
+      "candidate_series_ids": [],
+      "resolution": "UNRESOLVED",
+      "clarification_required": true,
+      "conditions": [
+        "Monthly versus annual change and source/transform must be explicit."
+      ],
+      "family_ids": [
+        "consumer_prices"
+      ],
+      "evidence_ids": [
+        "evds_indices"
+      ],
+      "context_ids": [
+        "cpi_groups"
+      ],
+      "exclusions": [
+        "No alias grants calculation, transformation or causal authority."
+      ],
+      "unresolved": [
+        "No documented native inflation-rate series; no implicit transform."
+      ]
+    },
+    {
+      "concept_id": "kfe",
+      "definition": "Housing price index: geography and version are not implicit.",
+      "aliases": [
+        {
+          "original": "KFE",
+          "normalized": "kfe"
+        },
+        {
+          "original": "konut fiyat endeksi",
+          "normalized": "konut fiyat endeksi"
+        },
+        {
+          "original": "konut fiyatları endeksi",
+          "normalized": "konut fiyatlari endeksi"
+        },
+        {
+          "original": "konut fiyat göstergesi",
+          "normalized": "konut fiyat gostergesi"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.KFE.TR",
+        "EVDS:TP.KFE.TR10",
+        "EVDS:TP.KFE.TR51",
+        "EVDS:TP.KFE.TR31"
+      ],
+      "resolution": "PARTIAL",
+      "clarification_required": true,
+      "conditions": [
+        "Keep national and regional candidates; do not assume national from an unspecified query."
+      ],
+      "family_ids": [
+        "housing_prices"
+      ],
+      "evidence_ids": [
+        "evds_indices"
+      ],
+      "context_ids": [
+        "kfe_old_groups"
+      ],
+      "exclusions": [
+        "No alias grants calculation, transformation or causal authority."
+      ],
+      "unresolved": [
+        "Old base-year groups have no documented series identities."
+      ]
+    },
+    {
+      "concept_id": "kfe_national",
+      "definition": "National housing price index.",
+      "aliases": [
+        {
+          "original": "Türkiye konut fiyat endeksi",
+          "normalized": "turkiye konut fiyat endeksi"
+        },
+        {
+          "original": "ulusal konut fiyat endeksi",
+          "normalized": "ulusal konut fiyat endeksi"
+        },
+        {
+          "original": "Türkiye KFE",
+          "normalized": "turkiye kfe"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.KFE.TR"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "National identity is documented; base year, coverage and active status remain unknown."
+      ],
+      "family_ids": [
+        "housing_prices"
+      ],
+      "evidence_ids": [
+        "evds_indices"
+      ],
+      "context_ids": [
+        "kfe_old_groups"
+      ],
+      "exclusions": [
+        "No alias grants calculation, transformation or causal authority."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "kfe_istanbul",
+      "definition": "İstanbul housing price index.",
+      "aliases": [
+        {
+          "original": "İstanbul konut fiyat endeksi",
+          "normalized": "istanbul konut fiyat endeksi"
+        },
+        {
+          "original": "İstanbul KFE",
+          "normalized": "istanbul kfe"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.KFE.TR10"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Geography must agree; no national substitution or invented base year."
+      ],
+      "family_ids": [
+        "housing_prices"
+      ],
+      "evidence_ids": [
+        "evds_indices"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias grants calculation, transformation or causal authority."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "kfe_ankara",
+      "definition": "Ankara housing price index.",
+      "aliases": [
+        {
+          "original": "Ankara konut fiyat endeksi",
+          "normalized": "ankara konut fiyat endeksi"
+        },
+        {
+          "original": "Ankara KFE",
+          "normalized": "ankara kfe"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.KFE.TR51"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Geography must agree; no national substitution or invented base year."
+      ],
+      "family_ids": [
+        "housing_prices"
+      ],
+      "evidence_ids": [
+        "evds_indices"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias grants calculation, transformation or causal authority."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "kfe_izmir",
+      "definition": "İzmir housing price index.",
+      "aliases": [
+        {
+          "original": "İzmir konut fiyat endeksi",
+          "normalized": "izmir konut fiyat endeksi"
+        },
+        {
+          "original": "İzmir KFE",
+          "normalized": "izmir kfe"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.KFE.TR31"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Geography must agree; no national substitution or invented base year."
+      ],
+      "family_ids": [
+        "housing_prices"
+      ],
+      "evidence_ids": [
+        "evds_indices"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias grants calculation, transformation or causal authority."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "housing_archived",
+      "definition": "Archived housing-labelled identities; exact economic meaning unresolved.",
+      "aliases": [
+        {
+          "original": "konut arşiv serileri",
+          "normalized": "konut arsiv serileri"
+        },
+        {
+          "original": "arşiv konut serisi",
+          "normalized": "arsiv konut serisi"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.VK02",
+        "EVDS:TP.TK02"
+      ],
+      "resolution": "PARTIAL",
+      "clarification_required": true,
+      "conditions": [
+        "Archived lookup is opt-in; these are not automatic active equivalents."
+      ],
+      "family_ids": [],
+      "evidence_ids": [
+        "evds_archives"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "Exclude from default discovery families and active-alternative selection."
+      ],
+      "unresolved": [
+        "Rate/amount, frequency and replacement relationships are not documented."
+      ]
+    }
+  ],
+  "families": [
+    {
+      "family_id": "housing_amount",
+      "label": "Konut kredi miktarı",
+      "rationale": "Separate balance from disbursement; unresolved series remain absent.",
+      "evidence_ids": [
+        "evds_indices",
+        "evds_rates",
+        "bddk_semantics"
+      ],
+      "excluded_series_ids": [
+        "EVDS:TP.VK02",
+        "EVDS:TP.TK02"
+      ],
+      "exclusions": [
+        "Membership is an investigation neighborhood, never evidence of an economic cause.",
+        "No automatic expansion to other families; target/derived copies must be excluded before relationship analysis."
+      ]
+    },
+    {
+      "family_id": "housing_rates",
+      "label": "Konut finansman maliyeti",
+      "rationale": "Inspect new-credit and portfolio rates as distinct candidates, not causes.",
+      "evidence_ids": [
+        "evds_indices",
+        "evds_rates",
+        "bddk_semantics"
+      ],
+      "excluded_series_ids": [
+        "EVDS:TP.VK02",
+        "EVDS:TP.TK02"
+      ],
+      "exclusions": [
+        "Membership is an investigation neighborhood, never evidence of an economic cause.",
+        "No automatic expansion to other families; target/derived copies must be excluded before relationship analysis."
+      ]
+    },
+    {
+      "family_id": "consumer_prices",
+      "label": "Tüketici fiyatları",
+      "rationale": "Separate CPI level from inflation rate; missing IDs prevent fabricated candidates.",
+      "evidence_ids": [
+        "evds_indices",
+        "evds_rates",
+        "bddk_semantics"
+      ],
+      "excluded_series_ids": [
+        "EVDS:TP.VK02",
+        "EVDS:TP.TK02"
+      ],
+      "exclusions": [
+        "Membership is an investigation neighborhood, never evidence of an economic cause.",
+        "No automatic expansion to other families; target/derived copies must be excluded before relationship analysis."
+      ]
+    },
+    {
+      "family_id": "housing_prices",
+      "label": "Konut fiyatları",
+      "rationale": "Keep geography and vintage distinctions; exclude target copies in later relationship discovery.",
+      "evidence_ids": [
+        "evds_indices",
+        "evds_rates",
+        "bddk_semantics"
+      ],
+      "excluded_series_ids": [
+        "EVDS:TP.VK02",
+        "EVDS:TP.TK02"
+      ],
+      "exclusions": [
+        "Membership is an investigation neighborhood, never evidence of an economic cause.",
+        "No automatic expansion to other families; target/derived copies must be excluded before relationship analysis."
+      ]
+    }
+  ],
+  "content_sha256": "230807e195663a59978c69448c8cb63acbd10130080b09a5f3d474a6b58da5f6"
+}
