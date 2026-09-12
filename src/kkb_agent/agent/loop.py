@@ -32,8 +32,15 @@ from kkb_agent.agent.literal import literal_text
 from kkb_agent.agent.plan import AnalyticalPlan
 from kkb_agent.agent.presentation import display_value
 from kkb_agent.agent.registry import ToolRegistry
-from kkb_agent.agent.verifier import AnswerStatus, GatedAnswer, Verdict, gate_answer
-from kkb_agent.agent.workspace import ArtifactKind, Workspace
+from kkb_agent.agent.verifier import (
+    DEFAULT_TOLERANCE,
+    AnswerStatus,
+    GatedAnswer,
+    Verdict,
+    gate_answer,
+    result_faults,
+)
+from kkb_agent.agent.workspace import Workspace
 from kkb_agent.core import AnalyticalResult, ResultStatus, Scale
 from kkb_agent.llm.provider import LLMProvider, Message, Role, SchemaViolation
 from kkb_agent.llm.structured import schema_instructions
@@ -229,9 +236,9 @@ class Session:
 
         Passing a `workspace` and a `remember` name records the computed result
         under that name, so the next turn can build on this one instead of
-        starting over (M5-10). Only a result that established something is
-        recorded: storing an abstention under a name would make the workspace
-        assert that the analysis holds a value it does not.
+        starting over (M5-10). Publication follows successful execution, an ACCEPTED
+        answer and candidate verification. QUALIFIED/ABSTAINED answers and errors
+        leave trusted state unchanged; the writer/gate see only an in-memory publication preview.
         """
         planned, outcome = self.run(question)
         results = collect_results(outcome)
@@ -263,23 +270,31 @@ class Session:
 
         name = remember or "result"
         available: dict[str, AnalyticalResult] = {name: result}
+        preview = None
         if workspace is not None:
             if remember is not None:
-                workspace.record(remember, ArtifactKind.VALUE, result)
-            # Everything the workspace currently holds, this turn's result
-            # included. Stale names are already excluded by `values()`, so a
-            # superseded column cannot re-enter the answer through the back
-            # door — and a follow-up can speak about the whole table rather
-            # than only about what this turn recomputed.
-            available = {**workspace.values(), **available}
+                preview = workspace.preview(remember, result)
+                available = preview.values()
+            else:
+                available = {**workspace.values(), **available}
 
         draft = self.draft(question, available)
-        return Answered(
-            planned,
-            outcome,
-            results,
-            gate_answer(draft, available, connection, **gate),  # type: ignore[arg-type]
-        )
+        answer = gate_answer(draft, available, connection, **gate)  # type: ignore[arg-type]
+        if (
+            preview is not None
+            and workspace is not None
+            and outcome.completed
+            and all(item.status is ToolStatus.SUCCESS for item in outcome.results)
+            and answer.status is AnswerStatus.ACCEPTED
+            and not result_faults(
+                {name: available[name]},
+                connection,
+                tolerance=gate.get("tolerance", DEFAULT_TOLERANCE),  # type: ignore[arg-type]
+                minimum_samples=gate.get("minimum_samples"),  # type: ignore[arg-type]
+            )
+        ):
+            workspace.publish(preview)
+        return Answered(planned, outcome, results, answer)
 
     def draft(self, question: str, available: Mapping[str, AnalyticalResult]) -> str:
         """Ask the model to put the computed values into a sentence.

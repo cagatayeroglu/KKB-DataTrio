@@ -358,7 +358,7 @@ HTML never grants authority. Only the original question URL reaches unchanged sa
 
 ### M10 operator/API boundary requirements
 
-[M10-01](OPERATOR_FLOW.md) specifies session-scoped references, safe answer/evidence projection and bounded read-only proof requirements. No HTTP boundary is implemented or declared secure by this specification. The current default workspace, shared artifact lookup, mutable Session, pre-gate result recording and unbounded Lineage.trace must not be exposed directly. A later adapter must enforce ownership, bounds and redaction, preserve gate states and distinguish recorded source ancestry from value proof. Retention/auth/deployment questions remain open; no live service is authorized here.
+[M10-01](OPERATOR_FLOW.md) specifies session-scoped references, safe answer/evidence projection and bounded read-only proof requirements. No HTTP boundary is implemented or declared secure by this specification. The current default workspace, shared artifact lookup, mutable Session and unbounded Lineage.trace must not be exposed directly. M5-21 gates trusted workspace publication and commits its result/binding/history/invalidation atomically after revision checks; QUALIFIED/ABSTAINED/failure paths do not publish. This does not roll back prior tool-side evidence or establish API ownership/proof safety. A later adapter must enforce ownership, bounds and redaction, preserve gate states and distinguish recorded source ancestry from value proof. Retention/auth/deployment questions remain open; no live service is authorized here.
 
 <a id="product-tool-boundary-dec-133"></a>
 
