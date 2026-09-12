@@ -428,6 +428,17 @@ Evidence policy: organizer constraints below are carried forward from the origin
 - Alternatives: Exposing all eleven names immediately, letting the planner skip guards, duplicating retrieval or hard-coding demo series is rejected. No new engine, framework, provider or dependency is selected.
 - Revisit trigger: Measured product need or organizer guidance changing tool responsibilities; broader infrastructure remains separately justified.
 
+### DEC-134 — Provider-neutral web search with mandatory live acceptance
+
+- Status: CONFIRMED — explicit Çağatay decision, 2026-09-12; supersedes PROP-06's requirement to choose a concrete provider before offline implementation.
+- Decision: `web_search` depends on a narrow internal `SearchBackend` protocol. Planner -> registered typed ToolSpec -> SearchBackend -> operator-configured backend. Tool request/result schemas remain provider-neutral; replacing a provider must not change planner/tool schemas. Backend credentials/configuration never enter planner-visible data. No concrete commercial or self-hosted search service is selected.
+- Offline scope: M7-22 implements the bounded tool, typed contracts, injected backend boundary and deterministic FakeSearchBackend for tests. No API key, billing/account setup or network is required. Fake search is test-only, never silently enabled as production. Missing production configuration must not create a fake-success path. Provider errors are safe fixed outcomes; result text/URLs remain untrusted data, not verified facts or executable instructions.
+- Discovery boundary: Search results do not grant `web_url` fetch permission. Its exact original-question URL check and `URL_NOT_IN_QUESTION` behavior remain unchanged. No implicit result following, source fetch, model generation, credential access or security/verifier weakening is authorized.
+- Release/demo requirement: **Before final submission/demo acceptance, at least one real production search backend must be configured and a live hidden-like web search smoke must PASS.** Offline implementation complete and live production search accepted are separate claims. Until the later acceptance record passes, live search is NOT RUN / BLOCKED and production capability must not be claimed.
+- Later explicit acceptance: Select the production backend; document official endpoint/method/auth/config, limits/errors, privacy/retention, deployment network policy and the real adapter; validate a bounded unseen-query live smoke with sanitized evidence under separate authorization. Q-NET-01/02 remain open. The [M7 production acceptance record](ROADMAP.md#web-search-production-acceptance) remains untriaged; this decision allocates no speculative new task ID or implementation claim.
+- Reason: Decouple the stable tool contract and offline trust tests from a replaceable provider without mistaking fake results for final delivery. DEC-121/133 names and mandatory harness rules remain; no new dependency/framework or hosted LLM is approved.
+- Revisit trigger: An explicitly selected provider that cannot satisfy the neutral contract or documented product/network constraints; review before adapting, never silently broaden tool permission.
+
 ## Proposed decisions
 
 Candidates below are not approved selections. Compare options in a bounded task; do not silently promote a proposal to CONFIRMED.
@@ -439,17 +450,11 @@ Candidates below are not approved selections. Compare options in a bounded task;
 | PROP-03 | RESOLVED by DEC-123 | FastAPI with SSE behind Next.js selected; Streamlit retained as a recorded fallback | Eray | None; implement in M10 |
 | PROP-04 | PROPOSED: retry and latency budgets | Exact counts/timeouts depend on platform limits and baseline measurements | Unassigned | Obtain Q-K-04 and measure before fixing limits |
 | PROP-05 | RESOLVED by DEC-120 | Lagged correlation and Granger with mandatory stated limits; stronger identification rejected for this data | Eray | None; implement in M6 |
-| PROP-06 | PROPOSED: web_search provider/API | No provider selected; explicit team choice and primary API contract required by M7-21 | Çağatay | [Complete provider decision](#web-search-provider-decision-m7-21); M7-22 stays BLOCKED |
+| PROP-06 | RESOLVED by DEC-134: provider abstraction approved | Concrete production adapter deferred; live acceptance still blocked | Çağatay | M7-22 offline implementation, then separately triaged production acceptance |
 
 ### Web search provider decision (M7-21)
 
-Status: OPEN / PROPOSED, not a confirmed provider selection. M7-21 owns this decision; [PR #113](https://github.com/cagatayeroglu/KKB-DataTrio/pull/113) publishes Çağatay's documentation-only claim. DEC-121/133 approve the `web_search` name, not a third-party service. DEC-129's Kloudeks chat/vision/embedding/OCR capabilities do not establish a search endpoint. No new confirmed DEC ID is allocated while the choice is unresolved.
-
-Before approval, record the provider/service and official API documentation, endpoint/method, auth placement and secret configuration, request/response/error fields, supported filters, provider limits versus repository caps, billing/quota/access requirements and query retention/privacy implications. All these provider-specific values are **UNRESOLVED**; no credential was inspected and neither credential presence nor absence is asserted. Do not invent environment variable names, API paths, fields, quotas or guarantees.
-
-Provider choice must be explicitly agreed, with dated team approval and primary-source contract evidence before M7-22 can start. Search-only metadata access must not introduce third-party hosted LLM generation contrary to AGENTS; no fallback provider or implicit answer-generation service. Q-NET-01/02 still govern live availability/exposure; a provider contract is not permission for unrestricted destination fetches. No live search is authorized by this task.
-
-Implementation planning is in [ARCHITECTURE](ARCHITECTURE.md#web-search-implementation-plan-m7-2122). Merge of incomplete triage cannot be represented as a selected provider or completed decision. After the actual decision is approved, use the next available confirmed DEC ID, retain this proposal's history, and complete M7-21 through normal validated merge/bookkeeping. Do not start M7-22 in the decision session.
+Historical proposal: PR #113 initially required a named provider and official API contract before M7-22. Çağatay explicitly replaced that prerequisite with [DEC-134](#dec-134--provider-neutral-web-search-with-mandatory-live-acceptance): approve the provider abstraction now, defer the real adapter to a separately authorized production acceptance task. No provider, endpoint, auth scheme, credential presence or quota is implied. Live production search remains NOT RUN / BLOCKED; Q-NET-01/02 are not resolved.
 
 ## Deferred decisions
 
