@@ -27,6 +27,9 @@ BRIEF_TOOLS = frozenset(
 )
 
 
+IMPLEMENTED_PRODUCT_TOOLS = frozenset({"catalog_search"})  # M13-04 / DEC-133
+
+
 class RegistryError(ValueError):
     """A tool was registered or requested in a way the registry cannot honour."""
 
@@ -62,9 +65,9 @@ class ToolRegistry:
     def register(self, spec: ToolSpec) -> None:
         if spec.name in self._tools:
             raise RegistryError(f"Tool {spec.name!r} is already registered")
-        if spec.name not in BRIEF_TOOLS:
+        if spec.name not in BRIEF_TOOLS | IMPLEMENTED_PRODUCT_TOOLS:
             raise RegistryError(
-                f"Tool {spec.name!r} is not one of the six names the brief fixes; "
+                f"Tool {spec.name!r} is not an implemented approved tool; "
                 "adding one needs its own decision"
             )
         self._tools[spec.name] = spec

@@ -32,7 +32,7 @@ The stack is selected in DECISIONS and is not re-argued here: DuckDB with Parque
 ```text
   6. Trust layer          lineage graph + verifier            -> components 10, 12
   5. Agent core           planner / router / executor         -> components 1, 3, 4
-  4. Tool layer           six base + five planned additions  -> components 4, 9
+  4. Tool layer           six base + catalog_search + four planned additions  -> components 4, 9
   3. Semantic layer       catalog, hybrid baseline, aliases  -> component 13
   2. Lakehouse            DuckDB + Parquet, bronze/silver/gold -> component 12
   1. Ingest               BDDK bulletins, EVDS API, uploads   -> components 5, 6, 7
@@ -187,7 +187,7 @@ CURRENTLY IMPLEMENTED: [ToolSpec / ToolRegistry](../src/kkb_agent/agent/registry
 
 ### Approved tool surface
 
-[DEC-133](DECISIONS.md#dec-133--eleven-tool-product-target-and-mandatory-harness) approves this eleven-tool target. Status describes callable delivery, not everything suggested by a name. Factories exist for six base tools; each Session sees only the tools actually registered in that instance. The current six-name registry allowlist is unchanged by this documentation decision and must be extended only with a tested implementation.
+[DEC-133](DECISIONS.md#dec-133--eleven-tool-product-target-and-mandatory-harness) approves this eleven-tool target. Status describes callable delivery, not everything suggested by a name. Factories exist for six base tools and M13-04 catalog_search; each Session sees only explicitly registered tools. DEC-133 extends the runtime allowlist only for this tested product implementation; four later additions remain unavailable.
 
 | Tool | Status | Delivered scope or planned responsibility |
 | --- | --- | --- |
@@ -197,7 +197,7 @@ CURRENTLY IMPLEMENTED: [ToolSpec / ToolRegistry](../src/kkb_agent/agent/registry
 | `anomaly` | IMPLEMENTED, bounded scope | Existing deterministic method subset; not every anomaly technique |
 | `causality` | IMPLEMENTED, bounded scope | Association, lag and Granger precedence with stated limits; not causal identification |
 | `change_detection` | PARTIAL | Callable period `compare`; breakpoint/trend-break methods remain absent |
-| `catalog_search` | PLANNED | Natural-language query to bounded ranked trusted CatalogRecord candidates; M13-04 |
+| `catalog_search` | OFFLINE IMPLEMENTED | Natural-language query to bounded ranked trusted CatalogRecord candidates; M13-04 |
 | `series_inspect` | PLANNED | Inspect one trusted stable series ID and declared semantics/coverage/aggregation constraints; M13-13 |
 | `table_transform` | PLANNED | Explicit deterministic operations on trusted references, preserving existing columns/state/lineage; M5-20 |
 | `data_quality` | PLANNED | Coverage/missingness/duplicates/frequency diagnostics and known stale/archive warnings; M1-12 |
@@ -215,7 +215,7 @@ IMPLEMENTED offline contract: [DEC-134](DECISIONS.md#dec-134--provider-neutral-w
 
 FakeSearchBackend exists only for deterministic offline tests. The real production adapter remains absent until separately selected, configured and validated; no default fake backend, automatic provider selection or fallback. M7-22 requires no API key, account or external call. Execution must bound query/result sizes, candidate count, response handling and backend time; map timeout/malformed replies/backend errors to fixed safe outcomes. Validate output before exposure, exclude unsafe URLs, deduplicate deterministically, preserve missing metadata and strip sensitive locator material without granting a new destination permission. Snippets/titles remain inert untrusted data and never become verified AnalyticalResults merely by being returned.
 
-`web_url` still requires the exact URL in the original user question (`addresses_in` / `URL_NOT_IN_QUESTION`). Discovery never authorizes a later fetch, nor weakens safe-fetch DNS/TLS/redirect checks. Registry/planner expose only implemented tools; schema validation, security controls, lineage and verifier/gate remain mandatory. DEC-133's five additional tools remain unregistered.
+`web_url` still requires the exact URL in the original user question (`addresses_in` / `URL_NOT_IN_QUESTION`). Discovery never authorizes a later fetch, nor weakens safe-fetch DNS/TLS/redirect checks. Registry/planner expose only implemented tools; schema validation, security controls, lineage and verifier/gate remain mandatory. DEC-133's catalog_search is now implemented offline; the four later additions remain unregistered.
 
 The callable factory is `make_web_search_tool(backend=..., timeout_seconds=5.0)`, registered explicitly on a ToolRegistry. The injected trusted adapter must be spawn-serializable and implement `search(SearchRequest) -> SearchReply`. No changes to planner schemas are needed to replace the backend. There is no automatic registration in operator live commands.
 
@@ -308,7 +308,7 @@ CURRENTLY IMPLEMENTED (M6-02/03/04): the [analytics](../src/kkb_agent/analytics/
 
 [analytics/anomaly.py](../src/kkb_agent/analytics/anomaly.py) (M6-05/06) adds the anomaly baseline, exposed as the brief-named [`anomaly`](../src/kkb_agent/tools/anomaly.py) tool. It examines period-over-period **changes** rather than levels — a steadily rising series would otherwise flag its own present — and scores them by median absolute deviation, which the outlier cannot inflate the way it inflates a standard deviation. MAD collapses to exactly zero when over half the changes are identical, so the Iglewicz–Hoaglin mean-absolute-deviation fallback covers that case; only a series whose every change is identical is genuinely UNDEFINED. The threshold and minimum sample are **unmeasured defaults, recorded in every result and not exposed to the planner**, because a model that can move a threshold will. The count of anomalies is always reported, including zero, so the gate can bind it.
 
-Exposed to the planner as the brief-named [`change_detection`](../src/kkb_agent/tools/change_detection.py) tool (M6-22), which reads the declared semantics and observations from the lakehouse, records lineage for a computed comparison and none for a refused one, and names its `operation` so breakpoint detection can join the same schema without being implied by the tool's name before it exists. No seventh tool was added; the registry still refuses any name outside the six.
+Exposed to the planner as the brief-named [`change_detection`](../src/kkb_agent/tools/change_detection.py) tool (M6-22), which reads the declared semantics and observations from the lakehouse, records lineage for a computed comparison and none for a refused one, and names its `operation` so breakpoint detection can join the same schema without being implied by the tool's name before it exists. That historical change added no seventh tool; M13-04 subsequently adds catalog_search under DEC-133.
 
 CURRENTLY IMPLEMENTED: [core/results.py](../src/kkb_agent/core/results.py) defines what a tool returns — `AnalyticalResult` with typed `ResultValue`s, explicit `Period`s, `SampleCounts`, warnings, limitations, `unresolved_semantics` and `ResultEvidence` references, under `ResultKind`/`ResultStatus`. Three refusals are structural: a value states its unit or the result declares what is unresolved (`DIMENSIONLESS` is not the same as unknown); a non-COMPUTED result carries no values and names what stopped it, keeping INSUFFICIENT, UNDEFINED and ABSTAINED distinct; and an association, lag or causality result must state limitations, which puts DEC-120 in the type system. `digest()` hashes content excluding the caller's `result_id`, which is the identity M5 needs to reject a stale read and M8 needs to detect an altered result. `lakehouse` is the first producer (M6-21). [tools/_projection.py](../src/kkb_agent/tools/_projection.py) maps a validated query onto that contract by **reading the semantics the lakehouse already stores** — `silver_series` records unit, scale, frequency, anchor and observation kind as exact enum values — and declaring every semantic the query did not select rather than inferring one. Two refusals live here rather than in the SQL gates, which were never meant to catch them: a query reading **no lakehouse table** abstains, so `SELECT 42 AS value` cannot mint a figure; and a query with no `value` column abstains as a listing. Since M6-23, reading an allowed table is not provenance on its own: [_projection_provenance.py](../src/kkb_agent/tools/_projection_provenance.py) admits only direct `silver_observations`/`silver_series` columns joined on `series_id`, then rechecks every returned row against its stored identity, value and semantics through fixed SQL, so literal, computed, aggregated or otherwise derived measurements abstain instead of becoming COMPUTED. The tool returns [LakehouseOutput](../src/kkb_agent/tools/lakehouse.py), keeping the verifiable `result` and the presentation `table` apart so a rendering convenience cannot become an analytical claim.
 
@@ -399,7 +399,7 @@ TARGET under [DEC-130](DECISIONS.md#dec-130--initial-hybrid-retrieval-baseline),
 
 Mandatory HYBRID baseline: one Turkish normalizer shared by query/index paths, reviewed aliases/concept families, metadata filters, lexical/BM25 and dense semantic retrieval using the organizer's Qwen3-Embedding-8B (exact model/endpoint in DEC-129). LanceDB remains the selected lightweight series-vector index. Dense retrieval starts in the baseline without waiting for lexical failure or a prior gain measurement. Candidates retain IDs, original titles, source, unit/scale/frequency, coverage and archived/unknown flags. Exact aliases do not bypass ambiguity or semantic checks.
 
-M13-08 adds a [reviewed offline demo snapshot and exact alias mapping](CATALOG_MAPPING.md) over ten repository-evidenced identities. The shared record/normalizer are reused; unresolved BDDK/CPI identities stay absent. No lexical/dense retriever or catalog_search tool is implemented by this artifact.
+M13-08 adds a [reviewed offline demo snapshot and exact alias mapping](CATALOG_MAPPING.md) over ten repository-evidenced identities. The shared record/normalizer are reused; unresolved BDDK/CPI identities stay absent. That artifact itself implements no retriever. M13-04 now provides the [bounded lexical catalog_search](CATALOG_SEARCH.md): reviewed alias/phrase sets, provider/frequency/archive filters and deterministic in-memory BM25; no FTS extension or lakehouse security change. Dense retrieval remains M13-05.
 
 Two distinct flows reuse this boundary:
 
