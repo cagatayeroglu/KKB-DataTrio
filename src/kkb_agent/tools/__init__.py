@@ -1,9 +1,12 @@
-"""Six brief-named tool factories; web_search requires an explicitly injected backend.
+"""Six brief-named factories plus M13-04 catalog_search.
+
+web_search requires an explicitly injected backend.
 
 No production search adapter or default fake is included (DEC-134).
 """
 
 from kkb_agent.tools.anomaly import AnomalyArguments, make_anomaly_tool
+from kkb_agent.tools.catalog_search import make_catalog_search_tool
 from kkb_agent.tools.causality import CausalityArguments, make_causality_tool
 from kkb_agent.tools.change_detection import (
     ChangeDetectionArguments,
@@ -41,6 +44,7 @@ from kkb_agent.tools.web_url import (
 )
 
 __all__ = [
+    "make_catalog_search_tool",
     "BackendHit",
     "SearchBackend",
     "SearchCandidate",

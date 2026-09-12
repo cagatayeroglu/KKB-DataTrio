@@ -91,7 +91,7 @@ TWO_STEPS = [
 class TestTheRegistryOwnsTheNames:
     def test_only_the_brief_names_can_be_registered(self):
         reg = ToolRegistry()
-        with pytest.raises(RegistryError, match="not one of the six names"):
+        with pytest.raises(RegistryError, match="not an implemented approved tool"):
             reg.register(ToolSpec("shell", "run anything", LakehouseArgs, lakehouse_run))
 
     def test_a_duplicate_registration_is_refused(self):

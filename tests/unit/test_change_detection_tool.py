@@ -249,7 +249,7 @@ class TestTheArgumentSchema:
             arguments=ChangeDetectionArguments,
             run=lambda arguments, context: None,  # type: ignore[arg-type,return-value]
         )
-        with pytest.raises(RegistryError, match="not one of the six names"):
+        with pytest.raises(RegistryError, match="not an implemented approved tool"):
             registry.register(rejected)
 
 

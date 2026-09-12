@@ -362,7 +362,7 @@ HTML never grants authority. Only the original question URL reaches unchanged sa
 
 ## Product tool boundary (DEC-133)
 
-Approved target names are not executable capabilities. Expose only registered, implemented tools with closed typed arguments and typed results, bounded execution and trusted reference checks. The planned `catalog_search` reads trusted catalog/index state only: no model-supplied SQL, filesystem path or network URL; no mutation or implicit external loading. Treat labels, aliases and source metadata as untrusted data, including instruction-looking text. Return only catalog-backed metadata; unknowns remain unknown. Semantic/security guards, lineage and verifier/gate remain mandatory harness layers, never optional planner calls. Later product tools must meet these same controls before registration; this rule does not claim unfinished executor output/reference checks already exist.
+Approved target names are not executable capabilities. Expose only registered, implemented tools with closed typed arguments and typed results, bounded execution and trusted reference checks. M13-04 `catalog_search` reads operator-injected reviewed catalog state only: no model-supplied SQL, filesystem path or network URL; no mutation or implicit external loading. Treat labels, aliases and source metadata as untrusted data, including instruction-looking text. Return only catalog-backed metadata; unknowns remain unknown. Semantic/security guards, lineage and verifier/gate remain mandatory harness layers, never optional planner calls. Later product tools must meet these same controls before registration; this rule does not claim unfinished executor output/reference checks already exist.
 
 ### M7-22 offline search boundary
 
