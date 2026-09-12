@@ -269,6 +269,12 @@ class TestAFollowUpCitesTheWholeTable:
         space.record("konut_faiz", ArtifactKind.VALUE, FAIZ, inputs=["range"])
         space.define("range", ArtifactKind.SOURCE, parameters={"to": "2026-06"})
 
+        before = space.connection.execute(
+            "SELECT * FROM workspace_bindings ORDER BY name"
+        ).fetchall()
+        history_before = space.connection.execute(
+            "SELECT * FROM workspace_history ORDER BY name, revision"
+        ).fetchall()
         provider = scripted(plan_json(SERIES_SQL), BOTH)
         answered = Session(provider, self.registry(house)).answer(
             "Konut kredisi ve faiz nedir?",
@@ -277,8 +283,18 @@ class TestAFollowUpCitesTheWholeTable:
             remember="konut_stok",
         )
 
-        # The rate is stale, so the sentence quoting it must not be shown.
+        # The rate is stale, so neither the sentence nor a new binding may publish.
         assert answered.answer.status is AnswerStatus.ABSTAINED
+        assert (
+            space.connection.execute("SELECT * FROM workspace_bindings ORDER BY name").fetchall()
+            == before
+        )
+        assert (
+            space.connection.execute(
+                "SELECT * FROM workspace_history ORDER BY name, revision"
+            ).fetchall()
+            == history_before
+        )
 
     def test_without_a_workspace_the_answer_still_works_on_this_turn_alone(self, house):
         provider = scripted(plan_json(SERIES_SQL), "Konut kredisi 801.438 milyon TL.")
