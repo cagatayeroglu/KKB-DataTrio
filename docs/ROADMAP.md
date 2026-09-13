@@ -18,6 +18,8 @@ This file owns **execution truth**. [ARCHITECTURE](ARCHITECTURE.md) owns technic
 
 # Current Project Status
 
+- Active bounded scope: **M12-08 weekly requested-boundary coverage — IN PROGRESS**; Owner Çağatay; Branch `codex/m12-08-requested-coverage`, from `6d3194b6ebcabc39a294f9250eb28a1d146465b7`; PR/Commit pending. Only the supported weekly window correction is claimed; broader M12-08 remains PARTIAL. No second task.
+
 - Latest completion: **M8-21 — DONE — Numeric result-to-execution evidence binding**; Owner Çağatay (completed; no active claim); [PR #124](https://github.com/cagatayeroglu/KKB-DataTrio/pull/124) merged into `dev` at `d4640a8110c2e892651cb3cfcb525d7e492cd83b`. The tested final head and implementation are reachable from `origin/dev`, and merged/tested trees match. Numeric analytical trust now requires matching committed producer input/output evidence; broader M8 proof/replay and blocker D remain unfinished. No second task started.
 
 - Previous completion: **M5-21 — DONE**, Owner Çağatay (completed; no active claim), [PR #122](https://github.com/cagatayeroglu/KKB-DataTrio/pull/122) merged into `dev` at `32285d2ca0ccebd3aeb4760bab6ce892c70360e9`: gate-approved atomic workspace publication closes correctness blocker E. Implementation and final head are reachable from `origin/dev`; tested/merged trees match. Validation details are in its M5 record; no next task started.
@@ -1911,6 +1913,10 @@ M0-01 contracts and M1 loading for input; DEC-112 for the engine, DEC-114 for bu
 - Previous handoff (historical; current queue controls selection): The PR #26 fixture linked bronze, silver, selected transformations and gold; remaining M12 acceptance is explicitly listed above. What is missing before an answer can be produced is everything above the data layer: no adapter fetches a real bulletin, no planner routes a question, no verifier checks a claim against a cell. The agreed next lane is M4, the Kloudeks provider interface, which can be built against a synthetic double while Q-K-01/02/03 remain unanswered.
 
 ### M12-08 active record
+
+- Bounded requested-boundary slice — Status: IN PROGRESS; Owner: Çağatay, under the merged 2026-09-11 handover (`ae0e1c0`) from Eray and this explicit assignment. Branch: `codex/m12-08-requested-coverage`, based on `6d3194b6ebcabc39a294f9250eb28a1d146465b7`; PR: pending; Commit: pending.
+- Scope: explicit inclusive period-end requested window for weekly-to-monthly coverage, all declared weekly anchors, empty/zero-expectation windows, consistent BY_END/BY_MAJORITY grouping, unchanged reducers and strict spine. No daily/business-day/holiday/twice-monthly/irregular calendar implementation, adapters, harness wiring or second task. M12-08 stays unchecked overall.
+- Tests: NOT RUN for implementation; read-only triage reproduced Friday 1/1 instead of 1/4 and Wednesday 1/1 instead of 1/5. Blocker: none for this bounded slice. Handoff: publish this claim as a draft PR before code; implement and validate the slice, verify exact-head Fast PR and merge conditions. The original delivery record below remains historical.
 
 - Status: PARTIAL — merged/validated weekly-to-monthly scope; daily alignment and full requested-boundary coverage remain
 - Owner: Eray (recorded delivery owner; no active PR found; confirm handoff before resuming remaining scope)
