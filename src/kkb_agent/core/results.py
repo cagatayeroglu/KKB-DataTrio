@@ -252,8 +252,9 @@ class AnalyticalResult(ContractModel):
     tool: NonEmptyText
     #: The concrete method, when a kind admits several — "pearson", "granger".
     method: NonEmptyText | None = None
-    #: Set by M5 when the result comes from a recorded run. `None` means the
-    #: result was computed outside one, not that a run is implied.
+    #: M8-21 records trusted producer invocation identity here, binding actual
+    #: input snapshots and invocation arguments. None means no recorded
+    #: execution; Session-level run management remains separate.
     run_id: NonEmptyText | None = None
     step_id: NonEmptyText | None = None
     values: list[ResultValue] = Field(default_factory=list)

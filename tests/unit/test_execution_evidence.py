@@ -424,3 +424,41 @@ def test_snapshots_are_the_inputs_used_not_a_postcomputation_reread(
     snapshot = json.loads(graph.node(parent).attributes["snapshot"])
     assert [row[2] for row in snapshot["observations"]] == [782918, 801438]
     assert result.values[2].value == 18520.0
+
+
+def test_equal_outputs_from_different_input_snapshots_cannot_swap_receipts(connection, comparison):
+    # Equal measurements do not make two source identities the same production event.
+    connection.execute(
+        "INSERT INTO bronze_artifacts SELECT 'other', 'other-source', source_type, locator, "
+        "retrieved_at, media_type, byte_count, payload_path, recorded_at FROM bronze_artifacts"
+    )
+    rows = connection.execute("SELECT * FROM silver_observations").fetchall()
+    # DuckDB disallows updating even a non-key parent column while referenced.
+    connection.execute("DELETE FROM silver_observations")
+    connection.execute("UPDATE silver_series SET artifact_id='other'")
+    connection.executemany("INSERT INTO silver_observations VALUES (?,?,?,?)", rows)
+    other = (
+        make_change_detection_tool(connection, lineage=Lineage(connection))
+        .run(
+            ChangeDetectionArguments(
+                operation="compare",
+                series_id="housing",
+                start=date(2026, 5, 31),
+                end=date(2026, 6, 30),
+            ),
+            ExecutionContext(question="other source"),
+        )
+        .output
+    )
+    assert comparison.values == other.values
+    assert comparison.evidence.evidence_ids != other.evidence.evidence_ids
+    copied = comparison.model_copy(
+        update={
+            "evidence": comparison.evidence.model_copy(
+                update={"evidence_ids": other.evidence.evidence_ids}
+            )
+        }
+    )
+    from kkb_agent.agent.verifier import result_faults
+
+    assert result_faults({"copied": copied}, connection)

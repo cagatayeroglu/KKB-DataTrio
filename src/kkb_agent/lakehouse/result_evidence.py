@@ -60,6 +60,16 @@ def _output(result: AnalyticalResult) -> str:
     return canonical(payload)
 
 
+def _invocation_id(producer: str, arguments: str, inputs: Sequence[str]) -> str:
+    """Bind the result back to its inputs even when another event has equal outputs."""
+    return "producer:" + node_id(
+        NodeKind.METRIC,
+        "analytical_invocation_v1",
+        {"producer": producer, "arguments": arguments},
+        inputs,
+    )
+
+
 def _record_execution(
     connection: DuckDBPyConnection,
     *,
@@ -82,13 +92,16 @@ def _record_execution(
         or result.claim_kind is not ClaimKind.ANALYTICAL_VALUE
         or result.evidence is None
         or result.evidence.evidence_ids
+        or result.run_id is not None
     ):
         raise ValueError("Invalid producer execution binding")
+    evidence = result.evidence
     graph = Lineage(connection)
     parents = [
         graph.record(NodeKind.SERIES, INPUT_LABEL, attributes={"snapshot": snapshot})
         for snapshot in inputs
     ]
+    result = result.model_copy(update={"run_id": _invocation_id(producer, arguments, parents)})
     reference = graph.record(
         NodeKind.METRIC,
         EXECUTION_LABEL,
@@ -101,9 +114,7 @@ def _record_execution(
         upstream=[(parent, EdgeKind.DERIVES_FROM) for parent in parents],
     )
     return result.model_copy(
-        update={
-            "evidence": result.evidence.model_copy(update={"evidence_ids": [PREFIX + reference]})
-        }
+        update={"evidence": evidence.model_copy(update={"evidence_ids": [PREFIX + reference]})}
     )
 
 
@@ -140,6 +151,10 @@ def execution_proof(result: AnalyticalResult, connection: DuckDBPyConnection | N
                 not isinstance(inputs, list)
                 or not inputs
                 or not all(isinstance(i, str) for i in inputs)
+            ):
+                return False
+            if result.run_id != _invocation_id(
+                attributes["producer"], attributes["arguments"], inputs
             ):
                 return False
             parents = graph.parents(record.node_id)
