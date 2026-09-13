@@ -13,6 +13,16 @@ This file defines what correctness means and how to measure it. [ROADMAP M9](ROA
 
 Implementation boundary: merged unit tests exercise ingestion, semantics, lakehouse, planning, workspace definitions and numeric matching. [ROADMAP Current Project Status](ROADMAP.md#current-project-status) owns their revisions/results. They are not a benchmark scorecard. The Day 0 `evaluation/models.py`, case JSON and schema-test drafts are preserved in a local stash, not delivered or currently untracked files in dev. No executing benchmark runner, benchmark numerical-oracle schema, scorecard generator or eval Make target exists. This docs task runs document checks only.
 
+## Prepared official-data and runtime acceptance
+
+[DEC-136](DECISIONS.md#dec-136--scoped-official-data-preparation-and-lakehouse-first-demo-runtime) changes the intended official financial-data path, not the meaning of a passing test. Preparation acceptance must independently record the selected BDDK selectors/EVDS real IDs, approximately 2021-01–2026-06 requested coverage for housing credit balance/rate, CPI and KFE, native frequency/anchor, units/scales, stock/flow/rate/base-year meaning, source vintage and artifact/version provenance. Missing periods, unknown metadata and unresolved IDs remain explicit. A reviewed catalog snapshot, synthetic fixture or existing DuckDB table is not evidence that the official dataset is ready.
+
+The organizer real three-turn regression must execute questions against that prepared official dataset, through the actual planner/tools/workspace/verifier, with independent numeric oracles and recorded dataset identity. It must cover follow-up table grounding, successful publication and rejected-turn preservation. Runtime need not refetch BDDK/EVDS on each turn. This is planned acceptance, not a delivered benchmark runner or a passed rehearsal; live Kloudeks/source runs require separate authorization and source/network permissions. Real on-day inputs must still be processed, with no canned answers or silent synthetic fallback.
+
+M5-21 and M8-21 remain delivered correctness protections; only the bounded weekly requested-window slice of M12-08 is delivered. Daily/business-day/holiday/twice-monthly/irregular calendars remain unsupported, and overall M12-08 stays PARTIAL. Prepared data does not bypass DEC-135's required inspection/quality/semantic prerequisites or prove full requested coverage by observed min/max alone.
+
+Production web-search acceptance stays separate under DEC-134: SearXNG is a compatibility candidate only, including upstream-query privacy/network review. Crawl4AI is optional future extraction work, not current `web_url` acceptance. Search-result URLs remain unauthorized to fetch automatically. Existing command/tier and historical live-acceptance records below are unchanged.
+
 ## Metrics
 
 Score applicable assertions per case, then report passed/total and category-level failures. A metric may be N/A only when declared irrelevant by the case. An expected capability that is unsupported is a failure or an explicit scope exclusion, never quietly removed from the denominator. NOT RUN is distinct from failed; report both and do not inflate pass rates by omitting unexecuted required cases.

@@ -75,9 +75,12 @@ The exact key `konut kredisi` belongs to both the generic and balance concepts. 
 DEC-135 retains this reviewed local/versioned artifact as demo input, not the
 entire final BDDK/EVDS catalog. Aliases are precision shortcuts rather than the
 only catalog knowledge. Broader reviewed metadata coverage remains future work;
-observation retrieval belongs to approved runtime source adapters. Neither path
+under DEC-136, runtime observation retrieval uses the prepared lakehouse, populated
+by scoped ingestion before demo questions. Neither path
 may invent identities. M13-04 is now DONE for bounded offline lexical retrieval;
 see [the delivered catalog_search contract](CATALOG_SEARCH.md).
+
+The [DEC-136](DECISIONS.md#dec-136--scoped-official-data-preparation-and-lakehouse-first-demo-runtime) initial dataset is housing credit balance, housing/mortgage rate, CPI/TÜFE and KFE over approximately 2021-01–2026-06. This metadata snapshot is not that observation dataset. The BDDK housing selectors/composite identity and CPI real series IDs still need resolution; CPI datagroups cannot substitute for series. Preserve unknown rate status and KFE base/reference-year distinctions. Broader loan/deposit/rate/catalog coverage is later expansion. No JSON mappings or source evidence hashes are changed by this architecture clarification.
 
 ## Handoff to M13-04
 

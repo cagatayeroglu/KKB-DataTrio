@@ -4,12 +4,12 @@ Status: specified, not an implemented API/UI. This document completes M10-01's o
 
 ## One demo flow
 
-Use synthetic/local-safe data for development and rehearsal. Live source/model/OCR activity requires separate authorization. An operator must be able to distinguish a scripted rehearsal from live output; the existing live_check command is not an API or a safe automatic startup check.
+Use synthetic/local-safe data for development rehearsal; real demo acceptance targets the prepared official dataset under DEC-136 with source-use permissions. Live source/model/OCR activity requires separate authorization. An operator must be able to distinguish a scripted rehearsal from live output; the existing live_check command is not an API or a safe automatic startup check.
 
 | Step | Operator action | Application contract / observable outcome | Recovery and ownership |
 | --- | --- | --- | --- |
 | 1. Start | Open a fresh analysis session | Explicit session identity; readiness means local configuration/store capability, never an automatic provider call | Unavailable service exposes a fixed safe category; retry only by an explicit new operator action |
-| 2. Load/select | Choose an allowed source or supply a document URL in the question | Uploads use existing admission/loaders. URLs use web_url and safe_fetch; no arbitrary connector or BDDK/EVDS adapter is implied. Show the source selection and unknown semantics | Rejected/unsupported source is not added as usable data. Ask for a supported format or required sheet/delimiter; do not guess |
+| 2. Load/select | Select prepared lakehouse data or supply an authorized document URL in the question | Prepared official observations are the target financial-data input (dataset not yet delivered). Uploads use existing admission/loaders. URLs use web_url and safe_fetch; no arbitrary connector or BDDK/EVDS adapter is implied. Show the source selection and unknown semantics | Rejected/unsupported source is not added as usable data. Ask for a supported format or required sheet/delimiter; do not guess |
 | 3. Ask | Submit a question in this session, optionally referencing a prior result | Server validates bounded request and session-owned references, then invokes existing Session.answer with that session's connection/workspace and trusted registry | No client-selected provider, tool registry, connection path, SQL or gate override |
 | 4. Inspect progress | Read plan/tool status while waiting | DEC-123 SSE target: validated step/tool identifiers and lifecycle status only. Plan inspection is informational; it is not a new confirmation gate or hidden reasoning view | Never expose raw plan arguments, model prompts, intermediate document content or exception text |
 | 5. Inspect answer | Read accepted/qualified answer or abstention | Present GatedAnswer.text only after its gate. Preserve limitations, unknown semantics and omitted-claim indication without showing rejected sentences | An abstention is a completed safe outcome, not a transport failure or a value of zero |
@@ -18,6 +18,12 @@ Use synthetic/local-safe data for development and rehearsal. Live source/model/O
 | 8. Recover/reset | Start a new analysis after failure, or request reset | A new session must not inherit another session's data. Reset/cancellation UX is M10-11; no destructive reset/delete endpoint is promised here | Preserve old evidence until the explicit retention/reset policy permits removal; disconnect does not mean a running job was cancelled |
 
 The first UI may use concise text/table evidence, not an interactive graph canvas. Chart generation and full source-upload/follow-up/cancellation UI remain M10-04..11. M10-13/14 own actual UI rehearsal, including an independent teammate; a specification review is not a passed UI rehearsal.
+
+## Prepared dataset selection and separate web inputs
+
+[DEC-136](DECISIONS.md#dec-136--scoped-official-data-preparation-and-lakehouse-first-demo-runtime) makes the initial official-data path prepared lakehouse selection: resolve housing credit balance/rate, CPI or KFE through trusted catalog metadata, then query the selected observations for the requested window. The official dataset and its thin ingestion adapters remain undelivered; this is a flow requirement, not an implemented UI control. Preserve dataset/source vintage, missing coverage and unresolved selections visibly. Later loan/deposit/catalog expansion is separate from the initial approximately 2021-01–2026-06 scope.
+
+General discovery remains `web_search` (SearXNG compatibility candidate only); fetching a specific supplied/authorized URL remains `web_url`. A search result does not grant fetch authority. Crawl4AI is optional future extraction evaluation only. No automatic live-source refresh or silent fixture substitution is implied by selecting the prepared dataset; on-day questions/documents still require real analysis.
 
 ## Backend facts and integration prerequisites
 

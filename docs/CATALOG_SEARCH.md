@@ -8,8 +8,9 @@ full hybrid acceptance still needs M13-05 dense retrieval and evaluation.
 
 ## Catalog and observation boundary
 
-DEC-135 separates trusted local/versioned catalog discovery from observations
-retrieved through approved runtime source adapters when available. M13-08's ten
+DEC-136 separates trusted local/versioned catalog discovery from runtime queries
+over prepared lakehouse observations. Thin source adapters prepare that dataset
+before runtime; neither adapter nor the official dataset is delivered yet. M13-08's ten
 identities are a reviewed demo snapshot, not the final full catalog. Aliases are
 precision shortcuts; other queries already use lexical matching over available
 records. Broader versioned BDDK/EVDS metadata is intended later, not delivered;

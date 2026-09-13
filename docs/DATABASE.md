@@ -6,6 +6,12 @@ One DuckDB file holds every table. There is no server: DuckDB runs inside the ap
 
 Every table is created by `apply_schema` in [database.py](../src/kkb_agent/database.py), which is also the only list of what exists. The DDL itself lives beside the code that reads and writes each table, so a table's rules sit next to their enforcement; `TABLES` keeps a single answer to "what is in here", and [test_database.py](../tests/unit/test_database.py) fails if this document and the code disagree.
 
+## Prepared official-data boundary
+
+Under [DEC-136](DECISIONS.md#dec-136--scoped-official-data-preparation-and-lakehouse-first-demo-runtime), scoped official BDDK/EVDS ingestion prepares the initial housing balance/rate, CPI and KFE observations (approximately 2021-01–2026-06) before demo runtime. Bronze preserves source artifacts and retrieval provenance; silver records normalized values with explicit source semantics; gold holds required derived/aligned representations. Thin source adapters reuse these storage boundaries. Runtime `catalog_search` selects trusted metadata and `lakehouse` queries prepared values; neither a metadata snapshot nor empty storage tables constitute a prepared dataset.
+
+The tables below are implemented storage, not delivered BDDK/EVDS ingestion, a completed official dataset, or a new dataset-manifest schema. Preparation must retain source identity, vintage, normalization and computation evidence. Snapshot versioning, revision selection, refresh and retention policy must be established before claiming dataset acceptance; the existing one-value-per-series/period layout does not alone settle competing vintages. Source access/redistribution questions remain open. Broader data coverage and live operational refresh are later scope.
+
 ## Layout on disk
 
 ```text
@@ -183,6 +189,6 @@ Foreign keys are declared for readability. DuckDB enforces them, but the applica
 
 ## What is not here yet
 
-Catalog discovery ([M13](ROADMAP.md#m13)) currently uses the M13-08 versioned local reviewed JSON snapshot and M13-04 in-memory pure-Python BM25; no DuckDB FTS extension/index was installed. [DEC-135](DECISIONS.md#dec-135--planner-actions-and-mandatory-correctness-harness) separates catalog metadata from approved runtime observation paths. A broader versioned BDDK/EVDS metadata snapshot remains future work; its storage expansion is not delivered or selected here. Mandatory dense retrieval with the retained LanceDB choice remains planned under DEC-130; DEC-115 is historical/superseded. Evaluation results ([M9](ROADMAP.md#m9)) and a turn log will add tables here. No second relational database is planned.
+Catalog discovery ([M13](ROADMAP.md#m13)) currently uses the M13-08 versioned local reviewed JSON snapshot and M13-04 in-memory pure-Python BM25; no DuckDB FTS extension/index was installed. [DEC-136](DECISIONS.md#dec-136--scoped-official-data-preparation-and-lakehouse-first-demo-runtime) separates catalog metadata from runtime queries over observations prepared in the lakehouse. A broader versioned BDDK/EVDS metadata snapshot remains future work; its storage expansion is not delivered or selected here. Mandatory dense retrieval with the retained LanceDB choice remains planned under DEC-130; DEC-115 is historical/superseded. Evaluation results ([M9](ROADMAP.md#m9)) and a turn log will add tables here. No second relational database is planned.
 
 Revisions and source vintages ([M12-12](ROADMAP.md#m12)) are unresolved: `silver_observations` currently permits one value per period, and whether BDDK or EVDS restate a published figure has not been tested.

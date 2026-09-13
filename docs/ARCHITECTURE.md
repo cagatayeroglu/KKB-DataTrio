@@ -10,7 +10,7 @@ This file owns technical structure and contracts. [ROADMAP](ROADMAP.md) owns del
 - **BLOCKED BY EXTERNAL ANSWER** names the organizer/platform dependency in OPEN_QUESTIONS.
 - **DEFERRED** is outside the core slice unless a later explicit scope decision changes it.
 
-The implemented spine includes bounded file admission, CSV/XLSX loading and safe GET with validated redirects, DuckDB/Parquet storage and financial semantics, typed results, the Kloudeks transport (tested offline; one authorized live smoke and one live end-to-end question passed), validated planning/execution, content-addressed workspace values and multi-result answer gating. Seven callable factories exist: M13-04 `catalog_search` plus the six brief tools (search is offline-only): `lakehouse`, `change_detection` (comparison), `anomaly`, `causality` (association, lag and Granger precedence), `web_search` with an explicitly injected backend, and `web_url`, which reads a CSV/XLSX table, a PDF's text and ruled tables, or bounded static HTML text/tables at an address the user wrote, and can return one named cell as a result the answer gate binds. Synthetic tests compose an end-to-end answer with a scripted model. Live source adapters, provider retries and limits, CSV/XLSX profiling, full hybrid/catalog coverage, breakpoint detection, complete proof/replay, production `web_search`, `web_url`'s JavaScript-rendered/image-address extraction, evaluation runner, UI and deployment remain incomplete. Day 0 drafts remain outside the shared runtime.
+The implemented spine includes bounded file admission, CSV/XLSX loading and safe GET with validated redirects, DuckDB/Parquet storage and financial semantics, typed results, the Kloudeks transport (tested offline; one authorized live smoke and one live end-to-end question passed), validated planning/execution, content-addressed workspace values and multi-result answer gating. Seven callable factories exist: M13-04 `catalog_search` plus the six brief tools (search is offline-only): `lakehouse`, `change_detection` (comparison), `anomaly`, `causality` (association, lag and Granger precedence), `web_search` with an explicitly injected backend, and `web_url`, which reads a CSV/XLSX table, a PDF's text and ruled tables, or bounded static HTML text/tables at an address the user wrote, and can return one named cell as a result the answer gate binds. Synthetic tests compose an end-to-end answer with a scripted model. Scoped BDDK/EVDS ingestion adapters and the prepared official dataset, provider retries and limits, CSV/XLSX profiling, full hybrid/catalog coverage, breakpoint detection, complete proof/replay, production `web_search`, `web_url`'s JavaScript-rendered/image-address extraction, evaluation runner, UI and deployment remain incomplete. Day 0 drafts remain outside the shared runtime.
 
 ## Goals and non-goals
 
@@ -40,6 +40,34 @@ The stack is selected in DECISIONS and is not re-argued here: DuckDB with Parque
 
 Target packages follow DEC-125 (only existing source links below imply implementation): `src/kkb_agent/{app,agent,tools,ingest,transform,catalog,lineage,llm,eval}/`, with the web client in `web/`.
 
+## Official-data preparation and demo runtime
+
+[DEC-136](DECISIONS.md#dec-136--scoped-official-data-preparation-and-lakehouse-first-demo-runtime) separates the preparation phase from answering organizer financial questions. This is the intended integration architecture; neither source ingestion adapter nor the official prepared dataset is implemented yet. Existing store/catalog/tool tests use bounded offline inputs and do not establish real-data demo readiness.
+
+```text
+PREPARATION (operator-approved source access)
+  official BDDK / EVDS -> common safe retrieval and parsing infrastructure
+  -> thin source-specific adapter -> common trusted Observation representation
+  -> bronze source artifacts -> silver observations/semantics -> gold as needed
+  -> local/versioned DuckDB + Parquet lakehouse
+
+DEMO RUNTIME
+  user question -> planner / catalog_search -> trusted series/concept
+  -> lakehouse prepared observations -> alignment / transforms / analytics
+  -> verifier -> accepted workspace publication / answer
+```
+
+Initial scope is approximately **2021-01 through 2026-06**: housing credit balance, housing/mortgage credit interest rate, CPI/TÜFE and KFE. Broader consumer/vehicle/commercial loans, deposits/additional rates and catalogs are later expansion, not a requirement to ingest the entire source universe. Missing identities or requested periods must remain explicit; the planner must not invent them or silently scrape missing values.
+
+| Source | Thin adapter responsibilities and unresolved boundaries |
+| --- | --- |
+| BDDK | Endpoint/request shape and table/selectors; Monthly/Weekly Bulletin or FinTürk when relevant; TP/YP/Total, bank group/geography, units/scales, stock versus flow/cumulative and period semantics. Reviewed inventory does not yet establish a complete housing-balance ingestion identity. |
+| EVDS | Real series IDs, never datagroup IDs used as series; native frequency/anchor and active/archived/unknown; explicit comma decimals and date interpretation; aggregation, base/reference year and flow-rate versus stock-rate. CPI groups and unknown KFE/rate metadata require resolution, not invented IDs. |
+
+Adapters reuse generic safe-fetch/file guards, parsing and storage instead of duplicating network/security logic. They own source-specific mapping into the common observation contract. Preserve original retrieval/release vintage, raw artifact identity, normalization/transformation evidence and explicit refresh/revision policy. Existing storage alone does not deliver dataset version management or settle revision conflicts. Source access, retention/redistribution and network approvals remain prerequisites for actual preparation.
+
+Runtime queries need not contact BDDK/EVDS for every question; this reduces endpoint/page drift, availability and latency risks. Authorized optional refresh remains an operational path. General `web_search` and user-supplied/authorized `web_url` remain separate capabilities; on-day questions/documents must still be handled by the real deployed solution. DEC-135's mandatory selected-series inspection, observation quality and applicable reconciliation triggers are unchanged and their automatic wiring remains unfinished.
+
 ## End-to-end request lifecycle
 
 CONFIRMED responsibility flow. The coordinator is a custom bounded state machine under DEC-113; no orchestration framework mediates these steps.
@@ -64,8 +92,9 @@ Plan validation
   v
 Executor -> registered deterministic tool
   |              |
-  |              +-> source adapters -> safe fetch / file guards -> parser/profile
-  |              +-> normalization -> analytics -> structured result
+  |              +-> lakehouse -> prepared observations -> transforms / analytics
+  |              +-> authorized web_url / upload -> safe boundaries -> supported parser
+  |              +-> structured result + source / computation evidence
   v
 Staged workspace changes + source/transformation/run evidence
   |
@@ -85,7 +114,7 @@ PROPOSED execution sequence:
 2. Discover/inspect source candidates using bounded metadata. A model may propose a mapping; deterministic rules and source metadata determine whether it is usable.
 3. Obtain a candidate typed plan, constrained to registered capabilities and known references.
 4. Validate structure and per-tool inputs before dispatch. Do not execute a plan simply because it deserializes.
-5. Load bounded data and record source identity/vintage/retrieval metadata; profile uncertainty rather than guessing.
+5. Read bounded prepared observations through lakehouse, preserving original source/vintage/retrieval metadata; separately authorized URL/upload paths admit new documents through their guards. Profile uncertainty rather than guessing.
 6. Apply explicit normalization and analytical operations, retaining exact input/output references.
 7. Verify material outputs and lineage. Preserve failed-run metadata without presenting failed results as verified.
 8. Assemble only supported claims; render values from tool outputs. Ask for missing semantics or explain abstention where necessary.
@@ -238,6 +267,10 @@ Offline acceptance covers valid/empty/oversized queries, zero results, caps/orde
 
 **Before final submission/demo acceptance, at least one real production search backend must be configured and a live hidden-like web search smoke must PASS.** The separately triaged [production acceptance record](ROADMAP.md#web-search-production-acceptance) must cover official endpoint/auth/config, retention/privacy, network policy, real adapter and sanitized unseen-query evidence. Q-NET-01/02 remain open. Offline completion alone never satisfies production acceptance.
 
+Under [DEC-136](DECISIONS.md#dec-136--scoped-official-data-preparation-and-lakehouse-first-demo-runtime), SearXNG is the preferred production-search compatibility candidate only: no concrete backend is integrated or live accepted. Self-hosting may forward queries to upstream search engines, so privacy/retention and organizer/network approval remain open. It is separate from the structured lakehouse data path.
+
+`web_url` remains the supplied/authorized URL extractor with its existing static/document support. Crawl4AI is only an optional future candidate for insufficient static extraction or dynamic/JS pages, not a selected replacement. Any candidate must retain URL authorization, SSRF/private-address checks, redirect/TLS validation, size/time bounds and source/value proof. Search results do not grant fetch authority; that product/security expansion remains undecided.
+
 ### 5. Source discovery and adapters — CONFIRMED abstraction
 
 - Responsibility: Discover/inspect/load/profile a source through the common data boundary and return source provenance.
@@ -247,7 +280,7 @@ Offline acceptance covers valid/empty/oversized queries, zero results, caps/orde
 - Likely failures: Unknown/ambiguous series, schema drift, unavailable source, revisions, empty range, unexpected content type.
 - Validation expectations: Synthetic discovery/load fixtures, wrong-near-match selection tests, unfamiliar schemas, source outage, and stable provenance.
 
-TARGET operations are discovery, inspection, loading, profiling and provenance. No SourceAdapter protocol or runtime BDDK/EVDS adapter is delivered. [INGESTION_PROFILE](INGESTION_PROFILE.md) specifies observable results; an executable shared adapter/selection interface remains implementation work. Adapters unable to discover (for example, a single uploaded file) should report unsupported capability explicitly rather than invent source candidates.
+TARGET operations are discovery, inspection, loading, profiling and provenance. No SourceAdapter protocol or BDDK/EVDS ingestion adapter is delivered. DEC-136 places scoped official-source loading in preparation, with runtime financial queries reading the prepared lakehouse. [INGESTION_PROFILE](INGESTION_PROFILE.md) specifies observable results; an executable shared adapter/selection interface remains implementation work. Adapters unable to discover (for example, a single uploaded file) should report unsupported capability explicitly rather than invent source candidates.
 
 ### 6. Safe ingestion, extraction, and profiling — partial implementation; confirmed boundary
 
@@ -414,7 +447,7 @@ TARGET adapters must retrieve/catalog series identifiers instead of hard-coding 
 
 ### 13. Semantic catalog and retrieval — confirmed baseline; benchmark-gated extensions
 
-DEC-135 separates trusted **local/versioned catalog metadata and discovery** from **runtime observation retrieval through approved source adapters**, when available. catalog_search consumes reviewed catalog state; it does not fetch observations or invent IDs. The M13-08 demo snapshot is not a permanent full-catalog ceiling: reviewed aliases are precision shortcuts, not the only catalog knowledge. Broader versioned BDDK/EVDS metadata coverage is intended later and remains unimplemented; unseen concepts may use catalog retrieval without an exact alias, while unsupported identities remain unresolved.
+DEC-136 separates trusted **local/versioned catalog metadata and discovery** from **runtime queries over prepared lakehouse observations**; approved source adapters populate the lakehouse during preparation, not on each question. catalog_search consumes reviewed catalog state; it does not fetch observations or invent IDs. The M13-08 demo snapshot is not a permanent full-catalog ceiling: reviewed aliases are precision shortcuts, not the only catalog knowledge. Broader versioned BDDK/EVDS metadata coverage is intended later and remains unimplemented; unseen concepts may use catalog retrieval without an exact alias, while unsupported identities remain unresolved.
 
 TARGET under [DEC-130](DECISIONS.md#dec-130--initial-hybrid-retrieval-baseline), superseding DEC-127; DEC-115 remains historical. M13-04 supplies the reviewed offline lexical stage; dense and full hybrid retrieval remain unimplemented.
 
