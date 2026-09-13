@@ -3,7 +3,8 @@
 This bounded implementation defines candidate identity and metadata only under
 [DEC-136](DECISIONS.md#dec-136--scoped-official-data-preparation-and-lakehouse-first-demo-runtime).
 It performs no network, file, database, observation ingestion or planner/tool
-registration. Full BDDK ingestion and broader M3-05 mappings remain unfinished.
+registration. Full BDDK ingestion and broader M3-05 mappings remain unfinished. The bounded
+M3-06 offline ingestion implementation is described below; it reuses this boundary.
 The [source inventory](BDDK_SOURCE.md) remains unchanged historical evidence,
 including its content hash pinned by M13-08.
 
@@ -81,11 +82,10 @@ format; review the new format rather than silently inferring units.
 
 ## Remaining work and validation
 
-M3-06 still needs common bounded POST support, the verified BDDK CA/TLS path,
-response retrieval, source snapshots/bronze storage, observation parsing, silver
-ingestion, repeatability/idempotency and prepared demo dataset acceptance.
-Broader M3-05 bank/currency/table/Weekly/FinTürk metadata mappings are not delivered.
-No EVDS, gold, transform, planner/runtime or live acceptance is included.
+M3-06 has a bounded offline implementation below. Live source/egress approval,
+BDDK CA-chain acceptance, real dataset preparation and broader mappings remain
+unfinished. No Weekly, FinTürk, EVDS, gold, planner/runtime routing or live
+acceptance is included.
 
 [Offline tests](../tests/unit/test_bddk_monthly.py) cover identity/dimension
 separation, strict review, source evidence, serialization/catalog round-trip,
@@ -93,3 +93,70 @@ period/clock independence, metadata failures, synthetic/injection inputs and
 unchanged NL ambiguity. The existing cumulative conversion rejects the produced
 stock declaration. Exact command results and PR evidence belong to
 [ROADMAP](ROADMAP.md#m3).
+
+## M3-06 bounded Monthly ingestion (offline validated)
+
+[MonthlyRequest / MonthlyRange](../src/kkb_agent/ingest/bddk_monthly_request.py)
+and [ingest_monthly](../src/kkb_agent/ingest/bddk_monthly_load.py) consume the
+validated selector and inclusive month range. The review dispatcher currently
+supports the M3-05 table 4 / row 2 / sector / TL contract, separately for TP, YP
+and TOTAL. Unsupported identities fail before retrieval. Broader source
+contracts must extend the reviewed metadata boundary; request iteration,
+transport, manifest and storage do not embed housing row numbers or labels.
+No free-form metadata, URL, body or planner-callable adapter tool is accepted.
+
+The official HTTPS BasitRaporGetir form contains only `tabloNo`, `yil`, `ay`,
+`paraBirimi`, `taraf`. Row/component selection happens in the response. Selector
+and month produce a deterministic request fingerprint. The common fixed fetch
+worker independently revalidates the Monthly descriptor and matching fixed
+endpoint/limits, then uses the existing DNS/peer binding, system-verified TLS
+and bounded HTTP parser. No redirect, cookie, authentication, proxy or retry is
+introduced. Source access permission remains the trusted caller's responsibility.
+
+Operator ceilings: 120 months/requests, 256 form bytes, 16 KiB response headers,
+1 MiB encoded body, 2 MiB decoded body per response, 5-second connect/read and
+30-second whole-request deadlines. Requests are sequential; at most 3600 seconds
+of network work for the maximum range, without a database transaction. These
+bounds are not BDDK quotas. No live CA path was tested; if system trust cannot
+verify the chain, retrieval fails. A reviewed issuer bundle and deployment
+verification remain separately authorized live preparation work where needed.
+
+The parser checks successful JSON, complete single-page shape, unique row
+identities, exact selected seven-cell/header shape, bank group, reviewed label,
+report/unit and requested month. Unknown `colModels` and unselected labels/font
+hints remain inert; their undocumented semantics are not guessed. Only JSON
+numbers or null are accepted for the selected value. Non-finite numbers and
+integers that cannot be represented exactly in silver DOUBLE are refused.
+Monthly calendar bounds include leap years. Null stays missing, with no fill,
+rescale, differencing or stock-to-disbursement relabeling.
+
+Every used raw response is immutable content-addressed bronze. The internal
+`bddk-monthly-batch-v1` JSON manifest binds canonical selector, exact start/end,
+ordered periods/request fingerprints/raw hashes, parser and semantic versions,
+transformation policy and normalized-observation hash. Its own SHA-256 is the
+artifact ID referenced by `silver_series`; it is explicitly **our internal
+manifest**, not an official response. Retrieval timestamps stay in bronze
+metadata and do not change content identity. Source lineage reaches every raw
+response through the manifest and normalized series; analytical outputs still
+require M8-21 execution evidence.
+
+Fetch/snapshot/parse/validate the entire batch before a short DuckDB transaction
+registers the series, appends observations and records lineage. A failure rolls
+back trusted publication; immutable raw/manifest artifacts from an unsuccessful
+attempt may remain. Identical selector/range/bytes/contracts are an idempotent
+no-op. Any changed bytes, range or contract on an existing selector returns
+`VERSION_CONFLICT`, preserving previous values. This conservative first-batch
+policy also refuses incremental extension; version promotion/refresh belongs to
+later M3-09/M12-12 work, not an implicit upsert.
+
+`materialized_monthly` checks this exact selector/window offline, rehashes and
+reparses raw artifacts and checks current silver values/semantics and lineage.
+Its missing-value count distinguishes materialization from observation
+completeness. It does not mark all history/catalog selectors prepared or resolve
+natural-language ambiguity. Runtime availability routing is still future work.
+
+[Ingestion regressions](../tests/unit/test_bddk_monthly_load.py) include the
+66-month synthetic range, idempotency/revisions, transaction fault injection and
+real lakehouse query/answer gating. [POST regressions](../tests/unit/test_bddk_monthly_transport.py)
+use the actual HTTP parser with fake DNS/socket/TLS and the fixed worker protocol.
+Full M3-06 remains PARTIAL pending live source/CA/data acceptance.

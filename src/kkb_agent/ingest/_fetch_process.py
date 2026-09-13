@@ -11,6 +11,10 @@ import subprocess  # nosec B404
 import sys
 import time
 from contextlib import suppress
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from kkb_agent.ingest.bddk_monthly_request import MonthlyRequest
 
 from kkb_agent.ingest.safe_fetch import (
     FetchCode,
@@ -51,7 +55,9 @@ def _progress(output: bytes, started: float, limits: FetchLimits) -> tuple[bytes
     return output, deadline
 
 
-def fetch_in_process(request: FetchRequest, limits: FetchLimits) -> FetchOutcome:
+def fetch_in_process(
+    request: FetchRequest, limits: FetchLimits, *, monthly: MonthlyRequest | None = None
+) -> FetchOutcome:
     """Bound DNS/connect first, then the whole operation including worker IPC.
 
     Phase markers distinguish DNS/connect from body work, including later hops.
@@ -64,7 +70,15 @@ def fetch_in_process(request: FetchRequest, limits: FetchLimits) -> FetchOutcome
     failure = FetchFailure(source_ref=request.source_ref, code=FetchCode.TRANSPORT_FAILURE)
     data = request.model_dump(mode="json")
     data["url"] = request.url.get_secret_value()
-    payload = json.dumps({"request": data, "limits": limits.model_dump(mode="json")}).encode()
+    message = {"request": data, "limits": limits.model_dump(mode="json")}
+    if monthly is not None:
+        from kkb_agent.ingest.bddk_monthly_request import MONTHLY_LIMITS, MonthlyRequest
+
+        monthly = MonthlyRequest.model_validate(monthly)
+        if request != monthly.fetch_request() or limits != MONTHLY_LIMITS:
+            return FetchFailure(source_ref=request.source_ref, code=FetchCode.INVALID_REQUEST)
+        message["monthly"] = monthly.model_dump(mode="json")
+    payload = json.dumps(message).encode()
     if len(payload) > MAX_INPUT_BYTES:
         return FetchFailure(source_ref=request.source_ref, code=FetchCode.SIZE_LIMIT)
     process = None

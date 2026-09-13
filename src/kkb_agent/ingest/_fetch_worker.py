@@ -1,7 +1,7 @@
 """Fixed one-request worker, terminated by the parent for DNS/total deadlines.
 
 Not a command runner: the executable/module are constant, input is validated
-JSON on stdin, and the only operation is a bounded source GET. stdout contains
+JSON on stdin: bounded source GET or the closed reviewed Monthly POST. stdout contains
 bounded connection-phase markers and one bounded JSON result; stderr is discarded.
 """
 
@@ -16,7 +16,11 @@ import zlib
 from collections.abc import Callable
 from contextlib import suppress
 from http.client import HTTPException
+from typing import TYPE_CHECKING
 from urllib.parse import quote, urlsplit, urlunsplit
+
+if TYPE_CHECKING:
+    from kkb_agent.ingest.bddk_monthly_request import MonthlyRequest
 
 from pydantic import SecretStr
 
@@ -46,6 +50,7 @@ def fetch_once(
     connected: Callable[[], None],
     *,
     connecting: Callable[[], None] = lambda: None,
+    monthly: MonthlyRequest | None = None,
 ) -> FetchOutcome:
     """One supervised request lifecycle, including explicitly checked GET hops."""
 
@@ -54,6 +59,14 @@ def fetch_once(
     deadline = time.monotonic() + limits.total_seconds
     header_remaining = limits.max_header_bytes
     try:
+        body = None
+        if monthly is not None:
+            from kkb_agent.ingest.bddk_monthly_request import MONTHLY_LIMITS, MonthlyRequest
+
+            monthly = MonthlyRequest.model_validate(monthly)
+            if request != monthly.fetch_request() or limits != MONTHLY_LIMITS:
+                return FetchFailure(source_ref=request.source_ref, code=FetchCode.INVALID_REQUEST)
+            body = monthly.form_body()
         connection = SourceConnection(request, limits=limits)
         visited = {connection.url.get_secret_value()}
         hops = 0
@@ -88,14 +101,15 @@ def fetch_once(
             path = quote(parsed.path or "/", safe="/%:@!$&'()*+,;=-._~")
             if parsed.query:
                 path += "?" + quote(parsed.query, safe="/%?:@!$&'()*+,;=-._~")
+            headers = {
+                "Accept": ", ".join(request.accepted_media_types),
+                "Accept-Encoding": "gzip, identity",
+                "Connection": "close",
+            }
+            if body is not None:
+                headers["Content-Type"] = "application/x-www-form-urlencoded"
             connection.request(
-                "GET",
-                path,
-                headers={
-                    "Accept": ", ".join(request.accepted_media_types),
-                    "Accept-Encoding": "gzip, identity",
-                    "Connection": "close",
-                },
+                "POST" if body is not None else "GET", path, body=body, headers=headers
             )
             response = connection.getresponse()
             if not isinstance(response, BoundedResponse):  # Internal factory invariant.
@@ -158,6 +172,11 @@ def main() -> int:
         data = json.loads(payload)
         request = FetchRequest.model_validate(data["request"])
         limits = FetchLimits.model_validate(data["limits"])
+        monthly = None
+        if "monthly" in data:
+            from kkb_agent.ingest.bddk_monthly_request import MonthlyRequest
+
+            monthly = MonthlyRequest.model_validate(data["monthly"])
 
         def connected() -> None:
             sys.stdout.buffer.write(CONNECTED)
@@ -169,7 +188,7 @@ def main() -> int:
             sys.stdout.buffer.write(message.encode("ascii"))
             sys.stdout.buffer.flush()
 
-        result = fetch_once(request, limits, connected, connecting=connecting)
+        result = fetch_once(request, limits, connected, connecting=connecting, monthly=monthly)
         encoded = result.model_dump(mode="json")
         if isinstance(result, FetchSuccess):
             encoded["content"] = base64.b64encode(result.content).decode("ascii")

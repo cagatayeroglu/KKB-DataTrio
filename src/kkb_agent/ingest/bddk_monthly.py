@@ -113,6 +113,15 @@ def monthly_housing_catalog(selector: BddkSelector) -> CatalogRecord:
     )
 
 
+def reviewed_monthly_catalog(selector: BddkSelector) -> CatalogRecord:
+    """Adapter review boundary; currently only the M3-05 contract is supported.
+
+    Broader reviewed mappings belong here, not in request/range/storage code.
+    A caller cannot provide its own metadata or invent a supported selector.
+    """
+    return monthly_housing_catalog(selector)
+
+
 class MonthlyPeriod(ContractModel):
     """Request/response context, deliberately outside the stable selector."""
 
@@ -172,3 +181,10 @@ def validate_monthly_housing_metadata(
         or metadata.bank_group_label != "Sektör"
     ):
         raise MetadataMismatch("Response metadata does not match the reviewed monthly selection")
+
+
+def validate_reviewed_monthly_metadata(
+    selector: BddkSelector, metadata: MonthlyHousingMetadata, *, requested_period: MonthlyPeriod
+) -> None:
+    """Dispatch the source-specific review, independently of generic ingestion."""
+    validate_monthly_housing_metadata(selector, metadata, requested_period=requested_period)
