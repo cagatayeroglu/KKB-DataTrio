@@ -21,6 +21,8 @@ from datetime import date
 from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
+import duckdb
+
 from kkb_agent.agent.claim_qualifiers import SCALE_WORDS as SCALE_WORDS
 from kkb_agent.agent.claim_qualifiers import (
     amount_qualifiers,
@@ -34,6 +36,7 @@ from kkb_agent.agent.claim_qualifiers import (
 )
 from kkb_agent.agent.literal import exposes_literal_identity, literal_proof, literal_text
 from kkb_agent.core import AnalyticalResult, ClaimKind, ResultStatus, ResultValue, Scale
+from kkb_agent.lakehouse.result_evidence import execution_proof
 
 if TYPE_CHECKING:  # pragma: no cover
     from duckdb import DuckDBPyConnection
@@ -442,13 +445,21 @@ def result_faults(
     found: dict[str, tuple[str, ...]] = {}
     for name, result in named.items():
         faults = _result_faults(result, minimum_samples)
-        if result.claim_kind is ClaimKind.LITERAL_SOURCE_VALUE and not literal_proof(
-            result, connection
-        ):
-            faults.append("Literal source value does not resolve to its exact recorded cell")
-        if connection is not None:
-            faults.extend(_evidence_faults(result, connection))
-            faults.extend(recheck_against_store(result, connection, tolerance=tolerance))
+        try:
+            if result.claim_kind is ClaimKind.LITERAL_SOURCE_VALUE:
+                if not literal_proof(result, connection):
+                    faults.append(
+                        "Literal source value does not resolve to its exact recorded cell"
+                    )
+            elif result.status is ResultStatus.COMPUTED and not execution_proof(result, connection):
+                faults.append(
+                    "Numeric analytical result lacks matching trusted producer execution evidence"
+                )
+            if connection is not None:
+                faults.extend(_evidence_faults(result, connection))
+                faults.extend(recheck_against_store(result, connection, tolerance=tolerance))
+        except (duckdb.Error, ValueError, TypeError, AttributeError, RuntimeError):
+            faults.append("Evidence resolver unavailable or invalid; result cannot be verified")
         if faults:
             found[name] = tuple(f"{name}: {fault}" for fault in faults)
     return found

@@ -198,9 +198,9 @@ class TestScaleIsCheckedAgainstTheData:
         assert not figure.supported
         assert any("recorded as thousand" in fault for fault in figure.faults)
 
-    def test_the_matching_scale_word_is_accepted(self, house):
+    def test_the_matching_scale_word_is_accepted(self, house, result):
         assert verify_result(
-            "Haziran 2026'da 801.438 milyon TL.", synthetic(), house.connection
+            "Haziran 2026'da 801.438 milyon TL.", result, house.connection
         ).accepted
 
     def test_asserting_a_scale_the_result_never_established_is_rejected(self, house):
@@ -221,11 +221,11 @@ class TestScaleIsCheckedAgainstTheData:
         assert not verdict.accepted
         assert any("never established a scale" in f for f in quoted(verdict, "801.438").faults)
 
-    def test_no_scale_word_means_no_scale_check(self, house):
-        assert verify_result("Değer 801.438 TL.", synthetic(), house.connection).accepted
+    def test_no_scale_word_means_no_scale_check(self, house, result):
+        assert verify_result("Değer 801.438 TL.", result, house.connection).accepted
 
-    def test_a_supported_suffixed_scale_word_is_accepted(self, house):
-        assert verify_result("Toplam 801.438 milyonu aştı.", synthetic(), house.connection).accepted
+    def test_a_supported_suffixed_scale_word_is_accepted(self, house, result):
+        assert verify_result("Toplam 801.438 milyonu aştı.", result, house.connection).accepted
 
 
 class TestThePeriodIsCheckedAgainstTheSentence:
@@ -245,11 +245,11 @@ class TestThePeriodIsCheckedAgainstTheSentence:
             house.connection,
         ).accepted
 
-    def test_a_year_in_a_neighbouring_sentence_does_not_reject(self, house):
+    def test_a_year_in_a_neighbouring_sentence_does_not_reject(self, house, result):
         # The window is the sentence, not a character count, precisely so this
         # does not become a false rejection.
         answer = "Seri 2019'da başlıyor. Haziran 2026'da 801.438 milyon TL."
-        assert verify_result(answer, synthetic(), house.connection).accepted
+        assert verify_result(answer, result, house.connection).accepted
 
     def test_an_explicit_year_requires_an_established_period(self, house):
         undated = synthetic(
@@ -292,8 +292,8 @@ class TestAResultThatEstablishedNothing:
         assert not verdict.accepted
         assert any("below the 24 this claim requires" in r for r in verdict.rejected)
 
-    def test_no_floor_means_no_sample_check(self, house):
-        assert verify_result("Değer 801.438 milyon TL.", synthetic(), house.connection).accepted
+    def test_no_floor_means_no_sample_check(self, house, result):
+        assert verify_result("Değer 801.438 milyon TL.", result, house.connection).accepted
 
     def test_unresolved_semantics_reach_the_stated_limitations(self, house):
         unresolved = synthetic(unresolved_semantics=["unit is unresolved"])
@@ -323,10 +323,10 @@ class TestPreservedInputReferencesAreResolved:
         assert not verdict.accepted
         assert any("referenced but not stored" in r for r in verdict.rejected)
 
-    def test_a_lineage_node_id_is_an_acceptable_input_reference(self, result, house):
+    def test_a_lineage_node_id_alone_is_not_execution_evidence(self, result, house):
         node = result.evidence.lineage_node
         by_node = synthetic(evidence=ResultEvidence(input_refs=[node]))
-        assert verify_result("Değer 801.438 milyon TL.", by_node, house.connection).accepted
+        assert not verify_result("Değer 801.438 milyon TL.", by_node, house.connection).accepted
 
 
 class TestTheSecondPathRecheck:
@@ -405,10 +405,10 @@ class TestTheSecondPathRecheck:
 
 
 class TestWithoutADatabase:
-    def test_the_missing_recheck_is_stated_rather_than_skipped_silently(self):
+    def test_missing_database_disqualifies_unproven_analytical_results(self):
         verdict = verify_result("Değer 801.438 milyon TL.", synthetic())
 
-        assert verdict.accepted
+        assert not verdict.accepted
         assert any("No store recheck was run" in item for item in verdict.limitations)
 
     def test_binding_and_scale_checks_still_run(self):

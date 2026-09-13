@@ -227,6 +227,10 @@ class ResultEvidence(ContractModel):
     transformations: list[TransformationRecord] = Field(default_factory=list)
     #: The lineage node recorded for this result, when the tool wrote one.
     lineage_node: NonEmptyText | None = None
+    #: M8-21 uses one execution:<lineage-id> for a trusted producer event.
+    #: The verifier resolves and compares its input/output snapshot; a string
+    #: or self-computed digest never proves execution. Legacy empty lists stay
+    #: readable, preserving serialization/digests, but cannot grant new trust.
     evidence_ids: list[NonEmptyText] = Field(default_factory=list)
     sources: list[SourceRef] = Field(default_factory=list)
 
@@ -248,8 +252,9 @@ class AnalyticalResult(ContractModel):
     tool: NonEmptyText
     #: The concrete method, when a kind admits several — "pearson", "granger".
     method: NonEmptyText | None = None
-    #: Set by M5 when the result comes from a recorded run. `None` means the
-    #: result was computed outside one, not that a run is implied.
+    #: M8-21 records trusted producer invocation identity here, binding actual
+    #: input snapshots and invocation arguments. None means no recorded
+    #: execution; Session-level run management remains separate.
     run_id: NonEmptyText | None = None
     step_id: NonEmptyText | None = None
     values: list[ResultValue] = Field(default_factory=list)
