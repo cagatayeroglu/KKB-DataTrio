@@ -30,7 +30,7 @@ from kkb_agent.core import (
     StockFlow,
     WeeklyAnchor,
 )
-from kkb_agent.lakehouse.periods import month_end, spine
+from kkb_agent.lakehouse.periods import add_months, month_end, weekly_window
 from kkb_agent.lakehouse.records import Observation
 from kkb_agent.lakehouse.semantics import SemanticsError, SeriesSemantics, check_period
 
@@ -54,7 +54,11 @@ class AlignmentError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class Coverage:
-    """How much of a target period the source actually supplied."""
+    """Expected versus supplied source ends in the requested window, per month.
+
+    Complete means complete for that window, not necessarily a whole month.
+    Zero expectation is represented explicitly and is never complete.
+    """
 
     expected: int
     observed: int
@@ -110,6 +114,8 @@ def assign_month(period_start: date, period_end: date, policy: WeekAssignment) -
 def to_monthly(
     observations: Sequence[Observation],
     *,
+    requested_start: date,
+    requested_end: date,
     frequency: Frequency,
     aggregation: Aggregation,
     anchor: WeeklyAnchor | None = None,
@@ -121,9 +127,11 @@ def to_monthly(
     it per series and marks its rates unsummable; passing SUM for a rate is a
     caller error, not something to silently permit.
 
-    A target month with no observation at all is omitted rather than emitted as
-    zero. A month with some observations is emitted with its coverage, so a
-    reader can see it rested on one Friday instead of five.
+    Only source period ends inside the inclusive requested window contribute.
+    Validate supplied periods even outside that window, but do not count or
+    reduce them. Never infer expectation from the span of the supplied rows.
+    Empty target months have coverage but no synthesized observation. A short
+    request may cover all its expected weeks without covering a whole month.
     """
     if frequency is not Frequency.WEEKLY:
         raise AlignmentError(
@@ -134,8 +142,12 @@ def to_monthly(
     reducer = _REDUCERS.get(aggregation)
     if reducer is None:
         raise AlignmentError("Alignment needs a declared aggregation; unknown is not a policy")
-    if not observations:
-        return Alignment([], {}, _method(aggregation, assignment, anchor))
+    if not isinstance(assignment, WeekAssignment):
+        raise AlignmentError("Alignment needs a declared week assignment")
+    try:
+        canonical = weekly_window(requested_start, requested_end, anchor=anchor)
+    except SemanticsError as error:
+        raise AlignmentError(str(error)) from error
 
     supplied = {item.period_end: item for item in observations}
     if len(supplied) != len(observations):
@@ -160,15 +172,20 @@ def to_monthly(
         except SemanticsError as error:
             raise AlignmentError(str(error)) from error
 
-    # Expectation comes from the canonical spine, not from what arrived, so a
-    # week missing from the middle is counted as missing rather than ignored.
-    first, last = min(supplied), max(supplied)
-    try:
-        canonical = spine(frequency, first, last, anchor=anchor)
-    except SemanticsError as error:
-        raise AlignmentError(str(error)) from error
+    supplied = {
+        end: item for end, item in supplied.items() if requested_start <= end <= requested_end
+    }
 
     expected: dict[date, int] = {}
+    # Keep every requested month, even with no expected anchor or no supplied
+    # values. Assignment may add a neighbouring month; never drop that week.
+    target = month_end(requested_start.year, requested_start.month)
+    last_target = month_end(requested_end.year, requested_end.month)
+    while True:
+        expected[target] = 0
+        if target == last_target:
+            break
+        target = add_months(target, 1)
     values: dict[date, list[float]] = {}
     for start, end in canonical:
         target = assign_month(start, end, assignment)
@@ -193,11 +210,19 @@ def to_monthly(
             aligned.append(
                 Observation(date(target.year, target.month, 1), target, reducer(present))
             )
-    return Alignment(aligned, coverage, _method(aggregation, assignment, anchor))
+    return Alignment(
+        aligned,
+        coverage,
+        _method(aggregation, assignment, anchor, requested_start, requested_end),
+    )
 
 
 def _method(
-    aggregation: Aggregation, assignment: WeekAssignment, anchor: WeeklyAnchor
+    aggregation: Aggregation,
+    assignment: WeekAssignment,
+    anchor: WeeklyAnchor,
+    requested_start: date,
+    requested_end: date,
 ) -> dict[str, str]:
     """The parameters a transformation record must carry for this reduction."""
     return {
@@ -205,4 +230,7 @@ def _method(
         "aggregation": aggregation.value,
         "week_assignment": assignment.value,
         "anchor": anchor.value,
+        "frequency": Frequency.WEEKLY.value,
+        "requested_start": requested_start.isoformat(),
+        "requested_end": requested_end.isoformat(),
     }

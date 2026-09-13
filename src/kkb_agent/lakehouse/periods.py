@@ -57,6 +57,32 @@ def spine(
     return list(_walk(frequency, first_end, last_end, anchor=anchor))
 
 
+def weekly_window(
+    requested_start: date, requested_end: date, *, anchor: WeeklyAnchor
+) -> list[tuple[date, date]]:
+    """Canonical weeks whose ends fall inside the inclusive requested window.
+
+    Unlike strict ``spine``, request bounds need not be observation dates. This
+    only selects weekly ends; it adds no unsupported observation calendars.
+    """
+    if type(requested_start) is not date or type(requested_end) is not date:
+        raise SemanticsError("Requested boundaries must be calendar dates")
+    if requested_end < requested_start:
+        raise SemanticsError("Requested window ends before it starts")
+    if not isinstance(anchor, WeeklyAnchor):
+        raise SemanticsError("A weekly window needs a declared weekday anchor")
+    first = requested_start.toordinal() + (anchor.weekday - requested_start.weekday()) % 7
+    last = requested_end.toordinal() - (requested_end.weekday() - anchor.weekday) % 7
+    if first > last:
+        return []
+    # Ordinal iteration also handles a final anchor at date.max without asking
+    # the strict spine walker to step beyond the representable date range.
+    return [
+        period_bounds(Frequency.WEEKLY, date.fromordinal(end), anchor=anchor)
+        for end in range(first, last + 1, 7)
+    ]
+
+
 def _walk(
     frequency: Frequency, first_end: date, last_end: date, *, anchor: WeeklyAnchor | None
 ) -> Iterator[tuple[date, date]]:

@@ -18,7 +18,7 @@ This file owns **execution truth**. [ARCHITECTURE](ARCHITECTURE.md) owns technic
 
 # Current Project Status
 
-- Active bounded scope: **M12-08 weekly requested-boundary coverage — IN PROGRESS**; Owner Çağatay; Branch `codex/m12-08-requested-coverage`, from `6d3194b6ebcabc39a294f9250eb28a1d146465b7`; PR/Commit pending. Only the supported weekly window correction is claimed; broader M12-08 remains PARTIAL. No second task.
+- Active bounded scope: **M12-08 weekly requested-boundary coverage — IN PROGRESS**; Owner Çağatay; Branch `codex/m12-08-requested-coverage`, from `6d3194b6ebcabc39a294f9250eb28a1d146465b7`; PR [#126](https://github.com/cagatayeroglu/KKB-DataTrio/pull/126), implementation pending merge. Only the supported weekly window correction is claimed; broader M12-08 remains PARTIAL. No second task.
 
 - Latest completion: **M8-21 — DONE — Numeric result-to-execution evidence binding**; Owner Çağatay (completed; no active claim); [PR #124](https://github.com/cagatayeroglu/KKB-DataTrio/pull/124) merged into `dev` at `d4640a8110c2e892651cb3cfcb525d7e492cd83b`. The tested final head and implementation are reachable from `origin/dev`, and merged/tested trees match. Numeric analytical trust now requires matching committed producer input/output evidence; broader M8 proof/replay and blocker D remain unfinished. No second task started.
 
@@ -1914,9 +1914,10 @@ M0-01 contracts and M1 loading for input; DEC-112 for the engine, DEC-114 for bu
 
 ### M12-08 active record
 
-- Bounded requested-boundary slice — Status: IN PROGRESS; Owner: Çağatay, under the merged 2026-09-11 handover (`ae0e1c0`) from Eray and this explicit assignment. Branch: `codex/m12-08-requested-coverage`, based on `6d3194b6ebcabc39a294f9250eb28a1d146465b7`; PR: pending; Commit: pending.
+- Bounded requested-boundary slice — Status: IN PROGRESS; Owner: Çağatay, under the merged 2026-09-11 handover (`ae0e1c0`) from Eray and this explicit assignment. Branch: `codex/m12-08-requested-coverage`, based on `6d3194b6ebcabc39a294f9250eb28a1d146465b7`; PR: [#126](https://github.com/cagatayeroglu/KKB-DataTrio/pull/126), draft published before implementation; Commit: pending.
 - Scope: explicit inclusive period-end requested window for weekly-to-monthly coverage, all declared weekly anchors, empty/zero-expectation windows, consistent BY_END/BY_MAJORITY grouping, unchanged reducers and strict spine. No daily/business-day/holiday/twice-monthly/irregular calendar implementation, adapters, harness wiring or second task. M12-08 stays unchecked overall.
-- Tests: NOT RUN for implementation; read-only triage reproduced Friday 1/1 instead of 1/4 and Wednesday 1/1 instead of 1/5. Blocker: none for this bounded slice. Handoff: publish this claim as a draft PR before code; implement and validate the slice, verify exact-head Fast PR and merge conditions. The original delivery record below remains historical.
+- Implementation: `to_monthly` now requires requested dates; a small weekly-window helper derives canonical ends independently of received rows without changing strict `spine`. Empty requested months and zero-expectation months retain coverage; missing/null rows never count, outside-window values never reduce, and cross-boundary assignments are retained. Existing method metadata carries request dates/frequency/anchor/policy. No new dependency; no runtime tool/Session changes.
+- Tests: read-only baseline reproduced Friday 1/1 instead of 1/4 and Wednesday 1/1 instead of 1/5. Added 56 regressions; `pytest -q tests/unit/test_alignment.py tests/unit/test_cumulative.py tests/unit/test_gold_lineage.py` **133 PASS / 1.36s**. Touched-source mypy (2 files), Ruff lint/format PASS. `make quick` **2571 PASS / 93.10s**; `make pr` **2571 PASS / 92.75s**, including Ruff format/lint, Bandit and clean secret scan; exact-head Fast PR pending. Blocker: none in this bounded slice. Handoff: verify remaining checks and exact-head merge conditions; no second task. Broader M12-08 stays PARTIAL. The original delivery record below remains historical.
 
 - Status: PARTIAL — merged/validated weekly-to-monthly scope; daily alignment and full requested-boundary coverage remain
 - Owner: Eray (recorded delivery owner; no active PR found; confirm handoff before resuming remaining scope)

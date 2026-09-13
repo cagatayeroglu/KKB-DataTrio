@@ -20,6 +20,7 @@ from kkb_agent.lakehouse import (
     Observation,
     WeekAssignment,
     assign_month,
+    month_end,
     period_bounds,
     to_monthly,
 )
@@ -57,6 +58,8 @@ def weekly(rows=None):
 def align(rows=None, *, aggregation=Aggregation.AVERAGE, assignment=WeekAssignment.BY_END):
     return to_monthly(
         weekly(rows),
+        requested_start=date(2023, 1, 1),
+        requested_end=MAR,
         frequency=WEEKLY,
         aggregation=aggregation,
         anchor=FRIDAY,
@@ -167,6 +170,8 @@ class TestAlignmentRefusesBadInput:
         with pytest.raises(AlignmentError, match="Only weekly series"):
             to_monthly(
                 [Observation(date(2026, 6, 1), date(2026, 6, 30), 1.0)],
+                requested_start=date(2023, 1, 1),
+                requested_end=MAR,
                 frequency=Frequency.MONTHLY,
                 aggregation=Aggregation.AVERAGE,
                 anchor=None,
@@ -177,6 +182,8 @@ class TestAlignmentRefusesBadInput:
         with pytest.raises(AlignmentError, match="needs its anchor"):
             to_monthly(
                 weekly(),
+                requested_start=date(2023, 1, 1),
+                requested_end=MAR,
                 frequency=WEEKLY,
                 aggregation=Aggregation.AVERAGE,
                 anchor=None,
@@ -188,6 +195,8 @@ class TestAlignmentRefusesBadInput:
         with pytest.raises(AlignmentError, match="not a friday"):
             to_monthly(
                 thursday,
+                requested_start=date(2023, 1, 1),
+                requested_end=MAR,
                 frequency=WEEKLY,
                 aggregation=Aggregation.AVERAGE,
                 anchor=FRIDAY,
@@ -198,6 +207,8 @@ class TestAlignmentRefusesBadInput:
         with pytest.raises(AlignmentError, match="Duplicate source periods"):
             to_monthly(
                 weekly() + weekly(WEEKLY_RATE[:1]),
+                requested_start=date(2023, 1, 1),
+                requested_end=MAR,
                 frequency=WEEKLY,
                 aggregation=Aggregation.AVERAGE,
                 anchor=FRIDAY,
@@ -206,7 +217,13 @@ class TestAlignmentRefusesBadInput:
 
     def test_no_observations_yields_nothing_rather_than_failing(self):
         alignment = align([])
-        assert alignment.observations == [] and alignment.coverage == {}
+        assert alignment.observations == []
+        assert {end: c.expected for end, c in alignment.coverage.items()} == {
+            JAN: 4,
+            FEB: 4,
+            MAR: 5,
+        }
+        assert all(c.observed == 0 and not c.complete for c in alignment.coverage.values())
         assert alignment.method["operation"] == "align_weekly_to_monthly"
 
 
@@ -218,7 +235,216 @@ class TestTheMethodIsRecorded:
             "aggregation": "average",
             "week_assignment": "by_majority",
             "anchor": "friday",
+            "frequency": "weekly",
+            "requested_start": "2023-01-01",
+            "requested_end": "2023-03-31",
         }
 
     def test_the_method_distinguishes_two_otherwise_identical_runs(self):
         assert align().method != align(assignment=WeekAssignment.BY_MAJORITY).method
+
+
+# Synthetic requested-window regressions; the historical reducer fixtures above
+# deliberately keep their original values and expected numerical results.
+def requested(
+    rows=(),
+    *,
+    start=date(2024, 1, 1),
+    end=date(2024, 1, 31),
+    anchor=FRIDAY,
+    assignment=WeekAssignment.BY_END,
+    frequency=WEEKLY,
+    aggregation=Aggregation.AVERAGE,
+):
+    observations = [
+        Observation(*period_bounds(WEEKLY, day, anchor=anchor), value) for day, value in rows
+    ]
+    return to_monthly(
+        observations,
+        requested_start=start,
+        requested_end=end,
+        frequency=frequency,
+        anchor=anchor,
+        aggregation=aggregation,
+        assignment=assignment,
+    )
+
+
+class TestRequestedWeeklyCoverage:
+    @pytest.mark.parametrize(
+        "anchor,days,expected",
+        [
+            (FRIDAY, [12], 4),
+            (FRIDAY, [5, 12, 19, 26], 4),
+            (WeeklyAnchor.WEDNESDAY, [10], 5),
+            (WeeklyAnchor.WEDNESDAY, [3, 10, 17, 24, 31], 5),
+            (FRIDAY, [12, 19, 26], 4),
+            (FRIDAY, [5, 12, 19], 4),
+            (FRIDAY, [12, 19], 4),
+            (FRIDAY, [5, 19, 26], 4),
+        ],
+    )
+    def test_expected_does_not_shrink_with_supplied_rows(self, anchor, days, expected):
+        result = requested([(date(2024, 1, day), 10.0) for day in days], anchor=anchor)
+        count = result.coverage[date(2024, 1, 31)]
+        assert (count.expected, count.observed, count.missing) == (
+            expected,
+            len(days),
+            expected - len(days),
+        )
+        assert count.complete is (len(days) == expected)
+
+    @pytest.mark.parametrize(
+        "anchor,days",
+        [
+            (WeeklyAnchor.MONDAY, [1, 8, 15, 22, 29]),
+            (WeeklyAnchor.TUESDAY, [2, 9, 16, 23, 30]),
+            (WeeklyAnchor.THURSDAY, [4, 11, 18, 25]),
+            (WeeklyAnchor.SATURDAY, [6, 13, 20, 27]),
+            (WeeklyAnchor.SUNDAY, [7, 14, 21, 28]),
+        ],
+    )
+    def test_other_declared_anchors(self, anchor, days):
+        result = requested([(date(2024, 1, d), 1.0) for d in days], anchor=anchor)
+        count = result.coverage[date(2024, 1, 31)]
+        assert count.expected == len(days) and count.complete
+
+    @pytest.mark.parametrize(
+        "start,end,days",
+        [
+            (date(2024, 1, 10), date(2024, 1, 15), [12]),
+            (date(2024, 1, 12), date(2024, 1, 12), [12]),
+            (date(2024, 1, 5), date(2024, 1, 26), [5, 12, 19, 26]),
+        ],
+    )
+    def test_only_ends_must_be_inside_inclusive_window(self, start, end, days):
+        result = requested([(date(2024, 1, d), 2.0) for d in days], start=start, end=end)
+        count = result.coverage[date(2024, 1, 31)]
+        assert count.expected == count.observed == len(days) and count.complete
+        assert result.method["requested_start"] == start.isoformat()
+        assert result.method["requested_end"] == end.isoformat()
+        assert result.method["frequency"] == "weekly"
+
+    @pytest.mark.parametrize(
+        "rows",
+        [[], [(date(2024, 1, 12), None)], [(date(2024, 1, d), None) for d in (5, 12, 19, 26)]],
+    )
+    def test_empty_and_null_inputs_preserve_expectation(self, rows):
+        result = requested(rows)
+        count = result.coverage[date(2024, 1, 31)]
+        assert (count.expected, count.observed, count.complete) == (4, 0, False)
+        assert result.observations == []
+
+    def test_completely_missing_boundary_months_remain_visible(self):
+        result = requested([(date(2024, 2, 9), 10.0)], end=date(2024, 3, 31))
+        assert {m: (c.expected, c.observed) for m, c in result.coverage.items()} == {
+            date(2024, 1, 31): (4, 0),
+            date(2024, 2, 29): (4, 1),
+            date(2024, 3, 31): (5, 0),
+        }
+        assert result.incomplete_periods() == list(result.coverage)
+        assert [o.period_end for o in result.observations] == [date(2024, 2, 29)]
+
+    def test_outside_values_do_not_change_counts_or_reduction(self):
+        base = requested([(date(2024, 1, 12), 7.0)])
+        extra = requested(
+            [(date(2023, 12, 29), 999.0), (date(2024, 1, 12), 7.0), (date(2024, 2, 2), -999.0)]
+        )
+        assert extra == base
+
+    def test_duplicate_periods_still_rejected(self):
+        with pytest.raises(AlignmentError, match="Duplicate"):
+            requested([(date(2024, 1, 12), 1.0)] * 2)
+
+    def test_wrong_anchor_still_rejected(self):
+        with pytest.raises(AlignmentError, match="not a friday"):
+            to_monthly(
+                [Observation(date(2024, 1, 4), date(2024, 1, 10), 1.0)],
+                requested_start=date(2024, 1, 1),
+                requested_end=date(2024, 1, 31),
+                frequency=WEEKLY,
+                anchor=FRIDAY,
+                aggregation=Aggregation.AVERAGE,
+                assignment=WeekAssignment.BY_END,
+            )
+
+    @pytest.mark.parametrize(
+        "start,end",
+        [
+            (date(2024, 2, 1), date(2024, 1, 1)),
+            (None, date(2024, 1, 1)),
+            (date(2024, 1, 1), "2024-01-31"),
+        ],
+    )
+    def test_invalid_window_is_rejected_even_without_data(self, start, end):
+        with pytest.raises(AlignmentError):
+            requested(start=start, end=end)
+
+    def test_missing_request_is_not_replaced_by_observed_span(self):
+        with pytest.raises(TypeError, match="requested_start"):
+            to_monthly(
+                weekly(),
+                frequency=WEEKLY,
+                anchor=FRIDAY,
+                aggregation=Aggregation.AVERAGE,
+                assignment=WeekAssignment.BY_END,
+            )
+
+    def test_zero_expectation_is_explicit_and_never_complete(self):
+        result = requested(start=date(2024, 1, 13), end=date(2024, 1, 18))
+        count = result.coverage[date(2024, 1, 31)]
+        assert (count.expected, count.observed, count.missing, count.complete) == (0, 0, 0, False)
+        assert result.incomplete_periods() == [date(2024, 1, 31)]
+        assert result.observations == []
+
+    @pytest.mark.parametrize("end", [date(2024, 1, 3), date(2024, 3, 1)])
+    @pytest.mark.parametrize("policy", list(WeekAssignment))
+    def test_straddling_weeks_keep_consistent_counts_and_values(self, end, policy):
+        # Jan 3 -> Dec 31 by majority; Mar 1 -> Feb 29 by majority.
+        anchor = WeeklyAnchor.WEDNESDAY if end.month == 1 else FRIDAY
+        previous = date(2023, 12, 31) if end.month == 1 else date(2024, 2, 29)
+        target = month_end(end.year, end.month) if policy is WeekAssignment.BY_END else previous
+        result = requested([(end, 6.0)], start=end, end=end, anchor=anchor, assignment=policy)
+        assert sum(c.expected for c in result.coverage.values()) == 1
+        assert result.coverage[target].complete
+        assert result.coverage[target].observed == 1
+        assert values(result) == {target: 6.0}
+        assert result.method["week_assignment"] == policy.value
+        if policy is WeekAssignment.BY_MAJORITY:
+            current = result.coverage[month_end(end.year, end.month)]
+            assert current.expected == 0 and not current.complete
+
+    def test_leap_day_anchor_is_inclusive(self):
+        result = requested(
+            [(date(2024, 2, 29), 1.0)],
+            start=date(2024, 2, 1),
+            end=date(2024, 2, 29),
+            anchor=WeeklyAnchor.THURSDAY,
+        )
+        count = result.coverage[date(2024, 2, 29)]
+        assert (count.expected, count.observed) == (5, 1)
+
+    @pytest.mark.parametrize("frequency", [f for f in Frequency if f is not WEEKLY])
+    def test_no_other_calendar_is_silently_added_to_alignment(self, frequency):
+        with pytest.raises(AlignmentError, match="Only weekly"):
+            requested(frequency=frequency)
+
+    @pytest.mark.parametrize(
+        "aggregation,expected",
+        [
+            (Aggregation.SUM, 12.0),
+            (Aggregation.AVERAGE, 4.0),
+            (Aggregation.FIRST, 2.0),
+            (Aggregation.LAST, 6.0),
+            (Aggregation.MIN, 2.0),
+            (Aggregation.MAX, 6.0),
+        ],
+    )
+    def test_coverage_window_does_not_change_reducer_values(self, aggregation, expected):
+        rows = [(date(2024, 1, d), v) for d, v in [(19, 6.0), (5, 2.0), (12, 4.0)]]
+        wide = requested(rows, aggregation=aggregation)
+        narrow = requested(rows, end=date(2024, 1, 19), aggregation=aggregation)
+        assert values(wide) == values(narrow) == {date(2024, 1, 31): expected}
+        assert not wide.coverage[date(2024, 1, 31)].complete
+        assert narrow.coverage[date(2024, 1, 31)].complete
+        assert wide.method != narrow.method
