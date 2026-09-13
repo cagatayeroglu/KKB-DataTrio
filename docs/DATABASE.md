@@ -10,7 +10,7 @@ Every table is created by `apply_schema` in [database.py](../src/kkb_agent/datab
 
 Under [DEC-136](DECISIONS.md#dec-136--scoped-official-data-preparation-and-lakehouse-first-demo-runtime), scoped official BDDK/EVDS ingestion prepares the initial housing balance/rate, CPI and KFE observations (approximately 2021-01–2026-06) before demo runtime. Bronze preserves source artifacts and retrieval provenance; silver records normalized values with explicit source semantics; gold holds required derived/aligned representations. Thin source adapters reuse these storage boundaries. Runtime `catalog_search` selects trusted metadata and `lakehouse` queries prepared values; neither a metadata snapshot nor empty storage tables constitute a prepared dataset.
 
-The tables below are implemented storage. M3-06 adds bounded offline Monthly ingestion and an internal JSON batch manifest using these existing tables; no completed official dataset, EVDS ingestion or new database schema is claimed. Preparation must retain source identity, vintage, normalization and computation evidence. Snapshot versioning, revision selection, refresh and retention policy must be established before claiming dataset acceptance; the existing one-value-per-series/period layout does not alone settle competing vintages. Source access/redistribution questions remain open. [DEC-137](DECISIONS.md#dec-137--catalog-complete-lakehouse-first-official-source-materialization-architecture) makes reusable broader loads, policy-permitted official cache-miss materialization and incremental refresh explicit targets, without implementing them or adding tables.
+The tables below are implemented storage. M3-06 adds bounded offline Monthly ingestion and an internal JSON batch manifest using these existing tables; no completed official dataset, EVDS ingestion or new database schema is claimed. Preparation must retain source identity, vintage, normalization and computation evidence. Dataset acceptance needs reproducible snapshot identity, a bounded revision/conflict policy and retention permission; sophisticated refresh/vintage orchestration is not a prerequisite for a fixed validated pool; the existing one-value-per-series/period layout does not alone settle competing vintages. Source access/redistribution questions remain open. [DEC-137](DECISIONS.md#dec-137--catalog-complete-lakehouse-first-official-source-materialization-architecture) makes reusable broader loads, policy-permitted official cache-miss materialization and incremental refresh explicit targets, without implementing them or adding tables.
 
 ## Versioned dataset and object storage target
 
@@ -19,6 +19,22 @@ Under DEC-137, catalog identity is separate from availability for an exact reque
 Parquet is persistent analytical data/artifact format; DuckDB is embedded computation/query, not a hosted service. A future provider-neutral Dataset/Object Storage boundary may support local persistent filesystem/volume and S3-compatible storage for bronze, Parquet, manifests and versions. AWS S3 is not selected; S3-compatible integration is not implemented. Q-INFRA-01/02 own volume lifetime, availability and runtime credentials. Vector caches/indexes contain catalog descriptions/aliases/concepts, never financial observation values.
 
 Core official materialization is intended persistent/versioned catalog data. CSV/XLSX/PDF and authorized URL artifacts remain session-scoped external data, even when common bronze/parser/lakehouse primitives are reused; they cannot automatically become permanent official series. Retention/redistribution and dataset publication are distinct from M5-21's accepted-turn workspace commit.
+
+## Lakehouse layers and separate vector-search responsibility
+
+The [DEC-137 dated refinement](DECISIONS.md#dec-137-prepared-pool-refinement) makes the prepared pool the primary structured BDDK/EVDS demo path. Build it through approved adapters before questions arrive; normal runtime uses silver canonical observations and gold where an appropriate trusted analytical materialization exists. Bronze is immutable raw source evidence, never direct analytical truth. All three are lakehouse layers:
+
+| Boundary | Owns / serves |
+| --- | --- |
+| Bronze | Content-addressed raw official responses/snapshots and retrieval provenance |
+| Silver | Normalized trusted canonical observations with declared source semantics |
+| Gold | Aligned/joined/transformed analytical materializations/results with evidence |
+| DuckDB + Parquet lakehouse | Financial observations and analytical data across those layers; raw bytes remain artifact files with database metadata |
+| Intended vector DB/index layer | Catalog text embeddings and semantic series/selector discovery only; no financial observation values |
+
+Vector records may bind official/canonical ID, concept/family, normalized search text and hash, model ID, dimension 4096, vector and snapshot/version metadata. No table/schema or vector index is added by this document. Exact cosine over a versioned cache is a small-catalog baseline option; LanceDB is the preferred dedicated-index benchmark candidate, with final selection still open. No PostgreSQL/pgvector service is introduced. Scale/latency, deployment simplicity, benchmark quality and dependency cost must justify a dedicated product.
+
+Runtime official-source cache-miss materialization, sophisticated refresh/vintage orchestration and object-storage optimization remain future scalability work, not core demo prerequisites. Minimum source identity/version evidence and refusal of silent historical overwrite still apply to every prepared dataset. Pool misses may clarify/abstain; no full availability router is claimed.
 
 ## Layout on disk
 

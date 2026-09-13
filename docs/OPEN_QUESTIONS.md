@@ -10,7 +10,9 @@ The organizer questions are now the project's only external blockers, and severa
 
 [DEC-137](DECISIONS.md#dec-137--catalog-complete-lakehouse-first-official-source-materialization-architecture) records team architecture direction, not organizer answers. The original dated organizer evidence below is preserved. Still unresolved: Q-INFRA-01/02 (Kloudeks/demo S3-compatible object-storage availability, persistent-volume lifetime, credentials/runtime access); Q-DATA-01/03 (source-use, redistribution and retention); Q-NET-01 with Q-DATA-01 (demo egress and whether on-demand official BDDK/EVDS materialization is permitted); Q-NET-01/02 and the M7 production record (SearXNG/upstream search policy); Q-DATA-04 (authoritative semantics/revisions). No AWS/S3 or vector product is selected and no live acceptance is implied.
 
-New internal questions Q-TEAM-06/07/08 below concern vector implementation, exact broader prepared coverage and refresh/vintage selection policy. These are team decisions, not organizer permissions; all remain OPEN. Known embedding dimension is 4096 from M4-12; no new live call is needed to re-establish it.
+The [DEC-137 dated refinement](DECISIONS.md#dec-137-prepared-pool-refinement) makes the broad prepared pool demo-critical and question-time official materialization a later extension. Preparation permission, trusted identity/semantics and minimum revision-conflict safeguards still matter now; unresolved runtime official-fetch permission and sophisticated vintage/index/object-storage scaling are not core three-turn prerequisites. This is team priority, not a new organizer answer.
+
+Internal questions Q-TEAM-06/07/08 below concern vector implementation, exact broader prepared coverage and refresh/vintage selection policy. These are team decisions, not organizer permissions; all remain OPEN. Known embedding dimension is 4096 from M4-12; no new live call is needed to re-establish it.
 
 ## How to use this list
 
@@ -390,9 +392,9 @@ New internal questions Q-TEAM-06/07/08 below concern vector implementation, exac
 ### Q-TEAM-06 — Vector cache/index implementation
 
 - Question: Does measured catalog size/latency justify a dedicated index, or is a versioned embedding cache with deterministic cosine similarity sufficient?
-- Constraints: Required hybrid retrieval is decided; the vector product is not. Key by series/concept ID, catalog text hash, model ID and measured dimension 4096; never store observation values as vectors. LanceDB may be benchmarked, not assumed selected.
+- Constraints: Required hybrid retrieval is decided; the vector product is not. Key by series/concept ID, catalog text hash, model ID and measured dimension 4096; never store observation values as vectors. A dedicated catalog vector-search layer is intended, but no product/index is implemented. LanceDB is the strong/preferred dedicated-index candidate to benchmark first; exact cosine over a versioned embedding cache may be the small-catalog baseline. No PostgreSQL/pgvector service without a later explicit justification.
 - Owner: Unassigned. Status: OPEN. Blocks product selection/performance acceptance, not offline contract design; M13-05 still requires configuration/limit review. No implementation or dependency adopted.
-- Evidence needed: versioned catalog size, cold/warm latency, deterministic ranking and failure tests; DEC-137 supersedes only the prior mandatory product choice.
+- Evidence needed: versioned catalog scale, cold/warm latency, deployment simplicity, benchmark quality, dependency cost, deterministic ranking and failure tests. DEC-137 supersedes only the prior mandatory product choice; its dated refinement prioritizes required hybrid retrieval while deferring dedicated-index scaling beyond measured need.
 
 ### Q-TEAM-07 — Broad prepared coverage target
 
@@ -405,5 +407,5 @@ New internal questions Q-TEAM-06/07/08 below concern vector implementation, exac
 
 - Question: How should users/analyses select dataset versions when new periods, historical corrections, metadata or retirement/archive changes arrive, and what constitutes an idempotent no-op?
 - Constraints: Same official content/selector/parser/semantic policy must be reproducible; preserve prior snapshots/versions and never silently overwrite trusted evidence. Source-authoritative interpretation still depends on Q-DATA-04; retention on Q-DATA-03.
-- Owner: Unassigned. Status: OPEN. Blocks M3/M12 version/refresh acceptance; no scheduler is required or selected.
+- Owner: Unassigned. Status: OPEN. Blocks sophisticated M3/M12 version-selection/refresh acceptance, not a fixed validated prepared-pool demo with immutable snapshots and explicit conflict refusal. No scheduler is required or selected.
 - Evidence needed: explicit content-version/manifest policy, revision/conflict fixtures, publication-failure preservation and requested-window behavior. Existing storage does not settle these decisions.
