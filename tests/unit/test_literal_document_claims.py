@@ -215,7 +215,7 @@ def test_internal_handles_are_withheld_even_without_a_claim(selected):
         assert handle not in gated.text
 
 
-def test_plain_analytical_known_unit_unchanged(selected):
+def test_literal_relabelled_as_analytical_requires_execution_evidence(selected):
     answered, lake = selected
     result = answered.results[0]
     analytical = result.model_copy(
@@ -227,7 +227,7 @@ def test_plain_analytical_known_unit_unchanged(selected):
             "unresolved_semantics": [],
         }
     )
-    assert gate_answer("18,22 USD", analytical, lake.connection).presentable
+    assert not gate_answer("18,22 USD", analytical, lake.connection).presentable
     assert not gate_answer("18,22 milyon USD", analytical, lake.connection).presentable
 
 

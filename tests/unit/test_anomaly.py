@@ -269,6 +269,20 @@ def house(tmp_path):
 
 
 class TestTheTool:
+    def test_numeric_output_has_resolvable_execution_evidence(self, house):
+        from kkb_agent.agent import AnswerStatus, gate_answer
+        from kkb_agent.agent.presentation import format_number
+        from kkb_agent.agent.verifier import result_faults
+
+        result = self.run(
+            house,
+        ).output
+        assert not result_faults({"result": result}, house.connection)
+        value = result.values[0]
+        draft = f"Değer {format_number(value.value)}."
+        gated = gate_answer(draft, result, house.connection)
+        assert gated.status is AnswerStatus.ACCEPTED, gated.verdict.rejected
+
     def registry(self, house, lineage=True):
         registry = ToolRegistry()
         registry.register(

@@ -40,6 +40,7 @@ from kkb_agent.analytics import (
 )
 from kkb_agent.core import AnalyticalResult, ResultStatus
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
+from kkb_agent.lakehouse.result_evidence import _record_execution
 from kkb_agent.tools.change_detection import SeriesUnknown, read_series
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -141,6 +142,14 @@ def make_causality_tool(
             result = result.model_copy(
                 update={"evidence": result.evidence.model_copy(update={"lineage_node": node})}
             )
+
+        result = _record_execution(
+            connection,
+            producer="causality",
+            arguments=arguments.model_dump_json(),
+            inputs=[left.snapshot, right.snapshot],
+            result=result,
+        )
 
         warnings = tuple(result.warnings) + tuple(result.limitations)
         if result.status is not ResultStatus.COMPUTED and result.reason is not None:

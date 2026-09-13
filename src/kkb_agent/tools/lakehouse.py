@@ -45,6 +45,7 @@ from kkb_agent.agent.registry import ToolSpec
 from kkb_agent.core import AnalyticalResult, ResultStatus
 from kkb_agent.database import all_tables
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
+from kkb_agent.lakehouse.result_evidence import _record_execution, canonical
 from kkb_agent.tools import _projection
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -255,6 +256,7 @@ def make_lakehouse_tool(
             )
         ast = _ast_of(arguments.sql)
         tables = sorted(referenced_tables(ast) & set(readable))
+        snapshots: list[str] = []
         typed = _projection.project(
             result,
             ast=ast,
@@ -262,6 +264,7 @@ def make_lakehouse_tool(
             result_id=_result_id(arguments, None),
             tables=tables,
             parameters={"purpose": arguments.purpose, "max_rows": max_rows},
+            snapshots=snapshots,
         )
         node = None
         if typed.status is ResultStatus.COMPUTED:
@@ -273,6 +276,19 @@ def make_lakehouse_tool(
                         "evidence": typed.evidence.model_copy(update={"lineage_node": node}),
                     }
                 )
+        typed = _record_execution(
+            connection,
+            producer="lakehouse",
+            arguments=canonical(
+                {
+                    "sql_sha256": _statement_digest(arguments.sql),
+                    "purpose": arguments.purpose,
+                    "max_rows": max_rows,
+                }
+            ),
+            inputs=snapshots,
+            result=typed,
+        )
         warnings = tuple(typed.warnings)
         if result.truncated:
             warnings = (f"Result truncated to {max_rows} rows; narrow the query", *warnings)

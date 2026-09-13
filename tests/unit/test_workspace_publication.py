@@ -46,9 +46,52 @@ def result(value=999.0, *, broken=False):
 
 
 @pytest.fixture
-def space():
+def space(monkeypatch):
     with duckdb.connect(":memory:") as connection:
         apply_schema(connection)
+        from kkb_agent.agent import ExecutionContext
+        from kkb_agent.tools import LakehouseArguments, make_lakehouse_tool
+
+        connection.execute(
+            "INSERT INTO bronze_artifacts VALUES ('fixture','synthetic','memory','opaque:fixture',"
+            "NULL,'application/json',2,'memory','2026-09-10')"
+        )
+        produced = {}
+        for value in (100, 200, 300, 500, 600, 700, 999):
+            series_id = f"amount_{value}"
+            connection.execute(
+                "INSERT INTO silver_series VALUES (?,?,'fixture','TRY','one','monthly',"
+                "NULL,'stock','none','last',NULL)",
+                [series_id, series_id],
+            )
+            connection.execute(
+                "INSERT INTO silver_observations VALUES (?,'2026-06-01','2026-06-30',?)",
+                [series_id, value],
+            )
+            produced[value] = (
+                make_lakehouse_tool(connection)
+                .run(
+                    LakehouseArguments(
+                        sql=(
+                            "SELECT o.series_id, o.period_start, o.period_end, o.value,"
+                            " s.unit, s.scale,"
+                            " s.frequency, s.anchor, s.observation FROM silver_observations o"
+                            " JOIN silver_series s ON s.series_id=o.series_id "
+                            f"WHERE o.series_id='{series_id}'"
+                        )
+                    ),
+                    ExecutionContext(question="publication fixture"),
+                )
+                .output.result
+            )
+
+        def supplied(value=999.0, *, broken=False):
+            candidate = produced[value].model_copy(deep=True)
+            if broken:
+                candidate.evidence.input_refs = ["missing-reference"]
+            return candidate
+
+        monkeypatch.setattr(__name__ + ".result", supplied)
         workspace = Workspace.open(connection, "publication")
         workspace.record("table", ArtifactKind.VALUE, result(100.0))
         workspace.record("derived", ArtifactKind.VALUE, result(200.0), inputs=["table"])

@@ -404,6 +404,20 @@ def house(tmp_path):
 
 
 class TestTheTool:
+    def test_numeric_output_has_resolvable_execution_evidence(self, house):
+        from kkb_agent.agent import AnswerStatus, gate_answer
+        from kkb_agent.agent.presentation import format_number
+        from kkb_agent.agent.verifier import result_faults
+
+        result = self.run(house, max_lag=2).output
+        assert not result_faults({"result": result}, house.connection)
+        value = result.values[
+            1
+        ]  # F statistic; tiny p-values remain ambiguous under existing tolerance.
+        draft = f"Değer {format_number(value.value)}."
+        gated = gate_answer(draft, result, house.connection)
+        assert gated.status is AnswerStatus.ACCEPTED, gated.verdict.rejected
+
     def registry(self, house):
         registry = ToolRegistry()
         registry.register(make_causality_tool(house.connection, lineage=house.lineage))

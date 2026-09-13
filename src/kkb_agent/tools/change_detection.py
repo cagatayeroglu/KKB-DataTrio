@@ -35,6 +35,7 @@ from kkb_agent.core import Aggregation, CumulativeKind, Frequency, ResultStatus,
 from kkb_agent.core import WeeklyAnchor as Anchor
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.lakehouse.records import Observation
+from kkb_agent.lakehouse.result_evidence import _record_execution, canonical
 from kkb_agent.lakehouse.semantics import SemanticsError, SeriesSemantics
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -73,6 +74,7 @@ class ChangeDetectionArguments(BaseModel):
 class _Series:
     semantics: SeriesSemantics
     observations: tuple[Observation, ...]
+    snapshot: str
 
 
 def read_series(connection: DuckDBPyConnection, series_id: str) -> _Series:
@@ -83,13 +85,14 @@ def read_series(connection: DuckDBPyConnection, series_id: str) -> _Series:
     scale is how a million-TRY figure gets compared against a thousand-TRY one.
     """
     row = connection.execute(
-        "SELECT unit, scale, frequency, anchor, observation, cumulative, aggregation, base_year"
+        "SELECT unit, scale, frequency, anchor, observation, cumulative, aggregation, "
+        "base_year, artifact_id"
         " FROM silver_series WHERE series_id = ?",
         [series_id],
     ).fetchone()
     if row is None:
         raise SeriesUnknown(f"No series {series_id!r} is registered")
-    unit, scale, frequency, anchor, observation, cumulative, aggregation, base_year = row
+    unit, scale, frequency, anchor, observation, cumulative, aggregation, base_year, artifact = row
     try:
         semantics = SeriesSemantics(
             unit=str(unit),
@@ -114,6 +117,25 @@ def read_series(connection: DuckDBPyConnection, series_id: str) -> _Series:
     return _Series(
         semantics,
         tuple(Observation(item[0], item[1], item[2]) for item in rows),
+        canonical(
+            {
+                "series_id": series_id,
+                "artifact_id": artifact,
+                "semantic_columns": [
+                    "unit",
+                    "scale",
+                    "frequency",
+                    "anchor",
+                    "observation",
+                    "cumulative",
+                    "aggregation",
+                    "base_year",
+                ],
+                "semantics": row[:-1],
+                "observation_columns": ["period_start", "period_end", "value"],
+                "observations": rows,
+            }
+        ),
     )
 
 
@@ -158,6 +180,14 @@ def make_change_detection_tool(
             result = result.model_copy(
                 update={"evidence": result.evidence.model_copy(update={"lineage_node": node})}
             )
+
+        result = _record_execution(
+            connection,
+            producer="change_detection",
+            arguments=arguments.model_dump_json(),
+            inputs=[series.snapshot],
+            result=result,
+        )
 
         warnings = tuple(result.warnings)
         if result.status is not ResultStatus.COMPUTED and result.reason is not None:

@@ -108,6 +108,27 @@ def result(**overrides) -> AnalyticalResult:
     return AnalyticalResult(**fields)
 
 
+@pytest.fixture(autouse=True)
+def producer_fixture_for_sentence_tests(request, monkeypatch):
+    if request.cls not in {
+        TestASupportedAnswerPassesThrough,
+        TestAnUnsupportedSentenceIsWithheld,
+        TestAbstention,
+    }:
+        return
+    house = request.getfixturevalue("house")
+    produced = (
+        make_lakehouse_tool(house.connection)
+        .run(LakehouseArguments(sql=FULLY_TYPED), ExecutionContext(question="fixture"))
+        .output.result
+    )
+
+    def supplied(**overrides):
+        return produced.model_copy(deep=True, update=overrides)
+
+    monkeypatch.setattr(__name__ + ".result", supplied)
+
+
 class TestASupportedAnswerPassesThrough:
     def test_it_is_accepted_whole(self, house):
         gated = gate_answer(SUPPORTED, result(), house.connection)
@@ -220,6 +241,13 @@ class TestAbstention:
         assert gated.abstention == "The answer was empty"
 
 
+@pytest.fixture
+def verified_execution_boundary(monkeypatch):
+    """Display/rounding unit tests start after execution verification."""
+    monkeypatch.setattr("kkb_agent.agent.verifier.execution_proof", lambda result, db: True)
+
+
+@pytest.mark.usefixtures("verified_execution_boundary")
 class TestReadableVerifiedFigures:
     @pytest.mark.parametrize(
         "number, expected",

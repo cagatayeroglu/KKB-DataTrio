@@ -184,6 +184,7 @@ def project(
     tables: Sequence[str],
     lineage_node: str | None = None,
     parameters: Mapping[str, Any] | None = None,
+    snapshots: list[str] | None = None,
 ) -> AnalyticalResult:
     """Describe what a query actually established, and nothing more.
 
@@ -236,7 +237,7 @@ def project(
             reason="The query returned no rows",
         )
 
-    fault = provenance_fault(query, ast, connection)
+    fault = provenance_fault(query, ast, connection, snapshots=snapshots)
     if fault is not None:
         return _abstain(result_id, fault, shared)
 
