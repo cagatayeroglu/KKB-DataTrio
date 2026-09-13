@@ -282,6 +282,8 @@ Under [DEC-136](DECISIONS.md#dec-136--scoped-official-data-preparation-and-lakeh
 
 TARGET operations are discovery, inspection, loading, profiling and provenance. No SourceAdapter protocol or BDDK/EVDS ingestion adapter is delivered. DEC-136 places scoped official-source loading in preparation, with runtime financial queries reading the prepared lakehouse. [INGESTION_PROFILE](INGESTION_PROFILE.md) specifies observable results; an executable shared adapter/selection interface remains implementation work. Adapters unable to discover (for example, a single uploaded file) should report unsupported capability explicitly rather than invent source candidates.
 
+M3-05 now provides an [offline monthly BDDK selector/metadata contract](BDDK_MONTHLY_METADATA.md): deterministic internal identities for explicit selectors and reviewed CatalogRecord declarations only for table 4 / housing row 2 / Sektör 10001 / TL presentation, retaining TP/YP/TOTAL. A separate bounded metadata projection validator checks the documented caption/period/headers/row. No observation parser, retrieval adapter, source storage or runtime/catalog_search registration is added; broader mappings and M3-06 ingestion remain unfinished.
+
 ### 6. Safe ingestion, extraction, and profiling — partial implementation; confirmed boundary
 
 - Responsibility: Validate and bound content, extract observations, and describe data quality without silently deciding financial meaning.

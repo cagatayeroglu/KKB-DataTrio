@@ -82,6 +82,8 @@ see [the delivered catalog_search contract](CATALOG_SEARCH.md).
 
 The [DEC-136](DECISIONS.md#dec-136--scoped-official-data-preparation-and-lakehouse-first-demo-runtime) initial dataset is housing credit balance, housing/mortgage rate, CPI/TÜFE and KFE over approximately 2021-01–2026-06. This metadata snapshot is not that observation dataset. The BDDK housing selectors/composite identity and CPI real series IDs still need resolution; CPI datagroups cannot substitute for series. Preserve unknown rate status and KFE base/reference-year distinctions. Broader loan/deposit/rate/catalog coverage is later expansion. No JSON mappings or source evidence hashes are changed by this architecture clarification.
 
+M3-05 separately supplies an [offline monthly BDDK identity/metadata builder](BDDK_MONTHLY_METADATA.md). Its labelled composite selectors can form explicit CatalogRecord/ReviewedSeries candidates; this historical v1 artifact and its unresolved BDDK entries remain unchanged. Adding candidates to the reviewed discovery snapshot requires a separate evidence-backed update that retains stock/disbursement and TP/YP/TOTAL clarification. No current alias is remapped by the builder.
+
 ## Handoff to M13-04
 
 **Historical handoff at M13-08 delivery:** After this task merges, the reviewed mapping and usable bounded CatalogRecord input prerequisites for **offline demo-scope M13-04** are satisfied. M13-04 still implements its own bounded typed tool, lexical/BM25 and metadata filters. Review DuckDB FTS extension/index requirements without relaxing the existing hardened lakehouse connection; no index design is selected here. This snapshot cannot resolve BDDK/CPI questions or claim full-source coverage.
