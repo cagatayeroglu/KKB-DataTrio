@@ -23,6 +23,27 @@ M5-21 and M8-21 remain delivered correctness protections; only the bounded weekl
 
 Production web-search acceptance stays separate under DEC-134: SearXNG is a compatibility candidate only, including upstream-query privacy/network review. Crawl4AI is optional future extraction work, not current `web_url` acceptance. Search-result URLs remain unauthorized to fetch automatically. Existing command/tier and historical live-acceptance records below are unchanged.
 
+## Scalable official-data acceptance target
+
+[DEC-137](DECISIONS.md#dec-137--catalog-complete-lakehouse-first-official-source-materialization-architecture) expands future evaluation beyond the four-series first vertical slice. These are planned cases, not implemented tests or benchmark results:
+
+| Case | Required evidence / expected outcome |
+| --- | --- |
+| A. Prepared known series | Correct identity, version, requested coverage and independently checked values from lakehouse |
+| B. Prepared unseen concept | Retrieve the supported concept without a demo alias shortcut; preserve semantic checks |
+| C. Catalog-known, not materialized | Report the actual miss/window and source-policy/adapter capability; do not invent prepared state |
+| D. Ambiguous candidates | Keep admissible alternatives; clarify without guessing top-1 or TP/YP/TOTAL |
+| E. Unresolved semantics | No unsafe fetch/calculation; explicit unknown/abstention |
+| F. Allowed official materialization | Bounded adapter → snapshot/validate → version → lakehouse; failure preserves previous trusted data |
+| G. Repeated request | Reuse that validated lakehouse version; no unnecessary refetch |
+| H. New-period refresh | Deterministic idempotency; new version/coverage recorded, previous evidence preserved |
+| I. Historical revision/vintage | Keep both snapshots/versions; explicit revision policy, no silent overwrite |
+| J. Lexical versus hybrid | Same catalog/holdout; Recall@5/10, final selection, latency and failure/degraded behavior |
+| K. Turkish paraphrases/unseen terms | Independent cases beyond the four demo concepts and authored aliases |
+| L. Unsafe identity/semantics/policy | Clarify/abstain without generic web fallback or invented IDs/endpoints |
+
+Retain M13-09 independent holdout separation; do not tune aliases/embeddings against its answers. Report catalog/dataset/parser/semantic-policy/model/cache-index versions and cold/warm timings. Use deterministic offline source/provider doubles for implementation gates; any later live acceptance requires explicit authorization. Requested-boundary coverage must use declared supported calendars; no extrapolated support for daily/business-day/holiday/irregular cases. Production search and URL-document acceptance remain separate trust-domain tracks.
+
 ## Metrics
 
 Score applicable assertions per case, then report passed/total and category-level failures. A metric may be N/A only when declared irrelevant by the case. An expected capability that is unsupported is a failure or an explicit scope exclusion, never quietly removed from the denominator. NOT RUN is distinct from failed; report both and do not inflate pass rates by omitting unexecuted required cases.
@@ -231,7 +252,7 @@ Assert the logical chain `Claim -> VerificationResult -> AnalysisRun -> ResultSn
 DEC-130 confirms lexical+dense as the initial baseline; this experiment measures that baseline and gates only additional stages.
 
 1. Freeze reviewed development/holdout sets and catalog/model/index/config versions; agree evaluation budgets and additional-stage gain/cost criteria before inspecting holdout. No threshold is asserted here without results.
-2. Evaluate **lexical-only**, **dense-only** and **combined hybrid candidates** with the same normalization, reviewed aliases/concept-family policy and metadata/semantic constraints. Use the official Qwen3-Embedding-8B model and retained LanceDB index. Record candidate pooling/deduplication/order and per-path budgets; do not assume hybrid means RRF.
+2. Evaluate **lexical-only**, **dense-only** and **combined hybrid candidates** with the same normalization, reviewed aliases/concept-family policy and metadata/semantic constraints. Use `kkbhackathon2026/Qwen3-Embedding-8B` (measured dimension 4096) with the explicitly recorded cache/index configuration; DEC-137 leaves the vector product unselected. A deterministic cosine cache may suffice; benchmark a dedicated index only for justified scale/latency. Record candidate pooling/deduplication/order and per-path budgets; do not assume hybrid means RRF.
 3. Report Recall@5/10, final selection, latency (cold/warm and sample counts) and failure behavior for each mode. Include embedding timeout/unavailability, invalid vector/configuration and single-path degraded responses. Distinguish a labeled useful fallback from a successful full-hybrid run. Dense use is not conditional on lexical failure or positive incremental gain; results guide tuning and any later explicit decision.
 4. Try RRF only if the two paths demonstrably contribute complementary useful candidates. Enable it only when held-out fusion quality improves; record lost as well as gained cases and latency.
 5. Try listwise/model reranking only if meaningful final-selection gain pays for another model call, latency, token usage, malformed-output/retry failures and weak-model instability. Additional stages/vector infrastructure need measured benefit too; leave unjustified stages disabled.

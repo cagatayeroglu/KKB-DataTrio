@@ -75,6 +75,10 @@ shape, preserve raw source provenance, and parse numeric observations. No
 invented here. Strict caption matching may reject a legitimate changed source
 format; review the new format rather than silently inferring units.
 
+## Reusable ingestion target
+
+[DEC-137](DECISIONS.md#dec-137--catalog-complete-lakehouse-first-official-source-materialization-architecture) preserves this delivered metadata slice while general M3-05 stays PARTIAL. The housing selector is the first verified use case for a reusable BDDK path: trusted selector → bounded official request → response validation/snapshot → source parser → Observation → validated/versioned lakehouse. Initial preparation, broader Monthly/Weekly/FinTürk coverage, permitted known cache misses and refresh reuse common security/parser/storage primitives. Nothing here implements those operations or resolves TP/YP/TOTAL on behalf of a natural-language request. The hash-pinned source inventory remains historical evidence; new mappings need their own review.
+
 ## Remaining work and validation
 
 M3-06 still needs common bounded POST support, the verified BDDK CA/TLS path,
