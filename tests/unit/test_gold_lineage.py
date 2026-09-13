@@ -270,6 +270,8 @@ class TestTheReferenceScenarioSlice:
 
         alignment = to_monthly(
             weekly_observations(),
+            requested_start=date(JAN.year, JAN.month, 1),
+            requested_end=MAR,
             frequency=Frequency.WEEKLY,
             aggregation=Aggregation.AVERAGE,
             anchor=FRIDAY,
