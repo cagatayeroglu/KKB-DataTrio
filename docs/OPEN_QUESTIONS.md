@@ -6,6 +6,12 @@ Snapshot: 2026-09-10. Two organizer **primary documents** were reviewed on this 
 
 The organizer questions are now the project's only external blockers, and several of them gate long-lead work: unexercised OCR access (Q-K-01), capacity (Q-K-02/04) and capability guarantees (Q-K-03) constrain their respective live acceptance. Ordinary compatible text transport can be built against the confirmed contract with local schema validation; no native tool/JSON guarantee is needed for that path. Q-K-05 retains configuration questions for the now-required dense baseline and optional dedicated-reranker availability under DEC-130 (DEC-127/115 are SUPERSEDED); Q-NET-01/02 gate the `web_search` and `web_url` tools, Q-DATA-01 gates live source retrieval, and Q-INFRA-01 can override DEC-126. Ask them early rather than near the delivery date.
 
+## DEC-137 unresolved materialization and storage policy
+
+[DEC-137](DECISIONS.md#dec-137--catalog-complete-lakehouse-first-official-source-materialization-architecture) records team architecture direction, not organizer answers. The original dated organizer evidence below is preserved. Still unresolved: Q-INFRA-01/02 (Kloudeks/demo S3-compatible object-storage availability, persistent-volume lifetime, credentials/runtime access); Q-DATA-01/03 (source-use, redistribution and retention); Q-NET-01 with Q-DATA-01 (demo egress and whether on-demand official BDDK/EVDS materialization is permitted); Q-NET-01/02 and the M7 production record (SearXNG/upstream search policy); Q-DATA-04 (authoritative semantics/revisions). No AWS/S3 or vector product is selected and no live acceptance is implied.
+
+New internal questions Q-TEAM-06/07/08 below concern vector implementation, exact broader prepared coverage and refresh/vintage selection policy. These are team decisions, not organizer permissions; all remain OPEN. Known embedding dimension is 4096 from M4-12; no new live call is needed to re-establish it.
+
 ## How to use this list
 
 - Claim the relevant question, obtain an answer, and record a dated message/document/reference without secrets or private payloads.
@@ -20,7 +26,7 @@ The organizer questions are now the project's only external blockers, and severa
 | --- | --- | --- | --- |
 | Ask on Slack now | Q-NET-02, Q-DATA-01, Q-NET-01 | URL/source permission gates the confirmed demo-day capability and live source retrieval | Safe-fetch boundary, parsers, offline provider/tool integration |
 | First available organizer contact | Q-K-02/03/04, Q-DATA-02, Q-DEMO-01 | Determine capacity, guarantees and remaining demo format | Synthetic contracts/oracles, conservative local budgets |
-| Answer ourselves with one authorized live call | Q-K-01 live smoke, Q-K-05 vector dimension | The key is provisioned and the guide prints the vector length; these need a measurement, not a question | Bounded transport implementation against fake transports |
+| Remaining model configuration | Q-K-01 OCR access; Q-K-05 prefix/batch/token limits | Chat/embedding smoke and 4096 dimension already measured in M4-12; do not repeat as an unresolved dimension question | Offline bounded contracts; separately authorized live acceptance where still needed |
 | Before private data or deployment | Q-DATA-03, Q-INFRA-01/02, Q-COMP-01, Q-DEMO-02/03 | Determine retention, environment, session/fallback rules | Credential-free unit tests, operator-flow design |
 | Before final scope/experiments | Q-K-04/05, Q-DEV-02, Q-JUDGE-01/02, Q-COMP-02, Q-DATA-04 | Avoid unsupported tooling/scoring/resource assumptions | Core deterministic baseline |
 | ~~Before affected implementation choice~~ | Q-TEAM-01/02/03/04/05 — **ANSWERED 2026-09-09** | Resolved by M0-ARCH; see DEC-112, DEC-113, DEC-117, DEC-120, DEC-123 | No longer blocking; implementation may proceed |
@@ -87,8 +93,8 @@ The organizer questions are now the project's only external blockers, and severa
 - [ ] Resolve the query/passage prefix convention, batch/token limits and whether a dedicated reranker is available.
 - Remaining question: What are those embedding configuration/limit details, and can a dedicated reranker be provided? General request/rate/concurrency limits remain Q-K-04.
 - Why it matters: Availability alone does not define a valid index/configuration or establish retrieval quality.
-- Blocks which milestone? M13-05 dense-baseline index configuration (dimension/prefix/limits) and optional dedicated-reranker use under M13-07. Lexical work, contracts and offline benchmark design can proceed; full hybrid acceptance requires both retrieval paths. Dense use itself is confirmed by DEC-130, not gated on lexical failure.
-- Can we proceed before answer? YES for lexical work and hybrid contracts/benchmark design; do not invent vector dimension/prefix values or claim complete hybrid integration while those prerequisites remain unresolved.
+- Blocks which milestone? M13-05 dense-baseline configuration (remaining prefix/limits; dimension 4096 established) and optional dedicated-reranker use under M13-07. Lexical work, contracts and offline benchmark design can proceed; full hybrid acceptance requires both retrieval paths. Dense use itself is confirmed by DEC-130, not gated on lexical failure.
+- Can we proceed before answer? YES for lexical work and hybrid contracts/benchmark design; use the measured 4096 dimension and do not invent prefix values or claim complete hybrid integration while those prerequisites remain unresolved.
 - Temporary assumption: Keep DEC-130's mandatory lexical+dense baseline and measured activation policy for RRF/reranking/extra stages. Do not copy an E5 prefix convention onto the confirmed Qwen model. The supplied list's omission of a dedicated reranker is not proof one can never be offered.
 - Owner: Unassigned; suggested lane B.
 - Status: OPEN only for remaining embedding details/dedicated reranker; embedding availability ANSWERED.
@@ -100,7 +106,7 @@ The organizer questions are now the project's only external blockers, and severa
 
 - [x] Record the delivery form and the demo-day runtime expectation: teams develop in their own environment, keep code in a **private GitHub repository** and deliver by granting KKB access; on Final Day a **solution deployed and running live** is expected (DEC-131).
 - [ ] Record OS/runtime/container/port/storage constraints for that live deployment, and who hosts it.
-- Question: The brief requires a live deployed solution but names no hosting environment. Do we host it ourselves, and what OS, Python/package installation, container, port and filesystem restrictions apply?
+- Question: The brief requires a live deployed solution but names no hosting environment. Do we host it ourselves, and what OS, Python/package installation, container, port and filesystem restrictions apply? Is S3-compatible/object storage available in Kloudeks/the demo environment; what credentials and runtime access model apply? No vendor or AWS S3 selection is inferred.
 - Why it matters: Determines reproducible setup, parser availability, and UI delivery. "Deployed and live" is now a confirmed requirement rather than an assumption, which makes the hosting answer more urgent, not less.
 - Blocks which milestone? M0 final setup validation, M10 deployment choice, M11 rehearsal environment.
 - Can we proceed before answer? YES for local Python >=3.12 contracts/tests and for the DEC-126 single-VM target; NO for claiming deployment compatibility with an unstated environment.
@@ -112,7 +118,7 @@ The organizer questions are now the project's only external blockers, and severa
 ### Q-INFRA-02 — Storage lifetime and isolation
 
 - [ ] Record local disk limits, reset behavior, persistence lifetime, and private-data cleanup requirements.
-- Question: What survives process restart, demo questions, or session reset, and what storage/cleanup/isolation requirements apply?
+- Question: What survives process restart, demo questions, or session reset, and what storage/cleanup/isolation requirements apply? Are persistent volumes available, and what are their lifetime/size/durability guarantees for versioned official datasets versus session artifacts?
 - Why it matters: Workspace semantics must match actual retention/durability expectations.
 - Blocks which milestone? M5 persistence acceptance, M10 reset/session behavior, M11 cleanup/restart demonstration.
 - Can we proceed before answer? YES for explicit in-process state and synthetic tests; NO for promised restart durability/private retention.
@@ -127,7 +133,7 @@ The organizer questions are now the project's only external blockers, and severa
 
 - [x] Record the brief's named source scope: BDDK `Haftalık Bülten`, `Aylık Bülten` and `FinTürk - İllere Göre`, plus EVDS `tumSeriler`, all bounded to **January 2021 – June 2026** (DEC-131). BDDK is described as weekly/monthly and EVDS as daily/weekly/monthly, matching the [BDDK](BDDK_SOURCE.md) and [EVDS](EVDS_SOURCE.md) inventories.
 - [ ] Record approved access/formats, access requirements, and source-use permissions. A named dataset is not granted access.
-- Question: How may scoped BDDK/EVDS preparation ingestion and optional operational refresh access official sources, and which metadata/revision conventions are authoritative? DEC-136 runtime financial queries use prepared lakehouse observations.
+- Question: How may initial/broad BDDK/EVDS preparation, incremental refresh and on-demand official materialization for trusted catalog misses access official sources? Is demo-time official fetch permitted, with what rates/retention restrictions, and which metadata/revision conventions are authoritative? DEC-137 keeps prepared data as the hot path; it does not grant these permissions.
 - Why it matters: Scoped ingestion adapters and semantic mappings require confirmed inputs; familiar source names do not prove access.
 - Blocks which milestone? M3 official-source preparation and semantic acceptance; M11 representative analysis of the prepared official dataset.
 - Can we proceed before answer? NO for source-specific live acceptance; YES for generic ingestion and synthetic source-shaped fixtures.
@@ -177,7 +183,7 @@ The organizer questions are now the project's only external blockers, and severa
 ### Q-NET-01 — Demo/development internet access
 
 - [ ] Record outbound network, DNS, proxy, firewall, and package-install access for each environment.
-- Question: Is internet access available to the application during development and demo, and through which DNS/proxy/firewall restrictions?
+- Question: Is internet access available to the application during development and demo, and through which DNS/proxy/firewall restrictions? Does demo egress permit policy-bounded official BDDK/EVDS cache-miss materialization, and which upstream engines may a self-hosted search backend contact? Self-hosting alone does not answer privacy/egress policy.
 - Why it matters: Live retrieval/provider setup and reproducibility depend on actual connectivity.
 - Blocks which milestone? M3/M4/M7 live paths and M11 network rehearsal.
 - Can we proceed before answer? NO for promised live-source availability; YES for offline tools and fake transports.
@@ -379,3 +385,25 @@ The organizer questions are now the project's only external blockers, and severa
 - Owner: Eray (M0-ARCH). Original suggestion: suggested lane B with C operator input.
 - Status: ANSWERED (2026-09-09, M0-ARCH).
 - Answer / evidence: An artifact DAG persisted in DuckDB, recorded in [DEC-117](DECISIONS.md#dec-117--analysis-workspace-as-a-persisted-artifact-dag). Adding a column adds a node rather than rebuilding the table, which is what the organizer's incremental scenario requires, and the same structure supplies replay and cache invalidation. No separate persistence engine is needed once DEC-112 puts DuckDB in the stack. Cross-process durability and reset semantics still depend on Q-INFRA-02 and Q-DEMO-02. Implemented in M5.
+
+
+### Q-TEAM-06 — Vector cache/index implementation
+
+- Question: Does measured catalog size/latency justify a dedicated index, or is a versioned embedding cache with deterministic cosine similarity sufficient?
+- Constraints: Required hybrid retrieval is decided; the vector product is not. Key by series/concept ID, catalog text hash, model ID and measured dimension 4096; never store observation values as vectors. LanceDB may be benchmarked, not assumed selected.
+- Owner: Unassigned. Status: OPEN. Blocks product selection/performance acceptance, not offline contract design; M13-05 still requires configuration/limit review. No implementation or dependency adopted.
+- Evidence needed: versioned catalog size, cold/warm latency, deterministic ranking and failure tests; DEC-137 supersedes only the prior mandatory product choice.
+
+### Q-TEAM-07 — Broad prepared coverage target
+
+- Question: Which additional BDDK Monthly/Weekly/FinTürk and EVDS financial families, selectors, periods and coverage thresholds fit the deadline and source permissions after the first four-series vertical slice?
+- Constraints: Approximately 2021-01–2026-06 is the initial analysis window; broader structured financial coverage must have trusted identity/semantics. Do not promise every source record or guess unsupported calendars/units.
+- Owner: Unassigned. Status: OPEN. Blocks a claimed broad dataset acceptance scope, not the bounded first reusable adapter design.
+- Evidence needed: reviewed catalog inventory, access/retention permission, measured ingestion/storage budget and independent coverage acceptance. No new task or READY state assigned.
+
+### Q-TEAM-08 — Refresh and vintage selection policy
+
+- Question: How should users/analyses select dataset versions when new periods, historical corrections, metadata or retirement/archive changes arrive, and what constitutes an idempotent no-op?
+- Constraints: Same official content/selector/parser/semantic policy must be reproducible; preserve prior snapshots/versions and never silently overwrite trusted evidence. Source-authoritative interpretation still depends on Q-DATA-04; retention on Q-DATA-03.
+- Owner: Unassigned. Status: OPEN. Blocks M3/M12 version/refresh acceptance; no scheduler is required or selected.
+- Evidence needed: explicit content-version/manifest policy, revision/conflict fixtures, publication-failure preservation and requested-window behavior. Existing storage does not settle these decisions.

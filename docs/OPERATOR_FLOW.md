@@ -21,9 +21,22 @@ The first UI may use concise text/table evidence, not an interactive graph canva
 
 ## Prepared dataset selection and separate web inputs
 
-[DEC-136](DECISIONS.md#dec-136--scoped-official-data-preparation-and-lakehouse-first-demo-runtime) makes the initial official-data path prepared lakehouse selection: resolve housing credit balance/rate, CPI or KFE through trusted catalog metadata, then query the selected observations for the requested window. The official dataset and its thin ingestion adapters remain undelivered; this is a flow requirement, not an implemented UI control. Preserve dataset/source vintage, missing coverage and unresolved selections visibly. Later loan/deposit/catalog expansion is separate from the initial approximately 2021-01–2026-06 scope.
+[DEC-137](DECISIONS.md#dec-137--catalog-complete-lakehouse-first-official-source-materialization-architecture) makes the four organizer concepts the first verified vertical-slice target, not a product coverage limit. The target UI resolves trusted catalog candidates and shows unresolved choices and requested-window availability. Prepared data remains the low-latency hot path; known misses may use an approved official adapter only under source/egress policy, then validate and materialize/version before querying through lakehouse. Show unsupported/forbidden/failed materialization as clarification or abstention, never as a guessed value or generic web fallback. The official dataset, adapters, automatic routing and API/UI remain unimplemented.
 
-General discovery remains `web_search` (SearXNG compatibility candidate only); fetching a specific supplied/authorized URL remains `web_url`. A search result does not grant fetch authority. Crawl4AI is optional future extraction evaluation only. No automatic live-source refresh or silent fixture substitution is implied by selecting the prepared dataset; on-day questions/documents still require real analysis.
+```text
+User -> planner -> catalog_search (lexical now; required dense later)
+ -> trusted candidate -> mandatory metadata inspection -> availability
+    prepared -> lakehouse
+    known miss + approved adapter/contract/policy -> official fetch
+      -> snapshot / validation / materialize / version -> lakehouse
+    unresolved / unsupported / forbidden / failed -> clarify or abstain
+ -> transforms / analytics with required quality/semantic checks
+ -> execution evidence / lineage -> verifier -> accepted answer/workspace
+```
+
+Preserve version/source vintage, actual coverage and refresh/revision history; do not promise a completed version manager. DEC-135 inspection and quality triggers apply before dependent use; their automatic wiring remains unfinished. The intended flow must work beyond housing balance/rate, CPI and national KFE over approximately 2021-01–2026-06, without hardcoded series selection.
+
+General research is a separate planner branch: `web_search` (SearXNG compatibility candidate only), then only separately authorized `web_url`. Search results do not grant fetch authority. Crawl4AI is optional future extraction evaluation only. Uploaded CSV/XLSX/PDF and BIST/IMF/other authorized URL documents remain session artifacts; shared storage does not turn them into permanent official series. Prepared datasets are not canned answers or permission for silent fixture substitution. No new user-facing tool or permission flow is implemented here.
 
 ## Backend facts and integration prerequisites
 

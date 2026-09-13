@@ -19,6 +19,8 @@ Treat these as hard unless [DECISIONS](docs/DECISIONS.md) records an authorized 
 
 Under [DEC-135](docs/DECISIONS.md#dec-135--planner-actions-and-mandatory-correctness-harness), keep user-intent actions planner-callable and correctness checks in the harness. When implementing selected-series inspection, observation quality or applicable multi-source reconciliation, enforce their mandatory triggers outside LLM discretion; do not register them as normal optional tools or claim their automatic wiring already exists. Existing semantic/security guards, lineage and verifier remain mandatory.
 
+Under [DEC-137](docs/DECISIONS.md#dec-137--catalog-complete-lakehouse-first-official-source-materialization-architecture), the four-series official-data slice is the first correctness milestone, not final coverage. Preserve reusable trusted official adapters, prepared lakehouse-first access and policy-gated materialization/versioning for known misses as targets, not delivered capabilities. Catalog misses grant no generic web/network authority; unknown identities/semantics stay unresolved. Hybrid lexical+dense retrieval remains required, while vector/object-storage products remain unselected. Preserve historical source inventories and current task completion states when documenting this direction.
+
 Changing an organizer constraint requires organizer confirmation; a team preference or implementation shortcut cannot override it.
 
 ## New session / teammate startup protocol

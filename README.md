@@ -10,26 +10,33 @@ The [DEC-135](docs/DECISIONS.md#dec-135--planner-actions-and-mandatory-correctne
 
 Python is the backend/analytics language; delivered runtime LLM access uses Kloudeks only. DuckDB/Parquet and Pandas are confirmed, with custom bounded orchestration and a DuckDB workspace/lineage graph. Material calculations are deterministic, unknown semantics stay explicit, and external/model content remains untrusted. BDDK/EVDS are intended thin preparation/ingestion adapters; the analytical core remains source-independent. No Snowflake or third-party hosted LLM services. The `openai` SDK is permitted only as a client exclusively configured for Kloudeks; [DEC-129](docs/DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy) owns the official endpoints, MIA-key authentication, confirmed text/vision, embedding and OCR models, and the literal OCR/embedding request contracts. A bounded transport ([llm/kloudeks.py](src/kkb_agent/llm/kloudeks.py)) sends the key only to that endpoint; it is tested offline, passed one authorized live smoke for chat and embedding (M4-12), and carried one live question end to end on synthetic data (M4-15). Native tool/JSON support is not assumed. [DEC-131](docs/DECISIONS.md#dec-131--organizer-kick-off-brief-schedule-delivery-form-and-demo-day-input-scope) records the organizer calendar (development closes **20 September 2026**, Final Day **17 October 2026**), delivery by private-repository access, the expectation of a live deployed solution, and prompt-supplied URL documents as required demo-day scope.
 
-Target flow under [DEC-136](docs/DECISIONS.md#dec-136--scoped-official-data-preparation-and-lakehouse-first-demo-runtime):
+Target under [DEC-137](docs/DECISIONS.md#dec-137--catalog-complete-lakehouse-first-official-source-materialization-architecture), refining DEC-136:
 
 ```text
-Preparation (official sources; scoped ingestion still unimplemented)
-  BDDK + EVDS -> thin ingestion adapters / common safe boundaries
-  -> normalized observations + semantics/provenance -> DuckDB + Parquet
+Preparation / broader loads -> approved reusable official adapters
+  -> snapshot / parse / validate / materialize / version -> DuckDB + Parquet
 
-Demo runtime
-  Question + workspace -> planner / catalog_search -> lakehouse observations
-  -> alignment / transforms / analytics -> verifier
+Question -> planner / catalog_search -> trusted candidate / mandatory inspection
+  -> requested-window availability
+     prepared -> lakehouse
+     known miss + approved adapter/request/policy
+       -> official fetch / validate / materialize / version -> lakehouse
+     unresolved / forbidden / unsupported -> clarification or abstention
+  -> guarded transforms / analytics -> execution evidence / verifier
   -> accepted workspace publication + answer/table/chart/evidence
 ```
 
-The initial prepared dataset targets approximately **2021-01–2026-06** for housing credit balance, housing/mortgage rate, CPI/TÜFE and KFE. Source selectors, real series IDs, native frequency, units/scales, revisions and provenance must be resolved explicitly; preparation does not mean ingesting every BDDK/EVDS series. Consumer/vehicle/commercial loans, deposits/additional rates and broader catalog coverage are later expansion. Core demo questions query prepared observations; live source refresh is optional operational work with its own policy. The official dataset is not yet delivered, and data access/retention permissions remain open.
+This is intended architecture, not implemented automatic routing. The initial **2021-01–2026-06** housing-credit balance, housing/mortgage rate, CPI/TÜFE and national KFE dataset is the first trusted vertical slice, still unprepared; it is not the final product boundary. Broader safe BDDK Monthly/Weekly/FinTürk loans, deposits, NPL, rates/ratios and relevant EVDS financial/economic families should use the same adapters. Prepared data provides low latency, reliability, repeatability, stable provenance and outage resilience; policy-permitted official cache misses are materialized once and reused. UNKNOWN semantics and ambiguous identities remain unresolved; exact broad coverage, demo egress and source-use/retention policy remain open. General web search/URLs are not the structured official-data cache-miss route.
+
+The delivered M3-05 monthly-housing selector/metadata slice uses internal `BDDK:selector:v1:<SHA256>` identities, with TP/YP/TOTAL explicit; general M3-05 remains PARTIAL and no official observation ingestion is delivered. Reusable adapters, dataset version/refresh management and on-demand materialization remain future work. Refresh must preserve previous snapshots/vintages rather than silently rewrite trusted history.
+
+Parquet stores persistent analytical data/artifacts; DuckDB is embedded compute/query. Local persistent volumes and later S3-compatible object storage are provider-neutral storage directions; AWS S3 is not selected and object-storage integration is not implemented. User uploads and authorized URL documents remain session artifacts, separate from versioned official catalog datasets.
 
 `web_search` stays separate general web discovery: SearXNG is the preferred compatibility candidate, with no production integration/live acceptance; self-hosting may still send queries upstream and requires organizer/network/privacy confirmation. `web_url` keeps its current specific supplied/authorized URL path. Crawl4AI is only an optional future dynamic/JS extraction candidate, subject to all existing safety/evidence controls. A search result never automatically authorizes fetching.
 
 The answer gate binds numbers to typed results, checks scale/period contradictions, resolves preserved input references and can reread identified values from the store. It withholds unsupported sentences and can abstain. Workspace result digests and stale-read rejection preserve prior values across turns; they do not prove independent recomputation, complete run/input provenance or replay. [ARCHITECTURE](docs/ARCHITECTURE.md) separates implemented boundaries from confirmed targets and remaining gaps.
 
-Retrieval's initial hybrid baseline is Turkish normalization, reviewed alias/concept-family mapping, metadata filtering, lexical/BM25 and the organizer's Qwen3-Embedding-8B dense retrieval, with LanceDB retained as the lightweight vector index ([DEC-130](docs/DECISIONS.md#dec-130--initial-hybrid-retrieval-baseline); DEC-127/115 are superseded). Benchmarks compare lexical-only, dense-only and combined quality/latency/failures; dense use does not wait for lexical failure. RRF, reranking and extra infrastructure require measured benefit. Direct retrieval and catalog-bounded relationship discovery remain separate evaluation paths.
+Retrieval's initial hybrid baseline is Turkish normalization, reviewed alias/concept-family mapping, metadata filtering, lexical/BM25 and the organizer's Qwen3-Embedding-8B dense retrieval, with vector storage/index product unselected under DEC-137; a versioned embedding cache plus deterministic cosine similarity may serve a small catalog, while LanceDB may be benchmarked for scale/latency ([DEC-130](docs/DECISIONS.md#dec-130--initial-hybrid-retrieval-baseline); DEC-127/115 are superseded). The confirmed model is `kkbhackathon2026/Qwen3-Embedding-8B`, measured at 4096 dimensions. Dense retrieval is required for the final hybrid target but not implemented today; catalog_search currently uses reviewed aliases, filters and bounded BM25. Vectors describe catalog concepts, not financial observation values. Benchmarks compare lexical-only, dense-only and combined quality/latency/failures; dense use does not wait for lexical failure. RRF, reranking and extra infrastructure require measured benefit. Direct retrieval and catalog-bounded relationship discovery remain separate evaluation paths.
 
 [DEC-128](docs/DECISIONS.md#dec-128--financial-question-validation-and-claim-level-evidence) records intended premise validation, finance semantic guard, bounded relationship stability and claim-level proof on the same spine. Core integration comes first; none is a claim of completed product behavior. FastAPI/SSE + Next.js and single-VM deployment remain confirmed targets, subject to organizer constraints; graph-heavy proof UI is deferred.
 

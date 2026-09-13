@@ -8,13 +8,13 @@ full hybrid acceptance still needs M13-05 dense retrieval and evaluation.
 
 ## Catalog and observation boundary
 
-DEC-136 separates trusted local/versioned catalog discovery from runtime queries
-over prepared lakehouse observations. Thin source adapters prepare that dataset
-before runtime; neither adapter nor the official dataset is delivered yet. M13-08's ten
+[DEC-137](DECISIONS.md#dec-137--catalog-complete-lakehouse-first-official-source-materialization-architecture) separates catalog discovery from observation availability and materialization. Prepared lakehouse data is the hot path; known misses may later use an approved official adapter under source/network policy, then validate/version into lakehouse. Neither adapter, availability orchestration nor the official dataset is delivered yet; catalog_search remains metadata-only. M13-08's ten
 identities are a reviewed demo snapshot, not the final full catalog. Aliases are
 precision shortcuts; other queries already use lexical matching over available
 records. Broader versioned BDDK/EVDS metadata is intended later, not delivered;
 unsupported identities remain unresolved and the LLM never invents series IDs.
+
+The final catalog spans safely representable BDDK/EVDS identities beyond the four-series vertical slice. Conceptual prepared/fetchable/unresolved/unsupported states require trusted manifest/adapter evidence; no such fields are added to the current result schema here. UNRESOLVED cannot trigger a fetch. Required final hybrid retrieval adds the confirmed Qwen embedding model (4096 dimensions); current aliases/filters/BM25 remain the only delivered path. Vector product selection remains open under DEC-137.
 
 ## Trusted configuration and contracts
 
