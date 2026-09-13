@@ -21,18 +21,19 @@ The first UI may use concise text/table evidence, not an interactive graph canva
 
 ## Prepared dataset selection and separate web inputs
 
-[DEC-137](DECISIONS.md#dec-137--catalog-complete-lakehouse-first-official-source-materialization-architecture) makes the four organizer concepts the first verified vertical-slice target, not a product coverage limit. The target UI resolves trusted catalog candidates and shows unresolved choices and requested-window availability. Prepared data remains the low-latency hot path; known misses may use an approved official adapter only under source/egress policy, then validate and materialize/version before querying through lakehouse. Show unsupported/forbidden/failed materialization as clarification or abstention, never as a guessed value or generic web fallback. The official dataset, adapters, automatic routing and API/UI remain unimplemented.
+The [DEC-137 dated refinement](DECISIONS.md#dec-137-prepared-pool-refinement) makes the prepared BDDK/EVDS pool the primary official-data demo path. The four organizer concepts are the first real vertical-slice target, not final coverage. Build and validate the pool before runtime through reusable adapters → raw bronze → validation/normalization → silver → required gold → DuckDB + Parquet. Users select trusted prepared candidates and see actual requested-window coverage/unknowns. Bronze alone cannot establish a financial answer.
 
 ```text
-User -> planner -> catalog_search (lexical now; required dense later)
- -> trusted candidate -> mandatory metadata inspection -> availability
-    prepared -> lakehouse
-    known miss + approved adapter/contract/policy -> official fetch
-      -> snapshot / validation / materialize / version -> lakehouse
-    unresolved / unsupported / forbidden / failed -> clarify or abstain
- -> transforms / analytics with required quality/semantic checks
- -> execution evidence / lineage -> verifier -> accepted answer/workspace
+User -> planner -> catalog_search (lexical now; required dense/vector target)
+ -> trusted prepared candidate -> lakehouse silver / appropriate trusted gold
+ -> guarded transforms / analytics -> mandatory correctness harness -> verifier
+ -> accepted answer / table / chart / workspace
+Prepared-pool miss or unresolved selection -> clarification / abstention
 ```
+
+The normal core three-turn flow does not fetch BDDK/EVDS when a question arrives. Financial-source independence does not promise offline planning/query embeddings. Runtime official-source cache-miss materialization is a future policy-gated scalability extension, not a demo prerequisite. No generic web fallback or guessed coverage. M3-06's bounded offline Monthly adapter is delivered; live BDDK/CA acceptance, real prepared pool, EVDS ingestion, automatic routing and API/UI remain unfinished.
+
+Final catalog retrieval adds the required Qwen 4096-dimensional embedding path and separate catalog vector similarity layer to BM25/aliases/filters. Neither dense nor vector index is implemented. The vector layer contains catalog descriptions/identity references, never financial observations. Exact cosine cache can be the baseline; LanceDB is the preferred dedicated-index benchmark candidate, with no selected product or new user-facing configuration flow implied.
 
 Preserve version/source vintage, actual coverage and refresh/revision history; do not promise a completed version manager. DEC-135 inspection and quality triggers apply before dependent use; their automatic wiring remains unfinished. The intended flow must work beyond housing balance/rate, CPI and national KFE over approximately 2021-01–2026-06, without hardcoded series selection.
 

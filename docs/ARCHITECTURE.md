@@ -44,32 +44,38 @@ Target packages follow DEC-125 (only existing source links below imply implement
 
 [DEC-137](DECISIONS.md#dec-137--catalog-complete-lakehouse-first-official-source-materialization-architecture) refines DEC-136's prepared-data direction into a catalog-complete, lakehouse-first target. “Catalog-complete” means extensible trusted metadata coverage for safely representable financial measures, not a claim that full coverage is delivered. M3-06 now provides a bounded offline-validated Monthly ingestion primitive for reviewed selectors; the prepared official dataset, live adapter acceptance, availability routing, on-demand materialization and version/refresh orchestration remain unfinished.
 
+The [dated DEC-137 refinement](DECISIONS.md#dec-137-prepared-pool-refinement) prioritizes the organizer prepared-pool model:
+
 ```text
-PREPARATION / BROADER PRE-MATERIALIZATION (source policy required)
-  trusted official identities -> reusable BDDK / EVDS adapters
-  -> common safe retrieval -> snapshot -> parse -> validate
-  -> bronze / silver / gold as appropriate -> versioned DuckDB / Parquet data
+PREPARATION / DEMO-CRITICAL (source policy required)
+  BDDK / EVDS -> trusted reusable adapters -> bounded official retrieval
+  -> raw bronze snapshots -> validation / normalization -> silver observations
+  -> required gold aligned/joined/transformed analytical datasets
+  -> prepared DuckDB + Parquet lakehouse
 
-TARGET RUNTIME
-  user -> planner -> catalog_search (lexical now; later required dense hybrid)
-  -> trusted candidate -> mandatory metadata inspection -> requested-window availability
-       usable prepared hit -> lakehouse
-       known miss + approved adapter/contract/policy
-         -> bounded official fetch -> snapshot/validate -> materialize/version -> lakehouse
-       unresolved / unsupported / forbidden / validation failure -> clarify or abstain
-  -> transforms / analytics with mandatory semantic and observation-quality gates
-  -> execution evidence / lineage -> verifier -> accepted workspace publication / answer
+PRIMARY DEMO RUNTIME TARGET
+  user -> planner -> catalog_search (lexical now; required dense hybrid target)
+  -> trusted prepared candidate -> lakehouse (silver / appropriate trusted gold)
+  -> guarded transforms / analytics -> mandatory correctness harness -> verifier
+  -> accepted workspace publication / answer / table / chart
+  prepared-pool miss / ambiguous identity / insufficient coverage -> clarify or abstain
 
-  General web research -> web_search / separately authorized web_url (separate branch)
+FUTURE SCALABILITY, NOT A CORE THREE-TURN PREREQUISITE
+  known unmaterialized identity + approved adapter/contract/policy
+  -> official fetch -> snapshot / validate -> materialize / version -> reuse lakehouse
+
+SEPARATE WEB BRANCH
+  general discovery -> web_search / SearchBackend
+  specific authorized URL/document -> web_url
 ```
 
-Mandatory inspection and observation-quality checks run before dependent use; applicable multi-source reconciliation remains outside planner discretion under DEC-135. The diagram is intended routing, not current automatic wiring or a new registry tool. A catalog miss does not grant generic network access. Insufficient identity/semantics, missing adapter, forbidden policy or failed validation must not fall through to arbitrary web search/URLs. A known series with insufficient requested coverage is a miss for that window; observed min/max never establishes full coverage.
+The primary structured financial-data path does not fetch BDDK/EVDS at question time. This reduces financial-source network dependence, not the separate Kloudeks requirements of planning and query embeddings. Mandatory metadata inspection, observation-quality/semantic checks and applicable reconciliation run before dependent use, outside planner discretion under DEC-135. The diagram is intended integration, not current automatic wiring or a new registry tool. A prepared-pool miss may clarify/abstain until the future materialization path is deliberately implemented. It grants no arbitrary web/network authority. A known series with insufficient requested coverage is a miss for that window; observed min/max never establishes full coverage.
 
 ### Vertical slice and broader coverage
 
 The first verified end-to-end target is **housing-credit outstanding balance, housing/mortgage rate, CPI/TÜFE and national KFE**, approximately **2021-01–2026-06**. It is not yet prepared and is not the final product ceiling. Broader prepared coverage should use the same architecture for BDDK Monthly/Weekly/FinTürk loans (consumer/vehicle/commercial/SME), deposits, NPL, rates/ratios and other relevant banking measures, with supported TP/YP/TOTAL, bank-group/geography dimensions, and relevant EVDS rate/index/macro/banking families. Exact coverage and source permissions remain open; do not ingest every byte or guess unknown semantics.
 
-Preparation is still the hot path: lower latency, fewer runtime network dependencies, repeatable demonstrations, stable provenance, deterministic benchmarks and resilience to source outages/layout drift. On-demand official materialization fills permitted known gaps; later queries reuse the versioned prepared copy. It does not replace broad preparation or guarantee demo-time egress.
+Broad preparation is the primary/demo-critical path: lower latency, fewer financial-source runtime dependencies, repeatable demonstrations, stable provenance and resilience to source outages/layout drift. Expand safely practical prepared coverage after the first real E2E slice. On-demand official materialization and sophisticated refresh/vintage orchestration are future scalability extensions, not prerequisites for the core three-turn demo; their source permissions remain unresolved.
 
 ### Catalog availability and reusable adapters
 
@@ -78,11 +84,11 @@ The target catalog maps concept → official ID/canonical selector candidates �
 | Conceptual state | Required evidence / target behavior |
 | --- | --- |
 | Prepared / materialized | Validated dataset version and coverage for the selected identity/window; query lakehouse |
-| Fetchable from official source | Resolved trusted identity/usable semantics, registered adapter, bounded request and applicable policy; fetch/validate/materialize before analysis |
+| Fetchable from official source (future scalability) | Resolved trusted identity/usable semantics, registered adapter, bounded request and policy; future fetch/validate/materialize before analysis. Demo-critical prepared-pool misses may clarify/abstain |
 | Unresolved | Missing/ambiguous identity or required semantics; clarify/abstain, never upgrade to fetchable |
 | Unavailable / unsupported | Missing adapter, unsupported calendar/shape or denied source policy; explicit limitation/abstention |
 
-Source adapters own endpoint/request shape, trusted identity mapping, response validation/parsing, semantic interpretation and source provenance. They reuse common safe-fetch/TLS/bounds, parser/storage, hashing and lineage primitives for initial preparation, broader loads, allowed cache misses and refresh. The LLM may choose intent-dependent actions, but cannot invent BDDK selectors, EVDS IDs, endpoints, semantics or materialization state.
+Source adapters own endpoint/request shape, trusted identity mapping, response validation/parsing, semantic interpretation and source provenance. Their primary near-term role is BUILD / REFRESH of the prepared official pool, reusing common safe-fetch/TLS/bounds, parser/storage, hashing and lineage. Runtime cache-miss routing is a future reuse of these primitives, not the demo-critical task. Current M3-06 refuses changed ranges/content rather than implementing refresh/version promotion. The LLM may choose intent-dependent actions, but cannot invent BDDK selectors, EVDS IDs, endpoints, semantics or materialization state.
 
 BDDK's delivered `BDDK:selector:v1:<SHA256>` is an internal deterministic key over provider, bulletin_family, table, row, bank_group, presentation_currency, value_dimension and geography; period/clock are snapshot/observation properties. Only monthly/table 4/row 2/sector 10001/TL has reviewed metadata in M3-05, with explicit TP/YP/TOTAL. General M3-05 remains PARTIAL; M3-06 can ingest supported Monthly responses through the bounded path below, but no real official dataset is claimed prepared. Weekly/FinTürk require their own reviewed semantics (including FinTürk THOUSAND versus monthly MILLION).
 
@@ -94,7 +100,7 @@ EVDS adapters must work with any supported trusted catalog series ID; CPI/KFE/mo
 
 Intended lifecycle: **DISCOVER → FETCH → SNAPSHOT → PARSE → VALIDATE → MATERIALIZE → VERSION → QUERY → REFRESH**. Retain raw content hash, trusted selector/request, retrieval/release metadata, parser/semantic policy versions, normalized observations and recorded transformations. Validate semantics, periods, units and source contract before publishing a usable version/availability pointer; failed materialization must preserve previous trusted data.
 
-Same official input content + selector + parser/semantic policy should yield the same content version or an idempotent no-op. Retrieval timestamps remain provenance and need not change content identity. Refresh can reveal new periods, corrected historical values, metadata or retirement/archive changes: retain old snapshots/versions, reconcile explicitly and never silently overwrite historical evidence. Manifest/version/vintage policy and implementation remain M3/M12 work; the existing one-value-per-series/period store is not a complete version system. No scheduler or new transaction framework is selected.
+Same official input content + selector + parser/semantic policy should yield the same content version or an idempotent no-op. Retrieval timestamps remain provenance and need not change content identity. Refresh can reveal new periods, corrected historical values, metadata or retirement/archive changes: retain old snapshots/versions, reconcile explicitly and never silently overwrite historical evidence. M3-06 delivers the bounded internal manifest and conflict refusal; broader version/vintage policy and promotion remain M3/M12 work; the existing one-value-per-series/period store is not a complete version system. No scheduler or new transaction framework is selected.
 
 Dataset publication is separate from M5-21's delivered gate-approved workspace transition. New source storage alone cannot publish an accepted analytical result; M8-21 execution binding and the final answer gate still apply. Existing successful/failing turn semantics remain unchanged.
 
@@ -325,9 +331,9 @@ Under [DEC-136](DECISIONS.md#dec-136--scoped-official-data-preparation-and-lakeh
 - Likely failures: Unknown/ambiguous series, schema drift, unavailable source, revisions, empty range, unexpected content type.
 - Validation expectations: Synthetic discovery/load fixtures, wrong-near-match selection tests, unfamiliar schemas, source outage, and stable provenance.
 
-TARGET operations are discovery, inspection, loading, profiling and provenance. No SourceAdapter protocol or BDDK/EVDS ingestion adapter is delivered. DEC-137 preserves preparation as the hot path and adds intended reusable official loading for broader coverage, policy-permitted known cache misses and refresh; all observations reach analytics through validated lakehouse materialization. [INGESTION_PROFILE](INGESTION_PROFILE.md) specifies observable results; an executable shared adapter/selection interface remains implementation work. Adapters unable to discover (for example, a single uploaded file) should report unsupported capability explicitly rather than invent source candidates.
+TARGET operations are discovery, inspection, loading, profiling and provenance. A shared SourceAdapter protocol and EVDS ingestion remain unimplemented; M3-06 supplies the bounded offline BDDK Monthly primitive described below. The dated DEC-137 refinement prioritizes prepared-pool build/refresh; runtime official cache-miss loading remains future scalability, not a core-demo prerequisite. All observations reach analytics through validated lakehouse materialization. [INGESTION_PROFILE](INGESTION_PROFILE.md) specifies observable results; an executable shared adapter/selection interface remains implementation work. Adapters unable to discover (for example, a single uploaded file) should report unsupported capability explicitly rather than invent source candidates.
 
-M3-05 now provides an [offline monthly BDDK selector/metadata contract](BDDK_MONTHLY_METADATA.md): deterministic internal identities for explicit selectors and reviewed CatalogRecord declarations only for table 4 / housing row 2 / Sektör 10001 / TL presentation, retaining TP/YP/TOTAL. A separate bounded metadata projection validator checks the documented caption/period/headers/row. No observation parser, retrieval adapter, source storage or runtime/catalog_search registration is added; broader mappings and M3-06 ingestion remain unfinished.
+M3-05 now provides an [offline monthly BDDK selector/metadata contract](BDDK_MONTHLY_METADATA.md): deterministic internal identities for explicit selectors and reviewed CatalogRecord declarations only for table 4 / housing row 2 / Sektör 10001 / TL presentation, retaining TP/YP/TOTAL. A separate bounded metadata projection validator checks the documented caption/period/headers/row. That M3-05 metadata slice adds no values or runtime/catalog_search registration. M3-06 subsequently delivered bounded offline request/response parsing, bronze snapshots, manifest and atomic silver/lineage materialization; general M3-05/M3-06 remain PARTIAL. Live BDDK/CA and real pool preparation remain unaccepted.
 
 ### 6. Safe ingestion, extraction, and profiling — partial implementation; confirmed boundary
 
@@ -494,11 +500,34 @@ TARGET adapters must retrieve/catalog series identifiers instead of hard-coding 
 
 ### 13. Semantic catalog and retrieval — confirmed baseline; benchmark-gated extensions
 
-DEC-137 separates trusted **local/versioned catalog metadata and discovery** from **observation availability/materialization and lakehouse queries**. Approved reusable source adapters populate prepared data and may fill known requested-window misses only under applicable policy. catalog_search consumes reviewed catalog state; it does not fetch observations or invent IDs. The M13-08 demo snapshot is not a permanent full-catalog ceiling: reviewed aliases are precision shortcuts, not the only catalog knowledge. Broader versioned BDDK/EVDS metadata coverage is intended later and remains unimplemented; unseen concepts may use catalog retrieval without an exact alias, while unsupported identities remain unresolved.
+DEC-137 separates trusted **local/versioned catalog metadata and discovery** from **observation availability/materialization and lakehouse queries**. Approved reusable source adapters primarily populate the prepared official pool. Demo catalog routing is concept → trusted prepared candidate → lakehouse; a pool miss may clarify/abstain. Official adapter filling of known requested-window misses is future scalability, not a core demo prerequisite. catalog_search consumes reviewed catalog state; it does not fetch observations or invent IDs. The M13-08 demo snapshot is not a permanent full-catalog ceiling: reviewed aliases are precision shortcuts, not the only catalog knowledge. Broader versioned BDDK/EVDS metadata coverage is intended later and remains unimplemented; unseen concepts may use catalog retrieval without an exact alias, while unsupported identities remain unresolved.
 
 TARGET under [DEC-130](DECISIONS.md#dec-130--initial-hybrid-retrieval-baseline), superseding DEC-127; DEC-115 remains historical. M13-04 supplies the reviewed offline lexical stage; dense and full hybrid retrieval remain unimplemented.
 
-Mandatory HYBRID baseline: one Turkish normalizer shared by query/index paths, reviewed aliases/concept families, metadata filters, lexical/BM25 and dense semantic retrieval using the organizer's Qwen3-Embedding-8B (exact model/endpoint in DEC-129). DEC-137 leaves the vector product unselected: a versioned embedding cache with series/concept ID, catalog text hash, model ID, dimension and deterministic cosine similarity can serve a small/moderate catalog; benchmark a dedicated index such as LanceDB only for demonstrated scale/latency need. The confirmed model is `kkbhackathon2026/Qwen3-Embedding-8B`, measured at 4096 dimensions. Vectors index descriptions/aliases/concepts, never financial observation values; those remain DuckDB/Parquet. Dense retrieval starts in the baseline without waiting for lexical failure or a prior gain measurement. Candidates retain IDs, original titles, source, unit/scale/frequency, coverage and archived/unknown flags. Exact aliases do not bypass ambiguity or semantic checks.
+Mandatory HYBRID baseline: one Turkish normalizer shared by query/index paths, reviewed aliases/concept families, metadata filters, lexical/BM25 and dense semantic retrieval using the organizer's Qwen3-Embedding-8B (exact model/endpoint in DEC-129). DEC-137 leaves the vector product unselected: a versioned embedding cache with series/concept ID, catalog text hash, model ID, dimension and deterministic cosine similarity can serve a small/moderate catalog; LanceDB is the strong/preferred dedicated-index candidate to benchmark first, with selection based on catalog scale, latency, deployment simplicity, retrieval quality and dependency cost. The confirmed model is `kkbhackathon2026/Qwen3-Embedding-8B`, measured at 4096 dimensions. Vectors index descriptions/aliases/concepts, never financial observation values; those remain DuckDB/Parquet. Dense retrieval starts in the baseline without waiting for lexical failure or a prior gain measurement. Candidates retain IDs, original titles, source, unit/scale/frequency, coverage and archived/unknown flags. Exact aliases do not bypass ambiguity or semantic checks.
+
+#### Intended catalog vector-search boundary (not implemented)
+
+The final dense architecture includes a separate logical **vector DB / vector index layer** for catalog embeddings. It stores/indexes/searches discovery representations; it is not the lakehouse and cannot hold official financial observation values. No vector product, index or dense retrieval path is implemented today. Exact cosine over a versioned embedding cache is the small-catalog baseline option; a separate vector service is not required. LanceDB is the preferred dedicated index to benchmark first. PostgreSQL/pgvector requires a later decision justifying a separate PostgreSQL service.
+
+| Conceptual vector record | Purpose |
+| --- | --- |
+| Official series ID / canonical selector ID; concept_id / family | Bind similarity candidates back to reviewed catalog identity |
+| Normalized catalog/search text; text/content hash | Reproduce the indexed representation and detect text changes |
+| Embedding model ID; dimension 4096; embedding vector | Enforce the confirmed Qwen representation contract |
+| Catalog snapshot / embedding version metadata | Prevent silent mixing of stale text/model/cache versions |
+
+These are intended records, not an implemented schema or dependency choice.
+
+```text
+catalog_search -> shared Turkish normalization / reviewed aliases / metadata filters
+  BM25 lexical candidates
+  + query embedding via Kloudeks Qwen3-Embedding-8B -> vector similarity candidates
+  -> metadata constraints / bounded combined candidates -> trusted identity resolution
+  -> prepared lakehouse silver/gold for financial values
+```
+
+Dense remains required for final hybrid acceptance. Dedicated-index scaling beyond measured need is later work; RRF/reranking remain separately benchmark-gated. Invalid/unavailable dense output may yield explicitly degraded lexical results, never a falsely successful full-hybrid run.
 
 M13-08 adds a [reviewed offline demo snapshot and exact alias mapping](CATALOG_MAPPING.md) over ten repository-evidenced identities. The shared record/normalizer are reused; unresolved BDDK/CPI identities stay absent. That artifact itself implements no retriever. M13-04 now provides the [bounded lexical catalog_search](CATALOG_SEARCH.md): reviewed alias/phrase sets, provider/frequency/archive filters and deterministic in-memory BM25; no FTS extension or lakehouse security change. Dense retrieval remains M13-05.
 

@@ -8,13 +8,28 @@ full hybrid acceptance still needs M13-05 dense retrieval and evaluation.
 
 ## Catalog and observation boundary
 
-[DEC-137](DECISIONS.md#dec-137--catalog-complete-lakehouse-first-official-source-materialization-architecture) separates catalog discovery from observation availability and materialization. Prepared lakehouse data is the hot path; known misses may later use an approved official adapter under source/network policy, then validate/version into lakehouse. Neither adapter, availability orchestration nor the official dataset is delivered yet; catalog_search remains metadata-only. M13-08's ten
+[DEC-137’s dated refinement](DECISIONS.md#dec-137-prepared-pool-refinement) makes user concept → catalog_search → trusted prepared series candidate → lakehouse the primary demo routing target. A prepared-pool miss may clarify/abstain; runtime official-source cache-miss materialization is future scalability, not a core three-turn prerequisite. M3-06 provides a bounded offline Monthly adapter, but the real official pool, live acceptance and automatic availability routing remain unfinished; catalog_search remains metadata-only. M13-08's ten
 identities are a reviewed demo snapshot, not the final full catalog. Aliases are
 precision shortcuts; other queries already use lexical matching over available
 records. Broader versioned BDDK/EVDS metadata is intended later, not delivered;
 unsupported identities remain unresolved and the LLM never invents series IDs.
 
 The final catalog spans safely representable BDDK/EVDS identities beyond the four-series vertical slice. Conceptual prepared/fetchable/unresolved/unsupported states require trusted manifest/adapter evidence; no such fields are added to the current result schema here. UNRESOLVED cannot trigger a fetch. Required final hybrid retrieval adds the confirmed Qwen embedding model (4096 dimensions); current aliases/filters/BM25 remain the only delivered path. Vector product selection remains open under DEC-137.
+
+## Required final hybrid and vector-search target
+
+Turkish normalization + reviewed aliases + metadata filters + BM25/lexical + `kkbhackathon2026/Qwen3-Embedding-8B` dense retrieval (**4096 dimensions**) form the final hybrid architecture. Dense retrieval and the vector DB/index are NOT implemented today; dense is a required final capability, not an optional enhancement. Model access remains Kloudeks-only.
+
+```text
+catalog_search -> BM25 candidates
+  + query embedding via Qwen -> vector similarity search over catalog embeddings
+  + metadata constraints -> bounded combined candidate set
+  -> trusted prepared identity -> lakehouse financial values
+```
+
+The intended vector DB/index layer binds official/canonical selector IDs, concept/family, normalized catalog text and hash, embedding model/dimension/vector and snapshot/version metadata. It does not hold observation values or replace DuckDB/Parquet. Exact cosine over a versioned embedding cache is an acceptable small-catalog baseline. LanceDB is a strong candidate and the preferred dedicated index to benchmark first; product selection remains open on scale, latency, deployment simplicity, retrieval quality and dependency cost. No separate PostgreSQL/pgvector service is justified by this refinement. Dedicated-index scaling beyond measured need is later work; required dense retrieval remains in the core delivery priorities.
+
+This is an architectural boundary, not a new result schema, dependency, index or implemented query-embedding path. RRF/reranking remain benchmark-gated; a lexical fallback is degraded retrieval, not full hybrid acceptance.
 
 ## Trusted configuration and contracts
 
