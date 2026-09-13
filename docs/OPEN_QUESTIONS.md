@@ -127,9 +127,9 @@ The organizer questions are now the project's only external blockers, and severa
 
 - [x] Record the brief's named source scope: BDDK `Haftalık Bülten`, `Aylık Bülten` and `FinTürk - İllere Göre`, plus EVDS `tumSeriler`, all bounded to **January 2021 – June 2026** (DEC-131). BDDK is described as weekly/monthly and EVDS as daily/weekly/monthly, matching the [BDDK](BDDK_SOURCE.md) and [EVDS](EVDS_SOURCE.md) inventories.
 - [ ] Record approved access/formats, access requirements, and source-use permissions. A named dataset is not granted access.
-- Question: How may we access BDDK/EVDS at runtime, is retrieval from the live sites permitted, and which metadata/revision conventions are authoritative?
-- Why it matters: Live adapters and semantic mappings require confirmed inputs; familiar source names do not prove access.
-- Blocks which milestone? M3 live integration and source-semantic acceptance; M11 representative live analysis.
+- Question: How may scoped BDDK/EVDS preparation ingestion and optional operational refresh access official sources, and which metadata/revision conventions are authoritative? DEC-136 runtime financial queries use prepared lakehouse observations.
+- Why it matters: Scoped ingestion adapters and semantic mappings require confirmed inputs; familiar source names do not prove access.
+- Blocks which milestone? M3 official-source preparation and semantic acceptance; M11 representative analysis of the prepared official dataset.
 - Can we proceed before answer? NO for source-specific live acceptance; YES for generic ingestion and synthetic source-shaped fixtures.
 - Temporary assumption: BDDK/EVDS are confirmed intended sources but not the only possible ones; the brief also requires reading arbitrary prompt-supplied URLs (Q-NET-02). PR #21/#22 source inventories record observed endpoints/series metadata, not organizer-approved runtime access or redistribution. Do not invent missing request payloads, permissions or auth requirements. The 2021-01 – 2026-06 window is a scope bound, not a permission.
 - Owner: Unassigned; suggested lane A.
@@ -235,8 +235,8 @@ The organizer questions are now the project's only external blockers, and severa
 - Can we proceed before answer? NO for treating prepared assets as an approved demo fallback; YES for synthetic development/recovery tests.
 - Temporary assumption: No silent fixture substitution or claim that a cache is live; no presumed fallback permission.
 - Owner: Unassigned; suggested lane C.
-- Status: OPEN — and the brief makes a permissive answer less likely.
-- Answer / evidence: The kick-off deck requires running the real scenario on Final Day and producing output from **inputs supplied on the day**, from a live deployed solution (DEC-131). That is evidence against prepared-asset substitution, but it is not an explicit ruling on what may be used if a live source or the provider fails, so the question stays open. Coordinate data permission with Q-DATA-03.
+- Status: OPEN for fallback permission. DEC-136 distinguishes prepared official observations from replacing real on-day analysis with prepared answers or fixtures.
+- Answer / evidence: The kick-off deck requires running the real scenario on Final Day and producing output from **inputs supplied on the day**, from a live deployed solution (DEC-131). The original review treated this as evidence against prepared-asset substitution. DEC-136 clarifies that a prepared official observation dataset is the intended normal analytical input, not a canned-answer/recorded-screen/synthetic substitute. The brief does not settle outage fallback permission, so the question stays open. Coordinate data permission with Q-DATA-03.
 
 ## Allowed development tooling
 

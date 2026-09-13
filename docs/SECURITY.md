@@ -14,6 +14,14 @@ Primary threats: credential/data leakage; SSRF to local/private/metadata targets
 
 This is not a production multi-tenant platform. Kubernetes security, enterprise RBAC/RLS, production backup/restore, full DAST, SBOM/signing, and complex security infrastructure are not mandatory. Revisit only for concrete organizer/deployment requirements in DECISIONS.
 
+## Prepared data and separate web capabilities
+
+[DEC-136](DECISIONS.md#dec-136--scoped-official-data-preparation-and-lakehouse-first-demo-runtime) places scoped BDDK/EVDS retrieval in an operator-approved preparation phase. Thin ingestion adapters must reuse the same bounded retrieval/parser/storage controls; preparation creates no network or TLS exception. Runtime financial queries read the prepared lakehouse, preserving source/vintage/value-producing evidence and explicit refresh/revision policy. Official origin or local storage alone does not make a value trustworthy. Source access, retention and redistribution still require Q-DATA-01/03; no permissions or new controls are marked delivered here.
+
+`web_search` remains general discovery behind `SearchBackend`, separate from official structured observations. SearXNG is the preferred compatibility candidate, not a selected/integrated/live-accepted provider. Self-hosting may forward queries to upstream engines; review egress, query privacy, retention and organizer policy under Q-NET-01/02 before production acceptance.
+
+`web_url` keeps its current specific supplied/authorized URL boundary. Crawl4AI is only an optional future dynamic/JS extraction candidate and cannot bypass URL authorization, SSRF/private-address protections, redirect/TLS checks, size/time limits, provenance or verifier evidence. A `web_search` URL remains `fetch_authorized=false`; search → fetch expansion requires a separate product/security decision. No discovery output implicitly extends the authorized URL set.
+
 ## Control status and maintenance
 
 - `[ ]` means control implementation or validation is unfinished.
