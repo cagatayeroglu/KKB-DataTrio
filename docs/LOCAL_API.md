@@ -3,8 +3,8 @@
 The first HTTP implementation of [DEC-123](DECISIONS.md#dec-123--fastapi-with-sse-behind-a-nextjs-front-end)
 provides a FastAPI factory, process-local session capabilities, bounded turn
 execution and explicit published-result projection. This is **not a deployed
-service or prepared-runtime startup command**. The next integration supplies
-the prepared Session runner. Tests explicitly use scripted execution.
+service**. [M10-17 startup](PREPARED_API.md) now supplies the inspected prepared
+Session runner and an explicitly enabled loopback launcher. Tests use scripted execution.
 [OPERATOR_FLOW](OPERATOR_FLOW.md) retains the wider target requirements.
 
 ## Executable contract

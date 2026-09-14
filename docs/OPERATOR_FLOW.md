@@ -1,6 +1,6 @@
 # M10-01 — Operator flow and API boundary requirements
 
-Status: M10-01 operator specification; the dated [M10-16 local API](LOCAL_API.md) now implements the bounded session/question/turn/result contract and turn-lifecycle SSE. This document retains wider requirements and historical backend gaps below; LOCAL_API owns current executable routes, limits and remaining gaps. Prepared-runtime startup, full plan/tool progress, proof traversal and the frontend remain separate integrations. [DEC-123](DECISIONS.md#dec-123--fastapi-with-sse-behind-a-nextjs-front-end) still requires a typed API before M10-03's client.
+Status: M10-01 operator specification; the dated [M10-16 local API](LOCAL_API.md) now implements the bounded session/question/turn/result contract and turn-lifecycle SSE. This document retains wider requirements and historical backend gaps below; LOCAL_API owns current executable routes, limits and remaining gaps. [M10-17](PREPARED_API.md) now supplies prepared-runtime startup; full plan/tool progress, proof traversal and the frontend remain separate integrations. [DEC-123](DECISIONS.md#dec-123--fastapi-with-sse-behind-a-nextjs-front-end) still requires a typed API before M10-03's client.
 
 ## One demo flow
 

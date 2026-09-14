@@ -24,6 +24,7 @@ from kkb_agent.api.contracts import (
     SessionCreated,
     Turn,
 )
+from kkb_agent.api.prepared import PreparedStatus
 from kkb_agent.api.service import AnalysisService, ServiceError
 from kkb_agent.core.models import ContractModel
 
@@ -154,7 +155,12 @@ class LocalBoundary:
                 await failure("internal_error", 500)(scope, receive, guarded_send)
 
 
-def create_app(service: AnalysisService, *, port: int = 8000) -> FastAPI:
+def create_app(
+    service: AnalysisService,
+    *,
+    port: int = 8000,
+    prepared: PreparedStatus | None = None,
+) -> FastAPI:
     """No provider creation or model call; the operator supplies the runner."""
 
     @asynccontextmanager
@@ -174,6 +180,9 @@ def create_app(service: AnalysisService, *, port: int = 8000) -> FastAPI:
     )
     app.add_middleware(LocalBoundary, port=port)
     active_streams: set[str] = set()
+    prepared_snapshot = (
+        PreparedStatus.model_validate_json(prepared.model_dump_json()) if prepared else None
+    )
 
     @app.exception_handler(ServiceError)
     async def service_error(request: Request, exc: ServiceError) -> JSONResponse:
@@ -197,6 +206,13 @@ def create_app(service: AnalysisService, *, port: int = 8000) -> FastAPI:
     @app.get("/v1/health", response_model=Health)
     def health() -> Health:
         return service.health()
+
+    @app.get("/v1/dataset", response_model=PreparedStatus)
+    def dataset() -> PreparedStatus:
+        service.health()
+        if prepared_snapshot is None:
+            raise ServiceError("unavailable", 503)
+        return prepared_snapshot.model_copy(deep=True)
 
     @app.post("/v1/sessions", response_model=SessionCreated, status_code=201)
     def create_session(body: Empty) -> SessionCreated:
