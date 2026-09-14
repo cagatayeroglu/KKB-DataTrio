@@ -79,9 +79,11 @@ Failed/refused follow-ups do not replace previous published results.
 
 Scripted HTTP and real-tool tests cover older selection, wrong-source repair,
 catalog continuation, add-series then table comparison, retries, source changes
-and dependency invalidation. Frontend selection submission/recovery, browser
-acceptance and live Kloudeks selected-table quality remain pending. M10-18 is
-still PARTIAL; this backend integration does not complete the UI feature.
+and dependency invalidation. PR #166 now also wires frontend selection, immutable
+admission/retry identity and exact-reference reload recovery, with automated
+client/bridge checks. Browser acceptance and live Kloudeks selected-table quality
+remain pending. M10-18 is still PARTIAL until required review/acceptance and merge.
+See [client recovery and evidence](LOCAL_CLIENT.md#recovery-and-limits).
 
 ## Bounded lifecycle
 

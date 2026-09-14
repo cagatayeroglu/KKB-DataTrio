@@ -81,7 +81,14 @@ export const turnSchema = z
       )
       .max(3),
   })
-  .strict();
+  .strict()
+  .refine(
+    (turn) =>
+      !turn.answer?.result ||
+      (turn.state === "completed" && turn.answer.status === "accepted"),
+    "A published result requires an accepted completed turn",
+  );
+
 export const healthSchema = z
   .object({
     api_version: z.literal(1),
@@ -128,6 +135,8 @@ export type Health = z.infer<typeof healthSchema>;
 export const savedSchema = z
   .object({
     session: sessionSchema,
+    view_result_id: ref.optional(),
+    follow_selected: z.boolean().optional(),
     turns: z
       .array(
         z
@@ -135,6 +144,15 @@ export const savedSchema = z
             request_id: ref,
             question: z.string().min(1).max(4096),
             turn_id: ref.optional(),
+            selected_result_id: ref.optional(),
+            admission_error: z
+              .enum([
+                "invalid_result",
+                "invalid_request",
+                "request_conflict",
+                "capacity",
+              ])
+              .optional(),
           })
           .strict(),
       )

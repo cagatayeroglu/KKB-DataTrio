@@ -246,3 +246,32 @@ test("stream abort cancels blocked reads and preserves the exact limit", async (
     new TextEncoder().encode("test"),
   );
 });
+
+test("selected source and request identity pass through the bounded local bridge unchanged", async () => {
+  const body = JSON.stringify({
+    request_id: "3".repeat(32),
+    question: "TÜFE ekle",
+    selected_result_id: "4".repeat(32),
+  });
+  let calls = 0;
+  const transport: typeof fetch = async (_url, init) => {
+    calls++;
+    assert.equal(init?.body, body);
+    return Response.json({ api_version: 1 }, { status: 202 });
+  };
+  const response = await forward(
+    request(
+      `v1/sessions/${sid}/turns`,
+      "POST",
+      {
+        "content-type": "application/json",
+        "x-kkb-session-token": token,
+      },
+      body,
+    ),
+    ["v1", "sessions", sid, "turns"],
+    transport,
+  );
+  assert.equal(response.status, 202);
+  assert.equal(calls, 1);
+});

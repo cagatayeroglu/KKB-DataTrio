@@ -694,3 +694,28 @@ those bytes and is not a claim that the original merged r3 passed fresh checkout
 Startup/recovery instructions and remaining scope: [LOCAL_CLIENT](LOCAL_CLIENT.md).
 Live three-turn browser acceptance, charts/export, upload/refresh, full proof,
 detailed tool progress, writable settings and deployment remain outstanding.
+
+
+<a id="m10-18-client-selection-2026-09-14"></a>
+## M10-18 client selected-source continuation — 2026-09-14 (unmerged #166)
+
+Node 22.17.0: `cd web; npm run check` passes formatting, TypeScript and **23 tests**.
+`npm run build` passes production compilation/prerendering. Added regressions
+cover immutable selected source on uncertain retry despite view/mode changes,
+older-reference reload, refusal to substitute missing sources, legacy retry
+compatibility, accepted-publication eligibility, both IDs on GET recovery,
+terminal admission rejection versus ambiguous failure and exact proxy forwarding.
+The secret scan passes. Backend source is unchanged in this continuation; the
+previous backend gate remains the measured 3326 passed / 2 skipped result in
+[ROADMAP](ROADMAP.md#current-project-status), not a new full-suite run.
+
+A temporary synthetic prepared pool (2 series, 6 observations, 15 catalog entries),
+real PreparedRunner/AnalysisService and the production Next server started on
+loopback. Initial browser inspection showed the offline banner and selection
+checkbox. The first form interaction and subsequent read-only state check each
+timed out in automatic approval review; the server's submission ledger stayed
+empty. Therefore **selected-flow browser/E2E and responsive interaction acceptance
+are NOT established**. Planned old-table reload, lost-admission retry, refusal
+preservation and free-question flows must still be exercised in the browser.
+No live model/source request was made. No numerical or reasoning reliability
+claim follows from this client test count or the initial page inspection.

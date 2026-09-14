@@ -28,6 +28,11 @@ import { preparedTitle } from "@/lib/table";
 import { noticeText } from "@/lib/language";
 import {
   api,
+  ApiError,
+  admissionRejection,
+  draftRequest,
+  publishedResult,
+  restoredSelection,
   admit,
   clearSession,
   describeError,
@@ -67,7 +72,7 @@ const examples = [
       "Hazır veri havuzunda konut kredileri ve fiyat endeksleri için hangi seriler var?",
   },
 ];
-type Item = { question: string; request_id: string; turn?: Turn };
+type Item = Saved["turns"][number] & { turn?: Turn };
 export function Workspace() {
   const [health, setHealth] = useState<Health | null>(null),
     [dataset, setDataset] = useState<Dataset | null>(null);
@@ -80,10 +85,14 @@ export function Workspace() {
     [issue, setIssue] = useState("");
   const [selected, setSelected] = useState<number>(-1),
     [panel, setPanel] = useState<"data" | "settings" | null>(null),
-    [pending, setPending] = useState(false);
+    [followSelected, setFollowSelected] = useState(true),
+    [pendingIndex, setPendingIndex] = useState<number | null>(null);
+  const pending = pendingIndex !== null;
   const saved = useRef<Saved | null>(null),
     busyRef = useRef(false),
     mounted = useRef(false),
+    generation = useRef(0),
+    recoveries = useRef<number[]>([]),
     chatEnd = useRef<HTMLDivElement>(null),
     input = useRef<HTMLTextAreaElement>(null);
   async function refresh() {
@@ -110,26 +119,59 @@ export function Workspace() {
     saveSession(sessionStorage, value);
     saved.current = value;
   }
-  function update(index: number, turn: Turn) {
-    if (!mounted.current) return;
+  function chooseResult(index: number) {
+    const result = publishedResult(items[index]?.turn);
+    if (!ready || busyRef.current || pending || !result || !saved.current)
+      return;
+    try {
+      record({ ...saved.current, view_result_id: result.result_ref });
+      setSelected(index);
+      setIssue("");
+    } catch (error) {
+      setIssue(describeError(error));
+    }
+  }
+  function chooseMode(follow: boolean) {
+    if (!ready || busyRef.current || pending) return;
+    try {
+      if (saved.current) record({ ...saved.current, follow_selected: follow });
+      setFollowSelected(follow);
+      setIssue("");
+    } catch (error) {
+      setIssue(describeError(error));
+    }
+  }
+  function update(index: number, turn: Turn, selectResult = false) {
+    const result = publishedResult(turn);
+    if (selectResult && result && saved.current) {
+      record({ ...saved.current, view_result_id: result.result_ref });
+      setSelected(index);
+    }
     setItems((old) =>
       old.map((item, i) => (i === index ? { ...item, turn } : item)),
     );
-    if (turn.answer?.result) setSelected(index);
+  }
+  function recovered(index: number) {
+    recoveries.current = recoveries.current.filter(
+      (pending) => pending !== index,
+    );
+    setPendingIndex(recoveries.current[0] ?? null);
   }
   async function watch(index: number, canAdmit: boolean) {
     const state = saved.current;
-    if (!state || busyRef.current) return;
+    if (!state || !state.turns[index] || busyRef.current) return;
+    const epoch = generation.current;
+    const active = () => mounted.current && generation.current === epoch;
+    const entry = state.turns[index];
     busyRef.current = true;
     setBusy(true);
-    setPending(true);
+    setPendingIndex(index);
     setIssue("");
     try {
       let turn = canAdmit
         ? await admit(state, index)
-        : await readTurn(state.session, state.turns[index].turn_id!);
-      if (turn.request_id !== state.turns[index].request_id)
-        throw new Error("identity");
+        : await readTurn(state.session, entry.turn_id!, entry.request_id);
+      if (!active()) return;
       const next = {
         ...state,
         turns: state.turns.map((entry, i) =>
@@ -137,10 +179,9 @@ export function Workspace() {
         ),
       };
       record(next);
-      update(index, turn);
+      update(index, turn, true);
       const deadline = Date.now() + 10 * 60 * 1000;
       while (turn.state !== "completed" && turn.state !== "failed") {
-        if (!mounted.current) return;
         if (Date.now() > deadline) {
           setIssue(
             "İşlem hâlâ devam ediyor olabilir. Aynı işlemin durumunu yeniden alabilirsin; yeni analiz başlatılmadı.",
@@ -148,52 +189,100 @@ export function Workspace() {
           return;
         }
         await new Promise((resolve) => setTimeout(resolve, 1000));
-        if (!mounted.current) return;
-        turn = await readTurn(next.session, turn.turn_id);
-        update(index, turn);
+        if (!active()) return;
+        turn = await readTurn(next.session, turn.turn_id, entry.request_id);
+        if (!active()) return;
+        update(index, turn, true);
       }
-      if (mounted.current) setPending(false);
+      recovered(index);
     } catch (error) {
-      if (mounted.current) setIssue(describeError(error));
+      if (!active()) return;
+      const rejection = admissionRejection(error);
+      if (rejection && !saved.current?.turns[index].turn_id) {
+        try {
+          record({
+            ...saved.current!,
+            turns: saved.current!.turns.map((entry, i) =>
+              i === index ? { ...entry, admission_error: rejection } : entry,
+            ),
+          });
+          setItems((old) =>
+            old.map((item, i) =>
+              i === index ? { ...item, admission_error: rejection } : item,
+            ),
+          );
+          recovered(index);
+        } catch (storageError) {
+          setIssue(describeError(storageError));
+          return;
+        }
+      }
+      setIssue(describeError(error));
     } finally {
-      busyRef.current = false;
-      if (mounted.current) setBusy(false);
+      if (active()) {
+        busyRef.current = false;
+        setBusy(false);
+      }
     }
   }
   useEffect(() => {
     mounted.current = true;
+    const epoch = ++generation.current;
+    const active = () => mounted.current && generation.current === epoch;
     void refresh();
     const stored = loadSession(sessionStorage);
     saved.current = stored;
     if (stored) {
+      setFollowSelected(stored.follow_selected ?? true);
       setItems(stored.turns.map((entry) => ({ ...entry })));
-      let resume = -1;
       void (async () => {
+        const resume: number[] = [];
+        const restored: (Turn | undefined)[] = [];
         for (let i = 0; i < stored.turns.length; i++) {
           const entry = stored.turns[i];
+          if (entry.admission_error) continue;
           if (!entry.turn_id) {
-            resume = i;
+            resume.push(i);
             continue;
           }
           try {
-            const turn = await readTurn(stored.session, entry.turn_id);
-            if (!mounted.current) return;
+            const turn = await readTurn(
+              stored.session,
+              entry.turn_id,
+              entry.request_id,
+            );
+            if (!active()) return;
+            restored[i] = turn;
             update(i, turn);
-            if (!["completed", "failed"].includes(turn.state)) resume = i;
+            if (!["completed", "failed"].includes(turn.state)) resume.push(i);
           } catch (error) {
-            if (mounted.current) setIssue(describeError(error));
-            resume = i;
-            break;
+            if (!active()) return;
+            setIssue(describeError(error));
+            resume.push(i);
           }
         }
-        if (mounted.current) {
-          setPending(resume >= 0);
-          setReady(true);
+        if (!active()) return;
+        const index = restoredSelection(stored, restored);
+        try {
+          if (index >= 0)
+            record({
+              ...stored,
+              view_result_id: publishedResult(restored[index])!.result_ref,
+            });
+          else if (stored.view_result_id && resume.length === 0)
+            setIssue(errorText.selection_unavailable);
+          setSelected(index);
+        } catch (error) {
+          setIssue(describeError(error));
         }
+        recoveries.current = resume;
+        setPendingIndex(resume[0] ?? null);
+        setReady(true);
       })();
     } else setReady(true);
     return () => {
       mounted.current = false;
+      generation.current++;
     };
   }, []);
   useEffect(() => {
@@ -212,13 +301,17 @@ export function Workspace() {
       !ready
     )
       return;
+    const epoch = generation.current;
+    const active = () => mounted.current && generation.current === epoch;
     busyRef.current = true;
     setBusy(true);
     setIssue("");
     try {
       let state = saved.current;
       if (!state) {
-        state = { session: await newSession(), turns: [] };
+        const session = await newSession();
+        if (!active()) return;
+        state = { session, turns: [], follow_selected: followSelected };
         record(state);
       }
       if (state.turns.length >= 24) {
@@ -227,38 +320,65 @@ export function Workspace() {
         );
         return;
       }
-      const entry = {
-        request_id: crypto.randomUUID().replaceAll("-", ""),
-        question: question.trim(),
-      };
+      const source = items[selected]?.turn;
+      if (followSelected && state.view_result_id && !publishedResult(source))
+        throw new ApiError("selection_unavailable");
+      const entry = draftRequest(question, followSelected ? source : undefined);
       const next = { ...state, turns: [...state.turns, entry] };
       record(next);
       setItems((old) => [...old, entry]);
       setQuestion("");
-      setPending(true);
+      recoveries.current = [next.turns.length - 1];
+      setPendingIndex(next.turns.length - 1);
       busyRef.current = false;
       await watch(next.turns.length - 1, true);
     } catch (error) {
-      setIssue(describeError(error));
+      if (active()) setIssue(describeError(error));
     } finally {
-      busyRef.current = false;
-      setBusy(false);
+      if (active()) {
+        busyRef.current = false;
+        setBusy(false);
+      }
     }
   }
   function resetView() {
-    if (busy) return;
-    clearSession(sessionStorage);
+    if (busyRef.current || !ready) return;
+    if (
+      pending &&
+      !window.confirm(
+        "Bekleyen isteğin kurtarma kaydı bu sekmeden kaldırılacak. Sunucudaki işlem iptal edilmez. Yeni çalışma açılsın mı?",
+      )
+    )
+      return;
+    try {
+      clearSession(sessionStorage);
+    } catch (error) {
+      setIssue(describeError(error));
+      return;
+    }
+    generation.current++;
     saved.current = null;
+    recoveries.current = [];
     setItems([]);
-    setPending(false);
+    setPendingIndex(null);
     setSelected(-1);
+    setFollowSelected(true);
     setIssue("");
     setQuestion("");
   }
   const versions = items.flatMap((item, index) =>
-    item.turn?.answer?.result ? [{ index, item }] : [],
+    publishedResult(item.turn) ? [{ index, item }] : [],
   );
-  const result = selected >= 0 ? items[selected]?.turn?.answer?.result : null;
+  const result = publishedResult(items[selected]?.turn);
+  function sourceLabel(reference?: string) {
+    if (!reference) return "Serbest soru";
+    const index = items.findIndex(
+      (item) => publishedResult(item.turn)?.result_ref === reference,
+    );
+    return index >= 0
+      ? `Kaynak tablo: Analiz ${index + 1}`
+      : "Kaynak tablo yüklenemedi";
+  }
   const current = items.at(-1)?.turn;
   const number = (value: number) => value.toLocaleString("tr-TR");
   return (
@@ -460,6 +580,9 @@ export function Workspace() {
                         SEN <span>{String(index + 1).padStart(2, "0")}</span>
                       </div>
                       <p className="user-question">{item.question}</p>
+                      <p className="request-source">
+                        {sourceLabel(item.selected_result_id)}
+                      </p>
                       <div className="answer-label">
                         <span className="small-brand">
                           <Layers3 size={13} />
@@ -507,7 +630,8 @@ export function Workspace() {
                           {item.turn.answer.result && (
                             <button
                               className={`result-link ${selected === index ? "selected" : ""}`}
-                              onClick={() => setSelected(index)}
+                              onClick={() => chooseResult(index)}
+                              disabled={!ready || busy || pending}
                             >
                               <Table2 size={17} />
                               <span>
@@ -521,10 +645,14 @@ export function Workspace() {
                             </button>
                           )}
                         </>
-                      ) : item.turn?.state === "failed" ? (
+                      ) : item.turn?.state === "failed" ||
+                        item.admission_error ? (
                         <p className="notice">
-                          {errorText[item.turn.error ?? "internal_error"] ??
-                            errorText.internal_error}
+                          {errorText[
+                            item.admission_error ??
+                              item.turn?.error ??
+                              "internal_error"
+                          ] ?? errorText.internal_error}
                         </p>
                       ) : (
                         <p className="working">
@@ -553,9 +681,7 @@ export function Workspace() {
                     size="sm"
                     variant="outline"
                     disabled={busy}
-                    onClick={() =>
-                      void watch((saved.current?.turns.length ?? 1) - 1, true)
-                    }
+                    onClick={() => void watch(pendingIndex ?? 0, true)}
                   >
                     <RefreshCw size={14} /> Aynı isteğin durumunu al
                   </Button>
@@ -567,9 +693,7 @@ export function Workspace() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() =>
-                    void watch((saved.current?.turns.length ?? 1) - 1, true)
-                  }
+                  onClick={() => void watch(pendingIndex ?? 0, true)}
                 >
                   Bekleyen isteğe devam et
                 </Button>
@@ -582,6 +706,26 @@ export function Workspace() {
                 void submit();
               }}
             >
+              <div className="selection-context" aria-live="polite">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={followSelected}
+                    disabled={!ready || busy || pending}
+                    onChange={(e) => chooseMode(e.target.checked)}
+                  />
+                  Seçili tabloyla devam et
+                </label>
+                <span>
+                  {pending
+                    ? sourceLabel(items[pendingIndex!]?.selected_result_id)
+                    : followSelected && result
+                      ? `Kaynak tablo: Analiz ${selected + 1}`
+                      : followSelected && saved.current?.view_result_id
+                        ? "Devam etmek için kaynak tabloyu seç"
+                        : "Serbest soru · belirli bir tabloya sabitlenmez"}
+                </span>
+              </div>
               <textarea
                 ref={input}
                 aria-label="Finansal sorunuz"
@@ -649,8 +793,10 @@ export function Workspace() {
                   <select
                     aria-label="Sonuç sürümü"
                     value={selected}
-                    onChange={(e) => setSelected(Number(e.target.value))}
+                    onChange={(e) => chooseResult(Number(e.target.value))}
+                    disabled={!ready || busy || pending}
                   >
+                    {selected < 0 && <option value={-1}>Sonuç seç</option>}
                     {versions.map(({ index }) => (
                       <option key={index} value={index}>
                         Analiz {index + 1}

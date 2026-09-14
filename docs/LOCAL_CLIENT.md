@@ -74,7 +74,8 @@ are not silently refreshed. A backend restart invalidates browser capabilities.
 - Example questions fill the composer; they do not submit themselves.
 - A question creates a session and submits a uniquely identified turn. Status
   is polled from the API; the UI does not invent percentages or tool stages.
-- Accepted/qualified output displays the API's published cells. Table layout,
+- Accepted published output displays the API's cells; qualified/abstained
+  responses retain prose/notices without a new table. Table layout,
   pagination, searching and Turkish labels do not recalculate finance values.
 - Missing cells remain absent. Different units/scales and duplicate cells are
   kept separate. Whole-window counts are separated from monthly observations.
@@ -89,16 +90,33 @@ only translates known labels. There is no model-generated HTML rendering.
 ## Recovery and limits
 
 The session capability is held in this tab's `sessionStorage`, never a URL or
-Kloudeks credential. The question and request identity are saved before POST.
+Kloudeks credential. The question, request identity and optional selected public
+result reference are saved together before POST. The displayed result reference
+and follow-selection preference are stored separately from each request.
+“Seçili tabloyla devam et” binds the next question to the displayed accepted
+publication. Switching it off sends a question without an explicit table pin;
+it does not erase backend analysis state. The composer and historical questions
+show which source was used. A successful publication becomes the new selection;
+a refusal/failure leaves the prior table visible.
+
+Reload restores the exact selected reference, including an older table; a missing
+stored reference never silently becomes the newest table. Legacy storage remains
+readable, and legacy retries do not acquire a new selected source retroactively.
 Reloading restores known turns through GET; it never silently resubmits a
 question. If admission was uncertain, the visible recovery action reuses the
-same request identity. Storage failures prevent new submission rather than
+same request identity, exact question and original selected reference. Selection
+controls stay disabled while admission/execution/recovery is pending. Multiple
+unread turn states recover in order. Explicit admission rejections are retained
+as terminal entries; transport/5xx failures keep the recovery record. Storage
+failures prevent new submission rather than
 losing the recovery record.
 
 The local API admits at most eight sessions and 24 turns per session, with one
 analysis worker. Creating a new workspace does not delete old analytical files
 or reclaim server sessions. Polling stops after ten minutes; this is not a
-server-side cancellation. The operator can restart the API when required.
+server-side cancellation. Opening a new workspace with an unresolved request asks
+before discarding its local recovery record; it does not cancel the server job.
+The operator can restart the API when required.
 The composer is disabled during admission/execution to avoid accidental overlap.
 
 If the API is absent or returns an invalid response, the screen reports a fixed
@@ -135,3 +153,14 @@ writable agent settings, server cancellation and hosted authentication remain
 separate tasks. Monthly/weekly/daily analytical support is owned by backend
 semantics and source frequency; the UI does not manufacture daily observations.
 See [ROADMAP](ROADMAP.md#m10-03-first-local-client-2026-09-14) for delivery evidence.
+
+## M10-18 selection continuation (2026-09-14, PR #166)
+
+This branch adds the client behavior above. Automated client/bridge tests and
+production build pass; see [the dated evaluation](EVALUATION.md#m10-18-client-selection-2026-09-14).
+The selected-table browser scenario remains unverified: the synthetic API and
+production frontend started and their initial page was observed, but subsequent
+browser actions and the read-only retry timed out in automatic approval review.
+No submitted turn appears in the synthetic rehearsal ledger. Earlier M10-03
+browser evidence does not establish this new selection behavior. Live Kloudeks
+acceptance, proof graph UI and broader refresh invalidation remain separate.

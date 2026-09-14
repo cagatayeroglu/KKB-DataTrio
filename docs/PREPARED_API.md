@@ -95,8 +95,10 @@ The launcher also wires the [selected-result backend](LOCAL_API.md#m10-18--selec
 An explicit API result reference is resolved to its pinned workspace artifact
 under the runner lock; mandatory plan/dispatch checks bind supported table
 operations to that source, and successful publications record that dependency.
-Older unchanged results can be selected. The current browser client does not
-yet submit this field; no browser or live selected-table acceptance is claimed.
+Older unchanged results can be selected. PR #166's browser client now submits
+this field when follow-selection is enabled, persisting the original reference
+for retries and restoring the exact view on reload. Automated client/bridge
+checks pass; browser and live selected-table acceptance remain unverified.
 
 ## Measured acceptance and remaining limits
 
