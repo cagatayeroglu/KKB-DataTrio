@@ -61,6 +61,13 @@ existing work and stashes. [Gate rules](AGENTS.md#validation-tiers-and-speed-lim
 and the [implemented command registry](docs/EVALUATION.md#implemented-command-registry)
 distinguish available commands from planned benchmarks.
 
+The [MVP sprint rules](AGENTS.md#mvp-sprint-acceleration--scope-and-quality-retained)
+accelerate the path by using targeted checks while editing and one broad PR gate
+per final code-bearing revision. They do not cut broad source coverage, production
+search, OCR, proof UI, general transforms, refresh/vintage lifecycle, hybrid
+retrieval or benchmark/rehearsal delivery, and they do not weaken correctness or
+security controls.
+
 ## Documentation map
 
 | Principal document | Authority |
