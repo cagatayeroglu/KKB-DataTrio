@@ -47,7 +47,7 @@ In addition to `/v1/health`, `/v1/dataset` exposes a bounded copy of the startup
 inventory: catalog and prepared counts, observations, file bytes, snapshot and
 catalog identities, series labels and recorded periods. It exposes no local
 paths, source locators or credentials. Missing configured data returns a fixed
-unavailable response. The frontend is a separate M10-03 task.
+unavailable response. The first [local frontend](LOCAL_CLIENT.md) consumes this inventory and the turn contract.
 
 ## Snapshot and session ownership
 
@@ -74,7 +74,7 @@ automated refresh/version management remains separate. The original and seed
 are never written by the analytical tools. There is no automatic deletion or
 retention claim. At the initial worst-case cap, seed plus eight session copies
 may need approximately nine times the prepared storage, plus derived results;
-the current pool is about 7.26 MiB, not a multi-gigabyte requirement.
+the expanded 29-series pool is about 8.13 MiB; the earlier seven-series pool was about 7.26 MiB.
 
 The service's single worker opens/closes a session's connection for each turn.
 The runner also refuses accidental concurrent entry. It registers inspected
@@ -122,5 +122,5 @@ passes, retaining the previous publication and all original values.
 
 Live model acceptance still requires its explicit authorized rehearsal. Dense
 policy/quality, broader official coverage, public proof traversal, full stage
-progress, source input UI, frontend and deployment remain separate tasks.
+progress, source input UI, remaining frontend features and deployment remain separate tasks.
 See [EVALUATION](EVALUATION.md) and [ROADMAP](ROADMAP.md) for final test/merge state.

@@ -85,6 +85,7 @@ export function unitLabel(unit: string | null, scale: string) {
     percent: "%",
     "percentage point": "yüzde puan",
     dimensionless: "birimsiz",
+    index: "endeks",
   };
   return [
     scales[scale] ?? "ölçek belirsiz",
@@ -99,18 +100,40 @@ export function displayValue(cell: Cell) {
     return String(cell.value);
   return cell.display ?? String(cell.value);
 }
+export function preparedTitle(title: string) {
+  // Translate known presentation suffixes only; retain source scope verbatim.
+  return title
+    .replace(/; percent, weekly, rate$/, "; yüzde, haftalık faiz oranı")
+    .replace(/; index, monthly, index$/, "; aylık endeks");
+}
 export function seriesLabel(label: string, dataset: Dataset | null) {
   let result = label;
   for (const series of [...(dataset?.series ?? [])].sort(
     (a, b) => b.series_id.length - a.series_id.length,
   ))
-    result = result.replaceAll(series.series_id, series.title);
+    result = result.replaceAll(series.series_id, preparedTitle(series.title));
   result = result
     .replaceAll(
       "monthly average (by_end)",
       "hafta bitişine göre aylık ortalama",
     )
-    .replaceAll("month-over-month change", "aylık değişim");
+    .replaceAll("month-over-month change", "aylık değişim")
+    .replace(/ real, (\d{4}-\d{2}) prices /g, " reel, $1 fiyatlarıyla ");
+  const comparison = result.match(/^table comparison ([a-f0-9]{12}): (.+)$/);
+  const comparisonLabels: Record<string, string> = {
+    "complete monthly transitions": "Eksiksiz aylık geçişler",
+    "transitions excluded for missing observations":
+      "Eksik veri nedeniyle dışlanan geçişler",
+    "transitions meeting the condition": "Koşulu sağlayan geçişler",
+    "eligible transitions matching the driver direction":
+      "Açıklayıcı serinin yönüne uyan geçişler",
+    "eligible transitions matching the target direction":
+      "Hedef serinin yönüne uyan geçişler",
+    "eligible transitions matching both directions":
+      "İki serinin yönüne de uyan geçişler",
+  };
+  if (comparison && comparisonLabels[comparison[2]])
+    return `${comparisonLabels[comparison[2]]} · ${comparison[1]}`;
   if (result === "consecutive monthly transitions compared")
     return "Karşılaştırılan aylık geçişler";
   result = result

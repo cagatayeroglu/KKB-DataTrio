@@ -403,3 +403,28 @@ mandatory selected-series inspection or prove live model selection quality.
 ### M8-21 numeric execution evidence boundary
 
 A COMPUTED analytical result requires a committed, content-addressed execution record matching its complete output and input snapshots. Only the trusted lakehouse/change_detection/anomaly/causality producer paths write these records after actual computation; constructors, collectors, workspace storage and the verifier cannot mint proof for arbitrary values. The resolver checks record types, hashes, parent edges and exact result content, and fails closed on unavailable/uncommitted/mismatched evidence. Restricted SQL cannot write evidence tables; the default readable allowlist excludes them. Model flags, a run/tool name or a self-computed digest grant no authority. Existing projection and document literal checks remain mandatory. Application/database writers are trusted; this is not cryptographic attestation against privileged code, independent recomputation or a complete replay system. Numeric input/output snapshots remain local evidence data and must not be dumped into writer prompts, logs or an unbounded future API export. Legacy history is preserved without silently granting proof.
+
+
+## First local browser client boundary
+
+M10-03's `web/lib/proxy.ts` forwards only allowlisted health/dataset/session/turn
+JSON routes. The server-owned destination is an explicit loopback HTTP origin;
+browser paths/query strings cannot select a host. Host, Origin and fetch-site
+checks reject foreign origins; POST requires the exact frontend origin.
+Only the bounded session-capability header crosses to Python, never arbitrary
+browser cookies/authorization headers. Requests are capped at 16 KiB, replies
+at 1 MiB and transfer at ten seconds, with redirects refused. Canonical payloads
+are validated with closed schemas. Fixed errors conceal upstream exception text.
+
+The per-tab sessionStorage capability is a local bearer secret, not production
+authentication or protection against same-origin XSS/OS access. Plain React
+text renders model/source content; no HTML injection or external font/CDN
+script is introduced. Next binds loopback at port 3000. This bridge is not an
+internet-facing multi-user deployment, a generic network proxy or a way to
+change model/tool/security policy. Writable settings remain absent.
+
+The repository secret scan prunes generated `node_modules` and `.next` directory
+trees. It still scans authored JS/TS including mjs/cjs, configuration, lockfiles
+and `.env` names. Ten regression cases cover those boundaries, including
+similarly named directories that must not be excluded. No blanket web-folder
+exclusion or credential logging was added. See [LOCAL_CLIENT](LOCAL_CLIENT.md).

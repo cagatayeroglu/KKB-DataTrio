@@ -641,3 +641,20 @@ The extraction contract is explicitly closed markup, bounded static text (block 
 Script/style/noscript/head/template/form/iframe/object/embed/SVG/MathML content is excluded, as are explicit hidden/aria-hidden and simple inline display:none/visibility:hidden nodes. Attributes, links, event handlers, meta refresh and resource URLs have no execution/navigation path. This is not CSS layout: computed visibility and browser DOM repair are unsupported. Blank/JS-only shells with no extracted static text return NO_STATIC_CONTENT; a shell with placeholder text still has no usable cell and cannot pass numeric acceptance. No partial tables are published on parse failure.
 
 Defaults reuse admission limits: 10 MiB input, 1 MiB extracted UTF-8 text, 100,000 rows/table, 256 columns, 1,000,000 total cells, 65,536 characters/cell, 256/header, 50 MiB serialized output, 5-second killed/reaped worker and Linux 512 MiB address-space cap. Additional small caps: depth 64 and 20 tables. No live HTML acceptance is claimed.
+
+
+### M10-03 local client delivery
+
+The [first local client](LOCAL_CLIENT.md) lives in `web/`: Next.js, Tailwind,
+shadcn-style Radix/CVA components and TanStack Table. Its bounded same-origin
+JSON bridge reaches only a fixed operator-configured loopback Python API.
+The browser owns presentation and a per-tab session capability; Python owns
+question execution, deterministic calculations, inspected tools, publications
+and canonical cells. No browser model client or secondary calculation path
+exists. Model/planner failure stays an explicit API result, not a fallback.
+
+Actual lifecycle states are polled; tool-stage SSE is not implied. Immutable
+result versions and recorded cell metadata can be inspected. Source refresh,
+uploads, charts/export, full claim/proof traversal, writable settings, cancel
+and hosted authentication are not part of this first slice. Scripted real-pool
+browser rehearsal proves client wiring, not live-model reasoning.

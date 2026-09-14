@@ -24,6 +24,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ResultTable } from "@/components/result-table";
 import { Panel } from "@/components/panel";
+import { preparedTitle } from "@/lib/table";
 import { noticeText } from "@/lib/language";
 import {
   api,
@@ -804,7 +805,7 @@ export function Workspace() {
                           ? "TCMB EVDS"
                           : "BDDK"}
                       </span>
-                      <h3>{series.title}</h3>
+                      <h3>{preparedTitle(series.title)}</h3>
                       <p>
                         {series.first_period ?? "?"} <ArrowRight size={12} />{" "}
                         {series.last_period ?? "?"}

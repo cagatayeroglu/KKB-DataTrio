@@ -4,9 +4,9 @@
   "purpose": "demo_development",
   "review_owner": "Arda",
   "review_date": "2026-09-14",
-  "review_revision": "r3",
+  "review_revision": "r4",
   "review_pr": "https://github.com/cagatayeroglu/KKB-DataTrio/pull/160",
-  "review_note": "Adds nine reviewed weekly new-loan rates and thirteen monthly CPI divisions. Historical v1/v2 and original identities remain unchanged. Candidate metadata is not local availability, calculation permission, full source coverage or live dense acceptance. KMH scope, loan denomination, index base and rate versus amount remain explicit.",
+  "review_note": "Adds nine reviewed weekly new-loan rates and thirteen monthly CPI divisions. Historical v1/v2 and original identities remain unchanged. Candidate metadata is not local availability, calculation permission, full source coverage or live dense acceptance. KMH scope, loan denomination, index base and rate versus amount remain explicit. r4 corrects only the EVDS_COVERAGE evidence hash from pre-commit CRLF bytes to the pinned LF Git blob; source identities, aliases and semantics are unchanged. Correction delivered in PR #159.",
   "evidence": [
     {
       "evidence_id": "evds_rates",
@@ -82,7 +82,7 @@
       "evidence_id": "evds_coverage_20260914",
       "path": "docs/EVDS_COVERAGE.md",
       "revision": "1958d9abfbbabb2e0ec0ccd4a76d37b6bfd664ea",
-      "file_sha256": "4b9934ed4ea5aff5e4a8ae4dc3bb8abb1570b0a9b9779f8233f25393cba185ba",
+      "file_sha256": "996c11247f24de3b2d98873c5b00a5aa750f44be59289c6386a7c54a264b864f",
       "section": "Reviewed additional identities"
     }
   ],
@@ -4130,5 +4130,5 @@
       ]
     }
   ],
-  "content_sha256": "e5ecffa6564feab6cb3646a0ee15bf0272b2acd558c650fd316690b7920826c4"
+  "content_sha256": "e0bbaac8eb4d1b1e90deacab42989cd6f74181f8ce267150825e8d24e169fb11"
 }
