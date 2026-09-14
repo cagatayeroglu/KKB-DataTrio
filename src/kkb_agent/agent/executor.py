@@ -13,12 +13,12 @@ downstream is reported as not run, rather than being skipped silently.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 
 from pydantic import BaseModel
 
-from kkb_agent.agent.plan import AnalyticalPlan, PlanStep
+from kkb_agent.agent.plan import AnalyticalPlan, ClarificationReason, PlanStep
 from kkb_agent.agent.registry import ArgumentsRejected, RegistryError, ToolRegistry
 
 
@@ -85,6 +85,7 @@ class ValidatedPlan:
 
     question: str
     steps: tuple[ValidatedStep, ...]
+    clarification: ClarificationReason | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,7 +139,7 @@ def validate_plan(
                 raise PlanRejected(f"Step {step.step_id!r} depends on itself")
         validated[step.step_id] = ValidatedStep(step, arguments)
 
-    return ValidatedPlan(plan.question, tuple(_ordered(plan, validated)))
+    return ValidatedPlan(plan.question, tuple(_ordered(plan, validated)), plan.clarification)
 
 
 def _ordered(plan: AnalyticalPlan, validated: dict[str, ValidatedStep]) -> list[ValidatedStep]:
@@ -205,8 +206,8 @@ def _run_step(
                 error_category=type(error).__name__,
             )
         if last.status is not ToolStatus.FAILURE or not last.recoverable:
-            return last
+            return replace(last, step_id=validated.step.step_id, tool=validated.step.tool)
     # Budget exhausted on a recoverable failure: report it as terminal.
     if last is None:  # pragma: no cover - attempts is always at least one
         raise PlanRejected("Tool retry budget must allow at least one attempt")
-    return last
+    return replace(last, step_id=validated.step.step_id, tool=validated.step.tool)
