@@ -1663,3 +1663,29 @@ dialog.panel-backdrop::backdrop {
     min-height: 440px;
   }
 }
+
+.selection-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  padding: 0 0 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.selection-context label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+}
+.selection-context input {
+  accent-color: var(--accent);
+}
+.request-source {
+  font-size: 12px;
+  color: var(--muted);
+  margin: -8px 0 14px;
+}
+.result-link:disabled {
+  cursor: default;
+}

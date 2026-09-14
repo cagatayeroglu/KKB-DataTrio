@@ -5,10 +5,14 @@ import {
   savedSchema,
   type Saved,
   type Session,
+  type Turn,
 } from "./contracts";
 const KEY = "kkb.workspace.v1";
 export class ApiError extends Error {
-  constructor(public code: string) {
+  constructor(
+    public code: string,
+    public status?: number,
+  ) {
     super(code);
   }
 }
@@ -46,7 +50,10 @@ export async function api<T>(
       .object({ api_version: z.literal(1), error: z.string() })
       .strict()
       .safeParse(data);
-    throw new ApiError(parsed.success ? parsed.data.error : "unavailable");
+    throw new ApiError(
+      parsed.success ? parsed.data.error : "unavailable",
+      response.status,
+    );
   }
   const parsed = schema.safeParse(data);
   if (!parsed.success) throw new ApiError("invalid_response");
@@ -72,19 +79,26 @@ export function clearSession(storage: Storage) {
 export function newSession() {
   return api("sessions", sessionSchema, { method: "POST", body: "{}" });
 }
-export async function readTurn(session: Session, id: string) {
+export async function readTurn(
+  session: Session,
+  id: string,
+  requestId?: string,
+) {
   const turn = await api(
     `sessions/${session.session_id}/turns/${id}`,
     turnSchema,
     {},
     session.token,
   );
-  if (turn.turn_id !== id) throw new ApiError("invalid_response");
+  if (turn.turn_id !== id || (requestId && turn.request_id !== requestId))
+    throw new ApiError("invalid_response");
   return turn;
 }
 export async function admit(saved: Saved, index: number) {
   const entry = saved.turns[index];
-  if (entry.turn_id) return readTurn(saved.session, entry.turn_id);
+  if (entry.admission_error) throw new ApiError(entry.admission_error, 400);
+  if (entry.turn_id)
+    return readTurn(saved.session, entry.turn_id, entry.request_id);
   const turn = await api(
     `sessions/${saved.session.session_id}/turns`,
     turnSchema,
@@ -93,6 +107,7 @@ export async function admit(saved: Saved, index: number) {
       body: JSON.stringify({
         request_id: entry.request_id,
         question: entry.question,
+        selected_result_id: entry.selected_result_id,
       }),
     },
     saved.session.token,
@@ -100,6 +115,51 @@ export async function admit(saved: Saved, index: number) {
   if (turn.request_id !== entry.request_id)
     throw new ApiError("invalid_response");
   return turn;
+}
+export function publishedResult(turn?: Turn) {
+  return turn?.state === "completed" && turn.answer?.status === "accepted"
+    ? (turn.answer.result ?? undefined)
+    : undefined;
+}
+export function restoredSelection(saved: Saved, turns: (Turn | undefined)[]) {
+  if (saved.view_result_id)
+    return turns.findIndex(
+      (turn) => publishedResult(turn)?.result_ref === saved.view_result_id,
+    );
+  return turns.findLastIndex((turn) => Boolean(publishedResult(turn)));
+}
+export function draftRequest(
+  question: string,
+  source?: Turn,
+): Saved["turns"][number] {
+  if (!validQuestion(question)) throw new ApiError("invalid_request");
+  const result = publishedResult(source);
+  if (source && !result) throw new ApiError("invalid_result");
+  return {
+    request_id: crypto.randomUUID().replaceAll("-", ""),
+    question: question.trim(),
+    ...(result ? { selected_result_id: result.result_ref } : {}),
+  };
+}
+export function admissionRejection(
+  error: unknown,
+): Saved["turns"][number]["admission_error"] {
+  if (
+    !(error instanceof ApiError) ||
+    !error.status ||
+    error.status < 400 ||
+    error.status >= 500
+  )
+    return undefined;
+  switch (error.code) {
+    case "invalid_result":
+    case "invalid_request":
+    case "request_conflict":
+    case "capacity":
+      return error.code;
+    default:
+      return undefined;
+  }
 }
 export function validQuestion(value: string) {
   return (
@@ -123,6 +183,10 @@ export const errorText: Record<string, string> = {
   planning_failed:
     "Model uygulanabilir bir plan üretemedi. Soruyu daha açık bir dönem ve ölçüyle yeniden kur.",
   provider_failed: "Model isteği tamamlanamadı. Önceki tablolar korunuyor.",
+  invalid_result:
+    "Kaynak tablo bu oturumda kullanılamıyor. Geçerli bir sonuç seçip yeni soru gönderebilirsin.",
+  selection_unavailable:
+    "Kayıtlı kaynak tablo yüklenemedi. Devam etmek için bir sonuç seç veya serbest soruya geç.",
   invalid_request:
     "İstek kabul edilmedi. Soruyu ve metin uzunluğunu kontrol et.",
   invalid_response: "Yanıt beklenen veri biçimine uymuyor; sonuç gösterilmedi.",

@@ -2,6 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   admit,
+  admissionRejection,
+  draftRequest,
+  publishedResult,
+  restoredSelection,
+  readTurn,
   loadSession,
   saveSession,
   validQuestion,
@@ -214,4 +219,150 @@ test("diagnostic translation retains independent-verification limitations", () =
     "Başka bir dış kaynakla bağımsız çapraz kontrol yapılmadı.",
   );
   assert.equal(noticeText("unknown diagnostic"), "unknown diagnostic");
+});
+
+function completed(reference = "a".repeat(32)) {
+  return turnSchema.parse({
+    ...turn,
+    state: "completed",
+    answer: {
+      status: "accepted",
+      text: "Tablo hazır",
+      omitted_claims: 0,
+      notices: [],
+      result: {
+        result_ref: reference,
+        version: "b".repeat(64),
+        kind: "table",
+        claim_kind: "computed",
+        published: true,
+        cells: [base],
+        proof_graph: "unavailable",
+      },
+    },
+  });
+}
+test("selected request persists its source across view changes and uncertain retry", async () => {
+  const entry = draftRequest("  TÜFE ekle  ", completed());
+  const state: Saved = {
+    ...saved,
+    view_result_id: "c".repeat(32),
+    turns: [entry],
+  };
+  const old = globalThis.fetch;
+  const bodies: string[] = [];
+  globalThis.fetch = async (_url, init) => {
+    bodies.push(String(init?.body));
+    if (bodies.length === 1) throw new Error("lost after admission");
+    return Response.json({ ...turn, request_id: entry.request_id });
+  };
+  try {
+    await assert.rejects(admit(state, 0));
+    state.follow_selected = false;
+    state.view_result_id = "d".repeat(32);
+    await admit(state, 0);
+    assert.equal(bodies[0], bodies[1]);
+    assert.deepEqual(JSON.parse(bodies[1]), {
+      request_id: entry.request_id,
+      question: "TÜFE ekle",
+      selected_result_id: "a".repeat(32),
+    });
+  } finally {
+    globalThis.fetch = old;
+  }
+});
+test("reload restores an older exact selection and never substitutes a missing reference", () => {
+  const first = completed(),
+    second = completed("c".repeat(32));
+  assert.equal(
+    restoredSelection(
+      { ...saved, view_result_id: first.answer!.result!.result_ref },
+      [first, second],
+    ),
+    0,
+  );
+  assert.equal(
+    restoredSelection({ ...saved, view_result_id: "d".repeat(32) }, [
+      first,
+      second,
+    ]),
+    -1,
+  );
+  assert.equal(restoredSelection(saved, [first, second]), 1);
+  assert.equal(restoredSelection(saved, [undefined, second, undefined]), 1);
+});
+test("only accepted completed publications can ground a new request", () => {
+  const first = completed();
+  for (const state of ["running", "failed"] as const) {
+    assert.equal(turnSchema.safeParse({ ...first, state }).success, false);
+    assert.equal(publishedResult({ ...first, state }), undefined);
+    assert.throws(() => draftRequest("Devam", { ...first, state }));
+  }
+  const abstained = turnSchema.parse({
+    ...first,
+    answer: { ...first.answer, status: "abstained", result: null },
+  });
+  assert.throws(() => draftRequest("Devam", abstained));
+  assert.equal(draftRequest("Serbest soru").selected_result_id, undefined);
+});
+test("legacy recovery does not inherit the current view's selected source", async () => {
+  const old = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    assert.deepEqual(JSON.parse(String(init?.body)), {
+      request_id: rid,
+      question: saved.turns[0].question,
+    });
+    return Response.json(turn);
+  };
+  try {
+    await admit({ ...saved, view_result_id: "a".repeat(32) }, 0);
+  } finally {
+    globalThis.fetch = old;
+  }
+});
+test("GET recovery checks both request and turn identity", async () => {
+  const old = globalThis.fetch;
+  globalThis.fetch = async () =>
+    Response.json({ ...turn, request_id: "f".repeat(32) });
+  try {
+    await assert.rejects(readTurn(session, tid, rid), {
+      code: "invalid_response",
+    });
+  } finally {
+    globalThis.fetch = old;
+  }
+});
+test("only explicit admission rejection ends recovery; transport and server errors do not", async () => {
+  for (const code of [
+    "invalid_result",
+    "invalid_request",
+    "request_conflict",
+    "capacity",
+  ])
+    assert.equal(admissionRejection(new ApiError(code, 422)), code);
+  for (const error of [
+    new ApiError("invalid_result", 503),
+    new ApiError("connection"),
+    new ApiError("busy", 409),
+    new Error("network"),
+  ])
+    assert.equal(admissionRejection(error), undefined);
+  const old = globalThis.fetch;
+  globalThis.fetch = async () => {
+    assert.fail("Rejected admission must not be resubmitted");
+  };
+  try {
+    await assert.rejects(
+      admit(
+        {
+          ...saved,
+          turns: [{ ...saved.turns[0], admission_error: "invalid_result" }],
+        },
+        0,
+      ),
+      { code: "invalid_result" },
+    );
+  } finally {
+    globalThis.fetch = old;
+  }
 });

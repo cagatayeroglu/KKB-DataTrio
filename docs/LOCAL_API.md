@@ -28,24 +28,62 @@ existing turn without rerunning; changed text or selection gives `request_confli
 disconnect, retrieve the existing turn or repeat the same ID. A new ID means a
 new analysis, not transport recovery.
 
-### M10-18 first slice — selection admission only (PR #163, incomplete)
+### M10-18 — selection admission and workspace resolution (partial)
 
-`selected_result_id` is a published API `result_ref`, not an internal workspace
-name or digest. Authentication comes first. Admission resolves exactly one
-completed, ACCEPTED result in the same session and pins its source turn, public
-reference and version. Unknown, foreign, unpublished or ambiguous references
-return `invalid_result` (422) without admitting work. Missing/null selection
-retains the original runner behavior; an identical retry never runs again.
+PR #163's admission slice is merged. `selected_result_id` is a published API
+`result_ref`, not an internal workspace name or digest. Authentication comes
+first. Admission resolves exactly one completed, ACCEPTED result in the same
+session and pins its source turn, public reference and version. Unknown,
+foreign, unpublished or ambiguous references return `invalid_result` (422)
+without admitting work. Missing/null selection retains the original runner
+behavior; an identical retry never runs again.
 
-An explicitly supplied `selected_runner` receives the pinned identity on the
-existing worker. Until the prepared workspace integration is implemented, the
-standard prepared service has no such handler and returns `unavailable` (503)
-for an otherwise valid explicit selection. It never silently discards selection.
-This admission receipt is not proof that a workspace artifact is current: the
-next slice must resolve/validate its stored version and staleness, bind planning
-and tool execution, and record publication dependencies. Frontend selection,
-recovery and end-to-end transform tests remain pending. Do not merge this first
-slice as a completed selected-result fix.
+[PR #166](https://github.com/cagatayeroglu/KKB-DataTrio/pull/166) records a
+process-local receipt only after prepared workspace publication and successful
+API projection. Session, turn, public reference and result version bind the
+exact workspace name and artifact. Existing session/turn limits bound receipts;
+there is no restart recovery. Duplicate published turn IDs cannot overwrite them.
+
+`PreparedRunner.resolve_selection` is a read-only worker helper. It resolves
+only an owned receipt, rejects stale/missing/rebound artifacts, checks artifact
+definition and stored result hashes, and returns a fresh snapshot. Older
+publications remain selectable while their own bindings are unchanged and
+non-stale. This helper is not an execution lease or renewed verifier approval.
+
+The prepared launcher now injects `PreparedRunner.selected` as `selected_runner`.
+That entry resolves the receipt again and runs the turn under the same runner
+lock and owned connection. Stale/changed selections fail the admitted turn with
+`invalid_result` before model execution. This differs from unknown/foreign
+public references, which admission rejects with HTTP 422 before creating a turn.
+Custom services without a selected handler still fail closed with HTTP 503.
+
+The mandatory selected-table harness uses registry-owned `ToolSpec.table_input`
+declarations, never a model's claim to have used the right table. Every
+calculation must consume the selected workspace name or an explicitly declared
+previous step derived from it. Discovery-only catalog plans and clarification
+remain permitted. Plan repair is bounded; invalid plans run no valid prefix.
+The executor rechecks the plan at dispatch and the pinned source before each
+step/retry. Current supported consumers are `table_transform` (deflate/add_series)
+and `change_detection` table_co_movement, including a prior transform's step
+output. Other analytical operations must clarify until they declare an actual
+supported table input; SQL cannot silently rebuild the selection.
+
+Before publication the source is checked again. `Workspace.preview(inputs=...)`
+and its existing atomic publish transaction record the selected source artifact
+as an input. Rebinding that source invalidates its dependent publications via
+the existing DAG. This covers explicit selected-table dependencies, not all
+legacy results, independent official-data refreshes or assumption changes.
+The writer/gate see only the selected source and its derived result, with exact
+copied values deduplicated; mandatory tool evidence and verifier checks remain.
+Failed/refused follow-ups do not replace previous published results.
+
+Scripted HTTP and real-tool tests cover older selection, wrong-source repair,
+catalog continuation, add-series then table comparison, retries, source changes
+and dependency invalidation. PR #166 now also wires frontend selection, immutable
+admission/retry identity and exact-reference reload recovery, with automated
+client/bridge checks. Synthetic selected-flow browser acceptance passed on
+2026-09-15; live Kloudeks selected-table quality remains pending. M10-18 is still PARTIAL until required review/acceptance and merge.
+See [client recovery and evidence](LOCAL_CLIENT.md#recovery-and-limits).
 
 ## Bounded lifecycle
 

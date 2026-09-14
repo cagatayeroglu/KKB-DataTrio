@@ -15,11 +15,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
 from kkb_agent.agent.plan import AnalyticalPlan, ClarificationReason, PlanStep
 from kkb_agent.agent.registry import ArgumentsRejected, RegistryError, ToolRegistry
+
+if TYPE_CHECKING:
+    from kkb_agent.agent.selection import SelectedTable
 
 
 class PlanRejected(ValueError):
@@ -164,9 +168,12 @@ def execute(
     *,
     context: ExecutionContext | None = None,
     budget: Budget = DEFAULT_BUDGET,
+    selection: SelectedTable | None = None,
 ) -> ExecutionOutcome:
     """Run a validated plan in order, stopping at the first terminal failure."""
     context = context or ExecutionContext(question=plan.question)
+    if selection is not None:
+        selection.validate_plan(plan, registry)
     results: list[ToolResult] = []
     stopped = False
 
@@ -176,7 +183,7 @@ def execute(
                 ToolResult(ToolStatus.NOT_RUN, validated.step.step_id, validated.step.tool)
             )
             continue
-        result = _run_step(validated, registry, context, budget)
+        result = _run_step(validated, registry, context, budget, selection)
         results.append(result)
         if result.status is ToolStatus.SUCCESS:
             context.outputs[validated.step.step_id] = result.output
@@ -191,12 +198,15 @@ def _run_step(
     registry: ToolRegistry,
     context: ExecutionContext,
     budget: Budget,
+    selection: SelectedTable | None,
 ) -> ToolResult:
     spec = registry.get(validated.step.tool)
     attempts = budget.max_tool_retries + 1
     last: ToolResult | None = None
     for _ in range(attempts):
         try:
+            if selection is not None:
+                selection.check()
             last = spec.run(validated.arguments, context)
         except Exception as error:  # noqa: BLE001 - a tool must not abort the run
             last = ToolResult(

@@ -74,7 +74,8 @@ are not silently refreshed. A backend restart invalidates browser capabilities.
 - Example questions fill the composer; they do not submit themselves.
 - A question creates a session and submits a uniquely identified turn. Status
   is polled from the API; the UI does not invent percentages or tool stages.
-- Accepted/qualified output displays the API's published cells. Table layout,
+- Accepted published output displays the API's cells; qualified/abstained
+  responses retain prose/notices without a new table. Table layout,
   pagination, searching and Turkish labels do not recalculate finance values.
 - Missing cells remain absent. Different units/scales and duplicate cells are
   kept separate. Whole-window counts are separated from monthly observations.
@@ -89,16 +90,33 @@ only translates known labels. There is no model-generated HTML rendering.
 ## Recovery and limits
 
 The session capability is held in this tab's `sessionStorage`, never a URL or
-Kloudeks credential. The question and request identity are saved before POST.
+Kloudeks credential. The question, request identity and optional selected public
+result reference are saved together before POST. The displayed result reference
+and follow-selection preference are stored separately from each request.
+“Seçili tabloyla devam et” binds the next question to the displayed accepted
+publication. Switching it off sends a question without an explicit table pin;
+it does not erase backend analysis state. The composer and historical questions
+show which source was used. A successful publication becomes the new selection;
+a refusal/failure leaves the prior table visible.
+
+Reload restores the exact selected reference, including an older table; a missing
+stored reference never silently becomes the newest table. Legacy storage remains
+readable, and legacy retries do not acquire a new selected source retroactively.
 Reloading restores known turns through GET; it never silently resubmits a
 question. If admission was uncertain, the visible recovery action reuses the
-same request identity. Storage failures prevent new submission rather than
+same request identity, exact question and original selected reference. Selection
+controls stay disabled while admission/execution/recovery is pending. Multiple
+unread turn states recover in order. Explicit admission rejections are retained
+as terminal entries; transport/5xx failures keep the recovery record. Storage
+failures prevent new submission rather than
 losing the recovery record.
 
 The local API admits at most eight sessions and 24 turns per session, with one
 analysis worker. Creating a new workspace does not delete old analytical files
 or reclaim server sessions. Polling stops after ten minutes; this is not a
-server-side cancellation. The operator can restart the API when required.
+server-side cancellation. Opening a new workspace with an unresolved request asks
+before discarding its local recovery record; it does not cancel the server job.
+The operator can restart the API when required.
 The composer is disabled during admission/execution to avoid accidental overlap.
 
 If the API is absent or returns an invalid response, the screen reports a fixed
@@ -135,3 +153,50 @@ writable agent settings, server cancellation and hosted authentication remain
 separate tasks. Monthly/weekly/daily analytical support is owned by backend
 semantics and source frequency; the UI does not manufacture daily observations.
 See [ROADMAP](ROADMAP.md#m10-03-first-local-client-2026-09-14) for delivery evidence.
+
+## M10-18 selection continuation (2026-09-14, PR #166)
+
+This branch adds the client behavior above. Automated client/bridge tests and
+production build pass; see [the dated evaluation](EVALUATION.md#m10-18-client-selection-2026-09-14).
+On 2026-09-15 the selected-table browser scenarios passed using the production
+frontend and real Python prepared runtime over synthetic data: old selection
+through reload, uncertain-admission retry after reload, source preservation on
+abstention/rejection and free-question mode. See the [dated browser evidence](EVALUATION.md#m10-18-browser-selection-2026-09-15).
+Live Kloudeks acceptance, proof graph UI and broader refresh invalidation remain
+separate. This PR remains unmerged.
+
+### Repeat the finite synthetic selection rehearsal
+
+From the repository root with Python dev/test dependencies installed:
+
+```powershell
+$env:PYTHONPATH = Join-Path (Get-Location) 'src'
+python tests/manual/selected_client.py
+```
+
+In another terminal, start the production client using the build instructions
+above and `KKB_LOCAL_API_URL=http://127.0.0.1:8127`. This [manual test launcher](../tests/manual/selected_client.py)
+uses a temporary two-series pool and prescribed test-provider responses; it is
+not the product launcher and cannot answer arbitrary questions. It never calls
+Kloudeks or official sources. Stop both servers with Ctrl+C after the rehearsal.
+It overwrites only its generated `artifacts/selected-browser-ledger.jsonl` ledger
+(request/source IDs, status and provider-call counts; no capability tokens).
+
+Use this exact question order in a fresh browser workspace:
+
+1. `Konut kredisi tablosunu getir.` — three stock values, 100/120/150 million TRY.
+2. `Seçili tabloya TÜFE ekle.` — six values, adding CPI 100/110/120.
+3. Select **Analiz 1**, reload, then send `Eski tabloya TÜFE ekle; bağlantı provası`.
+   The test wrapper returns one 503 **after** admission. Reload; the table/source
+   must remain Analiz 1. Use **Bekleyen isteğe devam et**: Analiz 3 must contain
+   six values; the ledger must repeat the exact request/source without new work.
+4. Select **Analiz 1** and send `Seçili tabloya havuzda olmayan KFE serisini ekle.`.
+   Expect abstention and the unchanged three-value source table.
+5. Send `Reddedilen kaynak provası`. The wrapper injects 422 invalid_result;
+   no retry loop or new publication; the composer must become usable.
+6. Disable **Seçili tabloyla devam et**, reload, then send
+   `Serbest soruyla yeni bir tablo getir.`. Expect a three-value publication
+   with no selected-result field on admission. Historical results remain.
+
+Also inspect selection controls while busy/pending and at 390x844; the document
+must not scroll horizontally. Restore any temporary viewport override afterward.
