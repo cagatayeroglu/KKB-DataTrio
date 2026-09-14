@@ -134,6 +134,12 @@ def render_result(result: AnalyticalResult) -> str:
         for series_id, name in names.items():
             if isinstance(name, str):
                 lines.append(f"Series {series_id} means: {name}")
+    highlighted = result.parameters.get("highlighted_periods")
+    if isinstance(highlighted, dict):
+        for description, periods in highlighted.items():
+            if isinstance(periods, list):
+                listed = ", ".join(str(item) for item in periods) or "none"
+                lines.append(f"Period ends where {description}: {listed}")
     quotation = literal_text(result)
     if quotation is not None:
         lines.append(

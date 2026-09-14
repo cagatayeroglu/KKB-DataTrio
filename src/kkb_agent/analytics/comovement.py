@@ -192,7 +192,7 @@ def co_movement(
         values.append(_level(driver_label, driver_values[month], driver_semantics, period))
 
     fell = rose = not_rose = 0
-    flagged: list[ResultValue] = []
+    flagged: list[str] = []
     for month, previous in transitions:
         period = _monthly_period(month)
         driver_change = driver_values[month] - driver_values[previous]
@@ -209,19 +209,7 @@ def co_movement(
                 rose += 1
             else:
                 not_rose += 1
-                flagged.append(
-                    ResultValue(
-                        label=(
-                            f"{target_label} month-over-month change in a month when "
-                            f"{driver_label} fell and {target_label} did not rise"
-                        ),
-                        value=target_change,
-                        unit=target_change_unit,
-                        scale=_difference_scale(target_semantics),
-                        measure=target_semantics.observation,
-                        period=period,
-                    )
-                )
+                flagged.append(month.isoformat())
     coverage = Period(
         start=transitions[0][0].replace(day=1), end=transitions[-1][0], frequency=Frequency.MONTHLY
     )
@@ -240,7 +228,6 @@ def co_movement(
                 period=coverage,
             )
         )
-    values.extend(flagged)
 
     limitations = [
         "Co-movement of directions is not evidence that one series caused the other",
@@ -269,6 +256,11 @@ def co_movement(
             "driver_fell": "driver change < 0",
             "target_did_not_rise": "target change <= 0",
             "transition": "month versus previous calendar month",
+            # Period ends only, never a second copy of a value: duplicated numbers
+            # would make every quoted change ambiguous to the answer gate.
+            "highlighted_periods": {
+                f"{driver_label} fell and {target_label} did not rise": flagged
+            },
             **dict(parameters or {}),
         },
         samples=samples,

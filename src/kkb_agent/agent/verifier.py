@@ -72,7 +72,9 @@ class Binding(StrEnum):
     UNBOUND = "unbound"
 
 
-_SENTENCE_BREAK: Final = re.compile(r"[.!?\n]\s")
+# A line break always ends a claim: a table row or list item is its own sentence, so
+# one row's period can never qualify a number on another row.
+_SENTENCE_BREAK: Final = re.compile(r"[.!?]\s|\n")
 
 
 @dataclass(frozen=True, slots=True)

@@ -102,13 +102,20 @@ def test_directions_counts_and_flagged_months_match_hand_calculation():
         (MONTHS[5], -0.25),
     ]
     assert [v.value for v in result.values if v.unit == DIMENSIONLESS] == [5.0, 4.0, 1.0, 3.0]
-    flagged = [v for v in result.values if "did not rise" in v.label and v.unit != DIMENSIONLESS]
     # A flat balance (April) did not rise; only March rose while the rate fell.
-    assert [(v.period.end, v.value) for v in flagged] == [
+    assert result.parameters["highlighted_periods"] == {
+        "rate fell and credit did not rise": ["2021-02-28", "2021-04-30", "2021-06-30"]
+    }
+    assert by_label(result, "credit month-over-month change") == [
         (MONTHS[1], -10.0),
+        (MONTHS[2], 20.0),
         (MONTHS[3], 0.0),
+        (MONTHS[4], 20.0),
         (MONTHS[5], -5.0),
     ]
+    # Every number appears once per label and period, so a quote is never ambiguous.
+    keys = [(v.label, v.period.end) for v in result.values]
+    assert len(keys) == len(set(keys))
     change = next(v for v in result.values if v.label == "rate month-over-month change")
     assert (change.unit, change.scale) == ("percentage point", Scale.ONE)
     assert any("not new lending or disbursement" in item for item in result.limitations)
@@ -363,6 +370,37 @@ def test_turn_one_end_to_end_is_accepted_and_published(lake):
     assert "kullandırım değil" in tools_prompt and TOTAL_ID in tools_prompt
     writer_prompt = session.provider.seen[1][1].content
     assert f"Series {TOTAL_ID} means: BDDK Aylık Bülten" in writer_prompt
+    assert "did not rise: 2021-02-28, 2021-04-30, 2021-06-30" in writer_prompt
+
+
+def test_turn_one_table_rows_bind_to_their_own_periods(lake):
+    rate = "EVDS:TP.KTF12 monthly average (by_end)"
+    draft = (
+        "| Dönem | Bakiye | Faiz |\n|---|---:|---:|\n"
+        "| 2021-01-01..2021-01-31 | 1.000 milyon TL | 10 yüzde |\n"
+        "| 2021-02-01..2021-02-28 | 990 milyon TL | 9,5 yüzde |\n"
+        "Faizin düştüğü ve bakiyenin artmadığı aylar:\n"
+        "- 2021-02-01..2021-02-28: bakiye değişimi -10 milyon TL\n"
+        "- 2021-06-01..2021-06-30: bakiye değişimi -5 milyon TL"
+    )
+    answered, workspace, _ = turn_one(lake, draft)
+    (description,) = answered.results[-1].parameters["highlighted_periods"]
+    assert description.startswith(rate)
+    assert answered.answer.status is AnswerStatus.ACCEPTED, answered.answer
+    assert workspace.names() == ["konut_kredisi_ve_faiz"]
+
+
+def test_a_wrong_table_row_is_withheld_without_silencing_the_others(lake):
+    draft = (
+        "| 2021-01-01..2021-01-31 | 1.000 milyon TL |\n"
+        "| 2021-02-01..2021-02-28 | 1.010 milyon TL |\n"
+        "| 2021-03-01..2021-03-31 | 1.010 milyon TL |"
+    )
+    answered, workspace, _ = turn_one(lake, draft)
+    assert answered.answer.status is AnswerStatus.QUALIFIED
+    assert len(answered.answer.omitted) == 1 and "2021-02-01" in answered.answer.omitted[0].text
+    assert "2021-03-01..2021-03-31" in answered.answer.text
+    assert workspace.names() == []
 
 
 def test_turn_one_with_an_invented_figure_is_not_published(lake):
