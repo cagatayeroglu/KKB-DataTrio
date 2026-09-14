@@ -103,34 +103,39 @@ acceptance remains unverified.
 
 ## Measured acceptance and remaining limits
 
-The original M10-17 local pool passed read-only readiness: **7 prepared identities,
-683 observations, 15 reviewed catalog identities, 80 files, 7,613,310 bytes**.
-Configuration is present and the approved endpoint is valid; no live request
-was used to establish this. A separate in-process HTTP rehearsal with scripted
-plans and the real public pool passes all three organizer turns. An independent
-Decimal oracle agrees on 59 transitions, 32 rate falls and 22 joint periods.
-All 302 previous values and 60 KFE values survive, and the original 80 files
-remain hash-identical. The largest response is 143,584 bytes. Readiness took
-717.15ms; scripted turns took 1,425.33 / 925.01 / 1,578.83ms. These are local
-pipeline timings, **not Qwen inference latency or live reasoning reliability**.
+See the [dated evidence](EVALUATION.md#prepared-api-delivery-and-pool-evidence) for exact tests, pool identities, timings and limitations. [ROADMAP](ROADMAP.md#current-project-status) owns delivery status.
 
-The subsequent [EVDS expansion](EVDS_COVERAGE.md) prepares **29 identities and
-4,124 observations** with **37 catalog identities** in v3. Original seven-series
-values are retained; 3,926 EVDS observations additionally match raw decimal
-values in an independent read-back. The prepared pool is 8,520,172 bytes across
-124 files. These are local preparation/readiness checks, not a live-model test
-over the expanded universe. Use v3 for this pool; v2 remains a historical
-snapshot and correctly refuses the additional identities. Restart the API into
-a fresh state root when switching pools/catalogs; existing sessions keep their
-own snapshot and are not silently refreshed.
+Use a matching pool/catalog snapshot. Restart into a fresh state root when changing either; existing sessions keep their own snapshot and are not silently refreshed.
 
-One existing gate limitation remains visible: repeating a numerical calculation
-under a second identity and writing an unqualified identical number can abstain
-because multiple results match. The API preserves that refusal; it does not
-weaken numeric matching. A real add-series follow-up over synthetic inputs
-passes, retaining the previous publication and all original values.
 
-Live model acceptance still requires its explicit authorized rehearsal. Dense
-policy/quality, broader official coverage, public proof traversal, full stage
-progress, source input UI, remaining frontend features and deployment remain separate tasks.
-See [EVALUATION](EVALUATION.md) and [ROADMAP](ROADMAP.md) for final test/merge state.
+<a id="development-and-live-check-commands"></a>
+
+## Development and authorized live-check commands
+
+Requires Python >=3.12. Run setup when needed, then ordinary quick checks:
+
+```bash
+make install-dev
+make quick
+```
+
+On Windows, after creating `.venv` and installing `.[dev]`, run the same fast PR checks with `.\.venv\Scripts\python.exe scripts/check_windows.py`. The script uses the same interpreter for every check, needs no PowerShell execution-policy change, enables UTF-8 for Turkish fixtures, and stops at the first failed check. It makes no live model/source calls. `.gitattributes` preserves the reviewed source documents' LF hashes and all test fixtures' exact bytes on checkout.
+
+Without Windows symbolic-link creation privilege, the real symlink fixture reports a skip; missing-root rejection still runs. POSIX file-mode assertions apply on POSIX only; on Windows, use an operator-owned private staging directory with appropriate Windows ACLs. Source-fetch supervision observes connection progress on both platforms without changing connection or total-time budgets.
+
+For opt-in catalog discovery followed by one bounded analysis/clarification plan, add `--catalog docs/catalog/prepared_v3.json` to the prepared rehearsal. See [the continuation contract](CATALOG.md). This enables lexical catalog search; real dense-query policy and live selection quality still need acceptance. The [reviewed EVDS expansion](EVDS_COVERAGE.md) adds nine credit-rate series and thirteen CPI divisions: the measured local pool holds 29 series / 4,124 observations, with 37 catalog identities. This is broader coverage, not every BDDK/EVDS series. v1/v2 remain historical snapshots; use the matching catalog and rebuild any vector index for the new content digest.
+
+Before `live_check --prepared-root`, finish ingestion and close all connections to the prepared lakehouse; keep that root unchanged during the copy. `prepared_copy_failed` means the copy could not be created (for example, a locked file); no model call was made. Close the owning process and use a fresh work directory for a later explicitly authorized rehearsal.
+
+Normal code tasks use targeted tests/lint or `make quick`; task PRs to `dev` use the fast `make pr` gate, including strict `mypy src` (DEC-140). `make full` belongs to stable `dev -> main`/final demo checkpoints or explicit requests. Boundary changes still need targeted negative tests. Documentation-only tasks/PRs use diff/link/status checks, not application/security/release checks. [AGENTS](../AGENTS.md#validation-tiers-and-speed-limits) owns the gate rules; these command definitions are not claimed passing results.
+
+There is no `eval-smoke`/`eval-full` Make target or benchmark runner. UI launch instructions are in [LOCAL_CLIENT](LOCAL_CLIENT.md). `python -m kkb_agent.llm.smoke` (transport) and `python -m kkb_agent.live_check` (one question end to end on synthetic data) are operator-run live checks, never part of a gate. [EVALUATION](EVALUATION.md#implemented-command-registry) separates existing commands from planned tiers. `make full` does not run a benchmark.
+
+M7-19 adds an explicit document mode to `live_check`. **One live public CSV acceptance passed** ([evidence and limits](EVALUATION.md#m7-19-live-csv-acceptance)). The following is a future operator invocation, not an offline test: it calls Kloudeks and fetches the URL in the question. Use it only after separate approval for that run and an accepted network/source boundary (Q-NET-01/02; Q-DATA where relevant). Supply the actual question, URL, column and row; no address is injected by the command.
+
+```sh
+# Only after explicit live-run approval; replace the placeholder question.
+( set -a; . ./.env; set +a; python -m kkb_agent.live_check --document --question 'QUESTION CONTAINING THE APPROVED PUBLIC URL AND REQUESTED CELL' )
+```
+
+The application reads configuration from `os.environ`, never `.env` itself. The document report contains stage/status/timing, hashed identities, numeric cell coordinates and verification counts, not question/answer/document text or URLs. Exit 0 requires a retained numeric claim bound to the fetched cell with resolvable source/transform lineage; loading a file alone is not success. On `fetch_failed`, the operator-only `fetch_code` reports an existing `FetchCode` or null; TLS and other transport errors remain grouped as `TRANSPORT_FAILURE`. For `not_admitted`/`needs_input`, operator-only `document_code` exposes an allowlisted existing admission/loader code or null. `not_admitted` alone does not identify whether admission or parsing failed. No raw failure text is exported. The existing no-argument synthetic mode is unchanged. CSV/XLSX/text-layer PDF and bounded static HTML tables/text are supported. M7-11 offers explicitly injected untrusted OCR text only; the operator command does not enable it. JavaScript rendering and image-address loading are unsupported. Only the separately recorded public CSV live acceptance has passed.

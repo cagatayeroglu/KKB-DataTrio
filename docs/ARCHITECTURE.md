@@ -12,7 +12,7 @@ This file owns technical structure and contracts. [ROADMAP](ROADMAP.md) owns del
 
 The implemented spine includes bounded file admission, CSV/XLSX loading and safe GET with validated redirects, DuckDB/Parquet storage and financial semantics, typed results, the Kloudeks transport (tested offline; one authorized live smoke and one live end-to-end question passed), validated planning/execution, content-addressed workspace values and multi-result answer gating. Eight callable factories exist: `table_transform` (deflate/add_series), M13-04 `catalog_search` and the six brief tools (search is offline-only): `lakehouse`, `change_detection` (comparison), `anomaly`, `causality` (association, lag and Granger precedence), `web_search` with an explicitly injected backend, and `web_url`, which reads a CSV/XLSX table, a PDF's text and ruled tables, or bounded static HTML text/tables at an address the user wrote, and can return one named cell as a result the answer gate binds. Synthetic tests compose an end-to-end answer with a scripted model. Bounded BDDK/EVDS adapters, the local prepared API and first Next.js client exist. Broader data/semantic coverage, full hybrid acceptance, complete proof/replay, production web search, JS/image-address extraction, benchmark runner, remaining UI and deployment remain incomplete. Day 0 drafts remain outside the shared runtime.
 
-Current stateful boundary: the API and [Next.js client](LOCAL_CLIENT.md) preserve canonical result history, but UI result/version selection changes display only. [Question submission](../web/lib/client.ts) sends no selected-result identity, and [Question](../src/kkb_agent/api/contracts.py) has no such field; “bu tablo” may therefore refer to a different result than the one displayed. Selected-result grounding and general Session dependency invalidation remain incomplete.
+Current stateful boundary: [question submission](../web/lib/client.ts) sends the selected public result reference as `selected_result_id`; the [API contract](LOCAL_API.md#m10-18--selection-admission-and-workspace-resolution-partial) resolves session ownership and immutable publication receipts. The prepared runner binds planning, dispatch and publication to that selected source. Retry/reload preserve the original request selection. General refresh invalidation is a separate contract; see [ROADMAP](ROADMAP.md#current-project-status) for remaining acceptance and [EVALUATION](EVALUATION.md#m10-18-browser-selection-2026-09-15) for the dated synthetic browser evidence.
 
 ## Goals and non-goals
 
@@ -31,6 +31,32 @@ Non-goals for this window: arbitrary generated-code execution, a general autonom
 
 The stack is selected in DECISIONS and is not re-argued here: DuckDB with Parquet and Pandas (DEC-112), a custom bounded loop (DEC-113), initial hybrid retrieval with benchmark-gated extensions (DEC-130; DEC-127/115 superseded), an artifact DAG in DuckDB (DEC-117), FastAPI with SSE behind Next.js (DEC-123), and the excluded-technology list (DEC-124). Router fine-tuning and multi-agent topology remain out of scope.
 
+## Organizer maturity chain
+
+This is the single product-evolution map for the organizer-relayed direction
+([DEC-141](DECISIONS.md#dec-141-organizer-verbal-criteria)), not a claim that every
+stage has passed acceptance. [ROADMAP](ROADMAP.md#current-project-status) owns
+completion; [EVALUATION](EVALUATION.md) owns measured proof.
+
+1. **Data dictionary/catalog:** reviewed financial identity, aliases, metadata,
+   semantics and provenance establish what a supported series means.
+2. **Automated preparation:** catalog identity → trusted adapter → Bronze →
+   validation/normalization → Silver → prepared lakehouse (and required Gold).
+3. **Automated analysis:** question → catalog discovery → planning → deterministic
+   tools → mandatory checks → verifier → result.
+4. **Stateful iterative analysis:** preserve the intended existing table, transform
+   the requested column, add the requested series, and continue from that exact
+   immutable result while retaining untouched values and history.
+5. **Reuse across new supported financial sources/schemas:** add reviewed metadata
+   and adapter/policy work without rewriting lakehouse mechanics, workspace/state,
+   executor, lineage/evidence/verifier or API/session. BDDK/EVDS adapters and
+   stock/flow/rate/index, cumulative, deflation and other financial semantics may
+   remain finance-specific. This does not promise arbitrary domains or healthcare.
+
+Our analytical lakehouse is **DuckDB + Parquet + our Bronze/Silver/Gold, ingestion
+and provenance**. LanceDB is the separate catalog vector index; financial
+observations do not move into it.
+
 ## Layer map
 
 ```text
@@ -46,7 +72,7 @@ Target packages follow DEC-125 (only existing source links below imply implement
 
 ## Official-data preparation and demo runtime
 
-[DEC-137](DECISIONS.md#dec-137--catalog-complete-lakehouse-first-official-source-materialization-architecture) refines DEC-136's prepared-data direction into a catalog-complete, lakehouse-first target. “Catalog-complete” means extensible trusted metadata coverage for safely representable financial measures, not a claim that full coverage is delivered. Bounded Monthly/EVDS adapters have recorded live preparation evidence. Arda's 29-series / 4,124-observation pool is operator-local, absent from fresh Git checkout and not identically repository-reproducible today ([recorded pool](PREPARED_API.md#measured-acceptance-and-remaining-limits)); broader coverage, availability routing and version/refresh orchestration remain unfinished.
+[DEC-137](DECISIONS.md#dec-137--catalog-complete-lakehouse-first-official-source-materialization-architecture) refines DEC-136's prepared-data direction into a catalog-complete, lakehouse-first target. “Catalog-complete” means extensible trusted metadata coverage for safely representable financial measures, not a claim that full coverage is delivered. Bounded Monthly/EVDS adapters have recorded live preparation evidence. Arda's 29-series / 4,124-observation pool is operator-local, absent from fresh Git checkout and not identically repository-reproducible today ([recorded pool](EVALUATION.md#prepared-api-delivery-and-pool-evidence)); broader coverage, availability routing and version/refresh orchestration remain unfinished.
 
 The [dated DEC-137 refinement](DECISIONS.md#dec-137-prepared-pool-refinement) prioritizes the organizer prepared-pool model:
 
@@ -218,7 +244,7 @@ Each boundary below describes responsibility, inputs, outputs, prohibited behavi
 - Likely failures: Unknown workspace, ambiguous intent, stale references, deadline exhaustion, incompatible follow-up.
 - Validation expectations: Tests for no-work clarification, failed-turn state preservation, cancellation/deadline propagation, and follow-up invalidation.
 
-CURRENTLY IMPLEMENTED: [Session](../src/kkb_agent/agent/loop.py) plans and executes through the registry. `Session.answer` synthesizes computed results and calls the verifier gate; publication requires successful execution, an ACCEPTED answer and verified candidate evidence. It uses current named Workspace values across turns. The opt-in [bounded catalog continuation](CATALOG_CONTINUATION.md) executes catalog-only discovery and lets one further analysis/clarification plan consume candidate metadata in a data role. Step and repair counts cover both phases; tool retries remain bounded per step. Automatic workspace loading, planner-driven recomputation and total request deadlines/cancellation remain TARGET. A separate cheaper router call remains PROPOSED pending model/latency evidence.
+CURRENTLY IMPLEMENTED: [Session](../src/kkb_agent/agent/loop.py) plans and executes through the registry. `Session.answer` synthesizes computed results and calls the verifier gate; publication requires successful execution, an ACCEPTED answer and verified candidate evidence. It uses current named Workspace values across turns. The opt-in [bounded catalog continuation](CATALOG.md) executes catalog-only discovery and lets one further analysis/clarification plan consume candidate metadata in a data role. Step and repair counts cover both phases; tool retries remain bounded per step. Automatic workspace loading, planner-driven recomputation and total request deadlines/cancellation remain TARGET. A separate cheaper router call remains PROPOSED pending model/latency evidence.
 
 ### 2. LLMProvider / Kloudeks boundary — CONFIRMED interface direction
 
@@ -525,9 +551,11 @@ Mandatory HYBRID baseline: one Turkish normalizer shared by query/index paths, r
 
 <a id="intended-catalog-vector-search-boundary-not-implemented"></a>
 
+<a id="catalog-runtime-composition"></a>
+
 #### Catalog vector-search boundary: local index implemented, live acceptance pending
 
-The final dense architecture includes a separate logical **vector DB / vector index layer** for catalog embeddings. The bounded [M13-05 local index](CATALOG_INDEX.md) now persists reviewed representations and supplied vectors in pinned LanceDB 0.38.0, validates snapshot/text/model/input-policy bindings and searches exact cosine over explicit eligible IDs. It contains no financial observations and opens no model/network route. Its real-engine tests use labelled fixture vectors; an optional [combined catalog stage](CATALOG_SEARCH.md#bounded-combined-candidate-contract) now preserves both retrieval paths and explicit degradation. Confirmed live embedding policy and semantic-quality evaluation remain unfinished; the opt-in [bounded planner continuation](CATALOG_CONTINUATION.md) consumes candidate metadata separately from calculations. [DEC-138](DECISIONS.md#dec-138--handback-priorities-lancedb-catalog-index-and-no-prepared-data-in-git) selects this embedded index; no separate vector service is needed. PostgreSQL/pgvector requires a later decision justifying a separate PostgreSQL service.
+The final dense architecture includes a separate logical **vector DB / vector index layer** for catalog embeddings. The bounded [M13-05 local index](CATALOG.md) now persists reviewed representations and supplied vectors in pinned LanceDB 0.38.0, validates snapshot/text/model/input-policy bindings and searches exact cosine over explicit eligible IDs. It contains no financial observations and opens no model/network route. Its real-engine tests use labelled fixture vectors; an optional [combined catalog stage](CATALOG.md#catalog_search-bounded-combined-candidate-contract) now preserves both retrieval paths and explicit degradation. Confirmed live embedding policy and semantic-quality evaluation remain unfinished; the opt-in [bounded planner continuation](CATALOG.md) consumes candidate metadata separately from calculations. [DEC-138](DECISIONS.md#dec-138--handback-priorities-lancedb-catalog-index-and-no-prepared-data-in-git) selects this embedded index; no separate vector service is needed. PostgreSQL/pgvector requires a later decision justifying a separate PostgreSQL service.
 
 | Conceptual vector record | Purpose |
 | --- | --- |
@@ -536,7 +564,7 @@ The final dense architecture includes a separate logical **vector DB / vector in
 | Embedding model ID; dimension 4096; embedding vector | Enforce the confirmed Qwen representation contract |
 | Catalog snapshot / embedding version metadata | Prevent silent mixing of stale text/model/cache versions |
 
-These logical fields are bound by the implemented local index/profile contracts in [CATALOG_INDEX](CATALOG_INDEX.md); they do not imply a live embedding generation or query path.
+These logical fields are bound by the implemented local index/profile contracts in [local index contract](CATALOG.md#catalog_index-inputs-and-storage); they do not imply a live embedding generation or query path.
 
 ```text
 catalog_search -> shared Turkish normalization / reviewed aliases / metadata filters
@@ -548,7 +576,7 @@ catalog_search -> shared Turkish normalization / reviewed aliases / metadata fil
 
 Dense remains required for final hybrid acceptance. Dedicated-index scaling beyond measured need is later work; RRF/reranking remain separately benchmark-gated. Invalid/unavailable dense output may yield explicitly degraded lexical results, never a falsely successful full-hybrid run.
 
-M13-08 adds a [reviewed offline demo snapshot and exact alias mapping](CATALOG_MAPPING.md) over ten repository-evidenced identities. The shared record/normalizer are reused; unresolved BDDK/CPI identities stay absent. That artifact itself implements no retriever. M13-04 now provides the [bounded lexical catalog_search](CATALOG_SEARCH.md): reviewed alias/phrase sets, provider/frequency/archive filters and deterministic in-memory BM25; no FTS extension or lakehouse security change. Dense retrieval remains M13-05.
+Historical v1 reference: M13-08 added a [reviewed offline demo snapshot and exact alias mapping](CATALOG.md#catalog_mapping-m13-08--reviewed-offline-demo-catalog-mapping) over ten repository-evidenced identities. The shared record/normalizer are reused; unresolved BDDK/CPI identities stay absent. That artifact itself implements no retriever. M13-04 now provides the [bounded lexical catalog_search](CATALOG.md): reviewed alias/phrase sets, provider/frequency/archive filters and deterministic in-memory BM25; no FTS extension or lakehouse security change. Dense retrieval remains M13-05.
 
 Two distinct flows reuse this boundary:
 

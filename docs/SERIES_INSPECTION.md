@@ -49,7 +49,7 @@ that the model chose the right measure for the user's intent.
 
 ## Non-skippable wiring in the prepared mode
 
-The existing [prepared rehearsal](CATALOG_CONTINUATION.md) constructs and injects
+The existing [prepared rehearsal](CATALOG.md) constructs and injects
 the inspector whenever `--catalog`/`catalog_bytes` is supplied. This applies even
 if the model directly selects a series without first using catalog_search.
 
@@ -84,25 +84,4 @@ inspection mode. The lakehouse remains single-owner/not thread-safe.
 
 ## Validation and limits
 
-The 42 focused inspection regressions plus 35 catalog-continuation tests passed
-(77 total / 15.64s locally). They cover required and optional unknowns, exact IDs,
-archive policy, all semantic mismatch classes, snapshot/output mutation, current
-metadata rereads, non-skippable producer/SQL behavior, receipt evidence and
-prepared-rehearsal injection without a prior discovery step.
-
-A read-only check of the existing **seven prepared series** found all declarations
-consistent with reviewed v2. It took 519.51ms including opening/closing DuckDB;
-all **80 prepared files** retained their hashes and no external call occurred.
-
-A separate three-turn run over a private copy of the real prepared pool, using
-scripted planning and these inspected producers, matched an independent Decimal
-oracle: 59 monthly transitions, 32 rate-decline months and 22 matching
-price-up/real-credit-nonrise months. It preserved 302 earlier values, checked all
-60 KFE values and published all three results without verifier faults; the
-original 80 files stayed unchanged. This is deterministic integration evidence,
-not live model reliability or causal proof.
-
-Wider source coverage, observation quality/reconciliation, natural-language
-ambiguity resolution, history staleness and live model/embedding evaluation are
-not completed by this slice. [ROADMAP](ROADMAP.md#current-project-status) and
-[EVALUATION](EVALUATION.md) retain those distinctions.
+See the [dated evidence](EVALUATION.md#prepared-inspection-delivery-evidence) for exact tests, pool identities, timings and limitations. [ROADMAP](ROADMAP.md#current-project-status) owns delivery status.

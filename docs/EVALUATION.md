@@ -13,11 +13,13 @@ This file defines what correctness means and how to measure it. [ROADMAP M9](ROA
 
 Implementation boundary: merged unit tests exercise ingestion, semantics, lakehouse, planning, workspace definitions and numeric matching. [ROADMAP Current Project Status](ROADMAP.md#current-project-status) owns their revisions/results. They are not a benchmark scorecard. The Day 0 `evaluation/models.py`, case JSON and schema-test drafts are preserved in a local stash, not delivered or currently untracked files in dev. No executing benchmark runner, benchmark numerical-oracle schema, scorecard generator or eval Make target exists. This docs task runs document checks only.
 
-## Current acceptance boundary (2026-09-14)
+## Acceptance scope and evidence navigation
 
 The [historical handoff](https://github.com/cagatayeroglu/KKB-DataTrio/blob/1578b7ce0d20566784dba49d984b940424847721/docs/HANDOFF_ARDA_2026-09-14.md) records two-turn live Kloudeks acceptance and scripted three-turn/browser rehearsal, not full live Qwen three-turn acceptance or repeated-run reliability. The recorded 29-series / 4,124-observation pool and Bronze evidence are operator-local, absent from fresh Git checkout and not repository-reproducible as an identical snapshot today. Local LanceDB/hybrid fixture tests do not establish semantic retrieval quality; default prepared API retrieval has no real Qwen embedding injection. Prepared metadata inspection is mandatory/auto-wired, while broader quality/reconciliation remain unfinished. Dated run records below retain their original evidence and limitations.
 
-Under [DEC-141](DECISIONS.md#dec-141-organizer-verbal-criteria), acceptance must also exercise a smaller allowed open-weight model with the same custom deterministic harness and preservation of untouched columns/history. For reuse, add a new supported financial source / dataset / schema through reviewed catalog metadata and adapter/policy configuration without rewriting the core lakehouse, workspace, execution, lineage, verifier or API architecture; cross-domain/healthcare acceptance is not required. Add the specific state case: select an older UI result, ask “bu tablo” to transform/add a column, and verify the exact owned result/version used; include stale/unowned rejection and failed-turn preservation. Current UI selection is display-only and does not transmit that reference. These are required future checks, not passing tests or invented organizer scoring weights.
+Under [DEC-141](DECISIONS.md#dec-141-organizer-verbal-criteria), acceptance must also exercise a smaller allowed open-weight model with the same custom deterministic harness and preservation of untouched columns/history. For reuse, add a new supported financial source / dataset / schema through reviewed catalog metadata and adapter/policy configuration without rewriting the core lakehouse, workspace, execution, lineage, verifier or API architecture; cross-domain/healthcare acceptance is not required. Add the specific state case: select an older UI result, ask “bu tablo” to transform/add a column, and verify the exact owned result/version used; include stale/unowned rejection and failed-turn preservation. The selected-result client/API/runtime path and synthetic browser cases were delivered in #166; see the [2026-09-15 record](#m10-18-browser-selection-2026-09-15). Live Kloudeks selected-table acceptance and smaller-model/financial-source reuse acceptance remain separate unrecorded checks, not invented organizer scoring weights.
+
+Dated run records below describe their recorded revision. Their “remaining” or “not implemented” statements are historical, even where later work closed the gap; current completion belongs to ROADMAP.
 
 ## Prepared official-data and runtime acceptance
 
@@ -401,7 +403,7 @@ Synthetic inline HTML and fake fetch/provider fixtures cover Turkish UTF-8/BOM, 
 
 ## Catalog tool acceptance (DEC-133 delivery; DEC-135 current boundary)
 
-M13-04 implements offline `catalog_search`; [its contract](CATALOG_SEARCH.md) and `tests/unit/test_catalog_search.py` cover the development checks below. Reuse M13 cases and reviewed catalog/alias versions rather than inventing live source IDs. Before delivery cover exact aliases and shared Turkish/punctuation/case normalization; multiple plausible candidates; source/frequency/archive filtering (archive excluded by policy); stable IDs and explicit unknowns; preserved stock/flow and rate/amount distinctions; deterministic ordering/caps; empty query, no-match and no fabricated records. Catalog injection-looking text remains inert. Reject unknown arguments and planned/unknown tools, expose only registered implementations, and regress the existing base tools. Offline synthetic test records must be labelled synthetic and never promoted to a trusted runtime catalog.
+M13-04 implements offline `catalog_search`; [its contract](CATALOG.md) and `tests/unit/test_catalog_search.py` cover the development checks below. Reuse M13 cases and reviewed catalog/alias versions rather than inventing live source IDs. Before delivery cover exact aliases and shared Turkish/punctuation/case normalization; multiple plausible candidates; source/frequency/archive filtering (archive excluded by policy); stable IDs and explicit unknowns; preserved stock/flow and rate/amount distinctions; deterministic ordering/caps; empty query, no-match and no fabricated records. Catalog injection-looking text remains inert. Reject unknown arguments and planned/unknown tools, expose only registered implementations, and regress the existing base tools. Offline synthetic test records must be labelled synthetic and never promoted to a trusted runtime catalog.
 
 Measure lexical-only, dense-only and combined retrieval under DEC-130 separately; an offline lexical stage is not hybrid acceptance. Validate dimension/config if dense is used. No live access is required or authorized by these tests. Future table_transform acceptance must preserve mandatory semantics, security, lineage and verification. DEC-135 harness acceptance must separately prove that selected financial series cannot bypass metadata inspection, retrieved observations cannot become analysis-ready before quality checks, and comparable multi-source measures trigger bounded reconciliation outside LLM discretion. Preserve unknowns, reject invented equivalence, and test all reconciliation states. These automatic integrations and their acceptance tests remain future M13-13/M1-12/M8-09 work, not delivered by M13-04. These tests claim offline lexical tool validation, not a benchmark score, full hybrid delivery or future-tool implementation.
 
@@ -411,7 +413,7 @@ Measure lexical-only, dense-only and combined retrieval under DEC-130 separately
 
 ### M13-08 reviewed mapping development checks
 
-The [demo mapping artifact](CATALOG_MAPPING.md) is development/reference material, not M13-09 holdout. Its tests pin repository-supported real IDs, content/evidence hashes, exact alias unions, ambiguity, unresolved source groups/selectors, archived/unknown distinctions, native frequency/rate basis, family exclusions and deterministic loading. No synthetic record becomes a reviewed real candidate; no recall/benchmark score or live-source acceptance is claimed. Teammate-authored held-out queries and independent adjudication remain separate M13-09 work.
+The [demo mapping artifact](CATALOG.md#catalog_mapping-m13-08--reviewed-offline-demo-catalog-mapping) is development/reference material, not M13-09 holdout. Its tests pin repository-supported real IDs, content/evidence hashes, exact alias unions, ambiguity, unresolved source groups/selectors, archived/unknown distinctions, native frequency/rate basis, family exclusions and deterministic loading. No synthetic record becomes a reviewed real candidate; no recall/benchmark score or live-source acceptance is claimed. Teammate-authored held-out queries and independent adjudication remain separate M13-09 work.
 
 
 ## M0-10 Windows takeover validation (2026-09-14)
@@ -500,7 +502,7 @@ calls and do not establish semantic Recall@k, full-source scale or live quality.
 Pinned LanceDB 0.38.0 passed dependency compatibility (`pip check`). The 17-package
 runtime closure audit reported only existing PyArrow 21.0.0 advisory
 CVE-2026-25087 / PYSEC-2026-113, duplicated in the audit response. The raw result
-is nonzero. [The applicability review](CATALOG_INDEX.md#validation-and-dependency-review)
+is nonzero. [The applicability review](EVALUATION.md#catalog_index-validation-and-dependency-review)
 uses upstream evidence that C++ IPC pre-buffering is unavailable to Python;
 this implementation enables no such path. No audit suppression was introduced.
 Real embedding policy, hybrid candidate composition/evaluation and planner
@@ -521,7 +523,7 @@ degradation and absence of analytical evidence. Fixture provenance stays visible
 The alternating-archive-tier-v1 candidate baseline is executable through explicit
 operator injection; it does not establish real Qwen retrieval quality, held-out
 Recall@k, all-source coverage, live input policy or planner replanning. Parent
-M13-05 remains incomplete. See [the contract](CATALOG_SEARCH.md).
+M13-05 remains incomplete. See [the contract](CATALOG.md).
 
 ### M5-06/M5-13 catalog continuation (2026-09-14)
 
@@ -540,7 +542,7 @@ merged system message. Negative tests cover no-work clarification, mixed phases,
 repeated discovery, web escalation/injection, bad or oversized typed feedback,
 fresh IDs, forbidden discovery dependencies, shared steps/repairs, tool failures
 and trace binding. These prove integration mechanics, not live model reasoning
-or semantic-selection accuracy. See [the contract](CATALOG_CONTINUATION.md).
+or semantic-selection accuracy. See [the contract](CATALOG.md).
 
 ### M13-13 prepared-series inspection (2026-09-14)
 
@@ -759,3 +761,206 @@ not live Kloudeks planning, arbitrary queries, real-data semantics or complete
 accessibility coverage. No live model/source calls or merge were performed.
 Both temporary servers were stopped after the rehearsal. Full proof UI and
 legacy/official-refresh dependency coverage remain incomplete.
+
+
+<a id="catalog-validation-records"></a>
+
+# Catalog validation records
+
+Historical delivery records migrated from technical references. Test counts,
+package versions, findings and pending integration statements are as recorded at
+the original delivery, not a new run or current task selection.
+
+
+<a id="catalog_search-m13-04--offline-reviewed-catalog-search"></a>
+
+## Historical delivery scope — M13-04 — Offline reviewed catalog search
+
+`catalog_search` discovers bounded candidates, not observation values or verified
+analytical claims. It uses the [M13-08 reviewed snapshot](CATALOG.md#catalog_mapping-m13-08--reviewed-offline-demo-catalog-mapping) and
+shared Turkish normalizer. Delivered under DEC-133 and retained by DEC-135, this is
+the authoritative lexical/reviewed baseline for the bounded offline demo scope;
+full hybrid acceptance still needs M13-05 dense retrieval and evaluation.
+
+The separate [local LanceDB index](CATALOG.md) implements validated vector
+persistence and exact search over eligible IDs. The existing factory now accepts
+an optional operator-injected `CatalogDenseStage` for combined candidate retrieval.
+Without it, lexical-only behavior remains. Configured stages run both methods
+when reviewed eligibility is nonempty, even after lexical success. This is tested
+with fixture vectors; live policy and semantic quality remain separate work.
+The opt-in [bounded catalog continuation](CATALOG.md) now lets a
+planner consume these candidate results as data before one analysis/clarification
+plan. Default one-plan sessions retain their previous behavior.
+
+
+<a id="catalog_search-fts-review-and-scope"></a>
+
+## Historical M13-04 — FTS review and scope
+
+At implementation, local DuckDB 1.5.5 had no installed FTS extension. Even its
+extension inventory requires filesystem access refused by the hardened lakehouse
+connection. No INSTALL/LOAD/autoload or download was attempted. M13-04 uses a
+bounded in-memory Python BM25 calculation over this small reviewed corpus instead
+of requiring an extension or a separate index connection. This is a task-local
+lexical implementation, not a change to the DEC-112 analytical engine. No new
+dependency is needed. Lakehouse external-access/extension restrictions remain
+unchanged. A larger corpus/index change needs its own measured task review.
+
+
+<a id="catalog_search-validation-and-handoff"></a>
+
+## Historical M13-04 — Validation and handoff
+
+**Historical M13-04 delivery evidence:** the following record describes the original lexical-tool handoff, before the later transform and prepared-inspection deliveries. Its absence/prerequisite statements are historical, not current prepared-path status.
+
+`tests/unit/test_catalog_search.py` covers aliases/normalization, specificity,
+ambiguity/caps, source/frequency/archive filtering, preserved metadata/families,
+unknown/unresolved cases, ranking/order/serialization, content identity and
+holdout rejection, inert labels, output-mutation isolation, closed arguments,
+planner discovery and seven coexisting factories. Scripted Session tests verify
+catalog metadata cannot produce an analytical claim or enter the writer as
+verified evidence. Existing six-tool/agent regressions remain required.
+
+These development cases are not M13-09 holdout or Recall@5/10 evidence. No live
+source/model/search request, embedding, RRF/reranking, table_transform or new
+automatic inspection/quality/reconciliation harness integration is implemented. Actual delivery/merge evidence belongs to
+[ROADMAP](ROADMAP.md#m13). M13-13 mandatory inspection still needs its trusted-ID lookup/usable-metadata
+contract review before being claimed; M13-05 retains its transport/configuration
+prerequisites.
+
+**Current prepared-path status:** deterministic monthly `deflate`, `add_series` and table co-movement are implemented. Configured prepared metadata inspection is mandatory and auto-wired; broader inspection, quality and reconciliation remain incomplete. This is a bounded transform slice, not a fully general `table_transform` framework. [ROADMAP](ROADMAP.md#m13) records current delivery evidence.
+
+
+<a id="catalog_index-m13-05--local-catalog-vector-index"></a>
+
+## Historical delivery scope — M13-05 — Local catalog vector index
+
+This is the bounded offline storage/search slice selected by DEC-138. It uses
+LanceDB **0.38.0**, an exact pinned runtime dependency, and the current reviewed
+catalog contract (at most 40 records, 4096-dimensional vectors). It is not a
+full-source catalog, live Qwen quality result or completed hybrid pipeline.
+
+
+<a id="catalog_index-validation-and-dependency-review"></a>
+
+## Historical M13-05 — Validation and dependency review
+
+`tests/unit/test_catalog_index.py` runs real LanceDB with labelled fixture
+vectors: persistence/reopen, independent cosine oracle, stable ties,
+prefilter-before-top-k, empty/unknown IDs, policy/origin mismatch, invalid vectors,
+existing-root preservation and failed publication. This is separate from M13-09
+held-out semantic quality. No model or official-source request was made.
+
+The installed 17-package runtime dependency closure passed `pip check`.
+Targeted `pip-audit` on 2026-09-14 reported one unique existing PyArrow 21.0.0
+advisory twice: **CVE-2026-25087 / PYSEC-2026-113**. The raw audit exits nonzero;
+it is not a clean scan. No advisory was reported for LanceDB 0.38.0 or its newly
+added packages. The [Apache release announcement](https://arrow.apache.org/blog/2026/02/16/23.0.1-release/)
+limits the issue to C++ IPC-file pre-buffering explicitly enabled through
+`RecordBatchFileReader::PreBufferMetadata`; the [advisory reproduced by GitHub](https://github.com/advisories/GHSA-rgxp-2hwp-jwgg)
+states that this is not exposed in Python bindings. This implementation uses
+Python Arrow table construction and Lance's local vector table, accepts no IPC
+upload and enables no such C++ API. On that evidence the report is not applicable
+to this Python path. The existing PyArrow range is unchanged; no audit suppression
+or gate weakening was added. A future C++/IPC integration needs reassessment;
+release-wide dependency upgrade/audit policy is a separate checkpoint.
+
+API behavior was checked against the installed pinned package and official
+[LanceDB vector search documentation](https://docs.lancedb.com/search/vector-search).
+Real embedding-policy confirmation, live index construction, hybrid-quality
+evaluation and bounded planner consumption remain next integration steps.
+
+
+<a id="catalog_continuation-bounded-catalog-to-analysis-continuation"></a>
+
+## Historical delivery scope — Bounded catalog-to-analysis continuation
+
+M5-06/M5-13 adds an explicitly enabled Session path:
+
+```text
+question -> validated catalog-only plan -> catalog_search
+         -> bounded candidate metadata as data
+         -> one validated analysis plan or typed clarification
+         -> existing tools -> writer/verifier -> accepted workspace publication
+```
+
+This connects discovery to planning. It does not make a rank or similarity
+score authoritative, add source fetching, or complete all selected-series
+inspection. The [prepared reader slice](SERIES_INSPECTION.md) now checks catalog/store
+metadata consistency whenever this rehearsal receives catalog bytes. Prepared-series and analytical tools retain their existing semantic,
+availability, provenance and numerical checks. Unavailable prepared data still
+cannot be silently fetched from the web.
+
+
+<a id="prepared-inspection-delivery-evidence"></a>
+
+## Prepared inspection delivery evidence
+
+The 42 focused inspection regressions plus 35 catalog-continuation tests passed
+(77 total / 15.64s locally). They cover required and optional unknowns, exact IDs,
+archive policy, all semantic mismatch classes, snapshot/output mutation, current
+metadata rereads, non-skippable producer/SQL behavior, receipt evidence and
+prepared-rehearsal injection without a prior discovery step.
+
+A read-only check of the existing **seven prepared series** found all declarations
+consistent with reviewed v2. It took 519.51ms including opening/closing DuckDB;
+all **80 prepared files** retained their hashes and no external call occurred.
+
+A separate three-turn run over a private copy of the real prepared pool, using
+scripted planning and these inspected producers, matched an independent Decimal
+oracle: 59 monthly transitions, 32 rate-decline months and 22 matching
+price-up/real-credit-nonrise months. It preserved 302 earlier values, checked all
+60 KFE values and published all three results without verifier faults; the
+original 80 files stayed unchanged. This is deterministic integration evidence,
+not live model reliability or causal proof.
+
+Wider source coverage, observation quality/reconciliation, natural-language
+ambiguity resolution, history staleness and live model/embedding evaluation are
+not completed by this slice. [ROADMAP](ROADMAP.md#current-project-status) and
+[EVALUATION](EVALUATION.md) retain those distinctions.
+
+
+<a id="prepared-api-delivery-and-pool-evidence"></a>
+
+## Prepared API delivery and pool evidence
+
+The original M10-17 local pool passed read-only readiness: **7 prepared identities,
+683 observations, 15 reviewed catalog identities, 80 files, 7,613,310 bytes**.
+Configuration is present and the approved endpoint is valid; no live request
+was used to establish this. A separate in-process HTTP rehearsal with scripted
+plans and the real public pool passes all three organizer turns. An independent
+Decimal oracle agrees on 59 transitions, 32 rate falls and 22 joint periods.
+All 302 previous values and 60 KFE values survive, and the original 80 files
+remain hash-identical. The largest response is 143,584 bytes. Readiness took
+717.15ms; scripted turns took 1,425.33 / 925.01 / 1,578.83ms. These are local
+pipeline timings, **not Qwen inference latency or live reasoning reliability**.
+
+The subsequent [EVDS expansion](EVDS_COVERAGE.md) prepares **29 identities and
+4,124 observations** with **37 catalog identities** in v3. Original seven-series
+values are retained; 3,926 EVDS observations additionally match raw decimal
+values in an independent read-back. The prepared pool is 8,520,172 bytes across
+124 files. These are local preparation/readiness checks, not a live-model test
+over the expanded universe. Use v3 for this pool; v2 remains a historical
+snapshot and correctly refuses the additional identities. Restart the API into
+a fresh state root when switching pools/catalogs; existing sessions keep their
+own snapshot and are not silently refreshed.
+
+One existing gate limitation remains visible: repeating a numerical calculation
+under a second identity and writing an unqualified identical number can abstain
+because multiple results match. The API preserves that refusal; it does not
+weaken numeric matching. A real add-series follow-up over synthetic inputs
+passes, retaining the previous publication and all original values.
+
+Live model acceptance still requires its explicit authorized rehearsal. Dense
+policy/quality, broader official coverage, public proof traversal, full stage
+progress, source input UI, remaining frontend features and deployment remain separate tasks.
+See [EVALUATION](EVALUATION.md) and [ROADMAP](ROADMAP.md) for final test/merge state.
+
+
+## Historical acceptance summary — 2026-09-14
+
+Historical context — not current implementation status. The following original summary predates #166; its display-only selection statement is retained as dated evidence.
+
+The [historical handoff](https://github.com/cagatayeroglu/KKB-DataTrio/blob/1578b7ce0d20566784dba49d984b940424847721/docs/HANDOFF_ARDA_2026-09-14.md) records two-turn live Kloudeks acceptance and scripted three-turn/browser rehearsal, not full live Qwen three-turn acceptance or repeated-run reliability. The recorded 29-series / 4,124-observation pool and Bronze evidence are operator-local, absent from fresh Git checkout and not repository-reproducible as an identical snapshot today. Local LanceDB/hybrid fixture tests do not establish semantic retrieval quality; default prepared API retrieval has no real Qwen embedding injection. Prepared metadata inspection is mandatory/auto-wired, while broader quality/reconciliation remain unfinished. Dated run records below retain their original evidence and limitations.
+
+Under [DEC-141](DECISIONS.md#dec-141-organizer-verbal-criteria), acceptance must also exercise a smaller allowed open-weight model with the same custom deterministic harness and preservation of untouched columns/history. For reuse, add a new supported financial source / dataset / schema through reviewed catalog metadata and adapter/policy configuration without rewriting the core lakehouse, workspace, execution, lineage, verifier or API architecture; cross-domain/healthcare acceptance is not required. Add the specific state case: select an older UI result, ask “bu tablo” to transform/add a column, and verify the exact owned result/version used; include stale/unowned rejection and failed-turn preservation. Current UI selection is display-only and does not transmit that reference. These are required future checks, not passing tests or invented organizer scoring weights.

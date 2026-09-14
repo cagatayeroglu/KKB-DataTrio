@@ -8,11 +8,13 @@ The organizer questions are now the project's only external blockers, and severa
 
 ## DEC-137 unresolved materialization and storage policy
 
-[DEC-137](DECISIONS.md#dec-137--catalog-complete-lakehouse-first-official-source-materialization-architecture) records team architecture direction, not organizer answers. The original dated organizer evidence below is preserved. Still unresolved: Q-INFRA-01/02 (Kloudeks/demo S3-compatible object-storage availability, persistent-volume lifetime, credentials/runtime access); Q-DATA-01/03 (source-use, redistribution and retention); Q-NET-01 with Q-DATA-01 (demo egress and whether on-demand official BDDK/EVDS materialization is permitted); Q-NET-01/02 and the M7 production record (SearXNG/upstream search policy); Q-DATA-04 (authoritative semantics/revisions). No AWS/S3 or vector product is selected and no live acceptance is implied.
+[DEC-137](DECISIONS.md#dec-137--catalog-complete-lakehouse-first-official-source-materialization-architecture) records team architecture direction, not organizer answers. The original dated organizer evidence below is preserved. Still unresolved: Q-INFRA-01/02 (Kloudeks/demo S3-compatible object-storage availability, persistent-volume lifetime, credentials/runtime access); Q-DATA-01/03 (source-use, redistribution and retention); Q-NET-01 with Q-DATA-01 (demo egress and whether on-demand official BDDK/EVDS materialization is permitted); Q-NET-01/02 and the M7 production record (SearXNG/upstream search policy); Q-DATA-04 (authoritative semantics/revisions). No AWS/S3 provider is selected. Vector product choice is answered by DEC-138; remaining embedding-policy questions are Q-K-05. No live acceptance is implied.
 
 The [DEC-137 dated refinement](DECISIONS.md#dec-137-prepared-pool-refinement) makes the broad prepared pool demo-critical and question-time official materialization a later extension. Preparation permission, trusted identity/semantics and minimum revision-conflict safeguards still matter now; unresolved runtime official-fetch permission and sophisticated vintage/index/object-storage scaling are not core three-turn prerequisites. This is team priority, not a new organizer answer.
 
-Internal questions Q-TEAM-06/07/08 below concern vector implementation, exact broader prepared coverage and refresh/vintage selection policy. These are team decisions, not organizer permissions; Q-TEAM-06 is answered by DEC-138 (LanceDB), Q-TEAM-07/08 remain OPEN. Known embedding dimension is 4096 from M4-12; no new live call is needed to re-establish it.
+Internal questions Q-TEAM-07/08 below concern exact broader prepared coverage and refresh/vintage selection policy. These are team decisions, not organizer permissions; [Q-TEAM-06](HISTORY.md#q-team-06--vector-cacheindex-implementation) is answered by DEC-138 (LanceDB), Q-TEAM-07/08 remain OPEN. Known embedding dimension is 4096 from M4-12; no new live call is needed to re-establish it.
+
+Fully answered Q-DEV-01 and Q-TEAM-01..06 are preserved in [HISTORY](HISTORY.md); partially answered questions stay here with their remaining scope.
 
 ## How to use this list
 
@@ -20,6 +22,7 @@ Internal questions Q-TEAM-06/07/08 below concern vector implementation, exact br
 - Check a question only when the answer/evidence is recorded and its affected roadmap blockers are updated. A question being sent is not a resolved question.
 - `Can we proceed before answer?` applies to the **blocked slice named in that entry**. Independent synthetic work may still proceed even when the answer is NO.
 - Use Status: OPEN, WAITING (asked, no answer), ANSWERED, or DEFERRED. Add actual owner and next follow-up date when someone accepts the question; no automated messaging is implied.
+- Once fully answered, preserve the complete question/evidence in HISTORY and link its decision; remove it from this active list.
 - Do not ask organizers for every internal implementation preference. The team-decision section is resolved by teammates and recorded as an ADR.
 
 ## Priority queue
@@ -248,19 +251,6 @@ Internal questions Q-TEAM-06/07/08 below concern vector implementation, exact br
 
 ## Allowed development tooling
 
-### Q-DEV-01 — Coding assistants during development
-
-- [x] Record organizer policy on coding assistants used only to build the product. **ANSWERED 2026-09-10: coding assistants are permitted as development tools.**
-- Question (resolved): Are Codex/Claude Code or other coding assistants permitted strictly as development tools while runtime uses only Kloudeks, and is disclosure required?
-- Why it matters: Development-tool permission is separate from the confirmed runtime restriction, and the kick-off deck's wording did not clearly keep them separate. The repository is built with assistant help, so an unfavourable reading would have been a compliance problem discovered at submission.
-- Blocks which milestone? Nothing further; the development workflow and M11 submission are unblocked on this point.
-- Can we proceed before answer? Resolved — assistant-assisted development may proceed.
-- Standing constraint: **the runtime restriction is untouched by this answer.** Permission covers assistants used to write the product; the delivered product still reaches an LLM only through Kloudeks under DEC-002/DEC-129/DEC-131. No assistant, and no model an assistant runs on, may appear in a runtime path, a dependency or a delivered request.
-- Owner: Eray (obtained the answer).
-- Status: **ANSWERED** for development use; the runtime ban is unchanged and remains a hard constraint.
-- Answer / evidence: The team is permitted to use coding assistants as development tools — relayed by Eray on 2026-09-10. This resolves the ambiguity recorded the same day: the kick-off deck answers "may we use cloud AI services?" with no, prohibits third-party LLM API services, and adds (deck, 7 September 2026): "Geliştirme süreçlerinde yalnızca Kloudeks platformu üzerinden erişilebilen açık kaynaklı dil modelleri kullanılmalıdır." That sentence governs the **models the delivered product calls**, not the tools used to write it. Attach the underlying organizer message reference and its date to this entry if one is available, so the record does not rest on a relay alone.
-- Disclosure: no disclosure requirement was reported. If the organizers later ask for one, this entry and the Git history are the evidence; do not retrofit attribution selectively.
-
 ### Q-DEV-02 — External tools, libraries, and code disclosure
 
 - [x] Record the stated technology expectations: **Python is the main development language** with no second backend language unless specifically needed, the frontend framework is free, **open-weights** models are expected (the deck names Qwen, Mistral, gpt-oss, Kimi) and **open-source libraries** are expected, with `pypdf`, Pandas, DuckDB, Plotly and LanceDB named explicitly (DEC-131). This corroborates the existing DEC-112/124/130 stack and authorizes no new dependency.
@@ -329,74 +319,6 @@ Known qualitative criteria: [DEC-141](DECISIONS.md#dec-141-organizer-verbal-crit
 - Answer / evidence: None recorded.
 
 ## Internal team choices — resolve with evidence, not organizer guesses
-
-### Q-TEAM-01 — Orchestration mechanism
-
-- [x] Record chosen minimal mechanism and rationale in DECISIONS after team review.
-- Question: Does the tested lifecycle need a custom bounded loop, LangGraph, or another framework?
-- Why it matters: Adds coordination/dependency cost and affects shared plan/workspace boundaries.
-- Blocks which milestone? M5 framework adoption; lifecycle fixtures and registry contracts can proceed.
-- Can we proceed before answer? YES for interface/tests; NO for silently committing the team to a framework.
-- Temporary assumption (superseded by the answer below): Simple orchestration is a confirmed preference, not a selected implementation.
-- Owner: Eray (M0-ARCH). Original suggestion: suggested lane B; another teammate reviews.
-- Status: ANSWERED (2026-09-09, M0-ARCH).
-- Answer / evidence: Custom bounded planner -> router -> executor -> verifier loop, recorded in [DEC-113](DECISIONS.md#dec-113--custom-bounded-orchestration-loop). LangChain, LangGraph and Celery rejected; the lifecycle is small enough that owning retry, repair and cancellation explicitly is cheaper than learning a framework's failure modes during delivery. Implemented in M5.
-
-### Q-TEAM-02 — Analytical/parsing engine
-
-- [x] Record engine/dependency choice against concrete ingestion/normalization requirements.
-- Question: Which minimal combination of Pandas, Polars, DuckDB, or another engine best meets parsing/date/semantic needs and installation constraints?
-- Why it matters: Shared data references, deterministic operations, and dependency setup depend on the choice.
-- Blocks which milestone? M1 implementation dependency, M2/M6 engine-specific operations.
-- Can we proceed before answer? YES for contracts/synthetic oracles; NO for engine adoption by assumption.
-- Temporary assumption (superseded by the answer below): Python and Pydantic exist; no analytical engine is selected; Snowflake remains prohibited.
-- Owner: Eray (M0-ARCH). Original suggestion: suggested lane A with B review.
-- Status: ANSWERED (2026-09-09, M0-ARCH).
-- Answer / evidence: DuckDB over Parquet in a bronze/silver/gold medallion, with Pandas for in-process transformation, recorded in [DEC-112](DECISIONS.md#dec-112--duckdb-and-parquet-as-the-analytical-engine-and-lakehouse). Polars rejected as a third dataframe dialect at this corpus size. Spreadsheet reading is split by trust boundary between [DEC-111](DECISIONS.md#dec-111--openpyxl-for-the-untrusted-xlsx-boundary) and [DEC-114](DECISIONS.md#dec-114--pandas-with-calamine-for-operator-fetched-bulk-spreadsheets). Unblocks M1-03, M1-06 and the M2/M6 engine-dependent tasks; implemented in M12.
-
-### Q-TEAM-03 — Frontend framework
-
-- [x] Record UI choice after confirming demo environment and operator needs.
-- Question: Which frontend approach delivers the required upload/plan/result/evidence/follow-up flow with the least setup risk?
-- Why it matters: UI polish must not outrun backend acceptance or environment compatibility.
-- Blocks which milestone? M10 implementation choice.
-- Can we proceed before answer? YES for flow specification; NO for framework commitment.
-- Temporary assumption (superseded by the answer below): Minimal clear UI, no chosen framework or hosting product.
-- Owner: Eray (M0-ARCH). Original suggestion: suggested lane C with B deployment review.
-- Status: ANSWERED (2026-09-09, M0-ARCH).
-- Answer / evidence: FastAPI with server-sent events behind a Next.js client using Tailwind, shadcn/ui, TanStack Table, react-plotly.js and React Flow, recorded in [DEC-123](DECISIONS.md#dec-123--fastapi-with-sse-behind-a-nextjs-front-end). The team has front-end capacity and the trust layer is only visible if lineage is rendered. Streamlit is retained as an explicitly recorded fallback if front-end work starts delaying backend acceptance. Q-DEMO-01 and Q-INFRA-01 still shape hosting, not the framework choice. Implemented in M10.
-
-### Q-TEAM-04 — Causality implementation and prerequisites
-
-- [x] Record method, supported claims, sample/assumption rules, and scope decision.
-- Question: Which statistical/causality method, if any, is defensible within the deadline and actual data, and when must it abstain?
-- Why it matters: A named test is not sufficient evidence of causal identification.
-- Blocks which milestone? M6 advanced method; M9 method-specific oracles; not change/association/abstention baseline.
-- Can we proceed before answer? YES for deterministic descriptive statistics and causal-discipline tests; NO for claiming an exact causal method is agreed.
-- Temporary assumption (superseded by the answer below): Report association honestly; advanced causal inference stays unselected/optional pending need and review.
-- Owner: Eray (M0-ARCH). Original suggestion: suggested lane A/C statistical review.
-- Status: ANSWERED (2026-09-09, M0-ARCH).
-- Answer / evidence: Lagged cross-correlation plus Granger tests via `statsmodels`, with `ruptures` for structural breaks, and mandatory printed limitations, recorded in [DEC-120](DECISIONS.md#dec-120--causality-reports-association-with-stated-limits). Sixty to sixty-six monthly observations cannot identify a causal effect, so the system never emits an "X causes Y" claim and Granger output is reported as predictive precedence. Implemented in M6; abstention and phrasing tested in M9.
-
-### Q-TEAM-05 — Workspace persistence and reference storage
-
-- [x] Record the minimum persistence mechanism after lifetime/reset requirements are known.
-- Question: Is in-process state sufficient, or do confirmed demo requirements require a local durable store and restore behavior?
-- Why it matters: Explicit state is mandatory; a specific database is not.
-- Blocks which milestone? M5 durable storage selection and M10/M11 restart acceptance.
-- Can we proceed before answer? YES for explicit model/state-transition tests; NO for a database commitment or durability claim.
-- Temporary assumption (superseded by the answer below): Preserve state explicitly within a workspace; persistence engine remains deferred.
-- Owner: Eray (M0-ARCH). Original suggestion: suggested lane B with C operator input.
-- Status: ANSWERED (2026-09-09, M0-ARCH).
-- Answer / evidence: An artifact DAG persisted in DuckDB, recorded in [DEC-117](DECISIONS.md#dec-117--analysis-workspace-as-a-persisted-artifact-dag). Adding a column adds a node rather than rebuilding the table, which is what the organizer's incremental scenario requires, and the same structure supplies replay and cache invalidation. No separate persistence engine is needed once DEC-112 puts DuckDB in the stack. Cross-process durability and reset semantics still depend on Q-INFRA-02 and Q-DEMO-02. Implemented in M5.
-
-
-### Q-TEAM-06 — Vector cache/index implementation
-
-- Question: Does measured catalog size/latency justify a dedicated index, or is a versioned embedding cache with deterministic cosine similarity sufficient?
-- Historical constraints (before DEC-138): Required hybrid retrieval is decided; the vector product is not. Key by series/concept ID, catalog text hash, model ID and measured dimension 4096; never store observation values as vectors. A dedicated catalog vector-search layer is intended, but no product/index is implemented. LanceDB is the strong/preferred dedicated-index candidate to benchmark first; exact cosine over a versioned embedding cache may be the small-catalog baseline. No PostgreSQL/pgvector service without a later explicit justification.
-- Owner: Eray (original decision). Status: **ANSWERED (2026-09-14) by [DEC-138](DECISIONS.md#dec-138--handback-priorities-lancedb-catalog-index-and-no-prepared-data-in-git): LanceDB is the catalog vector index.** PRs #153/#154 delivered pinned LanceDB 0.38.0, bounded local search and optional combined candidates. Prepared runtime still uses lexical retrieval without real Qwen embedding injection; input-policy/limit review and live semantic-quality acceptance remain unfinished. The question and pre-DEC-138 constraints above are historical.
-- Evidence needed: versioned catalog scale, cold/warm latency, deployment simplicity, benchmark quality, dependency cost, deterministic ranking and failure tests. DEC-137 supersedes only the prior mandatory product choice; its dated refinement prioritizes required hybrid retrieval while deferring dedicated-index scaling beyond measured need.
 
 ### Q-TEAM-07 — Broad prepared coverage target
 

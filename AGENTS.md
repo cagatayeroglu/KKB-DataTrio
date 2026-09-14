@@ -27,6 +27,8 @@ Changing an organizer constraint requires organizer confirmation; a team prefere
 
 ## New session / teammate startup protocol
 
+The [documentation guide](docs/DOCUMENTATION.md#authority-model) defines document ownership. Keep delivery status in ROADMAP, runtime mechanics in ARCHITECTURE, detailed acceptance evidence in EVALUATION, decisions in DECISIONS and fully answered questions/old handbacks in HISTORY. Source references may retain revision-pinned historical evidence; do not rewrite it as current status.
+
 Repository/Git evidence outranks stale documentation. ROADMAP's single Current Project Status is the maintained execution summary; source and merged PR evidence determine what it may claim. Never require prior chat history to reconstruct project state. A teammate can start with only `Read AGENTS.md and continue with the next READY task.`
 
 1. Inspect the repository root (`git rev-parse --show-toplevel`), current branch, `git status --short --branch --untracked-files=all`, relevant staged/unstaged diffs, remote URLs, and tracking state (`git branch -vv`). Preserve existing work and inspect applicable deeper agent instructions.

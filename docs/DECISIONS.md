@@ -1,5 +1,7 @@
 # Decision log
 
+Decision entries and dated amendments preserve their original rationale and implementation snapshots. They do not independently track current delivery; consult [ROADMAP](ROADMAP.md#current-project-status) and [ARCHITECTURE](ARCHITECTURE.md).
+
 This file owns constraints and reasons for choices. [ROADMAP](ROADMAP.md) owns implementation status; [OPEN_QUESTIONS](OPEN_QUESTIONS.md) owns unanswered questions. CONFIRMED does **not** mean implemented.
 
 Evidence policy: original organizer constraints are **team-reported** unless a later entry identifies primary evidence (for example DEC-129/131). [DEC-141](#dec-141-organizer-verbal-criteria) records the new verbal criteria as relayed by Çağatay, not independently verified transcript evidence. Add the actual response/reference when received; do not invent an approval, quotation, or date. Record authorized changes here before changing a hard constraint.
@@ -164,7 +166,7 @@ Evidence policy: original organizer constraints are **team-reported** unless a l
 
 ### DEC-112 — DuckDB and Parquet as the analytical engine and lakehouse
 
-- Status: CONFIRMED — team decision on 2026-09-09; answers [Q-TEAM-02](OPEN_QUESTIONS.md#q-team-02--analyticalparsing-engine).
+- Status: CONFIRMED — team decision on 2026-09-09; answers [Q-TEAM-02](HISTORY.md#q-team-02--analyticalparsing-engine).
 - Date: 2026-09-09.
 - Decision: DuckDB over Parquet files is the storage and query engine, organized as a medallion lakehouse: `bronze` holds the retrieved artifact plus its hash and retrieval time, `silver` holds normalized series with explicit semantics, `gold` holds analysis-ready facts. Pandas is the in-process transformation and table-shaping library. Polars is not adopted.
 - Reason: The organizer brief names DuckDB and Pandas; both run in-process with no server to deploy or fail during the demo. Parquet plus DuckDB gives typed columnar storage, SQL for the `lakehouse` tool, and a file layout that is directly deliverable as the required database definition.
@@ -174,7 +176,7 @@ Evidence policy: original organizer constraints are **team-reported** unless a l
 
 ### DEC-113 — Custom bounded orchestration loop
 
-- Status: CONFIRMED — team decision on 2026-09-09; answers [Q-TEAM-01](OPEN_QUESTIONS.md#q-team-01--orchestration-mechanism).
+- Status: CONFIRMED — team decision on 2026-09-09; answers [Q-TEAM-01](HISTORY.md#q-team-01--orchestration-mechanism).
 - Date: 2026-09-09.
 - Decision: Implement orchestration as an explicit planner -> router -> executor -> verifier state machine in our own code. The planner produces a typed plan, the router selects a registered tool and typed arguments, the executor dispatches after validation, and the verifier gates the answer. LangChain, LangGraph and Celery are rejected.
 - Reason: The lifecycle is a handful of states over a fixed tool set. A framework would add an abstraction whose failure modes we would have to learn during the delivery window, and it obscures exactly the plan/validation boundary DEC-101 requires us to test.
@@ -216,7 +218,7 @@ Evidence policy: original organizer constraints are **team-reported** unless a l
 
 ### DEC-117 — Analysis workspace as a persisted artifact DAG
 
-- Status: CONFIRMED — team decision on 2026-09-09; answers [Q-TEAM-05](OPEN_QUESTIONS.md#q-team-05--workspace-persistence-and-reference-storage).
+- Status: CONFIRMED — team decision on 2026-09-09; answers [Q-TEAM-05](HISTORY.md#q-team-05--workspace-persistence-and-reference-storage).
 - Date: 2026-09-09.
 - Decision: Represent the analysis workspace as a directed acyclic graph of artifacts stored in DuckDB. A follow-up that adds a column adds a node; existing nodes and their computed cells are not rebuilt. Replaying the graph reproduces a result, and node identity drives cache invalidation.
 - Reason: The organizer's reference scenario is explicitly incremental — inflation-adjust one column, then add another, without disturbing the table. Regenerating the table each turn is how stale or silently changed numbers reach the user. The same structure gives reproducibility and cache behavior without a second mechanism.
@@ -249,7 +251,7 @@ Evidence policy: original organizer constraints are **team-reported** unless a l
 
 ### DEC-120 — Causality reports association with stated limits
 
-- Status: CONFIRMED — team decision on 2026-09-09; answers [Q-TEAM-04](OPEN_QUESTIONS.md#q-team-04--causality-implementation-and-prerequisites).
+- Status: CONFIRMED — team decision on 2026-09-09; answers [Q-TEAM-04](HISTORY.md#q-team-04--causality-implementation-and-prerequisites).
 - Date: 2026-09-09.
 - Decision: The `causality` tool computes lagged cross-correlation and Granger causality tests using `statsmodels`, with `ruptures` for structural breaks and `scipy` for supporting statistics. Its output must always carry its limitations: small sample, common drivers such as inflation and the policy rate, and structural breaks in the window. The system does not emit a sentence of the form "X causes Y".
 - Reason: Sixty to sixty-six monthly observations cannot identify a causal effect, and a finance jury knows it. Presenting an honest, well-qualified association is more defensible than an overclaim, and it satisfies the brief's causality tool without pretending to more.
@@ -282,7 +284,7 @@ Evidence policy: original organizer constraints are **team-reported** unless a l
 
 ### DEC-123 — FastAPI with SSE behind a Next.js front end
 
-- Status: CONFIRMED — team decision on 2026-09-09; answers [Q-TEAM-03](OPEN_QUESTIONS.md#q-team-03--frontend-framework).
+- Status: CONFIRMED — team decision on 2026-09-09; answers [Q-TEAM-03](HISTORY.md#q-team-03--frontend-framework).
 - Date: 2026-09-09.
 - Decision: Serve the application from FastAPI, streaming plan and tool progress to the client over server-sent events. Build the user interface in Next.js with Tailwind and shadcn/ui, TanStack Table for the analysis table, `react-plotly.js` for charts, and React Flow for the evidence panel that renders a claim's lineage subgraph.
 - Reason: The deliverable is a deployed working system that a jury operates, and the trust layer is only visible if provenance is rendered. Streaming the tool steps makes a multi-step analysis legible while it runs instead of after it finishes. The team has front-end capacity, so the stronger presentation is worth its cost.
@@ -529,7 +531,7 @@ Confirmed team priority refinement, explicitly requested by Çağatay after M3-0
 - **Prepared data storage:** retrieved official responses and prepared lakehouse contents are not committed to Git. They live in ignored operator-local roots (`data/processed/lakehouse`) and reach the demo through deployment preparation. This is team policy; organizer redistribution/retention (Q-DATA-03) remains open.
 - **Source retrieval:** Eray authorized bounded official BDDK retrieval for preparation (applied in M3-06, 2026-09-14) and the move to EVDS trusted metadata/ingestion; each live run stays bounded and recorded in its task. Organizer-level Q-DATA-01/Q-NET-01 remain open.
 - **Deferred for re-evaluation (resolved by [DEC-139](#dec-139--kullanılan-konut-kredisi-means-the-outstanding-balance), 2026-09-14):** the Turn 1 reading of "kullanılan toplam konut kredisi" (outstanding stock versus disbursement) and TP/YP/TOTAL presentation. The CPI index/base-year choice for Turn 2 is made from metadata evidence in the EVDS task and recorded there. A `dev -> main` promotion before 20 September is to be scheduled; it is not authorized here.
-- Consequences: [ROADMAP](ROADMAP.md#ordered-next-safe-tasks) reorders its priority table; [OPEN_QUESTIONS](OPEN_QUESTIONS.md#q-team-06--vector-cacheindex-implementation) Q-TEAM-06 is answered. DEC-135's planner/harness roles, DEC-136/137 preparation architecture and the M5-21/M8-21/M12-08 protections are unchanged.
+- Consequences: [ROADMAP](ROADMAP.md#ordered-next-safe-tasks) reorders its priority table; [OPEN_QUESTIONS](HISTORY.md#q-team-06--vector-cacheindex-implementation) Q-TEAM-06 is answered. DEC-135's planner/harness roles, DEC-136/137 preparation architecture and the M5-21/M8-21/M12-08 protections are unchanged.
 
 ### DEC-139 — "Kullanılan konut kredisi" means the outstanding balance
 
