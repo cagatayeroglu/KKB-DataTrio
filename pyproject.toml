@@ -16,6 +16,8 @@ dependencies = [
   "duckdb>=1.1,<2",
   "pandas>=2.2,<3",
   "pyarrow>=17,<22",
+  # Local catalog vectors only, separate from the financial lakehouse (DEC-138).
+  "lancedb==0.38.0",
   # Bulk reading of spreadsheets this project retrieved itself (DEC-114).
   "python-calamine>=0.2,<1",
   # Repairing malformed model JSON when the platform has no structured output

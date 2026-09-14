@@ -519,7 +519,7 @@ Mandatory HYBRID baseline: one Turkish normalizer shared by query/index paths, r
 
 #### Intended catalog vector-search boundary (not implemented)
 
-The final dense architecture includes a separate logical **vector DB / vector index layer** for catalog embeddings. It stores/indexes/searches discovery representations; it is not the lakehouse and cannot hold official financial observation values. No vector index or dense retrieval path is implemented today. [DEC-138](DECISIONS.md#dec-138--handback-priorities-lancedb-catalog-index-and-no-prepared-data-in-git) selects **LanceDB** as the catalog vector index (embedded, no separate vector service); the implementing M13-05 task adds the dependency. PostgreSQL/pgvector requires a later decision justifying a separate PostgreSQL service.
+The final dense architecture includes a separate logical **vector DB / vector index layer** for catalog embeddings. The bounded [M13-05 local index](CATALOG_INDEX.md) now persists reviewed representations and supplied vectors in pinned LanceDB 0.38.0, validates snapshot/text/model/input-policy bindings and searches exact cosine over explicit eligible IDs. It contains no financial observations and opens no model/network route. Its real-engine tests use labelled fixture vectors; confirmed live embedding policy, hybrid composition/evaluation and bounded planner consumption remain unfinished. [DEC-138](DECISIONS.md#dec-138--handback-priorities-lancedb-catalog-index-and-no-prepared-data-in-git) selects this embedded index; no separate vector service is needed. PostgreSQL/pgvector requires a later decision justifying a separate PostgreSQL service.
 
 | Conceptual vector record | Purpose |
 | --- | --- |
