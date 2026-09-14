@@ -128,6 +128,12 @@ def render_result(result: AnalyticalResult) -> str:
     figure it computed itself is exactly what the gate has to reject.
     """
     lines = [f"Analysis result ({result.kind.value}, tool {result.tool}):"]
+    names = result.parameters.get("series_names")
+    if isinstance(names, dict):
+        # Reviewed code constants set by the producing tool, not source text.
+        for series_id, name in names.items():
+            if isinstance(name, str):
+                lines.append(f"Series {series_id} means: {name}")
     quotation = literal_text(result)
     if quotation is not None:
         lines.append(

@@ -22,17 +22,30 @@ rather than percent for a rate — comes from
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from datetime import date
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
 from kkb_agent.agent.registry import ToolSpec
 from kkb_agent.analytics import compare_periods
-from kkb_agent.core import Aggregation, CumulativeKind, Frequency, ResultStatus, Scale, StockFlow
+from kkb_agent.analytics.comovement import co_movement
+from kkb_agent.core import (
+    Aggregation,
+    AnalyticalResult,
+    CumulativeKind,
+    Frequency,
+    ResultKind,
+    ResultStatus,
+    Scale,
+    StockFlow,
+    TransformationRecord,
+)
 from kkb_agent.core import WeeklyAnchor as Anchor
+from kkb_agent.lakehouse.alignment import AlignmentError, WeekAssignment, to_monthly
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.lakehouse.records import Observation
 from kkb_agent.lakehouse.result_evidence import _record_execution, canonical
@@ -52,22 +65,58 @@ class SeriesUnknown(ValueError):
 class ChangeDetectionArguments(BaseModel):
     """What the planner may ask for.
 
-    `operation` exists with one member on purpose. It tells the planner what
-    this tool currently does, and it is where breakpoint detection joins once
-    M6-05/06 gives it a method — rather than being implied by the tool's name
-    and then failing.
+    `operation` names what the tool does rather than letting its name imply
+    more. Breakpoint detection joins here once it has a method (M6-05/06).
+    `co_movement` (M6-25) compares month-over-month directions of two series;
+    reducing a weekly series onto months is a policy the planner states.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    operation: Literal["compare"] = Field(
-        description="compare: the level change between two published periods"
+    operation: Literal["compare", "co_movement"] = Field(
+        description=(
+            "compare: the level change of series_id between two published periods. "
+            "co_movement: monthly levels and month-over-month changes of series_id (target) "
+            "and driver_series_id over the window, and the months in which the driver fell "
+            "while the target did not rise"
+        )
     )
-    series_id: str = Field(min_length=1, max_length=200)
+    series_id: str = Field(min_length=1, max_length=200, description="compare series or target")
     start: date = Field(
-        description="Period end date of the first observation, exactly as published"
+        description=(
+            "compare: period end of the first observation, exactly as published. "
+            "co_movement: first day of the window"
+        )
     )
-    end: date = Field(description="Period end date of the second observation, exactly as published")
+    end: date = Field(
+        description=(
+            "compare: period end of the second observation, exactly as published. "
+            "co_movement: last day of the window"
+        )
+    )
+    driver_series_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=200,
+        description="co_movement only: the series whose falls are examined, such as a rate",
+    )
+    week_assignment: Literal["by_end", "by_majority"] | None = Field(
+        default=None,
+        description=(
+            "co_movement only, required when either series is weekly: by_end assigns a week "
+            "to the month its period ends in; by_majority to the month holding most of its days"
+        ),
+    )
+
+    @model_validator(mode="after")
+    def operation_fields(self) -> Self:
+        if self.operation == "compare" and (
+            self.driver_series_id is not None or self.week_assignment is not None
+        ):
+            raise ValueError("compare takes no driver_series_id or week_assignment")
+        if self.operation == "co_movement" and self.driver_series_id is None:
+            raise ValueError("co_movement needs driver_series_id")
+        return self
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,16 +189,32 @@ def read_series(connection: DuckDBPyConnection, series_id: str) -> _Series:
 
 
 def make_change_detection_tool(
-    connection: DuckDBPyConnection, *, lineage: Lineage | None = None
+    connection: DuckDBPyConnection,
+    *,
+    lineage: Lineage | None = None,
+    series_names: Mapping[str, str] | None = None,
 ) -> ToolSpec:
     """Bind the tool to one database. The registry holds the closure, not the data.
 
-    When a `lineage` is supplied, each computed comparison is recorded as a
+    When a `lineage` is supplied, each computed result is recorded as a
     transform node and the result's evidence points at it, so the verifier can
-    resolve the reference rather than take it on trust. A comparison that
+    resolve the reference rather than take it on trust. A result that
     established nothing records no node: provenance for a non-result would be
     a link to nothing.
+
+    `series_names` are reviewed display names (see ingest.prepared_series) shown
+    to the planner so it can name a prepared series it cannot otherwise guess.
     """
+    names = dict(series_names or {})
+
+    def failure(error: SeriesUnknown) -> ToolResult:
+        return ToolResult(
+            ToolStatus.FAILURE,
+            step_id="",
+            tool="change_detection",
+            error_category="series_unknown",
+            warnings=(str(error),),
+        )
 
     def run(arguments: BaseModel, context: ExecutionContext) -> ToolResult:
         # The registry parses arguments before dispatch, so this is a contract
@@ -158,23 +223,27 @@ def make_change_detection_tool(
             raise TypeError("change_detection received arguments it did not declare")
         try:
             series = read_series(connection, arguments.series_id)
-        except SeriesUnknown as error:
-            return ToolResult(
-                ToolStatus.FAILURE,
-                step_id="",
-                tool="change_detection",
-                error_category="series_unknown",
-                warnings=(str(error),),
+            driver = (
+                read_series(connection, arguments.driver_series_id)
+                if arguments.driver_series_id is not None
+                else None
             )
+        except SeriesUnknown as error:
+            return failure(error)
 
-        result = compare_periods(
-            series.observations,
-            series.semantics,
-            start=arguments.start,
-            end=arguments.end,
-            series_id=arguments.series_id,
-            input_refs=INPUTS,
-        )
+        if driver is None:
+            result = compare_periods(
+                series.observations,
+                series.semantics,
+                start=arguments.start,
+                end=arguments.end,
+                series_id=arguments.series_id,
+                input_refs=INPUTS,
+            )
+            inputs = [series.snapshot]
+        else:
+            result = _co_movement(arguments, series, driver, names)
+            inputs = [series.snapshot, driver.snapshot]
         node = _record(lineage, arguments, result.status)
         if node is not None and result.evidence is not None:
             result = result.model_copy(
@@ -185,7 +254,7 @@ def make_change_detection_tool(
             connection,
             producer="change_detection",
             arguments=arguments.model_dump_json(),
-            inputs=[series.snapshot],
+            inputs=inputs,
             result=result,
         )
 
@@ -203,17 +272,101 @@ def make_change_detection_tool(
             evidence=node,
         )
 
+    description = (
+        "compare: a registered series between two published period-end dates, returning "
+        "both levels, the absolute change in the series' own unit — or in points for a rate "
+        "or index — and the relative change when its base admits one. co_movement: over a "
+        "window, monthly levels and month-over-month changes of a target and a driver series "
+        "(a weekly series is reduced onto months with its declared aggregation and the stated "
+        "week_assignment), plus the months in which the driver fell while the target did not "
+        "rise; values are nominal and co-movement is not causation. Breakpoint and trend-break "
+        "detection are not available yet."
+    )
+    if names:
+        description += " Prepared series (series_id: meaning): " + "; ".join(
+            f"{sid}: {name}" for sid, name in names.items()
+        )
     return ToolSpec(
         name="change_detection",
-        description=(
-            "Compare a registered series between two published period-end dates. "
-            "Returns both levels, the absolute change in the series' own unit — or in "
-            "points for a rate or index — and the relative change when its base admits "
-            "one. Dates must match published periods exactly. Breakpoint and trend-break "
-            "detection are not available yet."
-        ),
+        description=description,
         arguments=ChangeDetectionArguments,
         run=run,
+    )
+
+
+def _monthly(
+    series: _Series, series_id: str, arguments: ChangeDetectionArguments
+) -> tuple[tuple[Observation, ...], SeriesSemantics, str, list[TransformationRecord]] | str:
+    """The series on months, with its reduction recorded, or why that is refused."""
+    semantics = series.semantics
+    if semantics.frequency is not Frequency.WEEKLY:
+        return series.observations, semantics, series_id, []
+    if arguments.week_assignment is None:
+        return f"{series_id} is weekly; state week_assignment to reduce it onto months"
+    try:
+        alignment = to_monthly(
+            series.observations,
+            requested_start=arguments.start,
+            requested_end=arguments.end,
+            frequency=semantics.frequency,
+            aggregation=semantics.aggregation,
+            anchor=semantics.anchor,
+            assignment=WeekAssignment(arguments.week_assignment),
+        )
+    except AlignmentError as error:
+        return f"{series_id} cannot be reduced onto months: {error}"
+    incomplete = set(alignment.incomplete_periods())
+    label = f"{series_id} monthly {semantics.aggregation.value} ({arguments.week_assignment})"
+    record = TransformationRecord(
+        operation="align_weekly_to_monthly",
+        parameters={**alignment.method, "incomplete_months_excluded": len(incomplete)},
+        input_refs=[series_id],
+        output_ref=label,
+    )
+    kept = tuple(item for item in alignment.observations if item.period_end not in incomplete)
+    monthly = replace(semantics, frequency=Frequency.MONTHLY, anchor=None)
+    return kept, monthly, label, [record]
+
+
+def _co_movement(
+    arguments: ChangeDetectionArguments,
+    target: _Series,
+    driver: _Series,
+    names: Mapping[str, str],
+) -> AnalyticalResult:
+    driver_id = arguments.driver_series_id or ""
+    prepared = []
+    for series, series_id in ((target, arguments.series_id), (driver, driver_id)):
+        monthly = _monthly(series, series_id, arguments)
+        if isinstance(monthly, str):
+            return AnalyticalResult(
+                result_id=f"co_movement:{driver_id}:{arguments.series_id}",
+                kind=ResultKind.COMPARISON,
+                status=ResultStatus.ABSTAINED,
+                tool="analytics",
+                method="monthly-direction-v1",
+                reason=monthly,
+            )
+        prepared.append(monthly)
+    (target_obs, target_sem, target_label, target_steps) = prepared[0]
+    (driver_obs, driver_sem, driver_label, driver_steps) = prepared[1]
+    return co_movement(
+        driver_obs,
+        driver_sem,
+        target_obs,
+        target_sem,
+        start=arguments.start,
+        end=arguments.end,
+        driver_label=driver_label,
+        target_label=target_label,
+        input_refs=INPUTS,
+        transformations=[*target_steps, *driver_steps],
+        parameters={
+            "week_assignment": arguments.week_assignment,
+            "series_names": {
+                sid: names[sid] for sid in (arguments.series_id, driver_id) if sid in names
+            },
+        },
     )
 
 
@@ -222,14 +375,16 @@ def _record(
 ) -> str | None:
     if lineage is None or status is not ResultStatus.COMPUTED:
         return None
+    attributes = {
+        "series": arguments.series_id,
+        "from": arguments.start.isoformat(),
+        "to": arguments.end.isoformat(),
+        "operation": arguments.operation,
+        "provenance": "series-level; the compared endpoints are named in the result",
+    }
+    if arguments.operation == "co_movement":
+        attributes["driver"] = arguments.driver_series_id or ""
+        attributes["week_assignment"] = arguments.week_assignment or ""
     return lineage.record(
-        NodeKind.TRANSFORM,
-        "change_detection_compare",
-        attributes={
-            "series": arguments.series_id,
-            "from": arguments.start.isoformat(),
-            "to": arguments.end.isoformat(),
-            "operation": arguments.operation,
-            "provenance": "series-level; the compared endpoints are named in the result",
-        },
+        NodeKind.TRANSFORM, f"change_detection_{arguments.operation}", attributes=attributes
     )
