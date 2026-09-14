@@ -267,7 +267,7 @@ CURRENTLY IMPLEMENTED: [ToolSpec / ToolRegistry](../src/kkb_agent/agent/registry
 
 ### Approved tool surface
 
-[DEC-135](DECISIONS.md#dec-135--planner-actions-and-mandatory-correctness-harness) supersedes DEC-133’s planner-callable portion with the eight-tool target below. Seven factories are implemented; `table_transform` is planned. Each Session sees only explicitly registered implementations. No runtime allowlist or registration changes are made by this decision.
+[DEC-135](DECISIONS.md#dec-135--planner-actions-and-mandatory-correctness-harness) supersedes DEC-133’s planner-callable portion with the eight-tool target below. All eight factories are implemented; `table_transform` exposes only its delivered `deflate` operation (M5-20). Each Session sees only explicitly registered implementations. No runtime allowlist or registration changes are made by this decision.
 
 | Tool | Status | Delivered scope or planned responsibility |
 | --- | --- | --- |
@@ -276,9 +276,9 @@ CURRENTLY IMPLEMENTED: [ToolSpec / ToolRegistry](../src/kkb_agent/agent/registry
 | `web_url` | IMPLEMENTED, bounded scope | Guarded CSV/XLSX/PDF/static HTML and exact-cell evidence; bounded offline OCR fallback; no browser/JS or general image-address extraction |
 | `anomaly` | IMPLEMENTED, bounded scope | Existing deterministic method subset; not every anomaly technique |
 | `causality` | IMPLEMENTED, bounded scope | Association, lag and Granger precedence with stated limits; not causal identification |
-| `change_detection` | PARTIAL | Callable period `compare`; breakpoint/trend-break methods remain absent |
+| `change_detection` | PARTIAL | Period `compare` and monthly `co_movement` (M6-25, organizer Turn 1); breakpoint/trend-break methods remain absent |
 | `catalog_search` | OFFLINE IMPLEMENTED | Natural-language query to bounded ranked trusted CatalogRecord candidates; M13-04 |
-| `table_transform` | PLANNED | Explicit deterministic operations on trusted references, preserving existing columns/state/lineage; M5-20 |
+| `table_transform` | PARTIAL | `deflate` over a published workspace result, preserving every value and adding one real column (M5-20/M2-15, organizer Turn 2); add_series/rebase/align/filter not exposed |
 
 Every additional tool must define closed typed input and output contracts before registration. Query/filter/candidate limits reuse existing metadata enums; unknown or unavailable fields remain explicit. Candidate IDs, labels, unit/scale, frequency, stock/flow/cumulative kind, archive state and aggregation/coverage declarations come from trusted catalog state. Concept families and observation-kind metadata may be returned only when represented by reviewed source-backed contracts; retrieval must not manufacture them. Multiple plausible candidates remain multiple candidates, not a silently authoritative top-1.
 
