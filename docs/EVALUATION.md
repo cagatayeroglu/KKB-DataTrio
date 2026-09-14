@@ -13,11 +13,13 @@ This file defines what correctness means and how to measure it. [ROADMAP M9](ROA
 
 Implementation boundary: merged unit tests exercise ingestion, semantics, lakehouse, planning, workspace definitions and numeric matching. [ROADMAP Current Project Status](ROADMAP.md#current-project-status) owns their revisions/results. They are not a benchmark scorecard. The Day 0 `evaluation/models.py`, case JSON and schema-test drafts are preserved in a local stash, not delivered or currently untracked files in dev. No executing benchmark runner, benchmark numerical-oracle schema, scorecard generator or eval Make target exists. This docs task runs document checks only.
 
-## Current acceptance boundary (2026-09-14)
+## Acceptance scope and evidence navigation
 
 The [historical handoff](https://github.com/cagatayeroglu/KKB-DataTrio/blob/1578b7ce0d20566784dba49d984b940424847721/docs/HANDOFF_ARDA_2026-09-14.md) records two-turn live Kloudeks acceptance and scripted three-turn/browser rehearsal, not full live Qwen three-turn acceptance or repeated-run reliability. The recorded 29-series / 4,124-observation pool and Bronze evidence are operator-local, absent from fresh Git checkout and not repository-reproducible as an identical snapshot today. Local LanceDB/hybrid fixture tests do not establish semantic retrieval quality; default prepared API retrieval has no real Qwen embedding injection. Prepared metadata inspection is mandatory/auto-wired, while broader quality/reconciliation remain unfinished. Dated run records below retain their original evidence and limitations.
 
-Under [DEC-141](DECISIONS.md#dec-141-organizer-verbal-criteria), acceptance must also exercise a smaller allowed open-weight model with the same custom deterministic harness and preservation of untouched columns/history. For reuse, add a new supported financial source / dataset / schema through reviewed catalog metadata and adapter/policy configuration without rewriting the core lakehouse, workspace, execution, lineage, verifier or API architecture; cross-domain/healthcare acceptance is not required. Add the specific state case: select an older UI result, ask “bu tablo” to transform/add a column, and verify the exact owned result/version used; include stale/unowned rejection and failed-turn preservation. Current UI selection is display-only and does not transmit that reference. These are required future checks, not passing tests or invented organizer scoring weights.
+Under [DEC-141](DECISIONS.md#dec-141-organizer-verbal-criteria), acceptance must also exercise a smaller allowed open-weight model with the same custom deterministic harness and preservation of untouched columns/history. For reuse, add a new supported financial source / dataset / schema through reviewed catalog metadata and adapter/policy configuration without rewriting the core lakehouse, workspace, execution, lineage, verifier or API architecture; cross-domain/healthcare acceptance is not required. Add the specific state case: select an older UI result, ask “bu tablo” to transform/add a column, and verify the exact owned result/version used; include stale/unowned rejection and failed-turn preservation. The selected-result client/API/runtime path and synthetic browser cases were delivered in #166; see the [2026-09-15 record](#m10-18-browser-selection-2026-09-15). Live Kloudeks selected-table acceptance and smaller-model/financial-source reuse acceptance remain separate unrecorded checks, not invented organizer scoring weights.
+
+Dated run records below describe their recorded revision. Their “remaining” or “not implemented” statements are historical, even where later work closed the gap; current completion belongs to ROADMAP.
 
 ## Prepared official-data and runtime acceptance
 
@@ -395,13 +397,13 @@ Synthetic inline HTML and fake fetch/provider fixtures cover Turkish UTF-8/BOM, 
 
 ### M10-01 operator specification
 
-[OPERATOR_FLOW](OPERATOR_FLOW.md) defines the operator happy path, abstention, tool/source failure, follow-up and reset limitations. Acceptance here is document/code-contract review, not a UI rehearsal or API test. Its final section enumerates offline API/session/table/proof/SSE security tests for the later runtime implementation. Existing session, verifier and lineage regressions support backend facts only; no app/health/HTTP/SSE surface is claimed.
+[OPERATOR_FLOW](ARCHITECTURE.md#operator_flow-m10-01--operator-flow-and-api-boundary-requirements) defines the operator happy path, abstention, tool/source failure, follow-up and reset limitations. Acceptance here is document/code-contract review, not a UI rehearsal or API test. Its final section enumerates offline API/session/table/proof/SSE security tests for the later runtime implementation. Existing session, verifier and lineage regressions support backend facts only; no app/health/HTTP/SSE surface is claimed.
 
 <a id="catalog-tool-acceptance-dec-133"></a>
 
 ## Catalog tool acceptance (DEC-133 delivery; DEC-135 current boundary)
 
-M13-04 implements offline `catalog_search`; [its contract](CATALOG_SEARCH.md) and `tests/unit/test_catalog_search.py` cover the development checks below. Reuse M13 cases and reviewed catalog/alias versions rather than inventing live source IDs. Before delivery cover exact aliases and shared Turkish/punctuation/case normalization; multiple plausible candidates; source/frequency/archive filtering (archive excluded by policy); stable IDs and explicit unknowns; preserved stock/flow and rate/amount distinctions; deterministic ordering/caps; empty query, no-match and no fabricated records. Catalog injection-looking text remains inert. Reject unknown arguments and planned/unknown tools, expose only registered implementations, and regress the existing base tools. Offline synthetic test records must be labelled synthetic and never promoted to a trusted runtime catalog.
+M13-04 implements offline `catalog_search`; [its contract](CATALOG.md) and `tests/unit/test_catalog_search.py` cover the development checks below. Reuse M13 cases and reviewed catalog/alias versions rather than inventing live source IDs. Before delivery cover exact aliases and shared Turkish/punctuation/case normalization; multiple plausible candidates; source/frequency/archive filtering (archive excluded by policy); stable IDs and explicit unknowns; preserved stock/flow and rate/amount distinctions; deterministic ordering/caps; empty query, no-match and no fabricated records. Catalog injection-looking text remains inert. Reject unknown arguments and planned/unknown tools, expose only registered implementations, and regress the existing base tools. Offline synthetic test records must be labelled synthetic and never promoted to a trusted runtime catalog.
 
 Measure lexical-only, dense-only and combined retrieval under DEC-130 separately; an offline lexical stage is not hybrid acceptance. Validate dimension/config if dense is used. No live access is required or authorized by these tests. Future table_transform acceptance must preserve mandatory semantics, security, lineage and verification. DEC-135 harness acceptance must separately prove that selected financial series cannot bypass metadata inspection, retrieved observations cannot become analysis-ready before quality checks, and comparable multi-source measures trigger bounded reconciliation outside LLM discretion. Preserve unknowns, reject invented equivalence, and test all reconciliation states. These automatic integrations and their acceptance tests remain future M13-13/M1-12/M8-09 work, not delivered by M13-04. These tests claim offline lexical tool validation, not a benchmark score, full hybrid delivery or future-tool implementation.
 
@@ -411,7 +413,7 @@ Measure lexical-only, dense-only and combined retrieval under DEC-130 separately
 
 ### M13-08 reviewed mapping development checks
 
-The [demo mapping artifact](CATALOG_MAPPING.md) is development/reference material, not M13-09 holdout. Its tests pin repository-supported real IDs, content/evidence hashes, exact alias unions, ambiguity, unresolved source groups/selectors, archived/unknown distinctions, native frequency/rate basis, family exclusions and deterministic loading. No synthetic record becomes a reviewed real candidate; no recall/benchmark score or live-source acceptance is claimed. Teammate-authored held-out queries and independent adjudication remain separate M13-09 work.
+The [demo mapping artifact](CATALOG.md#catalog_mapping-m13-08--reviewed-offline-demo-catalog-mapping) is development/reference material, not M13-09 holdout. Its tests pin repository-supported real IDs, content/evidence hashes, exact alias unions, ambiguity, unresolved source groups/selectors, archived/unknown distinctions, native frequency/rate basis, family exclusions and deterministic loading. No synthetic record becomes a reviewed real candidate; no recall/benchmark score or live-source acceptance is claimed. Teammate-authored held-out queries and independent adjudication remain separate M13-09 work.
 
 
 ## M0-10 Windows takeover validation (2026-09-14)
@@ -500,7 +502,7 @@ calls and do not establish semantic Recall@k, full-source scale or live quality.
 Pinned LanceDB 0.38.0 passed dependency compatibility (`pip check`). The 17-package
 runtime closure audit reported only existing PyArrow 21.0.0 advisory
 CVE-2026-25087 / PYSEC-2026-113, duplicated in the audit response. The raw result
-is nonzero. [The applicability review](CATALOG_INDEX.md#validation-and-dependency-review)
+is nonzero. [The applicability review](EVALUATION.md#catalog_index-validation-and-dependency-review)
 uses upstream evidence that C++ IPC pre-buffering is unavailable to Python;
 this implementation enables no such path. No audit suppression was introduced.
 Real embedding policy, hybrid candidate composition/evaluation and planner
@@ -521,7 +523,7 @@ degradation and absence of analytical evidence. Fixture provenance stays visible
 The alternating-archive-tier-v1 candidate baseline is executable through explicit
 operator injection; it does not establish real Qwen retrieval quality, held-out
 Recall@k, all-source coverage, live input policy or planner replanning. Parent
-M13-05 remains incomplete. See [the contract](CATALOG_SEARCH.md).
+M13-05 remains incomplete. See [the contract](CATALOG.md).
 
 ### M5-06/M5-13 catalog continuation (2026-09-14)
 
@@ -540,7 +542,7 @@ merged system message. Negative tests cover no-work clarification, mixed phases,
 repeated discovery, web escalation/injection, bad or oversized typed feedback,
 fresh IDs, forbidden discovery dependencies, shared steps/repairs, tool failures
 and trace binding. These prove integration mechanics, not live model reasoning
-or semantic-selection accuracy. See [the contract](CATALOG_CONTINUATION.md).
+or semantic-selection accuracy. See [the contract](CATALOG.md).
 
 ### M13-13 prepared-series inspection (2026-09-14)
 
@@ -562,7 +564,7 @@ match, all three results publish, and no verifier faults occur. The original
 80 files remain unchanged. This establishes deterministic integration, not live
 reasoning reliability, source truth attestation or causation. Broader M13-13,
 quality/reconciliation and history staleness remain incomplete. See
-[SERIES_INSPECTION](SERIES_INSPECTION.md) for the exact mode boundary.
+[SERIES_INSPECTION](ARCHITECTURE.md#series_inspection-prepared-series-metadata-inspection) for the exact mode boundary.
 
 ### M10-16 local API contract (2026-09-14)
 
@@ -581,7 +583,7 @@ The HTTP tests retain exact values from a real Session/gate over synthetic
 DuckDB inputs, not model-generated presentation numbers. This establishes the
 local contract only: prepared runtime startup, full plan/tool callbacks, bounded
 public proof graph, frontend and deployed/authenticated multi-user service
-remain incomplete. See [LOCAL_API](LOCAL_API.md).
+remain incomplete. See [LOCAL_API](ARCHITECTURE.md#local_api-m10-16--version-one-local-api-and-owned-results).
 
 ### M10-17 prepared API runtime (2026-09-14)
 
@@ -608,7 +610,7 @@ and credential-redaction cases are covered. Repeated identical numeric claims
 across distinct result identities can still abstain under the existing gate;
 the API preserves that limit. No live model/source call, ingestion expansion,
 frontend, proof graph or production deployment is claimed. See
-[PREPARED_API](PREPARED_API.md) for startup and remaining limits.
+[PREPARED_API](OPERATIONS.md#prepared_api-m10-17--run-the-api-over-a-prepared-local-pool) for startup and remaining limits.
 
 
 ## M3-08 expanded EVDS preparation — 2026-09-14
@@ -691,7 +693,7 @@ remain unchanged. The existing byte-evidence regression now passes on the
 integrated checkout; the earlier 3271-pass report above was before Git normalized
 those bytes and is not a claim that the original merged r3 passed fresh checkout.
 
-Startup/recovery instructions and remaining scope: [LOCAL_CLIENT](LOCAL_CLIENT.md).
+Startup/recovery instructions and remaining scope: [LOCAL_CLIENT](OPERATIONS.md#local_client-datatrio-local-analysis-workspace).
 Live three-turn browser acceptance, charts/export, upload/refresh, full proof,
 detailed tool progress, writable settings and deployment remain outstanding.
 
@@ -728,7 +730,7 @@ The earlier browser-approval timeout was resolved. Production Next client from
 `3ffc53b` / handoff `c8d1318`, real PreparedRunner/AnalysisService and deterministic
 tools ran with the finite synthetic pool (two series, six observations, fifteen
 catalog candidates). No application code changed for this acceptance. The
-[repeatable sequence](LOCAL_CLIENT.md#repeat-the-finite-synthetic-selection-rehearsal)
+[repeatable sequence](OPERATIONS.md#local_client-repeat-the-finite-synthetic-selection-rehearsal)
 and its test-only fault wrapper are now retained in the repository.
 
 Observed through browser interactions:
@@ -759,3 +761,512 @@ not live Kloudeks planning, arbitrary queries, real-data semantics or complete
 accessibility coverage. No live model/source calls or merge were performed.
 Both temporary servers were stopped after the rehearsal. Full proof UI and
 legacy/official-refresh dependency coverage remain incomplete.
+
+
+<a id="catalog-validation-records"></a>
+
+# Catalog validation records
+
+Historical delivery records migrated from technical references. Test counts,
+package versions, findings and pending integration statements are as recorded at
+the original delivery, not a new run or current task selection.
+
+
+<a id="catalog_search-m13-04--offline-reviewed-catalog-search"></a>
+
+## Historical delivery scope — M13-04 — Offline reviewed catalog search
+
+`catalog_search` discovers bounded candidates, not observation values or verified
+analytical claims. It uses the [M13-08 reviewed snapshot](CATALOG.md#catalog_mapping-m13-08--reviewed-offline-demo-catalog-mapping) and
+shared Turkish normalizer. Delivered under DEC-133 and retained by DEC-135, this is
+the authoritative lexical/reviewed baseline for the bounded offline demo scope;
+full hybrid acceptance still needs M13-05 dense retrieval and evaluation.
+
+The separate [local LanceDB index](CATALOG.md) implements validated vector
+persistence and exact search over eligible IDs. The existing factory now accepts
+an optional operator-injected `CatalogDenseStage` for combined candidate retrieval.
+Without it, lexical-only behavior remains. Configured stages run both methods
+when reviewed eligibility is nonempty, even after lexical success. This is tested
+with fixture vectors; live policy and semantic quality remain separate work.
+The opt-in [bounded catalog continuation](CATALOG.md) now lets a
+planner consume these candidate results as data before one analysis/clarification
+plan. Default one-plan sessions retain their previous behavior.
+
+
+<a id="catalog_search-fts-review-and-scope"></a>
+
+## Historical M13-04 — FTS review and scope
+
+At implementation, local DuckDB 1.5.5 had no installed FTS extension. Even its
+extension inventory requires filesystem access refused by the hardened lakehouse
+connection. No INSTALL/LOAD/autoload or download was attempted. M13-04 uses a
+bounded in-memory Python BM25 calculation over this small reviewed corpus instead
+of requiring an extension or a separate index connection. This is a task-local
+lexical implementation, not a change to the DEC-112 analytical engine. No new
+dependency is needed. Lakehouse external-access/extension restrictions remain
+unchanged. A larger corpus/index change needs its own measured task review.
+
+
+<a id="catalog_search-validation-and-handoff"></a>
+
+## Historical M13-04 — Validation and handoff
+
+**Historical M13-04 delivery evidence:** the following record describes the original lexical-tool handoff, before the later transform and prepared-inspection deliveries. Its absence/prerequisite statements are historical, not current prepared-path status.
+
+`tests/unit/test_catalog_search.py` covers aliases/normalization, specificity,
+ambiguity/caps, source/frequency/archive filtering, preserved metadata/families,
+unknown/unresolved cases, ranking/order/serialization, content identity and
+holdout rejection, inert labels, output-mutation isolation, closed arguments,
+planner discovery and seven coexisting factories. Scripted Session tests verify
+catalog metadata cannot produce an analytical claim or enter the writer as
+verified evidence. Existing six-tool/agent regressions remain required.
+
+These development cases are not M13-09 holdout or Recall@5/10 evidence. No live
+source/model/search request, embedding, RRF/reranking, table_transform or new
+automatic inspection/quality/reconciliation harness integration is implemented. Actual delivery/merge evidence belongs to
+[ROADMAP](ROADMAP.md#m13). M13-13 mandatory inspection still needs its trusted-ID lookup/usable-metadata
+contract review before being claimed; M13-05 retains its transport/configuration
+prerequisites.
+
+**Current prepared-path status:** deterministic monthly `deflate`, `add_series` and table co-movement are implemented. Configured prepared metadata inspection is mandatory and auto-wired; broader inspection, quality and reconciliation remain incomplete. This is a bounded transform slice, not a fully general `table_transform` framework. [ROADMAP](ROADMAP.md#m13) records current delivery evidence.
+
+
+<a id="catalog_index-m13-05--local-catalog-vector-index"></a>
+
+## Historical delivery scope — M13-05 — Local catalog vector index
+
+This is the bounded offline storage/search slice selected by DEC-138. It uses
+LanceDB **0.38.0**, an exact pinned runtime dependency, and the current reviewed
+catalog contract (at most 40 records, 4096-dimensional vectors). It is not a
+full-source catalog, live Qwen quality result or completed hybrid pipeline.
+
+
+<a id="catalog_index-validation-and-dependency-review"></a>
+
+## Historical M13-05 — Validation and dependency review
+
+`tests/unit/test_catalog_index.py` runs real LanceDB with labelled fixture
+vectors: persistence/reopen, independent cosine oracle, stable ties,
+prefilter-before-top-k, empty/unknown IDs, policy/origin mismatch, invalid vectors,
+existing-root preservation and failed publication. This is separate from M13-09
+held-out semantic quality. No model or official-source request was made.
+
+The installed 17-package runtime dependency closure passed `pip check`.
+Targeted `pip-audit` on 2026-09-14 reported one unique existing PyArrow 21.0.0
+advisory twice: **CVE-2026-25087 / PYSEC-2026-113**. The raw audit exits nonzero;
+it is not a clean scan. No advisory was reported for LanceDB 0.38.0 or its newly
+added packages. The [Apache release announcement](https://arrow.apache.org/blog/2026/02/16/23.0.1-release/)
+limits the issue to C++ IPC-file pre-buffering explicitly enabled through
+`RecordBatchFileReader::PreBufferMetadata`; the [advisory reproduced by GitHub](https://github.com/advisories/GHSA-rgxp-2hwp-jwgg)
+states that this is not exposed in Python bindings. This implementation uses
+Python Arrow table construction and Lance's local vector table, accepts no IPC
+upload and enables no such C++ API. On that evidence the report is not applicable
+to this Python path. The existing PyArrow range is unchanged; no audit suppression
+or gate weakening was added. A future C++/IPC integration needs reassessment;
+release-wide dependency upgrade/audit policy is a separate checkpoint.
+
+API behavior was checked against the installed pinned package and official
+[LanceDB vector search documentation](https://docs.lancedb.com/search/vector-search).
+Real embedding-policy confirmation, live index construction, hybrid-quality
+evaluation and bounded planner consumption remain next integration steps.
+
+
+<a id="catalog_continuation-bounded-catalog-to-analysis-continuation"></a>
+
+## Historical delivery scope — Bounded catalog-to-analysis continuation
+
+M5-06/M5-13 adds an explicitly enabled Session path:
+
+```text
+question -> validated catalog-only plan -> catalog_search
+         -> bounded candidate metadata as data
+         -> one validated analysis plan or typed clarification
+         -> existing tools -> writer/verifier -> accepted workspace publication
+```
+
+This connects discovery to planning. It does not make a rank or similarity
+score authoritative, add source fetching, or complete all selected-series
+inspection. The [prepared reader slice](ARCHITECTURE.md#series_inspection-prepared-series-metadata-inspection) now checks catalog/store
+metadata consistency whenever this rehearsal receives catalog bytes. Prepared-series and analytical tools retain their existing semantic,
+availability, provenance and numerical checks. Unavailable prepared data still
+cannot be silently fetched from the web.
+
+
+<a id="prepared-inspection-delivery-evidence"></a>
+
+## Prepared inspection delivery evidence
+
+The 42 focused inspection regressions plus 35 catalog-continuation tests passed
+(77 total / 15.64s locally). They cover required and optional unknowns, exact IDs,
+archive policy, all semantic mismatch classes, snapshot/output mutation, current
+metadata rereads, non-skippable producer/SQL behavior, receipt evidence and
+prepared-rehearsal injection without a prior discovery step.
+
+A read-only check of the existing **seven prepared series** found all declarations
+consistent with reviewed v2. It took 519.51ms including opening/closing DuckDB;
+all **80 prepared files** retained their hashes and no external call occurred.
+
+A separate three-turn run over a private copy of the real prepared pool, using
+scripted planning and these inspected producers, matched an independent Decimal
+oracle: 59 monthly transitions, 32 rate-decline months and 22 matching
+price-up/real-credit-nonrise months. It preserved 302 earlier values, checked all
+60 KFE values and published all three results without verifier faults; the
+original 80 files stayed unchanged. This is deterministic integration evidence,
+not live model reliability or causal proof.
+
+Wider source coverage, observation quality/reconciliation, natural-language
+ambiguity resolution, history staleness and live model/embedding evaluation are
+not completed by this slice. [ROADMAP](ROADMAP.md#current-project-status) and
+[EVALUATION](EVALUATION.md) retain those distinctions.
+
+
+<a id="prepared-api-delivery-and-pool-evidence"></a>
+
+## Prepared API delivery and pool evidence
+
+The original M10-17 local pool passed read-only readiness: **7 prepared identities,
+683 observations, 15 reviewed catalog identities, 80 files, 7,613,310 bytes**.
+Configuration is present and the approved endpoint is valid; no live request
+was used to establish this. A separate in-process HTTP rehearsal with scripted
+plans and the real public pool passes all three organizer turns. An independent
+Decimal oracle agrees on 59 transitions, 32 rate falls and 22 joint periods.
+All 302 previous values and 60 KFE values survive, and the original 80 files
+remain hash-identical. The largest response is 143,584 bytes. Readiness took
+717.15ms; scripted turns took 1,425.33 / 925.01 / 1,578.83ms. These are local
+pipeline timings, **not Qwen inference latency or live reasoning reliability**.
+
+The subsequent [EVDS expansion](EVDS_COVERAGE.md) prepares **29 identities and
+4,124 observations** with **37 catalog identities** in v3. Original seven-series
+values are retained; 3,926 EVDS observations additionally match raw decimal
+values in an independent read-back. The prepared pool is 8,520,172 bytes across
+124 files. These are local preparation/readiness checks, not a live-model test
+over the expanded universe. Use v3 for this pool; v2 remains a historical
+snapshot and correctly refuses the additional identities. Restart the API into
+a fresh state root when switching pools/catalogs; existing sessions keep their
+own snapshot and are not silently refreshed.
+
+One existing gate limitation remains visible: repeating a numerical calculation
+under a second identity and writing an unqualified identical number can abstain
+because multiple results match. The API preserves that refusal; it does not
+weaken numeric matching. A real add-series follow-up over synthetic inputs
+passes, retaining the previous publication and all original values.
+
+Live model acceptance still requires its explicit authorized rehearsal. Dense
+policy/quality, broader official coverage, public proof traversal, full stage
+progress, source input UI, remaining frontend features and deployment remain separate tasks.
+See [EVALUATION](EVALUATION.md) and [ROADMAP](ROADMAP.md) for final test/merge state.
+
+
+## Historical acceptance summary — 2026-09-14
+
+Historical context — not current implementation status. The following original summary predates #166; its display-only selection statement is retained as dated evidence.
+
+The [historical handoff](https://github.com/cagatayeroglu/KKB-DataTrio/blob/1578b7ce0d20566784dba49d984b940424847721/docs/HANDOFF_ARDA_2026-09-14.md) records two-turn live Kloudeks acceptance and scripted three-turn/browser rehearsal, not full live Qwen three-turn acceptance or repeated-run reliability. The recorded 29-series / 4,124-observation pool and Bronze evidence are operator-local, absent from fresh Git checkout and not repository-reproducible as an identical snapshot today. Local LanceDB/hybrid fixture tests do not establish semantic retrieval quality; default prepared API retrieval has no real Qwen embedding injection. Prepared metadata inspection is mandatory/auto-wired, while broader quality/reconciliation remain unfinished. Dated run records below retain their original evidence and limitations.
+
+Under [DEC-141](DECISIONS.md#dec-141-organizer-verbal-criteria), acceptance must also exercise a smaller allowed open-weight model with the same custom deterministic harness and preservation of untouched columns/history. For reuse, add a new supported financial source / dataset / schema through reviewed catalog metadata and adapter/policy configuration without rewriting the core lakehouse, workspace, execution, lineage, verifier or API architecture; cross-domain/healthcare acceptance is not required. Add the specific state case: select an older UI result, ask “bu tablo” to transform/add a column, and verify the exact owned result/version used; include stale/unowned rejection and failed-turn preservation. Current UI selection is display-only and does not transmit that reference. These are required future checks, not passing tests or invented organizer scoring weights.
+
+
+## Local API contracts
+
+Dated delivery/specification evidence migrated intact; historical “remaining” statements describe that slice, not current project status.
+
+<a id="local_api-dependencies-and-validation"></a>
+
+### Dependencies and validation
+
+FastAPI 0.141.1, Starlette 1.6.0 and Uvicorn 0.53.0 are pinned; no hosted service
+is added. `pip check` passes. Existing httpx 0.28.1 stays the Kloudeks transport.
+Two upstream test-client deprecations (httpx versus httpx2 and AnyIO
+BlockingPortal) remain visible; no production transport migration is implied.
+The app follows the primary [FastAPI lifecycle contract](https://fastapi.tiangolo.com/advanced/events/).
+
+Tests use a real Session/gate over synthetic DuckDB data and cover canonical
+publication, immutable cells, finite values, hostile HTTP, isolation, duplicate
+questions, busy/capacity rules, safe failures, SSE replay and shutdown. No live
+model/source request, deployment or live reasoning quality is claimed.
+[EVALUATION](EVALUATION.md) records the final gate.
+
+
+## Local client
+
+Dated delivery/specification evidence migrated intact; historical “remaining” statements describe that slice, not current project status.
+
+<a id="local_client-prova-versus-live-acceptance"></a>
+
+### Prova versus live acceptance
+
+The 2026-09-14 browser inspection used the real public prepared snapshot and a
+finite **scripted test provider** through the same Python API. The page states
+“Çevrimdışı prova — Canlı Qwen kullanılmıyor.” Three prescribed plans exercised
+comparison, deflation and adding KFE, producing 242, 302 and 368 published
+cells. This demonstrates client/API/tool integration and state preservation,
+not arbitrary-query model reasoning or live Kloudeks acceptance.
+
+The temporary developer rehearsal is not the production launcher or a fallback.
+It is unsuitable for arbitrary questions; the official CLI above uses Kloudeks
+only and requires explicit enablement. Live three-turn browser acceptance is
+still pending. No live model/embedding request was made for this UI validation.
+
+<a id="local_client-validation-and-remaining-work"></a>
+
+### Validation and remaining work
+
+From `web/`, `npm run check` runs formatting, strict TypeScript and the bounded
+bridge/session/canonical-table regression tests. `npm run build` verifies the
+production client. CI has a separate Node job; Python's Fast PR gate and secret
+scanner continue to cover the repository. Generated `node_modules` and `.next`
+trees are pruned, while authored JS/TS/configuration, lockfiles and `.env` paths
+remain in secret-scanner scope.
+
+This is an inspectable first client, not completion of all M10. Uploads, source
+refresh jobs, charts/export, full proof traversal, detailed tool-stage events,
+writable agent settings, server cancellation and hosted authentication remain
+separate tasks. Monthly/weekly/daily analytical support is owned by backend
+semantics and source frequency; the UI does not manufacture daily observations.
+See [ROADMAP](ROADMAP.md#m10-03-first-local-client-2026-09-14) for delivery evidence.
+
+<a id="local_client-m10-18-selection-continuation-2026-09-14-pr-166"></a>
+
+### M10-18 selection continuation (2026-09-14, PR #166)
+
+Merged PR #166 adds the client behavior above. Automated client/bridge tests and
+production build pass; see [the dated evaluation](EVALUATION.md#m10-18-client-selection-2026-09-14).
+On 2026-09-15 the selected-table browser scenarios passed using the production
+frontend and real Python prepared runtime over synthetic data: old selection
+through reload, uncertain-admission retry after reload, source preservation on
+abstention/rejection and free-question mode. See the [dated browser evidence](EVALUATION.md#m10-18-browser-selection-2026-09-15).
+Live Kloudeks acceptance, proof graph UI and broader refresh invalidation remain
+separate. PR #166 merged into dev at `de11f3e` after both CI gates passed
+for HEAD `09eb827`; its task branch was deleted.
+
+
+## Wider operator-flow target
+
+Dated delivery/specification evidence migrated intact; historical “remaining” statements describe that slice, not current project status.
+
+<a id="operator_flow-acceptance-of-this-specification-and-later-implementation"></a>
+
+### Acceptance of this specification and later implementation
+
+M10-01 is complete when the eight operator steps, current-vs-target boundary, error/follow-up/reset behavior and result/evidence responsibilities are documented against merged code. Review links and actual enum names; retain explicit unsupported features. Existing offline session/verifier/workspace/lineage/document suites can substantiate the described backend facts; they are not API tests.
+
+The later API acceptance must cover app/health/schema/serialization, two isolated sessions, invalid/unowned IDs, oversized input, accepted/qualified/abstained output, unknown semantics and literal values, stable versioned cells, deterministic bounded graph traversal with missing/unrelated evidence, read-only proof access, safe SSE and error redaction. Include sentinel credentials/query tokens/paths and ensure neither response nor stream exposes them. Reuse scripted providers/synthetic documents; no live calls are part of these gates.
+
+No full UI, app listener, endpoint, executable wire schema, proof adapter, authentication, deployment or UI rehearsal is delivered by M10-01. M10-03 is the next existing client task, but it cannot start until an executable agreed API contract exists; triage that missing API implementation scope separately rather than silently bundling it into operator specification or frontend scaffolding.
+
+
+## File admission
+
+Dated delivery/specification evidence migrated intact; historical “remaining” statements describe that slice, not current project status.
+
+<a id="file_admission-targeted-verification-and-next-integration"></a>
+
+### Targeted verification and next integration
+
+Run `PYTHONPATH=src python3.12 -m pytest -q tests/unit/test_ingestion_policy.py` and touched-file Ruff checks. Tests use small synthetic text/ZIP buffers, exact-limit/one-over cases, rejected-input instrumentation, ambiguous values preserved byte-for-byte, and temporary storage cleanup/permissions. They do not prove future loader/profile behavior.
+
+Since M1-02, DEC-112 selected the engine, and these guards are called by the CSV (M1-06), XLSX (M1-10) and PDF (M7-09) loaders; downloaded files reach the same path through `load_fetched` (M7-08). No loader produces the full M1-01 profile yet. [ROADMAP](ROADMAP.md#current-project-status) holds the current status.
+
+
+## Ingestion and profile specification
+
+Dated delivery/specification evidence migrated intact; historical “remaining” statements describe that slice, not current project status.
+
+<a id="ingestion_profile-review-acceptance-and-handoff"></a>
+
+### Review acceptance and handoff
+
+M1-01 review should verify every ROADMAP result field is specified, the example counts/ratios agree with the synthetic input, unknown semantics remain explicit, candidate ambiguity never silently transforms data, and accepted versus rejected/selection-required shapes are distinguishable. Review the reporting caps as proposed metadata limits; numerical file/parser limits remain M1-02 work.
+
+Merge of this specification did not enable loaders or validate stash-only interfaces, and made no framework, database, planner/routing architecture, live source adapter, or private-data retention decision. Since then, M1-02 admission, the CSV (M1-06), XLSX (M1-10) and PDF (M7-09) loaders and the engine choice (DEC-112) have been delivered or decided; no loader produces the full profile specified here yet. [ROADMAP](ROADMAP.md#current-project-status) holds the current status.
+
+
+## Prepared metadata inspection
+
+Dated delivery/specification evidence migrated intact; historical “remaining” statements describe that slice, not current project status.
+
+<a id="series_inspection-validation-and-limits"></a>
+
+### Validation and limits
+
+See the [dated evidence](EVALUATION.md#prepared-inspection-delivery-evidence) for exact tests, pool identities, timings and limitations. [ROADMAP](ROADMAP.md#current-project-status) owns delivery status.
+
+
+## PR #169 first-pass migration evidence
+
+Historical consolidation record at `c6e16f5`. Its file dispositions describe the first pass; second-pass routing below supersedes them. Link destinations follow the surviving content.
+
+<a id="documentation-per-section-migration-map"></a>
+
+### Per-section migration map
+
+Every heading in each removed catalog file was mapped before deletion. Section
+bodies were first transferred intact and compared, allowing only local link remapping. Two repeated architecture/status sections then had their duplicates replaced with links to their existing owners, as mapped below.
+Old document titles become section headings. Historical mapping/review scope is
+explicitly labelled; no source identifiers, alias tables, hashes, controls or
+dated evidence were summarized away. Additional moved sections are listed too. The migrated README command reference corrects two stale current descriptions (UI startup exists; LF policy covers the reviewed source documents); commands, parser/recovery details and authorization constraints are unchanged.
+
+| Original file | Original heading | Action | Exact destination |
+| --- | --- | --- | --- |
+| `docs/CATALOG_SEARCH.md` | M13-04 — Offline reviewed catalog search | Preserved | [docs/EVALUATION.md#catalog_search-m13-04--offline-reviewed-catalog-search](EVALUATION.md#catalog_search-m13-04--offline-reviewed-catalog-search) |
+| `docs/CATALOG_SEARCH.md` | Bounded combined candidate contract | Preserved | [docs/CATALOG.md#catalog_search-bounded-combined-candidate-contract](CATALOG.md#catalog_search-bounded-combined-candidate-contract) |
+| `docs/CATALOG_SEARCH.md` | Catalog and observation boundary | Keep metadata/observation contract; duplicate runtime status → ARCHITECTURE, pool counts → EVALUATION | [docs/CATALOG.md#catalog_search-catalog-and-observation-boundary](CATALOG.md#catalog_search-catalog-and-observation-boundary) |
+| `docs/CATALOG_SEARCH.md` | Required final hybrid and vector-search target | Duplicate: Qwen/model/dimension, vector fields, flow, separation, fallback and benchmark policy already owned here | [ARCHITECTURE runtime composition](ARCHITECTURE.md#catalog-runtime-composition) |
+| `docs/CATALOG_SEARCH.md` | Trusted configuration and contracts | Preserved | [docs/CATALOG.md#catalog_search-trusted-configuration-and-contracts](CATALOG.md#catalog_search-trusted-configuration-and-contracts) |
+| `docs/CATALOG_SEARCH.md` | Deterministic retrieval | Preserved | [docs/CATALOG.md#catalog_search-deterministic-retrieval](CATALOG.md#catalog_search-deterministic-retrieval) |
+| `docs/CATALOG_SEARCH.md` | FTS review and scope | Preserved | [docs/EVALUATION.md#catalog_search-fts-review-and-scope](EVALUATION.md#catalog_search-fts-review-and-scope) |
+| `docs/CATALOG_SEARCH.md` | Validation and handoff | Preserved | [docs/EVALUATION.md#catalog_search-validation-and-handoff](EVALUATION.md#catalog_search-validation-and-handoff) |
+| `docs/CATALOG_INDEX.md` | M13-05 — Local catalog vector index | Preserved | [docs/EVALUATION.md#catalog_index-m13-05--local-catalog-vector-index](EVALUATION.md#catalog_index-m13-05--local-catalog-vector-index) |
+| `docs/CATALOG_INDEX.md` | Inputs and storage | Preserved | [docs/CATALOG.md#catalog_index-inputs-and-storage](CATALOG.md#catalog_index-inputs-and-storage) |
+| `docs/CATALOG_INDEX.md` | Opening and searching | Preserved | [docs/CATALOG.md#catalog_index-opening-and-searching](CATALOG.md#catalog_index-opening-and-searching) |
+| `docs/CATALOG_INDEX.md` | Validation and dependency review | Preserved | [docs/EVALUATION.md#catalog_index-validation-and-dependency-review](EVALUATION.md#catalog_index-validation-and-dependency-review) |
+| `docs/CATALOG_CONTINUATION.md` | Bounded catalog-to-analysis continuation | Preserved | [docs/EVALUATION.md#catalog_continuation-bounded-catalog-to-analysis-continuation](EVALUATION.md#catalog_continuation-bounded-catalog-to-analysis-continuation) |
+| `docs/CATALOG_CONTINUATION.md` | Activation and compatibility | Preserved | [docs/CATALOG.md#catalog_continuation-activation-and-compatibility](CATALOG.md#catalog_continuation-activation-and-compatibility) |
+| `docs/CATALOG_CONTINUATION.md` | What the harness enforces | Preserved | [docs/CATALOG.md#catalog_continuation-what-the-harness-enforces](CATALOG.md#catalog_continuation-what-the-harness-enforces) |
+| `docs/CATALOG_CONTINUATION.md` | Clarification and remaining limits | Preserved | [docs/CATALOG.md#catalog_continuation-clarification-and-remaining-limits](CATALOG.md#catalog_continuation-clarification-and-remaining-limits) |
+| `docs/CATALOG_MAPPING.md` | M13-08 — Reviewed offline demo catalog mapping | Preserved | [docs/CATALOG.md#catalog_mapping-m13-08--reviewed-offline-demo-catalog-mapping](CATALOG.md#catalog_mapping-m13-08--reviewed-offline-demo-catalog-mapping) |
+| `docs/CATALOG_MAPPING.md` | Current prepared-scope revision (2026-09-14) | Preserved | [docs/CATALOG.md#catalog_mapping-current-prepared-scope-revision-2026-09-14](CATALOG.md#catalog_mapping-current-prepared-scope-revision-2026-09-14) |
+| `docs/CATALOG_MAPPING.md` | Historical v1 review | Preserved | [docs/CATALOG.md#catalog_mapping-historical-v1-review](CATALOG.md#catalog_mapping-historical-v1-review) |
+| `docs/CATALOG_MAPPING.md` | Version and trust boundary | Preserved | [docs/CATALOG.md#catalog_mapping-version-and-trust-boundary](CATALOG.md#catalog_mapping-version-and-trust-boundary) |
+| `docs/CATALOG_MAPPING.md` | Real identity inventory | Preserved | [docs/CATALOG.md#catalog_mapping-real-identity-inventory](CATALOG.md#catalog_mapping-real-identity-inventory) |
+| `docs/CATALOG_MAPPING.md` | Complete concept mapping | Preserved | [docs/CATALOG.md#catalog_mapping-complete-concept-mapping](CATALOG.md#catalog_mapping-complete-concept-mapping) |
+| `docs/CATALOG_MAPPING.md` | Unresolved source context | Preserved | [docs/CATALOG.md#catalog_mapping-unresolved-source-context](CATALOG.md#catalog_mapping-unresolved-source-context) |
+| `docs/CATALOG_MAPPING.md` | Families and ambiguity | Preserved | [docs/CATALOG.md#catalog_mapping-families-and-ambiguity](CATALOG.md#catalog_mapping-families-and-ambiguity) |
+| `docs/CATALOG_MAPPING.md` | Loading and validation | Preserved | [docs/CATALOG.md#catalog_mapping-loading-and-validation](CATALOG.md#catalog_mapping-loading-and-validation) |
+| `docs/CATALOG_MAPPING.md` | Current catalog boundary | Preserved | [docs/CATALOG.md#catalog_mapping-current-catalog-boundary](CATALOG.md#catalog_mapping-current-catalog-boundary) |
+| `docs/CATALOG_MAPPING.md` | Handoff to M13-04 | Preserved | [docs/CATALOG.md#catalog_mapping-handoff-to-m13-04](CATALOG.md#catalog_mapping-handoff-to-m13-04) |
+| `docs/ROADMAP.md` | Historical handbacks through 2026-09-14 | Preserved | [docs/HISTORY.md#handbacks-2026-09-14](ROADMAP.md#history-handbacks-through-2026-09-14) |
+| `docs/ROADMAP.md` | PR #162 pre-merge claim | Preserved | [docs/HISTORY.md#pr-162-claim](ROADMAP.md#history-pr-162-pre-merge-claim) |
+| `docs/OPEN_QUESTIONS.md` | Q-TEAM-06 — Vector cache/index implementation | Preserved | [docs/HISTORY.md#q-team-06--vector-cacheindex-implementation](DECISIONS.md#history-q-team-06--vector-cacheindex-implementation) |
+| `docs/OPEN_QUESTIONS.md` | Q-TEAM-05 — Workspace persistence and reference storage | Preserved | [docs/HISTORY.md#q-team-05--workspace-persistence-and-reference-storage](DECISIONS.md#history-q-team-05--workspace-persistence-and-reference-storage) |
+| `docs/OPEN_QUESTIONS.md` | Q-TEAM-04 — Causality implementation and prerequisites | Preserved | [docs/HISTORY.md#q-team-04--causality-implementation-and-prerequisites](DECISIONS.md#history-q-team-04--causality-implementation-and-prerequisites) |
+| `docs/OPEN_QUESTIONS.md` | Q-TEAM-03 — Frontend framework | Preserved | [docs/HISTORY.md#q-team-03--frontend-framework](DECISIONS.md#history-q-team-03--frontend-framework) |
+| `docs/OPEN_QUESTIONS.md` | Q-TEAM-02 — Analytical/parsing engine | Preserved | [docs/HISTORY.md#q-team-02--analyticalparsing-engine](DECISIONS.md#history-q-team-02--analyticalparsing-engine) |
+| `docs/OPEN_QUESTIONS.md` | Q-TEAM-01 — Orchestration mechanism | Preserved | [docs/HISTORY.md#q-team-01--orchestration-mechanism](DECISIONS.md#history-q-team-01--orchestration-mechanism) |
+| `docs/OPEN_QUESTIONS.md` | Q-DEV-01 — Coding assistants during development | Preserved | [docs/HISTORY.md#q-dev-01--coding-assistants-during-development](DECISIONS.md#history-q-dev-01--coding-assistants-during-development) |
+| `docs/SERIES_INSPECTION.md` | Validation and limits | Preserved | [docs/EVALUATION.md#prepared-inspection-delivery-evidence](EVALUATION.md#prepared-inspection-delivery-evidence) |
+| `docs/PREPARED_API.md` | Measured acceptance and remaining limits | Preserved | [docs/EVALUATION.md#prepared-api-delivery-and-pool-evidence](EVALUATION.md#prepared-api-delivery-and-pool-evidence) |
+| `README.md` | Commands | Preserved | [docs/PREPARED_API.md#development-and-live-check-commands](OPERATIONS.md#prepared_api-development-and-authorized-live-check-commands) |
+| `README.md` | Repository guide | Preserved | [docs/DOCUMENTATION.md#repository-paths](../README.md#repository-paths) |
+| `README.md` | Constraints and architecture | Duplicate architecture/status/evidence summaries; use owners | [docs/ARCHITECTURE.md](ARCHITECTURE.md) |
+| `README.md` | Fast development workflow / Branches and collaboration | Duplicate workflow; use AGENTS | [AGENTS.md](../AGENTS.md) |
+
+
+## PR #169 second-pass migration evidence
+
+Second pass starts at `c6e16f57c6fc99635645006c3ebe95b02e5258ba`.
+The map below was prepared before deletion. Unique section bodies were moved
+intact, permitting local-link rebasing; duplicate navigation is replaced by the
+README principal map. Original question IDs, source details, commands and dated
+evidence remain. The 11 principal documents plus five hash-pinned source records,
+two compatibility stubs and three fixture explanations give 21 Markdown files
+(28 before the PR; 27 after the first pass).
+
+The test docstring in `tests/unit/test_ingestion_fixture.py` still names its
+original INGESTION_PROFILE source. It is historical provenance, not a file read
+or a Markdown link; tests are unchanged. Its complete synthetic example is now
+in SOURCES. The source-file hash tests prevent removing the five evidence files;
+the BDDK evidence's Q-DATA links require the OPEN_QUESTIONS compatibility stub.
+Two unchanged fixture explanations link to INGESTION_PROFILE; a second small stub
+retains those links without editing anything under tests/.
+
+| Old file | Heading | Action | Exact destination |
+| --- | --- | --- | --- |
+| `LOCAL_API.md` | M10-16 — Version-one local API and owned results | Preserve | [section](ARCHITECTURE.md#local_api-m10-16--version-one-local-api-and-owned-results) |
+| `LOCAL_API.md` | Executable contract | Preserve | [section](OPERATIONS.md#local_api-executable-contract) |
+| `LOCAL_API.md` | M10-18 — selected-result grounding (merged) | Preserve | [section](ARCHITECTURE.md#local_api-m10-18--selected-result-grounding-merged) |
+| `LOCAL_API.md` | Bounded lifecycle | Preserve | [section](ARCHITECTURE.md#local_api-bounded-lifecycle) |
+| `LOCAL_API.md` | Canonical values and trust | Preserve | [section](ARCHITECTURE.md#local_api-canonical-values-and-trust) |
+| `LOCAL_API.md` | Local HTTP boundary | Preserve | [section](SECURITY.md#local_api-local-http-boundary) |
+| `LOCAL_API.md` | Dependencies and validation | Preserve | [section](EVALUATION.md#local_api-dependencies-and-validation) |
+| `PREPARED_API.md` | M10-17 — Run the API over a prepared local pool | Preserve | [section](OPERATIONS.md#prepared_api-m10-17--run-the-api-over-a-prepared-local-pool) |
+| `PREPARED_API.md` | Check first, without calling a model | Preserve | [section](OPERATIONS.md#prepared_api-check-first-without-calling-a-model) |
+| `PREPARED_API.md` | Start only when model requests are authorized | Preserve | [section](OPERATIONS.md#prepared_api-start-only-when-model-requests-are-authorized) |
+| `PREPARED_API.md` | Snapshot and session ownership | Preserve | [section](ARCHITECTURE.md#prepared_api-snapshot-and-session-ownership) |
+| `PREPARED_API.md` | Measured acceptance and remaining limits | Preserve | [section](OPERATIONS.md#prepared_api-measured-acceptance-and-remaining-limits) |
+| `PREPARED_API.md` | Development and authorized live-check commands | Preserve | [section](OPERATIONS.md#prepared_api-development-and-authorized-live-check-commands) |
+| `LOCAL_CLIENT.md` | DataTrio local analysis workspace | Preserve | [section](OPERATIONS.md#local_client-datatrio-local-analysis-workspace) |
+| `LOCAL_CLIENT.md` | Run on Windows | Preserve | [section](OPERATIONS.md#local_client-run-on-windows) |
+| `LOCAL_CLIENT.md` | What the first screen does | Preserve | [section](OPERATIONS.md#local_client-what-the-first-screen-does) |
+| `LOCAL_CLIENT.md` | Recovery and limits | Preserve | [section](OPERATIONS.md#local_client-recovery-and-limits) |
+| `LOCAL_CLIENT.md` | Prova versus live acceptance | Preserve | [section](EVALUATION.md#local_client-prova-versus-live-acceptance) |
+| `LOCAL_CLIENT.md` | Validation and remaining work | Preserve | [section](EVALUATION.md#local_client-validation-and-remaining-work) |
+| `LOCAL_CLIENT.md` | M10-18 selection continuation (2026-09-14, PR #166) | Preserve | [section](EVALUATION.md#local_client-m10-18-selection-continuation-2026-09-14-pr-166) |
+| `LOCAL_CLIENT.md` | Repeat the finite synthetic selection rehearsal | Preserve | [section](OPERATIONS.md#local_client-repeat-the-finite-synthetic-selection-rehearsal) |
+| `OPERATOR_FLOW.md` | M10-01 — Operator flow and API boundary requirements | Preserve | [section](ARCHITECTURE.md#operator_flow-m10-01--operator-flow-and-api-boundary-requirements) |
+| `OPERATOR_FLOW.md` | One demo flow | Preserve | [section](OPERATIONS.md#operator_flow-one-demo-flow) |
+| `OPERATOR_FLOW.md` | Prepared dataset selection and separate web inputs | Preserve | [section](OPERATIONS.md#operator_flow-prepared-dataset-selection-and-separate-web-inputs) |
+| `OPERATOR_FLOW.md` | Backend facts and integration prerequisites | Preserve | [section](ARCHITECTURE.md#operator_flow-backend-facts-and-integration-prerequisites) |
+| `OPERATOR_FLOW.md` | Public payload requirements and implemented local API | Preserve | [section](ARCHITECTURE.md#operator_flow-public-payload-requirements-and-implemented-local-api) |
+| `OPERATOR_FLOW.md` | Session/request isolation and failure lifecycle | Preserve | [section](ARCHITECTURE.md#operator_flow-sessionrequest-isolation-and-failure-lifecycle) |
+| `OPERATOR_FLOW.md` | “Why this number?” proof requirements | Preserve | [section](ARCHITECTURE.md#operator_flow-why-this-number-proof-requirements) |
+| `OPERATOR_FLOW.md` | SSE requirements (DEC-123) | Preserve | [section](ARCHITECTURE.md#operator_flow-sse-requirements-dec-123) |
+| `OPERATOR_FLOW.md` | Acceptance of this specification and later implementation | Preserve | [section](EVALUATION.md#operator_flow-acceptance-of-this-specification-and-later-implementation) |
+| `FILE_ADMISSION.md` | M1-02 — File admission policy | Preserve | [section](SECURITY.md#file_admission-m1-02--file-admission-policy) |
+| `FILE_ADMISSION.md` | Initial format policy | Preserve | [section](SOURCES.md#file_admission-initial-format-policy) |
+| `FILE_ADMISSION.md` | Practical local limits | Preserve | [section](SECURITY.md#file_admission-practical-local-limits) |
+| `FILE_ADMISSION.md` | Transient storage and errors | Preserve | [section](SECURITY.md#file_admission-transient-storage-and-errors) |
+| `FILE_ADMISSION.md` | Targeted verification and next integration | Preserve | [section](EVALUATION.md#file_admission-targeted-verification-and-next-integration) |
+| `INGESTION_PROFILE.md` | M1-01 — Ingestion/profile result specification | Preserve | [section](ARCHITECTURE.md#ingestion_profile-m1-01--ingestionprofile-result-specification) |
+| `INGESTION_PROFILE.md` | Integration boundary | Preserve | [section](ARCHITECTURE.md#ingestion_profile-integration-boundary) |
+| `INGESTION_PROFILE.md` | Result fields | Preserve | [section](ARCHITECTURE.md#ingestion_profile-result-fields) |
+| `INGESTION_PROFILE.md` | Column fields and invariants | Preserve | [section](ARCHITECTURE.md#ingestion_profile-column-fields-and-invariants) |
+| `INGESTION_PROFILE.md` | Bounded profiling and deferred limits | Preserve | [section](SECURITY.md#ingestion_profile-bounded-profiling-and-deferred-limits) |
+| `INGESTION_PROFILE.md` | Synthetic example: accepted table, unresolved semantics | Preserve | [section](SOURCES.md#ingestion_profile-synthetic-example-accepted-table-unresolved-semantics) |
+| `INGESTION_PROFILE.md` | Testable edge cases for later implementation | Preserve | [section](SOURCES.md#ingestion_profile-testable-edge-cases-for-later-implementation) |
+| `INGESTION_PROFILE.md` | Review acceptance and handoff | Preserve | [section](EVALUATION.md#ingestion_profile-review-acceptance-and-handoff) |
+| `SERIES_INSPECTION.md` | Prepared series metadata inspection | Preserve | [section](ARCHITECTURE.md#series_inspection-prepared-series-metadata-inspection) |
+| `SERIES_INSPECTION.md` | Contract and refusal states | Preserve | [section](SOURCES.md#series_inspection-contract-and-refusal-states) |
+| `SERIES_INSPECTION.md` | Non-skippable wiring in the prepared mode | Preserve | [section](ARCHITECTURE.md#series_inspection-non-skippable-wiring-in-the-prepared-mode) |
+| `SERIES_INSPECTION.md` | Validation and limits | Preserve | [section](EVALUATION.md#series_inspection-validation-and-limits) |
+| `OPEN_QUESTIONS.md` | Actionable open questions | Preserve | [section](DECISIONS.md#open_questions-actionable-open-questions) |
+| `OPEN_QUESTIONS.md` | DEC-137 unresolved materialization and storage policy | Preserve | [section](DECISIONS.md#open_questions-dec-137-unresolved-materialization-and-storage-policy) |
+| `OPEN_QUESTIONS.md` | How to use this list | Preserve | [section](DECISIONS.md#open_questions-how-to-use-this-list) |
+| `OPEN_QUESTIONS.md` | Priority queue | Preserve | [section](DECISIONS.md#open_questions-priority-queue) |
+| `OPEN_QUESTIONS.md` | Kloudeks | Preserve | [section](DECISIONS.md#open_questions-kloudeks) |
+| `OPEN_QUESTIONS.md` | Q-K-01 — Endpoint, authentication, and credential delivery | Preserve | [section](DECISIONS.md#open_questions-q-k-01--endpoint-authentication-and-credential-delivery) |
+| `OPEN_QUESTIONS.md` | Q-K-02 — Available models and context capacity | Preserve | [section](DECISIONS.md#open_questions-q-k-02--available-models-and-context-capacity) |
+| `OPEN_QUESTIONS.md` | Q-K-03 — Structured output and tool calling | Preserve | [section](DECISIONS.md#open_questions-q-k-03--structured-output-and-tool-calling) |
+| `OPEN_QUESTIONS.md` | Q-K-04 — Quotas, timeouts, and retry behavior | Preserve | [section](DECISIONS.md#open_questions-q-k-04--quotas-timeouts-and-retry-behavior) |
+| `OPEN_QUESTIONS.md` | Q-K-05 — Embeddings and rerankers | Preserve | [section](DECISIONS.md#open_questions-q-k-05--embeddings-and-rerankers) |
+| `OPEN_QUESTIONS.md` | Organizer infrastructure | Preserve | [section](DECISIONS.md#open_questions-organizer-infrastructure) |
+| `OPEN_QUESTIONS.md` | Q-INFRA-01 — Runtime/deployment environment | Preserve | [section](DECISIONS.md#open_questions-q-infra-01--runtimedeployment-environment) |
+| `OPEN_QUESTIONS.md` | Q-INFRA-02 — Storage lifetime and isolation | Preserve | [section](DECISIONS.md#open_questions-q-infra-02--storage-lifetime-and-isolation) |
+| `OPEN_QUESTIONS.md` | Datasets | Preserve | [section](DECISIONS.md#open_questions-datasets) |
+| `OPEN_QUESTIONS.md` | Q-DATA-01 — BDDK/EVDS and provided source access | Preserve | [section](DECISIONS.md#open_questions-q-data-01--bddkevds-and-provided-source-access) |
+| `OPEN_QUESTIONS.md` | Q-DATA-02 — Hidden formats, schema variation, and size | Preserve | [section](DECISIONS.md#open_questions-q-data-02--hidden-formats-schema-variation-and-size) |
+| `OPEN_QUESTIONS.md` | Q-DATA-03 — Caching, retention, and redistribution | Preserve | [section](DECISIONS.md#open_questions-q-data-03--caching-retention-and-redistribution) |
+| `OPEN_QUESTIONS.md` | Q-DATA-04 — Authoritative semantics and revisions | Preserve | [section](DECISIONS.md#open_questions-q-data-04--authoritative-semantics-and-revisions) |
+| `OPEN_QUESTIONS.md` | External internet / network | Preserve | [section](DECISIONS.md#open_questions-external-internet--network) |
+| `OPEN_QUESTIONS.md` | Q-NET-01 — Demo/development internet access | Preserve | [section](DECISIONS.md#open_questions-q-net-01--demodevelopment-internet-access) |
+| `OPEN_QUESTIONS.md` | Q-NET-02 — Allowed external source URLs | Preserve | [section](DECISIONS.md#open_questions-q-net-02--allowed-external-source-urls) |
+| `OPEN_QUESTIONS.md` | Demo format | Preserve | [section](DECISIONS.md#open_questions-demo-format) |
+| `OPEN_QUESTIONS.md` | Q-DEMO-01 — Timing, format, and user interaction | Preserve | [section](DECISIONS.md#open_questions-q-demo-01--timing-format-and-user-interaction) |
+| `OPEN_QUESTIONS.md` | Q-DEMO-02 — Multi-turn state and reset semantics | Preserve | [section](DECISIONS.md#open_questions-q-demo-02--multi-turn-state-and-reset-semantics) |
+| `OPEN_QUESTIONS.md` | Q-DEMO-03 — Permitted fallback and demonstration assets | Preserve | [section](DECISIONS.md#open_questions-q-demo-03--permitted-fallback-and-demonstration-assets) |
+| `OPEN_QUESTIONS.md` | Allowed development tooling | Preserve | [section](DECISIONS.md#open_questions-allowed-development-tooling) |
+| `OPEN_QUESTIONS.md` | Q-DEV-02 — External tools, libraries, and code disclosure | Preserve | [section](DECISIONS.md#open_questions-q-dev-02--external-tools-libraries-and-code-disclosure) |
+| `OPEN_QUESTIONS.md` | Scoring / judging | Preserve | [section](DECISIONS.md#open_questions-scoring--judging) |
+| `OPEN_QUESTIONS.md` | Q-JUDGE-01 — Rubric and unsupported-answer handling | Preserve | [section](DECISIONS.md#open_questions-q-judge-01--rubric-and-unsupported-answer-handling) |
+| `OPEN_QUESTIONS.md` | Q-JUDGE-02 — Submission and development-history evidence | Preserve | [section](DECISIONS.md#open_questions-q-judge-02--submission-and-development-history-evidence) |
+| `OPEN_QUESTIONS.md` | Compute / resources | Preserve | [section](DECISIONS.md#open_questions-compute--resources) |
+| `OPEN_QUESTIONS.md` | Q-COMP-01 — Provided machine and resource limits | Preserve | [section](DECISIONS.md#open_questions-q-comp-01--provided-machine-and-resource-limits) |
+| `OPEN_QUESTIONS.md` | Q-COMP-02 — Optional training/inference experiment budget | Preserve | [section](DECISIONS.md#open_questions-q-comp-02--optional-traininginference-experiment-budget) |
+| `OPEN_QUESTIONS.md` | Internal team choices — resolve with evidence, not organizer guesses | Preserve | [section](DECISIONS.md#open_questions-internal-team-choices--resolve-with-evidence-not-organizer-guesses) |
+| `OPEN_QUESTIONS.md` | Q-TEAM-07 — Broad prepared coverage target | Preserve | [section](DECISIONS.md#open_questions-q-team-07--broad-prepared-coverage-target) |
+| `OPEN_QUESTIONS.md` | Q-TEAM-08 — Refresh and vintage selection policy | Preserve | [section](DECISIONS.md#open_questions-q-team-08--refresh-and-vintage-selection-policy) |
+| `HISTORY.md` | Historical handbacks and answered questions | Preserve | [section](ROADMAP.md#history-historical-handbacks-and-answered-questions) |
+| `HISTORY.md` | Handbacks through 2026-09-14 | Preserve | [section](ROADMAP.md#history-handbacks-through-2026-09-14) |
+| `HISTORY.md` | PR #162 pre-merge claim | Preserve | [section](ROADMAP.md#history-pr-162-pre-merge-claim) |
+| `HISTORY.md` | Q-TEAM-06 — Vector cache/index implementation | Preserve | [section](DECISIONS.md#history-q-team-06--vector-cacheindex-implementation) |
+| `HISTORY.md` | Q-TEAM-05 — Workspace persistence and reference storage | Preserve | [section](DECISIONS.md#history-q-team-05--workspace-persistence-and-reference-storage) |
+| `HISTORY.md` | Q-TEAM-04 — Causality implementation and prerequisites | Preserve | [section](DECISIONS.md#history-q-team-04--causality-implementation-and-prerequisites) |
+| `HISTORY.md` | Q-TEAM-03 — Frontend framework | Preserve | [section](DECISIONS.md#history-q-team-03--frontend-framework) |
+| `HISTORY.md` | Q-TEAM-02 — Analytical/parsing engine | Preserve | [section](DECISIONS.md#history-q-team-02--analyticalparsing-engine) |
+| `HISTORY.md` | Q-TEAM-01 — Orchestration mechanism | Preserve | [section](DECISIONS.md#history-q-team-01--orchestration-mechanism) |
+| `HISTORY.md` | Q-DEV-01 — Coding assistants during development | Preserve | [section](DECISIONS.md#history-q-dev-01--coding-assistants-during-development) |
+| `DOCUMENTATION.md` | Documentation guide and consolidation ledger | Duplicate navigation/roles replaced by README principal map and source-evidence exceptions | [section](../README.md#documentation-map) |
+| `DOCUMENTATION.md` | Authority model | Duplicate navigation/roles replaced by README principal map and source-evidence exceptions | [section](../README.md#documentation-map) |
+| `DOCUMENTATION.md` | Reference inventory and disposition | Duplicate navigation/roles replaced by README principal map and source-evidence exceptions | [section](../README.md#documentation-map) |
+| `DOCUMENTATION.md` | Per-section migration map | Preserve | [section](EVALUATION.md#documentation-per-section-migration-map) |
+| `DOCUMENTATION.md` | Repository paths | Preserve non-document paths; replace duplicate document rows with principal map | [section](../README.md#repository-paths) |
