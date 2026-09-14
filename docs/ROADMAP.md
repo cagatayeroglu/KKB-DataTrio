@@ -18,7 +18,7 @@ This file owns **execution truth**. [ARCHITECTURE](ARCHITECTURE.md) owns technic
 
 # Current Project Status
 
-**Arda continuation (2026-09-14):** PRs #148–156 are merged and their task branches removed; both worktrees matched `8ca4148`. The bounded prepared inspection slice (#156, implementation `ca7d11e`, tested final `b2edd3b`) is DONE: reviewed-versus-stored semantics are mandatory in catalog-configured prepared numerical paths. Final fast PR: 3141 passed / one Windows privilege skip, mypy 91 files clean; seven real series consistent, inspected three-turn offline oracle and 80 unchanged files verified. Catalog (15 identities), local vectors, optional hybrid composition and bounded catalog continuation are delivered; live embedding quality and explicit three-turn Kloudeks-transfer approval remain pending. Active: M10-16 local API boundary, Owner Arda, branch `codex/m10-16-local-api`. Build the first executable session/question/result contract and local HTTP service; preserve the existing gate, isolate session capabilities, bound inputs/outputs and report real turn lifecycle. Prepared runtime startup and frontend integration follow this contract. Historical handovers below are context, not current task selection.
+**Arda continuation (2026-09-14):** PRs #148–157 are merged and task branches cleaned; both worktrees matched `15c05f1`. M10-16 local API (#157, implementation `cd2e5fc`, tested head `9e661bf`) is DONE: session capabilities, bounded/idempotent question admission, owned turn reads, real lifecycle SSE and canonical published cells. Fast PR: 3196 passed / one Windows privilege skip, mypy 96 files clean; 55 new boundary tests. Active: M10-17 prepared API runtime, Owner Arda, branch `codex/m10-17-prepared-api`. Connect isolated prepared pool copies, inspected analytical tools and Session publication to the API; add a safe read-only readiness command and loopback launcher. No frontend or full proof graph exists yet. Catalog/vector/continuation/inspection deliveries remain as recorded; live embedding policy/quality and explicit three-turn Kloudeks-transfer permission remain pending. Historical handovers below do not override this status.
 
 <a id="handover-2026-09-14-eray-to-arda"></a>
 **Handover (2026-09-14): Eray hands the project to Arda.** Verified at `origin/dev` `56f24f5` (PR #146) plus this handover docs PR; no open PR or task branch, no active claim. Every incomplete scope recorded for Eray (including the Çağatay → Eray handback scopes) transfers to Arda. `main` is untouched at `5830480`. Deadline: repository reviewed after **20 September 2026**; Final Day **17 October 2026**.
@@ -1876,7 +1876,7 @@ A minimal M1/M4/M5/M6/M8 slice for live integration; confirmed demo environment/
 - [ ] M10-14 — Have a different teammate run the operator script and record friction/failures.
 - [ ] M10-15 — Record UI validation, supported flows, and next rehearsal fix.
 
-- [ ] M10-16 — Status: IN PROGRESS; Owner: Arda; Branch: `codex/m10-16-local-api`, fresh dev `8ca4148`; PR: #157 (open); Commit: `cd2e5fc3c9e8633cd44ecf99ab75f0bbe54e3637`. Implement the missing bounded local API/service contract required before M10-03.
+- [x] M10-16 — Status: DONE (local slice merged and validated); Owner: Arda; Branch: `codex/m10-16-local-api` (merged and removed), fresh dev `8ca4148`; PR: #157 merged at `15c05f1`; Commit: `cd2e5fc3c9e8633cd44ecf99ab75f0bbe54e3637`. Implement the missing bounded local API/service contract required before M10-03.
 
 ### M10-16 local API boundary (2026-09-14)
 
@@ -1887,6 +1887,16 @@ A minimal M1/M4/M5/M6/M8 slice for live integration; confirmed demo environment/
 - Delivered: closed API v1 with session capabilities, idempotent questions, atomic one-worker admission, owned turn reads, actual lifecycle SSE and exact published-result/cell projection. Loopback Host/Origin/JSON/body boundary and fixed exception handling tested. No runner credentials, paths, SQL or gate overrides are caller-controlled.
 - Blocker: none for the local contract. Full SSE plan/tool instrumentation, prepared runtime CLI wiring, source preparation UI, graph proof, production authentication/deployment, live model acceptance and Next.js client remain separate bounded tasks. No automatic network/model call is part of startup/health/testing.
 
+
+
+- [ ] M10-17 — Status: IN PROGRESS; Owner: Arda; Branch: `codex/m10-17-prepared-api`, fresh dev `15c05f1`; PR: pending; Commit: pending.
+
+### M10-17 prepared API runtime (2026-09-14)
+
+- Readiness: M10-16's typed local contract and runner injection are merged; Session/workspace publication, prepared tool factories, reviewed catalog and mandatory inspector are available. A closed prepared source can be copied into a process-owned root without touching the original. This bounded local integration is READY after reviewing those contracts; no production hosting/auth answer is inferred and no competing claim exists.
+- Scope: bounded local prepared-pool snapshot/readiness inventory, isolated per-session working copies and named result publication; mandatory inspected registry plus optional catalog continuation using the real Session/projector; no direct client path/tool/gate/provider knobs. Add read-only `--check` and an explicitly enabled loopback Kloudeks launcher, no automatic model/source call during import/readiness. One worker owns all per-turn connections; preserved tables support generic follow-ups.
+- Tests: NOT RUN (claim). Cover incomplete/mismatched/changed/oversized/symlinked input, immutable seed/original files, two isolated sessions, real scripted calculation/publication/follow-up through HTTP, wrong settings and no model request at readiness. Fast PR and strict typing required. Measure the existing seven-series public pool read-only; live calls remain subject to the pending explicit answer.
+- Blocker: none for offline integration. Live three-turn acceptance, live dense configuration/quality, production deployment/auth, full proof graph and frontend remain separate. No source refreshing or new series ingestion is hidden in this runtime task.
 
 ## Acceptance criteria
 
