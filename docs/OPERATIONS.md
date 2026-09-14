@@ -18,6 +18,27 @@ requirements below are explicitly targets, not additional executable routes.
 5. Follow the recovery contract: a lost response reuses the original request and
    selection; a new request ID means new analysis. Restarting invalidates sessions.
 
+### macOS local toolchain
+
+The repository pins Python dependencies in `pyproject.toml`, client dependencies
+in `web/package-lock.json`, and the supported local Node line in `.node-version`.
+For a Homebrew installation, `node@22` is keg-only; keep an unrelated system Node
+unchanged and select Node 22 in the project shell:
+
+```bash
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -e '.[dev]'
+brew install node@22
+export PATH="/opt/homebrew/opt/node@22/bin:$PATH"
+cd web
+npm ci --ignore-scripts --no-audit --no-fund
+```
+
+Verify `node --version` is within the `>=22.17.0 <23` range before client checks.
+The 2026-09-15 Eray environment uses Python 3.12.5 and Node 22.23.2. A newer
+system Node is not proof that the client is being checked with the supported
+runtime.
+
 ## Prepare or rebuild the official pool
 
 A clone does not contain the accepted pool or Bronze payloads. Rebuild from the
@@ -130,6 +151,15 @@ unavailable response. The first [local frontend](OPERATIONS.md#local_client-data
 See the [dated evidence](EVALUATION.md#prepared-api-delivery-and-pool-evidence) for exact tests, pool identities, timings and limitations. [ROADMAP](ROADMAP.md#current-project-status) owns delivery status.
 
 Use a matching pool/catalog snapshot. Restart into a fresh state root when changing either; existing sessions keep their own snapshot and are not silently refreshed.
+
+The 2026-09-15 Eray macOS rebuild uses `prepared_v3.json` and reports ready with
+29 prepared identities, 4,124 observation rows, 37 catalog identities, 124
+files and zero null observations. The previous seven-series pool is retained at
+the ignored operator path `data/processed/lakehouse-before-v3-20260915`; its 683
+stored rows compare exactly with the corresponding rows in the expanded pool.
+This is a local recovery copy, not a tracked fixture or a substitute for the
+rebuild procedure. The readiness call used `--check`, reported
+`model_checked=false`, and made no model request.
 
 <a id="development-and-live-check-commands"></a>
 <a id="prepared_api-development-and-authorized-live-check-commands"></a>

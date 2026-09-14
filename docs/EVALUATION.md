@@ -653,6 +653,37 @@ CI scheduling: the old 5-minute whole-job limit cancelled PR #158 after its
 The whole-job ceiling is now 8 minutes; application/retrieval/test timeouts and
 gate contents remain unchanged. Remote status must be reported separately.
 
+### M11-03 Eray macOS expanded-pool readiness — 2026-09-15
+
+Eray requested restoration of the documented broad local pool without cutting
+later delivery scope. The existing seven-series root was copied to the ignored
+`data/processed/lakehouse-before-v3-20260915` recovery path before preparation.
+The reviewed EVDS operator then made exactly 22 public `fe` requests for the nine
+additional weekly credit-rate series and thirteen monthly CPI divisions over
+2021-01 through 2026-06. The guarded run completed in 18.92 seconds; every
+series passed manifest, calendar, lineage and read-back checks, with zero
+missing values and no unknown-series fallback or retry. No model or embedding
+request was made.
+
+Read-only database comparison reports 29 series, 4,124 observations, zero null
+values and 121 Bronze artifact records. All 683 rows belonging to the original
+seven series match the pre-expansion recovery copy exactly. The local API
+`--check` reports ready, provider configured, `model_checked=false`, 37 catalog
+identities, 29 prepared identities, 4,124 rows, 124 files and a 4,587,244-byte
+bounded pool inventory. Snapshot identity is
+`6fc3afd587ee34982b220c2de9d8162c88d096bdeef8278736f74deb48fc887f`;
+catalog identity is
+`e0bbaac8eb4d1b1e90deacab42989cd6f74181f8ce267150825e8d24e169fb11`.
+
+The local Python editable development dependencies were repaired. Homebrew
+Node 22.23.2 and locked client dependencies pass Prettier, strict TypeScript,
+all 23 client/proxy tests and the Next.js production build. These are local
+environment/data-readiness results, not live Qwen, dense retrieval, deployment
+or full three-turn acceptance. Targeted Python ingestion/catalog/API/selection/
+three-turn regressions pass **195 tests in 11.70 seconds** with two existing
+warnings; the consolidated documentation check passes **59 tests in 5.68
+seconds**, and `pip check` reports no broken requirements.
+
 
 ## M10-03 first local client acceptance (2026-09-14)
 
