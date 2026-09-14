@@ -13,6 +13,7 @@ from typing import Literal
 from uuid import uuid4
 
 from kkb_agent.agent.loop import PlanningFailed
+from kkb_agent.agent.verifier import AnswerStatus
 from kkb_agent.api.contracts import (
     MAX_RESPONSE_BYTES,
     MAX_SESSIONS,
@@ -32,6 +33,18 @@ from kkb_agent.llm.provider import ProviderError
 # Executed only on the one worker. A runtime must own/open/close its connection
 # there and retain session state under the server-issued session_id.
 Runner = Callable[[str, str, str], Answer]
+
+
+@dataclass(frozen=True, slots=True)
+class SelectedResult:
+    """Server-resolved publication identity; workspace validity is checked by its runner."""
+
+    turn_id: str
+    result_ref: str
+    version: str
+
+
+SelectedRunner = Callable[[str, str, str, SelectedResult], Answer]
 
 
 class ServiceError(Exception):
@@ -56,10 +69,19 @@ class AnalysisService:
     unbounded internal queue cannot accumulate application jobs.
     """
 
-    def __init__(self, runner: Runner, *, mode: Literal["kloudeks", "scripted"]):
+    def __init__(
+        self,
+        runner: Runner,
+        *,
+        mode: Literal["kloudeks", "scripted"],
+        selected_runner: SelectedRunner | None = None,
+    ):
         if mode not in ("kloudeks", "scripted"):
             raise ValueError("An explicit execution mode is required")
         self._runner = runner
+        # Until the prepared workspace integration is supplied, explicit selection
+        # fails closed. Never hand it to the old runner that cannot respect it.
+        self._selected_runner = selected_runner
         self._mode = mode
         self._sessions: dict[str, _Session] = {}
         self._lock = threading.RLock()
@@ -96,7 +118,9 @@ class AnalysisService:
 
     def submit(self, session_id: str, token: str, question: Question) -> Turn:
         question = Question.model_validate(question.model_dump())
-        digest = hashlib.sha256(question.question.encode()).hexdigest()
+        digest = hashlib.sha256(
+            question.model_dump_json(exclude={"request_id"}).encode()
+        ).hexdigest()
         with self._lock:
             session = self._owned(session_id, token)
             previous = session.requests.get(question.request_id)
@@ -104,6 +128,11 @@ class AnalysisService:
                 if previous[0] != digest:
                     raise ServiceError("request_conflict", 409)
                 return session.turns[previous[1]].model_copy(deep=True)
+            selected = None
+            if question.selected_result_id is not None:
+                selected = self._selected(session, question.selected_result_id)
+                if self._selected_runner is None:
+                    raise ServiceError("unavailable", 503)
             if len(session.turns) >= MAX_TURNS:
                 raise ServiceError("capacity", 429)
             if self._busy:
@@ -119,13 +148,31 @@ class AnalysisService:
             session.requests[question.request_id] = (digest, turn_id)
             self._busy = True
             try:
-                self._executor.submit(self._run, session_id, turn_id, question.question)
+                self._executor.submit(self._run, session_id, turn_id, question.question, selected)
             except RuntimeError:
                 self._busy = False
                 del session.turns[turn_id]
                 del session.requests[question.request_id]
                 raise ServiceError("unavailable", 503) from None
             return turn.model_copy(deep=True)
+
+    @staticmethod
+    def _selected(session: _Session, result_ref: str) -> SelectedResult:
+        matches = []
+        for turn in session.turns.values():
+            answer = turn.answer
+            if (
+                turn.state == "completed"
+                and answer is not None
+                and answer.status is AnswerStatus.ACCEPTED
+                and answer.result is not None
+                and answer.result.result_ref == result_ref
+            ):
+                matches.append(SelectedResult(turn.turn_id, result_ref, answer.result.version))
+        if len(matches) != 1:
+            # Unknown/foreign/unpublished/ambiguous references are indistinguishable.
+            raise ServiceError("invalid_result", 422)
+        return matches[0]
 
     def get_turn(self, session_id: str, token: str, turn_id: str) -> Turn:
         with self._lock:
@@ -163,13 +210,21 @@ class AnalysisService:
                 ),
             )
 
-    def _run(self, session_id: str, turn_id: str, question: str) -> None:
+    def _run(
+        self, session_id: str, turn_id: str, question: str, selected: SelectedResult | None
+    ) -> None:
         start = time.monotonic()
         answer = None
         error: ErrorCode | None = None
         try:
             self._transition(session_id, turn_id, "running", start)
-            answer = Answer.model_validate(self._runner(session_id, turn_id, question).model_dump())
+            if selected is None:
+                output = self._runner(session_id, turn_id, question)
+            else:
+                if self._selected_runner is None:  # Defensive: never fall back to latest.
+                    raise ServiceError("unavailable", 503)
+                output = self._selected_runner(session_id, turn_id, question, selected)
+            answer = Answer.model_validate(output.model_dump())
             if len(answer.model_dump_json().encode()) > MAX_RESPONSE_BYTES - 4096:
                 raise OutputRefused("output_limit")
         except PlanningFailed:
@@ -178,6 +233,8 @@ class AnalysisService:
             error = "provider_failed"
         except OutputRefused:
             error = "output_limit"
+        except ServiceError as failure:
+            error = failure.code
         except Exception:
             # No exception formatting, prompts, paths or raw result fallbacks.
             error = "internal_error"
