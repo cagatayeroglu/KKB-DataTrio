@@ -15,7 +15,10 @@ jobs:
   fast-pr:
     name: Fast PR gate
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    # #158: all 3235 tests and secret scan passed, but 41s installation plus
+    # 247s tests exceeded the former five-minute whole-job budget at teardown.
+    # This changes CI scheduling only, never application/test timeouts.
+    timeout-minutes: 8
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -34,3 +37,30 @@ jobs:
 
       - name: Run fast PR checks
         run: make pr
+
+  web:
+    name: Web client gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: web
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: "22.17.0"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install locked client dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Type, boundary and formatting checks
+        run: npm run check
+      - name: Production build without a model or data service
+        run: npm run build
