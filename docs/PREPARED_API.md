@@ -98,7 +98,8 @@ operations to that source, and successful publications record that dependency.
 Older unchanged results can be selected. PR #166's browser client now submits
 this field when follow-selection is enabled, persisting the original reference
 for retries and restoring the exact view on reload. Automated client/bridge
-checks pass; browser and live selected-table acceptance remain unverified.
+checks and the dated synthetic browser rehearsal pass; live selected-table
+acceptance remains unverified.
 
 ## Measured acceptance and remaining limits
 

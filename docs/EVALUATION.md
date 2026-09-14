@@ -719,3 +719,43 @@ are NOT established**. Planned old-table reload, lost-admission retry, refusal
 preservation and free-question flows must still be exercised in the browser.
 No live model/source request was made. No numerical or reasoning reliability
 claim follows from this client test count or the initial page inspection.
+
+
+<a id="m10-18-browser-selection-2026-09-15"></a>
+## M10-18 selected-table browser acceptance — 2026-09-15 (unmerged #166)
+
+The earlier browser-approval timeout was resolved. Production Next client from
+`3ffc53b` / handoff `c8d1318`, real PreparedRunner/AnalysisService and deterministic
+tools ran with the finite synthetic pool (two series, six observations, fifteen
+catalog candidates). No application code changed for this acceptance. The
+[repeatable sequence](LOCAL_CLIENT.md#repeat-the-finite-synthetic-selection-rehearsal)
+and its test-only fault wrapper are now retained in the repository.
+
+Observed through browser interactions:
+
+- Initial publication: three stock values 100/120/150 million TRY; add-series:
+  six values retaining all stocks and CPI 100/110/120.
+- Selecting Analiz 1 after Analiz 2 and reloading preserves Analiz 1 in the
+  result panel and composer source indicator.
+- The third question receives a synthetic 503 after real API admission. Its
+  source remains Analiz 1, controls freeze, reload does not resubmit, and the
+  explicit recovery button produces Analiz 3 with six values.
+- The safe ledger records six successful admission attempts for five distinct
+  request IDs; the repeated request and selected-source IDs are identical.
+  Provider invocation counts at admission are 0/2/4/6/6/7: the recovery causes
+  no extra provider work before the next question. The injected 422 is outside
+  admission and excluded from these counts.
+- Adding unavailable KFE abstains with no replacement result. Injected 422
+  invalid_result preserves the old table and releases the composer; its rejected
+  entry survives reload without an automatic retry.
+- Disabling follow-selection survives reload. The subsequent free question is
+  accepted with no selected reference; earlier results remain available.
+- Busy/pending controls are disabled. At 390x844, mode toggle and older-version
+  dropdown work; document clientWidth/scrollWidth both equal 375px. Desktop and
+  narrow screenshots were inspected; temporary viewport override was reset.
+
+This proves the bounded client/API/tool flow for prescribed synthetic plans,
+not live Kloudeks planning, arbitrary queries, real-data semantics or complete
+accessibility coverage. No live model/source calls or merge were performed.
+Both temporary servers were stopped after the rehearsal. Full proof UI and
+legacy/official-refresh dependency coverage remain incomplete.

@@ -158,9 +158,45 @@ See [ROADMAP](ROADMAP.md#m10-03-first-local-client-2026-09-14) for delivery evid
 
 This branch adds the client behavior above. Automated client/bridge tests and
 production build pass; see [the dated evaluation](EVALUATION.md#m10-18-client-selection-2026-09-14).
-The selected-table browser scenario remains unverified: the synthetic API and
-production frontend started and their initial page was observed, but subsequent
-browser actions and the read-only retry timed out in automatic approval review.
-No submitted turn appears in the synthetic rehearsal ledger. Earlier M10-03
-browser evidence does not establish this new selection behavior. Live Kloudeks
-acceptance, proof graph UI and broader refresh invalidation remain separate.
+On 2026-09-15 the selected-table browser scenarios passed using the production
+frontend and real Python prepared runtime over synthetic data: old selection
+through reload, uncertain-admission retry after reload, source preservation on
+abstention/rejection and free-question mode. See the [dated browser evidence](EVALUATION.md#m10-18-browser-selection-2026-09-15).
+Live Kloudeks acceptance, proof graph UI and broader refresh invalidation remain
+separate. This PR remains unmerged.
+
+### Repeat the finite synthetic selection rehearsal
+
+From the repository root with Python dev/test dependencies installed:
+
+```powershell
+$env:PYTHONPATH = Join-Path (Get-Location) 'src'
+python tests/manual/selected_client.py
+```
+
+In another terminal, start the production client using the build instructions
+above and `KKB_LOCAL_API_URL=http://127.0.0.1:8127`. This [manual test launcher](../tests/manual/selected_client.py)
+uses a temporary two-series pool and prescribed test-provider responses; it is
+not the product launcher and cannot answer arbitrary questions. It never calls
+Kloudeks or official sources. Stop both servers with Ctrl+C after the rehearsal.
+It overwrites only its generated `artifacts/selected-browser-ledger.jsonl` ledger
+(request/source IDs, status and provider-call counts; no capability tokens).
+
+Use this exact question order in a fresh browser workspace:
+
+1. `Konut kredisi tablosunu getir.` — three stock values, 100/120/150 million TRY.
+2. `Seçili tabloya TÜFE ekle.` — six values, adding CPI 100/110/120.
+3. Select **Analiz 1**, reload, then send `Eski tabloya TÜFE ekle; bağlantı provası`.
+   The test wrapper returns one 503 **after** admission. Reload; the table/source
+   must remain Analiz 1. Use **Bekleyen isteğe devam et**: Analiz 3 must contain
+   six values; the ledger must repeat the exact request/source without new work.
+4. Select **Analiz 1** and send `Seçili tabloya havuzda olmayan KFE serisini ekle.`.
+   Expect abstention and the unchanged three-value source table.
+5. Send `Reddedilen kaynak provası`. The wrapper injects 422 invalid_result;
+   no retry loop or new publication; the composer must become usable.
+6. Disable **Seçili tabloyla devam et**, reload, then send
+   `Serbest soruyla yeni bir tablo getir.`. Expect a three-value publication
+   with no selected-result field on admission. Historical results remain.
+
+Also inspect selection controls while busy/pending and at 390x844; the document
+must not scroll horizontally. Restore any temporary viewport override afterward.
