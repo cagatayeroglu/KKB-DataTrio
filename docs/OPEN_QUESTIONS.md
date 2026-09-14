@@ -278,6 +278,8 @@ Internal questions Q-TEAM-06/07/08 below concern vector implementation, exact br
 
 ### Q-JUDGE-01 — Rubric and unsupported-answer handling
 
+Known qualitative criteria: [DEC-141](DECISIONS.md#dec-141-organizer-verbal-criteria) records Çağatay's 2026-09-14 organizer relay: development assistants allowed; allowed open-weight/Kloudeks runtime only; own harness with minimal model dependence; cross-domain genericity; own lakehouse rather than managed substitution; no committed secrets even in private Git; chained table preservation and intended-result continuation. No transcript-independent verification or scoring weights are claimed. The quantitative rubric below remains open.
+
 - [ ] Record scoring weights, required use cases, numeric tolerances, and treatment of clarification/abstention/causality.
 - Question: How are correctness, evidence, recovery, latency, UI, and unsupported/causal answers scored, and are hidden-case categories or tolerances specified?
 - Why it matters: Determines final acceptance thresholds and rational scope cuts without gaming unknown criteria.
@@ -286,7 +288,7 @@ Internal questions Q-TEAM-06/07/08 below concern vector implementation, exact br
 - Temporary assumption: Prioritize correct, traceable results and honest abstention; do not invent weights or required pass percentages.
 - Owner: Unassigned; suggested lane C.
 - Status: OPEN.
-- Answer / evidence: None recorded.
+- Answer / evidence: Qualitative criteria relayed by Çağatay are recorded in DEC-141; numerical weights/tolerances and a complete rubric remain unconfirmed.
 
 ### Q-JUDGE-02 — Submission and development-history evidence
 
@@ -392,8 +394,8 @@ Internal questions Q-TEAM-06/07/08 below concern vector implementation, exact br
 ### Q-TEAM-06 — Vector cache/index implementation
 
 - Question: Does measured catalog size/latency justify a dedicated index, or is a versioned embedding cache with deterministic cosine similarity sufficient?
-- Constraints: Required hybrid retrieval is decided; the vector product is not. Key by series/concept ID, catalog text hash, model ID and measured dimension 4096; never store observation values as vectors. A dedicated catalog vector-search layer is intended, but no product/index is implemented. LanceDB is the strong/preferred dedicated-index candidate to benchmark first; exact cosine over a versioned embedding cache may be the small-catalog baseline. No PostgreSQL/pgvector service without a later explicit justification.
-- Owner: Eray. Status: **ANSWERED (2026-09-14) by [DEC-138](DECISIONS.md#dec-138--handback-priorities-lancedb-catalog-index-and-no-prepared-data-in-git): LanceDB is the catalog vector index.** The question above is historical. M13-05 still requires configuration/limit review; no implementation or dependency is adopted yet.
+- Historical constraints (before DEC-138): Required hybrid retrieval is decided; the vector product is not. Key by series/concept ID, catalog text hash, model ID and measured dimension 4096; never store observation values as vectors. A dedicated catalog vector-search layer is intended, but no product/index is implemented. LanceDB is the strong/preferred dedicated-index candidate to benchmark first; exact cosine over a versioned embedding cache may be the small-catalog baseline. No PostgreSQL/pgvector service without a later explicit justification.
+- Owner: Eray (original decision). Status: **ANSWERED (2026-09-14) by [DEC-138](DECISIONS.md#dec-138--handback-priorities-lancedb-catalog-index-and-no-prepared-data-in-git): LanceDB is the catalog vector index.** PRs #153/#154 delivered pinned LanceDB 0.38.0, bounded local search and optional combined candidates. Prepared runtime still uses lexical retrieval without real Qwen embedding injection; input-policy/limit review and live semantic-quality acceptance remain unfinished. The question and pre-DEC-138 constraints above are historical.
 - Evidence needed: versioned catalog scale, cold/warm latency, deployment simplicity, benchmark quality, dependency cost, deterministic ranking and failure tests. DEC-137 supersedes only the prior mandatory product choice; its dated refinement prioritizes required hybrid retrieval while deferring dedicated-index scaling beyond measured need.
 
 ### Q-TEAM-07 — Broad prepared coverage target

@@ -2,7 +2,7 @@
 
 This file owns constraints and reasons for choices. [ROADMAP](ROADMAP.md) owns implementation status; [OPEN_QUESTIONS](OPEN_QUESTIONS.md) owns unanswered questions. CONFIRMED does **not** mean implemented.
 
-Evidence policy: organizer constraints below are carried forward from the original repository decision log and agent instructions. They are **team-reported**; no primary organizer rulebook or dated confirmation is attached. Add the actual response/reference when received. Do not invent an approval, quotation, or date. Record authorized changes here before changing a hard constraint.
+Evidence policy: original organizer constraints are **team-reported** unless a later entry identifies primary evidence (for example DEC-129/131). [DEC-141](#dec-141-organizer-verbal-criteria) records the new verbal criteria as relayed by Çağatay, not independently verified transcript evidence. Add the actual response/reference when received; do not invent an approval, quotation, or date. Record authorized changes here before changing a hard constraint.
 
 “Original date unrecorded” means exactly that. The review date is not a claimed decision date. Status vocabulary: CONFIRMED is authorized direction; SUPERSEDED retains history but is no longer governing; PROPOSED needs review/evidence; BLOCKED needs the named answer; DEFERRED is outside the current delivery path. Implementation progress belongs only in ROADMAP.
 
@@ -545,6 +545,19 @@ Confirmed team priority refinement, explicitly requested by Çağatay after M3-0
 - Decision: include `mypy src` in `make pr` and its Windows equivalent after Ruff checks. Keep strict mode enabled. `make quick` and targeted edit-time checks remain lightweight. The full release gate still owns all-test execution, dependency audit and main promotion; this is not a per-edit full/release gate.
 - Rejected: suppressing module errors or leaving the inexpensive contract check until the final release. Keep the existing narrow third-party typing exceptions documented; add no blanket ignore or new runtime dependency.
 - Consequences: a new type error must be fixed before merging into dev. This amends the fast PR placement described in DEC-109/AGENTS, without altering organizer rules, runtime behavior or authorization boundaries.
+
+<a id="dec-141-organizer-verbal-criteria"></a>
+
+### DEC-141 — Organizer verbal criteria relayed by Çağatay
+
+- Status: CONFIRMED as organizer-reported criteria, relayed by Çağatay on 2026-09-14 in the documentation-reconciliation request. The underlying organizer communication/transcript was not independently verified; no scoring weights or numeric judging thresholds were supplied.
+- **Development versus runtime:** development coding assistants such as Cursor, Claude Code, Codex and Gemini are allowed (consistent with Q-DEV-01). The open-weight restriction applies to the delivered/runtime/demo harness: use allowed models through Kloudeks under DEC-002/129/131, never Codex/Claude/Gemini/OpenAI-hosted agent reasoning as a runtime analyst. This does not change the explicitly Kloudeks-configured SDK allowance.
+- **Own harness and smaller-model usefulness:** the team must build its own harness. The reported judging intent is that deterministic/custom logic carries as much work as possible so the system remains useful with a smaller allowed open-weight model. DEC-101/113's typed planning, deterministic tools and custom validation/execution/gating support this criterion; their existence does not prove smaller-model acceptance.
+- **Domain genericity:** the core should remain reusable when BDDK/EVDS is replaced by a substantially different dataset/domain. DEC-001/103's source-adapter separation is necessary but does not establish cross-domain acceptance; finance-specific semantics and prompts must not be treated as universal contracts.
+- **Own lakehouse:** ready-made/managed lakehouse shortcuts, including Snowflake-style outsourcing, must not replace the team's lakehouse/harness architecture (DEC-003/112). This records the architecture criterion, not an invented ban on every hosting or infrastructure service.
+- **Secrets:** committing API keys/secrets is negative even in a private repository. DEC-129 and SECURITY's existing prohibition still applies; private visibility is no exception.
+- **Chained tables:** preserve the existing table, transform only requested columns, add columns without destroying the prior table, and continue from the intended current result. Immutable history alone does not satisfy this: UI selection must bind the following question to the intended owned result/version. Current display-only selection and remaining dependency invalidation are acceptance gaps, not completed behavior.
+- Consequences: apply these criteria to current architecture and evaluation under DEC-135's mandatory harness boundaries. Record delivered slices and remaining acceptance separately in ROADMAP; this entry changes no runtime behavior and grants no live-call or merge authorization.
 
 ## Proposed decisions
 
