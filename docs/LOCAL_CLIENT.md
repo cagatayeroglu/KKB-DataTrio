@@ -156,14 +156,15 @@ See [ROADMAP](ROADMAP.md#m10-03-first-local-client-2026-09-14) for delivery evid
 
 ## M10-18 selection continuation (2026-09-14, PR #166)
 
-This branch adds the client behavior above. Automated client/bridge tests and
+Merged PR #166 adds the client behavior above. Automated client/bridge tests and
 production build pass; see [the dated evaluation](EVALUATION.md#m10-18-client-selection-2026-09-14).
 On 2026-09-15 the selected-table browser scenarios passed using the production
 frontend and real Python prepared runtime over synthetic data: old selection
 through reload, uncertain-admission retry after reload, source preservation on
 abstention/rejection and free-question mode. See the [dated browser evidence](EVALUATION.md#m10-18-browser-selection-2026-09-15).
 Live Kloudeks acceptance, proof graph UI and broader refresh invalidation remain
-separate. This PR remains unmerged.
+separate. PR #166 merged into dev at `de11f3e` after both CI gates passed
+for HEAD `09eb827`; its task branch was deleted.
 
 ### Repeat the finite synthetic selection rehearsal
 

@@ -28,7 +28,8 @@ existing turn without rerunning; changed text or selection gives `request_confli
 disconnect, retrieve the existing turn or repeat the same ID. A new ID means a
 new analysis, not transport recovery.
 
-### M10-18 — selection admission and workspace resolution (partial)
+<a id="m10-18--selection-admission-and-workspace-resolution-partial"></a>
+### M10-18 — selected-result grounding (merged)
 
 PR #163's admission slice is merged. `selected_result_id` is a published API
 `result_ref`, not an internal workspace name or digest. Authentication comes
@@ -82,7 +83,8 @@ catalog continuation, add-series then table comparison, retries, source changes
 and dependency invalidation. PR #166 now also wires frontend selection, immutable
 admission/retry identity and exact-reference reload recovery, with automated
 client/bridge checks. Synthetic selected-flow browser acceptance passed on
-2026-09-15; live Kloudeks selected-table quality remains pending. M10-18 is still PARTIAL until required review/acceptance and merge.
+2026-09-15; live Kloudeks selected-table quality remains pending. M10-18 is merged via #166 at `de11f3e`; the selected-flow delivery is DONE.
+The broader limits above remain open.
 See [client recovery and evidence](LOCAL_CLIENT.md#recovery-and-limits).
 
 ## Bounded lifecycle
