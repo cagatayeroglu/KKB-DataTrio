@@ -392,16 +392,17 @@ class Session:
                 available = {**workspace.values(), **available}
 
         source = result.parameters.get("source")
-        if (
-            isinstance(source, str)
-            and source != name
-            and source in available
-            and all(value in result.values for value in available[source].values)
-        ):
-            # A transform that kept every value of its source supersedes it for this
-            # answer: the same figure in both would otherwise be an ambiguous claim.
-            # The source stays published; only this answer's view narrows.
+        while isinstance(source, str) and source != name and source in available:
+            ancestor = available[source]
+            if not all(value in result.values for value in ancestor.values):
+                break
+            # Follow only declared, exactly preserved ancestors. Turn 3 can retain
+            # both Turn 2 and Turn 1 values; leaving Turn 1 in the writer's view
+            # would make those copied amounts ambiguous again. Unrelated results
+            # remain, even if they contain equal figures. Removing one key each
+            # time bounds the walk and terminates cycles; stored state is untouched.
             available = {key: value for key, value in available.items() if key != source}
+            source = ancestor.parameters.get("source")
         draft = self.draft(question, available)
         answer = gate_answer(draft, available, connection, **gate)  # type: ignore[arg-type]
         faults = result_faults(
