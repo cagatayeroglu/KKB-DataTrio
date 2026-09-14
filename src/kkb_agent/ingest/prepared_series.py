@@ -52,7 +52,11 @@ def reviewed_series_names() -> dict[str, str]:
             "ay sonu stok (kullandırım değil)"
         )
     for code, series in REVIEWED_SERIES.items():
-        names[series.series_id] = _EVDS_NAMES[code]
+        names[series.series_id] = _EVDS_NAMES.get(
+            code,
+            f"{series.datagroup_title}: {series.title}; {series.unit}, "
+            f"{series.frequency.value}, {series.stock_flow.value}",
+        )
     return names
 
 

@@ -43,8 +43,8 @@ def evds(code="TP.KFE.TR", window=WINDOW):
     return EvdsRequest(code=code, window=window)
 
 
-def test_registry_is_closed_to_the_reviewed_first_slice():
-    assert set(REVIEWED_SERIES) == {
+def test_registry_keeps_the_reviewed_first_slice_and_explicit_expansion():
+    assert set(REVIEWED_SERIES) >= {
         "TP.KTF12",
         "TP.TUKFIY2025.GENEL",
         "TP.GENENDEKS.T1",
@@ -89,7 +89,10 @@ def test_catalog_declarations_keep_source_identity_and_explicit_semantics():
     assert rate.status is CatalogStatus.UNKNOWN  # EVDS STATUS 1 is undocumented.
     assert rate.group.publisher == "Mevduat, Kalkınma ve Yatırım Bankaları"
     assert len(rate.source.content_hash) == 64 and rate.source.retrieved_at is not None
-    bases = {code: reviewed_series(code).base_year for code in REVIEWED_SERIES}
+    bases = {
+        code: reviewed_series(code).base_year
+        for code in ("TP.KTF12", "TP.TUKFIY2025.GENEL", "TP.GENENDEKS.T1", "TP.KFE.TR")
+    }
     assert bases == {
         "TP.KTF12": None,
         "TP.TUKFIY2025.GENEL": 2025,
