@@ -406,3 +406,16 @@ Measure lexical-only, dense-only and combined retrieval under DEC-130 separately
 ### M13-08 reviewed mapping development checks
 
 The [demo mapping artifact](CATALOG_MAPPING.md) is development/reference material, not M13-09 holdout. Its tests pin repository-supported real IDs, content/evidence hashes, exact alias unions, ambiguity, unresolved source groups/selectors, archived/unknown distinctions, native frequency/rate basis, family exclusions and deterministic loading. No synthetic record becomes a reviewed real candidate; no recall/benchmark score or live-source acceptance is claimed. Teammate-authored held-out queries and independent adjudication remain separate M13-09 work.
+
+
+## M0-10 Windows takeover validation (2026-09-14)
+
+PR #148, based on dev `2394aa7`. Python 3.12.14 on Windows. The equivalent fast PR gate (`scripts/check_windows.py`) passes: **2887 passed, 1 skipped in 188.54s**, with Ruff format/lint, Bandit and secret scan clean. The real symlink case is skipped only for Windows error 1314 (missing creation privilege); missing-root rejection still runs. POSIX mode bits are asserted on POSIX; Windows staging requires an operator-owned private directory with suitable ACLs. Scoped mypy for `_fetch_process.py` passes; this is not a full/release gate or a fix for the previously recorded release typing debt.
+
+The source inventory hashes and all fixture bytes are preserved by Git attributes. Oversized negative payloads have short test IDs. CSV/XLSX/PDF worker cleanup is checked via exit state and closed handles instead of POSIX signal 0. Hostile ZIP fixture names remain hostile in Windows-created archives. Closed-pool rehearsal copies pass; failed copies make no model call and expose no filesystem details.
+
+A real offline child test reproduced Windows `communicate` withholding partial output: a connected worker was incorrectly stopped at the connect deadline. A bounded phase-prefix observer fixes this without changing any deadline, destination, credential or retry policy. Real local child tests cover DNS stall, body stall and a successful response after the connect deadline but before the total deadline.
+
+Validation ran in an isolated copy of the same claimed branch, using the existing project interpreter/dependencies with `PYTHONPATH` pointed at the tested source and an explicit temporary test directory. This avoided temporary desktop write-approval timeouts. Final synchronization must check the original working changes before replacing task-owned files.
+
+Local prepared data is separate from this offline gate: the BDDK 2021-01–2026-06 preparation committed TP and YP (66 observations each), but TOTAL retrieval failed; a follow-up identified `TIMEOUT` at 2021-02. EVDS preparation failed before completion; a one-month KFE smoke returned `TIMEOUT` after 5.02s. No data, credentials or raw live output is committed. No local live model/two-turn run has yet passed in this takeover; older live acceptance above belongs to the earlier owner/run. Resume verified source preparation before claiming this machine is demo-ready.

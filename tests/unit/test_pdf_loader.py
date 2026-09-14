@@ -12,7 +12,6 @@ import io
 import json
 import logging
 import multiprocessing
-import os
 import time
 import warnings
 from dataclasses import replace
@@ -208,9 +207,11 @@ class TestBudgets:
                 def __getattr__(self, name):
                     return getattr(process, name)
 
-                def start(self):
-                    process.start()
-                    observed["pid"] = process.pid
+                def close(self):
+                    observed["alive_before_close"] = process.is_alive()
+                    observed["exitcode"] = process.exitcode
+                    process.close()
+                    observed["closed"] = True
 
             return Tracked()
 
@@ -224,8 +225,8 @@ class TestBudgets:
         assert (result.status, result.code, result.document) == ("rejected", "LIMIT_EXCEEDED", None)
         assert time.monotonic() - started < 4
         assert not observed["directory"].exists()
-        with pytest.raises(ProcessLookupError):
-            os.kill(observed["pid"], 0)
+        assert observed["closed"] and not observed["alive_before_close"]
+        assert observed["exitcode"] is not None
 
 
 class TestWorkerFailuresStaySanitised:

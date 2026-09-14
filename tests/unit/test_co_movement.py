@@ -417,6 +417,7 @@ def test_prepared_check_runs_turn_one_on_a_private_copy(lake, tmp_path):
 
     lake.connection.execute("CHECKPOINT")
     before = lake.connection.execute("SELECT count(*) FROM lineage_nodes").fetchone()
+    lake.connection.close()  # Prepared datasets must be closed before copying.
     plan = {
         "question": QUESTION,
         "steps": [
@@ -437,8 +438,13 @@ def test_prepared_check_runs_turn_one_on_a_private_copy(lake, tmp_path):
     assert report["result"]["transformations"] == ["align_weekly_to_monthly"]
     assert sorted(report["result"]["counts"].values()) == [1.0, 3.0, 4.0, 5.0]
     # Runtime evidence and workspace writes went to the copy, not the prepared root.
-    assert lake.connection.execute("SELECT count(*) FROM lineage_nodes").fetchone() == before
-    assert lake.connection.execute("SELECT count(*) FROM workspace_artifacts").fetchone() == (0,)
+    with open_lakehouse(lake.root) as prepared:
+        assert (
+            prepared.connection.execute("SELECT count(*) FROM lineage_nodes").fetchone() == before
+        )
+        assert prepared.connection.execute(
+            "SELECT count(*) FROM workspace_artifacts"
+        ).fetchone() == (0,)
 
 
 def test_prepared_check_refuses_a_root_without_a_lakehouse(tmp_path):
@@ -501,7 +507,7 @@ def test_no_table_accompanies_an_abstained_answer(lake):
 def test_prepared_report_lists_tables_and_withheld_text(lake, tmp_path):
     from kkb_agent import live_check
 
-    lake.connection.execute("CHECKPOINT")
+    lake.connection.close()
     plan = {
         "question": QUESTION,
         "steps": [

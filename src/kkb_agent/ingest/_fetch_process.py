@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
 import math
 
 # Fixed interpreter/module only; no shell or user command.
 import subprocess  # nosec B404
 import sys
+import threading
 import time
 from contextlib import suppress
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, BinaryIO, cast
 
 if TYPE_CHECKING:
     from kkb_agent.ingest.bddk_monthly_request import MonthlyRequest
@@ -29,6 +31,41 @@ from kkb_agent.ingest.safe_fetch import (
 CONNECTED = b"CONNECTED\n"
 MAX_INPUT_BYTES = 64 * 1024
 PROGRESS_POLL_SECONDS = 0.1
+
+
+class _ProgressReader(io.BufferedIOBase):
+    """Expose a bounded phase prefix while Windows communicate waits for EOF.
+
+    On Windows, TimeoutExpired.output omits bytes already read by communicate's
+    reader thread. Keep just the phase prefix separately so the supervisor can
+    enforce the same connect/total deadlines as on POSIX. The final bytes still
+    go through the normal complete-output validation.
+    """
+
+    def __init__(self, stream: io.BufferedReader, prefix_limit: int):
+        self._stream = stream
+        self._prefix_limit = prefix_limit
+        self._prefix = bytearray()
+        self._lock = threading.Lock()
+
+    def read(self, size: int | None = -1) -> bytes:
+        if size not in (-1, None):  # communicate only requests the complete stream.
+            raise ValueError("progress reader requires an unbounded read")
+        chunks = []
+        while chunk := self._stream.read1(64 * 1024):
+            with self._lock:
+                remaining = self._prefix_limit - len(self._prefix)
+                self._prefix.extend(chunk[:remaining])
+            chunks.append(chunk)
+        return b"".join(chunks)
+
+    def progress(self) -> bytes:
+        with self._lock:
+            return bytes(self._prefix)
+
+    def close(self) -> None:
+        self._stream.close()
+        super().close()
 
 
 def _progress(output: bytes, started: float, limits: FetchLimits) -> tuple[bytes, float | None]:
@@ -103,6 +140,10 @@ def fetch_in_process(
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
         )
+        reader = None
+        if sys.platform == "win32" and isinstance(process.stdout, io.BufferedReader):
+            reader = _ProgressReader(process.stdout, 64 * (2 * limits.max_redirects + 1))
+            process.stdout = cast(BinaryIO, reader)
         remaining = limits.total_seconds - (time.monotonic() - started)
         connect_remaining = limits.connect_seconds - (time.monotonic() - started)
         if min(remaining, connect_remaining) <= 0:
@@ -115,7 +156,8 @@ def fetch_in_process(
                 break
             except subprocess.TimeoutExpired as error:
                 pending = None
-                _, connect_deadline = _progress(error.output or b"", started, limits)
+                progress = error.output or (reader.progress() if reader is not None else b"")
+                _, connect_deadline = _progress(progress, started, limits)
                 now = time.monotonic()
                 remaining = started + limits.total_seconds - now
                 if remaining <= 0 or (connect_deadline is not None and now >= connect_deadline):

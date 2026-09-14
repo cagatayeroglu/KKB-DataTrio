@@ -1,6 +1,7 @@
 """Synthetic admission inputs; no real source, table engine, or network calls."""
 
 import io
+import os
 import stat
 import zipfile
 from dataclasses import replace
@@ -29,6 +30,13 @@ def archive_bytes(extra=(), *, compression=zipfile.ZIP_STORED):
             archive.writestr(name, b"<synthetic/>")
         archive.writestr("xl/worksheets/sheet1.xml", b"<synthetic/>")
         for name, value in extra:
+            if isinstance(name, str):
+                entry = zipfile.ZipInfo(name)
+                # ZipInfo normalizes backslashes on Windows when constructed.
+                # Keep the requested hostile name in the actual archive bytes.
+                entry.filename = name
+                entry.compress_type = compression
+                name = entry
             archive.writestr(name, value)
     return content.getvalue()
 
@@ -333,8 +341,9 @@ def test_staging_uses_generated_private_paths_and_always_cleans_up(tmp_path, rai
             assert destination.name == "input.csv"
             assert destination.parent.parent == tmp_path.resolve()
             assert destination.read_bytes() == CSV
-            assert stat.S_IMODE(destination.stat().st_mode) == 0o600
-            assert stat.S_IMODE(destination.parent.stat().st_mode) == 0o700
+            if os.name == "posix":  # Windows uses the operator root's ACLs.
+                assert stat.S_IMODE(destination.stat().st_mode) == 0o600
+                assert stat.S_IMODE(destination.parent.stat().st_mode) == 0o700
             if raise_inside:
                 raise RuntimeError("synthetic downstream failure")
     except RuntimeError:
@@ -377,13 +386,19 @@ def test_failed_storage_write_is_sanitized_and_cleans_directory(tmp_path, monkey
     assert list(tmp_path.iterdir()) == []
 
 
-def test_symlink_or_missing_storage_root_rejected(tmp_path):
-    link = tmp_path / "link"
-    link.symlink_to(tmp_path, target_is_directory=True)
-    for root in (link, tmp_path / "missing"):
-        with pytest.raises(AdmissionError, match="^STORAGE_FAILED$"):
-            with staged_upload(
-                io.BytesIO(CSV), filename="x.csv", content_type="text/csv", storage_root=root
-            ):
-                pytest.fail("Invalid storage root")
-    assert list(tmp_path.iterdir()) == [link]
+@pytest.mark.parametrize("kind", ["missing", "symlink"])
+def test_symlink_or_missing_storage_root_rejected(tmp_path, kind):
+    root = tmp_path / kind
+    if kind == "symlink":
+        try:
+            root.symlink_to(tmp_path, target_is_directory=True)
+        except OSError as error:
+            if getattr(error, "winerror", None) == 1314:
+                pytest.skip("Windows account lacks symbolic-link creation privilege")
+            raise
+    with pytest.raises(AdmissionError, match="^STORAGE_FAILED$"):
+        with staged_upload(
+            io.BytesIO(CSV), filename="x.csv", content_type="text/csv", storage_root=root
+        ):
+            pytest.fail("Invalid storage root")
+    assert list(tmp_path.iterdir()) == ([root] if kind == "symlink" else [])

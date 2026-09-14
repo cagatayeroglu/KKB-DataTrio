@@ -125,3 +125,21 @@ def test_missing_settings_are_named_and_exit_2(monkeypatch, capsys):
 
     assert live_check.main() == 2
     assert json.loads(capsys.readouterr().out)["configuration"] == "ConfigurationError"
+
+
+def test_prepared_copy_failure_is_safe_and_never_calls_the_model(tmp_path, monkeypatch):
+    import shutil
+
+    prepared = tmp_path / "prepared"
+    prepared.mkdir()
+    (prepared / "kkb.duckdb").write_bytes(b"synthetic; copy is mocked")
+    provider = scripted()
+
+    def fail_copy(*args, **kwargs):
+        raise shutil.Error([("private-source", "private-target", CANARY)])
+
+    monkeypatch.setattr(live_check.shutil, "copytree", fail_copy)
+    report = live_check.run_prepared_check(provider, prepared, tmp_path / "work", turns=2)
+    assert report == {"passed": False, "configuration": "prepared_copy_failed"}
+    assert provider.seen == []
+    assert CANARY not in json.dumps(report)

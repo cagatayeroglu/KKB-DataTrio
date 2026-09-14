@@ -93,6 +93,12 @@ make install-dev
 make quick
 ```
 
+On Windows, after creating `.venv` and installing `.[dev]`, run the same fast PR checks with `.\.venv\Scripts\python.exe scripts/check_windows.py`. The script uses the same interpreter for every check, needs no PowerShell execution-policy change, enables UTF-8 for Turkish fixtures, and stops at the first failed check. It makes no live model/source calls. `.gitattributes` preserves the two reviewed source inventories' LF hashes and all test fixtures' exact bytes on checkout.
+
+Without Windows symbolic-link creation privilege, the real symlink fixture reports a skip; missing-root rejection still runs. POSIX file-mode assertions apply on POSIX only; on Windows, use an operator-owned private staging directory with appropriate Windows ACLs. Source-fetch supervision observes connection progress on both platforms without changing connection or total-time budgets.
+
+Before `live_check --prepared-root`, finish ingestion and close all connections to the prepared lakehouse; keep that root unchanged during the copy. `prepared_copy_failed` means the copy could not be created (for example, a locked file); no model call was made. Close the owning process and use a fresh work directory for a later explicitly authorized rehearsal.
+
 Normal code tasks use targeted tests/lint or `make quick`; task PRs to `dev` use the fast `make pr` gate. `make full` belongs to stable `dev -> main`/final demo checkpoints or explicit requests. Boundary changes still need targeted negative tests. Documentation-only tasks/PRs use diff/link/status checks, not application/security/release checks. [AGENTS](AGENTS.md#validation-tiers-and-speed-limits) owns the gate rules; these command definitions are not claimed passing results.
 
 There is no `eval-smoke`/`eval-full` Make target, benchmark runner or UI launch command yet. `python -m kkb_agent.llm.smoke` (transport) and `python -m kkb_agent.live_check` (one question end to end on synthetic data) are operator-run live checks, never part of a gate. [EVALUATION](docs/EVALUATION.md#implemented-command-registry) separates existing commands from planned tiers. `make full` does not run a benchmark.
