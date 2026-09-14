@@ -9,7 +9,8 @@ Tarih: 15 Eylül 2026 (Türkiye saati). Görev: M10-18 seçili sonuç üzerinden
 - Birleştirilen görev HEAD'i: `09eb827c3efdea88e65187f5482437bb38fb3876`.
 - Tam bu HEAD için **Fast PR gate** ve **Web client gate** başarılı. Kontrollerin kendi head_sha alanı doğrulandı.
 - Fetch sonrasında görev HEAD'inin ve merge commit'inin `origin/dev` geçmişinde olduğu doğrulandı.
-- `main` değiştirilmedi. #165 bağımsız, açık doküman PR'ıdır; bu işleme dahil edilmedi.
+- #165 doküman kapanışı da `0a3cf4e2ee28168b348ae5e6ff57d4647529ac49` ile dev içine birleştirildi; kendi HEAD'inin Fast PR/Web CI kontrolleri başarılı.
+- `main` değiştirilmedi. Bu son devir güncellemesi #167 üzerinden taşınır; yeni ürün işi sahiplenilmez.
 
 ## Neler yapıldı?
 
@@ -40,20 +41,20 @@ Tarih: 15 Eylül 2026 (Türkiye saati). Görev: M10-18 seçili sonuç üzerinden
 - Tam kaynak → dönüşüm → hücre kanıt grafiği arayüzü ayrı iş olarak açık.
 - Genericlik, desteklenen yeni finansal kaynak/veri kümesi/şemaların çekirdeği yeniden yazmadan eklenmesidir; rastgele alanlar veya sağlık verisi desteği vaat edilmez.
 
-## Dal temizliği ve yerel çalışma
+## Dal temizliği ve devir
 
-`codex/selected-workspace-resolution` görev dalı kullanıcı onayıyla hem GitHub'dan hem yerelden silindi. Silmeden önce görev HEAD'inin `origin/dev` içinde olduğu, başka worktree veya açık PR'ın bu dala bağlı olmadığı doğrulandı. Uzak izleme kayıtları temizlendi.
+`codex/selected-workspace-resolution` (#166) ve `codex/docs-genericity-completion` (#165) dalları kullanıcı onayıyla GitHub'dan ve yerelden silindi. Silmeden önce commit'lerin `origin/dev` içinde olduğu ve başka worktree/PR bağımlılığı bulunmadığı doğrulandı.
 
-Bu devir güncellemesi `codex/m10-18-completion` dalında, güncel `origin/dev` `de11f3e` tabanında ve [PR #167](https://github.com/cagatayeroglu/KKB-DataTrio/pull/167) içindedir. Yalnız doküman değiştirir; M10-18 ürün kodu zaten #166 ile dev'e girmiştir. #167 henüz birleştirilmemiştir. [ROADMAP](ROADMAP.md#current-project-status) bu doküman PR'ında M10-18'i kanıtıyla DONE olarak kaydeder; ayrı doküman görevi merge beklediğinden PARTIAL kalır.
+Bu not son [doküman kapanışı #167](https://github.com/cagatayeroglu/KKB-DataTrio/pull/167) için hazırlanmıştır. M10-18 ürün kodu #166 ile zaten dev'e girmiştir. [ROADMAP](ROADMAP.md#current-project-status) M10-18'i merge kanıtıyla DONE olarak kaydeder. Geçici doküman hazırlık claim'i yeni bir ürün görevi veya başka bir kapanış PR'ı gerektirmez. Devir alan kişi açık PR ve branch durumunu Git üzerinden doğrulamalıdır.
 
-İzole çalışma ağacı: `C:/Users/Cabaroglu/OneDrive/Belgeler/ChatGPT/KKB PROJE YARISMA/work/kkb-selected-result`.
+Desktop checkout: `C:/Users/Cabaroglu/Desktop/KKB-DataTrio`. Takip edilen yerel değişiklik bulunmadığı ve çalışan Git süreci olmadığı doğrulandı. Eski sıfır baytlık kilide münhasır erişim kontrolü yapıldı; `.git/index.lock`, silinmeden `.git/index.lock.handoff-20260915` adıyla yedeklendi. Desktop dev yalnız `pull --ff-only` ile güncel ürün checkpointini içerecek biçimde güncellendi. Takip edilmeyen `Claude outputs/` kullanıcı içeriği, stash ve main korundu. Yeni çalışmaya başlamadan yine Git durumunu kontrol et.
 
-Desktop checkout `dev` dalında daha eski bir commit'te (`54a865b`) ve mevcut `.git/index.lock` korundu. Kilidi körlemesine silme; çalışan Git işlemini veya yerel değişiklikleri varsayma. Yeni işi eski Desktop checkout'tan başlatma. Bu istisnada kullanıcı onayıyla güncel fetched dev üzerinden izole doküman dalı açıldı; Desktop dev veya main zorla değiştirilmedi.
+İzole çalışma kopyaları `work/kkb-selected-result`, `work/kkb-genericity-scope`, `work/kkb-active` ve `work/kkb-coverage` içindedir; geçici/önceki checkout'lar yeni özellik dalları değildir. Yeni işe başlamadan güncel dev'i esas al; eski detached checkout'tan devam etme.
 
 ## Sıradaki güvenli adım
 
-1. #167'deki doküman güncellemesini incele. Bu PR'ın merge edilmesi bu devir turunun kapsamına dahil değildir. Bağımsız #165'i ayrı değerlendir.
-2. Yeni ürün görevi seçmeden AGENTS.md, güncel ROADMAP ve açık PR sahipliklerini doğrula. Bu devirde yeni ürün görevi veya canlı çağrı sahiplenilmedi.
+1. Güncel dev'i fetch/pull --ff-only ile al; çalışma ağacını, açık PR'ları ve AGENTS.md kurallarını kontrol et. Ürün kodu ve devir dokümanını aynı güncel dev üzerinden oku.
+2. Yeni ürün görevini güncel ROADMAP ve sahiplik durumuna göre seç. Bu devirde yeni bir ürün görevi veya canlı çağrı sahiplenilmedi.
 3. Önerilen sonraki kabul çalışması, ayrıca açık canlı çağrı izni ve sınırlı çağrı bütçesiyle gerçek hazırlanmış havuzda seçili/eski tablo üzerinden Kloudeks üç turlu tekrar denemesidir. Canlı sonuçlarla doğrulanmayan davranışı tamamlanmış sayma. Genel refresh, tam kanıt arayüzü ve diğer açık işleri bu dar kabulün içine gizlice ekleme.
 
 Başlangıç için: [AGENTS](../AGENTS.md), [ROADMAP](ROADMAP.md#current-project-status), [yerel arayüz ve tekrar tarifi](LOCAL_CLIENT.md#repeat-the-finite-synthetic-selection-rehearsal), [tarayıcı kabul kanıtı](EVALUATION.md#m10-18-browser-selection-2026-09-15).
