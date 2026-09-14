@@ -28,24 +28,40 @@ existing turn without rerunning; changed text or selection gives `request_confli
 disconnect, retrieve the existing turn or repeat the same ID. A new ID means a
 new analysis, not transport recovery.
 
-### M10-18 first slice — selection admission only (PR #163, incomplete)
+### M10-18 — selection admission and workspace resolution (partial)
 
-`selected_result_id` is a published API `result_ref`, not an internal workspace
-name or digest. Authentication comes first. Admission resolves exactly one
-completed, ACCEPTED result in the same session and pins its source turn, public
-reference and version. Unknown, foreign, unpublished or ambiguous references
-return `invalid_result` (422) without admitting work. Missing/null selection
-retains the original runner behavior; an identical retry never runs again.
+PR #163's admission slice is merged. `selected_result_id` is a published API
+`result_ref`, not an internal workspace name or digest. Authentication comes
+first. Admission resolves exactly one completed, ACCEPTED result in the same
+session and pins its source turn, public reference and version. Unknown,
+foreign, unpublished or ambiguous references return `invalid_result` (422)
+without admitting work. Missing/null selection retains the original runner
+behavior; an identical retry never runs again.
 
-An explicitly supplied `selected_runner` receives the pinned identity on the
-existing worker. Until the prepared workspace integration is implemented, the
-standard prepared service has no such handler and returns `unavailable` (503)
-for an otherwise valid explicit selection. It never silently discards selection.
-This admission receipt is not proof that a workspace artifact is current: the
-next slice must resolve/validate its stored version and staleness, bind planning
-and tool execution, and record publication dependencies. Frontend selection,
-recovery and end-to-end transform tests remain pending. Do not merge this first
-slice as a completed selected-result fix.
+The second slice ([PR #166](https://github.com/cagatayeroglu/KKB-DataTrio/pull/166))
+records a process-local receipt only after prepared workspace publication and
+successful API projection. The receipt binds session, turn, public reference
+and result version to the exact workspace name and artifact. It shares the
+existing session/turn bounds and has no restart recovery. Duplicate published
+turn IDs cannot overwrite receipts.
+
+`PreparedRunner.resolve_selection` is a worker-side read helper, not an HTTP
+endpoint. Under the runner lock it opens only the owned session database in
+read-only mode, requires the recorded identity, rejects stale/missing/rebound
+artifacts, verifies the artifact definition hash and rereads the stored result
+with content-hash validation. Older publications remain selectable while their
+own bindings are unchanged and non-stale. Refusals use the fixed internal
+`invalid_result` category; they create no turn, call no model and replace no
+prior result. A returned value is a fresh snapshot, not an execution lease or
+renewed verifier approval. This checks existing stale flags; it does not yet
+create cross-turn dependency edges or invalidate them automatically.
+
+The standard prepared service still has no `selected_runner` and returns
+`unavailable` (503) for an otherwise valid explicit selection. It never silently
+discards selection. The next slice must re-resolve within the locked execution
+scope, bind planning/tool execution to that source and record publication
+dependencies. Frontend selection, recovery and end-to-end selected-transform
+tests remain pending. Neither backend slice completes the selected-result fix.
 
 ## Bounded lifecycle
 
