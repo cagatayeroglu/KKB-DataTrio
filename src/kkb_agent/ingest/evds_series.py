@@ -148,7 +148,137 @@ _SERIES = (
     ),
 )
 
-REVIEWED_SERIES = MappingProxyType({series.code: series for series in _SERIES})
+# M3-08 coverage expansion: explicit selections reviewed against the same pinned
+# source lists. No runtime source title, alias or arbitrary code adds authority.
+
+_ADDITIONAL_RATE_METADATA = (
+    ("TP.KTF10", "İhtiyaç Kredisi (TL, Akım, %)", "Personal Loans (TRY) (Flow, %)"),
+    (
+        "TP.KTF101",
+        "İhtiyaç Kredisi (KMH Dahil) (TL, Akım, %)",
+        "Personal Loans (TRY) (Including Real Person Overdraft Account) (Flow, %)",
+    ),
+    ("TP.KTF11", "Taşıt Kredisi (TL, Akım, %)", "Vehicle Loans (TRY) (Flow, %)"),
+    ("TP.KTF17", "Ticari Krediler (TL, Akım, %)", "Commercial Loans (TRY) (Flow, %)"),
+    ("TP.KTF17.EUR", "Ticari Krediler (Euro, Akım, %)", "Commercial Loans (EUR) (Flow, %)"),
+    ("TP.KTF17.USD", "Ticari Krediler (ABD doları, Akım,%)", "Commercial Loans (USD) (Flow, %)"),
+    (
+        "TP.KTF18",
+        "Ticari Krediler (Tüzel Kişi KMH ve Kurumsal Kredi Kartları Hariç) (TL, Akım, %)",
+        "Commercial Loans (TRY) (Excluding Corporate Overdraft Account and Corporate Credit "
+        "Cards) (Flow, %)",
+    ),
+    (
+        "TP.KTFTUK",
+        "Tüketici Kredisi (İhtiyaç+Taşıt+Konut) (TL, Akım, %)",
+        "Consumer Loans (TRY) (Personal+Vehicle+Housing) (Flow, %)",
+    ),
+    (
+        "TP.KTFTUK01",
+        "Tüketici Kredisi (KMH Dahil) (İhtiyaç+Taşıt+Konut) (TL, Akım, %)",
+        "Consumer Loans (TRY) (Personal+Vehicle+Housing) (Including Real Person Overdraft "
+        "Account) (Flow, %)",
+    ),
+)
+
+_CPI_DIVISION_METADATA = (
+    ("TP.TUKFIY2025.01", "01. Gıda Ve Alkolsüz İçecekler", "01. Food and Non-Alcoholic Beverages"),
+    (
+        "TP.TUKFIY2025.02",
+        "02. Alkollü İçecekler, Tütün Ve Tütün Ürünleri",
+        "02. Alcoholic Beverages, Tobacco and Tobacco Products",
+    ),
+    ("TP.TUKFIY2025.03", "03. Giyim Ve Ayakkabı", "03. Clothing and Footwear"),
+    (
+        "TP.TUKFIY2025.04",
+        "04. Konut, Su, Elektrik, Gaz Ve Diğer Yakıtlar",
+        "04. Housing, Water, Electricity, Gas, and Other Fuels",
+    ),
+    (
+        "TP.TUKFIY2025.05",
+        "05. Mobilya, Mefruşat Ve Evde Kullanılan Ekipmanlar İle Rutin Ev Bakım Ve Onarımı",
+        "05. Furniture, Furnishings, and Household Equipment, and Routine Home Maintenance "
+        "and Repair",
+    ),
+    ("TP.TUKFIY2025.06", "06. Sağlık", "06. Health"),
+    ("TP.TUKFIY2025.07", "07. Ulaştırma", "07. Transportation"),
+    ("TP.TUKFIY2025.08", "08. Bilgi Ve İletişim", "08. Information and Communication"),
+    (
+        "TP.TUKFIY2025.09",
+        "09. Eğlence, Dinlence, Spor Ve Kültür",
+        "09. Entertainment, Recreation, Sports, and Culture",
+    ),
+    ("TP.TUKFIY2025.10", "10. Eğitim Hizmetleri", "10. Educational Services"),
+    (
+        "TP.TUKFIY2025.11",
+        "11. Lokantalar Ve Konaklama Hizmetleri",
+        "11. Restaurants and Accommodation Services",
+    ),
+    (
+        "TP.TUKFIY2025.12",
+        "12. Sigorta Ve Finansal Hizmetler",
+        "12. Insurance and Financial Services",
+    ),
+    (
+        "TP.TUKFIY2025.13",
+        "13. Kişisel Bakım, Sosyal Koruma Ve Çeşitli Mal Ve Hizmetler",
+        "13. Personal Care, Social Protection, and Miscellaneous Goods and Services",
+    ),
+)
+
+_ADDITIONAL_SERIES = (
+    *(
+        ReviewedEvdsSeries(
+            code=code,
+            title=title,
+            title_eng=english,
+            datagroup="bie_kt100h",
+            datagroup_title="Kredi Faiz Oranları (Akım)",
+            data_source="Mevduat, Kalkınma ve Yatırım Bankaları",
+            evidence_sha256="b05143c4693d5b9e6057b5caaeb07123baefcbf594d1f57d9847481bbcde14c9",
+            frequency=Frequency.WEEKLY,
+            request_frequency=3,
+            unit="percent",
+            stock_flow=StockFlow.RATE,
+            anchor=WeeklyAnchor.FRIDAY,
+            note=(
+                "New-loan interest rate, not a loan amount or outstanding-portfolio rate. "
+                "Preserve the named credit category, denomination and KMH/card scope. "
+                "EUR/USD identifies loan denomination; the measured value is a percent, "
+                "not an exchange rate. Source allows average and forbids sum."
+            ),
+        )
+        for code, title, english in _ADDITIONAL_RATE_METADATA
+    ),
+    *(
+        ReviewedEvdsSeries(
+            code=code,
+            title=title,
+            title_eng=english,
+            datagroup="bie_tukfiy2025",
+            datagroup_title="Tüketici Fiyat Endeksi (2025=100)",
+            data_source="TÜİK",
+            evidence_sha256="e9e556bed380546ce930ae192171f71f5e37e3a6e0367b370e66c2bb60d62f67",
+            frequency=Frequency.MONTHLY,
+            request_frequency=5,
+            unit="index",
+            stock_flow=StockFlow.INDEX,
+            base_year=2025,
+            note=(
+                "CPI expenditure-division index level, 2025=100 per source group. "
+                "Not headline CPI, an inflation rate or a contribution/weight. "
+                "The housing/utilities division is not the residential property price "
+                "index (KFE). Do not substitute it as a general deflator without an "
+                "explicit matching analytical scope; missing periods remain explicit."
+            ),
+        )
+        for code, title, english in _CPI_DIVISION_METADATA
+    ),
+)
+
+REVIEWED_SERIES = MappingProxyType(
+    {series.code: series for series in (*_SERIES, *_ADDITIONAL_SERIES)}
+)
 
 
 def reviewed_series(code: str) -> ReviewedEvdsSeries:
