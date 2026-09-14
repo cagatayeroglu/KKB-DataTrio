@@ -160,6 +160,7 @@ def inspect_pool(root: Path, catalog: ReviewedSnapshot) -> PreparedStatus:
         if not rows or len(rows) > len(reviewed):
             raise PreparedError("prepared_series_limit")
         series = []
+        names = prepared_series_names(connection)
         for sid, count, nonnull, first, last in rows:
             inspection = inspector.inspect(connection, sid)
             if inspection.status != "consistent":
@@ -167,7 +168,7 @@ def inspect_pool(root: Path, catalog: ReviewedSnapshot) -> PreparedStatus:
             series.append(
                 PreparedSeries(
                     series_id=sid,
-                    title=safe_text(reviewed[sid].title, limit=240),
+                    title=safe_text(names.get(sid, reviewed[sid].title), limit=240),
                     observations=count,
                     nonnull_observations=nonnull,
                     first_period=first,

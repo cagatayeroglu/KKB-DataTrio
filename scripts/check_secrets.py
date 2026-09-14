@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -14,6 +15,8 @@ IGNORED_DIRS = {
     ".ruff_cache",
     "dist",
     "build",
+    "node_modules",
+    ".next",
 }
 TEXT_SUFFIXES = {
     ".py",
@@ -31,6 +34,8 @@ TEXT_SUFFIXES = {
     ".ts",
     ".tsx",
     ".jsx",
+    ".mjs",
+    ".cjs",
 }
 
 PATTERNS = [
@@ -51,7 +56,12 @@ def should_scan(path: Path) -> bool:
 
 def main() -> int:
     hits: list[str] = []
-    for path in ROOT.rglob("*"):
+    paths: list[Path] = []
+    for directory, directories, files in os.walk(ROOT, followlinks=False):
+        # Prune generated/dependency trees, not authored web source or lockfiles.
+        directories[:] = sorted(name for name in directories if name not in IGNORED_DIRS)
+        paths.extend(Path(directory) / name for name in sorted(files))
+    for path in paths:
         if not path.is_file() or not should_scan(path):
             continue
         try:

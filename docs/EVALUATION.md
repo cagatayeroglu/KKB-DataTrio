@@ -644,3 +644,47 @@ CI scheduling: the old 5-minute whole-job limit cancelled PR #158 after its
 3235 Linux tests and all security checks passed (41 s install + 247 s tests).
 The whole-job ceiling is now 8 minutes; application/retrieval/test timeouts and
 gate contents remain unchanged. Remote status must be reported separately.
+
+
+## M10-03 first local client acceptance (2026-09-14)
+
+PR #159 adds the bounded same-origin bridge and responsive Next.js client.
+Final integrated `python scripts/check_windows.py`: **3281 passed, 2 Windows
+privilege skips, 2 existing dependency warnings, 257.43 s**; Ruff formatting/lint,
+strict mypy (98 source files), Bandit and repository secret scan PASS.
+`cd web; npm run check`: Prettier, strict TypeScript and **16 tests PASS**.
+`npm run build`: production Next.js build PASS. The separate CI web job runs
+these same client checks/build; remote CI status is distinct from this evidence.
+
+Browser rehearsal used a production Next server at loopback port 3000 and a
+test-only scripted provider behind the actual Python HTTP API. The expanded
+29-series/4124-observation public pool was used. No model/embedding/source
+network request was made. Three prescribed turns published **242, 302 and 368
+cells**, with the first four-column table still selectable after the final
+six-column result. Reload restored the same session and three result versions.
+A fourth scripted clarification retained Analiz 3 and displayed the fixed
+Turkish clarification. This is client/integration evidence, not live Qwen or
+arbitrary-question semantic acceptance.
+
+Desktop (~917×884) and narrow 390×844 viewport inspected. Narrow document
+clientWidth/scrollWidth both measured 375 px (remaining width is the scrollbar);
+tables scroll within their container. Inventory and read-only settings panels
+remain usable; viewport override reset after QA. Earlier client tests also
+exercise malformed responses, unsafe proxy destinations/origins, bounded body
+and response reads, session recovery, duplicate cells and missing values.
+No claim of full accessibility audit, complete proof UI or bug-free software.
+
+Integration caught a v3 evidence-byte mismatch after the coverage commit:
+EVDS_COVERAGE was hashed as pre-commit CRLF but `.gitattributes` pins its Git blob
+to LF. The actual blob at `1958d9a` hashes to
+`996c11247f24de3b2d98873c5b00a5aa750f44be59289c6386a7c54a264b864f`.
+v3 review revision **r4** corrects that evidence field and records the correction;
+its canonical digest is `e0bbaac8eb4d1b1e90deacab42989cd6f74181f8ce267150825e8d24e169fb11`.
+All source identities, aliases, metadata, historical v1/v2 and financial values
+remain unchanged. The existing byte-evidence regression now passes on the
+integrated checkout; the earlier 3271-pass report above was before Git normalized
+those bytes and is not a claim that the original merged r3 passed fresh checkout.
+
+Startup/recovery instructions and remaining scope: [LOCAL_CLIENT](LOCAL_CLIENT.md).
+Live three-turn browser acceptance, charts/export, upload/refresh, full proof,
+detailed tool progress, writable settings and deployment remain outstanding.

@@ -76,6 +76,7 @@ def test_readiness_is_read_only_and_distinguishes_catalog_from_observations(pool
     before = manifest(pool)
     status = inspect_pool(pool, load_reviewed_snapshot(CATALOG.read_bytes()))
     assert status.prepared_identities == 1 and status.catalog_identities == 15
+    assert "toplam (TP ve YP birlikte)" in status.series[0].title
     assert status.observation_rows == status.series[0].nonnull_observations == 3
     assert str(status.series[0].first_period) == "2026-04-01"
     assert status.pool_bytes == sum(size for size, _ in before.values())
