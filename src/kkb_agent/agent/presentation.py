@@ -8,10 +8,12 @@ by the finite float range and avoids exponents the answer parser cannot read.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 
 from kkb_agent.agent.claim_qualifiers import UNITS
-from kkb_agent.core import DIMENSIONLESS, ResultValue, Scale
+from kkb_agent.core import DIMENSIONLESS, AnalyticalResult, ResultStatus, ResultValue, Scale
 
 _SCALES = {Scale.ONE: "", Scale.THOUSAND: "bin", Scale.MILLION: "milyon", Scale.BILLION: "milyar"}
 _UNITS = {
@@ -66,3 +68,66 @@ def display_value(value: ResultValue) -> str | None:
         return None
     number = format_number(value.value)
     return " ".join(part for part in (number, scale, unit) if part)
+
+
+@dataclass(frozen=True, slots=True)
+class PeriodTable:
+    """Every per-period value of one result, laid out by code (M6-14).
+
+    Cells are the same display phrases the writer receives, taken from the
+    result itself; no model touches them, so the table needs no number-by-number
+    prose verification. An empty cell means the result holds no value for that
+    period; `UNAVAILABLE` means the value's unit/scale cannot be displayed.
+    """
+
+    columns: tuple[str, ...]
+    rows: tuple[tuple[str, tuple[str, ...]], ...]
+
+    def markdown(self) -> str:
+        header = "| Dönem | " + " | ".join(self.columns) + " |"
+        rule = "|---|" + "---:|" * len(self.columns)
+        body = [f"| {period} | " + " | ".join(cells) + " |" for period, cells in self.rows]
+        return "\n".join([header, rule, *body])
+
+
+def period_table(result: AnalyticalResult) -> PeriodTable | None:
+    """Series-like values (two or more periods per label) of a computed result.
+
+    Summary values without a period, dimensionless counts and single-period
+    values stay in the prose. A label with two values for the same period makes
+    the layout ambiguous, so no table is produced rather than picking one.
+    """
+    if result.status is not ResultStatus.COMPUTED:
+        return None
+    series: dict[str, dict[tuple[date, date], str]] = {}
+    for value in result.values:
+        if value.period is None or value.unit == DIMENSIONLESS:
+            continue
+        cells = series.setdefault(value.label, {})
+        key = (value.period.start, value.period.end)
+        if key in cells:
+            return None
+        cells[key] = display_value(value) or "UNAVAILABLE"
+    labels = [label for label, cells in series.items() if len(cells) >= 2]
+    if not labels:
+        return None
+    names = result.parameters.get("series_names")
+    titles = []
+    for label in labels:
+        title = label
+        if isinstance(names, dict):
+            for series_id, name in names.items():
+                if isinstance(name, str):
+                    title = title.replace(series_id, name)
+        titles.append(title)
+    periods = sorted({key for label in labels for key in series[label]})
+    return PeriodTable(
+        tuple(titles),
+        tuple(
+            (
+                f"{start.isoformat()}..{end.isoformat()}",
+                tuple(series[label].get((start, end), "") for label in labels),
+            )
+            for start, end in periods
+        ),
+    )

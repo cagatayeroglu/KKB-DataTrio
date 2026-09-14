@@ -446,3 +446,99 @@ def test_prepared_check_refuses_a_root_without_a_lakehouse(tmp_path):
 
     report = live_check.run_prepared_check(scripted(), tmp_path / "missing", tmp_path / "work")
     assert report == {"passed": False, "configuration": "prepared_root_missing"}
+
+
+# --- M6-14 deterministic period table ---------------------------------------------------------
+
+
+def test_period_table_lays_out_series_values_by_code():
+    from kkb_agent.agent.presentation import period_table
+
+    table = period_table(compute(parameters={"series_names": {"credit": "Konut bakiyesi"}}))
+    assert table.columns == (
+        "Konut bakiyesi",
+        "rate",
+        "rate month-over-month change",
+        "Konut bakiyesi month-over-month change",
+    )
+    assert len(table.rows) == 6
+    assert table.rows[0] == ("2021-01-01..2021-01-31", ("1.000 milyon TL", "10 yüzde", "", ""))
+    assert table.rows[1][1] == ("990 milyon TL", "9,5 yüzde", "-0,5 yüzde puan", "-10 milyon TL")
+    markdown = table.markdown().splitlines()
+    assert markdown[0].startswith("| Dönem | Konut bakiyesi |") and len(markdown) == 8
+    # Counts and single-value summaries stay in the prose.
+    assert not any("transitions" in column for column in table.columns)
+
+
+def test_period_table_refuses_non_series_or_ambiguous_results():
+    from kkb_agent.agent.presentation import period_table
+
+    assert period_table(compute(end=date(2020, 12, 31))) is None
+    result = compute()
+    doubled = result.model_copy(update={"values": [*result.values, result.values[0]]})
+    assert period_table(doubled) is None
+    single = result.model_copy(update={"values": result.values[:2]})
+    assert period_table(single) is None
+
+
+def test_turn_one_answer_carries_the_table_and_writer_is_told_not_to_repeat_it(lake):
+    draft = "Faizin düştüğü 4 aylık geçişin 3'ünde konut kredisi bakiyesi artmadı."
+    answered, workspace, session = turn_one(lake, draft)
+    assert answered.answer.status is AnswerStatus.ACCEPTED
+    (table,) = answered.tables
+    assert len(table.rows) == 6 and table.columns[0].startswith("BDDK Aylık Bülten")
+    writer_rules = session.provider.seen[1][0].content
+    assert "do not reproduce per-period rows" in writer_rules
+    assert "never by raw labels or identifiers" in writer_rules
+    assert "without that word" in writer_rules
+
+
+def test_no_table_accompanies_an_abstained_answer(lake):
+    answered, _, _ = turn_one(lake, "Şubat 2021'de bakiye 987 milyon TL'ye indi.")
+    assert answered.answer.status is AnswerStatus.ABSTAINED and answered.tables == ()
+
+
+def test_prepared_report_lists_tables_and_withheld_text(lake, tmp_path):
+    from kkb_agent import live_check
+
+    lake.connection.execute("CHECKPOINT")
+    plan = {
+        "question": QUESTION,
+        "steps": [
+            {
+                "step_id": "turn1",
+                "tool": "change_detection",
+                "arguments": json.loads(arguments().model_dump_json(exclude_none=True)),
+            }
+        ],
+    }
+    draft = "Faiz 4 geçişte düştü. Bakiye Şubat 2021'de 987 milyon TL oldu."
+    report = live_check.run_prepared_check(
+        scripted(json.dumps(plan), draft), lake.root, tmp_path / "work", question=QUESTION
+    )
+    assert report["answer"]["status"] == "qualified"
+    assert report["answer"]["withheld_text"] == ["Bakiye Şubat 2021'de 987 milyon TL oldu."]
+    (table,) = report["tables"]
+    assert table["rows"] == 6 and table["first"] == "2021-01-01..2021-01-31"
+
+
+def test_planner_is_told_where_columns_live_and_to_avoid_redundant_steps(lake):
+    from kkb_agent.agent.loop import SYSTEM_PROMPT
+    from kkb_agent.tools import make_lakehouse_tool
+
+    description = make_lakehouse_tool(lake.connection).description
+    assert "silver_series s (series_id, unit, scale" in description
+    assert "unit and scale exist only on silver_series" in description
+    assert "another planned step already returns" in SYSTEM_PROMPT
+
+
+def test_writer_reads_summaries_and_highlighted_periods_but_the_gate_sees_everything(lake):
+    draft = "Mart 2021'de bakiye 1.010 milyon TL oldu."  # A tabled, non-highlighted month.
+    answered, _, session = turn_one(lake, draft)
+    writer_prompt = session.provider.seen[1][1].content
+    assert "shown to the reader separately for:" in writer_prompt
+    assert "period 2021-02-01..2021-02-28" in writer_prompt  # highlighted
+    assert "period 2021-03-01..2021-03-31" not in writer_prompt  # tabled only
+    assert "transitions where" in writer_prompt
+    # Narrowing the writer's view does not narrow verification.
+    assert answered.answer.status is AnswerStatus.ACCEPTED

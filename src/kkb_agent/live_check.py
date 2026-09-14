@@ -290,6 +290,19 @@ def run_prepared_check(
         report = _answer_report(question, answered, counted, latency)
         report["prepared_series"] = len(names)
         report["published"] = workspace.names()
+        # Public prepared-pool figures only; bounded for diagnosis of withheld prose.
+        answer_report = report["answer"]
+        if isinstance(answer_report, dict):
+            answer_report["withheld_text"] = [item.text[:300] for item in answered.answer.omitted]
+        report["tables"] = [
+            {
+                "columns": list(table.columns),
+                "rows": len(table.rows),
+                "first": table.rows[0][0],
+                "last": table.rows[-1][0],
+            }
+            for table in answered.tables
+        ]
         if answered.results:
             final = answered.results[-1]
             report["result"] = {
