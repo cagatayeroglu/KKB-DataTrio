@@ -14,9 +14,17 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
+from kkb_agent.agent.discovery import (
+    CLARIFICATION_TEXT,
+    CONTINUATION_INSTRUCTIONS,
+    CONTINUATION_TOOLS,
+    DISCOVERY_INSTRUCTIONS,
+    catalog_feedback,
+    validate_discovery_phase,
+)
 from kkb_agent.agent.executor import (
     DEFAULT_BUDGET,
     Budget,
@@ -94,6 +102,8 @@ class Planned:
     plan: ValidatedPlan
     attempts: int
     rejections: tuple[str, ...] = ()
+    discovery_rounds: int = 0
+    discovery_plan: ValidatedPlan | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -286,6 +296,7 @@ class Session:
     budget: Budget = DEFAULT_BUDGET
     model: str | None = None
     rejections: list[str] = field(default_factory=list, repr=False)
+    catalog_continuation: bool = False
 
     def plan(self, question: str, workspace: Workspace | None = None) -> Planned:
         """Obtain a plan the registry will accept, or fail with the reasons why.
@@ -294,17 +305,37 @@ class Session:
         names, periods and column labels only — so a follow-up can refer to the
         table the user accepted instead of re-deriving or describing it.
         """
+        return self._plan(question, workspace, budget=self.budget)
+
+    def _plan(
+        self,
+        question: str,
+        workspace: Workspace | None,
+        *,
+        budget: Budget,
+        discovery: str | None = None,
+        used_ids: frozenset[str] = frozenset(),
+    ) -> Planned:
         messages = [
             Message(Role.SYSTEM, SYSTEM_PROMPT + "\n\n" + schema_instructions(AnalyticalPlan)),
-            Message(Role.SYSTEM, self._tools_prompt()),
+            Message(Role.SYSTEM, self._tools_prompt(continuation=discovery is not None)),
         ]
+        if self.catalog_continuation:
+            messages.append(
+                Message(
+                    Role.SYSTEM,
+                    DISCOVERY_INSTRUCTIONS if discovery is None else CONTINUATION_INSTRUCTIONS,
+                )
+            )
         published = workspace_prompt(workspace) if workspace is not None else None
         if published is not None:
             messages.append(Message(Role.SYSTEM, published))
         messages.append(Message(Role.USER, question))
+        if discovery is not None:
+            messages.append(Message(Role.USER, discovery))
         rejections: list[str] = []
         seen: set[str] = set()
-        for attempt in range(1, self.budget.max_plan_repairs + 2):
+        for attempt in range(1, budget.max_plan_repairs + 2):
             try:
                 completion = self.provider.complete(
                     messages, model=self.model, schema=AnalyticalPlan
@@ -317,7 +348,11 @@ class Session:
 
             fingerprint = proposal.fingerprint()
             try:
-                validated = validate_plan(proposal, self.registry, budget=self.budget)
+                validated = validate_plan(proposal, self.registry, budget=budget)
+                if self.catalog_continuation:
+                    validate_discovery_phase(
+                        validated, continuation=discovery is not None, used_ids=used_ids
+                    )
             except PlanRejected as error:
                 reason = str(error)
                 rejections.append(reason)
@@ -334,7 +369,7 @@ class Session:
                 continue
             return Planned(validated, attempt, tuple(rejections))
         raise PlanningFailed(
-            f"No runnable plan after {self.budget.max_plan_repairs + 1} attempt(s): "
+            f"No runnable plan after {budget.max_plan_repairs + 1} attempt(s): "
             + "; ".join(rejections)
         )
 
@@ -348,6 +383,46 @@ class Session:
             context=ExecutionContext(question=question),
             budget=self.budget,
         )
+        if (
+            self.catalog_continuation
+            and planned.plan.steps
+            and all(v.step.tool == "catalog_search" for v in planned.plan.steps)
+            and outcome.completed
+            and all(r.status is ToolStatus.SUCCESS for r in outcome.results)
+        ):
+            remaining = self.budget.max_steps - len(planned.plan.steps)
+            if remaining < 1:
+                raise PlanningFailed("Catalog discovery exhausted the turn step budget")
+            try:
+                feedback = catalog_feedback(outcome)
+            except (ValueError, TypeError) as error:
+                raise PlanningFailed("Catalog discovery output failed validation") from error
+            continuation = self._plan(
+                question,
+                workspace,
+                budget=replace(
+                    self.budget,
+                    max_steps=remaining,
+                    max_plan_repairs=self.budget.max_plan_repairs - len(planned.rejections),
+                ),
+                discovery=feedback,
+                used_ids=frozenset(v.step.step_id for v in planned.plan.steps),
+            )
+            following = execute(
+                continuation.plan,
+                self.registry,
+                # Discovery outputs never become calculation inputs.
+                context=ExecutionContext(question=question),
+                budget=self.budget,
+            )
+            planned = Planned(
+                continuation.plan,
+                planned.attempts + continuation.attempts,
+                (*planned.rejections, *continuation.rejections),
+                discovery_rounds=1,
+                discovery_plan=planned.plan,
+            )
+            outcome = ExecutionOutcome((*outcome.results, *following.results), following.completed)
         return planned, outcome
 
     def answer(
@@ -382,7 +457,11 @@ class Session:
                     AnswerStatus.ABSTAINED,
                     "",
                     Verdict(False, ()),
-                    abstention="No tool produced an analytical result for this question",
+                    abstention=(
+                        CLARIFICATION_TEXT[planned.plan.clarification]
+                        if planned.plan.clarification is not None
+                        else "No tool produced an analytical result for this question"
+                    ),
                 ),
             )
         result = results[-1]
@@ -463,8 +542,14 @@ class Session:
         )
         return completion.text
 
-    def _tools_prompt(self) -> str:
+    def _tools_prompt(self, *, continuation: bool = False) -> str:
         """The only tool information the planner receives (M5-06)."""
         return "Available tools:\n" + json.dumps(
-            self.registry.descriptions(), ensure_ascii=False, sort_keys=True
+            [
+                item
+                for item in self.registry.descriptions()
+                if not continuation or item["name"] in CONTINUATION_TOOLS
+            ],
+            ensure_ascii=False,
+            sort_keys=True,
         )

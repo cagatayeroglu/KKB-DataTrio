@@ -42,6 +42,7 @@ from kkb_agent.agent.loop import Answered
 from kkb_agent.agent.registry import ToolSpec
 from kkb_agent.agent.verifier import Binding, verify_claims
 from kkb_agent.agent.workspace import Workspace
+from kkb_agent.catalog.mappings import MAX_SNAPSHOT_BYTES, load_reviewed_snapshot
 from kkb_agent.core import (
     DIMENSIONLESS,
     Aggregation,
@@ -68,6 +69,7 @@ from kkb_agent.llm import (
 )
 from kkb_agent.tools import (
     make_anomaly_tool,
+    make_catalog_search_tool,
     make_causality_tool,
     make_change_detection_tool,
     make_lakehouse_tool,
@@ -225,7 +227,7 @@ def _answer_report(
     question: str, answered: Answered, counted: _Counting, latency: int
 ) -> dict[str, object]:
     gated = answered.answer
-    return {
+    report: dict[str, object] = {
         "question": question,
         # Attempts per completed model call, in order: planning, then drafting.
         "completions": list(counted.attempts),
@@ -257,6 +259,16 @@ def _answer_report(
         "latency_ms": latency,
         "passed": gated.status in (AnswerStatus.ACCEPTED, AnswerStatus.QUALIFIED),
     }
+    if answered.planned.discovery_plan is not None:
+        report["discovery"] = {
+            "rounds": answered.planned.discovery_rounds,
+            "steps": [
+                {"step_id": v.step.step_id, "query": v.arguments.model_dump(mode="json")}
+                for v in answered.planned.discovery_plan.steps
+            ],
+            "clarification": answered.planned.plan.clarification,
+        }
+    return report
 
 
 def run_prepared_check(
@@ -266,6 +278,7 @@ def run_prepared_check(
     *,
     question: str = TURN_ONE_QUESTION,
     turns: int = 1,
+    catalog_bytes: bytes | None = None,
     clock: Clock = time.perf_counter,
 ) -> dict[str, object]:
     """Ask the organizer turns over a private copy of the prepared pool (M6-25, M5-20).
@@ -281,6 +294,14 @@ def run_prepared_check(
         return {"passed": False, "configuration": "prepared_root_missing"}
     if turns not in (1, 2, 3):
         return {"passed": False, "configuration": "unsupported_turns"}
+    try:
+        catalog_tool = (
+            make_catalog_search_tool(snapshot_bytes=catalog_bytes)
+            if catalog_bytes is not None
+            else None
+        )
+    except (ValueError, TypeError):
+        return {"passed": False, "configuration": "catalog_configuration_failed"}
     root = workdir / "lake"
     try:
         shutil.copytree(prepared_root, root)
@@ -291,6 +312,8 @@ def run_prepared_check(
         names = prepared_series_names(lake.connection)
         workspace = Workspace.open(lake.connection)
         registry = ToolRegistry()
+        if catalog_tool is not None:
+            registry.register(catalog_tool)
         registry.register(make_lakehouse_tool(lake.connection, lineage=lake.lineage))
         registry.register(
             make_change_detection_tool(
@@ -369,7 +392,7 @@ def _prepared_turn(
     clock: Clock,
 ) -> dict[str, object]:
     counted = _Counting(provider)
-    session = Session(counted, registry)
+    session = Session(counted, registry, catalog_continuation="catalog_search" in registry)
     started = clock()
     try:
         answered = session.answer(question, lake.connection, workspace=workspace, remember=name)
@@ -634,6 +657,11 @@ def main(argv: Sequence[str] = ()) -> int:
         help="Ask the organizer Turn 1 question over a copy of this prepared lakehouse",
     )
     parser.add_argument(
+        "--catalog",
+        type=Path,
+        help="With --prepared-root: reviewed catalog JSON enabling bounded lexical discovery",
+    )
+    parser.add_argument(
         "--turns",
         type=int,
         choices=(1, 2, 3),
@@ -643,12 +671,23 @@ def main(argv: Sequence[str] = ()) -> int:
     arguments, unknown = parser.parse_known_args(argv)
     if unknown:
         parser.error("Unsupported arguments")
+    if arguments.catalog is not None and arguments.prepared_root is None:
+        parser.error("--catalog requires --prepared-root")
     if arguments.prepared_root is not None:
         if arguments.document or arguments.question is not None:
             parser.error("--prepared-root takes no --document or --question")
     elif arguments.document != (arguments.question is not None):
         # Never echo a question or URL in an error.
         parser.error("--document and --question must be supplied together")
+    catalog_bytes = None
+    if arguments.catalog is not None:
+        try:
+            with arguments.catalog.open("rb") as source:
+                catalog_bytes = source.read(MAX_SNAPSHOT_BYTES + 1)
+            load_reviewed_snapshot(catalog_bytes)
+        except (OSError, ValueError, TypeError):
+            print(json.dumps({"passed": False, "configuration": "catalog_configuration_failed"}))
+            return 2
     try:
         provider = KloudeksProvider.from_env()
     except ProviderError as error:
@@ -664,7 +703,11 @@ def main(argv: Sequence[str] = ()) -> int:
     with provider, tempfile.TemporaryDirectory(prefix="kkb-live-check-") as directory:
         if arguments.prepared_root is not None:
             report = run_prepared_check(
-                provider, arguments.prepared_root, Path(directory), turns=arguments.turns
+                provider,
+                arguments.prepared_root,
+                Path(directory),
+                turns=arguments.turns,
+                catalog_bytes=catalog_bytes,
             )
         elif arguments.document:
             report = run_document_check(

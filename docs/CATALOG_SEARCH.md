@@ -11,8 +11,10 @@ persistence and exact search over eligible IDs. The existing factory now accepts
 an optional operator-injected `CatalogDenseStage` for combined candidate retrieval.
 Without it, lexical-only behavior remains. Configured stages run both methods
 when reviewed eligibility is nonempty, even after lexical success. This is tested
-with fixture vectors; live policy, semantic quality and bounded planner consumption
-remain separate integration work.
+with fixture vectors; live policy and semantic quality remain separate work.
+The opt-in [bounded catalog continuation](CATALOG_CONTINUATION.md) now lets a
+planner consume these candidate results as data before one analysis/clarification
+plan. Default one-plan sessions retain their previous behavior.
 
 ## Bounded combined candidate contract
 

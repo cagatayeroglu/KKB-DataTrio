@@ -384,6 +384,18 @@ Approved target names are not executable capabilities. Expose only registered, i
 
 DEC-135 requires deterministic metadata inspection before selected financial-series observations are used and bounded quality validation before observations become analysis-ready. Multiple trusted sources/results supporting the same measure require conditional reconciliation of semantics, period, frequency, unit, scale and values; unsupported comparability remains NOT_COMPARABLE/NEEDS_TRANSFORM/NEEDS_INPUT, never inferred. These controls must not depend on planner tool selection or a model-supplied bypass flag. M13-13/M1-12/M8-09 automatic wiring is still unimplemented; this policy does not certify those paths as secured or replace existing guard/verifier checks.
 
+### M5-06 bounded catalog continuation
+
+The opt-in [catalog continuation](CATALOG_CONTINUATION.md) accepts at most four
+independent catalog queries and 32 KiB of revalidated projected metadata in a
+user/data message, never a system instruction. One continuation is restricted to
+registered analysis tools or a fixed typed clarification; catalog results grant
+no web tool authority and cannot be used as numerical step inputs. Step and
+repair budgets are cumulative across the two phases. Executor-bound step/tool
+identities preserve the trace; clarification neither calls the writer nor
+publishes state. This count-bounded path does not implement total cancellation,
+mandatory selected-series inspection or prove live model selection quality.
+
 ### M7-22 offline search boundary
 
 `web_search` accepts only bounded query/max_results and an operator-injected trusted SearchBackend. Backend credentials/configuration are outside planner schemas; exceptions become fixed codes. Spawned execution has a deadline, terminated/reaped worker, suppressed backend stdout/stderr, typed hit/field caps and a 64 KiB JSON response cap; adapters must bound their own wire I/O and are not sandboxed. Existing URL policy is applied offline: unsafe schemes/credentials/local/private literal targets are excluded; hostname DNS is not asserted. Query/fragment-free display locators are flagged and deduplicated conservatively, never treated as equivalent fetch authority. Titles/snippets remain untrusted metadata, not AnalyticalResults or writer evidence. `URL_NOT_IN_QUESTION`, DNS pinning, TLS, lineage and verifier behavior are unchanged. Only synthetic test backends exist; no production/live search acceptance is claimed.

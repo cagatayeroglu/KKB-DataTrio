@@ -516,3 +516,22 @@ The alternating-archive-tier-v1 candidate baseline is executable through explici
 operator injection; it does not establish real Qwen retrieval quality, held-out
 Recall@k, all-source coverage, live input policy or planner replanning. Parent
 M13-05 remains incomplete. See [the contract](CATALOG_SEARCH.md).
+
+### M5-06/M5-13 catalog continuation (2026-09-14)
+
+PR #155, implementation `45f189ef422db34ce7855c8e1393cf7a9e71d4ce`. **35 new tests PASS / 1.92s**;
+the earlier combined planner/catalog/rehearsal run was 135 PASS / 2.88s before
+two final regressions were added. Final fast PR: **3099 passed / one Windows privilege skip in 246.65s**;
+strict mypy 90 source files, Ruff, Bandit and secrets clean. 159 document
+targets checked. No full/release gate or live source/model call.
+
+Scripted discovery over the actual reviewed catalog feeds a further validated
+plan, deterministic change calculation, writer/gate and workspace publication.
+The fixture lakehouse's independently known 100→150 change is 50 million TRY,
+and all original prepared bytes remain unchanged. The real Kloudeks transport
+against an in-process HTTP mock keeps discovery in a user/data role, not its
+merged system message. Negative tests cover no-work clarification, mixed phases,
+repeated discovery, web escalation/injection, bad or oversized typed feedback,
+fresh IDs, forbidden discovery dependencies, shared steps/repairs, tool failures
+and trace binding. These prove integration mechanics, not live model reasoning
+or semantic-selection accuracy. See [the contract](CATALOG_CONTINUATION.md).
