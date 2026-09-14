@@ -97,6 +97,15 @@ TURN_TWO_QUESTION = (
 )
 TURN_TWO_NAME = "konut_kredisi_ve_faiz_reel"
 
+#: Preserve the existing table, then examine directions, not a causal estimate.
+TURN_THREE_QUESTION = (
+    "Mevcut tabloyu bozmadan Konut Fiyat Endeksi sütununu ekle. Faizlerin düştüğü aylarda, "
+    "konut fiyatları yükselirken enflasyondan arındırılmış kredi bakiyesinin artmadığı "
+    "dönemleri incele. Bu birlikte hareketin kredi artmamasını açıklamaya yetip yetmediğini "
+    "değerlendir."
+)
+TURN_THREE_NAME = "konut_kredisi_ve_faiz_reel_kfe"
+
 #: Synthetic figures in the reference scenario's shape; not source data.
 SERIES = {
     "bddk:konut": (
@@ -265,12 +274,12 @@ def run_prepared_check(
     this is an operator dataset copy, not a snapshot of a running database.
     The copy keeps runtime lineage, execution evidence and workspace writes out
     of the prepared root. Tools see reviewed names for the series it holds.
-    With `turns=2`, the Turn 2 question follows in the same workspace, and only
-    runs when Turn 1 was published. One turn keeps the single-report shape.
+    With `turns=2` or `3`, later questions follow in the same workspace only
+    after the previous result was published. One turn keeps the single-report shape.
     """
     if not (prepared_root / DATABASE_NAME).is_file():
         return {"passed": False, "configuration": "prepared_root_missing"}
-    if turns not in (1, 2):
+    if turns not in (1, 2, 3):
         return {"passed": False, "configuration": "unsupported_turns"}
     root = workdir / "lake"
     try:
@@ -284,7 +293,9 @@ def run_prepared_check(
         registry = ToolRegistry()
         registry.register(make_lakehouse_tool(lake.connection, lineage=lake.lineage))
         registry.register(
-            make_change_detection_tool(lake.connection, lineage=lake.lineage, series_names=names)
+            make_change_detection_tool(
+                lake.connection, lineage=lake.lineage, series_names=names, workspace=workspace
+            )
         )
         registry.register(
             make_table_transform_tool(
@@ -293,11 +304,21 @@ def run_prepared_check(
         )
         for make in (make_anomaly_tool, make_causality_tool):
             registry.register(make(lake.connection, lineage=lake.lineage))
-        plan = [(question, TURN_ONE_NAME), (TURN_TWO_QUESTION, TURN_TWO_NAME)][:turns]
+        plan = [
+            (question, TURN_ONE_NAME),
+            (TURN_TWO_QUESTION, TURN_TWO_NAME),
+            (TURN_THREE_QUESTION, TURN_THREE_NAME),
+        ][:turns]
         reports: list[dict[str, object]] = []
         for asked, name in plan:
             report = _prepared_turn(provider, registry, lake, workspace, asked, name, clock)
             report["prepared_series"] = len(names)
+            # A qualified answer can be visible without publishing trusted state.
+            # Even the final turn must be publishable to pass this rehearsal.
+            report["passed"] = report["passed"] is True and name in workspace.names()
+            if name == TURN_THREE_NAME and name in workspace.names():
+                report["relationship_checked"] = _turn_three_relationship(workspace.value_of(name))
+                report["passed"] = report["passed"] and report["relationship_checked"]
             reports.append(report)
             if name not in workspace.names():
                 break
@@ -307,6 +328,35 @@ def run_prepared_check(
         "turns": reports,
         "passed": len(reports) == turns and all(item["passed"] is True for item in reports),
     }
+
+
+def _turn_three_relationship(result: object) -> bool:
+    """Intent-specific rehearsal acceptance; generic runtime tools stay source-neutral."""
+    from kkb_agent.core import AnalyticalResult
+
+    if not isinstance(result, AnalyticalResult) or result.evidence is None:
+        return False
+    records = result.evidence.transformations
+    real_columns = {r.output_ref for r in records if r.operation == "deflate"}
+    rate_columns = {"EVDS:TP.KTF12"} | {
+        r.output_ref
+        for r in records
+        if r.operation == "align_weekly_to_monthly" and r.input_refs == ["EVDS:TP.KTF12"]
+    }
+    return (
+        any(r.operation == "add_series" for r in records)
+        and any(v.label == "EVDS:TP.KFE.TR" for v in result.values)
+        and any(
+            r.operation == "table_co_movement"
+            and r.parameters.get("driver_column") == "EVDS:TP.KFE.TR"
+            and r.parameters.get("driver_direction") == "up"
+            and r.parameters.get("target_column") in real_columns
+            and r.parameters.get("target_direction") == "non_increasing"
+            and r.parameters.get("when_column") in rate_columns
+            and r.parameters.get("when_direction") == "down"
+            for r in records
+        )
+    )
 
 
 def _prepared_turn(
@@ -585,9 +635,9 @@ def main(argv: Sequence[str] = ()) -> int:
     parser.add_argument(
         "--turns",
         type=int,
-        choices=(1, 2),
+        choices=(1, 2, 3),
         default=1,
-        help="With --prepared-root: 1 asks Turn 1; 2 then asks Turn 2 in the same workspace",
+        help="With --prepared-root: rehearse 1, 2 or all 3 organizer turns in the same workspace",
     )
     arguments, unknown = parser.parse_known_args(argv)
     if unknown:

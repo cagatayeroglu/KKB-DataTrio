@@ -45,6 +45,8 @@ class ToolSpec:
     description: str
     arguments: type[BaseModel]
     run: Callable[[BaseModel, ExecutionContext], ToolResult]
+    # A tool may consume earlier step outputs only through explicit plan edges.
+    required_steps: Callable[[BaseModel], tuple[str, ...]] | None = None
 
     def parse(self, raw: dict[str, Any]) -> BaseModel:
         try:
