@@ -474,7 +474,7 @@ claim ID -> tool run -> output reference
 
 The TARGET FastAPI application will stream plan and tool progress over server-sent events, so a multi-step analysis is legible while it runs. The client is Next.js with Tailwind and shadcn/ui, TanStack Table for the analysis table, `react-plotly.js` for charts, with a concise claim/evidence view first. Graph-heavy React Flow presentation is DEFERRED under DEC-128. The logical UI contract above still does not depend on that stack: Streamlit remains the recorded fallback, and the front end must not gate backend acceptance.
 
-M10-01 specifies the [operator flow and API boundary requirements](OPERATOR_FLOW.md). It adds no running API. Session-scoped result identity, safe SSE, canonical table values and bounded DEC-118 evidence projection must be implemented before the client consumes them; no global Session or unrestricted Lineage.trace export. “Why this number?” presents existing recorded evidence without upgrading verifier state.
+M10-01 specifies the [operator flow and API boundary requirements](OPERATOR_FLOW.md). [M10-16](LOCAL_API.md) implements a local FastAPI factory with closed version-one payloads, session capabilities, bounded single-worker admission and exact published-value projection. SSE reports actual turn lifecycle; full plan/tool callbacks remain pending. The prepared runner/startup, frontend and bounded DEC-118 proof traversal remain separate; no global Session or unrestricted Lineage.trace export. “Why this number?” will present recorded evidence without upgrading verifier state; the current response explicitly reports proof graph unavailable.
 
 ### 12. Lakehouse and medallion layout — CONFIRMED storage (DEC-112)
 
