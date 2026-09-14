@@ -151,6 +151,7 @@ class PublicationPreview:
     candidate_json: str
     state_token: str
     named_json: tuple[tuple[str, str], ...]
+    inputs: tuple[str, ...] = ()
 
     def values(self) -> dict[str, AnalyticalResult]:
         return {
@@ -464,14 +465,18 @@ class Workspace:
         ).fetchall()
         return hashlib.sha256(json.dumps(rows, ensure_ascii=False).encode()).hexdigest()
 
-    def preview(self, name: str, result: AnalyticalResult) -> PublicationPreview:
+    def preview(
+        self, name: str, result: AnalyticalResult, *, inputs: tuple[str, ...] = ()
+    ) -> PublicationPreview:
         """Preview Session's VALUE publication with define's existing semantics."""
         token = self._publication_state()
+        for dependency in inputs:
+            self.resolve(dependency)  # Refuse stale or missing publication inputs.
         definition = self._definition(
             name,
             ArtifactKind.VALUE,
             None,
-            (),
+            inputs,
             result.digest(),
             result.evidence.lineage_node if result.evidence else None,
         )
@@ -498,6 +503,7 @@ class Workspace:
             result.model_dump_json(),
             token,
             tuple((key, value.model_dump_json()) for key, value in sorted(values.items())),
+            inputs,
         )
 
     def publish(self, preview: PublicationPreview) -> Artifact:
@@ -518,7 +524,9 @@ class Workspace:
                 current = Workspace(connection, self.workspace_id)
                 if current._publication_state() != preview.state_token:
                     raise WorkspaceError("Workspace changed since publication preview")
-                artifact = current.record(preview.name, ArtifactKind.VALUE, result)
+                artifact = current.record(
+                    preview.name, ArtifactKind.VALUE, result, inputs=preview.inputs
+                )
                 # A fresh reader also catches commits made during our short
                 # write transaction, whose own reads use a snapshot.
                 observer = self.connection.cursor()

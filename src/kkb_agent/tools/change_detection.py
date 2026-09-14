@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Annotated, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
-from kkb_agent.agent.registry import ToolSpec
+from kkb_agent.agent.registry import TableInput, ToolSpec
 from kkb_agent.agent.workspace import Workspace
 from kkb_agent.analytics import compare_periods
 from kkb_agent.analytics.comovement import co_movement
@@ -130,6 +130,14 @@ class ChangeDetectionArguments(
     ]
 ):
     """Closed flat argument variants for stored-series and table-input operations."""
+
+
+def _table_input(arguments: BaseModel) -> TableInput | None:
+    if isinstance(arguments, ChangeDetectionArguments):
+        selected = arguments.root
+        if isinstance(selected, TableRelationshipArguments):
+            return TableInput(source=selected.source, input_step=selected.input_step)
+    return None
 
 
 def _required_steps(arguments: BaseModel) -> tuple[str, ...]:
@@ -339,6 +347,7 @@ def make_change_detection_tool(
         arguments=ChangeDetectionArguments,
         run=run,
         required_steps=_required_steps,
+        table_input=_table_input,
     )
 
 

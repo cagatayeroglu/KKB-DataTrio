@@ -64,4 +64,5 @@ def make_catalog_search_tool(
         ),
         arguments=CatalogSearchArguments,
         run=run,
+        discovery_only=True,
     )

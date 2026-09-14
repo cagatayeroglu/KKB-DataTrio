@@ -38,30 +38,50 @@ foreign, unpublished or ambiguous references return `invalid_result` (422)
 without admitting work. Missing/null selection retains the original runner
 behavior; an identical retry never runs again.
 
-The second slice ([PR #166](https://github.com/cagatayeroglu/KKB-DataTrio/pull/166))
-records a process-local receipt only after prepared workspace publication and
-successful API projection. The receipt binds session, turn, public reference
-and result version to the exact workspace name and artifact. It shares the
-existing session/turn bounds and has no restart recovery. Duplicate published
-turn IDs cannot overwrite receipts.
+[PR #166](https://github.com/cagatayeroglu/KKB-DataTrio/pull/166) records a
+process-local receipt only after prepared workspace publication and successful
+API projection. Session, turn, public reference and result version bind the
+exact workspace name and artifact. Existing session/turn limits bound receipts;
+there is no restart recovery. Duplicate published turn IDs cannot overwrite them.
 
-`PreparedRunner.resolve_selection` is a worker-side read helper, not an HTTP
-endpoint. Under the runner lock it opens only the owned session database in
-read-only mode, requires the recorded identity, rejects stale/missing/rebound
-artifacts, verifies the artifact definition hash and rereads the stored result
-with content-hash validation. Older publications remain selectable while their
-own bindings are unchanged and non-stale. Refusals use the fixed internal
-`invalid_result` category; they create no turn, call no model and replace no
-prior result. A returned value is a fresh snapshot, not an execution lease or
-renewed verifier approval. This checks existing stale flags; it does not yet
-create cross-turn dependency edges or invalidate them automatically.
+`PreparedRunner.resolve_selection` is a read-only worker helper. It resolves
+only an owned receipt, rejects stale/missing/rebound artifacts, checks artifact
+definition and stored result hashes, and returns a fresh snapshot. Older
+publications remain selectable while their own bindings are unchanged and
+non-stale. This helper is not an execution lease or renewed verifier approval.
 
-The standard prepared service still has no `selected_runner` and returns
-`unavailable` (503) for an otherwise valid explicit selection. It never silently
-discards selection. The next slice must re-resolve within the locked execution
-scope, bind planning/tool execution to that source and record publication
-dependencies. Frontend selection, recovery and end-to-end selected-transform
-tests remain pending. Neither backend slice completes the selected-result fix.
+The prepared launcher now injects `PreparedRunner.selected` as `selected_runner`.
+That entry resolves the receipt again and runs the turn under the same runner
+lock and owned connection. Stale/changed selections fail the admitted turn with
+`invalid_result` before model execution. This differs from unknown/foreign
+public references, which admission rejects with HTTP 422 before creating a turn.
+Custom services without a selected handler still fail closed with HTTP 503.
+
+The mandatory selected-table harness uses registry-owned `ToolSpec.table_input`
+declarations, never a model's claim to have used the right table. Every
+calculation must consume the selected workspace name or an explicitly declared
+previous step derived from it. Discovery-only catalog plans and clarification
+remain permitted. Plan repair is bounded; invalid plans run no valid prefix.
+The executor rechecks the plan at dispatch and the pinned source before each
+step/retry. Current supported consumers are `table_transform` (deflate/add_series)
+and `change_detection` table_co_movement, including a prior transform's step
+output. Other analytical operations must clarify until they declare an actual
+supported table input; SQL cannot silently rebuild the selection.
+
+Before publication the source is checked again. `Workspace.preview(inputs=...)`
+and its existing atomic publish transaction record the selected source artifact
+as an input. Rebinding that source invalidates its dependent publications via
+the existing DAG. This covers explicit selected-table dependencies, not all
+legacy results, independent official-data refreshes or assumption changes.
+The writer/gate see only the selected source and its derived result, with exact
+copied values deduplicated; mandatory tool evidence and verifier checks remain.
+Failed/refused follow-ups do not replace previous published results.
+
+Scripted HTTP and real-tool tests cover older selection, wrong-source repair,
+catalog continuation, add-series then table comparison, retries, source changes
+and dependency invalidation. Frontend selection submission/recovery, browser
+acceptance and live Kloudeks selected-table quality remain pending. M10-18 is
+still PARTIAL; this backend integration does not complete the UI feature.
 
 ## Bounded lifecycle
 

@@ -18,10 +18,11 @@ import duckdb
 from pydantic import Field
 
 from kkb_agent.agent import Session, ToolRegistry, Workspace
-from kkb_agent.agent.workspace import WorkspaceError, artifact_id
+from kkb_agent.agent.selection import SelectedTable, SelectionError
+from kkb_agent.agent.workspace import WorkspaceError
 from kkb_agent.api.contracts import MAX_SESSIONS, MAX_TURNS, Answer
 from kkb_agent.api.projection import project_answer, safe_text
-from kkb_agent.api.service import SelectedResult
+from kkb_agent.api.service import SelectedResult, ServiceError
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
 from kkb_agent.catalog.mappings import MAX_SNAPSHOT_BYTES, ReviewedSnapshot, load_reviewed_snapshot
 from kkb_agent.core import AnalyticalResult
@@ -269,11 +270,31 @@ class PreparedRunner:
         self._lock = threading.Lock()
 
     def __call__(self, session_id: str, turn_id: str, question: str) -> Answer:
+        return self._run(session_id, turn_id, question)
+
+    def selected(
+        self, session_id: str, turn_id: str, question: str, selection: SelectedResult
+    ) -> Answer:
+        """Service worker entry; resolve and execute under the same runner lock."""
+        try:
+            return self._run(session_id, turn_id, question, selection)
+        except (SelectionError, WorkspaceError):
+            raise ServiceError("invalid_result", 422) from None
+
+    def _run(
+        self,
+        session_id: str,
+        turn_id: str,
+        question: str,
+        selection: SelectedResult | None = None,
+    ) -> Answer:
         if not _IDENTIFIER.fullmatch(session_id) or not _IDENTIFIER.fullmatch(turn_id):
             raise PreparedError("invalid_runtime_identity")
         if not self._lock.acquire(blocking=False):
             raise PreparedError("concurrent_runtime_refused")
         try:
+            if selection is not None and (session_id, selection.turn_id) not in self._publications:
+                raise ServiceError("invalid_result", 422)
             if (session_id, turn_id) in self._publications:
                 raise PreparedError("duplicate_publication_turn")
             if session_id not in self._turns and len(self._turns) >= MAX_SESSIONS:
@@ -291,11 +312,24 @@ class PreparedRunner:
             name = f"analiz_{previous + 1}"
             with open_lakehouse(target) as lake:
                 workspace = Workspace.open(lake.connection, session_id)
+                selected_table = None
+                if selection is not None:
+                    try:
+                        resolved = self._resolve_selection(workspace, selection)
+                    except (ValueError, duckdb.Error):
+                        raise ServiceError("invalid_result", 422) from None
+                    selected_table = SelectedTable(
+                        workspace,
+                        resolved.name,
+                        resolved.artifact_id,
+                        selection.version,
+                    )
                 registry = self._registry(lake.connection, workspace, lake.lineage)
                 answered = Session(
                     self._provider,
                     registry,
                     catalog_continuation=True,
+                    selection=selected_table,
                 ).answer(question, lake.connection, workspace=workspace, remember=name)
                 published = workspace.value_of(name) if name in workspace.names() else None
                 answer = project_answer(
@@ -348,27 +382,10 @@ class PreparedRunner:
         publication = self._publications.get((workspace.workspace_id, selection.turn_id))
         if publication is None or publication.selection != selection:
             raise PreparedError("invalid_result")
-        try:
-            artifact = workspace.resolve(publication.name)  # Mandatory stale rejection.
-            if (
-                artifact.artifact_id != publication.artifact_id
-                or artifact.value_ref != selection.version
-                or artifact_id(
-                    artifact.kind,
-                    artifact.name,
-                    artifact.parameters,
-                    artifact.inputs,
-                    artifact.value_ref,
-                )
-                != publication.artifact_id
-            ):
-                raise PreparedError("invalid_result")
-            value = workspace.value_of(publication.name)  # Reread and verify content hash.
-            if value.digest() != selection.version:
-                raise PreparedError("invalid_result")
-        except WorkspaceError:
-            raise PreparedError("invalid_result") from None
-        return ResolvedSelection(publication.name, artifact.artifact_id, value)
+        value = SelectedTable(
+            workspace, publication.name, publication.artifact_id, selection.version
+        ).check()
+        return ResolvedSelection(publication.name, publication.artifact_id, value)
 
     def _registry(
         self, connection: duckdb.DuckDBPyConnection, workspace: Workspace, lineage: Lineage

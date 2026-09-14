@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Annotated, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
-from kkb_agent.agent.registry import ToolSpec
+from kkb_agent.agent.registry import TableInput, ToolSpec
 from kkb_agent.agent.verifier import result_faults
 from kkb_agent.agent.workspace import Workspace, WorkspaceError
 from kkb_agent.analytics.deflation import FORMULA, METHOD, DeflationRefused, deflate
@@ -100,6 +100,12 @@ class TableTransformArguments(
     RootModel[Annotated[DeflateArguments | AddSeriesArguments, Field(discriminator="operation")]]
 ):
     """One tool with closed, operation-specific flat JSON argument objects."""
+
+
+def _table_input(arguments: BaseModel) -> TableInput | None:
+    if isinstance(arguments, TableTransformArguments):
+        return TableInput(source=arguments.root.source)
+    return None
 
 
 def make_table_transform_tool(
@@ -202,6 +208,7 @@ def make_table_transform_tool(
         ),
         arguments=TableTransformArguments,
         run=run,
+        table_input=_table_input,
     )
 
 

@@ -109,7 +109,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 catalog_bytes=catalog_bytes,
                 redactions=(config.credential.get_secret_value(),),
             )
-            service = AnalysisService(runner, mode="kloudeks")
+            service = AnalysisService(runner, mode="kloudeks", selected_runner=runner.selected)
             app = create_app(service, port=args.port, prepared=runner.status)
             print(
                 json.dumps(

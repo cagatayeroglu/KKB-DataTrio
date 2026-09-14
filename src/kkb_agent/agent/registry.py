@@ -40,6 +40,14 @@ class ArgumentsRejected(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class TableInput:
+    """Registry-owned declaration of a tool's actual table input."""
+
+    source: str | None = None
+    input_step: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ToolSpec:
     name: str
     description: str
@@ -47,6 +55,9 @@ class ToolSpec:
     run: Callable[[BaseModel, ExecutionContext], ToolResult]
     # A tool may consume earlier step outputs only through explicit plan edges.
     required_steps: Callable[[BaseModel], tuple[str, ...]] | None = None
+
+    table_input: Callable[[BaseModel], TableInput | None] | None = None
+    discovery_only: bool = False
 
     def parse(self, raw: dict[str, Any]) -> BaseModel:
         try:

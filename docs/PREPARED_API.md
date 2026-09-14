@@ -91,6 +91,13 @@ for deflation/add-series operations. Earlier immutable results survive. Failed
 turns may leave a numbering gap, not a fabricated publication. The runner
 passes only an exact owned published result to the public projector.
 
+The launcher also wires the [selected-result backend](LOCAL_API.md#m10-18--selection-admission-and-workspace-resolution-partial).
+An explicit API result reference is resolved to its pinned workspace artifact
+under the runner lock; mandatory plan/dispatch checks bind supported table
+operations to that source, and successful publications record that dependency.
+Older unchanged results can be selected. The current browser client does not
+yet submit this field; no browser or live selected-table acceptance is claimed.
+
 ## Measured acceptance and remaining limits
 
 The original M10-17 local pool passed read-only readiness: **7 prepared identities,

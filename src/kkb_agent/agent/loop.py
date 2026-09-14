@@ -40,6 +40,7 @@ from kkb_agent.agent.literal import literal_text
 from kkb_agent.agent.plan import AnalyticalPlan
 from kkb_agent.agent.presentation import PeriodTable, display_value, period_table
 from kkb_agent.agent.registry import ToolRegistry
+from kkb_agent.agent.selection import SelectedTable, SelectionError
 from kkb_agent.agent.verifier import (
     DEFAULT_TOLERANCE,
     AnswerStatus,
@@ -297,6 +298,7 @@ class Session:
     model: str | None = None
     rejections: list[str] = field(default_factory=list, repr=False)
     catalog_continuation: bool = False
+    selection: SelectedTable | None = None
 
     def plan(self, question: str, workspace: Workspace | None = None) -> Planned:
         """Obtain a plan the registry will accept, or fail with the reasons why.
@@ -316,6 +318,10 @@ class Session:
         discovery: str | None = None,
         used_ids: frozenset[str] = frozenset(),
     ) -> Planned:
+        if self.selection is not None:
+            if workspace is not self.selection.workspace:
+                raise SelectionError("invalid_result")
+            self.selection.check()
         messages = [
             Message(Role.SYSTEM, SYSTEM_PROMPT + "\n\n" + schema_instructions(AnalyticalPlan)),
             Message(Role.SYSTEM, self._tools_prompt(continuation=discovery is not None)),
@@ -330,6 +336,21 @@ class Session:
         published = workspace_prompt(workspace) if workspace is not None else None
         if published is not None:
             messages.append(Message(Role.SYSTEM, published))
+        if self.selection is not None:
+            messages.extend(
+                [
+                    Message(
+                        Role.SYSTEM,
+                        "The explicit selected table is mandatory. Every calculation "
+                        "must consume its workspace source or an earlier step derived from it. "
+                        "Do not rebuild it with SQL or substitute another table. Catalog discovery "
+                        "may find a series to add; unsupported operations must clarify.",
+                    ),
+                    Message(
+                        Role.USER, json.dumps({"selected_workspace_source": self.selection.name})
+                    ),
+                ]
+            )
         messages.append(Message(Role.USER, question))
         if discovery is not None:
             messages.append(Message(Role.USER, discovery))
@@ -349,6 +370,8 @@ class Session:
             fingerprint = proposal.fingerprint()
             try:
                 validated = validate_plan(proposal, self.registry, budget=budget)
+                if self.selection is not None:
+                    self.selection.validate_plan(validated, self.registry)
                 if self.catalog_continuation:
                     validate_discovery_phase(
                         validated, continuation=discovery is not None, used_ids=used_ids
@@ -381,6 +404,7 @@ class Session:
             planned.plan,
             self.registry,
             context=ExecutionContext(question=question),
+            selection=self.selection,
             budget=self.budget,
         )
         if (
@@ -413,6 +437,7 @@ class Session:
                 self.registry,
                 # Discovery outputs never become calculation inputs.
                 context=ExecutionContext(question=question),
+                selection=self.selection,
                 budget=self.budget,
             )
             planned = Planned(
@@ -483,11 +508,31 @@ class Session:
         preview = None
         if workspace is not None:
             if remember is not None:
-                preview = workspace.preview(remember, result)
+                if self.selection is not None:
+                    self.selection.check()
+                preview = workspace.preview(
+                    remember,
+                    result,
+                    inputs=(self.selection.name,) if self.selection is not None else (),
+                )
                 available = preview.values()
             else:
                 available = {**workspace.values(), **available}
 
+        if self.selection is not None:
+            available = {
+                key: value for key, value in available.items() if key in (name, self.selection.name)
+            }
+            selected_value = available.get(self.selection.name)
+            if (
+                selected_value is not None
+                and self.selection.name != name
+                and all(value in result.values for value in selected_value.values)
+            ):
+                # Step-derived results can preserve the source without carrying
+                # its workspace name in parameters. Their validated input chain
+                # supplies that identity; copied values must not become ambiguous.
+                available.pop(self.selection.name)
         source = result.parameters.get("source")
         while isinstance(source, str) and source != name and source in available:
             ancestor = available[source]
@@ -516,6 +561,8 @@ class Session:
             and answer.status is AnswerStatus.ACCEPTED
             and not faults
         ):
+            if self.selection is not None:
+                self.selection.check()
             workspace.publish(preview)
         table = period_table(available[name])
         tables = (
