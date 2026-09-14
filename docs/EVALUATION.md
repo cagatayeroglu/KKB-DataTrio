@@ -45,6 +45,18 @@ Owner-authorized runs of `python -m kkb_agent.live_check --prepared-root data/pr
 
 Run 4 showed free-prose monthly tables are shape-dependent and slow, so the table moved to code (M6-14). Run 8 is the first live Turn 1 accepted and published. Variance remains a risk: runs 5–7 each exposed a different planner/writer behaviour, so one accepted run is not a reliability rate; a repeated live regression belongs to M9/M11. Open items: long series descriptions in prose, `KLOUDEKS_REQUEST_TIMEOUT=120` required, the stock-versus-"kullanılan" reading still deferred, and Turn 3's cause question under the gate's cause rule. Remaining acceptance gaps: an ACCEPTED live Turn 1 with workspace publication, latency (~100 s, mostly long generation), the writer echoing `dimensionless` from display phrases, and Turn 3's "sebep olabilir mi" question, which the gate's cause rule will withhold by design.
 
+### M5-20/M2-15 organizer Turn 2 live runs (2026-09-14)
+
+`python -m kkb_agent.live_check --prepared-root data/processed/lakehouse --turns 2` (owner-authorized, `KLOUDEKS_REQUEST_TIMEOUT=120`) asks Turn 1 and, once it is published, the organizer's Turn 2 question in the same workspace over a private pool copy. Independent oracle: real balance = nominal × CPI(2025-12) / CPI(t) over all 60 months equals the tool output exactly (e.g. 2021-01 nominal 276,785 → 1,894,772.1; 2023-12 438,222 → 828,155.2 million TRY at 2025-12 prices).
+
+| Run | Outcome |
+| --- | --- |
+| 1 (`30e4081`) | Turn 1 ACCEPTED and published (54.3 s). Turn 2 planned exactly on attempt 1 (`table_transform` `deflate`, source `konut_kredisi_ve_faiz`, BDDK TOTAL column, `EVDS:TP.TUKFIY2025.GENEL`, reference 2025-12-31); 5-column table; QUALIFIED in 21.2 s — `2025-12` left an unbound `12`, and nominal values copied into the transform matched the same values in the Turn 1 result, making quotes ambiguous. Fix: year-months are calendar tokens; a transform keeping all of its source's values supersedes it in that answer's view; the writer keeps price reference months out of figure sentences. |
+| 2 (`c99f5e2`) | Turn 1 ACCEPTED and published (74.1 s). Turn 2 exact plan; QUALIFIED in 33.4 s with one list sentence `a..b: value; ...` withheld because a period range header was read as an unknown identity. Fix: period ranges and year-months are calendar headers; the period check still refuses a range that does not cover the value. The withheld sentence re-gates ACCEPTED offline. |
+| **3 (`8d95448`)** | **Turn 1 ACCEPTED and published (86.6 s); Turn 2 ACCEPTED with no withheld sentence (33.5 s), published as `konut_kredisi_ve_faiz_reel` beside the untouched Turn 1 table; exact plan; 5 columns × 60 rows; transformations `align_weekly_to_monthly`, `deflate`.** |
+
+Remaining: repeated-run reliability, long reviewed series descriptions in prose, the deferred stock-versus-"kullanılan" reading (the Turn 1 writer now states it), Session publications still record no workspace dependency (redefining Turn 1 would not mark Turn 2 stale), and M2-14 rebasing.
+
 ## Scalable official-data acceptance target
 
 [DEC-137](DECISIONS.md#dec-137--catalog-complete-lakehouse-first-official-source-materialization-architecture) expands future evaluation beyond the four-series first vertical slice. These are planned cases, not implemented tests or benchmark results. The [dated refinement](DECISIONS.md#dec-137-prepared-pool-refinement) separates core prepared-pool acceptance from later scalability; required hybrid acceptance remains in the delivery path:

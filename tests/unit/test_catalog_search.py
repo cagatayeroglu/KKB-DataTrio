@@ -19,7 +19,8 @@ NEW = {"EVDS:TP.KBK.TRY.18", "EVDS:TP.KTF12"}
 BOOK = {"EVDS:TP.BKR.TRY.18", "EVDS:TP.KKP.TRY.18"}
 KFE = {"EVDS:TP.KFE.TR", "EVDS:TP.KFE.TR10", "EVDS:TP.KFE.TR51", "EVDS:TP.KFE.TR31"}
 ARCHIVE = {"EVDS:TP.VK02", "EVDS:TP.TK02"}
-FUTURE = ("series_inspect", "table_transform", "data_quality", "reconcile_sources")
+# table_transform is registered since M5-20 (deflate only); the harness roles stay closed.
+FUTURE = ("series_inspect", "data_quality", "reconcile_sources")
 
 
 @pytest.fixture
