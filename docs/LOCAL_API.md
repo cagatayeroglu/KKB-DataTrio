@@ -14,7 +14,7 @@ Session runner and an explicitly enabled loopback launcher. Tests use scripted e
 | GET `/v1/health` | None | Local readiness, `scripted`/`kloudeks` mode and limits; `model_checked=false` |
 | GET `/openapi.json` | None | Versioned schemas; Swagger/ReDoc disabled, no CDN dependency |
 | POST `/v1/sessions` | JSON `{}` | Session ID and one-time capability token; HTTP 201 |
-| POST `/v1/sessions/{session_id}/turns` | JSON `request_id`, `question`; token header | Owned turn reference/state; HTTP 202 |
+| POST `/v1/sessions/{session_id}/turns` | JSON `request_id`, `question`, optional `selected_result_id`; token header | Owned turn reference/state; HTTP 202 |
 | GET `/v1/sessions/{session_id}/turns/{turn_id}` | Token header | State, gated answer and published cells when available |
 | GET `/v1/sessions/{session_id}/turns/{turn_id}/events` | Token header; optional `Last-Event-ID` 0–3 | Actual turn lifecycle SSE |
 
@@ -23,10 +23,29 @@ URL, question, browser log or model prompt. The server retains only its SHA-256
 digest and checks possession plus session/turn membership. A session ID alone
 grants nothing. No arbitrary workspace/result/lineage digest lookup exists.
 Generate a fresh 32-character lowercase hex `request_id` for each intended
-question. Repeating the same ID and exact question in that session returns the
-existing turn without rerunning; changed text gives `request_conflict`. After a
+question. Repeating the same ID, exact question and selection in that session returns the
+existing turn without rerunning; changed text or selection gives `request_conflict`. After a
 disconnect, retrieve the existing turn or repeat the same ID. A new ID means a
 new analysis, not transport recovery.
+
+### M10-18 first slice — selection admission only (PR #163, incomplete)
+
+`selected_result_id` is a published API `result_ref`, not an internal workspace
+name or digest. Authentication comes first. Admission resolves exactly one
+completed, ACCEPTED result in the same session and pins its source turn, public
+reference and version. Unknown, foreign, unpublished or ambiguous references
+return `invalid_result` (422) without admitting work. Missing/null selection
+retains the original runner behavior; an identical retry never runs again.
+
+An explicitly supplied `selected_runner` receives the pinned identity on the
+existing worker. Until the prepared workspace integration is implemented, the
+standard prepared service has no such handler and returns `unavailable` (503)
+for an otherwise valid explicit selection. It never silently discards selection.
+This admission receipt is not proof that a workspace artifact is current: the
+next slice must resolve/validate its stored version and staleness, bind planning
+and tool execution, and record publication dependencies. Frontend selection,
+recovery and end-to-end transform tests remain pending. Do not merge this first
+slice as a completed selected-result fix.
 
 ## Bounded lifecycle
 

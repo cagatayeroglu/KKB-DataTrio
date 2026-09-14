@@ -22,6 +22,7 @@ Text = Annotated[str, StringConstraints(strict=True, max_length=8192)]
 Label = Annotated[str, StringConstraints(strict=True, min_length=1, max_length=240)]
 ErrorCode = Literal[
     "invalid_request",
+    "invalid_result",
     "not_found",
     "busy",
     "capacity",
@@ -40,6 +41,8 @@ TurnState = Literal["queued", "running", "completed", "failed"]
 class Question(ContractModel):
     request_id: Reference
     question: Annotated[str, StringConstraints(strict=True, min_length=1, max_length=4096)]
+    # Public result_ref from a completed turn in this session, never a workspace name.
+    selected_result_id: Reference | None = None
 
     @model_validator(mode="after")
     def bounded_question(self) -> Self:
