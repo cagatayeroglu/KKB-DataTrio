@@ -154,6 +154,8 @@ unchanged. A larger corpus/index change needs its own measured task review.
 
 ## Validation and handoff
 
+**Historical M13-04 delivery evidence:** the following record describes the original lexical-tool handoff, before the later transform and prepared-inspection deliveries. Its absence/prerequisite statements are historical, not current prepared-path status.
+
 `tests/unit/test_catalog_search.py` covers aliases/normalization, specificity,
 ambiguity/caps, source/frequency/archive filtering, preserved metadata/families,
 unknown/unresolved cases, ranking/order/serialization, content identity and
@@ -168,3 +170,5 @@ automatic inspection/quality/reconciliation harness integration is implemented. 
 [ROADMAP](ROADMAP.md#m13). M13-13 mandatory inspection still needs its trusted-ID lookup/usable-metadata
 contract review before being claimed; M13-05 retains its transport/configuration
 prerequisites.
+
+**Current prepared-path status:** deterministic monthly `deflate`, `add_series` and table co-movement are implemented. Configured prepared metadata inspection is mandatory and auto-wired; broader inspection, quality and reconciliation remain incomplete. This is a bounded transform slice, not a fully general `table_transform` framework. [ROADMAP](ROADMAP.md#m13) records current delivery evidence.

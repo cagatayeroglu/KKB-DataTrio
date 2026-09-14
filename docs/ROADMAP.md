@@ -101,7 +101,7 @@ Historical status entries follow; Current Project Status above controls current 
 
 ## Product tool delivery order
 
-[DEC-135](DECISIONS.md#dec-135--planner-actions-and-mandatory-correctness-harness) replaces the historical eleven-tool planner target with **eight**: the six brief tools plus catalog_search and table_transform. **All eight factories are implemented** (`table_transform`: `deflate` only); Sessions register them explicitly. This decision claims no implementation task and promotes none to READY/DONE.
+[DEC-135](DECISIONS.md#dec-135--planner-actions-and-mandatory-correctness-harness) replaces the historical eleven-tool planner target with **eight**: the six brief tools plus catalog_search and table_transform. **All eight factories are implemented** (`table_transform`: deterministic monthly `deflate` and `add_series`; broader transforms remain incomplete); Sessions register them explicitly. This decision claims no implementation task and promotes none to READY/DONE.
 
 | Planner capability | Owning task | Current delivery / start condition |
 | --- | --- | --- |
@@ -2130,7 +2130,7 @@ Do not infer unit or stock/flow meaning from a numeric dtype. A parsed table is 
 <a id="m13"></a>
 # M13 — Semantic catalog and retrieval
 
-Status: PARTIAL. M13-01 catalog contract, M13-03 shared normalizer and M13-08 reviewed offline demo mappings are merged in PRs #57/59/117; M13-04 offline lexical retrieval is merged in #119. Dense/full hybrid and benchmarks remain unimplemented. Initial hybrid baseline is confirmed by DEC-116 and [DEC-130](DECISIONS.md#dec-130--initial-hybrid-retrieval-baseline); DEC-115 and DEC-127 are SUPERSEDED. Only the explicitly triaged queue entries are READY. Embedding availability/use is confirmed; remaining Q-K-05 prefix/limit answers (dimension 4096 is already measured) are dense implementation prerequisites, not a lexical-failure or prior-gain gate. Dedicated reranker capabilities remain unresolved and optional.
+Status: PARTIAL. M13-01 catalog contract, M13-03 shared normalizer and M13-08 reviewed offline demo mappings are merged in PRs #57/59/117; M13-04 offline lexical retrieval is merged in #119. LanceDB is selected and implemented as local catalog vector-index infrastructure (`LocalCatalogIndex`), with optional hybrid catalog composition. Qwen embedding transport exists and dimension 4096 is measured, but the default prepared registry does not inject the dense stage, so prepared retrieval remains lexical. Real Qwen index population/query embedding, live/measured semantic retrieval acceptance and benchmarks remain unfinished. Initial hybrid baseline is confirmed by DEC-116 and [DEC-130](DECISIONS.md#dec-130--initial-hybrid-retrieval-baseline); DEC-115 and DEC-127 are SUPERSEDED. Only the explicitly triaged queue entries are READY. Embedding availability/use is confirmed; remaining Q-K-05 prefix/limit answers are live dense configuration prerequisites, not a lexical-failure or prior-gain gate. Dedicated reranker capabilities remain unresolved and optional.
 
 ## Objective
 
