@@ -35,8 +35,10 @@ Owner-authorized runs of `python -m kkb_agent.live_check --prepared-root data/pr
 | 2 (120 s) | Planner produced the exact plan on attempt 1 (`change_detection` `co_movement`, BDDK TOTAL id, `EVDS:TP.KTF12`, 2021-01-01..2025-12-31, `by_end`); result counts equal the oracle; answer QUALIFIED in 115.5 s. The gate withheld the writer's whole 60-row table and flagged-month table because a newline not followed by whitespace did not end a sentence, so every figure was attributed to the wrong row's period. |
 | Fix | A line break now always ends a claim; flagged changes are no longer duplicated under a second label (that made quotes ambiguous). Both withheld tables from run 2 re-gate ACCEPTED offline against the real result. |
 | 3 (120 s, after fix) | Same exact plan and counts; the full table, counts, four flagged months and their changes were ACCEPTED; answer QUALIFIED in 97.8 s because one sentence used cause wording, which the gate withholds even when negated (DEC-120). Not published to the workspace (only ACCEPTED publishes, M5-21). |
+| 4 (merged `cd44a26`, 120 s) | Exact plan and oracle-equal counts again; answer QUALIFIED in 133.9 s with 65 withheld sentences. The writer listed the 60 months as prose lines instead of a table; the gate could not bind that shape (date parts extracted as numbers, `period: value` read as an identity label). The report carried reasons but not the withheld sentence texts. |
 
-After run 3 the writer prompt now forbids cause wording entirely; that change is offline-tested only. Remaining acceptance gaps: an ACCEPTED live Turn 1 with workspace publication, latency (~100 s, mostly long generation), the writer echoing `dimensionless` from display phrases, and Turn 3's "sebep olabilir mi" question, which the gate's cause rule will withhold by design.
+
+After run 3 the writer prompt forbids cause wording entirely. Run 4 shows free-prose monthly tables are shape-dependent and slow, so they are not a reliable acceptance path. Remaining acceptance gaps: an ACCEPTED live Turn 1 with workspace publication, latency (~100 s, mostly long generation), the writer echoing `dimensionless` from display phrases, and Turn 3's "sebep olabilir mi" question, which the gate's cause rule will withhold by design.
 
 ## Scalable official-data acceptance target
 
