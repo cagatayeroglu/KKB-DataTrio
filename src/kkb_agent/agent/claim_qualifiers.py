@@ -53,6 +53,9 @@ UNITS = {
     "yüzde": "percent",
     "percent": "percent",
     "percentage points": "percentage_points",
+    # analytics.change records point changes under these singular names.
+    "percentage point": "percentage_points",
+    "index point": "index_points",
     "yüzde puan": "percentage_points",
     "baz puan": "basis_points",
     "basis points": "basis_points",

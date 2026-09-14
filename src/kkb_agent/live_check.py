@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import shutil
 import sys
 import tempfile
 import time
@@ -37,9 +38,12 @@ from pydantic import BaseModel
 
 from kkb_agent.agent import AnswerStatus, PlanningFailed, Session, ToolRegistry
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
+from kkb_agent.agent.loop import Answered
 from kkb_agent.agent.registry import ToolSpec
 from kkb_agent.agent.verifier import Binding, verify_claims
+from kkb_agent.agent.workspace import Workspace
 from kkb_agent.core import (
+    DIMENSIONLESS,
     Aggregation,
     CumulativeKind,
     Frequency,
@@ -48,10 +52,12 @@ from kkb_agent.core import (
     StockFlow,
 )
 from kkb_agent.ingest.fetched import DOCUMENT_MEDIA_TYPES
+from kkb_agent.ingest.prepared_series import prepared_series_names
 from kkb_agent.ingest.safe_fetch import FetchCode, safe_fetch
 from kkb_agent.ingestion_policy import RejectionCode
 from kkb_agent.lakehouse import Observation, SeriesSemantics, open_lakehouse
 from kkb_agent.lakehouse.lineage import EdgeKind, Lineage, NodeKind
+from kkb_agent.lakehouse.store import DATABASE_NAME
 from kkb_agent.llm import (
     Completion,
     EmbeddingKind,
@@ -73,6 +79,15 @@ QUESTION = (
     "Konut kredisi stoğu (seri kimliği: bddk:konut) 2026-04-30 ile 2026-06-30 "
     "arasında ne kadar değişti?"
 )
+
+#: The organizer's reference Turn 1 question (kick-off deck, 7 September 2026).
+TURN_ONE_QUESTION = (
+    "2021-2025 yılları arasındaki 60 aylık veriden Türkiye'de kullanılan toplam konut "
+    "kredilerinin dağılımını aylık olarak gösteriniz. Buna ek olarak konut kredisi faiz "
+    "oranlarını da gösteriniz. Burada faiz oranlarının düştüğü dönemlerde kredi miktarı nasıl "
+    "değişim göstermiş, faiz oranı düştüğü halde kredi miktarının yükselmediği dönemler olmuş mu?"
+)
+TURN_ONE_NAME = "konut_kredisi_ve_faiz"
 
 #: Synthetic figures in the reference scenario's shape; not source data.
 SERIES = {
@@ -186,6 +201,12 @@ def run_live_check(
             }
         latency = round((clock() - started) * 1000)
 
+    return _answer_report(question, answered, counted, latency)
+
+
+def _answer_report(
+    question: str, answered: Answered, counted: _Counting, latency: int
+) -> dict[str, object]:
     gated = answered.answer
     return {
         "question": question,
@@ -195,7 +216,10 @@ def run_live_check(
             "attempts": answered.planned.attempts,
             "rejections": list(answered.planned.rejections),
             "steps": [
-                {"tool": item.step.tool, "arguments": item.arguments.model_dump(mode="json")}
+                {
+                    "tool": item.step.tool,
+                    "arguments": item.arguments.model_dump(mode="json", exclude_unset=True),
+                }
                 for item in answered.planned.plan.steps
             ],
         },
@@ -216,6 +240,71 @@ def run_live_check(
         "latency_ms": latency,
         "passed": gated.status in (AnswerStatus.ACCEPTED, AnswerStatus.QUALIFIED),
     }
+
+
+def run_prepared_check(
+    provider: LLMProvider,
+    prepared_root: Path,
+    workdir: Path,
+    *,
+    question: str = TURN_ONE_QUESTION,
+    clock: Clock = time.perf_counter,
+) -> dict[str, object]:
+    """Ask a question over a private copy of the prepared official pool (M6-25).
+
+    The copy keeps runtime lineage, execution evidence and workspace writes out
+    of the prepared root. Tools see reviewed names for the series it holds.
+    """
+    if not (prepared_root / DATABASE_NAME).is_file():
+        return {"passed": False, "configuration": "prepared_root_missing"}
+    root = workdir / "lake"
+    shutil.copytree(prepared_root, root)
+    with open_lakehouse(root) as lake:
+        names = prepared_series_names(lake.connection)
+        registry = ToolRegistry()
+        registry.register(make_lakehouse_tool(lake.connection, lineage=lake.lineage))
+        registry.register(
+            make_change_detection_tool(lake.connection, lineage=lake.lineage, series_names=names)
+        )
+        for make in (make_anomaly_tool, make_causality_tool):
+            registry.register(make(lake.connection, lineage=lake.lineage))
+        workspace = Workspace.open(lake.connection)
+        counted = _Counting(provider)
+        session = Session(counted, registry)
+        started = clock()
+        try:
+            answered = session.answer(
+                question, lake.connection, workspace=workspace, remember=TURN_ONE_NAME
+            )
+        except (PlanningFailed, ProviderError) as error:
+            return {
+                "question": question,
+                "failed": type(error).__name__,
+                "detail": str(error),
+                "plan_rejections": list(session.rejections),
+                "completions": list(counted.attempts),
+                "latency_ms": round((clock() - started) * 1000),
+                "passed": False,
+            }
+        latency = round((clock() - started) * 1000)
+        report = _answer_report(question, answered, counted, latency)
+        report["prepared_series"] = len(names)
+        report["published"] = workspace.names()
+        if answered.results:
+            final = answered.results[-1]
+            report["result"] = {
+                "values": len(final.values),
+                "counts": {
+                    value.label: value.value
+                    for value in final.values
+                    if value.unit == DIMENSIONLESS
+                },
+                "transformations": [
+                    record.operation
+                    for record in (final.evidence.transformations if final.evidence else [])
+                ],
+            }
+    return report
 
 
 def _digest(value: str) -> str:
@@ -431,10 +520,18 @@ def main(argv: Sequence[str] = ()) -> int:
         "--document", action="store_true", help="Use the document path instead of synthetic data"
     )
     parser.add_argument("--question", help="Actual document question including its URL")
+    parser.add_argument(
+        "--prepared-root",
+        type=Path,
+        help="Ask the organizer Turn 1 question over a copy of this prepared lakehouse",
+    )
     arguments, unknown = parser.parse_known_args(argv)
     if unknown:
         parser.error("Unsupported arguments")
-    if arguments.document != (arguments.question is not None):
+    if arguments.prepared_root is not None:
+        if arguments.document or arguments.question is not None:
+            parser.error("--prepared-root takes no --document or --question")
+    elif arguments.document != (arguments.question is not None):
         # Never echo a question or URL in an error.
         parser.error("--document and --question must be supplied together")
     try:
@@ -450,11 +547,14 @@ def main(argv: Sequence[str] = ()) -> int:
         )
         return 2
     with provider, tempfile.TemporaryDirectory(prefix="kkb-live-check-") as directory:
-        report = (
-            run_document_check(provider, Path(directory) / "lake", question=arguments.question)
-            if arguments.document
-            else run_live_check(provider, Path(directory) / "lake")
-        )
+        if arguments.prepared_root is not None:
+            report = run_prepared_check(provider, arguments.prepared_root, Path(directory))
+        elif arguments.document:
+            report = run_document_check(
+                provider, Path(directory) / "lake", question=arguments.question
+            )
+        else:
+            report = run_live_check(provider, Path(directory) / "lake")
     print(json.dumps(report, indent=2, ensure_ascii=False))
     return 0 if report["passed"] else 1
 
