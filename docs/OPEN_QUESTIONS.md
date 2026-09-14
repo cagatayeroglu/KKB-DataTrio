@@ -12,7 +12,7 @@ The organizer questions are now the project's only external blockers, and severa
 
 The [DEC-137 dated refinement](DECISIONS.md#dec-137-prepared-pool-refinement) makes the broad prepared pool demo-critical and question-time official materialization a later extension. Preparation permission, trusted identity/semantics and minimum revision-conflict safeguards still matter now; unresolved runtime official-fetch permission and sophisticated vintage/index/object-storage scaling are not core three-turn prerequisites. This is team priority, not a new organizer answer.
 
-Internal questions Q-TEAM-06/07/08 below concern vector implementation, exact broader prepared coverage and refresh/vintage selection policy. These are team decisions, not organizer permissions; all remain OPEN. Known embedding dimension is 4096 from M4-12; no new live call is needed to re-establish it.
+Internal questions Q-TEAM-06/07/08 below concern vector implementation, exact broader prepared coverage and refresh/vintage selection policy. These are team decisions, not organizer permissions; Q-TEAM-06 is answered by DEC-138 (LanceDB), Q-TEAM-07/08 remain OPEN. Known embedding dimension is 4096 from M4-12; no new live call is needed to re-establish it.
 
 ## How to use this list
 
@@ -163,7 +163,7 @@ Internal questions Q-TEAM-06/07/08 below concern vector implementation, exact br
 - Why it matters: Determines legal/organizer permission for data handling and fallback artifacts; permission cannot be inferred from access.
 - Blocks which milestone? M1 private storage, M3/M7 cache, M10/M11 fallback/exports, SEC-DATA-01.
 - Can we proceed before answer? NO for private retention/redistribution/fallback use; YES with synthetic fixtures and explicitly permitted public-safe data.
-- Temporary assumption: Do not commit organizer/private data or assume cache/fallback permission.
+- Temporary assumption: Do not commit organizer/private data or assume cache/fallback permission. Team policy ([DEC-138](DECISIONS.md#dec-138--handback-priorities-lancedb-catalog-index-and-no-prepared-data-in-git), 2026-09-14): prepared official BDDK/EVDS data stays in ignored operator-local roots and ships through deployment, never Git; this is not an organizer answer.
 - Owner: Unassigned; suggested lane A / organizer liaison.
 - Status: OPEN.
 - Answer / evidence: None recorded; link the actual permission and scope when received.
@@ -393,7 +393,7 @@ Internal questions Q-TEAM-06/07/08 below concern vector implementation, exact br
 
 - Question: Does measured catalog size/latency justify a dedicated index, or is a versioned embedding cache with deterministic cosine similarity sufficient?
 - Constraints: Required hybrid retrieval is decided; the vector product is not. Key by series/concept ID, catalog text hash, model ID and measured dimension 4096; never store observation values as vectors. A dedicated catalog vector-search layer is intended, but no product/index is implemented. LanceDB is the strong/preferred dedicated-index candidate to benchmark first; exact cosine over a versioned embedding cache may be the small-catalog baseline. No PostgreSQL/pgvector service without a later explicit justification.
-- Owner: Unassigned. Status: OPEN. Blocks product selection/performance acceptance, not offline contract design; M13-05 still requires configuration/limit review. No implementation or dependency adopted.
+- Owner: Eray. Status: **ANSWERED (2026-09-14) by [DEC-138](DECISIONS.md#dec-138--handback-priorities-lancedb-catalog-index-and-no-prepared-data-in-git): LanceDB is the catalog vector index.** The question above is historical. M13-05 still requires configuration/limit review; no implementation or dependency is adopted yet.
 - Evidence needed: versioned catalog scale, cold/warm latency, deployment simplicity, benchmark quality, dependency cost, deterministic ranking and failure tests. DEC-137 supersedes only the prior mandatory product choice; its dated refinement prioritizes required hybrid retrieval while deferring dedicated-index scaling beyond measured need.
 
 ### Q-TEAM-07 — Broad prepared coverage target
