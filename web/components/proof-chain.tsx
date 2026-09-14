@@ -15,11 +15,12 @@ import {
   proofHeadline,
   sourceCoverage,
   sourceOrigin,
+  sourceName,
   sourceSemantics,
   stepInputs,
   stepTitle,
 } from "@/lib/proof";
-import { periodLabel, seriesLabel } from "@/lib/table";
+import { periodLabel } from "@/lib/table";
 
 /** Server-recorded, result-level evidence. Rendered as text nodes only. */
 export function ProofChain({
@@ -51,16 +52,10 @@ export function ProofChain({
                 <Server size={14} />
               </span>
               <div>
-                <h4>
-                  {seriesLabel(source.title ?? source.series_id, dataset)}
-                </h4>
+                <h4>{sourceName(source, dataset)}</h4>
                 <p>{sourceOrigin(source)}</p>
                 <p>{sourceCoverage(source)}</p>
-                <p className="muted">
-                  {sourceSemantics(source)}
-                  {source.catalog_status &&
-                    ` · katalog: ${source.catalog_status}`}
-                </p>
+                <p className="muted">{sourceSemantics(source)}</p>
                 {source.dataset_sha256 && (
                   <p
                     className="mono"
@@ -83,7 +78,9 @@ export function ProofChain({
                   {index === 0 ? " — bu sonuç" : ""}
                   {step.workspace_name ? ` (${step.workspace_name})` : ""}
                 </h4>
-                <p>Girdi: {stepInputs(proof, step).join(", ") || "—"}</p>
+                <p>
+                  Girdi: {stepInputs(proof, step, dataset).join(", ") || "—"}
+                </p>
                 {step.coverage && <p>Kapsam: {periodLabel(step.coverage)}</p>}
                 {step.samples && (
                   <p>

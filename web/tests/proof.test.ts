@@ -6,7 +6,9 @@ import {
   orderedSteps,
   proofHeadline,
   sourceCoverage,
+  sourceName,
   sourceOrigin,
+  sourceSemantics,
   stepInputs,
   stepTitle,
 } from "../lib/proof";
@@ -24,7 +26,7 @@ const source = {
   measure: "stock",
   cumulative: "none",
   aggregation: "last",
-  catalog_status: "consistent",
+  catalog_status: "unknown",
   observations: 3,
   missing_values: 0,
   first_period: "2026-04-01",
@@ -95,6 +97,14 @@ test("recorded proof chain reads from source to this result", () => {
   assert.equal(
     sourceCoverage(parsed.sources[0]),
     "2026-04-01 – 2026-06-30, 3 gözlem okundu, 0 boş",
+  );
+  assert.equal(
+    sourceSemantics(parsed.sources[0]),
+    "milyon TL · aylık · stok · kümülatif değil · katalog arşiv durumu bilinmiyor",
+  );
+  assert.equal(
+    sourceName(parsed.sources[0], null),
+    "Tüketici Kredileri - Konut",
   );
   assert.equal(proofHeadline(parsed), "Kaynaktan sonuca kayıtlı zincir kısmi");
   assert.match(gapText("source_lineage_missing"), /soy kaydı yok/);

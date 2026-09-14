@@ -1,4 +1,5 @@
-import type { Proof, ProofSource, ProofStep } from "./contracts";
+import type { Dataset, Proof, ProofSource, ProofStep } from "./contracts";
+import { seriesLabel, unitLabel } from "./table";
 
 /** Fixed wording for server-recorded proof facts; no inference beyond the payload. */
 const operations: Record<string, string> = {
@@ -67,13 +68,18 @@ export function orderedSteps(proof: Proof) {
     .sort((a, b) => b.depth - a.depth || b.index - a.index);
 }
 
-export function stepInputs(proof: Proof, step: ProofStep) {
-  return step.inputs.map((item) =>
-    item.kind === "series"
-      ? (proof.sources[item.index]?.title ??
-        proof.sources[item.index]?.series_id)
-      : `${proof.steps[item.index]?.workspace_name ?? "önceki sonuç"} tablosu`,
-  );
+export function stepInputs(
+  proof: Proof,
+  step: ProofStep,
+  dataset: Dataset | null = null,
+) {
+  return step.inputs.map((item) => {
+    if (item.kind === "result") {
+      return `${proof.steps[item.index]?.workspace_name ?? "önceki sonuç"} tablosu`;
+    }
+    const source = proof.sources[item.index];
+    return source ? sourceName(source, dataset) : "kayıtlı seri";
+  });
 }
 
 function day(value: string) {
@@ -107,13 +113,54 @@ export function sourceCoverage(source: ProofSource) {
   return `${span}${source.observations} gözlem okundu, ${source.missing_values ?? 0} boş`;
 }
 
+const frequencies: Record<string, string> = {
+  daily: "günlük",
+  business_day: "iş günü",
+  weekly: "haftalık",
+  twice_monthly: "ayda iki",
+  monthly: "aylık",
+  quarterly: "çeyreklik",
+  semiannual: "altı aylık",
+  annual: "yıllık",
+  irregular: "düzensiz",
+  unknown: "sıklık belirsiz",
+};
+const measures: Record<string, string> = {
+  stock: "stok",
+  flow: "akım",
+  rate: "oran",
+  index: "endeks",
+  unknown: "ölçü türü belirsiz",
+};
+const cumulative: Record<string, string> = {
+  none: "kümülatif değil",
+  since_inception: "başlangıçtan kümülatif",
+  yearly_reset: "yıl başında sıfırlanan kümülatif",
+  unknown: "kümülatiflik belirsiz",
+};
+const archive: Record<string, string> = {
+  active: "katalogda aktif",
+  archived: "katalogda arşivlenmiş",
+  unknown: "katalog arşiv durumu bilinmiyor",
+};
+
+/** Catalog display title when the inventory knows the identity; recorded title otherwise. */
+export function sourceName(source: ProofSource, dataset: Dataset | null) {
+  const named = seriesLabel(source.series_id, dataset);
+  return named !== source.series_id
+    ? named
+    : (source.title ?? source.series_id);
+}
+
 export function sourceSemantics(source: ProofSource) {
+  const pick = (map: Record<string, string>, value: string | null) =>
+    value === null ? null : (map[value] ?? value);
   return [
-    source.unit,
-    source.scale,
-    source.frequency,
-    source.measure,
-    source.cumulative && `kümülatif: ${source.cumulative}`,
+    source.scale === null ? null : unitLabel(source.unit, source.scale),
+    pick(frequencies, source.frequency),
+    pick(measures, source.measure),
+    pick(cumulative, source.cumulative),
+    pick(archive, source.catalog_status),
   ]
     .filter(Boolean)
     .join(" · ");

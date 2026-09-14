@@ -292,7 +292,11 @@ are not silently refreshed. A backend restart invalidates browser capabilities.
 - Each publication remains selectable. Cell detail shows recorded unit, period,
   cell identity and result version; unavailable semantics stay explicit.
 - Clarification, abstention and transport failure preserve the previous table.
-  The API's detailed source-to-result proof graph is not exposed yet.
+- Cell detail shows the result-level proof chain: raw source responses (count,
+  https host, retrieval date), the prepared series read, each verified
+  calculation step including an earlier published table, and the accepted gate.
+  "Kısmi" names each recorded gap; the chain is not per-cell or a correctness
+  guarantee.
 
 The exact raw display strings can retain source-specific notation; the client
 only translates known labels. There is no model-generated HTML rendering.
@@ -355,7 +359,15 @@ Kloudeks or official sources. Stop both servers with Ctrl+C after the rehearsal.
 It overwrites only its generated `artifacts/selected-browser-ledger.jsonl` ledger
 (request/source IDs, status and provider-call counts; no capability tokens).
 
-Use this exact question order in a fresh browser workspace:
+For the proof chain, `python tests/manual/proof_client.py` (same environment
+and port) serves an adapter-shaped BDDK pool built from injected responses plus
+a CPI series without raw-source lineage. Ask `Konut kredisi tablosunu getir.`
+then, with follow-selection on, `Önceki tabloyu koruyup TÜFE ekle.`; open a cell
+in each result. The first chain is complete (three raw responses); the second is
+partial because CPI has no raw-source lineage. No Kloudeks or official source
+is contacted.
+
+Use this exact question order in a fresh browser workspace for the selection rehearsal:
 
 1. `Konut kredisi tablosunu getir.` — three stock values, 100/120/150 million TRY.
 2. `Seçili tabloya TÜFE ekle.` — six values, adding CPI 100/110/120.
