@@ -557,3 +557,22 @@ match, all three results publish, and no verifier faults occur. The original
 reasoning reliability, source truth attestation or causation. Broader M13-13,
 quality/reconciliation and history staleness remain incomplete. See
 [SERIES_INSPECTION](SERIES_INSPECTION.md) for the exact mode boundary.
+
+### M10-16 local API contract (2026-09-14)
+
+PR #157, implementation `cd2e5fc3c9e8633cd44ecf99ab75f0bbe54e3637`. **55 new regressions** cover real-gate
+published-result projection, immutable cell identities, finite values, safe
+qualified/abstained output, ownership, duplicate requests, atomic admission,
+body/origin/header limits, error redaction, lifecycle SSE and shutdown.
+Final fast PR: **3196 passed / one Windows privilege skip in 232.09s**; strict mypy 96 source files, Ruff, Bandit and
+secrets clean. pip check passes. 164 local document targets checked.
+Two upstream Starlette test-client deprecations remain visible; no production
+Kloudeks transport migration or warning suppression. Test durations were
+profiled within this required gate because Windows gates exceeded the 3-minute
+target; no extra benchmark/full-release or live network/model test was run.
+
+The HTTP tests retain exact values from a real Session/gate over synthetic
+DuckDB inputs, not model-generated presentation numbers. This establishes the
+local contract only: prepared runtime startup, full plan/tool callbacks, bounded
+public proof graph, frontend and deployed/authenticated multi-user service
+remain incomplete. See [LOCAL_API](LOCAL_API.md).

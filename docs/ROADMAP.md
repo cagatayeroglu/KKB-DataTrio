@@ -1848,7 +1848,7 @@ Update the command registry in EVALUATION when a runner actually exists. Keep li
 <a id="m10"></a>
 # M10 — UI / demo workflow
 
-Status: PARTIAL (M10-01 specification DONE; API/UI unimplemented). Framework settled by [DEC-123](DECISIONS.md#dec-123--fastapi-with-sse-behind-a-nextjs-front-end); hosting still depends on Q-INFRA-01 and remaining demo format on Q-DEMO-01. [DEC-131](DECISIONS.md#dec-131--organizer-kick-off-brief-schedule-delivery-form-and-demo-day-input-scope) now confirms that Final Day expects a **deployed, running solution** producing output from organizer-supplied inputs — so deployment is a requirement, not a stretch goal, even though its environment is unstated. Operator-flow specification can proceed.
+Status: PARTIAL (M10-01 specification DONE; M10-16 local API contract delivered; prepared runtime/frontend/deployment incomplete). Framework settled by [DEC-123](DECISIONS.md#dec-123--fastapi-with-sse-behind-a-nextjs-front-end); hosting still depends on Q-INFRA-01 and remaining demo format on Q-DEMO-01. [DEC-131](DECISIONS.md#dec-131--organizer-kick-off-brief-schedule-delivery-form-and-demo-day-input-scope) now confirms that Final Day expects a **deployed, running solution** producing output from organizer-supplied inputs — so deployment is a requirement, not a stretch goal, even though its environment is unstated. Operator-flow specification can proceed.
 
 ## Objective
 
@@ -1876,14 +1876,15 @@ A minimal M1/M4/M5/M6/M8 slice for live integration; confirmed demo environment/
 - [ ] M10-14 — Have a different teammate run the operator script and record friction/failures.
 - [ ] M10-15 — Record UI validation, supported flows, and next rehearsal fix.
 
-- [ ] M10-16 — Status: IN PROGRESS; Owner: Arda; Branch: `codex/m10-16-local-api`, fresh dev `8ca4148`; PR: pending; Commit: pending. Implement the missing bounded local API/service contract required before M10-03.
+- [ ] M10-16 — Status: IN PROGRESS; Owner: Arda; Branch: `codex/m10-16-local-api`, fresh dev `8ca4148`; PR: #157 (open); Commit: `cd2e5fc3c9e8633cd44ecf99ab75f0bbe54e3637`. Implement the missing bounded local API/service contract required before M10-03.
 
 ### M10-16 local API boundary (2026-09-14)
 
 - Readiness: DEC-123 already selects FastAPI/Next.js; M10-01 supplies field-level requirements and explicitly identifies missing API implementation scope. Session publication, typed results, workspace isolation primitives and catalog-configured inspection now exist. This dated triage makes a local API slice READY before this claim; it does not resolve Q-INFRA/auth deployment or mark M10-03 ready prematurely. No competing claim after #156 cleanup.
 - Scope: versioned closed request/response schemas; opaque server-owned session/turn/result references; bounded one-worker admission, duplicate-request handling, safe fixed errors and actual turn lifecycle; local Host/Origin/body controls, no credential/path/gate/tool arguments from callers. Result projection uses gated text and exact published canonical values with stable cell slots, explicit semantics and proof availability; no raw internal object serialization or fabricated proof graph.
 - Limits to specify/test: finite session/turn/input/output capacity, no uncontrolled DuckDB concurrency, no automatic retry after disconnect, no false cancellation/restart-persistence claim. No login page is needed for this operator-local slice, but session possession is not multi-tenant authentication.
-- Tests: NOT RUN (claim). Cover isolation, malformed/unowned/oversized inputs, duplicate and busy behavior, accepted/qualified/abstained output, withheld text/credential sentinels, immutable values/cells, actual lifecycle and teardown. Pin concrete FastAPI/Uvicorn runtime dependencies; run strict typing and fast PR once.
+- Tests: 55 API/projection/isolation/negative regressions pass in the final fast PR: 3196 passed / one Windows privilege skip in 232.09s; strict mypy 96 files, Ruff/Bandit/secrets clean; pip check PASS. 164 local document targets checked. Two upstream test-client deprecations remain visible (httpx2/AnyIO); production httpx transport unchanged. Cover isolation, malformed/unowned/oversized inputs, duplicate and busy behavior, accepted/qualified/abstained output, withheld text/credential sentinels, immutable values/cells, actual lifecycle and teardown. Pin concrete FastAPI/Uvicorn runtime dependencies; run strict typing and fast PR once.
+- Delivered: closed API v1 with session capabilities, idempotent questions, atomic one-worker admission, owned turn reads, actual lifecycle SSE and exact published-result/cell projection. Loopback Host/Origin/JSON/body boundary and fixed exception handling tested. No runner credentials, paths, SQL or gate overrides are caller-controlled.
 - Blocker: none for the local contract. Full SSE plan/tool instrumentation, prepared runtime CLI wiring, source preparation UI, graph proof, production authentication/deployment, live model acceptance and Next.js client remain separate bounded tasks. No automatic network/model call is part of startup/health/testing.
 
 
