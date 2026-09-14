@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
 from kkb_agent.agent.registry import ToolSpec
 from kkb_agent.analytics import detect_anomalies
+from kkb_agent.catalog.inspection import PreparedSeriesInspector
 from kkb_agent.core import AnalyticalResult, ResultStatus
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.lakehouse.result_evidence import _record_execution
@@ -50,7 +51,10 @@ class AnomalyArguments(BaseModel):
 
 
 def make_anomaly_tool(
-    connection: DuckDBPyConnection, *, lineage: Lineage | None = None
+    connection: DuckDBPyConnection,
+    *,
+    lineage: Lineage | None = None,
+    inspector: PreparedSeriesInspector | None = None,
 ) -> ToolSpec:
     """Bind the tool to one database. The registry holds the closure, not the data."""
 
@@ -60,7 +64,7 @@ def make_anomaly_tool(
         if not isinstance(arguments, AnomalyArguments):  # pragma: no cover
             raise TypeError("anomaly received arguments it did not declare")
         try:
-            series = read_series(connection, arguments.series_id)
+            series = read_series(connection, arguments.series_id, inspector=inspector)
         except SeriesUnknown as error:
             return ToolResult(
                 ToolStatus.FAILURE,

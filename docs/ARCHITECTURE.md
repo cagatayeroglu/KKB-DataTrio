@@ -511,6 +511,8 @@ The operation selects two exact monthly STOCK/RATE/INDEX column labels and expli
 
 ### 13. Semantic catalog and retrieval — confirmed baseline; benchmark-gated extensions
 
+The [M13-13 prepared inspection](SERIES_INSPECTION.md) compares exact reviewed IDs and required declarations against local silver metadata. Catalog-configured prepared factories enforce it before selected-series calculation or direct-silver numerical promotion, recording a receipt in execution evidence. It is never a planner tool; generic input guards remain, and full-source quality, user-intent disambiguation and cross-turn staleness are still separate.
+
 DEC-137 separates trusted **local/versioned catalog metadata and discovery** from **observation availability/materialization and lakehouse queries**. Approved reusable source adapters primarily populate the prepared official pool. Demo catalog routing is concept → trusted prepared candidate → lakehouse; a pool miss may clarify/abstain. Official adapter filling of known requested-window misses is future scalability, not a core demo prerequisite. catalog_search consumes reviewed catalog state; it does not fetch observations or invent IDs. The M13-08 demo snapshot is not a permanent full-catalog ceiling: reviewed aliases are precision shortcuts, not the only catalog knowledge. Broader versioned BDDK/EVDS metadata coverage is intended later and remains unimplemented; unseen concepts may use catalog retrieval without an exact alias, while unsupported identities remain unresolved.
 
 TARGET under [DEC-130](DECISIONS.md#dec-130--initial-hybrid-retrieval-baseline), superseding DEC-127; DEC-115 remains historical. M13-04 supplies the reviewed offline lexical stage; dense and full hybrid retrieval remain unimplemented.

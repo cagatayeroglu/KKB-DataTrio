@@ -42,6 +42,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
 from kkb_agent.agent.registry import ToolSpec
+from kkb_agent.catalog.inspection import PreparedSeriesInspector
 from kkb_agent.core import AnalyticalResult, ResultStatus
 from kkb_agent.database import all_tables
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
@@ -225,6 +226,7 @@ def make_lakehouse_tool(
     readable: Sequence[str] = DEFAULT_READABLE,
     max_rows: int = DEFAULT_MAX_ROWS,
     lineage: Lineage | None = None,
+    inspector: PreparedSeriesInspector | None = None,
 ) -> ToolSpec:
     """Bind the tool to one database. The registry holds the closure, not the data.
 
@@ -265,6 +267,7 @@ def make_lakehouse_tool(
             tables=tables,
             parameters={"purpose": arguments.purpose, "max_rows": max_rows},
             snapshots=snapshots,
+            inspector=inspector,
         )
         node = None
         if typed.status is ResultStatus.COMPUTED:

@@ -28,6 +28,7 @@ from kkb_agent.agent.workspace import Workspace, WorkspaceError
 from kkb_agent.analytics.deflation import FORMULA, METHOD, DeflationRefused, deflate
 from kkb_agent.analytics.table_series import METHOD as ADD_SERIES_METHOD
 from kkb_agent.analytics.table_series import SeriesAdditionRefused, add_monthly_series
+from kkb_agent.catalog.inspection import PreparedSeriesInspector
 from kkb_agent.core import AnalyticalResult, ResultEvidence, ResultKind, ResultStatus
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.lakehouse.records import Observation
@@ -107,6 +108,7 @@ def make_table_transform_tool(
     *,
     lineage: Lineage | None = None,
     series_names: Mapping[str, str] | None = None,
+    inspector: PreparedSeriesInspector | None = None,
 ) -> ToolSpec:
     """Bind the tool to one database and one workspace."""
     names = dict(series_names or {})
@@ -143,7 +145,7 @@ def make_table_transform_tool(
             else selected.index_series_id
         )
         try:
-            series = read_series(connection, series_id)
+            series = read_series(connection, series_id, inspector=inspector)
         except SeriesUnknown as error:
             return failure("series_unknown", str(error))
 
