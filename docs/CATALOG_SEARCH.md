@@ -27,7 +27,7 @@ catalog_search -> BM25 candidates
   -> trusted prepared identity -> lakehouse financial values
 ```
 
-The intended vector DB/index layer binds official/canonical selector IDs, concept/family, normalized catalog text and hash, embedding model/dimension/vector and snapshot/version metadata. It does not hold observation values or replace DuckDB/Parquet. Exact cosine over a versioned embedding cache is an acceptable small-catalog baseline. LanceDB is a strong candidate and the preferred dedicated index to benchmark first; product selection remains open on scale, latency, deployment simplicity, retrieval quality and dependency cost. No separate PostgreSQL/pgvector service is justified by this refinement. Dedicated-index scaling beyond measured need is later work; required dense retrieval remains in the core delivery priorities.
+The intended vector DB/index layer binds official/canonical selector IDs, concept/family, normalized catalog text and hash, embedding model/dimension/vector and snapshot/version metadata. It does not hold observation values or replace DuckDB/Parquet. LanceDB is the selected catalog vector index ([DEC-138](DECISIONS.md#dec-138--handback-priorities-lancedb-catalog-index-and-no-prepared-data-in-git)); it is not yet implemented. No separate PostgreSQL/pgvector service is justified by this refinement. Dedicated-index scaling beyond measured need is later work; required dense retrieval remains in the core delivery priorities.
 
 This is an architectural boundary, not a new result schema, dependency, index or implemented query-embedding path. RRF/reranking remain benchmark-gated; a lexical fallback is degraded retrieval, not full hybrid acceptance.
 
