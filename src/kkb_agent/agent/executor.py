@@ -125,6 +125,12 @@ def validate_plan(
             arguments = spec.parse(step.arguments)
         except ArgumentsRejected as error:
             raise PlanRejected(str(error)) from error
+        required = spec.required_steps(arguments) if spec.required_steps is not None else ()
+        for reference in required:
+            if reference not in step.depends_on:
+                raise PlanRejected(
+                    f"Step {step.step_id!r} must declare input step {reference!r} in depends_on"
+                )
         for dependency in step.depends_on:
             if dependency not in seen:
                 raise PlanRejected(f"Step {step.step_id!r} depends on unknown step {dependency!r}")

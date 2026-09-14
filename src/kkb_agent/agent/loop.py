@@ -179,6 +179,24 @@ def render_result(result: AnalyticalResult) -> str:
         for series_id, name in names.items():
             if isinstance(name, str):
                 lines.append(f"Series {series_id} means: {name}")
+    for transformation in result.evidence.transformations if result.evidence is not None else []:
+        if transformation.operation == "table_co_movement":
+            criteria = transformation.parameters
+            lines.append(
+                f"Table comparison {criteria.get('comparison_id')}: driver column "
+                f"{criteria.get('driver_column')} direction {criteria.get('driver_direction')}; "
+                f"target column {criteria.get('target_column')} direction "
+                f"{criteria.get('target_direction')}; condition column "
+                f"{criteria.get('when_column')} direction {criteria.get('when_direction')}. "
+                "No condition means all complete transitions. The six counts for this "
+                "comparison name their respective denominators; they are not percentages."
+            )
+            joint = criteria.get("joint_periods")
+            if isinstance(joint, list):
+                lines.append(
+                    "Period ends matching both directions under this condition: "
+                    + (", ".join(str(end) for end in joint) or "none")
+                )
     highlighted = result.parameters.get("highlighted_periods")
     if isinstance(highlighted, dict):
         for description, periods in highlighted.items():

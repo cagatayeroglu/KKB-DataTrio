@@ -8,9 +8,9 @@ these two dates", and breakpoint detection is **absent from the schema
 entirely** until M6-05/06 implements it. A planner cannot ask for something
 that does not work if the schema never offers it.
 
-No seventh tool is added. `ToolRegistry` refuses any name outside the six the
-brief fixes, and a period comparison is a level change, which is squarely
-inside what this name covers.
+`co_movement` compares prepared series, and `table_co_movement` compares
+columns of a verified prior table. Both are descriptive direction counts.
+They remain operations of this registered tool under DEC-135's eight-tool target.
 
 The tool reads the series' **declared** semantics from `silver_series` before
 it computes anything, because whether a difference means new lending or a
@@ -25,12 +25,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import date
-from typing import TYPE_CHECKING, Literal, Self
+from typing import TYPE_CHECKING, Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
 from kkb_agent.agent.registry import ToolSpec
+from kkb_agent.agent.workspace import Workspace
 from kkb_agent.analytics import compare_periods
 from kkb_agent.analytics.comovement import co_movement
 from kkb_agent.core import (
@@ -50,6 +51,7 @@ from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.lakehouse.records import Observation
 from kkb_agent.lakehouse.result_evidence import _record_execution, canonical
 from kkb_agent.lakehouse.semantics import SemanticsError, SeriesSemantics
+from kkb_agent.tools.table_relationship import TableRelationshipArguments, run_table_relationship
 
 if TYPE_CHECKING:  # pragma: no cover
     from duckdb import DuckDBPyConnection
@@ -62,7 +64,7 @@ class SeriesUnknown(ValueError):
     """The named series is not registered. Safe to show the model."""
 
 
-class ChangeDetectionArguments(BaseModel):
+class SeriesChangeArguments(BaseModel):
     """What the planner may ask for.
 
     `operation` names what the tool does rather than letting its name imply
@@ -117,6 +119,24 @@ class ChangeDetectionArguments(BaseModel):
         if self.operation == "co_movement" and self.driver_series_id is None:
             raise ValueError("co_movement needs driver_series_id")
         return self
+
+
+class ChangeDetectionArguments(
+    RootModel[
+        Annotated[
+            SeriesChangeArguments | TableRelationshipArguments, Field(discriminator="operation")
+        ]
+    ]
+):
+    """Closed flat argument variants for stored-series and table-input operations."""
+
+
+def _required_steps(arguments: BaseModel) -> tuple[str, ...]:
+    if isinstance(arguments, ChangeDetectionArguments):
+        selected = arguments.root
+        if isinstance(selected, TableRelationshipArguments) and selected.input_step is not None:
+            return (selected.input_step,)
+    return ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,6 +213,7 @@ def make_change_detection_tool(
     *,
     lineage: Lineage | None = None,
     series_names: Mapping[str, str] | None = None,
+    workspace: Workspace | None = None,
 ) -> ToolSpec:
     """Bind the tool to one database. The registry holds the closure, not the data.
 
@@ -221,6 +242,12 @@ def make_change_detection_tool(
         # check rather than validation. Not an assert: asserts vanish under -O.
         if not isinstance(arguments, ChangeDetectionArguments):  # pragma: no cover
             raise TypeError("change_detection received arguments it did not declare")
+        selected = arguments.root
+        if isinstance(selected, TableRelationshipArguments):
+            return run_table_relationship(
+                selected, context, connection, workspace=workspace, lineage=lineage
+            )
+        arguments = selected
         try:
             series = read_series(connection, arguments.series_id)
             driver = (
@@ -280,7 +307,13 @@ def make_change_detection_tool(
         "(a weekly series is reduced onto months with its declared aggregation and the stated "
         "week_assignment), plus the months in which the driver fell while the target did not "
         "rise; values are nominal and co-movement is not causation. Breakpoint and trend-break "
-        "detection are not available yet."
+        "detection are not available yet. table_co_movement compares monthly directions of "
+        "two stock/rate/index columns already in a table, optionally only in months when a "
+        "third column moves in the selected direction. It keeps all table values and adds "
+        "explicit counts, without identifying a causal effect. Use exact column labels and "
+        "explicit driver_direction/target_direction. For a table made by an earlier step "
+        "(such as table_transform add_series), use input_step and declare that step in "
+        "depends_on. Otherwise use a published source name. No new series is fetched."
     )
     if names:
         description += " Prepared series (series_id: meaning): " + "; ".join(
@@ -291,11 +324,12 @@ def make_change_detection_tool(
         description=description,
         arguments=ChangeDetectionArguments,
         run=run,
+        required_steps=_required_steps,
     )
 
 
 def _monthly(
-    series: _Series, series_id: str, arguments: ChangeDetectionArguments
+    series: _Series, series_id: str, arguments: SeriesChangeArguments
 ) -> tuple[tuple[Observation, ...], SeriesSemantics, str, list[TransformationRecord]] | str:
     """The series on months, with its reduction recorded, or why that is refused."""
     semantics = series.semantics
@@ -329,7 +363,7 @@ def _monthly(
 
 
 def _co_movement(
-    arguments: ChangeDetectionArguments,
+    arguments: SeriesChangeArguments,
     target: _Series,
     driver: _Series,
     names: Mapping[str, str],
@@ -371,7 +405,7 @@ def _co_movement(
 
 
 def _record(
-    lineage: Lineage | None, arguments: ChangeDetectionArguments, status: ResultStatus
+    lineage: Lineage | None, arguments: SeriesChangeArguments, status: ResultStatus
 ) -> str | None:
     if lineage is None or status is not ResultStatus.COMPUTED:
         return None
