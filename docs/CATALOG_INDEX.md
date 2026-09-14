@@ -55,9 +55,10 @@ Exact cosine bypasses approximate indexes, reads all eligible bounded candidates
 and sorts equal distances by ID before applying the 1–10 result limit.
 Distances are not probabilities/confidence; even the nearest result is a candidate.
 
-The consumer maps returned IDs back to reviewed records. This module does not
-combine BM25 scores, select an answer, provide financial evidence, replan a
-conversation or call Kloudeks. RRF/reranking remain benchmark-gated. Broader
+The separate [combined catalog layer](CATALOG_SEARCH.md#bounded-combined-candidate-contract)
+maps IDs back to reviewed records for an optional operator-configured dense stage.
+This index module does not combine BM25 scores, select an answer, provide financial
+evidence, replan a conversation or call Kloudeks. RRF/reranking remain benchmark-gated. Broader
 catalog ingestion and capacity/performance checks must precede raising the
 current 40-record snapshot limit for full-source coverage.
 
@@ -85,5 +86,5 @@ release-wide dependency upgrade/audit policy is a separate checkpoint.
 
 API behavior was checked against the installed pinned package and official
 [LanceDB vector search documentation](https://docs.lancedb.com/search/vector-search).
-Real embedding-policy confirmation, live index construction, hybrid composition/
+Real embedding-policy confirmation, live index construction, hybrid-quality
 evaluation and bounded planner consumption remain next integration steps.
