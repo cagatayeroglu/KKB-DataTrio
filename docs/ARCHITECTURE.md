@@ -25,7 +25,7 @@ CONFIRMED goals:
 - Fail safely when data meaning or execution authority is insufficient.
 - Keep the inner loop fast and the demonstration reliable under constrained model access.
 
-[DEC-141](DECISIONS.md#dec-141-organizer-verbal-criteria) records the organizer-reported requirement for our own harness/lakehouse, minimal model dependence and reuse across substantially different domains. The source adapters, registry and deterministic tools support that direction; the finance-oriented planner, prepared naming and semantic contracts do not yet establish domain-generic acceptance.
+[DEC-141](DECISIONS.md#dec-141-organizer-verbal-criteria) preserves the own-harness/lakehouse and minimal-model-dependence criteria, retains the historical organizer relay, and clarifies current reuse across supported financial sources, datasets and schemas. Shared ingestion contracts, Bronze/Silver/Gold mechanics, planner/router/executor, registry, workspace/state, lineage/evidence/verifier, API/session, table rendering and adapter interfaces should not require rewriting for each supported financial source/schema. Reviewed adapters and finance semantics, cumulative rules, deflation, KFE, guards/transforms and mappings may remain finance-specific. This is not a healthcare or universal cross-domain platform requirement and does not justify speculative abstractions or a large refactor; new-source acceptance remains to be demonstrated.
 
 Non-goals for this window: arbitrary generated-code execution, a general autonomous web crawler, a hosted warehouse platform, distributed agent infrastructure, enterprise tenancy/security systems, or a training pipeline.
 
