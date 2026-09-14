@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from kkb_agent.ingest.bddk_monthly_request import MonthlyRequest
+    from kkb_agent.ingest.evds_request import EvdsRequest
 
 from kkb_agent.ingest.safe_fetch import (
     FetchCode,
@@ -56,7 +57,11 @@ def _progress(output: bytes, started: float, limits: FetchLimits) -> tuple[bytes
 
 
 def fetch_in_process(
-    request: FetchRequest, limits: FetchLimits, *, monthly: MonthlyRequest | None = None
+    request: FetchRequest,
+    limits: FetchLimits,
+    *,
+    monthly: MonthlyRequest | None = None,
+    evds: EvdsRequest | None = None,
 ) -> FetchOutcome:
     """Bound DNS/connect first, then the whole operation including worker IPC.
 
@@ -78,6 +83,13 @@ def fetch_in_process(
         if request != monthly.fetch_request() or limits != MONTHLY_LIMITS:
             return FetchFailure(source_ref=request.source_ref, code=FetchCode.INVALID_REQUEST)
         message["monthly"] = monthly.model_dump(mode="json")
+    if evds is not None:
+        from kkb_agent.ingest.evds_request import EVDS_LIMITS, EvdsRequest
+
+        evds = EvdsRequest.model_validate(evds)
+        if monthly is not None or request != evds.fetch_request() or limits != EVDS_LIMITS:
+            return FetchFailure(source_ref=request.source_ref, code=FetchCode.INVALID_REQUEST)
+        message["evds"] = evds.model_dump(mode="json")
     payload = json.dumps(message).encode()
     if len(payload) > MAX_INPUT_BYTES:
         return FetchFailure(source_ref=request.source_ref, code=FetchCode.SIZE_LIMIT)
