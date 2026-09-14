@@ -23,6 +23,21 @@ M5-21 and M8-21 remain delivered correctness protections; only the bounded weekl
 
 Production web-search acceptance stays separate under DEC-134: SearXNG is a compatibility candidate only, including upstream-query privacy/network review. Crawl4AI is optional future extraction work, not current `web_url` acceptance. Search-result URLs remain unauthorized to fetch automatically. Existing command/tier and historical live-acceptance records below are unchanged.
 
+### M6-25 organizer Turn 1 live run (2026-09-14)
+
+Owner-authorized runs of `python -m kkb_agent.live_check --prepared-root data/processed/lakehouse` ask the organizer's Turn 1 question through Kloudeks (Qwen planner and writer) over a private copy of the prepared pool; the copy keeps runtime lineage, execution evidence and workspace writes out of the prepared root. Offline tests use the same path with a scripted provider ([test_co_movement](../tests/unit/test_co_movement.py)).
+
+**Independent oracle** (plain script over the pool, not the tool): over 2021-02..2025-12 the monthly average of `TP.KTF12` (weekly Fridays assigned by period end) fell in 32 of 59 transitions; the BDDK housing balance TOTAL rose in 28 of them and did not rise in 4 — 2021-02 (−522), 2021-05 (−1,196), 2023-12 (−2,190) and 2024-01 (−1,534) million TRY, nominal.
+
+| Run | Outcome |
+| --- | --- |
+| 1 (default 30 s request timeout) | Planner call `ReadTimeout`; no completion. Turn 1 needs `KLOUDEKS_REQUEST_TIMEOUT=120` for the operator run. |
+| 2 (120 s) | Planner produced the exact plan on attempt 1 (`change_detection` `co_movement`, BDDK TOTAL id, `EVDS:TP.KTF12`, 2021-01-01..2025-12-31, `by_end`); result counts equal the oracle; answer QUALIFIED in 115.5 s. The gate withheld the writer's whole 60-row table and flagged-month table because a newline not followed by whitespace did not end a sentence, so every figure was attributed to the wrong row's period. |
+| Fix | A line break now always ends a claim; flagged changes are no longer duplicated under a second label (that made quotes ambiguous). Both withheld tables from run 2 re-gate ACCEPTED offline against the real result. |
+| 3 (120 s, after fix) | Same exact plan and counts; the full table, counts, four flagged months and their changes were ACCEPTED; answer QUALIFIED in 97.8 s because one sentence used cause wording, which the gate withholds even when negated (DEC-120). Not published to the workspace (only ACCEPTED publishes, M5-21). |
+
+After run 3 the writer prompt now forbids cause wording entirely; that change is offline-tested only. Remaining acceptance gaps: an ACCEPTED live Turn 1 with workspace publication, latency (~100 s, mostly long generation), the writer echoing `dimensionless` from display phrases, and Turn 3's "sebep olabilir mi" question, which the gate's cause rule will withhold by design.
+
 ## Scalable official-data acceptance target
 
 [DEC-137](DECISIONS.md#dec-137--catalog-complete-lakehouse-first-official-source-materialization-architecture) expands future evaluation beyond the four-series first vertical slice. These are planned cases, not implemented tests or benchmark results. The [dated refinement](DECISIONS.md#dec-137-prepared-pool-refinement) separates core prepared-pool acceptance from later scalability; required hybrid acceptance remains in the delivery path:
