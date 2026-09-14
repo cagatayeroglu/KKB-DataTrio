@@ -576,3 +576,30 @@ DuckDB inputs, not model-generated presentation numbers. This establishes the
 local contract only: prepared runtime startup, full plan/tool callbacks, bounded
 public proof graph, frontend and deployed/authenticated multi-user service
 remain incomplete. See [LOCAL_API](LOCAL_API.md).
+
+### M10-17 prepared API runtime (2026-09-14)
+
+PR #158, implementation `a58eca122c25b6df42856a0d6144c0e8a6c88c4f`. 38 new prepared-runtime/CLI cases, one
+Windows symlink-privilege skip; prior API tests retained. Final fast PR:
+**3233 passed / two Windows privilege skips in 238.07s**, strict mypy 98 files, Ruff/Bandit/secrets clean.
+172 local document targets checked. An initial gate before optional literal
+env-file support passed 3228/two skips; final evidence above includes the added
+loader tests. An oversized test parameter initially broke Windows test naming;
+explicit short test IDs fixed the fixture, without relaxing configuration limits.
+
+Read-only --check with the operator-local .env reports configured/ready, no model
+request, seven prepared series / 683 observations / 15 catalog identities /
+80 files / 7,613,310 bytes. The real-pool scripted in-process HTTP rehearsal
+publishes all three organizer turns. Independent Decimal arithmetic matches
+59 transitions, 32 rate falls and 22 joint months; 302 previous cells and 60 KFE
+values match exactly. All original files retain their hashes; largest response
+143,584 bytes. Readiness 717.15ms; turns 1425.33/925.01/1578.83ms are local
+scripted-pipeline measurements, not live Qwen latency or reasoning acceptance.
+
+Source/seed mutation, wrong metadata, populated foreign workspace, copy bounds,
+unsafe roots, per-session ownership, publication/follow-up, startup/model guards
+and credential-redaction cases are covered. Repeated identical numeric claims
+across distinct result identities can still abstain under the existing gate;
+the API preserves that limit. No live model/source call, ingestion expansion,
+frontend, proof graph or production deployment is claimed. See
+[PREPARED_API](PREPARED_API.md) for startup and remaining limits.

@@ -1848,7 +1848,7 @@ Update the command registry in EVALUATION when a runner actually exists. Keep li
 <a id="m10"></a>
 # M10 — UI / demo workflow
 
-Status: PARTIAL (M10-01 specification DONE; M10-16 local API contract delivered; prepared runtime/frontend/deployment incomplete). Framework settled by [DEC-123](DECISIONS.md#dec-123--fastapi-with-sse-behind-a-nextjs-front-end); hosting still depends on Q-INFRA-01 and remaining demo format on Q-DEMO-01. [DEC-131](DECISIONS.md#dec-131--organizer-kick-off-brief-schedule-delivery-form-and-demo-day-input-scope) now confirms that Final Day expects a **deployed, running solution** producing output from organizer-supplied inputs — so deployment is a requirement, not a stretch goal, even though its environment is unstated. Operator-flow specification can proceed.
+Status: PARTIAL (M10-01 specification DONE; M10-16 local API and M10-17 prepared runtime delivered; frontend/deployment incomplete). Framework settled by [DEC-123](DECISIONS.md#dec-123--fastapi-with-sse-behind-a-nextjs-front-end); hosting still depends on Q-INFRA-01 and remaining demo format on Q-DEMO-01. [DEC-131](DECISIONS.md#dec-131--organizer-kick-off-brief-schedule-delivery-form-and-demo-day-input-scope) now confirms that Final Day expects a **deployed, running solution** producing output from organizer-supplied inputs — so deployment is a requirement, not a stretch goal, even though its environment is unstated. Operator-flow specification can proceed.
 
 ## Objective
 
@@ -1889,13 +1889,14 @@ A minimal M1/M4/M5/M6/M8 slice for live integration; confirmed demo environment/
 
 
 
-- [ ] M10-17 — Status: IN PROGRESS; Owner: Arda; Branch: `codex/m10-17-prepared-api`, fresh dev `15c05f1`; PR: pending; Commit: pending.
+- [ ] M10-17 — Status: IN PROGRESS; Owner: Arda; Branch: `codex/m10-17-prepared-api`, fresh dev `15c05f1`; PR: #158 (open); Commit: `a58eca122c25b6df42856a0d6144c0e8a6c88c4f`.
 
 ### M10-17 prepared API runtime (2026-09-14)
 
 - Readiness: M10-16's typed local contract and runner injection are merged; Session/workspace publication, prepared tool factories, reviewed catalog and mandatory inspector are available. A closed prepared source can be copied into a process-owned root without touching the original. This bounded local integration is READY after reviewing those contracts; no production hosting/auth answer is inferred and no competing claim exists.
 - Scope: bounded local prepared-pool snapshot/readiness inventory, isolated per-session working copies and named result publication; mandatory inspected registry plus optional catalog continuation using the real Session/projector; no direct client path/tool/gate/provider knobs. Add read-only `--check` and an explicitly enabled loopback Kloudeks launcher, no automatic model/source call during import/readiness. One worker owns all per-turn connections; preserved tables support generic follow-ups.
-- Tests: NOT RUN (claim). Cover incomplete/mismatched/changed/oversized/symlinked input, immutable seed/original files, two isolated sessions, real scripted calculation/publication/follow-up through HTTP, wrong settings and no model request at readiness. Fast PR and strict typing required. Measure the existing seven-series public pool read-only; live calls remain subject to the pending explicit answer.
+- Tests: 38 new prepared-runtime/CLI cases (one Windows symlink privilege skip); 55 prior API regressions retained. Final fast PR: 3233 passed / two Windows privilege skips in 238.07s, strict mypy 98 files, Ruff/Bandit/secrets clean; 172 local document targets checked. Real local --check with operator .env: ready/configured, no model call, 7 series/683 rows/15 catalog identities/80 files/7,613,310 bytes. Real-pool scripted in-process HTTP three-turn rehearsal ACCEPTED three times, exact independent Decimal oracle (32 rate falls/22 joint periods), 302 prior cells and 60 KFE values retained, 80 originals unchanged; largest response 143,584 bytes. Cover incomplete/mismatched/changed/oversized/symlinked input, immutable seed/original files, two isolated sessions, real scripted calculation/publication/follow-up through HTTP, wrong settings and no model request at readiness. Fast PR and strict typing required. Measure the existing seven-series public pool read-only; live calls remain subject to the pending explicit answer.
+- Delivered: bounded read-only readiness, exclusive content-checked process seed and per-session copies, inspected six-tool prepared registry with catalog continuation, owned named publication and canonical projector, safe literal optional env file, explicit loopback-only launcher and dataset inventory. No new source fetch or model call at startup/check.
 - Blocker: none for offline integration. Live three-turn acceptance, live dense configuration/quality, production deployment/auth, full proof graph and frontend remain separate. No source refreshing or new series ingestion is hidden in this runtime task.
 
 ## Acceptance criteria
