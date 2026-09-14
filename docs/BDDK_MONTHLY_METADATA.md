@@ -82,10 +82,9 @@ format; review the new format rather than silently inferring units.
 
 ## Remaining work and validation
 
-M3-06 has a bounded offline implementation below. Live source/egress approval,
-BDDK CA-chain acceptance, real dataset preparation and broader mappings remain
-unfinished. No Weekly, FinTürk, EVDS, gold, planner/runtime routing or live
-acceptance is included.
+M3-06 has a bounded implementation below, with live chain acceptance and the
+local housing preparation recorded on 2026-09-14. Broader mappings remain
+unfinished. No Weekly, FinTürk, EVDS, gold or planner/runtime routing is included.
 
 [Offline tests](../tests/unit/test_bddk_monthly.py) cover identity/dimension
 separation, strict review, source evidence, serialization/catalog round-trip,
@@ -117,9 +116,9 @@ Operator ceilings: 120 months/requests, 256 form bytes, 16 KiB response headers,
 1 MiB encoded body, 2 MiB decoded body per response, 5-second connect/read and
 30-second whole-request deadlines. Requests are sequential; at most 3600 seconds
 of network work for the maximum range, without a database transaction. These
-bounds are not BDDK quotas. No live CA path was tested; if system trust cannot
-verify the chain, retrieval fails. A reviewed issuer bundle and deployment
-verification remain separately authorized live preparation work where needed.
+bounds are not BDDK quotas. The Monthly context adds one pinned, reviewed BDDK
+intermediate on top of system roots (see [live acceptance](#m3-06-live-acceptance-2026-09-14));
+if the chain still cannot be verified, retrieval fails.
 
 The parser checks successful JSON, complete single-page shape, unique row
 identities, exact selected seven-cell/header shape, bank group, reviewed label,
@@ -159,4 +158,48 @@ natural-language ambiguity. Runtime availability routing is still future work.
 66-month synthetic range, idempotency/revisions, transaction fault injection and
 real lakehouse query/answer gating. [POST regressions](../tests/unit/test_bddk_monthly_transport.py)
 use the actual HTTP parser with fake DNS/socket/TLS and the fixed worker protocol.
-Full M3-06 remains PARTIAL pending live source/CA/data acceptance.
+
+## M3-06 live acceptance (2026-09-14)
+
+Owner-authorized by Eray. Retrieved data stays in an operator-local ignored root
+and is not committed.
+
+**Trust.** A handshake-only check confirmed `www.bddk.org.tr` still serves only
+its leaf (`*.bddk.org.tr`, issued by GlobalSign RSA OV SSL CA 2018, expiring
+2026-11-15). The issuer from the leaf's AIA URL verified against the system
+roots (GlobalSign Root CA - R3), verified the leaf, and failed as a sole anchor.
+[_reviewed_trust](../src/kkb_agent/ingest/_reviewed_trust.py) pins its DER
+SHA-256 and adds it only to the fixed Monthly POST context, with partial chains
+disabled; generic GET and redirect hops never receive it. A deployment trust
+store must still contain GlobalSign Root CA - R3, and a renewed BDDK leaf from
+another issuer needs a new review.
+
+**Operator command.** [bddk_monthly_operator](../src/kkb_agent/ingest/bddk_monthly_operator.py)
+exposes `smoke` (one month into a temporary lakehouse, removed afterwards, with
+an idempotent in-run repeat) and `prepare` (an explicit root, silver Parquet
+export, rerun as its repeat). Both check exact-window stored verification with
+raw-byte reparsing, lineage to every raw response, read-back through the
+analytics reader and optional per-component `COMPONENT:YYYY-MM=VALUE` oracles.
+A one-month smoke can never occupy a prepared series' immutable batch.
+
+**Smoke.** 2026-06, TP/YP/TOTAL, 6 requests: every check passed; values
+801,376 / 62 / 801,438 million TRY equal the M3-02 inventory observation. Two
+runs produced identical manifests, so identical source bytes.
+
+**Preparation.** `prepare --root data/processed/lakehouse --start 2021-01 --end
+2026-06 --component TP --component YP --component TOTAL`: 198 sequential
+requests in 73 s; 66 months per component, 0 missing values, every check and
+oracle passed (TOTAL 2021-01 = 276,785 and 2026-06 = 801,438; TP 2026-06 =
+801,376; YP 2026-06 = 62). Independent consistency with the inventory: TOTAL
+decreases in 8 of 65 steps, largest −2,875 between 2023-09 and 2023-10, so it
+remains a non-cumulative stock. Bronze holds 66 shared raw responses plus 3
+manifests (4.6 MiB root).
+
+**Source rounding.** TP + YP differs from the published Toplam by ±1 million TRY
+in 14 of 66 months, because BDDK rounds each cell. Use the published TOTAL
+selector; never derive TOTAL from components.
+
+Not established: revision behaviour, a prepare rerun against live bytes,
+deployment-environment trust, Weekly/FinTürk/EVDS, catalog registration of the
+BDDK selectors and the stock-versus-disbursement question for "kullanılan".
+Full M3-06 remains PARTIAL for those.
