@@ -499,3 +499,20 @@ uses upstream evidence that C++ IPC pre-buffering is unavailable to Python;
 this implementation enables no such path. No audit suppression was introduced.
 Real embedding policy, hybrid candidate composition/evaluation and planner
 consumption remain separate; the parent M13-05 is not DONE.
+
+### M13-05 bounded hybrid candidate composition (2026-09-14)
+
+PR #154, implementation `dc823973153415c39a21bf637e3d214d7d080104`. **29 new native-index / fixture-vector tests
+PASS / 7.22s**, plus 127 lexical/current-catalog/index regressions PASS / 6.28s.
+Final fast PR gate: **3064 PASS, one Windows privilege skip / 199.57s**; strict
+mypy across 89 source files, Ruff, Bandit and secrets clean. 150 local document
+targets checked. No full/release gate or live source/model request.
+
+Checks exercise complementary candidate provenance, stable caps, exact-concept
+and source/frequency/archive eligibility, ambiguous/unresolved inputs, snapshot
+and input-policy mismatch, malformed or failed dense stages, explicit lexical
+degradation and absence of analytical evidence. Fixture provenance stays visible.
+The alternating-archive-tier-v1 candidate baseline is executable through explicit
+operator injection; it does not establish real Qwen retrieval quality, held-out
+Recall@k, all-source coverage, live input policy or planner replanning. Parent
+M13-05 remains incomplete. See [the contract](CATALOG_SEARCH.md).

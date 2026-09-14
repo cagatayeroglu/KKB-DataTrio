@@ -178,6 +178,14 @@ class LocalCatalogIndex:
     _profile: VectorProfile
     _ordinals: dict[str, int]
 
+    @property
+    def snapshot_sha256(self) -> str:
+        return self._snapshot.content_sha256
+
+    @property
+    def profile(self) -> VectorProfile:
+        return VectorProfile.model_validate(self._profile)
+
     @classmethod
     def open(
         cls, root: Path, snapshot: ReviewedSnapshot, profile: VectorProfile

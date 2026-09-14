@@ -17,7 +17,7 @@ from kkb_agent.catalog.records import CatalogStatus
 from kkb_agent.core import Frequency
 from kkb_agent.core.models import ContractModel
 
-SearchMethod = Literal["reviewed_alias", "reviewed_phrase", "bm25"]
+SearchMethod = Literal["reviewed_alias", "reviewed_phrase", "bm25", "dense"]
 SearchStatus = Literal["MATCH", "PARTIAL", "UNRESOLVED", "NO_MATCH", "FILTERED_OUT"]
 
 
@@ -52,9 +52,13 @@ class CatalogCandidate(ContractModel):
     family_ids: tuple[str, ...]
     observation_kind: Literal["unknown"] = "unknown"  # absent from CatalogRecord
     rank: int = Field(ge=1, le=10)
-    bm25_score: float = Field(ge=0)
+    bm25_score: float | None = Field(ge=0)
     matched_terms: tuple[str, ...]
     method: SearchMethod
+    retrieval_sources: tuple[Literal["lexical", "dense"], ...] = ("lexical",)
+    lexical_rank: int | None = Field(default=None, ge=1, le=10)
+    dense_rank: int | None = Field(default=None, ge=1, le=10)
+    cosine_distance: float | None = Field(default=None, ge=-0.000001, le=2.000001)
 
 
 class CatalogSearchOutput(ContractModel):
@@ -67,8 +71,18 @@ class CatalogSearchOutput(ContractModel):
     excluded_archived_count: int = Field(ge=0, le=40)
     snapshot_version: str
     snapshot_sha256: str
-    retrieval_version: Literal["m13-04-lexical-v1"] = "m13-04-lexical-v1"
-    retrieval_mode: Literal["lexical_only"] = "lexical_only"
+    retrieval_version: Literal["m13-04-lexical-v1", "m13-05-combined-v1"] = "m13-04-lexical-v1"
+    retrieval_mode: Literal["lexical_only", "hybrid", "lexical_degraded"] = "lexical_only"
+    combination_policy: Literal["lexical-v1", "alternating-archive-tier-v1"] = "lexical-v1"
+    dense_status: Literal["not_configured", "skipped_no_eligible", "success", "failed"] = (
+        "not_configured"
+    )
+    dense_failure: Literal["snapshot_mismatch", "embedding_failed", "index_failed"] | None = None
+    embedding_origin: Literal["offline_fixture", "kloudeks"] | None = None
+    input_policy_id: str | None = None
+    profile_sha256: str | None = None
+    lexical_total_candidates: int | None = Field(default=None, ge=0, le=40)
+    dense_total_candidates: int | None = Field(default=None, ge=0, le=40)
     untrusted_metadata: Literal[True] = True
     observation_fetch_authorized: Literal[False] = False
     analytical_evidence: Literal[False] = False
@@ -103,6 +117,22 @@ def _terms(item: ReviewedSeries, concepts: list[Concept]) -> Counter[str]:
     return Counter(normalize_search_text(text).split())
 
 
+def eligible_catalog_series(
+    snapshot: ReviewedSnapshot, args: CatalogSearchArguments
+) -> tuple[ReviewedSeries, ...]:
+    """Shared declared metadata filtering, independent of ranking method."""
+    return tuple(
+        s
+        for s in snapshot.series
+        if (args.include_archived or s.record.status is not CatalogStatus.ARCHIVED)
+        and (
+            args.source is None
+            or normalize_search_text(s.record.provider) == normalize_search_text(args.source)
+        )
+        and (args.frequency is None or s.record.frequency is args.frequency)
+    )
+
+
 def search_catalog(
     snapshot: ReviewedSnapshot, arguments: CatalogSearchArguments
 ) -> CatalogSearchOutput:
@@ -120,16 +150,7 @@ def search_catalog(
         if not args.include_archived
         else 0
     )
-    eligible = [
-        s
-        for s in snapshot.series
-        if (args.include_archived or s.record.status is not CatalogStatus.ARCHIVED)
-        and (
-            args.source is None
-            or normalize_search_text(s.record.provider) == normalize_search_text(args.source)
-        )
-        and (args.frequency is None or s.record.frequency is args.frequency)
-    ]
+    eligible = eligible_catalog_series(snapshot, args)
     concepts_by_id = {
         s.record.series_id: [
             c for c in snapshot.concepts if s.record.series_id in c.candidate_series_ids

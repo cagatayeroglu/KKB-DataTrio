@@ -6,17 +6,60 @@ shared Turkish normalizer. Delivered under DEC-133 and retained by DEC-135, this
 the authoritative lexical/reviewed baseline for the bounded offline demo scope;
 full hybrid acceptance still needs M13-05 dense retrieval and evaluation.
 
-The separate [local LanceDB index](CATALOG_INDEX.md) now implements validated
-vector persistence and exact search over explicit eligible IDs. `catalog_search`
-still executes its lexical-only contract; no default dense call or score fusion
-is added by that storage slice. Input-policy confirmation, hybrid composition,
-evaluation and bounded planner consumption remain separate integration work.
+The separate [local LanceDB index](CATALOG_INDEX.md) implements validated vector
+persistence and exact search over eligible IDs. The existing factory now accepts
+an optional operator-injected `CatalogDenseStage` for combined candidate retrieval.
+Without it, lexical-only behavior remains. Configured stages run both methods
+when reviewed eligibility is nonempty, even after lexical success. This is tested
+with fixture vectors; live policy, semantic quality and bounded planner consumption
+remain separate integration work.
+
+## Bounded combined candidate contract
+
+`CatalogDenseStage(index, embed_query)` binds a checked local index to an
+operator-supplied normalized-query embedding callback. It must implement the
+explicit input policy declared by the index and return a matching `QueryVector`.
+Composition chooses no endpoint, prefix, key or hosted fallback. The lexical-only
+factory does not initialize the native vector engine. No live callback or real
+index generation is enabled automatically.
+
+Provider, native-frequency and archive eligibility is shared by both stages.
+Matched reviewed exact/longest phrases additionally bound IDs; similarity cannot
+widen a precise CPI-base query or fill unresolved disbursement with balance.
+Empty eligibility skips embedding and retains UNRESOLVED/FILTERED_OUT.
+
+The initial **`alternating-archive-tier-v1`** policy takes up to ten candidates
+per stage, alternates lexical then dense positions, deduplicates IDs, keeps
+explicitly requested archives after current/unknown records, then applies the
+caller's 1–10 final limit. Native distance ties use stable IDs. There is no BM25/
+cosine score addition, RRF or reranker. This transparent baseline is for later
+same-case quality comparison, not a claim of measured gain.
+
+Candidates carry retrieval source(s), per-stage rank, BM25 score if present in
+that stage, and cosine distance if present in dense. Unmeasured scores are null.
+Metadata comes from the reviewed snapshot, not a vector-table declaration.
+`total_candidates` counts the retrieved union; per-stage totals describe eligible
+candidates before caps. `truncated` covers stage or final caps. Scores/ranks are
+not confidence or permission to calculate.
+
+`m13-05-combined-v1` output reports snapshot/profile identity, input policy and
+embedding origin. `hybrid` means both configured mechanics succeeded; an
+`offline_fixture` origin does not establish Qwen semantic quality. No similarity
+threshold is invented: unfamiliar wording may yield nearby candidates that still
+need relevance/semantic review or clarification.
+
+Snapshot mismatch, embedding/policy failure or invalid/native index output
+returns **`lexical_degraded`**, `dense_status=failed`, a fixed category and a tool
+warning. Private exceptions are not copied. Unknowns/ambiguity remain even when
+dense succeeds. Full M13-05 acceptance still needs live policy, actual corpus/query
+embeddings and separate development/held-out evaluation; the planner also needs
+a bounded discovery/replan round before it can use these candidates in analysis.
 
 ## Catalog and observation boundary
 
 [DEC-137’s dated refinement](DECISIONS.md#dec-137-prepared-pool-refinement) makes user concept → catalog_search → trusted prepared series candidate → lakehouse the primary demo routing target. A prepared-pool miss may clarify/abstain; runtime official-source cache-miss materialization is future scalability, not a core three-turn prerequisite. The reviewed Monthly/EVDS adapters and seven-series real prepared slice now exist; automatic availability routing remains unfinished. The current [prepared_v2 snapshot](catalog/prepared_v2.json) has 15 identities including all seven supported prepared identities; the historical ten-series [v1 snapshot](catalog/demo_v1.json) remains reproducible. Neither is the full catalog. Aliases are precision shortcuts; other queries use lexical matching over available records. Broader versioned BDDK/EVDS metadata remains future work; unsupported identities stay unresolved. Catalog discovery does not mean observations are present in a particular operator's lakehouse. Runtime still needs a bounded discovery/replan integration to consume catalog results before selecting analytical tool arguments.
 
-The final catalog spans safely representable BDDK/EVDS identities beyond the four-series vertical slice. Conceptual prepared/fetchable/unresolved/unsupported states require trusted manifest/adapter evidence; no such fields are added to the current result schema here. UNRESOLVED cannot trigger a fetch. Required final hybrid retrieval adds the confirmed Qwen embedding model (4096 dimensions); current aliases/filters/BM25 remain the callable path. DEC-138 selected LanceDB; local storage/search is now implemented separately, while hybrid wiring remains unfinished.
+The final catalog spans safely representable BDDK/EVDS identities beyond the four-series vertical slice. Conceptual prepared/fetchable/unresolved/unsupported states require trusted manifest/adapter evidence; no such fields are added to the current result schema here. UNRESOLVED cannot trigger a fetch. Required final hybrid retrieval adds the confirmed Qwen embedding model (4096 dimensions); aliases/filters/BM25 remain the default callable path, with an optional operator-configured combined stage. DEC-138 selected LanceDB; local indexing/composition are implemented, while live policy, semantic quality and planner integration remain unfinished.
 
 ## Required final hybrid and vector-search target
 
