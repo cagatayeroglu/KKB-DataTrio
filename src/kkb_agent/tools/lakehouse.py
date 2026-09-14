@@ -319,8 +319,10 @@ def _describe(readable: Iterable[str]) -> str:
         "Run one read-only SELECT over the analysis tables. "
         f"Readable tables: {', '.join(sorted(readable))}. "
         "Only SELECT is accepted; no table functions, no writes, no other tables."
-        " Measurements require direct silver_observations columns joined to silver_series"
-        " by series_id, selecting series_id, period_start, period_end, value, unit and scale."
+        " Measurements require direct columns: silver_observations o (series_id, period_start,"
+        " period_end, value) joined to silver_series s (series_id, unit, scale, frequency,"
+        " anchor, observation) on series_id, selecting o.series_id, o.period_start,"
+        " o.period_end, o.value, s.unit and s.scale. unit and scale exist only on silver_series."
         " Expressions and other projections return inspection rows only, not financial evidence."
     )
 
