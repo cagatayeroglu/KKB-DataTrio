@@ -487,7 +487,10 @@ def test_turn_one_answer_carries_the_table_and_writer_is_told_not_to_repeat_it(l
     assert answered.answer.status is AnswerStatus.ACCEPTED
     (table,) = answered.tables
     assert len(table.rows) == 6 and table.columns[0].startswith("BDDK Aylık Bülten")
-    assert "do not reproduce per-period rows" in session.provider.seen[1][0].content
+    writer_rules = session.provider.seen[1][0].content
+    assert "do not reproduce per-period rows" in writer_rules
+    assert "never by raw labels or identifiers" in writer_rules
+    assert "without that word" in writer_rules
 
 
 def test_no_table_accompanies_an_abstained_answer(lake):
