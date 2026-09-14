@@ -57,7 +57,7 @@ from kkb_agent.ingest.safe_fetch import FetchCode, safe_fetch
 from kkb_agent.ingestion_policy import RejectionCode
 from kkb_agent.lakehouse import Observation, SeriesSemantics, open_lakehouse
 from kkb_agent.lakehouse.lineage import EdgeKind, Lineage, NodeKind
-from kkb_agent.lakehouse.store import DATABASE_NAME
+from kkb_agent.lakehouse.store import DATABASE_NAME, Lakehouse
 from kkb_agent.llm import (
     Completion,
     EmbeddingKind,
@@ -71,6 +71,7 @@ from kkb_agent.tools import (
     make_causality_tool,
     make_change_detection_tool,
     make_lakehouse_tool,
+    make_table_transform_tool,
 )
 from kkb_agent.tools.web_url import Fetcher, WebUrlOutput, make_web_url_tool
 
@@ -88,6 +89,13 @@ TURN_ONE_QUESTION = (
     "değişim göstermiş, faiz oranı düştüğü halde kredi miktarının yükselmediği dönemler olmuş mu?"
 )
 TURN_ONE_NAME = "konut_kredisi_ve_faiz"
+
+#: The organizer's reference Turn 2 question, asked after Turn 1 was published.
+TURN_TWO_QUESTION = (
+    "Konut kredisi ve faiz oranları tablosunu bozmadan sadece konut kredisi tutarlarını "
+    "enflasyondan arındırır mısın?"
+)
+TURN_TWO_NAME = "konut_kredisi_ve_faiz_reel"
 
 #: Synthetic figures in the reference scenario's shape; not source data.
 SERIES = {
@@ -248,75 +256,105 @@ def run_prepared_check(
     workdir: Path,
     *,
     question: str = TURN_ONE_QUESTION,
+    turns: int = 1,
     clock: Clock = time.perf_counter,
 ) -> dict[str, object]:
-    """Ask a question over a private copy of the prepared official pool (M6-25).
+    """Ask the organizer turns over a private copy of the prepared pool (M6-25, M5-20).
 
     The copy keeps runtime lineage, execution evidence and workspace writes out
     of the prepared root. Tools see reviewed names for the series it holds.
+    With `turns=2`, the Turn 2 question follows in the same workspace, and only
+    runs when Turn 1 was published. One turn keeps the single-report shape.
     """
     if not (prepared_root / DATABASE_NAME).is_file():
         return {"passed": False, "configuration": "prepared_root_missing"}
+    if turns not in (1, 2):
+        return {"passed": False, "configuration": "unsupported_turns"}
     root = workdir / "lake"
     shutil.copytree(prepared_root, root)
     with open_lakehouse(root) as lake:
         names = prepared_series_names(lake.connection)
+        workspace = Workspace.open(lake.connection)
         registry = ToolRegistry()
         registry.register(make_lakehouse_tool(lake.connection, lineage=lake.lineage))
         registry.register(
             make_change_detection_tool(lake.connection, lineage=lake.lineage, series_names=names)
         )
+        registry.register(
+            make_table_transform_tool(
+                lake.connection, workspace, lineage=lake.lineage, series_names=names
+            )
+        )
         for make in (make_anomaly_tool, make_causality_tool):
             registry.register(make(lake.connection, lineage=lake.lineage))
-        workspace = Workspace.open(lake.connection)
-        counted = _Counting(provider)
-        session = Session(counted, registry)
-        started = clock()
-        try:
-            answered = session.answer(
-                question, lake.connection, workspace=workspace, remember=TURN_ONE_NAME
-            )
-        except (PlanningFailed, ProviderError) as error:
-            return {
-                "question": question,
-                "failed": type(error).__name__,
-                "detail": str(error),
-                "plan_rejections": list(session.rejections),
-                "completions": list(counted.attempts),
-                "latency_ms": round((clock() - started) * 1000),
-                "passed": False,
-            }
-        latency = round((clock() - started) * 1000)
-        report = _answer_report(question, answered, counted, latency)
-        report["prepared_series"] = len(names)
-        report["published"] = workspace.names()
-        # Public prepared-pool figures only; bounded for diagnosis of withheld prose.
-        answer_report = report["answer"]
-        if isinstance(answer_report, dict):
-            answer_report["withheld_text"] = [item.text[:300] for item in answered.answer.omitted]
-        report["tables"] = [
-            {
-                "columns": list(table.columns),
-                "rows": len(table.rows),
-                "first": table.rows[0][0],
-                "last": table.rows[-1][0],
-            }
-            for table in answered.tables
-        ]
-        if answered.results:
-            final = answered.results[-1]
-            report["result"] = {
-                "values": len(final.values),
-                "counts": {
-                    value.label: value.value
-                    for value in final.values
-                    if value.unit == DIMENSIONLESS
-                },
-                "transformations": [
-                    record.operation
-                    for record in (final.evidence.transformations if final.evidence else [])
-                ],
-            }
+        plan = [(question, TURN_ONE_NAME), (TURN_TWO_QUESTION, TURN_TWO_NAME)][:turns]
+        reports: list[dict[str, object]] = []
+        for asked, name in plan:
+            report = _prepared_turn(provider, registry, lake, workspace, asked, name, clock)
+            report["prepared_series"] = len(names)
+            reports.append(report)
+            if name not in workspace.names():
+                break
+    if turns == 1:
+        return reports[0]
+    return {
+        "turns": reports,
+        "passed": len(reports) == turns and all(item["passed"] is True for item in reports),
+    }
+
+
+def _prepared_turn(
+    provider: LLMProvider,
+    registry: ToolRegistry,
+    lake: Lakehouse,
+    workspace: Workspace,
+    question: str,
+    name: str,
+    clock: Clock,
+) -> dict[str, object]:
+    counted = _Counting(provider)
+    session = Session(counted, registry)
+    started = clock()
+    try:
+        answered = session.answer(question, lake.connection, workspace=workspace, remember=name)
+    except (PlanningFailed, ProviderError) as error:
+        return {
+            "question": question,
+            "failed": type(error).__name__,
+            "detail": str(error),
+            "plan_rejections": list(session.rejections),
+            "completions": list(counted.attempts),
+            "latency_ms": round((clock() - started) * 1000),
+            "passed": False,
+        }
+    latency = round((clock() - started) * 1000)
+    report = _answer_report(question, answered, counted, latency)
+    report["published"] = workspace.names()
+    # Public prepared-pool figures only; bounded for diagnosis of withheld prose.
+    answer_report = report["answer"]
+    if isinstance(answer_report, dict):
+        answer_report["withheld_text"] = [item.text[:300] for item in answered.answer.omitted]
+    report["tables"] = [
+        {
+            "columns": list(table.columns),
+            "rows": len(table.rows),
+            "first": table.rows[0][0],
+            "last": table.rows[-1][0],
+        }
+        for table in answered.tables
+    ]
+    if answered.results:
+        final = answered.results[-1]
+        report["result"] = {
+            "values": len(final.values),
+            "counts": {
+                value.label: value.value for value in final.values if value.unit == DIMENSIONLESS
+            },
+            "transformations": [
+                record.operation
+                for record in (final.evidence.transformations if final.evidence else [])
+            ],
+        }
     return report
 
 
@@ -538,6 +576,13 @@ def main(argv: Sequence[str] = ()) -> int:
         type=Path,
         help="Ask the organizer Turn 1 question over a copy of this prepared lakehouse",
     )
+    parser.add_argument(
+        "--turns",
+        type=int,
+        choices=(1, 2),
+        default=1,
+        help="With --prepared-root: 1 asks Turn 1; 2 then asks Turn 2 in the same workspace",
+    )
     arguments, unknown = parser.parse_known_args(argv)
     if unknown:
         parser.error("Unsupported arguments")
@@ -561,7 +606,9 @@ def main(argv: Sequence[str] = ()) -> int:
         return 2
     with provider, tempfile.TemporaryDirectory(prefix="kkb-live-check-") as directory:
         if arguments.prepared_root is not None:
-            report = run_prepared_check(provider, arguments.prepared_root, Path(directory))
+            report = run_prepared_check(
+                provider, arguments.prepared_root, Path(directory), turns=arguments.turns
+            )
         elif arguments.document:
             report = run_document_check(
                 provider, Path(directory) / "lake", question=arguments.question

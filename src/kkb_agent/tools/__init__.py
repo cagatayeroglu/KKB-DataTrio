@@ -26,6 +26,7 @@ from kkb_agent.tools.lakehouse import (
     referenced_tables,
     run_query,
 )
+from kkb_agent.tools.table_transform import TableTransformArguments, make_table_transform_tool
 from kkb_agent.tools.web_search import (
     BackendHit,
     SearchBackend,
@@ -72,6 +73,8 @@ __all__ = [
     "make_change_detection_tool",
     "make_lakehouse_tool",
     "make_web_url_tool",
+    "TableTransformArguments",
+    "make_table_transform_tool",
     "read_series",
     "referenced_tables",
     "run_query",

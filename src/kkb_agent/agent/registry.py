@@ -27,7 +27,8 @@ BRIEF_TOOLS = frozenset(
 )
 
 
-IMPLEMENTED_PRODUCT_TOOLS = frozenset({"catalog_search"})  # M13-04 / DEC-133
+# M13-04 catalog_search; M5-20 table_transform (DEC-135, delivered operations only).
+IMPLEMENTED_PRODUCT_TOOLS = frozenset({"catalog_search", "table_transform"})
 
 
 class RegistryError(ValueError):

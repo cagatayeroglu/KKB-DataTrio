@@ -1,6 +1,6 @@
 """Producer execution bindings in the existing content-addressed lineage store.
 
-Only the four trusted tool implementations call the private writer, after
+Only the trusted tool implementations in PRODUCERS call the private writer, after
 reading their inputs and computing their outputs. It is NOT a validator that
 turns arbitrary AnalyticalResult objects into evidence. The verifier only reads.
 
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 PREFIX = "execution:"
 EXECUTION_LABEL = "analytical_execution_v1"
 INPUT_LABEL = "analytical_input_v1"
-PRODUCERS = frozenset({"lakehouse", "change_detection", "anomaly", "causality"})
+PRODUCERS = frozenset({"lakehouse", "change_detection", "anomaly", "causality", "table_transform"})
 
 
 def _json_default(value: object) -> str:

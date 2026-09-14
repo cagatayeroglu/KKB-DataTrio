@@ -218,6 +218,45 @@ def render_result(result: AnalyticalResult) -> str:
     return "\n".join(lines)
 
 
+def workspace_prompt(workspace: Workspace) -> str | None:
+    """Published results the planner may reference, without their values.
+
+    Labels and reviewed series names are system-produced metadata. Values stay
+    out: the planner chooses operations, it never reads or restates figures.
+    """
+    lines: list[str] = []
+    for name in workspace.names():
+        if workspace.is_stale(name) or workspace.resolve(name).value_ref is None:
+            continue
+        result = workspace.value_of(name)
+        table = period_table(result)
+        labels = (
+            list(dict.fromkeys(v.label for v in result.values if v.period is not None))
+            if table is not None
+            else [v.label for v in result.values][:20]
+        )
+        coverage = (
+            f"{result.coverage.start.isoformat()}..{result.coverage.end.isoformat()}"
+            if result.coverage is not None
+            else "unknown"
+        )
+        lines.append(
+            f"- {name}: produced by {result.tool} ({result.method}), coverage {coverage}; "
+            "column labels: " + " | ".join(labels)
+        )
+        names = result.parameters.get("series_names")
+        if isinstance(names, dict):
+            for series_id, meaning in names.items():
+                if isinstance(meaning, str):
+                    lines.append(f"  {series_id} means: {meaning}")
+    if not lines:
+        return None
+    return (
+        "Results published in earlier turns of this conversation (values omitted). "
+        "Refer to them by name:\n" + "\n".join(lines)
+    )
+
+
 @dataclass(slots=True)
 class Session:
     """One question, planned and executed against a registry."""
@@ -228,13 +267,21 @@ class Session:
     model: str | None = None
     rejections: list[str] = field(default_factory=list, repr=False)
 
-    def plan(self, question: str) -> Planned:
-        """Obtain a plan the registry will accept, or fail with the reasons why."""
+    def plan(self, question: str, workspace: Workspace | None = None) -> Planned:
+        """Obtain a plan the registry will accept, or fail with the reasons why.
+
+        With a workspace, the planner also sees what earlier turns published —
+        names, periods and column labels only — so a follow-up can refer to the
+        table the user accepted instead of re-deriving or describing it.
+        """
         messages = [
             Message(Role.SYSTEM, SYSTEM_PROMPT + "\n\n" + schema_instructions(AnalyticalPlan)),
             Message(Role.SYSTEM, self._tools_prompt()),
-            Message(Role.USER, question),
         ]
+        published = workspace_prompt(workspace) if workspace is not None else None
+        if published is not None:
+            messages.append(Message(Role.SYSTEM, published))
+        messages.append(Message(Role.USER, question))
         rejections: list[str] = []
         seen: set[str] = set()
         for attempt in range(1, self.budget.max_plan_repairs + 2):
@@ -271,8 +318,10 @@ class Session:
             + "; ".join(rejections)
         )
 
-    def run(self, question: str) -> tuple[Planned, ExecutionOutcome]:
-        planned = self.plan(question)
+    def run(
+        self, question: str, workspace: Workspace | None = None
+    ) -> tuple[Planned, ExecutionOutcome]:
+        planned = self.plan(question, workspace)
         outcome = execute(
             planned.plan,
             self.registry,
@@ -302,7 +351,7 @@ class Session:
         answer and candidate verification. QUALIFIED/ABSTAINED answers and errors
         leave trusted state unchanged; the writer/gate see only an in-memory publication preview.
         """
-        planned, outcome = self.run(question)
+        planned, outcome = self.run(question, workspace)
         results = collect_results(outcome)
         if not results:
             return Answered(
