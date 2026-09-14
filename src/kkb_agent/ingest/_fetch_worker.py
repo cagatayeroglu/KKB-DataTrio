@@ -67,7 +67,8 @@ def fetch_once(
             if request != monthly.fetch_request() or limits != MONTHLY_LIMITS:
                 return FetchFailure(source_ref=request.source_ref, code=FetchCode.INVALID_REQUEST)
             body = monthly.form_body()
-        connection = SourceConnection(request, limits=limits)
+        # Only the revalidated fixed Monthly POST gets the pinned BDDK issuer.
+        connection = SourceConnection(request, limits=limits, reviewed_issuer=monthly is not None)
         visited = {connection.url.get_secret_value()}
         hops = 0
 
