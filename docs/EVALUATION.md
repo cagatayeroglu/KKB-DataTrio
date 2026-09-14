@@ -459,3 +459,19 @@ PR #151, base dev `0f50b73`, Windows/Python 3.12.14. Fresh `mypy src` measured *
 Relevant HTML, PDF OCR, document proof, catalog mapping, bounded HTTP and co-movement suites: **340 passed / 57.89s**. Eleven added regressions require malformed internal page flags/indices to fail before native allocation, a cell callback outside a cell to return a fixed rejection, and a result without evidence to fail document proof. Existing loader/security/financial output tests pass. The typing changes otherwise preserve calculations, metadata, parser policies and transport budgets. DEC-140 now runs source typing at the fast PR boundary, preventing this debt from hiding until a release check. Full release/audit/main promotion and live three-turn acceptance are not claimed by this task.
 
 Implementation `13364dd9ba26d5014cab6e41916c02548c4ac07c`. Updated Windows fast PR gate: **2967 passed, 1 skipped / 218.80s**, strict mypy clean across 86 files, Ruff format/lint, Bandit and secret scan clean. The skip remains the documented Windows symbolic-link privilege. Remote CI is checked separately; no dependency audit or main promotion occurred.
+
+### M13-08 prepared-catalog revision (2026-09-14)
+
+PR #152, implementation `dc5d8360d3da04b2fe4368cbf2b2b7b8968d8f59`. The new v2 catalog has 15 identities and 21
+concepts, including all seven supported prepared series. Development tests:
+**132 PASS / 1.55s**, 28 new regressions covering metadata parity, components,
+CPI bases, interest/profit-share distinction, unresolved amount-flow/inflation-rate,
+archive opt-in and source/native-frequency filters. The v1 corpus remains unchanged.
+All ten evidence entries match their pinned Git revision bytes; LF checkout rules
+make new document hashes portable. No numerical observations are committed.
+
+Fast PR gate: **2995 passed / one Windows privilege skip in 212.40s**, source mypy (86 files), Ruff,
+Bandit and secrets clean. The 132 focused tests were rerun after the LF-only evidence
+pin adjustment. These are development regressions, not M13-09 held-out retrieval
+quality, full-source coverage, live hybrid acceptance or proof of runtime registration.
+No model/source network calls or main promotion occurred.
