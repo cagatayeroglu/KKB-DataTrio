@@ -8,6 +8,10 @@ version = "0.1.0"
 description = "KKB Hackathon agentic financial analytics"
 requires-python = ">=3.12"
 dependencies = [
+  # Executable local API boundary (DEC-123, M10-16); no hosted service.
+  "fastapi==0.141.1",
+  "starlette==1.6.0",
+  "uvicorn==0.53.0",
   # Untrusted XLSX boundary and fixture writing (DEC-111).
   "openpyxl>=3.1,<4",
   # Typed boundaries and tool argument schemas (DEC-101, DEC-121).

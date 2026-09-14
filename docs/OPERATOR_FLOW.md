@@ -1,6 +1,6 @@
 # M10-01 — Operator flow and API boundary requirements
 
-Status: specified, not an implemented API/UI. This document completes M10-01's operator steps; it is not a FastAPI startup guide or a frozen OpenAPI schema. [DEC-123](DECISIONS.md#dec-123--fastapi-with-sse-behind-a-nextjs-front-end) requires an agreed typed API before M10-03's Next.js scaffold. No HTTP routes, SSE hooks, session service or proof adapter exist yet. Their executable schemas and numeric service limits need a separate implementation scope before a client depends on them.
+Status: M10-01 operator specification; the dated [M10-16 local API](LOCAL_API.md) now implements the bounded session/question/turn/result contract and turn-lifecycle SSE. This document retains wider requirements and historical backend gaps below; LOCAL_API owns current executable routes, limits and remaining gaps. Prepared-runtime startup, full plan/tool progress, proof traversal and the frontend remain separate integrations. [DEC-123](DECISIONS.md#dec-123--fastapi-with-sse-behind-a-nextjs-front-end) still requires a typed API before M10-03's client.
 
 ## One demo flow
 

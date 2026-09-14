@@ -8,6 +8,11 @@ The [DEC-135](docs/DECISIONS.md#dec-135--planner-actions-and-mandatory-correctne
 
 ## Constraints and architecture
 
+The [local API contract](docs/LOCAL_API.md) provides session/question/turn routes,
+bounded execution, actual turn-lifecycle SSE and canonical published values.
+Prepared-runtime startup, the frontend and public deployment remain separate
+integrations; importing the API starts no listener or model call.
+
 Python is the backend/analytics language; delivered runtime LLM access uses Kloudeks only. DuckDB/Parquet and Pandas are confirmed, with custom bounded orchestration and a DuckDB workspace/lineage graph. Material calculations are deterministic, unknown semantics stay explicit, and external/model content remains untrusted. BDDK/EVDS are intended thin preparation/ingestion adapters; the analytical core remains source-independent. No Snowflake or third-party hosted LLM services. The `openai` SDK is permitted only as a client exclusively configured for Kloudeks; [DEC-129](docs/DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy) owns the official endpoints, MIA-key authentication, confirmed text/vision, embedding and OCR models, and the literal OCR/embedding request contracts. A bounded transport ([llm/kloudeks.py](src/kkb_agent/llm/kloudeks.py)) sends the key only to that endpoint; it is tested offline, passed one authorized live smoke for chat and embedding (M4-12), and carried one live question end to end on synthetic data (M4-15). Native tool/JSON support is not assumed. [DEC-131](docs/DECISIONS.md#dec-131--organizer-kick-off-brief-schedule-delivery-form-and-demo-day-input-scope) records the organizer calendar (development closes **20 September 2026**, Final Day **17 October 2026**), delivery by private-repository access, the expectation of a live deployed solution, and prompt-supplied URL documents as required demo-day scope.
 
 Primary hackathon path under the [DEC-137 dated refinement](docs/DECISIONS.md#dec-137-prepared-pool-refinement):
