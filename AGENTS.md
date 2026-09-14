@@ -93,7 +93,7 @@ Ordinary code work: relevant targeted tests plus fast lint on touched Python. `m
 | --- | --- | --- |
 | Documentation only | Full relevant diff review; local links, checkbox syntax, factual status | Lightweight review; no application checks |
 | Ordinary code task | Targeted tests + touched-code lint, or `make quick` | <=60 seconds when practical |
-| Task PR to `dev` | Fast PR gate: `make pr` for code; relevant evaluation smoke once available. Documentation-only PRs use the document checks above | <=3 minutes |
+| Task PR to `dev` | Fast PR gate: `make pr` for code, including strict `mypy src` (DEC-140); relevant evaluation smoke once available. Documentation-only PRs use the document checks above | <=3 minutes |
 | Shared contract, safe-fetch/file execution, auth/secrets/network change | Targeted contract/negative tests + fast PR gate; include critical failure paths | Keep the ordinary/PR budgets |
 | Opening/updating `dev -> main`, final demo/release checkpoint, or explicit full-check request | `make full`; full evaluation/rehearsal at release/demo gates | <=8 minutes automated gate target; time-box rehearsal separately |
 

@@ -57,6 +57,13 @@ def parse(content, **limits):
     )
 
 
+def test_cell_callback_without_an_open_cell_refuses_with_a_fixed_code():
+    parser = html_loader.StaticParser(DEFAULT_LIMITS)
+    with pytest.raises(html_loader.HtmlRejected, match="^MALFORMED_DOCUMENT$"):
+        parser.add_cell("untrusted cell text")
+    assert parser.cell is None and parser.cell_size == 0
+
+
 @pytest.mark.parametrize(
     "content,text",
     [

@@ -88,6 +88,20 @@ def test_csv_through_real_session_and_lineage(tmp_path):
     assert len(stage["result_digest"]) == 64
 
 
+def test_result_without_evidence_is_not_a_document_proof(tmp_path):
+    from kkb_agent.agent.executor import ExecutionContext
+    from kkb_agent.lakehouse import open_lakehouse
+    from kkb_agent.tools.web_url import WebUrlArguments, make_web_url_tool
+
+    with open_lakehouse(tmp_path / "lake") as lake:
+        tool = make_web_url_tool(fetch=FakeFetch(), lineage=lake.lineage)
+        arguments = WebUrlArguments.model_validate(json.loads(plan())["steps"][0]["arguments"])
+        output = tool.run(arguments, ExecutionContext(QUESTION)).output
+        assert live_check._document_evidence(output, lake.lineage)
+        broken = replace(output, result=output.result.model_copy(update={"evidence": None}))
+        assert live_check._document_evidence(broken, lake.lineage) is False
+
+
 @pytest.mark.parametrize("kind", ["xlsx", "pdf"])
 def test_other_existing_loaders(tmp_path, kind):
     rows = [["Tarih", "Tutar (Milyon TL)"], ["2026-01-31", "1.234,56"]]

@@ -422,7 +422,7 @@ def _digest(value: str) -> str:
 def _document_evidence(output: WebUrlOutput, lineage: Lineage) -> bool:
     """Resolve the selected transform and its source in this session's store."""
     result, source = output.result, output.source
-    if result is None or source is None or output.status != "loaded":
+    if result is None or result.evidence is None or source is None or output.status != "loaded":
         return False
     cell = result.evidence.lineage_node
     if not cell or not lineage.exists(cell):
@@ -589,6 +589,7 @@ def run_document_check(
                     and any(
                         resolved
                         and output.result is not None
+                        and output.result.evidence is not None
                         and output.result == last
                         and item.result_id == output.result.result_id
                         and item.lineage_node == output.result.evidence.lineage_node

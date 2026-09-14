@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 COMMANDS = (
     ("-m", "ruff", "format", "--check", "src", "tests", "scripts"),
     ("-m", "ruff", "check", "src", "tests", "scripts"),
+    ("-m", "mypy", "src"),
     ("-m", "pytest", "-q", "tests/unit", "--disable-warnings", "--maxfail=1"),
     ("-m", "bandit", "-q", "-r", "src"),
     ("scripts/check_secrets.py",),

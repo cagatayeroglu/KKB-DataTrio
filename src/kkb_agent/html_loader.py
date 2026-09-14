@@ -16,7 +16,7 @@ import time
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import BinaryIO, Literal
+from typing import Any, BinaryIO, Literal, NoReturn
 
 from kkb_agent.core import SourceRef
 from kkb_agent.ingestion_policy import (
@@ -63,7 +63,7 @@ class HtmlRejected(ValueError):
 
 
 class StaticParser(HTMLParser):
-    def __init__(self, limits: AdmissionLimits):
+    def __init__(self, limits: AdmissionLimits) -> None:
         super().__init__(convert_charrefs=True)
         self.limits = limits
         self.stack: list[tuple[str, bool]] = []
@@ -77,37 +77,39 @@ class StaticParser(HTMLParser):
         self.cells = 0
         self.seen_tag = False
 
-    def fail(self, code="MALFORMED_DOCUMENT"):
+    def fail(self, code: str = "MALFORMED_DOCUMENT") -> NoReturn:
         raise HtmlRejected(code)
 
-    def add_text(self, text):
+    def add_text(self, text: str) -> None:
         self.text_size += len(text.encode("utf-8"))
         if self.text_size > self.limits.max_profile_bytes:
             self.fail("LIMIT_EXCEEDED")
         self.text.append(text)
 
-    def add_cell(self, text):
+    def add_cell(self, text: str) -> None:
+        if self.cell is None:
+            self.fail()
         self.cell_size += len(text)
         if self.cell_size > self.limits.max_field_chars:
             self.fail("LIMIT_EXCEEDED")
         self.cell.append(text)
 
-    def handle_starttag(self, tag, attrs):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         self.seen_tag = True
-        attrs = dict(attrs)
+        attributes = dict(attrs)
         # A declaration never switches decoding away from strict UTF-8.
         if tag == "meta":
-            charset = attrs.get("charset")
-            if charset is None and (attrs.get("http-equiv") or "").lower() == "content-type":
-                content = (attrs.get("content") or "").lower()
+            charset = attributes.get("charset")
+            if charset is None and (attributes.get("http-equiv") or "").lower() == "content-type":
+                content = (attributes.get("content") or "").lower()
                 if "charset=" in content:
                     charset = content.split("charset=", 1)[1].strip().strip("\"'")
             if charset is not None and charset.lower() not in ("utf-8", "utf8"):
                 self.fail("UNSUPPORTED_ENCODING")
-        hidden = "hidden" in attrs or (attrs.get("aria-hidden") or "").lower() == "true"
+        hidden = "hidden" in attributes or (attributes.get("aria-hidden") or "").lower() == "true"
         styles = dict(
             (key.strip().lower(), value.strip().lower().removesuffix("!important").strip())
-            for item in (attrs.get("style") or "").split(";")
+            for item in (attributes.get("style") or "").split(";")
             for key, sep, value in [item.partition(":")]
             if sep
         )
@@ -143,7 +145,7 @@ class StaticParser(HTMLParser):
         elif tag in ("td", "th"):
             if self.row is None or self.cell is not None:
                 self.fail()
-            if any(attrs.get(a, "1") != "1" for a in ("rowspan", "colspan")):
+            if any(attributes.get(a, "1") != "1" for a in ("rowspan", "colspan")):
                 self.fail("UNSUPPORTED_TABLE")
             self.limits.check_table_size(rows=1, columns=len(self.row) + 1)
             self.cells += 1
@@ -153,12 +155,12 @@ class StaticParser(HTMLParser):
         elif tag in ("thead", "tbody", "tfoot", "caption", "colgroup", "col") and self.rows is None:
             self.fail()
 
-    def handle_startendtag(self, tag, attrs):
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         self.handle_starttag(tag, attrs)
         if tag not in VOID:
             self.handle_endtag(tag)
 
-    def handle_endtag(self, tag):
+    def handle_endtag(self, tag: str) -> None:
         if tag in VOID:
             return
         if not self.stack or self.stack[-1][0] != tag:
@@ -198,7 +200,7 @@ class StaticParser(HTMLParser):
             if self.cell is not None:
                 self.add_cell(" ")
 
-    def handle_data(self, data):
+    def handle_data(self, data: str) -> None:
         if self.stack and self.stack[-1][1]:
             return
         self.add_text(data)
@@ -207,7 +209,7 @@ class StaticParser(HTMLParser):
         elif self.row is not None and data.strip():
             self.fail()
 
-    def result(self):
+    def result(self) -> dict[str, object]:
         if self.stack or self.rows is not None:
             self.fail()
         text = "\n".join(
@@ -220,7 +222,7 @@ class StaticParser(HTMLParser):
         return {"status": "loaded", "text": text, "tables": self.tables}
 
 
-def _parse(content: bytes, limits: AdmissionLimits):
+def _parse(content: bytes, limits: AdmissionLimits) -> dict[str, object]:
     parser = StaticParser(limits)
     text = content.decode("utf-8-sig")
     # Small feeds plus worker deadline bound pathological tokenizer work.
@@ -230,7 +232,7 @@ def _parse(content: bytes, limits: AdmissionLimits):
     return parser.result()
 
 
-def _worker(content, limits, output):
+def _worker(content: bytes, limits: AdmissionLimits, output: Path) -> None:
     try:
         if sys.platform == "linux":
             import resource
@@ -252,7 +254,7 @@ def _worker(content, limits, output):
         stream.write(data)
 
 
-def _run_worker(content, limits):
+def _run_worker(content: bytes, limits: AdmissionLimits) -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="kkb-html-") as directory:
         output = Path(directory) / "result.json"
         process = multiprocessing.get_context("spawn").Process(
@@ -270,7 +272,10 @@ def _run_worker(content, limits):
                 data = stream.read(max(1024, limits.max_expanded_bytes) + 1)
             if len(data) > max(1024, limits.max_expanded_bytes):
                 return {"status": "rejected", "code": "LIMIT_EXCEEDED"}
-            return json.loads(data)
+            # The isolated worker above writes the fixed internal JSON envelope,
+            # matching the PDF/CSV loader transport boundary.
+            payload: dict[str, Any] = json.loads(data)
+            return payload
         finally:
             if process.is_alive():
                 process.terminate()
