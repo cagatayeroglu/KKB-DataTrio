@@ -475,3 +475,27 @@ Bandit and secrets clean. The 132 focused tests were rerun after the LF-only evi
 pin adjustment. These are development regressions, not M13-09 held-out retrieval
 quality, full-source coverage, live hybrid acceptance or proof of runtime registration.
 No model/source network calls or main promotion occurred.
+
+### M13-05 local LanceDB slice (2026-09-14)
+
+PR #153, implementation `9489881e32a7cb636f43490d3eab26fe41e35de6`. **40 native persistence/search and contract
+tests PASS / 6.02s** after explicitly projecting `_distance` rather than relying
+on Lance's deprecated auto-projection. Final fast PR gate: **3035 passed / one Windows privilege skip in 204.99s**,
+strict mypy over 88 source files, Ruff, Bandit and secrets clean. No full/release
+gate or live model/source call was run. Development checks cover independent
+cosine results, deterministic ties, eligibility before top-k, profile/text/snapshot
+mismatch, invalid vectors, local-only paths, failed publication and preservation.
+
+An operator-local fixture index with 15 x 4096 vectors occupied **260,889 bytes**;
+build 58.7ms, checked reopen 84.0ms; 20 repeated searches had the same top-10,
+median 9.80ms / max 12.19ms on this Windows host. These figures exclude model
+calls and do not establish semantic Recall@k, full-source scale or live quality.
+
+Pinned LanceDB 0.38.0 passed dependency compatibility (`pip check`). The 17-package
+runtime closure audit reported only existing PyArrow 21.0.0 advisory
+CVE-2026-25087 / PYSEC-2026-113, duplicated in the audit response. The raw result
+is nonzero. [The applicability review](CATALOG_INDEX.md#validation-and-dependency-review)
+uses upstream evidence that C++ IPC pre-buffering is unavailable to Python;
+this implementation enables no such path. No audit suppression was introduced.
+Real embedding policy, hybrid candidate composition/evaluation and planner
+consumption remain separate; the parent M13-05 is not DONE.
