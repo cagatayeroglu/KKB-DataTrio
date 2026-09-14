@@ -320,3 +320,45 @@ def test_prepared_check_runs_both_turns_in_one_workspace(lake, tmp_path):
         "passed": False,
         "configuration": "unsupported_turns",
     }
+
+
+def test_year_month_tokens_are_calendar_not_quantities():
+    from kkb_agent.agent.claim_qualifiers import is_date_token
+
+    text = "Bakiye 2021-06 fiyatlarına çevrildi."
+    start = text.index("06")
+    assert is_date_token(text, start, start + 2)
+    assert is_date_token(text, text.index("2021"), text.index("2021") + 4)
+    amount = "Tutar 2021-13 idi."  # Not a month.
+    assert not is_date_token(amount, amount.index("13"), amount.index("13") + 2)
+
+
+def test_turn_two_quotes_bind_once_the_transform_supersedes_its_source(pool):
+    lake, workspace = pool
+    registry = ToolRegistry()
+    registry.register(tool(lake, workspace))
+    plan = {
+        "question": TURN_TWO,
+        "steps": [
+            {
+                "step_id": "t2",
+                "tool": "table_transform",
+                "arguments": json.loads(transform().model_dump_json()),
+            }
+        ],
+    }
+    draft = (
+        "Konut kredisi bakiyesi TÜFE ile 2021-06 fiyatlarına çevrildi; faiz sütunları aynı kaldı. "
+        "Şubat 2021'de nominal bakiye 990 milyon TL, reel bakiye 1.025 milyon TL oldu."
+    )
+    session = Session(scripted(json.dumps(plan), draft), registry)
+    answered = session.answer(
+        TURN_TWO, lake.connection, workspace=workspace, remember="konut_kredisi_ve_faiz_reel"
+    )
+    # 990 exists in both Turn 1 and the transform; only the superseding result is in view.
+    assert answered.answer.status is AnswerStatus.ACCEPTED, answered.answer
+    writer_context = session.provider.seen[1][1].content
+    assert "[konut_kredisi_ve_faiz_reel]" in writer_context
+    assert "[konut_kredisi_ve_faiz]" not in writer_context
+    assert workspace.names() == ["konut_kredisi_ve_faiz", "konut_kredisi_ve_faiz_reel"]
+    assert "second date" in session.provider.seen[1][0].content

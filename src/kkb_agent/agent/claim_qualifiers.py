@@ -66,6 +66,9 @@ _UNIT_TEXT = "|".join(re.escape(u) for u in sorted(UNITS, key=len, reverse=True)
 UNIT = re.compile(r"(?<!\w)(" + _UNIT_TEXT + r")(?!\w)", re.I)
 YEAR = re.compile(r"(?<!\w)(?:19|20)\d{2}(?!\w)")
 ISO_DATE = re.compile(r"(?<!\w)\d{4}-\d{2}-\d{2}(?!\w)")
+#: A year-month such as 2025-12 (for example a price reference month). Its digits are
+#: a calendar token, never a quantity; it is not a period qualifier by itself.
+YEAR_MONTH = re.compile(r"(?<![\w-])(?:19|20)\d{2}-(?:0[1-9]|1[0-2])(?![\w-])")
 MONTHS = {
     _fold(name): month
     for month, names in enumerate(
@@ -152,6 +155,9 @@ def has_amount_context(text: str, start: int, end: int) -> bool:
 
 
 def is_date_token(text: str, start: int, end: int) -> bool:
+    for match in YEAR_MONTH.finditer(text):
+        if match.start() <= start and end <= match.end():
+            return not has_amount_context(text, match.start(), match.end())
     for match in ISO_DATE.finditer(text):
         if match.start() <= start and end <= match.end():
             try:

@@ -67,6 +67,8 @@ SYNTHESIS_PROMPT = (
     "Refer to series by the meaning given for them, never by raw labels or identifiers "
     "such as EVDS:... or BDDK:...: a label written next to a number claims that number. "
     "For a display ending in 'dimensionless', write the number without that word. "
+    "Do not put a second date, such as a price reference month, in a sentence that "
+    "quotes a figure for another period; state it in its own sentence without figures. "
     "Do not write about causes or reasons at all, not even to deny one "
     "(avoid 'neden', 'sebep', 'yol açmak'): the verifier withholds such sentences, "
     "and stated limitations are shown separately. "
@@ -389,6 +391,17 @@ class Session:
             else:
                 available = {**workspace.values(), **available}
 
+        source = result.parameters.get("source")
+        if (
+            isinstance(source, str)
+            and source != name
+            and source in available
+            and all(value in result.values for value in available[source].values)
+        ):
+            # A transform that kept every value of its source supersedes it for this
+            # answer: the same figure in both would otherwise be an ambiguous claim.
+            # The source stays published; only this answer's view narrows.
+            available = {key: value for key, value in available.items() if key != source}
         draft = self.draft(question, available)
         answer = gate_answer(draft, available, connection, **gate)  # type: ignore[arg-type]
         faults = result_faults(
