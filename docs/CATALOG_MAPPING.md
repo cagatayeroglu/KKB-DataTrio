@@ -1,5 +1,53 @@
 # M13-08 — Reviewed offline demo catalog mapping
 
+## Current prepared-scope revision (2026-09-14)
+
+[prepared_v2.json](catalog/prepared_v2.json), `m13-08-prepared-v2` / `r2`, is
+the current reviewed discovery input. Arda's [PR #152](https://github.com/cagatayeroglu/KKB-DataTrio/pull/152)
+reviews merged M3-05/06 and M3-07/08 metadata; it makes no new live-source claim.
+Its canonical digest is `723567b3f25c0703ddd2fa9001c67c41fd4f83a6c46ef82f0d40e556e0104e31`.
+The historical v1 artifact, source inventories and tests remain unchanged below.
+The two newly pinned review documents use LF checkout bytes through
+`.gitattributes`, so their Git-revision hashes also match on Windows.
+
+The 15 identities include all seven supported prepared series and the earlier
+eight discovery-only candidates. Five identities are added: the three reviewed
+BDDK Monthly housing balance selectors (TP/YP/TOTAL, sector, million TRY), and
+CPI `TP.TUKFIY2025.GENEL` / `TP.GENENDEKS.T1`. Records for the four reviewed EVDS
+series match the adapter's CatalogRecord declarations; BDDK records match its
+existing composite-selector builder. Internal BDDK hashes are labelled as such,
+never presented as source-native codes. There are 21 reviewed concepts.
+
+The newer [EVDS review](EVDS_SERIES_METADATA.md) distinguishes deposit-bank
+interest from participation-bank profit share. Interest aliases now yield
+`TP.KTF12` (new loans) or `TP.BKR.TRY.18` (portfolio); explicit profit-share
+aliases yield `TP.KBK.TRY.18` or `TP.KKP.TRY.18`. General housing-finance
+ambiguity remains. CPI level queries preserve the two bases; precise base-year
+aliases narrow them. Native inflation rate and new disbursement stay unresolved.
+The national KFE base is explicitly **observation-derived review**, not an EVDS
+title declaration; regional bases remain unknown. General balance queries keep
+the three components; explicit total wording follows DEC-139.
+
+Select the reviewed artifact in operator configuration:
+
+```python
+from pathlib import Path
+from kkb_agent.tools import make_catalog_search_tool
+
+tool = make_catalog_search_tool(
+    snapshot_bytes=Path("docs/catalog/prepared_v2.json").read_bytes()
+)
+```
+
+The factory consumes validated bytes; the model cannot select an arbitrary
+catalog path or modify it. This revision does **not** register the factory into
+every runtime, add a planner discovery/replan round, or claim LanceDB/hybrid
+retrieval. A catalog hit does not establish local availability, period coverage
+or permission to calculate/fetch. No sample observations are stored here.
+Wider source coverage and automatic availability inspection remain separate work.
+
+## Historical v1 review
+
 Owner: Çağatay. Team/owner review artifact: [PR #117](https://github.com/cagatayeroglu/KKB-DataTrio/pull/117). Scope was explicitly approved on 2026-09-12; merge/completion evidence is maintained in [ROADMAP](ROADMAP.md#m13). No separate external reviewer or live approval is claimed.
 
 ## Version and trust boundary

@@ -1,5 +1,7 @@
 # Reviewed evidence hashes describe these exact Git bytes on every platform.
 /docs/BDDK_SOURCE.md text eol=lf
 /docs/EVDS_SOURCE.md text eol=lf
+/docs/BDDK_MONTHLY_METADATA.md text eol=lf
+/docs/EVDS_SERIES_METADATA.md text eol=lf
 # Parser fixtures test exact encodings, BOMs and line endings.
 /tests/fixtures/** -text
