@@ -18,6 +18,14 @@ const periodSchema = z
     weekly_anchor: z.string().nullable(),
   })
   .strict();
+const samplesSchema = z
+  .object({
+    used: z.number().int().nonnegative(),
+    missing: z.number().int().nonnegative(),
+    excluded: z.number().int().nonnegative(),
+    minimum_required: z.number().int().nonnegative().nullable(),
+  })
+  .strict();
 export const cellSchema = z
   .object({
     cell_id: ref,
@@ -29,29 +37,120 @@ export const cellSchema = z
     scale: z.enum(["unknown", "one", "thousand", "million", "billion"]),
     measure: z.enum(["unknown", "stock", "flow", "rate", "index"]),
     period: periodSchema.nullable(),
-    samples: z
-      .object({
-        used: z.number().int().nonnegative(),
-        missing: z.number().int().nonnegative(),
-        excluded: z.number().int().nonnegative(),
-        minimum_required: z.number().int().nonnegative().nullable(),
-      })
-      .strict()
-      .nullable(),
+    samples: samplesSchema.nullable(),
     lag: z.number().int().nullable(),
   })
   .strict();
+const digest = z.string().regex(/^[a-f0-9]{64}$/);
+const code = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.:;+-]{0,119}$/);
+export const proofGaps = [
+  "execution_not_verified",
+  "input_not_recognized",
+  "input_result_not_verified",
+  "dataset_record_missing",
+  "source_lineage_missing",
+  "raw_response_limit",
+  "step_limit",
+  "source_limit",
+  "proof_unreadable",
+] as const;
+const proofSourceSchema = z
+  .object({
+    series_id: label,
+    title: label.nullable(),
+    binding: z.enum(["execution_snapshot", "series_record"]),
+    dataset_sha256: digest.nullable(),
+    dataset_source_type: code.nullable(),
+    unit: label.nullable(),
+    scale: code.nullable(),
+    frequency: code.nullable(),
+    measure: code.nullable(),
+    cumulative: code.nullable(),
+    aggregation: code.nullable(),
+    catalog_status: code.nullable(),
+    observations: z.number().int().nonnegative().nullable(),
+    missing_values: z.number().int().nonnegative().nullable(),
+    first_period: z.iso.date().nullable(),
+    last_period: z.iso.date().nullable(),
+    parser: code.nullable(),
+    normalization: label.nullable(),
+    raw_responses: z.number().int().nonnegative(),
+    raw_response_types: z.array(code).max(4),
+    hosts: z.array(label).max(4),
+    first_retrieved: z.iso.datetime({ offset: true }).nullable(),
+    last_retrieved: z.iso.datetime({ offset: true }).nullable(),
+  })
+  .strict();
+const proofStepSchema = z
+  .object({
+    producer: code,
+    operation: code.nullable(),
+    kind: z.string(),
+    method: code.nullable(),
+    execution: z.enum(["verified", "not_verified"]),
+    result_version: digest,
+    workspace_name: code.nullable(),
+    coverage: periodSchema.nullable(),
+    samples: samplesSchema.nullable(),
+    inputs: z
+      .array(
+        z
+          .object({
+            kind: z.enum(["series", "result"]),
+            index: z.number().int().min(0).max(31),
+          })
+          .strict(),
+      )
+      .max(16),
+  })
+  .strict();
+export const proofSchema = z
+  .object({
+    scope: z.literal("result"),
+    availability: z.enum(["available", "partial", "unavailable"]),
+    gate: z.literal("accepted"),
+    steps: z.array(proofStepSchema).max(8),
+    sources: z.array(proofSourceSchema).max(32),
+    warnings: z.array(bounded).max(16),
+    limitations: z.array(bounded).max(16),
+    unresolved_semantics: z.array(bounded).max(16),
+    gaps: z.array(z.enum(proofGaps)).max(8),
+  })
+  .strict()
+  .refine(
+    (proof) =>
+      proof.availability === "unavailable"
+        ? proof.steps.length === 0 && proof.sources.length === 0
+        : proof.steps[0]?.execution === "verified" &&
+          (proof.availability === "partial" || proof.gaps.length === 0) &&
+          proof.steps.every((step) =>
+            step.inputs.every(
+              (item) =>
+                item.index <
+                (item.kind === "series"
+                  ? proof.sources.length
+                  : proof.steps.length),
+            ),
+          ),
+    "Proof chain is inconsistent",
+  );
 export const resultSchema = z
   .object({
     result_ref: ref,
-    version: z.string().regex(/^[a-f0-9]{64}$/),
+    version: digest,
     kind: z.string(),
     claim_kind: z.string(),
     published: z.literal(true),
     cells: z.array(cellSchema).max(2048),
-    proof_graph: z.literal("unavailable"),
+    proof: proofSchema,
   })
-  .strict();
+  .strict()
+  .refine(
+    (result) =>
+      result.proof.steps.length === 0 ||
+      result.proof.steps[0].result_version === result.version,
+    "Proof must describe this exact result version",
+  );
 export const turnSchema = z
   .object({
     api_version: z.literal(1),
@@ -127,6 +226,9 @@ export const datasetSchema = z
   .strict();
 export type Cell = z.infer<typeof cellSchema>;
 export type Result = z.infer<typeof resultSchema>;
+export type Proof = z.infer<typeof proofSchema>;
+export type ProofSource = Proof["sources"][number];
+export type ProofStep = Proof["steps"][number];
 export type Turn = z.infer<typeof turnSchema>;
 export type Session = z.infer<typeof sessionSchema>;
 export type Dataset = z.infer<typeof datasetSchema>;

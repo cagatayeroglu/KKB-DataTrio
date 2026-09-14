@@ -17,6 +17,7 @@ import {
   CircleHelp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ProofChain } from "@/components/proof-chain";
 import {
   arrange,
   displayValue,
@@ -222,8 +223,8 @@ export function ResultTable({
       <div className="evidence-note">
         <CircleHelp size={16} />
         <span>
-          Bir değere tıklayarak birimini, dönemini ve kayıt kimliğini incele.
-          Kaynaktan sonuca ayrıntılı kanıt görünümü bu sürümde henüz yok.
+          Bir değere tıklayarak birimini, dönemini ve kaynaktan bu sonuca uzanan
+          kayıtlı kanıt zincirini incele.
         </span>
       </div>
       {selected && (
@@ -296,6 +297,7 @@ export function ResultTable({
               <dd className="mono">{result.version}</dd>
             </div>
           </dl>
+          <ProofChain proof={result.proof} dataset={dataset} />
         </section>
       )}
     </>

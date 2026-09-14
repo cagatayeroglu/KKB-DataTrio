@@ -103,7 +103,8 @@ def test_published_projection_retains_exact_cells_and_stable_scoped_ids(verified
     other = project_answer(answered, turn_id=uuid4().hex, published=result)
     assert other.result.result_ref != output.result.result_ref
     assert other.result.cells[0].cell_id != output.result.cells[0].cell_id
-    assert output.result.proof_graph == "unavailable"  # No fabricated proof graph.
+    # Without the owning runner's connection no proof chain is fabricated.
+    assert output.result.proof.availability == "unavailable" and not output.result.proof.steps
     assert (
         "input_refs" not in output.model_dump_json() and "source_id" not in output.model_dump_json()
     )

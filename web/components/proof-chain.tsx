@@ -1,0 +1,128 @@
+"use client";
+import {
+  Calculator,
+  Database,
+  Server,
+  ShieldAlert,
+  ShieldCheck,
+  TriangleAlert,
+} from "lucide-react";
+import type { Dataset, Proof } from "@/lib/contracts";
+import { noticeText } from "@/lib/language";
+import {
+  gapText,
+  orderedSteps,
+  proofHeadline,
+  sourceCoverage,
+  sourceOrigin,
+  sourceSemantics,
+  stepInputs,
+  stepTitle,
+} from "@/lib/proof";
+import { periodLabel, seriesLabel } from "@/lib/table";
+
+/** Server-recorded, result-level evidence. Rendered as text nodes only. */
+export function ProofChain({
+  proof,
+  dataset,
+}: {
+  proof: Proof;
+  dataset: Dataset | null;
+}) {
+  const recorded = proof.availability !== "unavailable";
+  return (
+    <section
+      className={`proof-chain ${proof.availability}`}
+      aria-label="Kanıt zinciri"
+    >
+      <div className="proof-headline">
+        {proof.availability === "available" ? (
+          <ShieldCheck size={16} />
+        ) : (
+          <ShieldAlert size={16} />
+        )}
+        <strong>{proofHeadline(proof)}</strong>
+      </div>
+      {recorded && (
+        <ol className="proof-layers">
+          {proof.sources.map((source, index) => (
+            <li key={`source-${index}`} className="proof-layer">
+              <span className="proof-icon">
+                <Server size={14} />
+              </span>
+              <div>
+                <h4>
+                  {seriesLabel(source.title ?? source.series_id, dataset)}
+                </h4>
+                <p>{sourceOrigin(source)}</p>
+                <p>{sourceCoverage(source)}</p>
+                <p className="muted">
+                  {sourceSemantics(source)}
+                  {source.catalog_status &&
+                    ` · katalog: ${source.catalog_status}`}
+                </p>
+                {source.dataset_sha256 && (
+                  <p
+                    className="mono"
+                    title="İçerik kimliği; doğruluk kanıtı değildir"
+                  >
+                    <Database size={11} /> {source.dataset_sha256.slice(0, 16)}…
+                  </p>
+                )}
+              </div>
+            </li>
+          ))}
+          {orderedSteps(proof).map(({ step, index }) => (
+            <li key={`step-${index}`} className="proof-layer">
+              <span className="proof-icon">
+                <Calculator size={14} />
+              </span>
+              <div>
+                <h4>
+                  {stepTitle(step)}
+                  {index === 0 ? " — bu sonuç" : ""}
+                  {step.workspace_name ? ` (${step.workspace_name})` : ""}
+                </h4>
+                <p>Girdi: {stepInputs(proof, step).join(", ") || "—"}</p>
+                {step.coverage && <p>Kapsam: {periodLabel(step.coverage)}</p>}
+                {step.samples && (
+                  <p>
+                    {step.samples.used} gözlem kullanıldı ·{" "}
+                    {step.samples.missing} eksik · {step.samples.excluded}{" "}
+                    dışlanan
+                  </p>
+                )}
+                <p className="muted">
+                  Yürütme kaydı girdileri ve çıktısıyla yeniden eşleşti
+                </p>
+              </div>
+            </li>
+          ))}
+          <li className="proof-layer">
+            <span className="proof-icon">
+              <ShieldCheck size={14} />
+            </span>
+            <div>
+              <h4>Cevap denetimi: kabul edildi</h4>
+              <p className="muted">
+                Kayıt kapsamı doğruluk garantisi değildir; kanıt sonuç
+                düzeyindedir, bu hücrenin tek tek hangi gözlemden geldiği ayrıca
+                eşlenmez.
+              </p>
+            </div>
+          </li>
+        </ol>
+      )}
+      {[
+        ...proof.gaps.map(gapText),
+        ...proof.warnings.map(noticeText),
+        ...proof.limitations.map(noticeText),
+        ...proof.unresolved_semantics.map(noticeText),
+      ].map((text, index) => (
+        <p key={`note-${index}`} className="proof-note">
+          <TriangleAlert size={12} /> {text}
+        </p>
+      ))}
+    </section>
+  );
+}

@@ -22,6 +22,7 @@ from kkb_agent.agent.selection import SelectedTable, SelectionError
 from kkb_agent.agent.workspace import WorkspaceError
 from kkb_agent.api.contracts import MAX_SESSIONS, MAX_TURNS, Answer
 from kkb_agent.api.projection import project_answer, safe_text
+from kkb_agent.api.proof import build_proof
 from kkb_agent.api.service import SelectedResult, ServiceError
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
 from kkb_agent.catalog.mappings import MAX_SNAPSHOT_BYTES, ReviewedSnapshot, load_reviewed_snapshot
@@ -337,6 +338,11 @@ class PreparedRunner:
                     turn_id=turn_id,
                     published=published,
                     secrets=self._redactions,
+                    proof=(
+                        build_proof(lake.connection, published, secrets=self._redactions)
+                        if published is not None
+                        else None
+                    ),
                 )
                 # Only retain references that survived publication AND projection.
                 # Bounded by the existing session/turn limits; never rebuild this
