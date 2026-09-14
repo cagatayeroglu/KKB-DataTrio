@@ -18,9 +18,11 @@ This file owns **execution truth**. [ARCHITECTURE](ARCHITECTURE.md) owns technic
 
 # Current Project Status
 
-- [ ] **DOC-CURRENT-TRUTH — documentation reconciliation**; Status: IN PROGRESS; Owner: Çağatay; Branch: `codex/docs-current-truth`, based on verified dev `65b201691e65ceae815ee3d54a3ae06ebb9b9bf6`; PR: pending; Commit: pending. Scope: correct current implementation summaries and record organizer verbal criteria relayed by Çağatay; preserve historical evidence and runtime behavior. Affected files: AGENTS, README, DECISIONS, OPEN_QUESTIONS, ROADMAP, ARCHITECTURE, DATABASE, CATALOG_SEARCH, OPERATOR_FLOW, EVALUATION and SECURITY. Tests: NOT RUN (claim only); Blocker: none in documentation scope. Handoff: publish this claim, reconcile only current statements, check documentation and open for review; stop before merge. No product task or live call is authorized by this claim.
+- [ ] **DOC-CURRENT-TRUTH — documentation reconciliation**; Status: PARTIAL; Owner: Çağatay; Branch: `codex/docs-current-truth`, based on verified dev `65b201691e65ceae815ee3d54a3ae06ebb9b9bf6`; PR: [#162](https://github.com/cagatayeroglu/KKB-DataTrio/pull/162), draft; Commit: claim `cf721ac`, delivery pending. Scope: correct current implementation summaries and record organizer verbal criteria relayed by Çağatay; preserve historical evidence and runtime behavior. Affected files: AGENTS, README, DECISIONS, OPEN_QUESTIONS, ROADMAP, ARCHITECTURE, DATABASE, CATALOG_SEARCH, OPERATOR_FLOW, EVALUATION and SECURITY. Tests: `git diff --check` and documentation check PASS (495 local links/anchors, checkbox states, existing DEC records, dated evaluation evidence and historical handovers preserved); full relevant diff/code-fact review PASS. No local application/full/live tests (documentation only). Blocker: review/merge pending. Handoff: current truth and DEC-141 organizer relay reconciled; review this PR and stop before merge. No product task or live call is authorized by this claim.
 
-**Arda checkpoint (2026-09-14):** PRs #148–160 are merged into dev `31bb506`; task branches cleaned and main unchanged. M10-03 first local client is merged (overall frontend/chart scope remains PARTIAL), alongside the 29-series / 4124-observation prepared pool and 37-identity catalog. Local Fast PR: 3281 passed / 2 Windows privilege skips; 16 frontend tests and production build pass. Both GitHub gates for #159 are now SUCCESS. The three-turn browser run is explicitly scripted with real public data, not live Qwen acceptance. Arda ended implementation and requested a team summary plus technical handoff. Active work is **documentation only**, Owner Arda, Branch `codex/docs-arda-session-handoff`, based on fresh dev `31bb506`; PR #161. [Technical handoff](HANDOFF_ARDA_2026-09-14.md) and [measured team summary](ARDA_SESSION_2026-09-14.md) are the entry points; after this docs PR is verified merged there is no active task in Arda's session. No next implementation selected. Incoming teammate identity/claim is not assigned by this record; verify current Git/claims and follow the handoff before choosing work.
+**Verified merged checkpoint (2026-09-14):** dev `65b201691e65ceae815ee3d54a3ae06ebb9b9bf6` includes PRs #148–160 and the merged #161 handoff. Arda's session is closed; the documentation claim above is the only task selected here. The local API/prepared backend and first Next.js client exist, with monthly `deflate`/`add_series`, table co-movement, bounded catalog continuation and mandatory prepared metadata inspection. LanceDB local indexing and optional BM25/dense composition exist; default prepared API retrieval remains lexical because real Qwen embedding injection is unwired. Broader quality/reconciliation, selected-result grounding and dependency invalidation remain incomplete. UI version selection changes display only; its identity is not sent with the next question, so “bu tablo” is not guaranteed to bind to the selected table.
+
+**Evidence and limits:** Arda recorded a 29-series / 4,124-observation prepared pool and a 37-identity catalog. The exact pool/Bronze artifacts are operator-local, absent from a fresh Git checkout (`data/processed/lakehouse`), and not repository-reproducible as an identical snapshot today; code and rebuild instructions are available. Two-turn live Kloudeks and scripted three-turn/browser evidence exist; full live Qwen three-turn acceptance does not. #159/#161 exact-head Fast PR and Web gates passed; #158 was cancelled and #160 failed before the later integrated pass. [Technical handoff](HANDOFF_ARDA_2026-09-14.md) and [measured summary](ARDA_SESSION_2026-09-14.md) preserve the original evidence. [DEC-141](DECISIONS.md#dec-141-organizer-verbal-criteria) records Çağatay's organizer relay without invented scoring weights. Deployment, repeated-run reliability and broader demo scope remain unfinished.
 
 <a id="handover-2026-09-14-eray-to-arda"></a>
 **Handover (2026-09-14): Eray hands the project to Arda.** Verified at `origin/dev` `56f24f5` (PR #146) plus this handover docs PR; no open PR or task branch, no active claim. Every incomplete scope recorded for Eray (including the Çağatay → Eray handback scopes) transfers to Arda. `main` is untouched at `5830480`. Deadline: repository reviewed after **20 September 2026**; Final Day **17 October 2026**.
@@ -104,11 +106,11 @@ Historical status entries follow; Current Project Status above controls current 
 | Planner capability | Owning task | Current delivery / start condition |
 | --- | --- | --- |
 | `catalog_search` | M13-04 | DONE after PR #119: reviewed M13-08 local demo snapshot, aliases, metadata filters and pure-Python BM25; not full hybrid/full-source coverage |
-| `table_transform` | M5-20 | PARTIAL: `deflate` (M2-15, #146) and monthly `add_series` (#149); add_series has scripted real-data acceptance; rebase/align/filter not exposed; M13-13 inspection harness and Session publication dependencies remain |
+| `table_transform` | M5-20 | PARTIAL: `deflate` (M2-15, #146) and monthly `add_series` (#149); add_series has scripted real-data acceptance; rebase/align/filter not exposed; prepared metadata inspection is mandatory; broader inspection and Session publication dependencies remain |
 
 | Mandatory harness capability | Owning task | Trigger / prerequisites |
 | --- | --- | --- |
-| `series_inspect` | M13-13 | Selected financial series, before observations used; trusted-ID lookup/usable-metadata contract review still required. BLOCKED, unclaimed; automatic wiring absent |
+| `series_inspect` | M13-13 | Mandatory before numeric use in configured prepared readers/projection (#156); broader source/selection inspection remains PARTIAL |
 | `data_quality` | M1-12 | Retrieved observations, before analysis-ready; bounded profiling and trusted reference/validity checks. Not READY or claimed; automatic wiring absent |
 | `reconcile_sources` | M8-09 | Multiple trusted sources/results for the same measure; comparable semantics, quality and transformation prerequisites. Not READY or claimed; automatic wiring absent |
 
@@ -126,14 +128,14 @@ Current priority (2026-09-14), [DEC-137 dated refinement](DECISIONS.md#dec-137-p
 | 4 | First four-series real vertical slice | **Prepared and oracle-checked** (#138, #140); M9 benchmark cases not yet authored |
 | 5 | Organizer Turn 1 real-data path | **Live ACCEPTED and published** (M6-25 #142, M6-14 #144; again in two-turn runs); repeated-run reliability not yet measured |
 | 6 | Deflation / index rebasing (organizer Turn 2) | **Monthly CPI deflation delivered and live-accepted in Turn 2 (#146)**; M2-14 rebasing remains |
-| 7 | table_transform | **PARTIAL (#146/#149):** deflate and monthly add_series delivered; Turn 3 analysis/live acceptance, rebase, align, filter remain |
-| 8 | Multi-turn table grounding (organizer Turn 3 column add) | Turn 1→2 grounding live-accepted (published names in planner prompt, superseded-source view); Turn 3 add_series and Session publication dependencies/staleness remain |
-| 9 | Hybrid catalog retrieval: embeddings + LanceDB catalog index | M13-05/09/12, Qwen 4096, aliases/filters/BM25 + required dense; LanceDB selected by DEC-138, dependency added by the implementing task |
-| 10 | Mandatory metadata inspection / data-quality integration | M13-13/M1-12 and applicable M8-09 reconciliation; automatic wiring unfinished, checks must apply before dependent use at every earlier phase |
+| 7 | table_transform | **PARTIAL (#146/#149):** deflate and monthly add_series delivered; table co-movement delivered (#150); full live Turn 3 acceptance, rebase, align, filter remain |
+| 8 | Multi-turn table grounding (organizer Turn 3 column add) | Turn 1→2 live and three-turn scripted evidence exist; add_series is delivered. UI-selected identity is not sent with follow-ups; selected-result grounding and Session publication dependencies/staleness remain |
+| 9 | Hybrid catalog retrieval: embeddings + LanceDB catalog index | LanceDB selected by DEC-138 and local index/optional hybrid delivered (#153/#154); prepared API defaults to lexical. Real Qwen injection and semantic-quality acceptance remain M13-05/09/12 |
+| 10 | Mandatory metadata inspection / data-quality integration | Prepared metadata inspection is mandatory/auto-wired (#156); broader M13-13 inspection, M1-12 quality and applicable M8-09 reconciliation remain unfinished |
 | 11 | Organizer full three-turn E2E | M9/M11 real-data regression, independent numeric oracles, follow-up grounding and failure preservation |
 | 12 | Broaden prepared BDDK/EVDS coverage | Safely practical hackathon-relevant families/periods after the first E2E slice; M3-05/07 and M13 coverage, Q-TEAM-07; not every source byte |
 | 13 | SearXNG / web acceptance | M7 separate general discovery/document tracks, source/egress/privacy approval; SearXNG is candidate only |
-| 14 | API/UI/deployment/rehearsal | M10/M11/M9; environment/storage permissions and measured rehearsal; not delivered |
+| 14 | API/UI/deployment/rehearsal | Local API/prepared runtime (#157/#158) and first Next.js client (#159) delivered; remaining UI, deployment and live rehearsal are incomplete |
 
 **Future / non-blocking scalability:** runtime official-source cache-miss materialization; sophisticated refresh/vintage orchestration; object-storage optimization; dedicated vector-index scaling beyond measured need. DEC-137 remains the reusable long-term architecture. Basic immutable provenance, content identity, revision conflict refusal and safe publication are required now; deferring sophisticated version orchestration does not permit overwriting history. Required dense retrieval is in the demo delivery priorities; only unnecessary index scaling is deferred.
 
@@ -1922,7 +1924,7 @@ An uninstructed teammate can run the agreed demo script, inspect evidence, under
 - Commit: `f1e8381` (M10-01 specification).
 - Tests: M10-01 document review and 183 existing backend regressions PASS; UI/API tests NOT RUN because no implementation exists.
 - Benchmark: Operator rehearsal not run.
-- Notes: DEC-123 selects the frontend/API stack; M10-01 specifies the operator flow. No runtime API/UI exists. M10-02 remains PARTIAL/external; M10-03..15 are untriaged/unimplemented, not READY. M10-03 requires an agreed executable API contract, whose runtime task is absent and must be triaged separately before scaffolding. DEC-128 defers graph-heavy proof UI.
+- Current notes: M10-16/17 deliver the local API and prepared runtime; M10-03 delivers the first Next.js client. Remaining frontend/proof/deployment scope is incomplete, not automatically READY. M10-02 remains PARTIAL/external; DEC-128 defers graph-heavy proof UI. Displayed result selection is not yet a backend follow-up reference.
 - Known limitations: Demo environment/duration, session persistence, and fallback permission unknown.
 - Previous handoff (historical; current queue controls selection): Specify M10-01 without committing to a framework; resolve M10-02/03 before implementation.
 
@@ -2218,9 +2220,9 @@ The mandatory Turkish normalizer + reviewed alias/concept-family mapping + metad
 ## Evidence / implementation record
 
 - M13-01: Owner Çağatay; branch `feature/m13-01-catalog-record`; PR #57 merged at `021e9e5`; implementation `7b072b7`, final head `4e6e200`; 69 targeted / 1364 unit and Fast PR PASS, as recorded above. Remaining M13 tasks are unclaimed unless their task record or a published PR says otherwise.
-- Retrieval benchmark: NOT RUN; executable retrieval stages are not implemented.
+- Retrieval benchmark: NOT RUN; lexical search, local LanceDB search and optional combined stages are implemented. Default prepared runtime has no real Qwen embedding injection or live hybrid acceptance.
 - Benchmark: The fifty pairs from M13-09 become a retrieval case set in EVALUATION.
-- Known limitations: Embedding model/endpoint availability is confirmed by DEC-129; vector dimension, batch limits, query/passage prefix and dedicated-reranker availability remain unresolved (Q-K-05). A wrong prefix convention can invalidate baseline vectors; no quality/gain/loss is measured yet.
+- Known limitations: Embedding model/endpoint availability is confirmed by DEC-129 and dimension 4096 is measured; batch limits, query/passage prefix and dedicated-reranker availability remain unresolved (Q-K-05). A wrong prefix convention can invalidate baseline vectors; no quality/gain/loss is measured yet.
 - Previous handoff (historical; current queue controls selection): M13-03, M13-04, M13-08 and M13-09 need no model access; do them first, then measure what the dense half actually adds.
 
 ## Handoff notes

@@ -54,18 +54,18 @@ Snapshot mismatch, embedding/policy failure or invalid/native index output
 returns **`lexical_degraded`**, `dense_status=failed`, a fixed category and a tool
 warning. Private exceptions are not copied. Unknowns/ambiguity remain even when
 dense succeeds. Full M13-05 acceptance still needs live policy, actual corpus/query
-embeddings and separate development/held-out evaluation; the planner also needs
-a bounded discovery/replan round before it can use these candidates in analysis.
+embeddings and separate development/held-out evaluation. The implemented bounded
+discovery/replan round is enabled in prepared runtime; its retrieval remains lexical.
 
 ## Catalog and observation boundary
 
-[DEC-137’s dated refinement](DECISIONS.md#dec-137-prepared-pool-refinement) makes user concept → catalog_search → trusted prepared series candidate → lakehouse the primary demo routing target. A prepared-pool miss may clarify/abstain; runtime official-source cache-miss materialization is future scalability, not a core three-turn prerequisite. The reviewed Monthly/EVDS adapters and seven-series real prepared slice now exist; automatic availability routing remains unfinished. The current [prepared_v2 snapshot](catalog/prepared_v2.json) has 15 identities including all seven supported prepared identities; the historical ten-series [v1 snapshot](catalog/demo_v1.json) remains reproducible. Neither is the full catalog. Aliases are precision shortcuts; other queries use lexical matching over available records. Broader versioned BDDK/EVDS metadata remains future work; unsupported identities stay unresolved. Catalog discovery does not mean observations are present in a particular operator's lakehouse. Runtime still needs a bounded discovery/replan integration to consume catalog results before selecting analytical tool arguments.
+[DEC-137’s dated refinement](DECISIONS.md#dec-137-prepared-pool-refinement) makes user concept → catalog_search → trusted prepared series candidate → lakehouse the primary demo routing target. A prepared-pool miss may clarify/abstain; runtime cache-miss materialization remains future scalability. The current [prepared_v3 snapshot](catalog/prepared_v3.json), review r4, has 37 identities; v1/v2 remain historical snapshots. Arda's recorded 29-series / 4,124-observation pool is local to his environment, absent from a fresh Git checkout and not an identically reproducible repository artifact ([handoff](HANDOFF_ARDA_2026-09-14.md)). Catalog discovery does not prove local observations or requested-window coverage. The prepared runtime enables bounded discovery/replan continuation, but registers lexical catalog search without the real Qwen dense stage. Broader metadata coverage and availability routing remain unfinished.
 
-The final catalog spans safely representable BDDK/EVDS identities beyond the four-series vertical slice. Conceptual prepared/fetchable/unresolved/unsupported states require trusted manifest/adapter evidence; no such fields are added to the current result schema here. UNRESOLVED cannot trigger a fetch. Required final hybrid retrieval adds the confirmed Qwen embedding model (4096 dimensions); aliases/filters/BM25 remain the default callable path, with an optional operator-configured combined stage. DEC-138 selected LanceDB; local indexing/composition are implemented, while live policy, semantic quality and planner integration remain unfinished.
+The final catalog spans safely representable BDDK/EVDS identities beyond the four-series vertical slice. Conceptual prepared/fetchable/unresolved/unsupported states require trusted manifest/adapter evidence; no such fields are added to the current result schema here. UNRESOLVED cannot trigger a fetch. Required final hybrid retrieval adds the confirmed Qwen embedding model (4096 dimensions); aliases/filters/BM25 remain the default callable path, with an optional operator-configured combined stage. DEC-138 selected LanceDB; local indexing/composition are implemented, while live policy, actual embedding injection into prepared runtime and semantic quality remain unfinished.
 
 ## Required final hybrid and vector-search target
 
-Turkish normalization + reviewed aliases + metadata filters + BM25/lexical + `kkbhackathon2026/Qwen3-Embedding-8B` dense retrieval (**4096 dimensions**) form the final hybrid architecture. Dense retrieval and the vector DB/index are NOT implemented today; dense is a required final capability, not an optional enhancement. Model access remains Kloudeks-only.
+Turkish normalization + reviewed aliases + metadata filters + BM25/lexical + `kkbhackathon2026/Qwen3-Embedding-8B` dense retrieval (**4096 dimensions**) form the final hybrid architecture. The bounded LanceDB index and optional lexical/dense composition are implemented; actual Qwen corpus/query embeddings are not wired into default prepared runtime and live hybrid acceptance remains pending. Dense is a required final capability, not an optional enhancement. Model access remains Kloudeks-only.
 
 ```text
 catalog_search -> BM25 candidates
@@ -76,7 +76,7 @@ catalog_search -> BM25 candidates
 
 The intended vector DB/index layer binds official/canonical selector IDs, concept/family, normalized catalog text and hash, embedding model/dimension/vector and snapshot/version metadata. It does not hold observation values or replace DuckDB/Parquet. LanceDB is the selected catalog vector index ([DEC-138](DECISIONS.md#dec-138--handback-priorities-lancedb-catalog-index-and-no-prepared-data-in-git)); its bounded local storage/search slice is described in [CATALOG_INDEX](CATALOG_INDEX.md), while live/hybrid integration remains pending. No separate PostgreSQL/pgvector service is justified by this refinement. Dedicated-index scaling beyond measured need is later work; required dense retrieval remains in the core delivery priorities.
 
-This is an architectural boundary, not a new result schema, dependency, index or implemented query-embedding path. RRF/reranking remain benchmark-gated; a lexical fallback is degraded retrieval, not full hybrid acceptance.
+This target does not imply that the implemented local index has a live query-embedding path. RRF/reranking remain benchmark-gated; a lexical fallback is degraded retrieval, not full hybrid acceptance.
 
 ## Trusted configuration and contracts
 
