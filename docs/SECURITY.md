@@ -168,7 +168,7 @@ Acceptance: No supported product input provides arbitrary Python/shell execution
 
 ## SEC-FILE-01 — File admission and safe storage
 
-Status: PARTIAL — local admission/storage checks and negatives delivered in M1-02 (#5), specified in [FILE_ADMISSION](FILE_ADMISSION.md). M7-05 (#38) now bounds direct-GET response/decompression streams. Fetched CSV/XLSX bytes pass the same admission checks and loaders as uploads (M7-08), and PDF bytes likewise (M7-09), with the loader chosen by the validated response media type and the bytes re-checked against it; other downloaded formats have no parser route.
+Status: PARTIAL — local admission/storage checks and negatives delivered in M1-02 (#5), specified in [FILE_ADMISSION](SECURITY.md#file_admission-m1-02--file-admission-policy). M7-05 (#38) now bounds direct-GET response/decompression streams. Fetched CSV/XLSX bytes pass the same admission checks and loaders as uploads (M7-08), and PDF bytes likewise (M7-09), with the loader chosen by the validated response media type and the bytes re-checked against it; other downloaded formats have no parser route.
 
 Threat: Uploaded/downloaded filenames escape storage roots; misleading extensions/MIME route malicious content; large inputs exhaust memory; private uploads leak into Git/artifacts.
 
@@ -374,7 +374,7 @@ HTML never grants authority. Only the original question URL reaches unchanged sa
 
 ### M10 operator/API boundary requirements
 
-[M10-01](OPERATOR_FLOW.md) specifies the wider boundary. [M10-16](LOCAL_API.md) now implements local Host/Origin/JSON/body controls, session-token possession and owned turn lookup, bounded single-worker admission, fixed errors and canonical published-value projection. No raw Session, shared artifact lookup or unbounded Lineage.trace export is exposed. M5-21 remains the publication authority; QUALIFIED/ABSTAINED/failure paths do not publish. The API does not roll back prior tool-side evidence, provide a proof graph or establish public-host authentication. The local runner must own its connection, use the existing gate/projector, bind only loopback and disable access logs. [Prepared runtime wiring](PREPARED_API.md) now owns a checked immutable seed, separate session copies and per-turn connections; readiness never calls a model and serving needs explicit operator enablement. Full stage progress, retention/auth/deployment and public proof traversal remain separate.
+[M10-01](ARCHITECTURE.md#operator_flow-m10-01--operator-flow-and-api-boundary-requirements) specifies the wider boundary. [M10-16](ARCHITECTURE.md#local_api-m10-16--version-one-local-api-and-owned-results) now implements local Host/Origin/JSON/body controls, session-token possession and owned turn lookup, bounded single-worker admission, fixed errors and canonical published-value projection. No raw Session, shared artifact lookup or unbounded Lineage.trace export is exposed. M5-21 remains the publication authority; QUALIFIED/ABSTAINED/failure paths do not publish. The API does not roll back prior tool-side evidence, provide a proof graph or establish public-host authentication. The local runner must own its connection, use the existing gate/projector, bind only loopback and disable access logs. [Prepared runtime wiring](OPERATIONS.md#prepared_api-m10-17--run-the-api-over-a-prepared-local-pool) now owns a checked immutable seed, separate session copies and per-turn connections; readiness never calls a model and serving needs explicit operator enablement. Full stage progress, retention/auth/deployment and public proof traversal remain separate.
 
 <a id="product-tool-boundary-dec-133"></a>
 
@@ -382,7 +382,7 @@ HTML never grants authority. Only the original question URL reaches unchanged sa
 
 Approved target names are not executable capabilities. Expose only registered, implemented tools with closed typed arguments and typed results, bounded execution and trusted reference checks. M13-04 `catalog_search` reads operator-injected reviewed catalog state only: no model-supplied SQL, filesystem path or network URL; no mutation or implicit external loading. Treat labels, aliases and source metadata as untrusted data, including instruction-looking text. Return only catalog-backed metadata; unknowns remain unknown. Semantic/security guards, lineage and verifier/gate remain mandatory harness layers, never optional planner calls. Planned table_transform must meet these same controls before registration; this rule does not claim unfinished executor output/reference checks already exist.
 
-DEC-135 requires deterministic metadata inspection before selected financial-series observations are used and bounded quality validation before observations become analysis-ready. Multiple trusted sources/results supporting the same measure require conditional reconciliation of semantics, period, frequency, unit, scale and values; unsupported comparability remains NOT_COMPARABLE/NEEDS_TRANSFORM/NEEDS_INPUT, never inferred. These controls must not depend on planner tool selection or a model-supplied bypass flag. The [M13-13 prepared-reader slice](SERIES_INSPECTION.md) now enforces exact reviewed identity and catalog/store metadata consistency before selected-series calculations or direct-silver numerical projection in catalog-configured runs. No model bypass or new tool exists; unknowns stay explicit and a receipt grants no calculation permission. Broader M13-13/M1-12/M8-09 wiring remains incomplete; existing guard/verifier checks remain mandatory.
+DEC-135 requires deterministic metadata inspection before selected financial-series observations are used and bounded quality validation before observations become analysis-ready. Multiple trusted sources/results supporting the same measure require conditional reconciliation of semantics, period, frequency, unit, scale and values; unsupported comparability remains NOT_COMPARABLE/NEEDS_TRANSFORM/NEEDS_INPUT, never inferred. These controls must not depend on planner tool selection or a model-supplied bypass flag. The [M13-13 prepared-reader slice](ARCHITECTURE.md#series_inspection-prepared-series-metadata-inspection) now enforces exact reviewed identity and catalog/store metadata consistency before selected-series calculations or direct-silver numerical projection in catalog-configured runs. No model bypass or new tool exists; unknowns stay explicit and a receipt grants no calculation permission. Broader M13-13/M1-12/M8-09 wiring remains incomplete; existing guard/verifier checks remain mandatory.
 
 ### M5-06 bounded catalog continuation
 
@@ -427,4 +427,89 @@ The repository secret scan prunes generated `node_modules` and `.next` directory
 trees. It still scans authored JS/TS including mjs/cjs, configuration, lockfiles
 and `.env` names. Ten regression cases cover those boundaries, including
 similarly named directories that must not be excluded. No blanket web-folder
-exclusion or credential logging was added. See [LOCAL_CLIENT](LOCAL_CLIENT.md).
+exclusion or credential logging was added. See [LOCAL_CLIENT](OPERATIONS.md#local_client-datatrio-local-analysis-workspace).
+
+
+## Local API contracts
+
+
+<a id="local_api-local-http-boundary"></a>
+
+### Local HTTP boundary
+
+Exact localhost/127.0.0.1 Hosts with configured port and matching HTTP Origins
+are accepted; default port is 8000. Foreign/null Origins, cross-site requests
+and duplicate sensitive headers are refused. POST requires JSON; query strings,
+form/plain-text submission, wildcard CORS, cookies and forwarded-host trust
+are absent. The launcher must bind loopback. Possession is **not production
+authentication** and resolves no hosting/TLS/retention question.
+
+Errors contain only version and a fixed category, never rejected input or raw
+exceptions. Unexpected route errors are contained before the ASGI logger.
+Responses use no-store, nosniff and no-referrer. The launcher must disable
+access logs; callers protect capabilities. No route accepts credentials,
+paths, SQL, tool definitions or gate overrides.
+
+
+## File admission
+
+Original bounded admission/profile specification. References to future integration describe this contract’s delivery scope; current completion belongs to ROADMAP.
+
+<a id="file_admission-m1-02--file-admission-policy"></a>
+
+### M1-02 — File admission policy
+
+[ingestion_policy.py](../src/kkb_agent/ingestion_policy.py) implements standalone admission/limit/storage guards for [M1-02](ROADMAP.md#m1). It uses only the Python standard library and does not select an analytical engine or depend on the stash-only SourceAdapter. [INGESTION_PROFILE](ARCHITECTURE.md#ingestion_profile-m1-01--ingestionprofile-result-specification) remains the result specification.
+
+Admission checks establish whether input may proceed to a future bounded loader. They do not establish a valid table, known semantics, or an `ok` profile. No HTTP upload route, source adapter, CSV/XLSX loader, profiling service, or data retention backend is enabled by this change.
+
+<a id="file_admission-practical-local-limits"></a>
+
+### Practical local limits
+
+Both initial formats use `AdmissionLimits`; callers may supply explicitly reviewed tighter/different positive integer limits. Overrides are operator configuration, never uploaded instructions or model-generated arguments. Defaults keep development bounded without depending on platform/model answers.
+
+| Budget | Default | Enforcement in M1-02 |
+| --- | --- | --- |
+| Uploaded bytes | 10 MiB | Reader requests at most 64 KiB per read and stops at the cap plus one sentinel byte; rejects oversize before staging. Short reads are supported. |
+| Data rows / columns | 100,000 / 256 | `check_table_size`; caller must invoke incrementally in the future loader, not after unbounded allocation. Header is not a data row. |
+| Total cells | 1,000,000 | Product limit in `check_table_size`, including all selected columns. |
+| Cell / label length | 65,536 / 256 Unicode characters | `check_field`; future loader/profile integration required. No silent truncation. |
+| Serialized profile | 1 MiB | `check_profile_size`; future bounded serializer must also avoid unbounded intermediate output. |
+| XLSX sheets / ZIP entries | 20 / 1,024 | Counts from package entry metadata; not a substitute for workbook relationship validation. |
+| XLSX expanded size | 50 MiB total | Declared ZIP sizes checked before any extraction; future loader must enforce actual expanded-byte limits too. |
+| XLSX compression ratio | 100:1 per member | Declared uncompressed/compressed sizes; may conservatively reject highly repetitive workbooks. |
+| Parser time | 5 seconds | Configuration only; no parser runs here. Future parser must have enforceable cancellation/resource bounds; an outer timeout alone is insufficient. |
+| PDF pages / parser time | 30 / 10 seconds | Used by the PDF loader (M7-09): pages counted before any is laid out; its terminated worker has its own deadline because layout analysis is slower than a spreadsheet read. Page text and cells reuse the field limit, tables the row/column/cell limits. |
+
+Exact limits are inclusive; limit + 1 fails. Dimension checks accept zero while counting incrementally, but the completed loader must reject zero-row/header-only input per M1-01/M1-13. Row/cell/profile/time limits are not advertised as enforced over an uploaded file until the corresponding loader/profile calls these guards.
+
+XLSX preflight rejects unsafe member paths, duplicate names (including case variants), encrypted or symlink members, unsupported compression, macro binary members, embedded objects, and external-link parts. Only stored/deflated ZIP members are admitted. These checks are a conservative envelope filter, not a full document security verdict.
+
+<a id="file_admission-transient-storage-and-errors"></a>
+
+### Transient storage and errors
+
+`staged_upload(...)` validates metadata/content before creating anything, then creates a generated `upload-*` directory (0700) and exclusive `input.csv` or `input.xlsx` (0600) beneath an existing, operator-owned `storage_root`. Use an ignored local directory such as repository `uploads/`, separately provisioned by the operator. The API has no default path, never creates arbitrary parent directories, rejects a symlink/missing root, and must never receive a root from file metadata or model output. The root and its parents must remain under operator control during the operation.
+
+The context manager removes staging on normal exit and downstream exceptions; callers must finish reading within the context. Failed storage operations return a sanitized code; cleanup failure is reported as `STORAGE_FAILED` for operator handling. This is temporary processing only, not permission to retain organizer/private inputs or a workspace persistence decision. Tests create synthetic inputs under pytest temporary directories; no private inputs are used.
+
+`admit_upload(...)` accepts a blocking binary stream whose I/O timeout is already controlled by its caller. It bounds bytes, not the time a stream's `read` can block; remote retrieval still belongs behind safe-fetch. Accepted bytes remain unchanged and are omitted from the result's representation. The guard does not infer units, frequency, stock/flow, or cumulative semantics.
+
+`AdmissionError` exposes a fixed `RejectionCode`, never a copied filename, path, cell, or low-level exception. `profile_failure(source_ref)` maps rejection into the M1-01 shape with `data_ref: null`, `row_count: null`, empty columns/semantics, and a diagnostic code. Its source reference must come from the caller's controlled provenance identity, not arbitrary source text. Admission success itself never emits an `ok` profile.
+
+
+## Ingestion and profile specification
+
+Original bounded admission/profile specification. References to future integration describe this contract’s delivery scope; current completion belongs to ROADMAP.
+
+<a id="ingestion_profile-bounded-profiling-and-deferred-limits"></a>
+
+### Bounded profiling and deferred limits
+
+M1-01 specifies result behavior at limits; [M1-02](ROADMAP.md#m1) owns the extension/MIME/content policy, numerical byte/row/column/time caps, and storage paths before loaders are enabled. [SEC-FILE-01/02](SECURITY.md#sec-file-01--file-admission-and-safe-storage) also require expansion/sheet limits and no formula/macro execution or external-link resolution. No loader may advertise support while these guards are undefined or unenforced.
+
+- Profile only the accepted bounded table; counts and candidate coverage refer to every accepted row. If parsing/profiling cannot finish within its configured bounds, return `rejected` with `LIMIT_EXCEEDED`, not an `ok` sample mislabeled as the full table.
+- Do not include raw-cell samples in the default profile. Preserve data behind its reference. Profile metadata has one column record per guarded column; label lengths and total metadata size must fit the admission/output limits specified in M1-02.
+- Proposed small reporting caps for this profile: at most **2 candidate interpretations per kind per column** and **20 diagnostics**. If more candidate interpretations exist, retain `ambiguous` with `CANDIDATES_TRUNCATED`; if further diagnostics cannot be listed, set `diagnostics_truncated: true`. These are result reporting caps, not parser CPU/input limits or proof of exhaustive interpretation.
+- Keep checks deterministic and local. A header/cell containing instructions is source data and cannot trigger a tool, network request, expression evaluation, or filesystem action.

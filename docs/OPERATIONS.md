@@ -1,0 +1,391 @@
+# Operations: local preparation, API and client
+
+Use this runbook for environment setup, reviewed-pool rebuild, read-only readiness,
+backend/frontend startup, API use and recovery. [ARCHITECTURE](ARCHITECTURE.md)
+owns implementation contracts; [SECURITY](SECURITY.md) trust limits;
+[EVALUATION](EVALUATION.md) scripted/live evidence; ROADMAP completion.
+The local prepared client is not a deployed multi-user service. Wider demo-flow
+requirements below are explicitly targets, not additional executable routes.
+
+## Operator sequence
+
+1. Install Python >=3.12 development dependencies and Node.js 22 for the client.
+   Keep credentials in operator-local configuration and prepared data out of Git.
+2. With approved source access, prepare a reviewed pool and matching catalog.
+3. Close ingestion/writers; run the readiness command below, which calls no model.
+4. When model requests are authorized, start the loopback Python API and Next.js
+   in two terminals. Use one consistent browser origin.
+5. Follow the recovery contract: a lost response reuses the original request and
+   selection; a new request ID means new analysis. Restarting invalidates sessions.
+
+## Prepare or rebuild the official pool
+
+A clone does not contain the accepted pool or Bronze payloads. Rebuild from the
+reviewed adapters only with the existing source/egress authorization. Exact
+selector/date-window commands, expectations and source limitations are in
+[BDDK Monthly preparation](BDDK_MONTHLY_METADATA.md) and
+[four-series EVDS preparation](EVDS_SERIES_METADATA.md); the
+[EVDS expansion](EVDS_COVERAGE.md) records additional rate/CPI series and its
+preparation command. Use the catalog revision matching that pool. This is not
+every BDDK/EVDS series, nor proof of identical source bytes on a later rebuild.
+
+Preparation writes Bronze evidence, validated Silver and provenance under the
+operator-owned root. Keep the root unchanged and close every connection before
+readiness/private copying. When changing pools/catalogs, restart into a fresh state
+root; existing sessions retain their previous snapshot. A copy failure makes no
+model call. Do not overwrite older evidence to hide a conflicting source revision.
+
+
+## Local API contracts
+
+
+<a id="local_api-executable-contract"></a>
+
+### Executable contract
+
+| Method / route | Input | Response |
+| --- | --- | --- |
+| GET `/v1/health` | None | Local readiness, `scripted`/`kloudeks` mode and limits; `model_checked=false` |
+| GET `/openapi.json` | None | Versioned schemas; Swagger/ReDoc disabled, no CDN dependency |
+| POST `/v1/sessions` | JSON `{}` | Session ID and one-time capability token; HTTP 201 |
+| POST `/v1/sessions/{session_id}/turns` | JSON `request_id`, `question`, optional `selected_result_id`; token header | Owned turn reference/state; HTTP 202 |
+| GET `/v1/sessions/{session_id}/turns/{turn_id}` | Token header | State, gated answer and published cells when available |
+| GET `/v1/sessions/{session_id}/turns/{turn_id}/events` | Token header; optional `Last-Event-ID` 0–3 | Actual turn lifecycle SSE |
+
+`X-KKB-Session-Token` carries a random 256-bit capability. Never place it in a
+URL, question, browser log or model prompt. The server retains only its SHA-256
+digest and checks possession plus session/turn membership. A session ID alone
+grants nothing. No arbitrary workspace/result/lineage digest lookup exists.
+Generate a fresh 32-character lowercase hex `request_id` for each intended
+question. Repeating the same ID, exact question and selection in that session returns the
+existing turn without rerunning; changed text or selection gives `request_conflict`. After a
+disconnect, retrieve the existing turn or repeat the same ID. A new ID means a
+new analysis, not transport recovery.
+
+
+## Prepared runtime
+
+
+<a id="prepared_api-m10-17--run-the-api-over-a-prepared-local-pool"></a>
+
+### M10-17 — Run the API over a prepared local pool
+
+This connects [LOCAL_API](ARCHITECTURE.md#local_api-m10-16--version-one-local-api-and-owned-results) to the existing inspected tools,
+`Session.answer`, workspace publication and canonical result projector.
+No new financial formula or source fetch is hidden in the HTTP path.
+
+<a id="prepared_api-check-first-without-calling-a-model"></a>
+
+### Check first, without calling a model
+
+From the repository with its virtual environment activated and dependencies
+installed (`python -m pip install -e ".[dev]"`):
+
+```powershell
+python -m kkb_agent.api --check --prepared-root data/processed/lakehouse --catalog docs/catalog/prepared_v3.json --env-file .env
+```
+
+This reads configuration and the closed prepared pool, validates exact catalog
+identity/required semantics, counts stored/non-null observations and reports
+each series' first/last stored period. It does not construct a provider, send a
+model request, fetch official data, create working copies or open a listener.
+Readiness is not live connectivity or coverage completeness. Gaps/revisions and
+source truth remain separate correctness concerns.
+
+The optional explicit `--env-file` accepts bounded literal `KLOUDEKS_...=...`
+settings with matching quotes or unquoted values and trailing ` # comment`.
+It rejects duplicate/malformed settings and files over 64 KiB. It does not run
+shell code, interpolate variables or change process environment. File values
+take precedence over corresponding environment values. Without this flag,
+existing process variables are used; `.env` is not loaded implicitly.
+The existing approved Kloudeks host check is mandatory; local service request
+timeout must be finite and 1–120 seconds, with 1–3 provider attempts configured.
+
+<a id="prepared_api-start-only-when-model-requests-are-authorized"></a>
+
+### Start only when model requests are authorized
+
+```powershell
+python -m kkb_agent.api --serve --enable-model-requests --prepared-root data/processed/lakehouse --catalog docs/catalog/prepared_v3.json --env-file .env --state-root data/processed/api-runs
+```
+
+`--enable-model-requests` is an explicit operator enablement, not an organizer
+permission or proof of a successful live call. Startup/health still sends no
+request; submitting a question uses the real Kloudeks provider. There is no
+production fake provider or third-party-host fallback. The CLI always binds
+`127.0.0.1`, defaults to port 8000, uses one Uvicorn worker, disables access and
+forwarded-header handling, and caps concurrent HTTP connections at 32. Keep
+this service local until hosting/authentication is separately implemented.
+
+In addition to `/v1/health`, `/v1/dataset` exposes a bounded copy of the startup
+inventory: catalog and prepared counts, observations, file bytes, snapshot and
+catalog identities, series labels and recorded periods. It exposes no local
+paths, source locators or credentials. Missing configured data returns a fixed
+unavailable response. The first [local frontend](OPERATIONS.md#local_client-datatrio-local-analysis-workspace) consumes this inventory and the turn contract.
+
+<a id="prepared_api-measured-acceptance-and-remaining-limits"></a>
+
+### Measured acceptance and remaining limits
+
+See the [dated evidence](EVALUATION.md#prepared-api-delivery-and-pool-evidence) for exact tests, pool identities, timings and limitations. [ROADMAP](ROADMAP.md#current-project-status) owns delivery status.
+
+Use a matching pool/catalog snapshot. Restart into a fresh state root when changing either; existing sessions keep their own snapshot and are not silently refreshed.
+
+<a id="development-and-live-check-commands"></a>
+<a id="prepared_api-development-and-authorized-live-check-commands"></a>
+
+### Development and authorized live-check commands
+
+The document-mode command here obtains configuration from process variables;
+its environment statement does not override the API launcher’s explicit literal
+`--env-file` option documented above.
+
+Requires Python >=3.12. Run setup when needed, then ordinary quick checks:
+
+```bash
+make install-dev
+make quick
+```
+
+On Windows, after creating `.venv` and installing `.[dev]`, run the same fast PR checks with `.\.venv\Scripts\python.exe scripts/check_windows.py`. The script uses the same interpreter for every check, needs no PowerShell execution-policy change, enables UTF-8 for Turkish fixtures, and stops at the first failed check. It makes no live model/source calls. `.gitattributes` preserves the reviewed source documents' LF hashes and all test fixtures' exact bytes on checkout.
+
+Without Windows symbolic-link creation privilege, the real symlink fixture reports a skip; missing-root rejection still runs. POSIX file-mode assertions apply on POSIX only; on Windows, use an operator-owned private staging directory with appropriate Windows ACLs. Source-fetch supervision observes connection progress on both platforms without changing connection or total-time budgets.
+
+For opt-in catalog discovery followed by one bounded analysis/clarification plan, add `--catalog docs/catalog/prepared_v3.json` to the prepared rehearsal. See [the continuation contract](CATALOG.md). This enables lexical catalog search; real dense-query policy and live selection quality still need acceptance. The [reviewed EVDS expansion](EVDS_COVERAGE.md) adds nine credit-rate series and thirteen CPI divisions: the measured local pool holds 29 series / 4,124 observations, with 37 catalog identities. This is broader coverage, not every BDDK/EVDS series. v1/v2 remain historical snapshots; use the matching catalog and rebuild any vector index for the new content digest.
+
+Before `live_check --prepared-root`, finish ingestion and close all connections to the prepared lakehouse; keep that root unchanged during the copy. `prepared_copy_failed` means the copy could not be created (for example, a locked file); no model call was made. Close the owning process and use a fresh work directory for a later explicitly authorized rehearsal.
+
+Normal code tasks use targeted tests/lint or `make quick`; task PRs to `dev` use the fast `make pr` gate, including strict `mypy src` (DEC-140). `make full` belongs to stable `dev -> main`/final demo checkpoints or explicit requests. Boundary changes still need targeted negative tests. Documentation-only tasks/PRs use diff/link/status checks, not application/security/release checks. [AGENTS](../AGENTS.md#validation-tiers-and-speed-limits) owns the gate rules; these command definitions are not claimed passing results.
+
+There is no `eval-smoke`/`eval-full` Make target or benchmark runner. UI launch instructions are in [LOCAL_CLIENT](OPERATIONS.md#local_client-datatrio-local-analysis-workspace). `python -m kkb_agent.llm.smoke` (transport) and `python -m kkb_agent.live_check` (one question end to end on synthetic data) are operator-run live checks, never part of a gate. [EVALUATION](EVALUATION.md#implemented-command-registry) separates existing commands from planned tiers. `make full` does not run a benchmark.
+
+M7-19 adds an explicit document mode to `live_check`. **One live public CSV acceptance passed** ([evidence and limits](EVALUATION.md#m7-19-live-csv-acceptance)). The following is a future operator invocation, not an offline test: it calls Kloudeks and fetches the URL in the question. Use it only after separate approval for that run and an accepted network/source boundary (Q-NET-01/02; Q-DATA where relevant). Supply the actual question, URL, column and row; no address is injected by the command.
+
+```sh
+# Only after explicit live-run approval; replace the placeholder question.
+( set -a; . ./.env; set +a; python -m kkb_agent.live_check --document --question 'QUESTION CONTAINING THE APPROVED PUBLIC URL AND REQUESTED CELL' )
+```
+
+The application reads configuration from `os.environ`, never `.env` itself. The document report contains stage/status/timing, hashed identities, numeric cell coordinates and verification counts, not question/answer/document text or URLs. Exit 0 requires a retained numeric claim bound to the fetched cell with resolvable source/transform lineage; loading a file alone is not success. On `fetch_failed`, the operator-only `fetch_code` reports an existing `FetchCode` or null; TLS and other transport errors remain grouped as `TRANSPORT_FAILURE`. For `not_admitted`/`needs_input`, operator-only `document_code` exposes an allowlisted existing admission/loader code or null. `not_admitted` alone does not identify whether admission or parsing failed. No raw failure text is exported. The existing no-argument synthetic mode is unchanged. CSV/XLSX/text-layer PDF and bounded static HTML tables/text are supported. M7-11 offers explicitly injected untrusted OCR text only; the operator command does not enable it. JavaScript rendering and image-address loading are unsupported. Only the separately recorded public CSV live acceptance has passed.
+
+
+## Local client
+
+
+<a id="local_client-datatrio-local-analysis-workspace"></a>
+
+### DataTrio local analysis workspace
+
+M10-03 first working client, PR #159. A single responsive screen combines the
+question, accepted result versions, canonical tables, prepared-data inventory
+and read-only operating settings. There is no login screen in this local slice.
+The Next.js server connects to the existing [prepared Python API](OPERATIONS.md#prepared_api-m10-17--run-the-api-over-a-prepared-local-pool).
+Financial calculations and publication decisions stay in Python.
+
+<a id="local_client-run-on-windows"></a>
+
+### Run on Windows
+
+Use two PowerShell terminals. The examples assume the existing Desktop checkout,
+installed Python development environment, reviewed prepared pool and configured
+local `.env`. No credentials or prepared observations belong in Git.
+
+First verify the backend configuration and data without a model request:
+
+```powershell
+cd C:\Users\Cabaroglu\Desktop\KKB-DataTrio
+.\.venv\Scripts\python.exe -m kkb_agent.api --check --prepared-root data/processed/lakehouse --catalog docs/catalog/prepared_v3.json --env-file .env
+```
+
+This checks the local snapshot and configuration; it does not prove live Qwen
+connectivity. The expanded local snapshot measured on 2026-09-14 contains
+29 prepared series, 4,124 observations and 37 catalog candidates. Another
+teammate must prepare their own data using the source guides; cloning Git does
+not download this pool. See [EVDS coverage](EVDS_COVERAGE.md) and
+[BDDK preparation](BDDK_SOURCE.md).
+
+When live model requests are authorized, start the Python API in terminal 1:
+
+```powershell
+.\.venv\Scripts\python.exe -m kkb_agent.api --serve --enable-model-requests --prepared-root data/processed/lakehouse --catalog docs/catalog/prepared_v3.json --env-file .env --state-root data/processed/api-runs
+```
+
+This binds `127.0.0.1:8000`. Submitting a question sends the required context to
+the explicitly configured Kloudeks provider. No OpenAI/Anthropic/Google-hosted
+fallback exists. The optional `--env-file` is parsed as bounded literal values;
+its values override corresponding process environment settings. It never runs
+shell interpolation. Model timeout must be 1–120 seconds and attempts 1–3;
+model latency must be measured before choosing a demo setting. Startup/health
+does not call the model. See PREPARED_API for the exact snapshot/worker bounds.
+
+In terminal 2, use Node.js 22 (tested with 22.17.0):
+
+```powershell
+cd C:\Users\Cabaroglu\Desktop\KKB-DataTrio\web
+npm ci --ignore-scripts --no-audit --no-fund
+$env:KKB_LOCAL_API_URL = 'http://127.0.0.1:8000'
+$env:NEXT_TELEMETRY_DISABLED = '1'
+npm run dev
+```
+
+Open **http://127.0.0.1:3000/**. `localhost:3000` also works, but use the same
+origin consistently so the browser retains its session. The frontend port is
+deliberately fixed to 3000 in this local bridge. A different backend port can
+be selected through the API's `--port` and the matching server-only URL above.
+
+For a production-build preview, stop the frontend with Ctrl+C and run:
+
+```powershell
+npm run build
+npm run start
+```
+
+Keep the Python terminal running. Stop each server with Ctrl+C when finished.
+No process is automatically installed as a service. Changing prepared data or
+catalogs requires restarting the API with a validated snapshot; old sessions
+are not silently refreshed. A backend restart invalidates browser capabilities.
+
+<a id="local_client-what-the-first-screen-does"></a>
+
+### What the first screen does
+
+- Shows actual prepared/candidate counts, stored periods and pool size. The
+  inventory refresh button only rereads API metadata; it does not ingest data.
+- Example questions fill the composer; they do not submit themselves.
+- A question creates a session and submits a uniquely identified turn. Status
+  is polled from the API; the UI does not invent percentages or tool stages.
+- Accepted published output displays the API's cells; qualified/abstained
+  responses retain prose/notices without a new table. Table layout,
+  pagination, searching and Turkish labels do not recalculate finance values.
+- Missing cells remain absent. Different units/scales and duplicate cells are
+  kept separate. Whole-window counts are separated from monthly observations.
+- Each publication remains selectable. Cell detail shows recorded unit, period,
+  cell identity and result version; unavailable semantics stay explicit.
+- Clarification, abstention and transport failure preserve the previous table.
+  The API's detailed source-to-result proof graph is not exposed yet.
+
+The exact raw display strings can retain source-specific notation; the client
+only translates known labels. There is no model-generated HTML rendering.
+
+<a id="local_client-recovery-and-limits"></a>
+
+### Recovery and limits
+
+The session capability is held in this tab's `sessionStorage`, never a URL or
+Kloudeks credential. The question, request identity and optional selected public
+result reference are saved together before POST. The displayed result reference
+and follow-selection preference are stored separately from each request.
+“Seçili tabloyla devam et” binds the next question to the displayed accepted
+publication. Switching it off sends a question without an explicit table pin;
+it does not erase backend analysis state. The composer and historical questions
+show which source was used. A successful publication becomes the new selection;
+a refusal/failure leaves the prior table visible.
+
+Reload restores the exact selected reference, including an older table; a missing
+stored reference never silently becomes the newest table. Legacy storage remains
+readable, and legacy retries do not acquire a new selected source retroactively.
+Reloading restores known turns through GET; it never silently resubmits a
+question. If admission was uncertain, the visible recovery action reuses the
+same request identity, exact question and original selected reference. Selection
+controls stay disabled while admission/execution/recovery is pending. Multiple
+unread turn states recover in order. Explicit admission rejections are retained
+as terminal entries; transport/5xx failures keep the recovery record. Storage
+failures prevent new submission rather than
+losing the recovery record.
+
+The local API admits at most eight sessions and 24 turns per session, with one
+analysis worker. Creating a new workspace does not delete old analytical files
+or reclaim server sessions. Polling stops after ten minutes; this is not a
+server-side cancellation. Opening a new workspace with an unresolved request asks
+before discarding its local recovery record; it does not cancel the server job.
+The operator can restart the API when required.
+The composer is disabled during admission/execution to avoid accidental overlap.
+
+If the API is absent or returns an invalid response, the screen reports a fixed
+Turkish failure. It does not substitute sample values or silently use another
+provider. Server-only `KKB_LOCAL_API_URL` permits a fixed loopback destination;
+no `NEXT_PUBLIC_` secret or model credential is required by `web/`.
+
+<a id="local_client-repeat-the-finite-synthetic-selection-rehearsal"></a>
+
+### Repeat the finite synthetic selection rehearsal
+
+From the repository root with Python dev/test dependencies installed:
+
+```powershell
+$env:PYTHONPATH = Join-Path (Get-Location) 'src'
+python tests/manual/selected_client.py
+```
+
+In another terminal, start the production client using the build instructions
+above and `KKB_LOCAL_API_URL=http://127.0.0.1:8127`. This [manual test launcher](../tests/manual/selected_client.py)
+uses a temporary two-series pool and prescribed test-provider responses; it is
+not the product launcher and cannot answer arbitrary questions. It never calls
+Kloudeks or official sources. Stop both servers with Ctrl+C after the rehearsal.
+It overwrites only its generated `artifacts/selected-browser-ledger.jsonl` ledger
+(request/source IDs, status and provider-call counts; no capability tokens).
+
+Use this exact question order in a fresh browser workspace:
+
+1. `Konut kredisi tablosunu getir.` — three stock values, 100/120/150 million TRY.
+2. `Seçili tabloya TÜFE ekle.` — six values, adding CPI 100/110/120.
+3. Select **Analiz 1**, reload, then send `Eski tabloya TÜFE ekle; bağlantı provası`.
+   The test wrapper returns one 503 **after** admission. Reload; the table/source
+   must remain Analiz 1. Use **Bekleyen isteğe devam et**: Analiz 3 must contain
+   six values; the ledger must repeat the exact request/source without new work.
+4. Select **Analiz 1** and send `Seçili tabloya havuzda olmayan KFE serisini ekle.`.
+   Expect abstention and the unchanged three-value source table.
+5. Send `Reddedilen kaynak provası`. The wrapper injects 422 invalid_result;
+   no retry loop or new publication; the composer must become usable.
+6. Disable **Seçili tabloyla devam et**, reload, then send
+   `Serbest soruyla yeni bir tablo getir.`. Expect a three-value publication
+   with no selected-result field on admission. Historical results remain.
+
+Also inspect selection controls while busy/pending and at 390x844; the document
+must not scroll horizontally. Restore any temporary viewport override afterward.
+
+
+## Wider operator-flow target
+
+M10-01 target specification. Absence/prerequisite statements here describe its original scope; current routes and selected-result behavior are defined in the executable API contracts.
+
+<a id="operator_flow-one-demo-flow"></a>
+
+### One demo flow
+
+Use synthetic/local-safe data for development rehearsal; real demo acceptance targets the prepared official dataset under DEC-136 with source-use permissions. Live source/model/OCR activity requires separate authorization. An operator must be able to distinguish a scripted rehearsal from live output; the existing live_check command is not an API or a safe automatic startup check.
+
+| Step | Operator action | Application contract / observable outcome | Recovery and ownership |
+| --- | --- | --- | --- |
+| 1. Start | Open a fresh analysis session | Explicit session identity; readiness means local configuration/store capability, never an automatic provider call | Unavailable service exposes a fixed safe category; retry only by an explicit new operator action |
+| 2. Load/select | Select prepared lakehouse data or supply an authorized document URL in the question | Prepared official observations are the financial-data input; the first four-series slice is prepared in an operator-local root (not committed; rebuild commands in LOCAL_CLIENT). Uploads use existing admission/loaders. URLs use web_url and safe_fetch; no arbitrary connector or BDDK/EVDS adapter is implied. Show the source selection and unknown semantics | Rejected/unsupported source is not added as usable data. Ask for a supported format or required sheet/delimiter; do not guess |
+| 3. Ask | Submit a question in this session, optionally referencing a prior result | Server validates bounded request and session-owned references, then invokes existing Session.answer with that session's connection/workspace and trusted registry | No client-selected provider, tool registry, connection path, SQL or gate override |
+| 4. Inspect progress | Read plan/tool status while waiting | DEC-123 SSE target: validated step/tool identifiers and lifecycle status only. Plan inspection is informational; it is not a new confirmation gate or hidden reasoning view | Never expose raw plan arguments, model prompts, intermediate document content or exception text |
+| 5. Inspect answer | Read accepted/qualified answer or abstention | Present GatedAnswer.text only after its gate. Preserve limitations, unknown semantics and omitted-claim indication without showing rejected sentences | An abstention is a completed safe outcome, not a transport failure or a value of zero |
+| 6. Inspect result/evidence | Select a result cell and “Why this number?” | Show the recorded value with period/unit/scale; request bounded evidence for that immutable result/cell. Missing proof is explicitly unavailable/partial | No source ancestor alone upgrades a value to verified. Graph presentation cannot repair absent evidence |
+| 7. Follow up | Add a series or change a period in the same session | Resolve only owned current workspace values; retain prior result identity and show stale/recomputed state, never silently overwrite displayed evidence | Refuse stale/unowned references. Unsupported follow-up asks for clarification; no automatic full-table reconstruction |
+| 8. Recover/reset | Start a new analysis after failure, or request reset | A new session must not inherit another session's data. Reset/cancellation UX is M10-11; no destructive reset/delete endpoint is promised here | Preserve old evidence until the explicit retention/reset policy permits removal; disconnect does not mean a running job was cancelled |
+
+The selected-table continuation, immutable pre-POST request identity and reload/recovery contract is defined in [LOCAL_CLIENT](OPERATIONS.md#local_client-datatrio-local-analysis-workspace) and [LOCAL_API](ARCHITECTURE.md#local_api-m10-18--selected-result-grounding-merged). [DEC-141](DECISIONS.md#dec-141-organizer-verbal-criteria) requires preservation of untouched columns/history. [ROADMAP](ROADMAP.md#current-project-status) owns remaining UI scope; [EVALUATION](EVALUATION.md#m10-18-browser-selection-2026-09-15) distinguishes synthetic browser rehearsal from live acceptance. A specification review is not a passed rehearsal.
+
+<a id="operator_flow-prepared-dataset-selection-and-separate-web-inputs"></a>
+
+### Prepared dataset selection and separate web inputs
+
+The [DEC-137 dated refinement](DECISIONS.md#dec-137-prepared-pool-refinement) makes the prepared BDDK/EVDS pool the primary official-data demo path. The four organizer concepts are the first real vertical-slice target, not final coverage. Build and validate the pool before runtime through reusable adapters → raw bronze → validation/normalization → silver → required gold → DuckDB + Parquet. Users select trusted prepared candidates and see actual requested-window coverage/unknowns. Bronze alone cannot establish a financial answer.
+
+```text
+User -> planner -> catalog_search (operator-configured retrieval)
+ -> trusted prepared candidate -> lakehouse silver / appropriate trusted gold
+ -> guarded transforms / analytics -> mandatory correctness harness -> verifier
+ -> accepted answer / table / chart / workspace
+Prepared-pool miss or unresolved selection -> clarification / abstention
+```
+
+The normal core three-turn flow does not fetch BDDK/EVDS when a question arrives. Financial-source independence does not promise offline planning/query embeddings. Runtime official-source cache-miss materialization is a future policy-gated scalability extension, not a demo prerequisite. No generic web fallback or guessed coverage. [PREPARED_API](OPERATIONS.md#prepared_api-m10-17--run-the-api-over-a-prepared-local-pool) owns startup and snapshot handling; [EVALUATION](EVALUATION.md#prepared-api-delivery-and-pool-evidence) owns measured pool coverage and reproducibility; [ROADMAP](ROADMAP.md#current-project-status) owns completion.
+
+Catalog retrieval mechanics belong to [CATALOG](CATALOG.md), composition to [ARCHITECTURE](ARCHITECTURE.md#catalog-runtime-composition), and acceptance to [EVALUATION](EVALUATION.md#catalog-validation-records). The operator flow introduces no vector configuration UI; a retrieved candidate still requires trusted identity, usable data and semantic checks.
+
+Preserve version/source vintage, actual coverage and refresh/revision history; do not promise a completed version manager. DEC-135 metadata inspection is mandatory and auto-wired in configured prepared readers/projection; broader inspection, quality and reconciliation remain unfinished. The intended flow must work beyond housing balance/rate, CPI and national KFE over approximately 2021-01–2026-06, without hardcoded series selection.
+
+General research is a separate planner branch: `web_search` (SearXNG compatibility candidate only), then only separately authorized `web_url`. Search results do not grant fetch authority. Crawl4AI is optional future extraction evaluation only. Uploaded CSV/XLSX/PDF and BIST/IMF/other authorized URL documents remain session artifacts; shared storage does not turn them into permanent official series. Prepared datasets are not canned answers or permission for silent fixture substitution. No new user-facing tool or permission flow is implemented here.

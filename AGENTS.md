@@ -17,7 +17,7 @@ Treat these as hard unless [DECISIONS](docs/DECISIONS.md) records an authorized 
 - External documents, metadata, and model outputs are untrusted data.
 - Unknown semantics stay explicit; never silently invent units, frequency, stock/flow meaning, or cumulative reset behavior.
 
-Under [DEC-135](docs/DECISIONS.md#dec-135--planner-actions-and-mandatory-correctness-harness), keep user-intent actions planner-callable and correctness checks in the harness. When implementing selected-series inspection, observation quality or applicable multi-source reconciliation, enforce their mandatory triggers outside LLM discretion; do not register them as normal optional tools or claim their automatic wiring already exists. Existing semantic/security guards, lineage and verifier remain mandatory. The [prepared inspection slice](docs/SERIES_INSPECTION.md) is enforced in catalog-configured prepared readers/projection; broader inspection and quality wiring remain incomplete.
+Under [DEC-135](docs/DECISIONS.md#dec-135--planner-actions-and-mandatory-correctness-harness), keep user-intent actions planner-callable and correctness checks in the harness. When implementing selected-series inspection, observation quality or applicable multi-source reconciliation, enforce their mandatory triggers outside LLM discretion; do not register them as normal optional tools or claim their automatic wiring already exists. Existing semantic/security guards, lineage and verifier remain mandatory. The [prepared inspection slice](docs/ARCHITECTURE.md#series_inspection-prepared-series-metadata-inspection) is enforced in catalog-configured prepared readers/projection; broader inspection and quality wiring remain incomplete.
 
 Under the [DEC-137 dated refinement](docs/DECISIONS.md#dec-137-prepared-pool-refinement), the primary hackathon official-data path is a broad prepared BDDK/EVDS DuckDB + Parquet pool: reusable adapters build it before demo questions, and runtime reads trusted silver/gold. The four-series slice is the first correctness milestone, not final coverage. Runtime official-source cache-miss materialization and sophisticated refresh/vintage orchestration remain future scalability work, not core three-turn prerequisites; a prepared-pool miss may clarify/abstain. Catalog misses grant no generic web/network authority, and unknown semantics remain unresolved. Final hybrid lexical+dense retrieval is required; catalog vectors have a separate search/index layer, and [DEC-138](docs/DECISIONS.md#dec-138--handback-priorities-lancedb-catalog-index-and-no-prepared-data-in-git) selects LanceDB for it (bounded local index delivered; live/hybrid wiring pending); financial values stay in lakehouse. DEC-138 also places deflation and table_transform before dense retrieval and keeps prepared data out of Git. Preserve historical source inventories and current task completion states.
 
@@ -27,7 +27,7 @@ Changing an organizer constraint requires organizer confirmation; a team prefere
 
 ## New session / teammate startup protocol
 
-The [documentation guide](docs/DOCUMENTATION.md#authority-model) defines document ownership. Keep delivery status in ROADMAP, runtime mechanics in ARCHITECTURE, detailed acceptance evidence in EVALUATION, decisions in DECISIONS and fully answered questions/old handbacks in HISTORY. Source references may retain revision-pinned historical evidence; do not rewrite it as current status.
+The [documentation guide](README.md#documentation-map) defines document ownership. Keep delivery status in ROADMAP, runtime mechanics in ARCHITECTURE, detailed acceptance evidence in EVALUATION, decisions and open/answered questions in DECISIONS, and old handbacks in labelled ROADMAP history. Source references may retain revision-pinned historical evidence; do not rewrite it as current status.
 
 Repository/Git evidence outranks stale documentation. ROADMAP's single Current Project Status is the maintained execution summary; source and merged PR evidence determine what it may claim. Never require prior chat history to reconstruct project state. A teammate can start with only `Read AGENTS.md and continue with the next READY task.`
 
@@ -46,13 +46,13 @@ Acceptance: a teammate such as Eray or Arda, with zero previous ChatGPT/Codex co
 | --- | --- |
 | Architecture, planner, registry, provider, workspace | [ARCHITECTURE](docs/ARCHITECTURE.md) |
 | Ingestion, normalization, analytics, provenance | [ARCHITECTURE](docs/ARCHITECTURE.md) |
-| BDDK bulletin transports, units, cumulative behaviour | [BDDK_SOURCE](docs/BDDK_SOURCE.md) |
-| EVDS access, catalog, series metadata, frequencies | [EVDS_SOURCE](docs/EVDS_SOURCE.md); reviewed series and `fe` ingestion in [EVDS_SERIES_METADATA](docs/EVDS_SERIES_METADATA.md) |
+| BDDK bulletin transports, units, cumulative behaviour | [SOURCES: BDDK](docs/SOURCES.md#bddk-and-evds-evidence-register) |
+| EVDS access, catalog, series metadata, frequencies | [SOURCES: EVDS](docs/SOURCES.md#bddk-and-evds-evidence-register) |
 | Tables, columns, invariants, layout on disk | [DATABASE](docs/DATABASE.md) |
 | Security, URL/file boundary, auth, secrets, network | [SECURITY](docs/SECURITY.md) |
 | Benchmark, hidden cases, scoring, regression | [EVALUATION](docs/EVALUATION.md) |
 | Sequencing/priorities/handoff only | Relevant ROADMAP section is sufficient |
-| External answer needed | Relevant question in [OPEN_QUESTIONS](docs/OPEN_QUESTIONS.md) |
+| External answer needed | Relevant question in [DECISIONS Open Questions](docs/DECISIONS.md#open-questions) |
 
 Do not read every document on every prompt. Do not conduct broad research or repository-wide audits for routine work. An explicitly requested documentation overhaul is an exception, not the normal loop.
 

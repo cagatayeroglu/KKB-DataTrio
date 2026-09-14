@@ -290,7 +290,7 @@ in the discovery outcome for a future UI; no invented explanation is displayed.
 
 This is an **offline-tested integration**, not live model-selection quality.
 The planner still decides whether the question distinguishes candidates; mandatory
-selected-series inspection has a [prepared-reader slice](SERIES_INSPECTION.md),
+selected-series inspection has a [prepared-reader slice](ARCHITECTURE.md#series_inspection-prepared-series-metadata-inspection),
 while broader M13-13 and natural-language choice validation remain unfinished. Total deadline/cancellation,
 cross-turn automatic replanning/staleness, wider source availability, real embedding
 input policy and held-out retrieval quality are separate work. The mode is not a

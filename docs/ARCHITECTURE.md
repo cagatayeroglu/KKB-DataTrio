@@ -12,7 +12,7 @@ This file owns technical structure and contracts. [ROADMAP](ROADMAP.md) owns del
 
 The implemented spine includes bounded file admission, CSV/XLSX loading and safe GET with validated redirects, DuckDB/Parquet storage and financial semantics, typed results, the Kloudeks transport (tested offline; one authorized live smoke and one live end-to-end question passed), validated planning/execution, content-addressed workspace values and multi-result answer gating. Eight callable factories exist: `table_transform` (deflate/add_series), M13-04 `catalog_search` and the six brief tools (search is offline-only): `lakehouse`, `change_detection` (comparison), `anomaly`, `causality` (association, lag and Granger precedence), `web_search` with an explicitly injected backend, and `web_url`, which reads a CSV/XLSX table, a PDF's text and ruled tables, or bounded static HTML text/tables at an address the user wrote, and can return one named cell as a result the answer gate binds. Synthetic tests compose an end-to-end answer with a scripted model. Bounded BDDK/EVDS adapters, the local prepared API and first Next.js client exist. Broader data/semantic coverage, full hybrid acceptance, complete proof/replay, production web search, JS/image-address extraction, benchmark runner, remaining UI and deployment remain incomplete. Day 0 drafts remain outside the shared runtime.
 
-Current stateful boundary: [question submission](../web/lib/client.ts) sends the selected public result reference as `selected_result_id`; the [API contract](LOCAL_API.md#m10-18--selection-admission-and-workspace-resolution-partial) resolves session ownership and immutable publication receipts. The prepared runner binds planning, dispatch and publication to that selected source. Retry/reload preserve the original request selection. General refresh invalidation is a separate contract; see [ROADMAP](ROADMAP.md#current-project-status) for remaining acceptance and [EVALUATION](EVALUATION.md#m10-18-browser-selection-2026-09-15) for the dated synthetic browser evidence.
+Current stateful boundary: [question submission](../web/lib/client.ts) sends the selected public result reference as `selected_result_id`; the [API contract](ARCHITECTURE.md#local_api-m10-18--selected-result-grounding-merged) resolves session ownership and immutable publication receipts. The prepared runner binds planning, dispatch and publication to that selected source. Retry/reload preserve the original request selection. General refresh invalidation is a separate contract; see [ROADMAP](ROADMAP.md#current-project-status) for remaining acceptance and [EVALUATION](EVALUATION.md#m10-18-browser-selection-2026-09-15) for the dated synthetic browser evidence.
 
 ## Goals and non-goals
 
@@ -361,7 +361,7 @@ Under [DEC-136](DECISIONS.md#dec-136--scoped-official-data-preparation-and-lakeh
 - Likely failures: Unknown/ambiguous series, schema drift, unavailable source, revisions, empty range, unexpected content type.
 - Validation expectations: Synthetic discovery/load fixtures, wrong-near-match selection tests, unfamiliar schemas, source outage, and stable provenance.
 
-TARGET operations are discovery, inspection, loading, profiling and provenance. A shared SourceAdapter protocol remains unimplemented; M3-06 supplies the bounded BDDK Monthly primitive described below and M3-07/08 a bounded reviewed EVDS `fe` primitive ([contract](EVDS_SERIES_METADATA.md)); both are live-accepted for their first series. The dated DEC-137 refinement prioritizes prepared-pool build/refresh; runtime official cache-miss loading remains future scalability, not a core-demo prerequisite. All observations reach analytics through validated lakehouse materialization. [INGESTION_PROFILE](INGESTION_PROFILE.md) specifies observable results; an executable shared adapter/selection interface remains implementation work. Adapters unable to discover (for example, a single uploaded file) should report unsupported capability explicitly rather than invent source candidates.
+TARGET operations are discovery, inspection, loading, profiling and provenance. A shared SourceAdapter protocol remains unimplemented; M3-06 supplies the bounded BDDK Monthly primitive described below and M3-07/08 a bounded reviewed EVDS `fe` primitive ([contract](EVDS_SERIES_METADATA.md)); both are live-accepted for their first series. The dated DEC-137 refinement prioritizes prepared-pool build/refresh; runtime official cache-miss loading remains future scalability, not a core-demo prerequisite. All observations reach analytics through validated lakehouse materialization. [INGESTION_PROFILE](ARCHITECTURE.md#ingestion_profile-m1-01--ingestionprofile-result-specification) specifies observable results; an executable shared adapter/selection interface remains implementation work. Adapters unable to discover (for example, a single uploaded file) should report unsupported capability explicitly rather than invent source candidates.
 
 M3-05 now provides an [offline monthly BDDK selector/metadata contract](BDDK_MONTHLY_METADATA.md): deterministic internal identities for explicit selectors and reviewed CatalogRecord declarations only for table 4 / housing row 2 / Sektör 10001 / TL presentation, retaining TP/YP/TOTAL. A separate bounded metadata projection validator checks the documented caption/period/headers/row. That M3-05 metadata slice adds no values or runtime/catalog_search registration. M3-06 subsequently delivered bounded offline request/response parsing, bronze snapshots, manifest and atomic silver/lineage materialization; general M3-05/M3-06 remain PARTIAL. Live BDDK/CA and real pool preparation remain unaccepted.
 
@@ -504,7 +504,7 @@ claim ID -> tool run -> output reference
 
 The TARGET FastAPI application will stream plan and tool progress over server-sent events, so a multi-step analysis is legible while it runs. The client is Next.js with Tailwind and shadcn/ui, TanStack Table for the analysis table, `react-plotly.js` for charts, with a concise claim/evidence view first. Graph-heavy React Flow presentation is DEFERRED under DEC-128. The logical UI contract above still does not depend on that stack: Streamlit remains the recorded fallback, and the front end must not gate backend acceptance.
 
-M10-01 specifies the [operator flow and API boundary requirements](OPERATOR_FLOW.md). [M10-16](LOCAL_API.md) implements a local FastAPI factory with closed version-one payloads, session capabilities, bounded single-worker admission and exact published-value projection. SSE reports actual turn lifecycle; full plan/tool callbacks remain pending. The [prepared runner/startup](PREPARED_API.md) now supplies inspected per-session copies and Session publication. The first Next.js client is delivered; bounded DEC-118 proof traversal remains unfinished; no global Session or unrestricted Lineage.trace export. “Why this number?” will present recorded evidence without upgrading verifier state; the current response explicitly reports proof graph unavailable.
+M10-01 specifies the [operator flow and API boundary requirements](ARCHITECTURE.md#operator_flow-m10-01--operator-flow-and-api-boundary-requirements). [M10-16](ARCHITECTURE.md#local_api-m10-16--version-one-local-api-and-owned-results) implements a local FastAPI factory with closed version-one payloads, session capabilities, bounded single-worker admission and exact published-value projection. SSE reports actual turn lifecycle; full plan/tool callbacks remain pending. The [prepared runner/startup](OPERATIONS.md#prepared_api-m10-17--run-the-api-over-a-prepared-local-pool) now supplies inspected per-session copies and Session publication. The first Next.js client is delivered; bounded DEC-118 proof traversal remains unfinished; no global Session or unrestricted Lineage.trace export. “Why this number?” will present recorded evidence without upgrading verifier state; the current response explicitly reports proof graph unavailable.
 
 ### 12. Lakehouse and medallion layout — CONFIRMED storage (DEC-112)
 
@@ -541,7 +541,7 @@ The operation selects two exact monthly STOCK/RATE/INDEX column labels and expli
 
 ### 13. Semantic catalog and retrieval — confirmed baseline; benchmark-gated extensions
 
-The [M13-13 prepared inspection](SERIES_INSPECTION.md) compares exact reviewed IDs and required declarations against local silver metadata. Catalog-configured prepared factories enforce it before selected-series calculation or direct-silver numerical promotion, recording a receipt in execution evidence. It is never a planner tool; generic input guards remain, and full-source quality, user-intent disambiguation and cross-turn staleness are still separate.
+The [M13-13 prepared inspection](ARCHITECTURE.md#series_inspection-prepared-series-metadata-inspection) compares exact reviewed IDs and required declarations against local silver metadata. Catalog-configured prepared factories enforce it before selected-series calculation or direct-silver numerical promotion, recording a receipt in execution evidence. It is never a planner tool; generic input guards remain, and full-source quality, user-intent disambiguation and cross-turn staleness are still separate.
 
 DEC-137 separates trusted **local/versioned catalog metadata and discovery** from **observation availability/materialization and lakehouse queries**. Approved reusable source adapters primarily populate the prepared official pool. Demo catalog routing is concept → trusted prepared candidate → lakehouse; a pool miss may clarify/abstain. Official adapter filling of known requested-window misses is future scalability, not a core demo prerequisite. catalog_search consumes reviewed catalog state; it does not fetch observations or invent IDs. The M13-08 demo snapshot is not a permanent full-catalog ceiling: reviewed aliases are precision shortcuts, not the only catalog knowledge. Broader versioned BDDK/EVDS metadata coverage is intended later and remains unimplemented; unseen concepts may use catalog retrieval without an exact alias, while unsupported identities remain unresolved.
 
@@ -679,7 +679,7 @@ Defaults reuse admission limits: 10 MiB input, 1 MiB extracted UTF-8 text, 100,0
 
 ### M10-03 local client delivery
 
-The [first local client](LOCAL_CLIENT.md) lives in `web/`: Next.js, Tailwind,
+The [first local client](OPERATIONS.md#local_client-datatrio-local-analysis-workspace) lives in `web/`: Next.js, Tailwind,
 shadcn-style Radix/CVA components and TanStack Table. Its bounded same-origin
 JSON bridge reaches only a fixed operator-configured loopback Python API.
 The browser owns presentation and a per-tab session capability; Python owns
@@ -692,3 +692,393 @@ result versions and recorded cell metadata can be inspected. Source refresh,
 uploads, charts/export, full claim/proof traversal, writable settings, cancel
 and hosted authentication are not part of this first slice. Scripted real-pool
 browser rehearsal proves client wiring, not live-model reasoning.
+
+
+## Local API contracts
+
+
+<a id="local_api-m10-16--version-one-local-api-and-owned-results"></a>
+
+### M10-16 — Version-one local API and owned results
+
+The first HTTP implementation of [DEC-123](DECISIONS.md#dec-123--fastapi-with-sse-behind-a-nextjs-front-end)
+provides a FastAPI factory, process-local session capabilities, bounded turn
+execution and explicit published-result projection. This is **not a deployed
+service**. [M10-17 startup](OPERATIONS.md#prepared_api-m10-17--run-the-api-over-a-prepared-local-pool) now supplies the inspected prepared
+Session runner and an explicitly enabled loopback launcher. Tests use scripted execution.
+[OPERATOR_FLOW](ARCHITECTURE.md#operator_flow-m10-01--operator-flow-and-api-boundary-requirements) retains the wider target requirements.
+
+<a id="m10-18--selection-admission-and-workspace-resolution-partial"></a>
+<a id="local_api-m10-18--selected-result-grounding-merged"></a>
+
+### M10-18 — selected-result grounding (merged)
+
+PR #163's admission slice is merged. `selected_result_id` is a published API
+`result_ref`, not an internal workspace name or digest. Authentication comes
+first. Admission resolves exactly one completed, ACCEPTED result in the same
+session and pins its source turn, public reference and version. Unknown,
+foreign, unpublished or ambiguous references return `invalid_result` (422)
+without admitting work. Missing/null selection retains the original runner
+behavior; an identical retry never runs again.
+
+[PR #166](https://github.com/cagatayeroglu/KKB-DataTrio/pull/166) records a
+process-local receipt only after prepared workspace publication and successful
+API projection. Session, turn, public reference and result version bind the
+exact workspace name and artifact. Existing session/turn limits bound receipts;
+there is no restart recovery. Duplicate published turn IDs cannot overwrite them.
+
+`PreparedRunner.resolve_selection` is a read-only worker helper. It resolves
+only an owned receipt, rejects stale/missing/rebound artifacts, checks artifact
+definition and stored result hashes, and returns a fresh snapshot. Older
+publications remain selectable while their own bindings are unchanged and
+non-stale. This helper is not an execution lease or renewed verifier approval.
+
+The prepared launcher now injects `PreparedRunner.selected` as `selected_runner`.
+That entry resolves the receipt again and runs the turn under the same runner
+lock and owned connection. Stale/changed selections fail the admitted turn with
+`invalid_result` before model execution. This differs from unknown/foreign
+public references, which admission rejects with HTTP 422 before creating a turn.
+Custom services without a selected handler still fail closed with HTTP 503.
+
+The mandatory selected-table harness uses registry-owned `ToolSpec.table_input`
+declarations, never a model's claim to have used the right table. Every
+calculation must consume the selected workspace name or an explicitly declared
+previous step derived from it. Discovery-only catalog plans and clarification
+remain permitted. Plan repair is bounded; invalid plans run no valid prefix.
+The executor rechecks the plan at dispatch and the pinned source before each
+step/retry. Current supported consumers are `table_transform` (deflate/add_series)
+and `change_detection` table_co_movement, including a prior transform's step
+output. Other analytical operations must clarify until they declare an actual
+supported table input; SQL cannot silently rebuild the selection.
+
+Before publication the source is checked again. `Workspace.preview(inputs=...)`
+and its existing atomic publish transaction record the selected source artifact
+as an input. Rebinding that source invalidates its dependent publications via
+the existing DAG. This covers explicit selected-table dependencies, not all
+legacy results, independent official-data refreshes or assumption changes.
+The writer/gate see only the selected source and its derived result, with exact
+copied values deduplicated; mandatory tool evidence and verifier checks remain.
+Failed/refused follow-ups do not replace previous published results.
+
+Scripted HTTP and real-tool tests cover older selection, wrong-source repair,
+catalog continuation, add-series then table comparison, retries, source changes
+and dependency invalidation. PR #166 now also wires frontend selection, immutable
+admission/retry identity and exact-reference reload recovery, with automated
+client/bridge checks. Synthetic selected-flow browser acceptance passed on
+2026-09-15; live Kloudeks selected-table quality remains pending. M10-18 is merged via #166 at `de11f3e`; the selected-flow delivery is DONE.
+The broader limits above remain open.
+See [client recovery and evidence](OPERATIONS.md#local_client-recovery-and-limits).
+
+<a id="local_api-bounded-lifecycle"></a>
+
+### Bounded lifecycle
+
+| Boundary | Limit |
+| --- | --- |
+| Sessions / turns | 8 sessions, 24 turns each including failures; no silent eviction |
+| Execution | One admitted turn globally on a dedicated worker; no application backlog |
+| Question | 4,096 characters and 8 KiB UTF-8; nonblank, no unsupported controls |
+| HTTP body | 16 KiB before JSON parsing including chunked bodies; 5-second read deadline |
+| Output | Under 1 MiB including wrapper; 2,048 cells; refuse excess, never truncate tables |
+| Text | 8,192 characters; labels/units 240; at most 16 bounded notices |
+| SSE | One stream per session; three recorded events; 30-second connection window |
+
+The runner owns/opens/closes its database connection on the worker. HTTP
+threads never receive a DuckDB connection or global mutable Session. `queued`
+means admitted and awaiting that worker. Events preserve the real admitted,
+running and completed-or-failed transitions; elapsed time starts at worker
+entry, admission is zero. Full plan/tool/gate callbacks remain separate work.
+Replay preserves observed times; reconnect using `Last-Event-ID` or poll after
+the stream closes. No fabricated tool progress is emitted.
+
+Restart invalidates capabilities and in-memory responses. There is no expiry
+scheduler, reset/delete endpoint, automatic file cleanup or durable resume.
+Shutdown refuses new work and waits for the existing runner; a Python thread
+is not safely killable. Provider/analytic bounds belong to the runner. A
+disconnect never cancels or retries analysis. Full wall-clock kill/isolation
+remains separate work.
+
+<a id="local_api-canonical-values-and-trust"></a>
+
+### Canonical values and trust
+
+[project_answer](../src/kkb_agent/api/projection.py) takes `Answered` plus the
+exact result read from the caller's **own published workspace**. Its digest
+must match the last candidate and the answer must be ACCEPTED. Acceptance
+alone cannot export candidates. QUALIFIED/ABSTAINED turns return safe answers
+and notices without a newly published result in this slice.
+
+Cells retain exact finite values, original slots, optional periods, units,
+scales, stock/flow meaning, samples and lag. Display text uses the existing
+deterministic formatter. Result version and claim kind survive; literal values
+never upgrade unknown unit/scale. Cell/result references derive from the
+server-issued turn and immutable result version, stable for repeat reads and
+distinct across turns/versions. Clients may lay out cells but must not invent
+missing cells or replacement values.
+
+Raw outcomes, rejected sentences, prompts, errors, source locators and
+transformation parameters are excluded. Gated prose/labels remain untrusted
+text: render text nodes, never raw HTML. Conservative locator/credential
+scrubbing and optional known-secret redaction prevent accidental display;
+this is not a general secret detector. A production runner must use this
+projector instead of raw internal serialization. `proof_graph="unavailable"`
+is explicit; stable references are not a fabricated graph or verification
+result. M10-08 owns bounded proof traversal; no unbounded Lineage.trace export.
+
+
+## Prepared runtime
+
+
+<a id="prepared_api-snapshot-and-session-ownership"></a>
+
+### Snapshot and session ownership
+
+The operator must close ingestion/other writers before startup. The runtime
+validates the pool read-only, hashes its files, then copies it exclusively into
+a new process-owned directory under `--state-root`. Before/after hashes detect
+ordinary concurrent changes; this is not a transactional snapshot of an active
+writer or protection from a malicious OS administrator.
+
+Local absolute roots are required internally. Linked paths/junctions, UNC/network
+paths, overlapping source/state roots, WAL/unexpected root files, over-deep
+directory layouts and pools carrying another workspace's records are refused.
+The pool is limited to 1 GiB / 10,000 files; directory visits are bounded too.
+Every prepared series must have a consistent reviewed catalog identity. The
+bound follows the catalog rather than a hardcoded list of seven series.
+Catalog entries without prepared observations remain discovery candidates;
+they never trigger silent source fetching. Larger coverage still requires
+reviewed preparation/catalog expansion, not a new question argument.
+
+Each server-issued session gets its own copy of the immutable process seed.
+New periods appearing in the original after startup do not silently change
+that process's analyses. Updating data requires a new validated startup;
+automated refresh/version management remains separate. The original and seed
+are never written by the analytical tools. There is no automatic deletion or
+retention claim. At the initial worst-case cap, seed plus eight session copies
+may need approximately nine times the prepared storage, plus derived results;
+the expanded 29-series pool is about 8.13 MiB; the earlier seven-series pool was about 7.26 MiB.
+
+The service's single worker opens/closes a session's connection for each turn.
+The runner also refuses accidental concurrent entry. It registers inspected
+`lakehouse`, `change_detection`, `anomaly`, `causality`, `table_transform`, plus
+`catalog_search` and bounded catalog continuation. This prepared mode exposes
+no generic web/search/upload tools or provider/gate settings to the caller.
+Free catalog metadata remains continuation data, not SYSTEM instructions;
+existing code-reviewed display constants are the only names added to tool
+descriptions. Dense live retrieval is not silently enabled by this launcher.
+
+Accepted publications receive server-owned names `analiz_1`, `analiz_2`, etc.
+Subsequent plans see their own workspace metadata and may reference these names
+for deflation/add-series operations. Earlier immutable results survive. Failed
+turns may leave a numbering gap, not a fabricated publication. The runner
+passes only an exact owned published result to the public projector.
+
+The launcher also wires the [selected-result backend](ARCHITECTURE.md#local_api-m10-18--selected-result-grounding-merged).
+An explicit API result reference is resolved to its pinned workspace artifact
+under the runner lock; mandatory plan/dispatch checks bind supported table
+operations to that source, and successful publications record that dependency.
+Older unchanged results can be selected. PR #166's browser client now submits
+this field when follow-selection is enabled, persisting the original reference
+for retries and restoring the exact view on reload. Automated client/bridge
+checks and the dated synthetic browser rehearsal pass; live selected-table
+acceptance remains unverified.
+
+
+## Wider operator-flow target
+
+M10-01 target specification. Absence/prerequisite statements here describe its original scope; current routes and selected-result behavior are defined in the executable API contracts.
+
+<a id="operator_flow-m10-01--operator-flow-and-api-boundary-requirements"></a>
+
+### M10-01 — Operator flow and API boundary requirements
+
+Status: M10-01 operator specification, with [M10-16 local API](ARCHITECTURE.md#local_api-m10-16--version-one-local-api-and-owned-results), [M10-17 prepared runtime](OPERATIONS.md#prepared_api-m10-17--run-the-api-over-a-prepared-local-pool) and the [first Next.js client](OPERATIONS.md#local_client-datatrio-local-analysis-workspace) now delivered. The flow below includes wider requirements: full plan/tool progress, proof traversal, charts and deployment remain incomplete. Current executable routes and limits belong to LOCAL_API; the client currently exposes the prepared path, not the broader web/document tool surface.
+
+<a id="operator_flow-backend-facts-and-integration-prerequisites"></a>
+
+### Backend facts and integration prerequisites
+
+- [Session.answer](../src/kkb_agent/agent/loop.py) returns Answered(planned, outcome, results, answer). It is synchronous and has no progress callback. Do not pretend post-hoc fabricated events were streamed during execution.
+- Its Session has mutable rejection history; a process-global instance cannot be an uncontrolled multi-user session. [Workspace](../src/kkb_agent/agent/workspace.py) scopes bindings by workspace_id but defaults to `default`; this default must never silently identify an HTTP client. A workspace ID alone is not authorization. Some underlying result/artifact/lineage storage is shared, so arbitrary digest lookup is not a safe public API.
+- Workspace.store_result/read_result retain and validate content-addressed AnalyticalResult values; artifact value_ref and bindings identify versions. These are the existing result snapshots, not a reason for a second UI result/provenance database.
+- M5-21 stages a computed candidate in memory and publishes trusted workspace state only after successful execution, an ACCEPTED answer and candidate-level verification. QUALIFIED/ABSTAINED/errors do not publish. Publication is atomic and rejects changed workspace previews; earlier tool lineage/evidence writes are outside this transaction. The local API projects only gate-backed published results and preserves these failed-turn guarantees; broader proof traversal remains unfinished.
+- [AnalyticalResult](../src/kkb_agent/core/results.py) has result_id, digest, run/step IDs, ResultValue entries, evidence, warnings and unresolved_semantics. ResultValue has no universal cell_id. Do not invent a global cell identity from a mutable label or an unrelated lineage node.
+- [Lineage](../src/kkb_agent/lakehouse/lineage.py) stores hash-addressed typed nodes and edges. trace currently walks all ancestors; it is not a bounded public graph query. An adapter must bound database reads as well as returned JSON, rather than call trace then truncate.
+- The [answer gate](../src/kkb_agent/agent/verifier.py) and [literal proof](../src/kkb_agent/agent/literal.py) remain the authority. API/proof projection must not rerun a weaker numeric matcher or equate a source hash with correctness.
+
+These facts do not block operator-flow specification. They are acceptance requirements for the first API implementation; claiming a deployed/shared session service before satisfying them would be unsafe. Hosting, auth exposure, retention and restart behavior remain constrained by Q-INFRA-01/02, Q-DATA-03 and M10-02; no organizer answer is inferred here.
+
+<a id="public-payload-requirements-for-the-later-typed-api"></a>
+<a id="operator_flow-public-payload-requirements-and-implemented-local-api"></a>
+
+### Public payload requirements and implemented local API
+
+The bounded local API now implements versioned Pydantic/OpenAPI contracts, rejected extra fields, explicit nullable fields, finite numbers, body/count limits and fixed errors ([LOCAL_API](ARCHITECTURE.md#local_api-m10-16--version-one-local-api-and-owned-results)). The table retains broader payload requirements; prior-result submission, full proof and charts are not implemented by those contracts. All payloads are JSON data; the UI receives no internal Python objects.
+
+| Payload | Required shape / reuse | What must not be forwarded |
+| --- | --- | --- |
+| Session | Opaque server-issued session_id; lifecycle/expiry capability stated explicitly; request/result membership checked against that session | Caller-controlled filesystem/database paths; `default` shared workspace; implicit tenant/auth claims |
+| Question | question string, session identity; optional owned prior-result reference only where backend supports it | Gate kwargs, provider/model credentials, arbitrary tool definitions or SQL |
+| Turn/answer | Opaque turn/result references; AnswerStatus `accepted`, `qualified`, `abstained`; gated text, safe limitations/warnings and bounded tool statuses | Raw Answered dump, omitted sentence text, raw rejections, provider completions or exception strings |
+| Result/table | result identity plus immutable version; bounded columns/rows projected from canonical ResultValue data; value separate from optional display text; Period, unit, Scale, sample counts, claim_kind retained | LLM-calculated presentation values, fabricated cells, implicit currency/scale, arbitrary raw SQL-result export |
+| Cell reference | Opaque address scoped to session + immutable result snapshot + value slot; selected document coordinates/source fragment retained by existing proof | Row-index/label alone across mutable versions; a hash treated as proof or exposed in answer prose |
+| Source/evidence | Bounded safe source label/type, nullable period/semantics, warnings and evidence/proof references | Full locator query/credentials, internal paths, arbitrary node attributes or raw source/provider contents |
+| Chart | Optional reference to a trusted result-derived data/spec, absent until supported by M10-07 | Generated Python/JS/HTML, model-executable chart code, an empty chart claimed as implemented |
+
+For DEC-132, preserve `literal_source_value`, unit=null and scale=unknown when that is the source state. The complete bounded source quotation may be supported only after existing exact result/cell/source-fragment proof. Unknown analytical values remain unsupported. A literal figure is not implicitly a verified financial interpretation, and the display must retain the unspecified-unit/scale qualification.
+
+At the HTTP boundary, evaluate a minimal health/readiness response, session creation, question submission and turn retrieval before adding specialized endpoints. Proof/table data may be part of that response or fetched by owned reference; route names are not frozen by M10-01. Do not build upload, chart, reset or graph endpoints just because the eventual UI needs them.
+
+<a id="operator_flow-sessionrequest-isolation-and-failure-lifecycle"></a>
+
+### Session/request isolation and failure lifecycle
+
+Use a trusted server-owned mapping from opaque session IDs to workspace/connection context, not one global Session/Workspace. A request must not resolve an otherwise valid result/node from another session. Initially serializing work per session is acceptable; thread safety and total concurrent capacity must be explicit implementation choices. Shared DuckDB connections must not be used concurrently without a verified ownership model.
+
+The local API documents restart/expiry behavior in [LOCAL_API](ARCHITECTURE.md#local_api-m10-16--version-one-local-api-and-owned-results); process restarts invalidate capabilities. No durable auth, retention period, arbitrary cleanup or multi-tenant architecture is selected here. Missing/expired/unowned references return safe unavailable/not-found responses without revealing another session's existence. Reset must not delete a shared lineage store as a shortcut.
+
+Transport failure, planning failure, tool failure and verification abstention are different outcomes. Reuse ToolStatus (`success`, `failure`, `partial`, `not_run`) and existing safe tool categories; fetch/document subcodes are allowlisted as in live_check, never exception strings. Transport-level invalid request/session/timeout/internal categories belong to the implemented HTTP adapter. Unknown internal failures map to a fixed generic response; request IDs may aid operator correlation without exposing payloads. Never automatically retry a question after a disconnect: it may already have executed.
+
+<a id="operator_flow-why-this-number-proof-requirements"></a>
+
+### “Why this number?” proof requirements
+
+Interaction: table cell → Why this number? → bounded recorded-evidence subgraph. This is analytical provenance for results produced by KKB DataTrio, not ORYN-style enterprise metadata discovery or discovery of external dbt/Airflow/SQL lineage.
+
+Use the actual DEC-118 kinds:
+
+- NodeKind: `source_file`, `series`, `transform`, `column`, `metric`, `claim`.
+- EdgeKind: `derives_from`, `aggregates`, `deflates_by`, `cites`.
+- Storage direction: upstream_id → downstream_id. A root query walks upstream but does not reverse stored edge meaning.
+
+A target ProofGraph contains an owned result/cell reference, graph availability (`unavailable`, `partial`, `available`), nodes, edges, separately preserved verifier outcome, and limitations. Availability describes recorded graph coverage, not correctness. Nodes carry opaque ID, actual kind and a bounded safe label; no arbitrary attributes map. Edges contain actual endpoint IDs and actual EdgeKind. Do not invent `VerificationResult`/`InputSnapshot` nodes because the target architecture names them: return only records that exist. Do not manufacture a claim_id when current gate output lacks one.
+
+The read-only adapter must resolve the owned immutable value first, then its actual evidence root. Traverse deterministically with explicit maximum nodes, edges, depth, label lengths, output bytes and database work; order parents by (ID, edge kind). Stop at budget exhaustion and report partial/truncated, never complete. Missing/invalid roots produce unavailable. Return no unrelated global roots and no fabricated edge to make disconnected evidence look complete. Existing document selected-cell proof is stronger than source presence; preserve that distinction. A complete-looking graph alone must never set a VERIFIED flag.
+
+The exact executable graph schema, numeric limits, query implementation and cross-session tests belong to the later API/evidence implementation. M10-08 owns claim-level evidence inspection; DEC-128 defers graph-heavy layout, not stable evidence references. No new graph database, mutable UI provenance store or networkx dependency is needed for this specification.
+
+<a id="operator_flow-sse-requirements-dec-123"></a>
+
+### SSE requirements (DEC-123)
+
+The future API must report observed lifecycle events in order with a per-turn monotonic sequence and owned turn identity. Minimum meanings: turn started; validated plan available; tool started/completed with ToolStatus and allowlisted category; gate started; turn completed with final gated-response reference; turn failed with safe error. Abstention is a completed turn with `abstained`, not an internal exception.
+
+Instrument actual backend boundaries in its implementation task; do not simulate live progress by replaying a completed trace under misleading timestamps. Planner reasoning/prompts, raw arguments/results, document bytes, credentials, discarded drafts and stack traces never enter SSE. Reconnection/replay, cancellation and reset are not promised until M10-11 defines them. A stream ending unexpectedly does not grant another execution or erase evidence. SSE lifecycle hooks do not exist today.
+
+
+## Ingestion and profile specification
+
+Original bounded admission/profile specification. References to future integration describe this contract’s delivery scope; current completion belongs to ROADMAP.
+
+<a id="ingestion_profile-m1-01--ingestionprofile-result-specification"></a>
+
+### M1-01 — Ingestion/profile result specification
+
+This is the reviewable specification for [M1-01](ROADMAP.md#m1), with synthetic examples. It defines planned observable results, not implemented CSV/XLSX support or new shared runtime types. [DEC-103/104](DECISIONS.md#dec-103--common-data-contracts-and-explicit-workspace) require generic references and explicit semantics; the analytical engine, undecided when this was written, was later selected by [DEC-112](DECISIONS.md#dec-112--duckdb-and-parquet-as-the-analytical-engine-and-lakehouse).
+
+<a id="ingestion_profile-integration-boundary"></a>
+
+### Integration boundary
+
+[ARCHITECTURE, components 5–7](ARCHITECTURE.md#5-source-discovery-and-adapters--confirmed-abstraction) describes `load` returning an opaque data reference and `profile` returning a dictionary. The fields below specify that dictionary's intended meaning without changing those signatures. The Day 0 protocol/models are stash-only in the verified checkout; integrate with the validated M0 contracts and their editor before adding runtime types. This task neither inspects nor recovers the stash.
+
+An adapter profiles one explicitly selected table, regardless of source name or parser engine. A data reference resolves only through the application's authorized data boundary; it is not a user-supplied path, URL, SQL expression, or executable text. The source reference identifies the original source independently of the loaded/derived data reference. Sheet/table selection accompanies the source reference so two sheets cannot accidentally share a profile identity. Ingestion time must not substitute for observation date or source vintage.
+
+<a id="ingestion_profile-result-fields"></a>
+
+### Result fields
+
+Names and types here are a proposed interchange shape for review, not a claim that matching Python classes exist. A JSON example below makes the contract testable without choosing Pandas, Polars, DuckDB, or another dependency.
+
+| Field | Required meaning |
+| --- | --- |
+| `status` | `ok`, `needs_input`, or `rejected`. `ok` means a bounded table was loaded/profiled; it does not mean financial semantics are resolved or an analytical operation is safe. |
+| `data_ref` | Opaque nonempty reference for `ok`; `null` otherwise. Never publish a usable reference to a failed or partly parsed table. |
+| `source_ref` | Nonempty source identity assigned at intake, including on rejection; resolves to controlled provenance metadata. Raw bytes, credential-bearing URLs, and absolute local paths do not belong in this field. |
+| `selection` | Explicit sheet/table identifier, or `null` when the source unambiguously contains one table. Ambiguous multi-table input returns `needs_input` before choosing one. |
+| `row_count` | Exact number of data rows, excluding the header, for `ok`; positive integer. `null` when a table has not been accepted, including empty/header-only input. Never substitute sample size for total row count. |
+| `columns` | Ordered column records below, one per accepted column. Empty on `needs_input`/`rejected`; order/identity must survive duplicate or empty labels. |
+| `unresolved_semantics` | Structured records of affected column IDs, unresolved fields, and a short reason. An empty list means no unresolved fields in the declared semantic scope, not blanket analytical approval. |
+| `diagnostics` | Short codes with safe column/selection references and counts where useful; no copied cell payload or stack trace. Empty when there is nothing to report. |
+| `diagnostics_truncated` | Boolean; true if additional diagnostics were omitted because of the reporting cap. Never silently discard the fact that further issues exist. |
+
+For non-`ok` results, counts/column profiles are unavailable (`row_count: null`, `columns: []`), rather than misleading zeros. Include a reason in `diagnostics` and, for `needs_input`, the precise missing selection or parsing declaration. Do not expose unsafe filenames in the diagnostic text.
+
+<a id="ingestion_profile-column-fields-and-invariants"></a>
+
+### Column fields and invariants
+
+| Field | Meaning and invariants |
+| --- | --- |
+| `id`, `name` | `id` is unique and stable within this data reference (for example `c0` by ordinal); `name` preserves the original label as untrusted metadata. Labels are not unique keys or instructions. Renaming a label does not introduce source-specific code. |
+| `type` | Engine-neutral observed representation: `integer`, `number`, `boolean`, `string`, `mixed`, or `unknown`. All-missing columns are `unknown`. A date-looking string can remain `string`; its date interpretation is a separate candidate. Record any accepted parsing declaration in provenance. |
+| `missing_count` | Integer from 0 through `row_count`. Missingness follows the declared parser/null policy; absent fields and empty fields are not silently equated with zero. Whitespace and tokens such as `NA` need an explicit policy. |
+| `missing_fraction` | `missing_count / row_count`. Store finite numbers only; display rounding must not change the counts. Zero-row input is rejected without column profiles, so no division by zero is attempted. |
+| `date_candidates` | List of `{format, matched_count}` interpretations, tested over nonmissing cells. No automatic time-column selection. Invalid or ambiguous values stay visible; a format match does not prove business time semantics. |
+| `numeric_candidates` | List of `{decimal_separator, thousands_separator, matched_count}` interpretations. `thousands_separator` may be `null`. Counts describe parseability, not a conversion already performed. |
+| `candidate_state` | Separate `date` and `numeric` values: `unique`, `ambiguous`, `none`, or `not_evaluated`. `unique` requires one complete, unambiguous interpretation of all nonmissing cells. Partial matches remain `ambiguous`; an all-missing column is `not_evaluated`, not vacuously `unique`. |
+| `semantics` | Explicit values for `unit`, `frequency`, `time_role`, `stock_flow`, `cumulative`, and `reset_rule`; each is `unknown` until declared/confirmed with provenance. Known cumulative values are booleans; `false` is not interchangeable with `unknown`. `not_applicable` needs an explicit justified declaration. |
+
+Every candidate's `matched_count` is between 0 and `row_count - missing_count`; nonmatching nonmissing count is the difference. Candidate lists are empty for `none`/`not_evaluated`. `unique` has exactly one full-coverage candidate. `ambiguous` can mean multiple full-coverage interpretations, incomplete coverage, or an explicitly bounded search that did not establish uniqueness; a diagnostic distinguishes these reasons. A candidate never overwrites original values, drops failed rows, picks a locale, or fills missing values.
+
+Each `unknown` semantic field is covered by `unresolved_semantics`, including after a successful parse. A known semantic declaration must retain an evidence reference in the source's controlled metadata; a dtype, regular-looking sample, confidence score, or header guess alone is insufficient. Date/numeric candidates can be reported while unit, frequency, stock/flow, and cumulative reset remain unknown. Any later transformation must check its own prerequisites under ARCHITECTURE rather than interpreting `status: ok` as permission.
+
+
+## Prepared metadata inspection
+
+The mechanism below is the prepared-reader contract. Its original “later API”
+wording is historical integration context; the prepared launcher already passes
+the catalog/inspection policy as described in [snapshot ownership](#prepared_api-snapshot-and-session-ownership).
+
+
+<a id="series_inspection-prepared-series-metadata-inspection"></a>
+
+### Prepared series metadata inspection
+
+The M13-13 prepared-reader slice compares a selected series with an
+operator-supplied reviewed catalog **before numerical use**. It is a mandatory
+code path within catalog-configured prepared runs, not a planner-callable tool.
+
+`PreparedSeriesInspector(snapshot)` owns a separately validated copy of the
+reviewed snapshot. `inspect(connection, series_id)` uses exact identity lookup
+and a parameterized, read-only metadata query over `silver_series` and its
+`bronze_artifacts` reference. It reads no observations, follows no source URL,
+loads no files and has no inference or network fallback. A successful result is
+not cached; each new use checks current stored declarations.
+
+<a id="series_inspection-non-skippable-wiring-in-the-prepared-mode"></a>
+
+### Non-skippable wiring in the prepared mode
+
+The existing [prepared rehearsal](CATALOG.md) constructs and injects
+the inspector whenever `--catalog`/`catalog_bytes` is supplied. This applies even
+if the model directly selects a series without first using catalog_search.
+
+- `change_detection` (compare/co_movement), `anomaly`, `causality` and
+  `table_transform` call the shared `read_series(..., inspector=...)`. It requires
+  a consistent receipt before reading observations for that selected series.
+  Neither direct invocation nor a model argument can skip this check in a
+  configured factory. Unknown/mismatched inputs return a safe failure.
+- The restricted `lakehouse` query can return raw inspection rows, but its
+  existing direct-silver provenance check must succeed before any financial
+  projection. Every selected series then requires a consistent receipt before
+  rows become typed values. Failure produces no values, execution proof or
+  numerical answer. Unsupported SQL/gold projections already abstain; this
+  change grants them no new measurement authority.
+- Existing published-table relationship analysis consumes previously verified
+  results and does not select a new source series. Full cross-turn catalog
+  revision/staleness revalidation remains separate work.
+
+Successful receipts are bound into the producer's local execution-input snapshot
+alongside the actual data used. SQL projection records one receipt per selected
+identity. Receipts contain hashes/categories, not source descriptions, locators
+or observation samples. The ordinary verifier resolves their immutable input
+and output bindings. This is traceability, not independent source attestation
+or protection from a privileged database/application writer.
+
+No database schema, new tool name or source adapter changes. Factories without
+a reviewed inspector retain existing generic input semantics/provenance guards.
+This deliberate compatibility path is **not** completion of global M13-13
+wiring. A later API must carry the selected preparation/catalog policy into all
+its factories; omitting that operator configuration cannot be advertised as this
+inspection mode. The lakehouse remains single-owner/not thread-safe.
