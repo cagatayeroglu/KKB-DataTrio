@@ -603,3 +603,44 @@ across distinct result identities can still abstain under the existing gate;
 the API preserves that limit. No live model/source call, ingestion expansion,
 frontend, proof graph or production deployment is claimed. See
 [PREPARED_API](PREPARED_API.md) for startup and remaining limits.
+
+
+## M3-08 expanded EVDS preparation — 2026-09-14
+
+Arda explicitly requested broader local coverage before resuming UI PR #159.
+PR #160 adds nine reviewed weekly new-loan interest rates and thirteen monthly
+CPI expenditure divisions (see EVDS_COVERAGE.md), with prepared catalog v3:
+37 real candidate identities / 46 concepts, 146,600 bytes, digest
+`e5ecffa6564feab6cb3646a0ee15bf0272b2acd558c650fd316690b7920826c4`.
+Historical v1/v2 and all original adapter declarations remain unchanged.
+
+Two public metadata lists exactly matched the prior pinned datagroup hashes.
+An initial run was refused before retrieval because isolated Python loaded the
+old checkout's four-series registry. An isolated worktree environment with the
+new package fixed configuration; no `-I`, worker or network guard was relaxed.
+The actual guarded preparation used 22 public `fe` requests in 23.56 seconds:
+nine series × 287 Fridays plus thirteen × 66 months, 2021-01–2026-06,
+zero missing values, nine trailing out-of-window weeks excluded explicitly.
+Each series passed original-window reparse/manifest/calendar/lineage read-back.
+
+The staged pool has 29 identities, 4,124 observations, 124 files and 8,520,172
+bytes. Original seven-series observations compare exactly and the original pool
+was not changed by staging. A separate raw-JSON/Decimal check agrees with all
+3,926 EVDS observations (26 series). Read-only API readiness with v3 is true,
+provider configuration present, model_checked=false. The initial verification
+helper opened the database read/write and changed its physical file hash;
+the final read-only check preserved every file. This was an operator helper,
+not a relaxation of the runtime snapshot check.
+
+Targeted source/contract suite: 133 passed; catalog discovery/composition: 14
+passed. Final Fast PR: 3271 passed / 2 Windows privilege skips / 2 existing
+dependency warnings; Ruff, strict mypy 98 files, Bandit and secret scan clean.
+No live model or embedding call. Scope tests preserve KMH/currency ambiguity,
+rate versus amount, division versus headline CPI/KFE, null preservation and
+old-catalog refusal. This is not full BDDK/EVDS coverage or live unseen-query
+acceptance. Local raw data, credentials and DuckDB/Parquet files are not in Git.
+
+CI scheduling: the old 5-minute whole-job limit cancelled PR #158 after its
+3235 Linux tests and all security checks passed (41 s install + 247 s tests).
+The whole-job ceiling is now 8 minutes; application/retrieval/test timeouts and
+gate contents remain unchanged. Remote status must be reported separately.
