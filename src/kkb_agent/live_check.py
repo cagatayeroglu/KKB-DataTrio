@@ -261,6 +261,8 @@ def run_prepared_check(
 ) -> dict[str, object]:
     """Ask the organizer turns over a private copy of the prepared pool (M6-25, M5-20).
 
+    The prepared root must be closed and unchanged for the duration of copying;
+    this is an operator dataset copy, not a snapshot of a running database.
     The copy keeps runtime lineage, execution evidence and workspace writes out
     of the prepared root. Tools see reviewed names for the series it holds.
     With `turns=2`, the Turn 2 question follows in the same workspace, and only
@@ -271,7 +273,11 @@ def run_prepared_check(
     if turns not in (1, 2):
         return {"passed": False, "configuration": "unsupported_turns"}
     root = workdir / "lake"
-    shutil.copytree(prepared_root, root)
+    try:
+        shutil.copytree(prepared_root, root)
+    except (OSError, shutil.Error):
+        # Do not call the model or expose filesystem details on a failed copy.
+        return {"passed": False, "configuration": "prepared_copy_failed"}
     with open_lakehouse(root) as lake:
         names = prepared_series_names(lake.connection)
         workspace = Workspace.open(lake.connection)

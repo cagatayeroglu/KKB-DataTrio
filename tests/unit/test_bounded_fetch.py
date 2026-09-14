@@ -183,7 +183,7 @@ def test_body_exact_limit_and_one_over(transport, length, limit):
     assert transport.sockets[0].closed
 
 
-@pytest.mark.parametrize("body", [b"", b"one", b"x" * 40_000])
+@pytest.mark.parametrize("body", [b"", b"one", b"x" * 40_000], ids=["empty", "short", "large"])
 def test_missing_length_is_bounded_and_can_finish_at_eof(transport, body):
     transport.wire = wire(body, length=False)
     assert transport.fetch(max_response_bytes=max(1, len(body))).content == body
@@ -449,6 +449,35 @@ else:
     assert children[0].stdin.closed and children[0].stdout.closed
 
 
+def test_connected_worker_can_finish_after_connect_deadline(tmp_path, monkeypatch):
+    """Real local IPC, no socket: a connected response gets the total-time budget."""
+    script = tmp_path / "connected_fetch.py"
+    script.write_text("""
+import json, sys, time
+sys.stdin.buffer.read()
+sys.stdout.buffer.write(b"CONNECTED\\n")
+sys.stdout.buffer.flush()
+time.sleep(2)
+print(json.dumps({"status": "success", "source_ref": "source:bounded-1",
+    "content": "b2s=", "media_type": "text/csv", "http_status": 200}))
+""")
+    real_popen = subprocess.Popen
+    children = []
+
+    def launch(argv, **kwargs):
+        child = real_popen([sys.executable, "-I", str(script)], **kwargs)
+        children.append(child)
+        return child
+
+    monkeypatch.setattr(_fetch_process.subprocess, "Popen", launch)
+    outcome = safe_fetch(
+        request(), limits=FetchLimits(connect_seconds=1.5, read_seconds=3, total_seconds=4)
+    )
+    assert isinstance(outcome, FetchSuccess) and outcome.content == b"ok"
+    assert children[0].poll() == 0
+    assert children[0].stdin.closed and children[0].stdout.closed
+
+
 @pytest.mark.parametrize(
     ("result", "code"),
     [
@@ -461,6 +490,7 @@ else:
         ),
         (b"x" * 40_000, FetchCode.SIZE_LIMIT),
     ],
+    ids=["not-json", "array", "wrong-source", "invalid-content", "oversized"],
 )
 def test_worker_output_is_bounded_validated_and_diagnostics_stay_fixed(monkeypatch, result, code):
     class Worker:
@@ -549,7 +579,11 @@ def test_worker_private_protocol_round_trip_uses_real_parser(transport, monkeypa
     assert b"synthetic-secret" not in raw
 
 
-@pytest.mark.parametrize("payload", [b"not-json synthetic-secret", b"x" * 65537, b"{}"])
+@pytest.mark.parametrize(
+    "payload",
+    [b"not-json synthetic-secret", b"x" * 65537, b"{}"],
+    ids=["not-json", "oversized", "empty-object"],
+)
 def test_worker_rejects_bad_private_input_without_logging(transport, monkeypatch, payload):
     output = io.BytesIO()
 

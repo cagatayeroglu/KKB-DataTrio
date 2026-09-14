@@ -283,7 +283,7 @@ def test_prepared_check_runs_both_turns_in_one_workspace(lake, tmp_path):
         EvdsWindow(start=date(2021, 1, 1), end=date(2021, 6, 30)),
         retrieve=EvdsSource(mutate=cpi_values),
     )
-    lake.connection.execute("CHECKPOINT")
+    lake.connection.close()  # Release the prepared file before the rehearsal copy.
     first = {
         "question": QUESTION,
         "steps": [

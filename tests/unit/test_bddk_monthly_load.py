@@ -246,6 +246,7 @@ def test_invalid_selected_numbers(value):
         b'{"success":false,"success":true}',
         b" " * (2 * 1024 * 1024 + 1),
     ],
+    ids=["not-json", "array", "null", "invalid-utf8", "truncated", "duplicate-key", "oversized"],
 )
 def test_malformed_or_oversized_json(payload):
     with pytest.raises(load.MonthlyLoadError, match="^RESPONSE_INVALID$"):

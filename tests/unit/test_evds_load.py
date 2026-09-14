@@ -186,6 +186,7 @@ def test_malformed_or_unexpected_responses_are_refused(lake, mutate):
 @pytest.mark.parametrize(
     "payload",
     [b"not json", b'{"totalCount": 0, "totalCount": 0, "items": []}', b"[]", b"x" * (3 << 20)],
+    ids=["not-json", "duplicate-key", "array", "oversized"],
 )
 def test_invalid_json_and_budgets_are_refused(payload):
     with pytest.raises(load.EvdsLoadError):

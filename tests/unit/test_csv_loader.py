@@ -4,7 +4,6 @@ import csv
 import io
 import json
 import multiprocessing
-import os
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -308,9 +307,11 @@ def test_worker_deadline_or_crash_reaps_process_and_cleans_output(
             def __getattr__(self, name):
                 return getattr(process, name)
 
-            def start(self):
-                process.start()
-                observed["pid"] = process.pid
+            def close(self):
+                observed["alive_before_close"] = process.is_alive()
+                observed["exitcode"] = process.exitcode
+                process.close()
+                observed["closed"] = True
 
         return TrackedProcess()
 
@@ -322,8 +323,8 @@ def test_worker_deadline_or_crash_reaps_process_and_cleans_output(
     assert result.code == code and result.table is None
     assert time.monotonic() - start < 4
     assert not observed["directory"].exists()
-    with pytest.raises(ProcessLookupError):
-        os.kill(observed["pid"], 0)
+    assert observed["closed"] and not observed["alive_before_close"]
+    assert observed["exitcode"] is not None
 
 
 @pytest.mark.parametrize(

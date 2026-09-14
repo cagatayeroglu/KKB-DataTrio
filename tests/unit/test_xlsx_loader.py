@@ -380,9 +380,11 @@ def test_timeout_terminates_and_reaps_parser_and_cleans_private_output(monkeypat
             def __getattr__(self, name):
                 return getattr(process, name)
 
-            def start(self):
-                process.start()
-                observed["pid"] = process.pid
+            def close(self):
+                observed["alive_before_close"] = process.is_alive()
+                observed["exitcode"] = process.exitcode
+                process.close()
+                observed["closed"] = True
 
         return TrackedProcess()
 
@@ -398,14 +400,15 @@ def test_timeout_terminates_and_reaps_parser_and_cleans_private_output(monkeypat
     assert time.monotonic() - start < 4
     assert result.status == "rejected" and result.code == "LIMIT_EXCEEDED"
     assert result.table is None and not list(tmp_path.iterdir())
-    with pytest.raises(ProcessLookupError):
-        os.kill(observed["pid"], 0)
+    assert observed["closed"] and not observed["alive_before_close"]
+    assert observed["exitcode"] is not None
 
 
 def test_serialized_result_cap_and_private_file_mode(tmp_path):
     path = tmp_path / "result.json"
     loader._write_result(path, {"value": 12}, 13)
-    assert path.stat().st_mode & 0o777 == 0o600
+    if os.name == "posix":  # Windows uses ACLs, not POSIX permission bits.
+        assert path.stat().st_mode & 0o777 == 0o600
     assert json.loads(path.read_text()) == {"value": 12}
     with pytest.raises(package.XlsxRejected, match="LIMIT_EXCEEDED"):
         loader._write_result(tmp_path / "too-large.json", {"value": "x" * 100}, 13)
