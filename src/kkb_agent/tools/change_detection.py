@@ -34,6 +34,7 @@ from kkb_agent.agent.registry import ToolSpec
 from kkb_agent.agent.workspace import Workspace
 from kkb_agent.analytics import compare_periods
 from kkb_agent.analytics.comovement import co_movement
+from kkb_agent.catalog.inspection import InspectionRefused, PreparedSeriesInspector
 from kkb_agent.core import (
     Aggregation,
     AnalyticalResult,
@@ -146,13 +147,24 @@ class _Series:
     snapshot: str
 
 
-def read_series(connection: DuckDBPyConnection, series_id: str) -> _Series:
+def read_series(
+    connection: DuckDBPyConnection,
+    series_id: str,
+    *,
+    inspector: PreparedSeriesInspector | None = None,
+) -> _Series:
     """The declared semantics and every published observation, in period order.
 
     Semantics are read rather than inferred. A series whose stored declaration
     cannot be reconstructed is an error here, not a set of defaults: guessing a
     scale is how a million-TRY figure gets compared against a thousand-TRY one.
     """
+    receipt = None
+    if inspector is not None:
+        try:
+            receipt = inspector.inspect(connection, series_id).evidence()
+        except InspectionRefused as error:
+            raise SeriesUnknown(str(error)) from error
     row = connection.execute(
         "SELECT unit, scale, frequency, anchor, observation, cumulative, aggregation, "
         "base_year, artifact_id"
@@ -203,6 +215,7 @@ def read_series(connection: DuckDBPyConnection, series_id: str) -> _Series:
                 "semantics": row[:-1],
                 "observation_columns": ["period_start", "period_end", "value"],
                 "observations": rows,
+                **({"catalog_inspection": receipt} if receipt is not None else {}),
             }
         ),
     )
@@ -214,6 +227,7 @@ def make_change_detection_tool(
     lineage: Lineage | None = None,
     series_names: Mapping[str, str] | None = None,
     workspace: Workspace | None = None,
+    inspector: PreparedSeriesInspector | None = None,
 ) -> ToolSpec:
     """Bind the tool to one database. The registry holds the closure, not the data.
 
@@ -249,9 +263,9 @@ def make_change_detection_tool(
             )
         arguments = selected
         try:
-            series = read_series(connection, arguments.series_id)
+            series = read_series(connection, arguments.series_id, inspector=inspector)
             driver = (
-                read_series(connection, arguments.driver_series_id)
+                read_series(connection, arguments.driver_series_id, inspector=inspector)
                 if arguments.driver_series_id is not None
                 else None
             )

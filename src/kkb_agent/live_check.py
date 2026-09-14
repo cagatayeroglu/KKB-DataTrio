@@ -42,6 +42,7 @@ from kkb_agent.agent.loop import Answered
 from kkb_agent.agent.registry import ToolSpec
 from kkb_agent.agent.verifier import Binding, verify_claims
 from kkb_agent.agent.workspace import Workspace
+from kkb_agent.catalog.inspection import PreparedSeriesInspector
 from kkb_agent.catalog.mappings import MAX_SNAPSHOT_BYTES, load_reviewed_snapshot
 from kkb_agent.core import (
     DIMENSIONLESS,
@@ -300,6 +301,11 @@ def run_prepared_check(
             if catalog_bytes is not None
             else None
         )
+        inspector = (
+            PreparedSeriesInspector(load_reviewed_snapshot(catalog_bytes))
+            if catalog_bytes is not None
+            else None
+        )
     except (ValueError, TypeError):
         return {"passed": False, "configuration": "catalog_configuration_failed"}
     root = workdir / "lake"
@@ -314,19 +320,29 @@ def run_prepared_check(
         registry = ToolRegistry()
         if catalog_tool is not None:
             registry.register(catalog_tool)
-        registry.register(make_lakehouse_tool(lake.connection, lineage=lake.lineage))
+        registry.register(
+            make_lakehouse_tool(lake.connection, lineage=lake.lineage, inspector=inspector)
+        )
         registry.register(
             make_change_detection_tool(
-                lake.connection, lineage=lake.lineage, series_names=names, workspace=workspace
+                lake.connection,
+                lineage=lake.lineage,
+                series_names=names,
+                workspace=workspace,
+                inspector=inspector,
             )
         )
         registry.register(
             make_table_transform_tool(
-                lake.connection, workspace, lineage=lake.lineage, series_names=names
+                lake.connection,
+                workspace,
+                lineage=lake.lineage,
+                series_names=names,
+                inspector=inspector,
             )
         )
         for make in (make_anomaly_tool, make_causality_tool):
-            registry.register(make(lake.connection, lineage=lake.lineage))
+            registry.register(make(lake.connection, lineage=lake.lineage, inspector=inspector))
         plan = [
             (question, TURN_ONE_NAME),
             (TURN_TWO_QUESTION, TURN_TWO_NAME),

@@ -10,8 +10,9 @@ question -> validated catalog-only plan -> catalog_search
 ```
 
 This connects discovery to planning. It does not make a rank or similarity
-score authoritative, add source fetching, or complete mandatory selected-series
-inspection. Prepared-series and analytical tools retain their existing semantic,
+score authoritative, add source fetching, or complete all selected-series
+inspection. The [prepared reader slice](SERIES_INSPECTION.md) now checks catalog/store
+metadata consistency whenever this rehearsal receives catalog bytes. Prepared-series and analytical tools retain their existing semantic,
 availability, provenance and numerical checks. Unavailable prepared data still
 cannot be silently fetched from the web.
 
@@ -88,7 +89,8 @@ in the discovery outcome for a future UI; no invented explanation is displayed.
 
 This is an **offline-tested integration**, not live model-selection quality.
 The planner still decides whether the question distinguishes candidates; mandatory
-selected-series inspection (M13-13) remains unfinished. Total deadline/cancellation,
+selected-series inspection has a [prepared-reader slice](SERIES_INSPECTION.md),
+while broader M13-13 and natural-language choice validation remain unfinished. Total deadline/cancellation,
 cross-turn automatic replanning/staleness, wider source availability, real embedding
 input policy and held-out retrieval quality are separate work. The mode is not a
 proof that every candidate ambiguity is resolved correctly.

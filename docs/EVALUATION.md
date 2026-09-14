@@ -535,3 +535,25 @@ repeated discovery, web escalation/injection, bad or oversized typed feedback,
 fresh IDs, forbidden discovery dependencies, shared steps/repairs, tool failures
 and trace binding. These prove integration mechanics, not live model reasoning
 or semantic-selection accuracy. See [the contract](CATALOG_CONTINUATION.md).
+
+### M13-13 prepared-series inspection (2026-09-14)
+
+PR #156, implementation `ca7d11e1e3f0a87ba8ab13e705e806d1f2aef297`. **42 new inspection regressions plus 35
+catalog-continuation tests PASS / 15.64s**. Final fast PR: **3141 passed / one Windows privilege skip in 222.30s**;
+strict mypy 91 source files, Ruff, Bandit and secrets clean. 179 local document
+targets checked. No full/release gate or live model/source call.
+
+Tests cover exact identities, absent preparation, required/optional unknowns,
+archive policy, semantic mismatches, immutable reviewed input, fresh metadata
+checks, producer/SQL enforcement and receipt binding in execution evidence.
+The existing seven-series real pool passes a read-only metadata check (519.51ms
+including database open/close), with all 80 source files hash-identical.
+
+A private-copy three-turn scripted run uses the inspected producers. An
+independent Decimal oracle agrees on 59 transitions, 32 rate falls and 22 joint
+price-up/real-credit-nonrise months. All 302 previous values and 60 KFE values
+match, all three results publish, and no verifier faults occur. The original
+80 files remain unchanged. This establishes deterministic integration, not live
+reasoning reliability, source truth attestation or causation. Broader M13-13,
+quality/reconciliation and history staleness remain incomplete. See
+[SERIES_INSPECTION](SERIES_INSPECTION.md) for the exact mode boundary.
