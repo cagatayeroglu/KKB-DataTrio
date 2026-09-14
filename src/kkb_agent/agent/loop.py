@@ -41,7 +41,7 @@ from kkb_agent.agent.verifier import (
     result_faults,
 )
 from kkb_agent.agent.workspace import Workspace
-from kkb_agent.core import AnalyticalResult, ResultStatus, Scale
+from kkb_agent.core import DIMENSIONLESS, AnalyticalResult, ResultStatus, ResultValue, Scale
 from kkb_agent.llm.provider import LLMProvider, Message, Role, SchemaViolation
 from kkb_agent.llm.structured import schema_instructions
 
@@ -132,6 +132,35 @@ def render_results(named: Mapping[str, AnalyticalResult]) -> str:
     return "\n\n".join(f"[{name}]\n{render_result(result)}" for name, result in named.items())
 
 
+def _writer_values(result: AnalyticalResult) -> tuple[list[ResultValue], tuple[str, ...]]:
+    """Values the writer needs when a period table is shown beside the answer.
+
+    Per-period series values stay in the table, except at highlighted period
+    ends. Everything else (summaries, counts, single values) is kept. This only
+    narrows what the writer reads; the gate still binds against the full result.
+    """
+    table = period_table(result)
+    if table is None:
+        return list(result.values), ()
+    per_label: dict[str, int] = {}
+    for value in result.values:
+        if value.period is not None and value.unit != DIMENSIONLESS:
+            per_label[value.label] = per_label.get(value.label, 0) + 1
+    highlighted: set[str] = set()
+    marked = result.parameters.get("highlighted_periods")
+    if isinstance(marked, dict):
+        for periods in marked.values():
+            if isinstance(periods, list):
+                highlighted.update(str(item) for item in periods)
+    kept = [
+        value
+        for value in result.values
+        if per_label.get(value.label, 0) < 2
+        or (value.period is not None and value.period.end.isoformat() in highlighted)
+    ]
+    return kept, table.columns
+
+
 def render_result(result: AnalyticalResult) -> str:
     """The values, as text the writer may quote and nothing more.
 
@@ -157,7 +186,14 @@ def render_result(result: AnalyticalResult) -> str:
             "Literal source quotation only: copy this complete answer exactly, "
             "without additions or interpretation: " + quotation
         )
-    for value in result.values:
+    values, tabled = _writer_values(result)
+    if tabled:
+        lines.append(
+            "A table of every period's values is shown to the reader separately for: "
+            + "; ".join(tabled)
+            + ". Only highlighted periods and summary values are listed below."
+        )
+    for value in values:
         display = display_value(value)
         parts = [
             f"- {value.label}: display {display}"

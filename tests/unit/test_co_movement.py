@@ -527,3 +527,15 @@ def test_planner_is_told_where_columns_live_and_to_avoid_redundant_steps(lake):
     assert "silver_series s (series_id, unit, scale" in description
     assert "unit and scale exist only on silver_series" in description
     assert "another planned step already returns" in SYSTEM_PROMPT
+
+
+def test_writer_reads_summaries_and_highlighted_periods_but_the_gate_sees_everything(lake):
+    draft = "Mart 2021'de bakiye 1.010 milyon TL oldu."  # A tabled, non-highlighted month.
+    answered, _, session = turn_one(lake, draft)
+    writer_prompt = session.provider.seen[1][1].content
+    assert "shown to the reader separately for:" in writer_prompt
+    assert "period 2021-02-01..2021-02-28" in writer_prompt  # highlighted
+    assert "period 2021-03-01..2021-03-31" not in writer_prompt  # tabled only
+    assert "transitions where" in writer_prompt
+    # Narrowing the writer's view does not narrow verification.
+    assert answered.answer.status is AnswerStatus.ACCEPTED
