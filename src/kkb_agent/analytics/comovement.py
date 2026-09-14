@@ -259,7 +259,9 @@ def co_movement(
             # Period ends only, never a second copy of a value: duplicated numbers
             # would make every quoted change ambiguous to the answer gate.
             "highlighted_periods": {
-                f"{driver_label} fell and {target_label} did not rise": flagged
+                f"{driver_label} fell and {target_label} did not rise": [
+                    period for period in flagged
+                ]
             },
             **dict(parameters or {}),
         },

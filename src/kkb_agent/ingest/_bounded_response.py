@@ -147,7 +147,7 @@ def read_response(
     media_type = content_type.split(";", 1)[0].strip().lower() if content_type else ""
     if media_type not in request.accepted_media_types:
         raise ResponseRejected(FetchCode.CONTENT_TYPE)
-    if media_type == "text/html":
+    if content_type is not None and media_type == "text/html":
         # The normalized FetchSuccess omits parameters: refuse non-UTF-8 before
         # losing this declaration rather than silently decoding another charset.
         parameters = content_type.lower().split(";")[1:]

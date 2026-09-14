@@ -538,6 +538,14 @@ Confirmed team priority refinement, explicitly requested by Çağatay after M3-0
 - Still true and still stated: it is a stock, so a month-over-month change is a net change in the balance, not new lending or disbursement; no disbursement series is prepared or implied. TP/YP components stay separate series and are not the default.
 - Consequences: the reviewed series name and writer guidance may drop wording that suggests the stock does not answer "kullanılan"; nothing is re-ingested. DEC-136/137 semantics, the BDDK source inventory and the stock limitations are unchanged.
 
+### DEC-140 — Strict source typing at the fast PR boundary
+
+- Status: engineering maintenance in Arda's delegated development scope, 2026-09-14, PR #151; effective when merged.
+- Evidence: the earlier M0-08 release cleared typing, but later code accumulated 64 errors in six files while `make pr` stayed green. Checking all 86 source files takes about three seconds locally; the ordinary unit suite takes about three minutes. Checking only changed modules misses errors introduced at their consumers.
+- Decision: include `mypy src` in `make pr` and its Windows equivalent after Ruff checks. Keep strict mode enabled. `make quick` and targeted edit-time checks remain lightweight. The full release gate still owns all-test execution, dependency audit and main promotion; this is not a per-edit full/release gate.
+- Rejected: suppressing module errors or leaving the inexpensive contract check until the final release. Keep the existing narrow third-party typing exceptions documented; add no blanket ignore or new runtime dependency.
+- Consequences: a new type error must be fixed before merging into dev. This amends the fast PR placement described in DEC-109/AGENTS, without altering organizer rules, runtime behavior or authorization boundaries.
+
 ## Proposed decisions
 
 Candidates below are not approved selections. Compare options in a bounded task; do not silently promote a proposal to CONFIRMED.

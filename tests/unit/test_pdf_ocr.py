@@ -60,6 +60,31 @@ def load(content, ocr, **limits):
     )
 
 
+@pytest.mark.parametrize(
+    "record",
+    [
+        {},
+        {"has_text": "false", "number": 1},
+        {"has_text": 0, "number": 1},
+        {"has_text": False},
+        {"has_text": False, "number": 0},
+        {"has_text": False, "number": -1},
+        {"has_text": False, "number": True},
+        {"has_text": False, "number": "1"},
+        {"has_text": False, "number": 1.5},
+    ],
+)
+def test_bad_internal_page_records_fail_before_native_allocation(monkeypatch, record):
+    import pypdfium2
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Malformed page records must not allocate a native document")
+
+    monkeypatch.setattr(pypdfium2, "PdfDocument", forbidden)
+    with pytest.raises(pdf_ocr.OcrError, match="^PARSER_FAILED$"):
+        pdf_ocr.render_pages(b"unread", [record])
+
+
 @pytest.mark.parametrize("count", [1, 2, 3])
 def test_exact_ocr_http_contract(count):
     requests = []

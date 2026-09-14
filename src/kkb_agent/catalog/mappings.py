@@ -140,7 +140,13 @@ class ReviewedSnapshot(ContractModel):
         contexts = _unique([c.context_id for c in self.contexts])
         _unique([c.concept_id for c in self.concepts])
         families = _unique([f.family_id for f in self.families])
-        for item in (*self.series, *self.contexts, *self.concepts, *self.families):
+        referenced: tuple[ReviewedSeries | SourceContext | Concept | ConceptFamily, ...] = (
+            *self.series,
+            *self.contexts,
+            *self.concepts,
+            *self.families,
+        )
+        for item in referenced:
             if not _unique(list(item.evidence_ids)) <= evidence:
                 raise ValueError("unknown evidence reference")
         for concept in self.concepts:

@@ -31,19 +31,29 @@ class OcrError(ValueError):
     """Only fixed local codes, never provider/document text."""
 
 
-def render_pages(content: bytes, pages: list[dict]) -> None:
+def render_pages(content: bytes, pages: list[dict[str, object]]) -> None:
     """Attach bounded inline PNGs only for pages without a text layer."""
-    import pypdfium2 as pdfium
+    # This bounded native renderer ships no typing marker/stubs. Its image/page
+    # sizes still pass the explicit checks below; only this import is untyped.
+    import pypdfium2 as pdfium  # type: ignore[import-untyped]
 
-    missing = [page for page in pages if not page["has_text"]]
+    missing: list[tuple[dict[str, object], int]] = []
+    for record in pages:
+        if not isinstance(record.get("has_text"), bool):
+            raise OcrError("PARSER_FAILED")
+        if not record["has_text"]:
+            number = record.get("number")
+            if isinstance(number, bool) or not isinstance(number, int) or number < 1:
+                raise OcrError("PARSER_FAILED")
+            missing.append((record, number))
     if len(missing) > MAX_OCR_PAGES:
         raise OcrError("LIMIT_EXCEEDED")
     if not missing:
         return
     with pdfium.PdfDocument(content) as pdf:
         # Validate all sizes before allocating the first bitmap.
-        for record in missing:
-            page = pdf[record["number"] - 1]
+        for _record, number in missing:
+            page = pdf[number - 1]
             try:
                 width, height = page.get_size()
                 if not all(math.isfinite(v) and v > 0 for v in (width, height)):
@@ -55,8 +65,8 @@ def render_pages(content: bytes, pages: list[dict]) -> None:
                     raise OcrError("LIMIT_EXCEEDED")
             finally:
                 page.close()
-        for record in missing:
-            page = pdf[record["number"] - 1]
+        for record, number in missing:
+            page = pdf[number - 1]
             try:
                 bitmap = page.render(scale=RENDER_SCALE)
                 try:

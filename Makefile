@@ -12,6 +12,7 @@ quick:
 pr:
 	ruff format --check src tests scripts
 	ruff check src tests scripts
+	mypy src
 	pytest -q tests/unit --disable-warnings --maxfail=1
 	bandit -q -r src
 	python scripts/check_secrets.py
