@@ -316,7 +316,7 @@ def test_prepared_check_runs_both_turns_in_one_workspace(lake, tmp_path):
     assert second_turn["published"] == ["konut_kredisi_ve_faiz", "konut_kredisi_ve_faiz_reel"]
     assert second_turn["result"]["transformations"] == ["align_weekly_to_monthly", "deflate"]
     assert second_turn["tables"][0]["rows"] == 6
-    assert live_check.run_prepared_check(scripted(), lake.root, tmp_path / "w2", turns=3) == {
+    assert live_check.run_prepared_check(scripted(), lake.root, tmp_path / "w2", turns=4) == {
         "passed": False,
         "configuration": "unsupported_turns",
     }
