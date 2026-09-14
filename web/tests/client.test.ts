@@ -1,0 +1,217 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  admit,
+  loadSession,
+  saveSession,
+  validQuestion,
+  describeError,
+  ApiError,
+} from "../lib/client";
+import { cellSchema, turnSchema, type Saved } from "../lib/contracts";
+import { arrange, displayValue, unitLabel, periodLabel } from "../lib/table";
+import { noticeText } from "../lib/language";
+const sid = "1".repeat(32),
+  tid = "2".repeat(32),
+  rid = "3".repeat(32);
+const session = {
+  api_version: 1 as const,
+  session_id: sid,
+  token: "t".repeat(43),
+  survives_restart: false as const,
+};
+const saved: Saved = {
+  session,
+  turns: [{ question: "Konut kredileri", request_id: rid }],
+};
+const turn = {
+  api_version: 1,
+  turn_id: tid,
+  request_id: rid,
+  state: "running",
+  answer: null,
+  error: null,
+  events: [
+    { sequence: 1, state: "queued", elapsed_ms: 0 },
+    { sequence: 2, state: "running", elapsed_ms: 0 },
+  ],
+};
+const base = {
+  cell_id: "4".repeat(32),
+  slot: 0,
+  label: "Kredi",
+  value: 2,
+  display: "2",
+  unit: "TRY",
+  scale: "million",
+  measure: "stock",
+  period: {
+    start: "2025-01-01",
+    end: "2025-01-31",
+    frequency: "monthly",
+    weekly_anchor: null,
+  },
+  samples: { used: 1, missing: 0, excluded: 0, minimum_required: null },
+  lag: null,
+};
+test("ambiguous transport retry keeps the same identity and exact text", async () => {
+  const old = globalThis.fetch;
+  const requests: RequestInit[] = [];
+  globalThis.fetch = async (_url, init) => {
+    requests.push(init!);
+    if (requests.length === 1) throw new Error("network");
+    return Response.json(turn);
+  };
+  try {
+    await assert.rejects(admit(saved, 0));
+    const received = await admit(saved, 0);
+    assert.equal(received.request_id, rid);
+    assert.equal(requests[0].body, requests[1].body);
+    assert.equal(JSON.parse(String(requests[1].body)).request_id, rid);
+    assert.equal(
+      new Headers(requests[1].headers).get("x-kkb-session-token"),
+      session.token,
+    );
+  } finally {
+    globalThis.fetch = old;
+  }
+});
+test("an admitted turn is recovered by GET without another question submission", async () => {
+  const old = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async (url, init) => {
+    calls++;
+    assert.equal(url, `/api/kkb/v1/sessions/${sid}/turns/${tid}`);
+    assert.equal(init?.method, undefined);
+    return Response.json(turn);
+  };
+  try {
+    await admit({ ...saved, turns: [{ ...saved.turns[0], turn_id: tid }] }, 0);
+    assert.equal(calls, 1);
+  } finally {
+    globalThis.fetch = old;
+  }
+});
+test("session state is validated and storage failure is not ignored", () => {
+  const memory = new Map<string, string>();
+  const storage = {
+    get length() {
+      return memory.size;
+    },
+    clear: () => memory.clear(),
+    key: (index: number) => [...memory.keys()][index] ?? null,
+    getItem: (key: string) => memory.get(key) ?? null,
+    setItem: (key: string, value: string) => memory.set(key, value),
+    removeItem: (key: string) => memory.delete(key),
+  } satisfies Storage;
+  assert.equal(loadSession(storage), null);
+  saveSession(storage, saved);
+  assert.deepEqual(loadSession(storage), saved);
+  memory.set("kkb.workspace.v1", '{"session":{"token":"invalid"}}');
+  assert.equal(loadSession(storage), null);
+  storage.setItem = () => {
+    throw new Error("unavailable");
+  };
+  assert.throws(() => saveSession(storage, saved));
+});
+test("unknown scales, nullable sample minimum and full period survive validation", () => {
+  const cell = cellSchema.parse({ ...base, unit: null, scale: "unknown" });
+  assert.equal(cell.samples?.minimum_required, null);
+  assert.equal(
+    unitLabel(cell.unit, cell.scale),
+    "ölçek belirsiz birim belirsiz",
+  );
+  assert.equal(displayValue(cell), "2");
+  assert.equal(cellSchema.safeParse({ ...base, value: NaN }).success, false);
+  assert.equal(
+    cellSchema.safeParse({ ...base, value: Infinity }).success,
+    false,
+  );
+  assert.equal(
+    turnSchema.safeParse({ ...turn, secret: "hidden" }).success,
+    false,
+  );
+});
+test("duplicate cells and distinct units do not overwrite or aggregate", () => {
+  const a = cellSchema.parse(base),
+    b = cellSchema.parse({
+      ...base,
+      cell_id: "5".repeat(32),
+      slot: 1,
+      value: 3,
+      display: "3",
+    }),
+    c = cellSchema.parse({
+      ...base,
+      cell_id: "6".repeat(32),
+      slot: 2,
+      unit: "USD",
+    }),
+    d = cellSchema.parse({
+      ...base,
+      cell_id: "7".repeat(32),
+      slot: 3,
+      period: null,
+    });
+  const table = arrange([a, b, c, d]);
+  assert.equal(table.rows.length, 2);
+  assert.equal(table.columns.length, 2);
+  assert.deepEqual(table.metrics, [d]);
+  const cells = table.rows.flatMap((row) => Object.values(row.values));
+  assert.equal(cells.length, 3);
+  assert.ok(cells.includes(a) && cells.includes(b) && cells.includes(c));
+});
+test("missing cells are absent, not fabricated zero or last-value copies", () => {
+  const a = cellSchema.parse(base),
+    b = cellSchema.parse({
+      ...base,
+      cell_id: "5".repeat(32),
+      label: "Faiz",
+      slot: 1,
+      period: { ...base.period, start: "2025-02-01", end: "2025-02-28" },
+    });
+  const table = arrange([a, b]);
+  assert.equal(table.rows.length, 2);
+  assert.equal(Object.values(table.rows[0].values).length, 1);
+  assert.equal(Object.values(table.rows[1].values).length, 1);
+});
+test("byte-aware question limits and safe errors", () => {
+  assert.ok(validQuestion("Konut kredileri\n2025"));
+  assert.ok(!validQuestion(" "));
+  assert.ok(!validQuestion("x".repeat(4097)));
+  assert.ok(!validQuestion("あ".repeat(3000)));
+  assert.ok(!validQuestion("x\u0000y"));
+  assert.ok(
+    !describeError(new ApiError("private-token")).includes("private-token"),
+  );
+  assert.ok(!describeError(new Error("C:/private/key")).includes("private"));
+});
+
+test("whole-window summaries keep their period and do not create empty monthly columns", () => {
+  const a = cellSchema.parse(base),
+    b = cellSchema.parse({
+      ...base,
+      cell_id: "5".repeat(32),
+      slot: 1,
+      period: { ...base.period, start: "2025-02-01", end: "2025-02-28" },
+    }),
+    summary = cellSchema.parse({
+      ...base,
+      cell_id: "6".repeat(32),
+      slot: 2,
+      label: "total transitions",
+      period: { ...base.period, end: "2025-02-28" },
+    });
+  const table = arrange([a, b, summary]);
+  assert.equal(table.columns.length, 1);
+  assert.equal(table.rows.length, 2);
+  assert.deepEqual(table.metrics, [summary]);
+  assert.equal(periodLabel(summary.period), "2025-01-01 – 2025-02-28");
+});
+test("diagnostic translation retains independent-verification limitations", () => {
+  assert.equal(
+    noticeText("No external cross-check was performed"),
+    "Başka bir dış kaynakla bağımsız çapraz kontrol yapılmadı.",
+  );
+  assert.equal(noticeText("unknown diagnostic"), "unknown diagnostic");
+});
