@@ -10,7 +10,7 @@ From the repository with its virtual environment activated and dependencies
 installed (`python -m pip install -e ".[dev]"`):
 
 ```powershell
-python -m kkb_agent.api --check --prepared-root data/processed/lakehouse --catalog docs/catalog/prepared_v2.json --env-file .env
+python -m kkb_agent.api --check --prepared-root data/processed/lakehouse --catalog docs/catalog/prepared_v3.json --env-file .env
 ```
 
 This reads configuration and the closed prepared pool, validates exact catalog
@@ -32,7 +32,7 @@ timeout must be finite and 1–120 seconds, with 1–3 provider attempts configu
 ## Start only when model requests are authorized
 
 ```powershell
-python -m kkb_agent.api --serve --enable-model-requests --prepared-root data/processed/lakehouse --catalog docs/catalog/prepared_v2.json --env-file .env --state-root data/processed/api-runs
+python -m kkb_agent.api --serve --enable-model-requests --prepared-root data/processed/lakehouse --catalog docs/catalog/prepared_v3.json --env-file .env --state-root data/processed/api-runs
 ```
 
 `--enable-model-requests` is an explicit operator enablement, not an organizer
@@ -93,7 +93,7 @@ passes only an exact owned published result to the public projector.
 
 ## Measured acceptance and remaining limits
 
-The existing local pool passes read-only readiness: **7 prepared identities,
+The original M10-17 local pool passed read-only readiness: **7 prepared identities,
 683 observations, 15 reviewed catalog identities, 80 files, 7,613,310 bytes**.
 Configuration is present and the approved endpoint is valid; no live request
 was used to establish this. A separate in-process HTTP rehearsal with scripted
@@ -103,6 +103,16 @@ All 302 previous values and 60 KFE values survive, and the original 80 files
 remain hash-identical. The largest response is 143,584 bytes. Readiness took
 717.15ms; scripted turns took 1,425.33 / 925.01 / 1,578.83ms. These are local
 pipeline timings, **not Qwen inference latency or live reasoning reliability**.
+
+The subsequent [EVDS expansion](EVDS_COVERAGE.md) prepares **29 identities and
+4,124 observations** with **37 catalog identities** in v3. Original seven-series
+values are retained; 3,926 EVDS observations additionally match raw decimal
+values in an independent read-back. The prepared pool is 8,520,172 bytes across
+124 files. These are local preparation/readiness checks, not a live-model test
+over the expanded universe. Use v3 for this pool; v2 remains a historical
+snapshot and correctly refuses the additional identities. Restart the API into
+a fresh state root when switching pools/catalogs; existing sessions keep their
+own snapshot and are not silently refreshed.
 
 One existing gate limitation remains visible: repeating a numerical calculation
 under a second identity and writing an unqualified identical number can abstain

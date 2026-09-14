@@ -11,7 +11,6 @@ from kkb_agent.catalog.search import CatalogSearchArguments, search_catalog
 from kkb_agent.core import CumulativeKind, Frequency, Scale, StockFlow
 from kkb_agent.ingest.bddk_monthly import BddkSelector, monthly_housing_catalog
 from kkb_agent.ingest.evds_series import REVIEWED_SERIES, catalog_record
-from kkb_agent.ingest.prepared_series import reviewed_series_names
 
 ROOT = Path(__file__).parents[2]
 ARTIFACT = ROOT / "docs/catalog/prepared_v2.json"
@@ -34,7 +33,9 @@ def test_v2_preserves_historical_snapshot_and_evidence(snapshot):
     assert snapshot.review_pr.endswith("/pull/152")
     assert len(snapshot.series) == 15
     assert {s.record.series_id for s in old.series} <= {s.record.series_id for s in snapshot.series}
-    assert set(reviewed_series_names()) <= {s.record.series_id for s in snapshot.series}
+    assert {TOTAL, TP, YP, CPI25, CPI03, "EVDS:TP.KTF12", "EVDS:TP.KFE.TR"} <= {
+        s.record.series_id for s in snapshot.series
+    }
     for evidence in snapshot.evidence:
         path = ROOT / evidence.path
         assert hashlib.sha256(path.read_bytes()).hexdigest() == evidence.file_sha256
@@ -49,6 +50,8 @@ def test_v2_preserves_historical_snapshot_and_evidence(snapshot):
 def test_prepared_metadata_agrees_with_reviewed_adapter_contracts(snapshot):
     records = {s.record.series_id: s.record for s in snapshot.series}
     for reviewed in REVIEWED_SERIES.values():
+        if reviewed.series_id not in records:  # v2 is historical, not the current universe.
+            continue
         assert records[reviewed.series_id] == catalog_record(reviewed)
     for component, sid in (("TP", TP), ("YP", YP), ("TOTAL", TOTAL)):
         selector = BddkSelector(

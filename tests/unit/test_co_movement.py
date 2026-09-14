@@ -201,7 +201,7 @@ def test_reviewed_names_cover_every_reviewed_series_and_only_registered_ones(tmp
         "EVDS:TP.GENENDEKS.T1",
         "EVDS:TP.KFE.TR",
     } <= (set(names))
-    assert len(names) == 7
+    assert len(names) == 29  # Three BDDK components and the expanded 26-series EVDS review.
     with open_lakehouse(tmp_path / "lake") as lake:
         assert prepared_series_names(lake.connection) == {}
 
