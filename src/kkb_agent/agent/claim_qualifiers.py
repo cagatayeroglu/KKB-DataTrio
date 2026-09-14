@@ -69,6 +69,8 @@ ISO_DATE = re.compile(r"(?<!\w)\d{4}-\d{2}-\d{2}(?!\w)")
 #: A year-month such as 2025-12 (for example a price reference month). Its digits are
 #: a calendar token, never a quantity; it is not a period qualifier by itself.
 YEAR_MONTH = re.compile(r"(?<![\w-])(?:19|20)\d{2}-(?:0[1-9]|1[0-2])(?![\w-])")
+#: The period display this system itself writes, e.g. 2021-02-01..2021-02-28.
+DATE_RANGE = re.compile(r"\d{4}-\d{2}-\d{2}\.\.\d{4}-\d{2}-\d{2}")
 MONTHS = {
     _fold(name): month
     for month, names in enumerate(
@@ -201,7 +203,8 @@ def identity_fault(
     header = HEADER_ID.match(clause)
     if header and header[1] not in aliases:
         # Calendar headers are period qualifiers, not result IDs.
-        if not any(pattern.fullmatch(header[1]) for pattern in (ISO_DATE, YEAR, MONTH)):
+        calendar = (ISO_DATE, YEAR, MONTH, DATE_RANGE, YEAR_MONTH)
+        if not any(pattern.fullmatch(header[1]) for pattern in calendar):
             return f"Explicit identity {header[1]!r} does not identify this result/value"
     for alias in known:
         if alias not in aliases and re.search(

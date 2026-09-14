@@ -362,3 +362,18 @@ def test_turn_two_quotes_bind_once_the_transform_supersedes_its_source(pool):
     assert "[konut_kredisi_ve_faiz]" not in writer_context
     assert workspace.names() == ["konut_kredisi_ve_faiz", "konut_kredisi_ve_faiz_reel"]
     assert "second date" in session.provider.seen[1][0].content
+
+
+def test_period_range_headers_qualify_list_items_and_still_check_the_period(pool):
+    from kkb_agent.agent.verifier import gate_answer
+
+    lake, workspace = pool
+    result = tool(lake, workspace).run(transform(), ExecutionContext("turn 2")).output
+    available = {"konut_kredisi_ve_faiz_reel": result}
+    listed = (
+        "Öne çıkan dönemler: 2021-02-01..2021-02-28: 1.025 milyon TL; "
+        "2021-05-01..2021-05-31: 1.055,75 milyon TL."
+    )
+    assert gate_answer(listed, available, lake.connection).status is AnswerStatus.ACCEPTED
+    wrong = "Öne çıkan dönemler: 2021-03-01..2021-03-31: 1.055,75 milyon TL."
+    assert gate_answer(wrong, available, lake.connection).status is not AnswerStatus.ACCEPTED
