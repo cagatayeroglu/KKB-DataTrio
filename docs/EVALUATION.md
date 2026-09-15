@@ -961,6 +961,17 @@ Local ignored evidence: `artifacts/hybrid-rehearsal-ledger.jsonl`,
 `artifacts/hybrid-direct-probe-{ledger.jsonl,result.json}`. These contain local
 measurement evidence, not portable prepared data; the durable findings are above.
 
+**Authorized follow-up (same PR):** hybrid prepared plans now require discovery
+before new-series reads; existing-column transforms remain direct. A numerically
+verified candidate with exclusively period-attribution omissions gets one fresh
+writer attempt and the same full gate. Provider failure keeps the initial gated
+answer. Offline checks: 118 discovery/dense/gate tests, 137 API/selection/loop/live
+budget tests (one existing platform skip), plus the repair-transport regression
+passed; touched-source mypy and Ruff passed. Initial test execution encountered
+sandbox temp-directory access errors; rerunning with a fresh workspace-local temp
+root resolved setup. One new alignment fixture was corrected to supply its
+required columns before passing. Live rerun outcome remains pending.
+
 <a id="m13-05-fresh-holdout-2026-09-15"></a>
 ## M13-05 DEC-142 combination on a fresh holdout — 2026-09-15 (PR #179, merged)
 

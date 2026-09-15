@@ -341,6 +341,8 @@ class PreparedRunner:
                     registry,
                     catalog_continuation=True,
                     selection=selected_table,
+                    require_series_discovery=self._dense is not None,
+                    repair_period_wording=True,
                 ).answer(question, lake.connection, workspace=workspace, remember=name)
                 published = workspace.value_of(name) if name in workspace.names() else None
                 answer = project_answer(
