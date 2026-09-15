@@ -1805,7 +1805,7 @@ M0 schema validation for the existing fixture; executable tools for behavioral s
 - [ ] M9-02 — Add explicit numeric expected outputs, units/periods, tolerances, expected abstentions, and multi-turn state assertions to the case design.
 - [ ] M9-03 — Define source/series/tool/plan/numeric/semantics/evidence/recovery/latency metrics using EVALUATION.
 - [ ] M9-04 — Implement a deterministic runner with case selection, stable IDs, seeded fixtures, and structured failure categories.
-- [ ] M9-05 — Add an EVAL-SMOKE subset spanning change, unknown semantics, alignment, invalid tool, evidence failure, and follow-up state.
+- [ ] M9-05 — EVAL-SMOKE deterministic runner; Status: IN PROGRESS; Owner: Çağatay; Branch: `feature/m9-eval-smoke`, based on verified `dev` `c42cf440f1f8d989c8f884493f83995f38cc55df`; PR: pending; Commit: pending. Scope: one offline B1 slice with fixed finance-semantic cases, independent numerical/structural oracles, deterministic scripted-provider planning where applicable, and machine-readable per-case/summary outcomes; includes only the minimum M9-04/06/07 runner, result and scorer prerequisites needed by this smoke. Tests: NOT RUN (claim only). Blocker: none; M9-01 stash delivery is not required for independently authored synthetic cases. Handoff: implement and validate B1 on this branch, open one PR into `dev`, and stop before merge or B2.
 - [ ] M9-06 — Add machine-readable per-case outcomes and category denominators; distinguish unsupported, failed, not-run, and not-applicable.
 - [ ] M9-07 — Test scorer behavior against deliberately wrong numbers, missing evidence, and false abstentions.
 - [ ] M9-08 — Add daily/weekly/monthly, stock/flow, cumulative/reset, scale/rate, duplicates/missing/revision cases.
