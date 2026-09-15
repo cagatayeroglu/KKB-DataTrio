@@ -99,6 +99,7 @@ EXPLICIT_ID = re.compile(
     re.I,
 )
 HEADER_ID = re.compile(r"^\s*[`\"']?([\w.:-]+?)[`\"']?:\s")
+IDENTIFIER_SHAPE = re.compile(r"[_.:\d-]")
 #: Wording that asserts one thing moves another, which DEC-120 forbids an
 #: answer to say. Still a bounded vocabulary: an unlisted causative verb
 #: ("artırdı", "affected") is not caught, and nothing here parses prose.
@@ -226,7 +227,14 @@ def identity_fault(
         if match[2] != fields[_fold(match[1])]:
             return f"Explicit {match[1]} {match[2]!r} conflicts with this result/value identity"
     header = HEADER_ID.match(clause)
-    if header and header[1] not in aliases:
+    # A plain word before a colon that names nothing known ("Değerlendirme:",
+    # "Sonuç:") is a discourse label. Identifier-shaped headers and any known
+    # result/value name still must identify this value.
+    if (
+        header
+        and header[1] not in aliases
+        and (IDENTIFIER_SHAPE.search(header[1]) or header[1] in known)
+    ):
         # Calendar headers are period qualifiers, not result IDs.
         calendar = (ISO_DATE, YEAR, MONTH, DATE_RANGE, YEAR_MONTH)
         if not any(pattern.fullmatch(header[1]) for pattern in calendar):

@@ -220,3 +220,19 @@ def test_recorded_price_reference_in_a_figure_sentence(lake, tmp_path, reference
     final = report["turns"][-1]
     assert (final["answer"]["status"] == "accepted") is accepted, final["answer"]
     assert (live_check.TURN_TWO_NAME in final["published"]) is accepted
+
+
+def test_turn_three_heading_and_duplicated_counts_do_not_block_publication(lake, tmp_path):
+    """M11-07 live repeat 2: headings and Turn 1 duplicate counts withheld Turn 3."""
+    prepared(lake)
+    third = [ADD_KFE, comparison("compare", REAL, when=("EVDS:TP.KFE.TR", "up"))]
+    provider = scripted(
+        *first_two(),
+        proposal(live_check.TURN_THREE_QUESTION, third),
+        "Değerlendirme: bu birlikte hareket kredinin artmamasını tek başına açıklamaz.",
+    )
+    report = live_check.run_prepared_check(provider, lake.root, tmp_path / "work", turns=3)
+    final = report["turns"][-1]
+    assert report["passed"] is True and final["answer"]["status"] == "accepted", final["answer"]
+    writer_context = " ".join(m.content for m in provider.seen[-1])
+    assert "display AMBIGUOUS" in writer_context
