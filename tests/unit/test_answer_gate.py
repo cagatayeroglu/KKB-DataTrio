@@ -532,6 +532,35 @@ def test_period_repair_does_not_retry_invented_values(house):
     assert len(provider.seen) == 2
 
 
+@pytest.mark.parametrize("repaired", [SUPPORTED, INVENTED])
+def test_unmatched_numeric_repair_is_bounded_and_fully_reverified(house, repaired):
+    from kkb_agent.agent import Workspace
+
+    provider = scripted(plan_json(FULLY_TYPED), INVENTED, repaired)
+    registry = ToolRegistry()
+    registry.register(make_lakehouse_tool(house.connection))
+    workspace = Workspace.open(house.connection)
+    prior = result(result_id="prior")
+    workspace.publish(workspace.preview("prior", prior))
+    prior_digest = workspace.value_of("prior").digest()
+
+    answer = Session(provider, registry, repair_unmatched_numbers=True).answer(
+        "Haziran bakiyesi?", house.connection, workspace=workspace, remember="candidate"
+    )
+
+    assert len(provider.seen) == 3
+    assert provider.seen[1][1].content == provider.seen[2][1].content
+    assert INVENTED not in provider.seen[2][0].content
+    assert "Do not derive a percentage" in provider.seen[2][0].content
+    assert workspace.value_of("prior").digest() == prior_digest
+    if repaired == SUPPORTED:
+        assert answer.answer.status is AnswerStatus.ACCEPTED
+        assert workspace.names() == ["candidate", "prior"]
+    else:
+        assert answer.answer.status is AnswerStatus.ABSTAINED
+        assert workspace.names() == ["prior"]
+
+
 def test_period_repair_provider_failure_preserves_first_gated_answer(house, monkeypatch):
     from kkb_agent.agent import Workspace
     from kkb_agent.llm.provider import ProviderError

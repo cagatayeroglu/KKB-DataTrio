@@ -33,6 +33,7 @@ from kkb_agent.agent.claim_qualifiers import (
     identity_fault,
     is_date_token,
     period_fault,
+    table_count_identity_fault,
     unit_fault,
 )
 from kkb_agent.agent.literal import exposes_literal_identity, literal_proof, literal_text
@@ -585,6 +586,7 @@ def _bind_to_results(
                     period_fault(clause, prefix, value, _price_references(result, value)),
                     unit_fault(answer, number.start, end, value),
                     identity_fault(clause, prefix, name, result, value, named),
+                    table_count_identity_fault(clause, result, value),
                     None
                     if (
                         result.claim_kind is ClaimKind.LITERAL_SOURCE_VALUE
