@@ -914,6 +914,53 @@ quality measurement, or an out-of-scope classifier. No live embedding, Kloudeks,
 BDDK, EVDS or production-search call was made. Archive-intent ordering, broad
 multi-series ranking, N07/N09/N18 and full catalog coverage remain separate limits.
 
+<a id="m11-served-hybrid-rehearsal-2026-09-15"></a>
+## M11-07 / M13-05 served rehearsal and hybrid isolation — 2026-09-15
+
+Measured on `4083020`, with product code identical to dev `fdd666e`, in
+[PR #194](https://github.com/cagatayeroglu/KKB-DataTrio/pull/194). Local prepared
+pool: 29 series / 4,124 observations; v3 catalog: 37 identities; local LanceDB
+index generation `e0bbaac8`, `qwen3-instruct-query-v1`. Real Next.js client and
+prepared API, fresh workspace, Qwen3.8-27B through Kloudeks. The approved budget
+was 15 chat and 15 query-embedding requests, 600 seconds per request, one attempt.
+
+| Check | Observed result |
+| --- | --- |
+| Organizer Turn 1 | ACCEPTED, 68.875 s; 60 monthly rows / 242 values; 59 transitions, 32 rate falls, 28 balance rises and 4 non-rises. |
+| Independent source comparison | All 120 monthly balance/rate values match read-only SQL plus Decimal arithmetic using the existing manual oracle helpers; weekly rate assignment is `by_end`. Four non-rise months: February/May 2021, December 2023, January 2024. |
+| Organizer Turn 2 | QUALIFIED, 50.266 s; one sentence omitted with two `period` reason categories. No new workspace table published. |
+| Unpublished deflation candidate | 302 values: all 242 copied values unchanged and all 60 added real balances match independent CPI arithmetic with December 2025 reference prices. Execution/store evidence checks report no faults. |
+| State/proof | Original published result is byte-equivalent as a JSON model to its pre-follow-up snapshot. UI cell details open the complete result-level source/execution/verification chain; individual observation-to-cell proof is not claimed. |
+| Organizer Turn 3 | Not submitted: the required deflated table was not published. No automatic retry or substitute source table. |
+| Served retrieval | Hybrid configured, but zero query embeddings: planner selected `change_detection`, then `table_transform` directly. This is not served dense-stage acceptance. |
+| Direct hybrid isolation | On the user's follow-up request, the same catalog-tool factory, runtime query policy and index were exercised with one query, `konut kredisi bakiyesi`. One Qwen3-Embedding-8B call succeeded (344 ms provider timing); tool returned `hybrid`, dense `success`, three candidates with lexical+dense provenance and explicit clarification required. No degradation. This checks wiring for one query, not ranking quality or served planner continuation. |
+
+Actual total: **four chat requests plus one query embedding**, zero retries,
+passage/index-build/BDDK/EVDS/search/OCR calls during these measurements. The
+separately approved earlier index build is not part of this run. Test services
+were stopped afterwards. No product code changed and no broad suite repeated.
+
+Diagnosis is bounded by the evidence: the current discovery instructions allow
+direct analysis when reviewed identities/workspace data suffice, and prepared
+series identities are exposed in tool descriptions. Catalog invocation is not
+mandatory; configured hybrid retrieval does not imply it ran. Separately,
+publication requires an ACCEPTED answer, so the Turn 2 period-related omission
+withheld a numerically verified candidate. The content-free ledger does not
+retain the omitted draft; the exact problematic wording is therefore not
+established. The surviving answer says adjusted values were listed while the UI
+still shows the original table and an explicit non-publication notice: check
+that user-facing inconsistency in the focused M11-11 follow-up.
+
+Next checks belong to M11-11/M13-05: reproduce the period/publication issue
+without weakening verification; define and exercise the discovery-required path
+for new-series intents, while preserving valid selected-table reuse. Only then
+repeat the three-turn served hybrid acceptance under a new bounded live plan.
+Local ignored evidence: `artifacts/hybrid-rehearsal-ledger.jsonl`,
+`artifacts/rehearsal-verification.json`, `artifacts/turn1-baseline.json`,
+`artifacts/turn2-unpublished-candidate.json`, and
+`artifacts/hybrid-direct-probe-{ledger.jsonl,result.json}`. These contain local
+measurement evidence, not portable prepared data; the durable findings are above.
+
 <a id="m13-05-fresh-holdout-2026-09-15"></a>
 ## M13-05 DEC-142 combination on a fresh holdout — 2026-09-15 (PR #179, merged)
 
