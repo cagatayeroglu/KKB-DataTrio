@@ -1,0 +1,4340 @@
+{
+ "report": "m13-09-retrieval-evaluation-2026-09-15",
+ "snapshot_sha256": "e0bbaac8eb4d1b1e90deacab42989cd6f74181f8ce267150825e8d24e169fb11",
+ "cases_sha256": "3bf771c4b4c3d0936217ce24a2f8592dc6e73b70e0386fa6c9f7c15d31fb52d5",
+ "note": "Kloudeks Qwen3-Embedding-8B, 6 batched passage requests (2 index generations) and 88 query requests; top-5 ranked IDs per case and mode; full reports are local ignored artifacts",
+ "policies": {
+  "qwen3-plain-v1": {
+   "query_embedding_requests": 44,
+   "query_embedding_seconds": 3.38,
+   "summary": {
+    "development/dense": {
+     "cases": 26,
+     "scored": 23,
+     "hit_at_1": 0.7826,
+     "hit_at_5": 0.9565,
+     "recall_at_5": 0.9348,
+     "recall_at_10": 0.9565,
+     "mrr": 0.8649,
+     "primary_at_1": 0.7778,
+     "no_answer_cases": 3,
+     "no_answer_status_ok": null,
+     "archived_leaks": 0,
+     "dense_failures": 0,
+     "median_ms": 83.239
+    },
+    "development/hybrid": {
+     "cases": 26,
+     "scored": 23,
+     "hit_at_1": 0.6957,
+     "hit_at_5": 0.913,
+     "recall_at_5": 0.8659,
+     "recall_at_10": 0.913,
+     "mrr": 0.7935,
+     "primary_at_1": 0.7222,
+     "no_answer_cases": 3,
+     "no_answer_status_ok": 0.6667,
+     "archived_leaks": 0,
+     "dense_failures": 0,
+     "median_ms": 22.655
+    },
+    "development/lexical": {
+     "cases": 26,
+     "scored": 23,
+     "hit_at_1": 0.6957,
+     "hit_at_5": 0.7391,
+     "recall_at_5": 0.7391,
+     "recall_at_10": 0.7391,
+     "mrr": 0.7101,
+     "primary_at_1": 0.7222,
+     "no_answer_cases": 3,
+     "no_answer_status_ok": 0.6667,
+     "archived_leaks": 0,
+     "dense_failures": 0,
+     "median_ms": 10.384
+    },
+    "holdout/dense": {
+     "cases": 18,
+     "scored": 16,
+     "hit_at_1": 0.625,
+     "hit_at_5": 0.875,
+     "recall_at_5": 0.7812,
+     "recall_at_10": 1.0,
+     "mrr": 0.7537,
+     "primary_at_1": 0.6923,
+     "no_answer_cases": 2,
+     "no_answer_status_ok": null,
+     "archived_leaks": 0,
+     "dense_failures": 0,
+     "median_ms": 81.271
+    },
+    "holdout/hybrid": {
+     "cases": 18,
+     "scored": 16,
+     "hit_at_1": 0.625,
+     "hit_at_5": 0.9375,
+     "recall_at_5": 0.9167,
+     "recall_at_10": 1.0,
+     "mrr": 0.7786,
+     "primary_at_1": 0.5385,
+     "no_answer_cases": 2,
+     "no_answer_status_ok": 0.0,
+     "archived_leaks": 0,
+     "dense_failures": 0,
+     "median_ms": 22.731
+    },
+    "holdout/lexical": {
+     "cases": 18,
+     "scored": 16,
+     "hit_at_1": 0.625,
+     "hit_at_5": 0.8125,
+     "recall_at_5": 0.7396,
+     "recall_at_10": 0.875,
+     "mrr": 0.7146,
+     "primary_at_1": 0.5385,
+     "no_answer_cases": 2,
+     "no_answer_status_ok": 0.5,
+     "archived_leaks": 0,
+     "dense_failures": 0,
+     "median_ms": 10.447
+    },
+    "all/dense": {
+     "cases": 44,
+     "scored": 39,
+     "hit_at_1": 0.7179,
+     "hit_at_5": 0.9231,
+     "recall_at_5": 0.8718,
+     "recall_at_10": 0.9744,
+     "mrr": 0.8193,
+     "primary_at_1": 0.7419,
+     "no_answer_cases": 5,
+     "no_answer_status_ok": null,
+     "archived_leaks": 0,
+     "dense_failures": 0,
+     "median_ms": 82.503
+    },
+    "all/hybrid": {
+     "cases": 44,
+     "scored": 39,
+     "hit_at_1": 0.6667,
+     "hit_at_5": 0.9231,
+     "recall_at_5": 0.8868,
+     "recall_at_10": 0.9487,
+     "mrr": 0.7874,
+     "primary_at_1": 0.6452,
+     "no_answer_cases": 5,
+     "no_answer_status_ok": 0.4,
+     "archived_leaks": 0,
+     "dense_failures": 0,
+     "median_ms": 22.673
+    },
+    "all/lexical": {
+     "cases": 44,
+     "scored": 39,
+     "hit_at_1": 0.6667,
+     "hit_at_5": 0.7692,
+     "recall_at_5": 0.7393,
+     "recall_at_10": 0.7949,
+     "mrr": 0.712,
+     "primary_at_1": 0.6452,
+     "no_answer_cases": 5,
+     "no_answer_status_ok": 0.6,
+     "archived_leaks": 0,
+     "dense_failures": 0,
+     "median_ms": 10.418
+    }
+   },
+   "cases": [
+    {
+     "case_id": "D01",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF12"
+     ]
+    },
+    {
+     "case_id": "D01",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.25,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF101",
+      "EVDS:TP.KTF10",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KBK.TRY.18"
+     ]
+    },
+    {
+     "case_id": "D01",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF12"
+     ]
+    },
+    {
+     "case_id": "D02",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.TUKFIY2025.05",
+      "EVDS:TP.KTF12",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0"
+     ]
+    },
+    {
+     "case_id": "D02",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": false,
+     "hit_at_5": false,
+     "reciprocal_rank": 0.14285714285714285,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF101",
+      "EVDS:TP.KTF10",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.KTFTUK",
+      "EVDS:TP.KTF17"
+     ]
+    },
+    {
+     "case_id": "D02",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF101",
+      "EVDS:TP.TUKFIY2025.05",
+      "EVDS:TP.KTF10",
+      "EVDS:TP.KTF12"
+     ]
+    },
+    {
+     "case_id": "D03",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF12",
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTFTUK",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66"
+     ]
+    },
+    {
+     "case_id": "D03",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF12",
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.KTF101"
+     ]
+    },
+    {
+     "case_id": "D03",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF12",
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTFTUK",
+      "EVDS:TP.KTFTUK01"
+     ]
+    },
+    {
+     "case_id": "D04",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KKP.TRY.18",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.KTFTUK"
+     ]
+    },
+    {
+     "case_id": "D04",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.KKP.TRY.18",
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.KTF101"
+     ]
+    },
+    {
+     "case_id": "D04",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KKP.TRY.18",
+      "EVDS:TP.KTF12",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "EVDS:TP.KBK.TRY.18"
+     ]
+    },
+    {
+     "case_id": "D05",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.KKP.TRY.18",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTFTUK"
+     ]
+    },
+    {
+     "case_id": "D05",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.KKP.TRY.18",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.KTF101"
+     ]
+    },
+    {
+     "case_id": "D05",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.KKP.TRY.18",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTFTUK"
+     ]
+    },
+    {
+     "case_id": "D06",
+     "mode": "lexical",
+     "status": "PARTIAL",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "EVDS:TP.BKR.TRY.18",
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0",
+      "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2",
+      "EVDS:TP.KTF12"
+     ]
+    },
+    {
+     "case_id": "D06",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.KKP.TRY.18",
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0",
+      "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2"
+     ]
+    },
+    {
+     "case_id": "D06",
+     "mode": "hybrid",
+     "status": "PARTIAL",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KBK.TRY.18",
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0",
+      "EVDS:TP.KKP.TRY.18"
+     ]
+    },
+    {
+     "case_id": "D07",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2",
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66"
+     ]
+    },
+    {
+     "case_id": "D07",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2",
+      "EVDS:TP.KKP.TRY.18",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0",
+      "EVDS:TP.BKR.TRY.18"
+     ]
+    },
+    {
+     "case_id": "D07",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2",
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66"
+     ]
+    },
+    {
+     "case_id": "D08",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.GENENDEKS.T1"
+     ]
+    },
+    {
+     "case_id": "D08",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.GENENDEKS.T1",
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "EVDS:TP.TUKFIY2025.07",
+      "EVDS:TP.KFE.TR"
+     ]
+    },
+    {
+     "case_id": "D08",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.GENENDEKS.T1"
+     ]
+    },
+    {
+     "case_id": "D09",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.GENENDEKS.T1",
+      "EVDS:TP.TUKFIY2025.GENEL"
+     ]
+    },
+    {
+     "case_id": "D09",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.GENENDEKS.T1",
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.TUKFIY2025.07",
+      "EVDS:TP.TUKFIY2025.08",
+      "EVDS:TP.KFE.TR"
+     ]
+    },
+    {
+     "case_id": "D09",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.GENENDEKS.T1",
+      "EVDS:TP.TUKFIY2025.GENEL"
+     ]
+    },
+    {
+     "case_id": "D10",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": false,
+     "reciprocal_rank": 0.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.GENENDEKS.T1",
+      "EVDS:TP.TUKFIY2025.GENEL"
+     ]
+    },
+    {
+     "case_id": "D10",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.GENENDEKS.T1"
+     ]
+    },
+    {
+     "case_id": "D10",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.5,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.GENENDEKS.T1",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.KFE.TR",
+      "EVDS:TP.KFE.TR51"
+     ]
+    },
+    {
+     "case_id": "D11",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.TUKFIY2025.05",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.TUKFIY2025.GENEL"
+     ]
+    },
+    {
+     "case_id": "D11",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.5,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.KFE.TR",
+      "EVDS:TP.KTFTUK"
+     ]
+    },
+    {
+     "case_id": "D11",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.TUKFIY2025.05",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.KFE.TR"
+     ]
+    },
+    {
+     "case_id": "D12",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR31"
+     ]
+    },
+    {
+     "case_id": "D12",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.KFE.TR",
+      "EVDS:TP.TUKFIY2025.GENEL"
+     ]
+    },
+    {
+     "case_id": "D12",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR31"
+     ]
+    },
+    {
+     "case_id": "D13",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.TUKFIY2025.06",
+      "EVDS:TP.TUKFIY2025.07",
+      "EVDS:TP.TUKFIY2025.10",
+      "EVDS:TP.TUKFIY2025.03"
+     ]
+    },
+    {
+     "case_id": "D13",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR",
+      "EVDS:TP.BKR.TRY.18"
+     ]
+    },
+    {
+     "case_id": "D13",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.TUKFIY2025.06",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.TUKFIY2025.07",
+      "EVDS:TP.KFE.TR10"
+     ]
+    },
+    {
+     "case_id": "D14",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.3333333333333333,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.KTF11",
+      "EVDS:TP.KTF101",
+      "EVDS:TP.KTFTUK01"
+     ]
+    },
+    {
+     "case_id": "D14",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF11",
+      "EVDS:TP.KTF10",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.KTF101",
+      "EVDS:TP.KTFTUK"
+     ]
+    },
+    {
+     "case_id": "D14",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.5,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF11",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.KTF10",
+      "EVDS:TP.KTFTUK01"
+     ]
+    },
+    {
+     "case_id": "D15",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF17.USD",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.KTF101",
+      "EVDS:TP.KTF11"
+     ]
+    },
+    {
+     "case_id": "D15",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF17.USD",
+      "EVDS:TP.KTF17",
+      "EVDS:TP.KTF18",
+      "EVDS:TP.KTF101",
+      "EVDS:TP.KTF17.EUR"
+     ]
+    },
+    {
+     "case_id": "D15",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF17.USD",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF17",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.KTF18"
+     ]
+    },
+    {
+     "case_id": "D16",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF101",
+      "EVDS:TP.KTF10"
+     ]
+    },
+    {
+     "case_id": "D16",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF101",
+      "EVDS:TP.KTF10",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KBK.TRY.18"
+     ]
+    },
+    {
+     "case_id": "D16",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF101",
+      "EVDS:TP.KTF10"
+     ]
+    },
+    {
+     "case_id": "D17",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": false,
+     "reciprocal_rank": 0.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.GENENDEKS.T1"
+     ]
+    },
+    {
+     "case_id": "D17",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.5,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTFTUK",
+      "EVDS:TP.TUKFIY2025.11",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31"
+     ]
+    },
+    {
+     "case_id": "D17",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.25,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KTFTUK",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.TUKFIY2025.11",
+      "EVDS:TP.KFE.TR51"
+     ]
+    },
+    {
+     "case_id": "D18",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.04",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.KFE.TR"
+     ]
+    },
+    {
+     "case_id": "D18",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.04",
+      "EVDS:TP.KFE.TR",
+      "EVDS:TP.GENENDEKS.T1",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.KFE.TR31"
+     ]
+    },
+    {
+     "case_id": "D18",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.04",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.GENENDEKS.T1"
+     ]
+    },
+    {
+     "case_id": "D19",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": false,
+     "reciprocal_rank": 0.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.GENENDEKS.T1"
+     ]
+    },
+    {
+     "case_id": "D19",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.02",
+      "EVDS:TP.TUKFIY2025.01",
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR51"
+     ]
+    },
+    {
+     "case_id": "D19",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.5,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.TUKFIY2025.02",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.TUKFIY2025.01",
+      "EVDS:TP.KFE.TR51"
+     ]
+    },
+    {
+     "case_id": "D20",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": false,
+     "reciprocal_rank": 0.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTFTUK",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.TUKFIY2025.06",
+      "EVDS:TP.TUKFIY2025.07",
+      "EVDS:TP.TUKFIY2025.10"
+     ]
+    },
+    {
+     "case_id": "D20",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.TUKFIY2025.07",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.GENENDEKS.T1",
+      "EVDS:TP.KFE.TR"
+     ]
+    },
+    {
+     "case_id": "D20",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.5,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTFTUK",
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.TUKFIY2025.07",
+      "EVDS:TP.TUKFIY2025.06"
+     ]
+    },
+    {
+     "case_id": "D21",
+     "mode": "lexical",
+     "status": "UNRESOLVED",
+     "hit_at_1": null,
+     "hit_at_5": null,
+     "reciprocal_rank": null,
+     "status_ok": true,
+     "top5": []
+    },
+    {
+     "case_id": "D21",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": null,
+     "hit_at_5": null,
+     "reciprocal_rank": null,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KBK.TRY.18",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0",
+      "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2",
+      "EVDS:TP.BKR.TRY.18"
+     ]
+    },
+    {
+     "case_id": "D21",
+     "mode": "hybrid",
+     "status": "UNRESOLVED",
+     "hit_at_1": null,
+     "hit_at_5": null,
+     "reciprocal_rank": null,
+     "status_ok": true,
+     "top5": []
+    },
+    {
+     "case_id": "D22",
+     "mode": "lexical",
+     "status": "UNRESOLVED",
+     "hit_at_1": null,
+     "hit_at_5": null,
+     "reciprocal_rank": null,
+     "status_ok": true,
+     "top5": []
+    },
+    {
+     "case_id": "D22",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": null,
+     "hit_at_5": null,
+     "reciprocal_rank": null,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTFTUK",
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.GENENDEKS.T1"
+     ]
+    },
+    {
+     "case_id": "D22",
+     "mode": "hybrid",
+     "status": "UNRESOLVED",
+     "hit_at_1": null,
+     "hit_at_5": null,
+     "reciprocal_rank": null,
+     "status_ok": true,
+     "top5": []
+    },
+    {
+     "case_id": "D23",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": null,
+     "hit_at_5": null,
+     "reciprocal_rank": null,
+     "status_ok": false,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF17.EUR",
+      "EVDS:TP.KTF17.USD",
+      "EVDS:TP.KTF18",
+      "EVDS:TP.KTF12"
+     ]
+    },
+    {
+     "case_id": "D23",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": null,
+     "hit_at_5": null,
+     "reciprocal_rank": null,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF101",
+      "EVDS:TP.KTF10",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.KTF17",
+      "EVDS:TP.KTF18"
+     ]
+    },
+    {
+     "case_id": "D23",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": null,
+     "hit_at_5": null,
+     "reciprocal_rank": null,
+     "status_ok": false,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF101",
+      "EVDS:TP.KTF17.EUR",
+      "EVDS:TP.KTF10",
+      "EVDS:TP.KTF17.USD"
+     ]
+    },
+    {
+     "case_id": "D24",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": false,
+     "reciprocal_rank": 0.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51"
+     ]
+    },
+    {
+     "case_id": "D24",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.VK02",
+      "EVDS:TP.TK02",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "EVDS:TP.KKP.TRY.18",
+      "EVDS:TP.BKR.TRY.18"
+     ]
+    },
+    {
+     "case_id": "D24",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": false,
+     "reciprocal_rank": 0.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KKP.TRY.18"
+     ]
+    },
+    {
+     "case_id": "D25",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": false,
+     "reciprocal_rank": 0.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.GENENDEKS.T1"
+     ]
+    },
+    {
+     "case_id": "D25",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.5,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.02",
+      "EVDS:TP.TUKFIY2025.01",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "EVDS:TP.GENENDEKS.T1",
+      "EVDS:TP.TUKFIY2025.04"
+     ]
+    },
+    {
+     "case_id": "D25",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": false,
+     "reciprocal_rank": 0.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.GENENDEKS.T1"
+     ]
+    },
+    {
+     "case_id": "D26",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.10",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.KFE.TR"
+     ]
+    },
+    {
+     "case_id": "D26",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.10",
+      "EVDS:TP.TUKFIY2025.09",
+      "EVDS:TP.TUKFIY2025.06",
+      "EVDS:TP.TUKFIY2025.08",
+      "EVDS:TP.TUKFIY2025.07"
+     ]
+    },
+    {
+     "case_id": "D26",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.10",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.TUKFIY2025.09",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.TUKFIY2025.06"
+     ]
+    },
+    {
+     "case_id": "H01",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.KTFTUK",
+      "EVDS:TP.KTF11",
+      "EVDS:TP.KTF17.EUR"
+     ]
+    },
+    {
+     "case_id": "H01",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.5,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF101",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.KTF10",
+      "EVDS:TP.KTF11"
+     ]
+    },
+    {
+     "case_id": "H01",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF101",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.KTFTUK",
+      "EVDS:TP.KTFTUK01"
+     ]
+    },
+    {
+     "case_id": "H02",
+     "mode": "lexical",
+     "status": "PARTIAL",
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.5,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.KKP.TRY.18",
+      "EVDS:TP.BKR.TRY.18",
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0"
+     ]
+    },
+    {
+     "case_id": "H02",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": false,
+     "hit_at_5": false,
+     "reciprocal_rank": 0.16666666666666666,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.KTF10",
+      "EVDS:TP.KTF101",
+      "EVDS:TP.KKP.TRY.18"
+     ]
+    },
+    {
+     "case_id": "H02",
+     "mode": "hybrid",
+     "status": "PARTIAL",
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.3333333333333333,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.KKP.TRY.18",
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0"
+     ]
+    },
+    {
+     "case_id": "H03",
+     "mode": "lexical",
+     "status": "PARTIAL",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KKP.TRY.18",
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF12",
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0"
+     ]
+    },
+    {
+     "case_id": "H03",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KKP.TRY.18",
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.BKR.TRY.18",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2"
+     ]
+    },
+    {
+     "case_id": "H03",
+     "mode": "hybrid",
+     "status": "PARTIAL",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KKP.TRY.18",
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF12",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66"
+     ]
+    },
+    {
+     "case_id": "H04",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0",
+      "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66"
+     ]
+    },
+    {
+     "case_id": "H04",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0",
+      "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KKP.TRY.18"
+     ]
+    },
+    {
+     "case_id": "H04",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0",
+      "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66"
+     ]
+    },
+    {
+     "case_id": "H05",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.5,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51"
+     ]
+    },
+    {
+     "case_id": "H05",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KKP.TRY.18",
+      "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2"
+     ]
+    },
+    {
+     "case_id": "H05",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.5,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31"
+     ]
+    },
+    {
+     "case_id": "H06",
+     "mode": "lexical",
+     "status": "PARTIAL",
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.3333333333333333,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.KFE.TR"
+     ]
+    },
+    {
+     "case_id": "H06",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR",
+      "EVDS:TP.GENENDEKS.T1"
+     ]
+    },
+    {
+     "case_id": "H06",
+     "mode": "hybrid",
+     "status": "PARTIAL",
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.5,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR"
+     ]
+    },
+    {
+     "case_id": "H07",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.KKP.TRY.18",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.BKR.TRY.18"
+     ]
+    },
+    {
+     "case_id": "H07",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.5,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.KFE.TR",
+      "EVDS:TP.KTFTUK"
+     ]
+    },
+    {
+     "case_id": "H07",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.KKP.TRY.18",
+      "EVDS:TP.KFE.TR51"
+     ]
+    },
+    {
+     "case_id": "H08",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.GENENDEKS.T1",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.KTFTUK",
+      "EVDS:TP.KFE.TR10"
+     ]
+    },
+    {
+     "case_id": "H08",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.TUKFIY2025.07",
+      "EVDS:TP.GENENDEKS.T1",
+      "EVDS:TP.TUKFIY2025.08",
+      "EVDS:TP.TUKFIY2025.06"
+     ]
+    },
+    {
+     "case_id": "H08",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.GENENDEKS.T1",
+      "EVDS:TP.TUKFIY2025.07",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.KTFTUK"
+     ]
+    },
+    {
+     "case_id": "H09",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": false,
+     "reciprocal_rank": 0.1,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.GENENDEKS.T1"
+     ]
+    },
+    {
+     "case_id": "H09",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": false,
+     "hit_at_5": false,
+     "reciprocal_rank": 0.14285714285714285,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR",
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.KFE.TR51"
+     ]
+    },
+    {
+     "case_id": "H09",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": false,
+     "reciprocal_rank": 0.125,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.KFE.TR",
+      "EVDS:TP.TUKFIY2025.GENEL"
+     ]
+    },
+    {
+     "case_id": "H10",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": false,
+     "reciprocal_rank": 0.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.11",
+      "EVDS:TP.TUKFIY2025.10",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51"
+     ]
+    },
+    {
+     "case_id": "H10",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.08",
+      "EVDS:TP.KTFTUK",
+      "EVDS:TP.KTF10",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.GENENDEKS.T1"
+     ]
+    },
+    {
+     "case_id": "H10",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.5,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.11",
+      "EVDS:TP.TUKFIY2025.08",
+      "EVDS:TP.TUKFIY2025.10",
+      "EVDS:TP.KTFTUK",
+      "EVDS:TP.KFE.TR10"
+     ]
+    },
+    {
+     "case_id": "H11",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": false,
+     "reciprocal_rank": 0.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.KFE.TR",
+      "EVDS:TP.TUKFIY2025.01"
+     ]
+    },
+    {
+     "case_id": "H11",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.06",
+      "EVDS:TP.GENENDEKS.T1",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.TUKFIY2025.12"
+     ]
+    },
+    {
+     "case_id": "H11",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.5,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.TUKFIY2025.06",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.GENENDEKS.T1",
+      "EVDS:TP.KFE.TR51"
+     ]
+    },
+    {
+     "case_id": "H12",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF17.EUR",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF17.USD",
+      "EVDS:TP.KTF101"
+     ]
+    },
+    {
+     "case_id": "H12",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF17.EUR",
+      "EVDS:TP.KTF101",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.KTF17",
+      "EVDS:TP.KTF10"
+     ]
+    },
+    {
+     "case_id": "H12",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF17.EUR",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.KTF101",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTFTUK01"
+     ]
+    },
+    {
+     "case_id": "H13",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTFTUK",
+      "EVDS:TP.KTF11",
+      "EVDS:TP.KTF101",
+      "EVDS:TP.KTF10",
+      "EVDS:TP.KTF12"
+     ]
+    },
+    {
+     "case_id": "H13",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.5,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF101",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.KTF10",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF11"
+     ]
+    },
+    {
+     "case_id": "H13",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTFTUK",
+      "EVDS:TP.KTF101",
+      "EVDS:TP.KTF11",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.KTF10"
+     ]
+    },
+    {
+     "case_id": "H14",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF11"
+     ]
+    },
+    {
+     "case_id": "H14",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.25,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF10",
+      "EVDS:TP.KTF101",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.KTF11",
+      "EVDS:TP.KTF17"
+     ]
+    },
+    {
+     "case_id": "H14",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF11"
+     ]
+    },
+    {
+     "case_id": "H15",
+     "mode": "lexical",
+     "status": "NO_MATCH",
+     "hit_at_1": null,
+     "hit_at_5": null,
+     "reciprocal_rank": null,
+     "status_ok": true,
+     "top5": []
+    },
+    {
+     "case_id": "H15",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": null,
+     "hit_at_5": null,
+     "reciprocal_rank": null,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTFTUK",
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.KTF10",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.GENENDEKS.T1"
+     ]
+    },
+    {
+     "case_id": "H15",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": null,
+     "hit_at_5": null,
+     "reciprocal_rank": null,
+     "status_ok": false,
+     "top5": [
+      "EVDS:TP.KTFTUK",
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.KTF10",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.GENENDEKS.T1"
+     ]
+    },
+    {
+     "case_id": "H16",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": null,
+     "hit_at_5": null,
+     "reciprocal_rank": null,
+     "status_ok": false,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.KFE.TR",
+      "EVDS:TP.TUKFIY2025.GENEL"
+     ]
+    },
+    {
+     "case_id": "H16",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": null,
+     "hit_at_5": null,
+     "reciprocal_rank": null,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.GENENDEKS.T1"
+     ]
+    },
+    {
+     "case_id": "H16",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": null,
+     "hit_at_5": null,
+     "reciprocal_rank": null,
+     "status_ok": false,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.KFE.TR",
+      "EVDS:TP.TUKFIY2025.GENEL"
+     ]
+    },
+    {
+     "case_id": "H17",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.03",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.TUKFIY2025.GENEL"
+     ]
+    },
+    {
+     "case_id": "H17",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.03",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KTFTUK"
+     ]
+    },
+    {
+     "case_id": "H17",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.03",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.TUKFIY2025.GENEL"
+     ]
+    },
+    {
+     "case_id": "H18",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF17",
+      "EVDS:TP.KTF17.EUR",
+      "EVDS:TP.KTF17.USD",
+      "EVDS:TP.KTF18",
+      "EVDS:TP.KTF11"
+     ]
+    },
+    {
+     "case_id": "H18",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF17",
+      "EVDS:TP.KTF17.EUR",
+      "EVDS:TP.KTFTUK",
+      "EVDS:TP.KTF10",
+      "EVDS:TP.KTFTUK01"
+     ]
+    },
+    {
+     "case_id": "H18",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF17",
+      "EVDS:TP.KTF17.EUR",
+      "EVDS:TP.KTF17.USD",
+      "EVDS:TP.KTFTUK",
+      "EVDS:TP.KTF18"
+     ]
+    }
+   ]
+  },
+  "qwen3-instruct-query-v1": {
+   "query_embedding_requests": 44,
+   "query_embedding_seconds": 3.269,
+   "summary": {
+    "development/dense": {
+     "cases": 26,
+     "scored": 23,
+     "hit_at_1": 0.8696,
+     "hit_at_5": 1.0,
+     "recall_at_5": 0.9565,
+     "recall_at_10": 1.0,
+     "mrr": 0.913,
+     "primary_at_1": 0.9444,
+     "no_answer_cases": 3,
+     "no_answer_status_ok": null,
+     "archived_leaks": 0,
+     "dense_failures": 0,
+     "median_ms": 79.133
+    },
+    "development/hybrid": {
+     "cases": 26,
+     "scored": 23,
+     "hit_at_1": 0.6957,
+     "hit_at_5": 0.8696,
+     "recall_at_5": 0.8478,
+     "recall_at_10": 0.913,
+     "mrr": 0.7899,
+     "primary_at_1": 0.7222,
+     "no_answer_cases": 3,
+     "no_answer_status_ok": 0.6667,
+     "archived_leaks": 0,
+     "dense_failures": 0,
+     "median_ms": 22.459
+    },
+    "development/lexical": {
+     "cases": 26,
+     "scored": 23,
+     "hit_at_1": 0.6957,
+     "hit_at_5": 0.7391,
+     "recall_at_5": 0.7391,
+     "recall_at_10": 0.7391,
+     "mrr": 0.7101,
+     "primary_at_1": 0.7222,
+     "no_answer_cases": 3,
+     "no_answer_status_ok": 0.6667,
+     "archived_leaks": 0,
+     "dense_failures": 0,
+     "median_ms": 10.34
+    },
+    "holdout/dense": {
+     "cases": 18,
+     "scored": 16,
+     "hit_at_1": 0.875,
+     "hit_at_5": 1.0,
+     "recall_at_5": 0.9688,
+     "recall_at_10": 1.0,
+     "mrr": 0.9375,
+     "primary_at_1": 0.8462,
+     "no_answer_cases": 2,
+     "no_answer_status_ok": null,
+     "archived_leaks": 0,
+     "dense_failures": 0,
+     "median_ms": 79.344
+    },
+    "holdout/hybrid": {
+     "cases": 18,
+     "scored": 16,
+     "hit_at_1": 0.625,
+     "hit_at_5": 1.0,
+     "recall_at_5": 1.0,
+     "recall_at_10": 1.0,
+     "mrr": 0.7969,
+     "primary_at_1": 0.5385,
+     "no_answer_cases": 2,
+     "no_answer_status_ok": 0.0,
+     "archived_leaks": 0,
+     "dense_failures": 0,
+     "median_ms": 22.361
+    },
+    "holdout/lexical": {
+     "cases": 18,
+     "scored": 16,
+     "hit_at_1": 0.625,
+     "hit_at_5": 0.8125,
+     "recall_at_5": 0.7396,
+     "recall_at_10": 0.875,
+     "mrr": 0.7146,
+     "primary_at_1": 0.5385,
+     "no_answer_cases": 2,
+     "no_answer_status_ok": 0.5,
+     "archived_leaks": 0,
+     "dense_failures": 0,
+     "median_ms": 10.305
+    },
+    "all/dense": {
+     "cases": 44,
+     "scored": 39,
+     "hit_at_1": 0.8718,
+     "hit_at_5": 1.0,
+     "recall_at_5": 0.9615,
+     "recall_at_10": 1.0,
+     "mrr": 0.9231,
+     "primary_at_1": 0.9032,
+     "no_answer_cases": 5,
+     "no_answer_status_ok": null,
+     "archived_leaks": 0,
+     "dense_failures": 0,
+     "median_ms": 79.135
+    },
+    "all/hybrid": {
+     "cases": 44,
+     "scored": 39,
+     "hit_at_1": 0.6667,
+     "hit_at_5": 0.9231,
+     "recall_at_5": 0.9103,
+     "recall_at_10": 0.9487,
+     "mrr": 0.7927,
+     "primary_at_1": 0.6452,
+     "no_answer_cases": 5,
+     "no_answer_status_ok": 0.4,
+     "archived_leaks": 0,
+     "dense_failures": 0,
+     "median_ms": 22.459
+    },
+    "all/lexical": {
+     "cases": 44,
+     "scored": 39,
+     "hit_at_1": 0.6667,
+     "hit_at_5": 0.7692,
+     "recall_at_5": 0.7393,
+     "recall_at_10": 0.7949,
+     "mrr": 0.712,
+     "primary_at_1": 0.6452,
+     "no_answer_cases": 5,
+     "no_answer_status_ok": 0.6,
+     "archived_leaks": 0,
+     "dense_failures": 0,
+     "median_ms": 10.332
+    }
+   },
+   "cases": [
+    {
+     "case_id": "D01",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF12"
+     ]
+    },
+    {
+     "case_id": "D01",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF12",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.KKP.TRY.18",
+      "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2"
+     ]
+    },
+    {
+     "case_id": "D01",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF12"
+     ]
+    },
+    {
+     "case_id": "D02",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.TUKFIY2025.05",
+      "EVDS:TP.KTF12",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0"
+     ]
+    },
+    {
+     "case_id": "D02",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF12",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.KKP.TRY.18",
+      "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2"
+     ]
+    },
+    {
+     "case_id": "D02",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.TUKFIY2025.05",
+      "EVDS:TP.KTFTUK01",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66"
+     ]
+    },
+    {
+     "case_id": "D03",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF12",
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTFTUK",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66"
+     ]
+    },
+    {
+     "case_id": "D03",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF12",
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.KKP.TRY.18"
+     ]
+    },
+    {
+     "case_id": "D03",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF12",
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTFTUK",
+      "EVDS:TP.KTFTUK01"
+     ]
+    },
+    {
+     "case_id": "D04",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KKP.TRY.18",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.KTFTUK"
+     ]
+    },
+    {
+     "case_id": "D04",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.KKP.TRY.18",
+      "EVDS:TP.KBK.TRY.18",
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0"
+     ]
+    },
+    {
+     "case_id": "D04",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KKP.TRY.18",
+      "EVDS:TP.KTF12",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "EVDS:TP.KBK.TRY.18"
+     ]
+    },
+    {
+     "case_id": "D05",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.KKP.TRY.18",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTFTUK"
+     ]
+    },
+    {
+     "case_id": "D05",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.KKP.TRY.18",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.BKR.TRY.18",
+      "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2"
+     ]
+    },
+    {
+     "case_id": "D05",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.KKP.TRY.18",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTFTUK"
+     ]
+    },
+    {
+     "case_id": "D06",
+     "mode": "lexical",
+     "status": "PARTIAL",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "EVDS:TP.BKR.TRY.18",
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0",
+      "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2",
+      "EVDS:TP.KTF12"
+     ]
+    },
+    {
+     "case_id": "D06",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2",
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0",
+      "EVDS:TP.KKP.TRY.18",
+      "EVDS:TP.KTF12"
+     ]
+    },
+    {
+     "case_id": "D06",
+     "mode": "hybrid",
+     "status": "PARTIAL",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "EVDS:TP.BKR.TRY.18",
+      "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2",
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0",
+      "EVDS:TP.KKP.TRY.18"
+     ]
+    },
+    {
+     "case_id": "D07",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2",
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66"
+     ]
+    },
+    {
+     "case_id": "D07",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2",
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "EVDS:TP.KKP.TRY.18",
+      "EVDS:TP.BKR.TRY.18"
+     ]
+    },
+    {
+     "case_id": "D07",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2",
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66"
+     ]
+    },
+    {
+     "case_id": "D08",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.GENENDEKS.T1"
+     ]
+    },
+    {
+     "case_id": "D08",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.25,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.07",
+      "EVDS:TP.TUKFIY2025.06",
+      "EVDS:TP.TUKFIY2025.08",
+      "EVDS:TP.GENENDEKS.T1",
+      "EVDS:TP.TUKFIY2025.12"
+     ]
+    },
+    {
+     "case_id": "D08",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.GENENDEKS.T1"
+     ]
+    },
+    {
+     "case_id": "D09",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.GENENDEKS.T1",
+      "EVDS:TP.TUKFIY2025.GENEL"
+     ]
+    },
+    {
+     "case_id": "D09",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.GENENDEKS.T1",
+      "EVDS:TP.TUKFIY2025.07",
+      "EVDS:TP.TUKFIY2025.08",
+      "EVDS:TP.TUKFIY2025.06",
+      "EVDS:TP.TUKFIY2025.01"
+     ]
+    },
+    {
+     "case_id": "D09",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.GENENDEKS.T1",
+      "EVDS:TP.TUKFIY2025.GENEL"
+     ]
+    },
+    {
+     "case_id": "D10",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": false,
+     "reciprocal_rank": 0.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.GENENDEKS.T1",
+      "EVDS:TP.TUKFIY2025.GENEL"
+     ]
+    },
+    {
+     "case_id": "D10",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.TUKFIY2025.06",
+      "EVDS:TP.TUKFIY2025.07",
+      "EVDS:TP.TUKFIY2025.04"
+     ]
+    },
+    {
+     "case_id": "D10",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.5,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.GENENDEKS.T1",
+      "EVDS:TP.KFE.TR",
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.TUKFIY2025.06"
+     ]
+    },
+    {
+     "case_id": "D11",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.TUKFIY2025.05",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.TUKFIY2025.GENEL"
+     ]
+    },
+    {
+     "case_id": "D11",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.5,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.KFE.TR",
+      "EVDS:TP.TUKFIY2025.07"
+     ]
+    },
+    {
+     "case_id": "D11",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.TUKFIY2025.05",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.KFE.TR"
+     ]
+    },
+    {
+     "case_id": "D12",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR31"
+     ]
+    },
+    {
+     "case_id": "D12",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.TUKFIY2025.08",
+      "EVDS:TP.KFE.TR",
+      "EVDS:TP.TUKFIY2025.06",
+      "EVDS:TP.TUKFIY2025.07"
+     ]
+    },
+    {
+     "case_id": "D12",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR31"
+     ]
+    },
+    {
+     "case_id": "D13",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.TUKFIY2025.06",
+      "EVDS:TP.TUKFIY2025.07",
+      "EVDS:TP.TUKFIY2025.10",
+      "EVDS:TP.TUKFIY2025.03"
+     ]
+    },
+    {
+     "case_id": "D13",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.TUKFIY2025.07"
+     ]
+    },
+    {
+     "case_id": "D13",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.TUKFIY2025.06",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.TUKFIY2025.07",
+      "EVDS:TP.KFE.TR"
+     ]
+    },
+    {
+     "case_id": "D14",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.3333333333333333,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.KTF11",
+      "EVDS:TP.KTF101",
+      "EVDS:TP.KTFTUK01"
+     ]
+    },
+    {
+     "case_id": "D14",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF11",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.KTF10",
+      "EVDS:TP.KTF101",
+      "EVDS:TP.KTF17"
+     ]
+    },
+    {
+     "case_id": "D14",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.5,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF11",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.KTF10"
+     ]
+    },
+    {
+     "case_id": "D15",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF17.USD",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.KTF101",
+      "EVDS:TP.KTF11"
+     ]
+    },
+    {
+     "case_id": "D15",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF17.USD",
+      "EVDS:TP.KTF18",
+      "EVDS:TP.KTF17",
+      "EVDS:TP.KTF17.EUR",
+      "EVDS:TP.KTF101"
+     ]
+    },
+    {
+     "case_id": "D15",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF17.USD",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF18",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.KTF17"
+     ]
+    },
+    {
+     "case_id": "D16",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF101",
+      "EVDS:TP.KTF10"
+     ]
+    },
+    {
+     "case_id": "D16",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF101",
+      "EVDS:TP.KTF10",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.KTF18",
+      "EVDS:TP.KTF17"
+     ]
+    },
+    {
+     "case_id": "D16",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF101",
+      "EVDS:TP.KTF10"
+     ]
+    },
+    {
+     "case_id": "D17",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": false,
+     "reciprocal_rank": 0.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.GENENDEKS.T1"
+     ]
+    },
+    {
+     "case_id": "D17",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.11",
+      "EVDS:TP.TUKFIY2025.01",
+      "EVDS:TP.TUKFIY2025.09",
+      "EVDS:TP.TUKFIY2025.02",
+      "EVDS:TP.TUKFIY2025.08"
+     ]
+    },
+    {
+     "case_id": "D17",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.5,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.TUKFIY2025.11",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.TUKFIY2025.01",
+      "EVDS:TP.KFE.TR51"
+     ]
+    },
+    {
+     "case_id": "D18",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.04",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.KFE.TR"
+     ]
+    },
+    {
+     "case_id": "D18",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.04",
+      "EVDS:TP.TUKFIY2025.08",
+      "EVDS:TP.TUKFIY2025.13",
+      "EVDS:TP.TUKFIY2025.06",
+      "EVDS:TP.TUKFIY2025.07"
+     ]
+    },
+    {
+     "case_id": "D18",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.04",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.TUKFIY2025.08",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.TUKFIY2025.13"
+     ]
+    },
+    {
+     "case_id": "D19",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": false,
+     "reciprocal_rank": 0.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.GENENDEKS.T1"
+     ]
+    },
+    {
+     "case_id": "D19",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.02",
+      "EVDS:TP.TUKFIY2025.01",
+      "EVDS:TP.TUKFIY2025.06",
+      "EVDS:TP.TUKFIY2025.12",
+      "EVDS:TP.TUKFIY2025.03"
+     ]
+    },
+    {
+     "case_id": "D19",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.5,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.TUKFIY2025.02",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.TUKFIY2025.01",
+      "EVDS:TP.KFE.TR51"
+     ]
+    },
+    {
+     "case_id": "D20",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": false,
+     "reciprocal_rank": 0.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTFTUK",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.TUKFIY2025.06",
+      "EVDS:TP.TUKFIY2025.07",
+      "EVDS:TP.TUKFIY2025.10"
+     ]
+    },
+    {
+     "case_id": "D20",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.25,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.07",
+      "EVDS:TP.TUKFIY2025.06",
+      "EVDS:TP.TUKFIY2025.08",
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.GENENDEKS.T1"
+     ]
+    },
+    {
+     "case_id": "D20",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": false,
+     "reciprocal_rank": 0.16666666666666666,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTFTUK",
+      "EVDS:TP.TUKFIY2025.07",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.TUKFIY2025.06",
+      "EVDS:TP.TUKFIY2025.08"
+     ]
+    },
+    {
+     "case_id": "D21",
+     "mode": "lexical",
+     "status": "UNRESOLVED",
+     "hit_at_1": null,
+     "hit_at_5": null,
+     "reciprocal_rank": null,
+     "status_ok": true,
+     "top5": []
+    },
+    {
+     "case_id": "D21",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": null,
+     "hit_at_5": null,
+     "reciprocal_rank": null,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF12",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2",
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0",
+      "EVDS:TP.KBK.TRY.18"
+     ]
+    },
+    {
+     "case_id": "D21",
+     "mode": "hybrid",
+     "status": "UNRESOLVED",
+     "hit_at_1": null,
+     "hit_at_5": null,
+     "reciprocal_rank": null,
+     "status_ok": true,
+     "top5": []
+    },
+    {
+     "case_id": "D22",
+     "mode": "lexical",
+     "status": "UNRESOLVED",
+     "hit_at_1": null,
+     "hit_at_5": null,
+     "reciprocal_rank": null,
+     "status_ok": true,
+     "top5": []
+    },
+    {
+     "case_id": "D22",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": null,
+     "hit_at_5": null,
+     "reciprocal_rank": null,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.07",
+      "EVDS:TP.TUKFIY2025.08",
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.TUKFIY2025.06",
+      "EVDS:TP.GENENDEKS.T1"
+     ]
+    },
+    {
+     "case_id": "D22",
+     "mode": "hybrid",
+     "status": "UNRESOLVED",
+     "hit_at_1": null,
+     "hit_at_5": null,
+     "reciprocal_rank": null,
+     "status_ok": true,
+     "top5": []
+    },
+    {
+     "case_id": "D23",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": null,
+     "hit_at_5": null,
+     "reciprocal_rank": null,
+     "status_ok": false,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF17.EUR",
+      "EVDS:TP.KTF17.USD",
+      "EVDS:TP.KTF18",
+      "EVDS:TP.KTF12"
+     ]
+    },
+    {
+     "case_id": "D23",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": null,
+     "hit_at_5": null,
+     "reciprocal_rank": null,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF18",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.KTF101",
+      "EVDS:TP.KTF17",
+      "EVDS:TP.KTF11"
+     ]
+    },
+    {
+     "case_id": "D23",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": null,
+     "hit_at_5": null,
+     "reciprocal_rank": null,
+     "status_ok": false,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF18",
+      "EVDS:TP.KTF17.EUR",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.KTF17.USD"
+     ]
+    },
+    {
+     "case_id": "D24",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": false,
+     "reciprocal_rank": 0.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51"
+     ]
+    },
+    {
+     "case_id": "D24",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TK02",
+      "EVDS:TP.VK02",
+      "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "EVDS:TP.KFE.TR"
+     ]
+    },
+    {
+     "case_id": "D24",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": false,
+     "reciprocal_rank": 0.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "EVDS:TP.KFE.TR10",
+      "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2",
+      "EVDS:TP.KFE.TR31"
+     ]
+    },
+    {
+     "case_id": "D25",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": false,
+     "reciprocal_rank": 0.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.GENENDEKS.T1"
+     ]
+    },
+    {
+     "case_id": "D25",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.01",
+      "EVDS:TP.TUKFIY2025.02",
+      "EVDS:TP.TUKFIY2025.04",
+      "EVDS:TP.TUKFIY2025.13",
+      "EVDS:TP.TUKFIY2025.07"
+     ]
+    },
+    {
+     "case_id": "D25",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": false,
+     "reciprocal_rank": 0.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.GENENDEKS.T1"
+     ]
+    },
+    {
+     "case_id": "D26",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.10",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.KFE.TR"
+     ]
+    },
+    {
+     "case_id": "D26",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.10",
+      "EVDS:TP.TUKFIY2025.09",
+      "EVDS:TP.TUKFIY2025.13",
+      "EVDS:TP.TUKFIY2025.08",
+      "EVDS:TP.TUKFIY2025.06"
+     ]
+    },
+    {
+     "case_id": "D26",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.10",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.TUKFIY2025.09",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.TUKFIY2025.13"
+     ]
+    },
+    {
+     "case_id": "H01",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.KTFTUK",
+      "EVDS:TP.KTF11",
+      "EVDS:TP.KTF17.EUR"
+     ]
+    },
+    {
+     "case_id": "H01",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF12",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.KKP.TRY.18"
+     ]
+    },
+    {
+     "case_id": "H01",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.KTFTUK",
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.KTF11"
+     ]
+    },
+    {
+     "case_id": "H02",
+     "mode": "lexical",
+     "status": "PARTIAL",
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.5,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.KKP.TRY.18",
+      "EVDS:TP.BKR.TRY.18",
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0"
+     ]
+    },
+    {
+     "case_id": "H02",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF12",
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.KTF10"
+     ]
+    },
+    {
+     "case_id": "H02",
+     "mode": "hybrid",
+     "status": "PARTIAL",
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.5,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.KKP.TRY.18",
+      "EVDS:TP.BKR.TRY.18",
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0"
+     ]
+    },
+    {
+     "case_id": "H03",
+     "mode": "lexical",
+     "status": "PARTIAL",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KKP.TRY.18",
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF12",
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0"
+     ]
+    },
+    {
+     "case_id": "H03",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KKP.TRY.18",
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.BKR.TRY.18",
+      "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66"
+     ]
+    },
+    {
+     "case_id": "H03",
+     "mode": "hybrid",
+     "status": "PARTIAL",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KKP.TRY.18",
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF12",
+      "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2"
+     ]
+    },
+    {
+     "case_id": "H04",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0",
+      "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66"
+     ]
+    },
+    {
+     "case_id": "H04",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0",
+      "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.BKR.TRY.18"
+     ]
+    },
+    {
+     "case_id": "H04",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0",
+      "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66"
+     ]
+    },
+    {
+     "case_id": "H05",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.5,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51"
+     ]
+    },
+    {
+     "case_id": "H05",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2",
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0",
+      "EVDS:TP.KKP.TRY.18",
+      "EVDS:TP.BKR.TRY.18"
+     ]
+    },
+    {
+     "case_id": "H05",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.5,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.BKR.TRY.18",
+      "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+      "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2",
+      "EVDS:TP.KFE.TR10",
+      "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0"
+     ]
+    },
+    {
+     "case_id": "H06",
+     "mode": "lexical",
+     "status": "PARTIAL",
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.3333333333333333,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.KFE.TR"
+     ]
+    },
+    {
+     "case_id": "H06",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.5,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.TUKFIY2025.06"
+     ]
+    },
+    {
+     "case_id": "H06",
+     "mode": "hybrid",
+     "status": "PARTIAL",
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.25,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51"
+     ]
+    },
+    {
+     "case_id": "H07",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.KKP.TRY.18",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.BKR.TRY.18"
+     ]
+    },
+    {
+     "case_id": "H07",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.5,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.KFE.TR",
+      "EVDS:TP.TUKFIY2025.06"
+     ]
+    },
+    {
+     "case_id": "H07",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KBK.TRY.18",
+      "EVDS:TP.KKP.TRY.18",
+      "EVDS:TP.KFE.TR51"
+     ]
+    },
+    {
+     "case_id": "H08",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.GENENDEKS.T1",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.KTFTUK",
+      "EVDS:TP.KFE.TR10"
+     ]
+    },
+    {
+     "case_id": "H08",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.TUKFIY2025.07",
+      "EVDS:TP.TUKFIY2025.06",
+      "EVDS:TP.TUKFIY2025.08",
+      "EVDS:TP.TUKFIY2025.12"
+     ]
+    },
+    {
+     "case_id": "H08",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.GENENDEKS.T1",
+      "EVDS:TP.TUKFIY2025.07",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.TUKFIY2025.06"
+     ]
+    },
+    {
+     "case_id": "H09",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": false,
+     "reciprocal_rank": 0.1,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.GENENDEKS.T1"
+     ]
+    },
+    {
+     "case_id": "H09",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.07",
+      "EVDS:TP.TUKFIY2025.08",
+      "EVDS:TP.TUKFIY2025.06",
+      "EVDS:TP.TUKFIY2025.12",
+      "EVDS:TP.TUKFIY2025.04"
+     ]
+    },
+    {
+     "case_id": "H09",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.5,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.TUKFIY2025.07",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.TUKFIY2025.08",
+      "EVDS:TP.KFE.TR51"
+     ]
+    },
+    {
+     "case_id": "H10",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": false,
+     "reciprocal_rank": 0.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.11",
+      "EVDS:TP.TUKFIY2025.10",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51"
+     ]
+    },
+    {
+     "case_id": "H10",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.08",
+      "EVDS:TP.TUKFIY2025.12",
+      "EVDS:TP.TUKFIY2025.10",
+      "EVDS:TP.TUKFIY2025.11",
+      "EVDS:TP.TUKFIY2025.13"
+     ]
+    },
+    {
+     "case_id": "H10",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.5,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.11",
+      "EVDS:TP.TUKFIY2025.08",
+      "EVDS:TP.TUKFIY2025.10",
+      "EVDS:TP.TUKFIY2025.12",
+      "EVDS:TP.KFE.TR10"
+     ]
+    },
+    {
+     "case_id": "H11",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": false,
+     "reciprocal_rank": 0.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.KFE.TR",
+      "EVDS:TP.TUKFIY2025.01"
+     ]
+    },
+    {
+     "case_id": "H11",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.06",
+      "EVDS:TP.TUKFIY2025.13",
+      "EVDS:TP.TUKFIY2025.12",
+      "EVDS:TP.TUKFIY2025.08",
+      "EVDS:TP.TUKFIY2025.10"
+     ]
+    },
+    {
+     "case_id": "H11",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": false,
+     "hit_at_5": true,
+     "reciprocal_rank": 0.5,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.TUKFIY2025.06",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.TUKFIY2025.13",
+      "EVDS:TP.KFE.TR51"
+     ]
+    },
+    {
+     "case_id": "H12",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF17.EUR",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF17.USD",
+      "EVDS:TP.KTF101"
+     ]
+    },
+    {
+     "case_id": "H12",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF17.EUR",
+      "EVDS:TP.KTF17",
+      "EVDS:TP.KTF18",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.KTF101"
+     ]
+    },
+    {
+     "case_id": "H12",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF17.EUR",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.KTF17",
+      "EVDS:TP.BKR.TRY.18",
+      "EVDS:TP.KTF18"
+     ]
+    },
+    {
+     "case_id": "H13",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTFTUK",
+      "EVDS:TP.KTF11",
+      "EVDS:TP.KTF101",
+      "EVDS:TP.KTF10",
+      "EVDS:TP.KTF12"
+     ]
+    },
+    {
+     "case_id": "H13",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.KTF101",
+      "EVDS:TP.KTF10",
+      "EVDS:TP.KTF12",
+      "EVDS:TP.BKR.TRY.18"
+     ]
+    },
+    {
+     "case_id": "H13",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTFTUK",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.KTF11",
+      "EVDS:TP.KTF101",
+      "EVDS:TP.KTF10"
+     ]
+    },
+    {
+     "case_id": "H14",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF11"
+     ]
+    },
+    {
+     "case_id": "H14",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF11",
+      "EVDS:TP.KTFTUK01",
+      "EVDS:TP.KTF10",
+      "EVDS:TP.KTF17",
+      "EVDS:TP.KTF101"
+     ]
+    },
+    {
+     "case_id": "H14",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF11"
+     ]
+    },
+    {
+     "case_id": "H15",
+     "mode": "lexical",
+     "status": "NO_MATCH",
+     "hit_at_1": null,
+     "hit_at_5": null,
+     "reciprocal_rank": null,
+     "status_ok": true,
+     "top5": []
+    },
+    {
+     "case_id": "H15",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": null,
+     "hit_at_5": null,
+     "reciprocal_rank": null,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.TUKFIY2025.08",
+      "EVDS:TP.TUKFIY2025.07",
+      "EVDS:TP.GENENDEKS.T1",
+      "EVDS:TP.TUKFIY2025.06"
+     ]
+    },
+    {
+     "case_id": "H15",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": null,
+     "hit_at_5": null,
+     "reciprocal_rank": null,
+     "status_ok": false,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.TUKFIY2025.08",
+      "EVDS:TP.TUKFIY2025.07",
+      "EVDS:TP.GENENDEKS.T1",
+      "EVDS:TP.TUKFIY2025.06"
+     ]
+    },
+    {
+     "case_id": "H16",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": null,
+     "hit_at_5": null,
+     "reciprocal_rank": null,
+     "status_ok": false,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.KFE.TR",
+      "EVDS:TP.TUKFIY2025.GENEL"
+     ]
+    },
+    {
+     "case_id": "H16",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": null,
+     "hit_at_5": null,
+     "reciprocal_rank": null,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.GENENDEKS.T1",
+      "EVDS:TP.TUKFIY2025.GENEL",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.TUKFIY2025.08"
+     ]
+    },
+    {
+     "case_id": "H16",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": null,
+     "hit_at_5": null,
+     "reciprocal_rank": null,
+     "status_ok": false,
+     "top5": [
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.GENENDEKS.T1",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.TUKFIY2025.GENEL"
+     ]
+    },
+    {
+     "case_id": "H17",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.03",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.KFE.TR51",
+      "EVDS:TP.TUKFIY2025.GENEL"
+     ]
+    },
+    {
+     "case_id": "H17",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.03",
+      "EVDS:TP.TUKFIY2025.05",
+      "EVDS:TP.TUKFIY2025.09",
+      "EVDS:TP.TUKFIY2025.07",
+      "EVDS:TP.TUKFIY2025.GENEL"
+     ]
+    },
+    {
+     "case_id": "H17",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.TUKFIY2025.03",
+      "EVDS:TP.KFE.TR10",
+      "EVDS:TP.TUKFIY2025.05",
+      "EVDS:TP.KFE.TR31",
+      "EVDS:TP.TUKFIY2025.09"
+     ]
+    },
+    {
+     "case_id": "H18",
+     "mode": "lexical",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF17",
+      "EVDS:TP.KTF17.EUR",
+      "EVDS:TP.KTF17.USD",
+      "EVDS:TP.KTF18",
+      "EVDS:TP.KTF11"
+     ]
+    },
+    {
+     "case_id": "H18",
+     "mode": "dense",
+     "status": null,
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF17",
+      "EVDS:TP.KTF18",
+      "EVDS:TP.KTF17.EUR",
+      "EVDS:TP.KTF17.USD",
+      "EVDS:TP.KTF10"
+     ]
+    },
+    {
+     "case_id": "H18",
+     "mode": "hybrid",
+     "status": "MATCH",
+     "hit_at_1": true,
+     "hit_at_5": true,
+     "reciprocal_rank": 1.0,
+     "status_ok": null,
+     "top5": [
+      "EVDS:TP.KTF17",
+      "EVDS:TP.KTF17.EUR",
+      "EVDS:TP.KTF18",
+      "EVDS:TP.KTF17.USD",
+      "EVDS:TP.KTF11"
+     ]
+    }
+   ]
+  }
+ }
+}

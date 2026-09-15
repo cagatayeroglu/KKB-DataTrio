@@ -794,6 +794,44 @@ Both temporary servers were stopped after the rehearsal. Full proof UI and
 legacy/official-refresh dependency coverage remain incomplete.
 
 
+<a id="m13-09-retrieval-evaluation-2026-09-15"></a>
+## M13-09 retrieval evaluation with real Qwen embeddings — 2026-09-15 (PR #178, unmerged)
+
+Eray-authorized Kloudeks embedding requests only (`kkbhackathon2026/Qwen3-Embedding-8B`,
+batching allowed): 6 batched passage requests for two index generations (37
+passages each, about 1.8 s per build) and 88 single query requests (44 per
+policy, about 3.3 s). No chat, BDDK, EVDS or search call. Catalog v3/r4
+`e0bbaac8…`; 44 reviewed cases (39 scored, 5 no-answer) authored before any run;
+compact per-case evidence in [retrieval_eval_2026-09-15.json](catalog/retrieval_eval_2026-09-15.json).
+
+| Mode (all 39 scored) | hit@1 | hit@5 | Recall@5 | Recall@10 | MRR | primary@1 |
+| --- | --- | --- | --- | --- | --- | --- |
+| lexical | 0.6667 | 0.7692 | 0.7393 | 0.7949 | 0.7120 | 0.6452 |
+| dense, `qwen3-plain-v1` | 0.7179 | 0.9231 | 0.8718 | 0.9744 | 0.8193 | 0.7419 |
+| dense, `qwen3-instruct-query-v1` | **0.8718** | **1.0000** | **0.9615** | **1.0000** | **0.9231** | **0.9032** |
+| hybrid `alternating-archive-tier-v1`, plain | 0.6667 | 0.9231 | 0.8868 | 0.9487 | 0.7874 | 0.6452 |
+| hybrid `alternating-archive-tier-v1`, instruct | 0.6667 | 0.9231 | 0.9103 | 0.9487 | 0.7927 | 0.6452 |
+
+Split view (hit@1 / MRR): development lexical 0.6957 / 0.7101, instruct dense
+0.8696 / 0.9130; holdout lexical 0.6250 / 0.7146, instruct dense 0.8750 / 0.9375,
+plain dense 0.6250 / 0.7537. No archive leaks or dense failures in any mode.
+
+Findings: instruct dense beats lexical at top-1 on 11 cases (paraphrases, CPI
+divisions, English, diacritic-free, archive) and loses 3 ("TÜFE" alias goes to the
+transport division; two İstanbul queries go to İzmir), so the paths are
+complementary. The alternating combination keeps lexical at rank 1 and therefore
+cannot exceed lexical hit@1 (PROP-08). No-answer cases: lexical/hybrid keep
+UNRESOLVED for mapped-but-unavailable concepts (D21, D22); out-of-scope queries
+("kredi kartı faiz oranı", "borsa istanbul hisse endeksi") return candidates in
+every mode, and one lexical NO_MATCH (H15) becomes a hybrid MATCH because dense has
+no abstention threshold; all candidates remain clarification-required. Dense
+median per case is about 79 ms including the query request; hybrid reuses the
+cached query vector.
+
+Limits: one author, one 37-series catalog, 44 cases; holdout results have now been
+seen, so a changed combination or policy needs a new holdout before a gain claim.
+Latency is from one local run. The prepared runtime is not yet switched to dense.
+
 <a id="m10-07-period-chart-2026-09-15"></a>
 ## M10-07 period chart — 2026-09-15 (offline, unmerged)
 
