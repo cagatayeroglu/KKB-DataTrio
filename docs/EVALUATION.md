@@ -914,6 +914,28 @@ quality measurement, or an out-of-scope classifier. No live embedding, Kloudeks,
 BDDK, EVDS or production-search call was made. Archive-intent ordering, broad
 multi-series ranking, N07/N09/N18 and full catalog coverage remain separate limits.
 
+<a id="handoff-checkpoint-2026-09-15"></a>
+## Authorized handoff checkpoint — 2026-09-15
+
+Runtime verified at `ef354f5` (merged #194); subsequent #193 and completion edits
+are documentation-only. Makefile `full` stages were executed with the Desktop
+Python 3.12 environment: Ruff format/lint and strict mypy PASS; full pytest
+initially 3543 PASS / 2 platform skips / 4 failures in 373.07 s. The four failures
+were Turkish fixture/source text decoded through the Windows default encoding;
+the same four tests PASS with `PYTHONUTF8=1` (0.98 s), without a source change.
+Passing tests were not rerun. Bandit, secret scan and the exact Makefile pip-audit
+command PASS using only its existing exceptions. This is component-level full
+gate evidence with a focused environment recheck, not a single green full run.
+Use UTF-8 for Windows commands; the initial API check also failed without it.
+
+Read-only API `--check` with UTF-8 PASS: hybrid, 29 prepared identities, 4124
+observations, 37 catalog identities, `model_checked=false`. Offline EVAL-SMOKE
+5/5 PASS. Exact final #194 and reconciled #193 Fast PR/Web gates SUCCESS; client
+code is unchanged. No new live requests. EVAL-FULL is not delivered, and the
+three-turn live acceptance/latency limitations below remain; this checkpoint is
+not final-demo certification. Ignored local full-gate logs are under
+`work/kkb-hybrid-rehearsal/artifacts/final-full*` in the operator workspace.
+
 <a id="m11-served-hybrid-rehearsal-2026-09-15"></a>
 ## M11-07 / M13-05 served rehearsal and hybrid isolation — 2026-09-15
 
