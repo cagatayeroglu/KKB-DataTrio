@@ -730,7 +730,7 @@ detailed tool progress, writable settings and deployment remain outstanding.
 
 
 <a id="m10-18-client-selection-2026-09-14"></a>
-## M10-18 client selected-source continuation — 2026-09-14 (unmerged #166)
+## M10-18 client selected-source continuation — 2026-09-14 (merged #166)
 
 Node 22.17.0: `cd web; npm run check` passes formatting, TypeScript and **23 tests**.
 `npm run build` passes production compilation/prerendering. Added regressions
@@ -755,7 +755,7 @@ claim follows from this client test count or the initial page inspection.
 
 
 <a id="m10-18-browser-selection-2026-09-15"></a>
-## M10-18 selected-table browser acceptance — 2026-09-15 (unmerged #166)
+## M10-18 selected-table browser acceptance — 2026-09-15 (merged #166)
 
 The earlier browser-approval timeout was resolved. Production Next client from
 `3ffc53b` / handoff `c8d1318`, real PreparedRunner/AnalysisService and deterministic
@@ -795,7 +795,7 @@ legacy/official-refresh dependency coverage remain incomplete.
 
 
 <a id="m13-05-fresh-holdout-2026-09-15"></a>
-## M13-05 DEC-142 combination on a fresh holdout — 2026-09-15 (PR #179)
+## M13-05 DEC-142 combination on a fresh holdout — 2026-09-15 (PR #179, merged)
 
 Authorization: Eray approved PROP-07/PROP-08 (DEC-142) and the proposed next step.
 Live use: 132 Kloudeks `kkbhackathon2026/Qwen3-Embedding-8B` query requests (66 per
@@ -895,7 +895,7 @@ seen, so a changed combination or policy needs a new holdout before a gain claim
 Latency is from one local run. The prepared runtime is not yet switched to dense.
 
 <a id="m10-07-period-chart-2026-09-15"></a>
-## M10-07 period chart — 2026-09-15 (offline, unmerged)
+## M10-07 period chart — 2026-09-15 (offline, merged #177)
 
 - Dependencies (authorized by Eray): `react-plotly.js` 4.1.0 and
   `plotly.js-dist-min` 4.1.1 aliased as `plotly.js`, installed with
@@ -918,7 +918,7 @@ Limits: no export, per-cell highlighting or chart for summary-only results; the
 UI does not yet let the user pick more than two unit groups at once.
 
 <a id="m11-07-live-repeat-3-2026-09-15"></a>
-## M11-07 live repeat 3 — first complete three-turn API/client acceptance — 2026-09-15 (PR #176, unmerged)
+## M11-07 live repeat 3 — first complete three-turn API/client acceptance — 2026-09-15 (PR #176, merged)
 
 Owner-authorized by Eray: Kloudeks chat completions only, ceiling 15, no retry,
 600 s, private pool copy; **6 requests used**, one API process and one browser
@@ -944,7 +944,7 @@ because it repeats inside that comparison). One complete run is not a
 reliability rate; latency was 158 / 39 / 150 s per turn.
 
 <a id="m11-07-live-repeat-2-2026-09-15"></a>
-## M11-07 live repeat 2 — 2026-09-15 (PR #175, unmerged)
+## M11-07 live repeat 2 — 2026-09-15 (PR #175, merged)
 
 Owner-authorized by Eray: Kloudeks chat completions only, ceiling 15, no retry,
 600 s, private pool copy; **9 requests used**, stopped after the second Turn 3
@@ -973,7 +973,7 @@ a heading, a unique count and a cross-year price reference: **three turns
 accepted and published in both orders**, rehearsal check passed.
 
 <a id="m11-07-live-repeat-2026-09-15"></a>
-## M11-07 live repeat after M11-11 — 2026-09-15 (PR #174, unmerged)
+## M11-07 live repeat after M11-11 — 2026-09-15 (PR #174, merged)
 
 Owner-authorized by Eray: Kloudeks chat completions only, hard ceiling 15
 requests, no automatic retry, 600 s timeout, private pool copy; **10 requests
@@ -999,7 +999,7 @@ that time (typing also failed); reload recovered correctly and code review of th
 handler found no defect.
 
 <a id="m11-11-turn-three-grounding-2026-09-15"></a>
-## M11-11 Turn 3 grounding fixes — 2026-09-15 (offline, unmerged)
+## M11-11 Turn 3 grounding fixes — 2026-09-15 (offline, merged #173)
 
 Measured failure from [M11-07](#m11-07-organizer-three-turn-live-rehearsal-2026-09-15): the live Turn 3
 plan ran two unconsumed `table_co_movement` steps on the same added-KFE table.
@@ -1032,7 +1032,7 @@ writer prose quality, need a new bounded live rehearsal. A single withheld
 sentence still prevents publication (unchanged M5-21 policy).
 
 <a id="m11-07-organizer-three-turn-live-rehearsal-2026-09-15"></a>
-## M11-07 organizer three-turn live rehearsal — 2026-09-15 (PR #172, unmerged)
+## M11-07 organizer three-turn live rehearsal — 2026-09-15 (PR #172, merged)
 
 Owner-authorized by Eray: Kloudeks chat completions only, no automatic retry
 (`KLOUDEKS_MAX_ATTEMPTS=1`), private per-session copy of the local prepared
@@ -1068,7 +1068,7 @@ false statements pass the gate; the plan split the condition into two
 comparisons. (5) One run each is not a reliability rate.
 
 <a id="m10-08-result-proof-chain-2026-09-15"></a>
-## M10-08 result-level proof chain — 2026-09-15 (PR #171, unmerged)
+## M10-08 result-level proof chain — 2026-09-15 (PR #171, merged)
 
 Offline evidence only; no Kloudeks, embedding, BDDK, EVDS or other network call.
 

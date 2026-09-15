@@ -42,8 +42,9 @@ configured metadata inspection. [ARCHITECTURE](docs/ARCHITECTURE.md) owns runtim
 mechanics and distinguishes supported slices from targets; [CATALOG](docs/CATALOG.md)
 owns retrieval contracts. [ROADMAP](docs/ROADMAP.md#current-project-status) owns
 completion and remaining work; [EVALUATION](docs/EVALUATION.md) separates synthetic,
-scripted and live evidence. Vector infrastructure does not establish live semantic
-retrieval acceptance.
+scripted and live evidence. Catalog retrieval is lexical by default and hybrid
+(lexical + Qwen dense, DEC-142) when the API is started with a local catalog index;
+retrieval quality is measured on reviewed cases, not yet in a live served turn.
 
 Reuse means adding **supported financial sources/schemas** through reviewed metadata
 and adapter/policy work without rewriting the shared core. It does not promise
