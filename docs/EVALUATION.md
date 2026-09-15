@@ -970,7 +970,39 @@ budget tests (one existing platform skip), plus the repair-transport regression
 passed; touched-source mypy and Ruff passed. Initial test execution encountered
 sandbox temp-directory access errors; rerunning with a fresh workspace-local temp
 root resolved setup. One new alignment fixture was corrected to supply its
-required columns before passing. Live rerun outcome remains pending.
+required columns before passing.
+
+**Fresh authorized rerun on code `99817486457fa0715041d1a3d0f3f15444b73f44`:**
+same prepared pool, catalog/index and three organizer questions, fresh workspace,
+selected-result follow-ups through the real client. Ceiling 15 chat / 15 query
+embeddings, 600 s/request, one transport attempt; actual **9 chat + 4 query
+embeddings**, all successful, no transport retry or synthesis-repair call.
+
+| Check | Rerun result |
+| --- | --- |
+| Turn 1 | ACCEPTED, 295.766 s; 60 rows / 242 values; all 120 balance/rate values match the independent oracle, `by_end`; 59 transitions / 32 rate falls / 28 balance rises / 4 non-rises. |
+| Turn 2 | ACCEPTED, 229.625 s; selected-table deflation published 302 values; all 60 real values match December 2025 CPI reference arithmetic; all prior cells preserved. |
+| Turn 3 | QUALIFIED, 290.406 s; two sentences omitted with `unmatched_number` categories; no third workspace result published, selected Analiz 2 retained. The surviving reply identifies the real-price reference and describes simultaneous association; the requested substantive analysis was not fully delivered. |
+| Unpublished Turn 3 candidate | 368 values; all prior 302 cells preserved; 60 KFE levels and the exact 22 joint months match independent SQL/Decimal arithmetic. Counts: 59 complete transitions, zero missing, 59 KFE-up, 32 rate-down, 46 real-balance non-rises, 22 joint. Execution/store proof checks pass. |
+| State and proof | Both published results remain JSON-equivalent to pre-follow-up snapshots. Client cell details display the complete result-level source/execution/verification chain and explicitly state the individual observation-to-cell limitation. |
+| Served discovery | Four query embeddings (two initial series, CPI, KFE), with successful discovery/analysis continuation in all three turns. Embedding provider times 172/109/219/219 ms; configured dense path was exercised. This is not broad ranking-quality or reliability evidence. |
+| Latency | Writer calls 195.953 / 183.046 / 198.469 s; planning pairs 60.375+36.063 / 19.000+26.078 / 7.047+82.547 s. Model planning/writing dominates; a single successful embedding connection does not resolve user-facing latency. |
+| Automated validation | Exact code head Fast PR and Web client gates SUCCESS; Fast PR 3543 passed in 227.47 s. No duplicate broad local run. Subsequent evidence-only edits do not alter tested runtime code. |
+
+Verdict: discovery wiring and selected-table numeric integrity are evidenced, but
+**three-turn served hybrid acceptance remains incomplete**. The period repair
+was covered offline but not exercised in this rerun. The new unmatched-number
+failure correctly stayed outside that repair's eligibility. The content-free
+ledger does not retain omitted drafts, so the exact unsupported number/wording
+is unknown; do not infer a particular arithmetic or parser bug from the category.
+Next: a focused safe reproduction of numeric claim/publication failure and
+measured latency work under M11-11, followed by separately authorized bounded
+rehearsals. No extra live run was made. No BDDK/EVDS/search/OCR/index-build call.
+Local ignored evidence: `artifacts/hybrid-rehearsal-r2-ledger.jsonl`,
+`artifacts/r2-verification.json`, `artifacts/r2-analiz_1.json`,
+`artifacts/r2-analiz_2.json`, `artifacts/r2-turn3-unpublished-candidate.json`, and
+`artifacts/r2-joint-verification.json`. Candidate reconstruction was read-only;
+it was never inserted into the workspace or shown as a published result.
 
 <a id="m13-05-fresh-holdout-2026-09-15"></a>
 ## M13-05 DEC-142 combination on a fresh holdout — 2026-09-15 (PR #179, merged)
