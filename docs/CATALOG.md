@@ -18,24 +18,29 @@ Rebuild vector generations when the catalog content digest changes.
 
 ## Bounded combined candidate contract
 
-`CatalogDenseStage(index, embed_query)` binds a checked local index to an
-operator-supplied normalized-query embedding callback. It must implement the
-explicit input policy declared by the index and return a matching `QueryVector`.
+`CatalogDenseStage(index, embed_query, combination_policy)` binds a checked local
+index to an operator-supplied normalized-query embedding callback. It must implement
+the explicit input policy declared by the index and return a matching `QueryVector`.
 Composition chooses no endpoint, prefix, key or hosted fallback. The lexical-only
 factory does not initialize the native vector engine. No live callback or real
-index generation is enabled automatically.
+index generation is enabled automatically; the prepared API enables one only for
+an explicit `--catalog-index` (see [prepared runtime dense stage](#catalog_search-prepared-runtime-dense-stage)).
 
 Provider, native-frequency and archive eligibility is shared by both stages.
 Matched reviewed exact/longest phrases additionally bound IDs; similarity cannot
 widen a precise CPI-base query or fill unresolved disbursement with balance.
 Empty eligibility skips embedding and retains UNRESOLVED/FILTERED_OUT.
 
-The initial **`alternating-archive-tier-v1`** policy takes up to ten candidates
-per stage, alternates lexical then dense positions, deduplicates IDs, keeps
-explicitly requested archives after current/unknown records, then applies the
-caller's 1–10 final limit. Native distance ties use stable IDs. There is no BM25/
-cosine score addition, RRF or reranker. This transparent baseline is for later
-same-case quality comparison, not a claim of measured gain.
+Both combination policies take up to ten candidates per stage, interleave stage
+positions, deduplicate IDs, keep explicitly requested archives after current/unknown
+records, then apply the caller's 1–10 final limit. The default
+**`reviewed-match-order-v1`** ([DEC-142](DECISIONS.md#dec-142--catalog-query-embedding-policy-and-reviewed-match-combination))
+starts with the lexical position only when a reviewed alias or phrase matched and
+with the dense position otherwise. **`alternating-archive-tier-v1`**, the M13-09
+baseline, always starts lexical and stays selectable for comparison. Native distance
+ties use stable IDs. There is no BM25/cosine score addition, RRF or reranker.
+Measured gains and remaining losses are in
+[EVALUATION](EVALUATION.md#m13-05-fresh-holdout-2026-09-15).
 
 Candidates carry retrieval source(s), per-stage rank, BM25 score if present in
 that stage, and cosine distance if present in dense. Unmeasured scores are null.
@@ -53,9 +58,24 @@ need relevance/semantic review or clarification.
 Snapshot mismatch, embedding/policy failure or invalid/native index output
 returns **`lexical_degraded`**, `dense_status=failed`, a fixed category and a tool
 warning. Private exceptions are not copied. Unknowns/ambiguity remain even when
-dense succeeds. Full M13-05 acceptance still needs live policy, actual corpus/query
-embeddings and separate development/held-out evaluation. The implemented bounded
-discovery/replan round is enabled in prepared runtime; its retrieval remains lexical.
+dense succeeds. The implemented bounded discovery/replan round is enabled in the
+prepared runtime; its retrieval is hybrid only when an index generation is configured.
+
+<a id="catalog_search-prepared-runtime-dense-stage"></a>
+
+### Prepared runtime dense stage
+
+`python -m kkb_agent.api ... --catalog-index <absolute generation>` opens a local
+generation whose profile is `kkbhackathon2026/Qwen3-Embedding-8B`, 4096 dimensions,
+`qwen3-instruct-query-v1` and origin `kloudeks`, bound to the `--catalog` snapshot.
+Startup (including `--check`) refuses another snapshot, input policy, fixture origin,
+missing/invalid generation or a `KLOUDEKS_EMBEDDING_MODEL` other than that model,
+before any provider is built, with the existing redacted error. `--check` reports
+`catalog_retrieval` (`hybrid` or `lexical`) without an embedding call. When serving,
+each distinct normalized discovery query costs one embedding request through the
+same configured provider (same timeout and attempts); a bounded cache holds the last
+256 query vectors. Embedding or index failure yields `lexical_degraded` for that
+search, not a failed turn. Without `--catalog-index` retrieval stays lexical.
 
 
 <a id="catalog_search-catalog-and-observation-boundary"></a>
@@ -220,10 +240,16 @@ appears only when the wording selects one; empty relevance cases list acceptable
 lexical/hybrid statuses instead. The loader refuses unknown IDs, a primary outside
 relevance, duplicate IDs, a missing split or another snapshot.
 
-`python -m kkb_agent.catalog.retrieval_eval --catalog docs/catalog/prepared_v3.json --cases docs/catalog/retrieval_cases_v3.json --out <report>`
+[retrieval_cases_v3_r2.json](catalog/retrieval_cases_v3_r2.json) keeps those 44
+cases as development (the first holdout was inspected when PROP-08 was proposed)
+and adds a fresh holdout N01–N22 written before any run on it.
+
+`python -m kkb_agent.catalog.retrieval_eval --catalog docs/catalog/prepared_v3.json --cases docs/catalog/retrieval_cases_v3_r2.json --out <report>`
 scores lexical-only offline. Adding `--index <generation> --policy <id> --env-file .env --enable-embedding-requests`
-also scores dense-only (shared metadata eligibility, exact cosine) and the current
-combined stage, caching one query embedding per normalized query. Reports hold
+also scores dense-only (shared metadata eligibility, exact cosine), `hybrid`
+(DEC-142 order) and `hybrid_alternating` (M13-09 baseline), caching one query
+embedding per normalized query, and reports paired top-1 wins/losses per split. Both
+real-embedding commands refuse a configured embedding model other than the profile's. Reports hold
 hit@1/5, Recall@5/10, MRR, primary@1, no-answer status, archive leaks, dense
 failures and latency per split and mode; dense-only has no abstention, so its top
 candidate on no-answer cases is reported, not scored.
@@ -233,10 +259,10 @@ candidate on no-answer cases is reported, not scored.
 `Instruct: <task>\nQuery:<text>`, passages unchanged).
 `python -m kkb_agent.catalog.embedding --catalog ... --root <new absolute generation> --policy <id> --env-file .env --enable-embedding-requests`
 embeds passages in batches (default 16) and builds a fresh generation; keep roots
-under ignored `data/processed`. Measured results and policy proposals are in
-[EVALUATION](EVALUATION.md#m13-09-retrieval-evaluation-with-real-qwen-embeddings--2026-09-15-pr-178-unmerged)
-and DECISIONS PROP-07/08. The prepared runtime still uses lexical retrieval until
-dense wiring is separately accepted.
+under ignored `data/processed`. Measured results are in
+[EVALUATION](EVALUATION.md#m13-09-retrieval-evaluation-2026-09-15) and
+[the fresh-holdout record](EVALUATION.md#m13-05-fresh-holdout-2026-09-15);
+DEC-142 selects the instruct policy for the prepared runtime.
 
 <a id="catalog_continuation-activation-and-compatibility"></a>
 

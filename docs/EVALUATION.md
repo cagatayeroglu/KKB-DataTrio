@@ -794,8 +794,70 @@ Both temporary servers were stopped after the rehearsal. Full proof UI and
 legacy/official-refresh dependency coverage remain incomplete.
 
 
+<a id="m13-05-fresh-holdout-2026-09-15"></a>
+## M13-05 DEC-142 combination on a fresh holdout — 2026-09-15 (PR #179)
+
+Authorization: Eray approved PROP-07/PROP-08 (DEC-142) and the proposed next step.
+Live use: 132 Kloudeks `kkbhackathon2026/Qwen3-Embedding-8B` query requests (66 per
+policy, about 4.9 s and 4.5 s) against the two existing local index generations; no
+passage, chat, BDDK, EVDS or search request. Code: `3602636`. Cases:
+[retrieval_cases_v3_r2.json](catalog/retrieval_cases_v3_r2.json), the 44 M13-09 cases
+as development plus fresh holdout N01–N22 (19 scored, 3 no-answer), committed in
+`86a9952` before any retrieval run on them. Compact per-case evidence:
+[retrieval_eval_2026-09-15_r2.json](catalog/retrieval_eval_2026-09-15_r2.json).
+
+| Split | Mode | hit@1 | hit@5 | Recall@5 | Recall@10 | MRR | primary@1 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| holdout | lexical | 0.5789 | 0.8421 | 0.8421 | 0.8421 | 0.7105 | 0.6111 |
+| holdout | dense, plain | 0.7368 | 0.8421 | 0.8421 | 0.8947 | 0.7961 | 0.7222 |
+| holdout | dense, instruct | **0.8421** | **1.0000** | **1.0000** | **1.0000** | **0.9123** | **0.8333** |
+| holdout | hybrid alternating, instruct | 0.5789 | 0.9474 | 0.9474 | 0.9474 | 0.7412 | 0.6111 |
+| holdout | hybrid DEC-142, instruct | 0.6842 | 0.9474 | 0.9474 | 0.9474 | 0.7982 | 0.7222 |
+| holdout | hybrid DEC-142, plain | 0.6316 | 0.8421 | 0.8421 | 0.8421 | 0.7368 | 0.6667 |
+| development | lexical | 0.6667 | 0.7692 | 0.7393 | 0.7949 | 0.7120 | 0.6452 |
+| development | dense, instruct | 0.8718 | 1.0000 | 0.9615 | 1.0000 | 0.9231 | 0.9032 |
+| development | hybrid alternating, instruct | 0.6667 | 0.9231 | 0.9103 | 0.9487 | 0.7927 | 0.6452 |
+| development | hybrid DEC-142, instruct | 0.8205 | 0.9231 | 0.9103 | 0.9487 | 0.8697 | 0.8387 |
+
+No archive leaks and no dense failures in any mode. Development numbers for the
+lexical, dense and alternating modes reproduce the M13-09 run exactly.
+
+Findings:
+
+- **PROP-07 holds on unseen queries:** instruct dense beats plain dense on the fresh
+  holdout (hit@1 0.8421 vs 0.7368, hit@5 1.0 vs 0.8421).
+- **PROP-08 gain over the alternating baseline holds:** on the fresh holdout the
+  DEC-142 order wins N12 ("Ege'nin en büyük şehrinde konut fiyatları") and N19
+  ("haberleşme fiyatları") and loses none (hit@1 0.5789 → 0.6842, MRR 0.7412 →
+  0.7982); on development it wins 8 and loses 2 (D11, H07).
+- **The combination is still below dense-only** (holdout 0.6842 vs 0.8421), from two
+  rules kept unchanged by DEC-142. (1) A reviewed match on a broad multi-series
+  concept keeps lexical order inside it: N10 "döviz cinsi konut kredisi bakiyesi"
+  matches `housing_balance` and ranks TP before YP; N15 "eski baz yıllı genel TÜFE
+  serisi" matches `cpi_level` and ranks 2025 before 2003. Dense ranks both correctly
+  inside the same eligible set. The same rule is right for D08 ("TÜFE"). (2) The
+  archive tier keeps archived records after current ones even on archive-intent
+  queries: for N14 ("artık güncellenmeyen eski konut serileri", archives opted in)
+  dense ranks both archives first, but hybrid fills its ten places with current
+  candidates, so no archive appears (its only hit@5/Recall@10 miss); D24 is similar.
+- **Correction to M13-09 wording:** its two İstanbul losses (D11, H07) are BM25
+  matches, not reviewed-phrase matches, so DEC-142 does not recover them.
+- Three holdout cases fail in every mode: N07 (English stock rate), N09 ("KMH
+  hariç" goes to the KMH-inclusive series) and N18 (English TL balance).
+- No-answer: N20 (disbursement) stays PARTIAL in lexical/hybrid; out-of-scope N21
+  "dolar kuru" and N22 "işsizlik oranı" return candidates in every mode (no
+  abstention threshold); all candidates remain clarification-required.
+- Latency (one local run): lexical median 9 ms, dense 77 ms including the query
+  request; hybrid measured 21 ms only because it reused the cached query vector, so
+  an uncached runtime search costs about dense plus lexical.
+
+Limits: one author, one 37-series catalog, 19 scored fresh holdout cases; this
+holdout is now seen too. Changing the broad-concept order or the archive tier
+needs a new decision and another fresh holdout. Runtime wiring is verified offline
+(fixture vectors relabelled in tests); no live served turn used the dense stage.
+
 <a id="m13-09-retrieval-evaluation-2026-09-15"></a>
-## M13-09 retrieval evaluation with real Qwen embeddings — 2026-09-15 (PR #178, unmerged)
+## M13-09 retrieval evaluation with real Qwen embeddings — 2026-09-15 (PR #178, merged)
 
 Eray-authorized Kloudeks embedding requests only (`kkbhackathon2026/Qwen3-Embedding-8B`,
 batching allowed): 6 batched passage requests for two index generations (37
