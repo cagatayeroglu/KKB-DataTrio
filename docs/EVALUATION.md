@@ -1026,6 +1026,41 @@ Local ignored evidence: `artifacts/hybrid-rehearsal-r2-ledger.jsonl`,
 `artifacts/r2-joint-verification.json`. Candidate reconstruction was read-only;
 it was never inserted into the workspace or shown as a published result.
 
+### M11-11 Turn-3 numeric binding reproduction — 2026-09-16 (PR #197)
+
+The rejected live draft was not retained, so this offline follow-up does not
+claim its exact wording or that either live number was the joint count. A safe
+executed table-comparison fixture nevertheless reproduced a matching failure
+class: the independently expected final count was `1`, but the candidate also
+retained an earlier count with the same value, unit and period. Both `1 ay` and
+`1,0 ay` parsed to the correct value and were rejected as ambiguous because
+free prose did not distinguish the two value labels. This is an identity-binding
+failure after correct computation, not numeric parsing or tolerance failure.
+
+The minimal correction gives only the final `table_co_movement` result's six
+count meanings controlled Turkish display phrases and teaches the verifier to
+use those exact phrases as identity qualifiers. It does not prefer a number
+merely because it occurs in the table. Controlled final counts may now remain
+visible to the writer even when an inherited metric has the same numeric value.
+Prepared sessions also permit one fresh numeric-wording attempt when every
+omission is solely unmatched/ambiguous numeric binding. The same immutable
+candidate is used, tools are not rerun, rejected draft text is not supplied,
+and the complete unchanged gate runs again before publication.
+
+Offline regression matrix: the supported final joint count and its safe decimal
+format bind; an uncomputed percentage, inferred table row count, fabricated
+count, correct count attached to the wrong comparison label, and a value
+attached to the wrong month remain rejected. A supported sentence does not
+rescue a fabricated extra sentence. A repaired supported count publishes while
+an unsupported repaired count does not, and the prior trusted table remains
+byte-equivalent. Focused answer/verifier/relationship/three-turn/writer/
+multi-result/selected-runtime/prepared-API tests: **198 passed**. Touched-source
+Ruff and mypy passed. Exact-head Fast PR and Web client gates passed on
+`6c3cc5e4a1fc72d06b93fd99e1e08fc31767b395`; this subsequent evidence-only
+record does not alter runtime code. No live provider, source, embedding or
+search call was made. A bounded live rerun remains separate and requires
+explicit authorization.
+
 <a id="m13-05-fresh-holdout-2026-09-15"></a>
 ## M13-05 DEC-142 combination on a fresh holdout — 2026-09-15 (PR #179, merged)
 

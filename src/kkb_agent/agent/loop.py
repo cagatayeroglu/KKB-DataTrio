@@ -17,6 +17,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
+from kkb_agent.agent.claim_qualifiers import table_count_display_label
 from kkb_agent.agent.discovery import (
     CLARIFICATION_TEXT,
     CONTINUATION_INSTRUCTIONS,
@@ -94,6 +95,36 @@ PERIOD_REPAIR_INSTRUCTIONS = (
     "the price reference separately without amounts. Do not repeat monthly rows that "
     "are already in the table. Never change a value or omit its actual unit/period."
 )
+NUMERIC_REPAIR_INSTRUCTIONS = (
+    "The previous draft used one or more numbers that were not exact display values. "
+    "Write one fresh concise answer from the same computed results. Copy every number "
+    "exactly from a listed display phrase, including its unit and period when present. "
+    "Counts listed as displays may be described as counts. Do not derive a percentage, "
+    "ratio, row count, date, rounded value or any other new number from the table or "
+    "listed values. If no listed display supports a numeric statement, make no numeric "
+    "statement."
+)
+
+
+def _omissions_are_period_only(answer: GatedAnswer) -> bool:
+    return bool(answer.omitted) and all(
+        item.reasons
+        and all(reason.startswith("Claim is attributed to ") for reason in item.reasons)
+        for item in answer.omitted
+    )
+
+
+def _omissions_are_numeric_binding_only(answer: GatedAnswer) -> bool:
+    return bool(answer.omitted) and all(
+        item.reasons
+        and all(
+            reason.endswith("does not match any value in these results")
+            or reason.startswith("Ambiguous result/value identity:")
+            for reason in item.reasons
+        )
+        for item in answer.omitted
+    )
+
 
 SYSTEM_PROMPT = (
     "You plan financial data analysis. Reply with one JSON object matching the plan "
@@ -163,8 +194,15 @@ def render_results(named: Mapping[str, AnalyticalResult]) -> str:
     ]
     ambiguous: dict[str, set[int]] = {}
     for name, index, value in values:
+        controlled_label = table_count_display_label(named[name], value)
         for other_name, other_index, other in values:
             if (name, index) != (other_name, other_index) and _indistinguishable(value, other):
+                other_label = table_count_display_label(named[other_name], other)
+                if controlled_label is not None and controlled_label != other_label:
+                    # The answer can bind this final comparison count through
+                    # its controlled prose label, even when an inherited
+                    # metric happens to have the same number and coverage.
+                    continue
                 ambiguous.setdefault(name, set()).add(index)
                 break
     return "\n\n".join(
@@ -287,16 +325,17 @@ def render_result(result: AnalyticalResult, ambiguous: frozenset[int] = frozense
     positions = {id(value): index for index, value in enumerate(result.values)}
     for value in values:
         display = display_value(value)
+        label = table_count_display_label(result, value) or value.label
         if positions.get(id(value)) in ambiguous:
             # No figure to copy: the gate could not bind it to one value anyway.
             parts = [
-                f"- {value.label}: display AMBIGUOUS (another value has the same number, "
+                f"- {label}: display AMBIGUOUS (another value has the same number, "
                 "unit, scale and period; the verifier withholds it)"
             ]
         elif display is not None:
-            parts = [f"- {value.label}: display {display}"]
+            parts = [f"- {label}: display {display}"]
         else:
-            parts = [f"- {value.label}: display UNAVAILABLE (unresolved or unsupported unit/scale)"]
+            parts = [f"- {label}: display UNAVAILABLE (unresolved or unsupported unit/scale)"]
         parts.append(f"unit {value.unit}" if value.unit else "unit UNKNOWN")
         if value.scale is not Scale.UNKNOWN:
             parts.append(f"scale {value.scale.value}")
@@ -364,6 +403,7 @@ class Session:
     selection: SelectedTable | None = None
     require_series_discovery: bool = False
     repair_period_wording: bool = False
+    repair_unmatched_numbers: bool = False
 
     def plan(self, question: str, workspace: Workspace | None = None) -> Planned:
         """Obtain a plan the registry will accept, or fail with the reasons why.
@@ -623,23 +663,26 @@ class Session:
             tolerance=gate.get("tolerance", DEFAULT_TOLERANCE),  # type: ignore[arg-type]
             minimum_samples=gate.get("minimum_samples"),  # type: ignore[arg-type]
         )
+        period_repair = self.repair_period_wording and _omissions_are_period_only(answer)
+        numeric_repair = self.repair_unmatched_numbers and _omissions_are_numeric_binding_only(
+            answer
+        )
         if (
-            self.repair_period_wording
+            (period_repair or numeric_repair)
             and not faults
             and outcome.completed
             and all(item.status is ToolStatus.SUCCESS for item in outcome.results)
-            and answer.omitted
-            and all(
-                item.reasons
-                and all(reason.startswith("Claim is attributed to ") for reason in item.reasons)
-                for item in answer.omitted
-            )
         ):
             # One synthesis repair over the same immutable candidate; never rerun
             # tools, relax a verifier rule, or pass draft/error text as authority.
             # Transport failure leaves the first gated answer available.
             try:
-                repaired = self.draft(question, available, repair_period=True)
+                repaired = self.draft(
+                    question,
+                    available,
+                    repair_period=period_repair,
+                    repair_numeric=numeric_repair,
+                )
             except ProviderError:
                 pass
             else:
@@ -669,6 +712,7 @@ class Session:
         available: Mapping[str, AnalyticalResult],
         *,
         repair_period: bool = False,
+        repair_numeric: bool = False,
     ) -> str:
         """Ask the model to put the computed values into a sentence.
 
@@ -676,11 +720,18 @@ class Session:
         text — so there is nothing in the prompt for an injected instruction to
         travel in, and nothing to recompute from.
         """
+        repair = (
+            PERIOD_REPAIR_INSTRUCTIONS
+            if repair_period
+            else NUMERIC_REPAIR_INSTRUCTIONS
+            if repair_numeric
+            else ""
+        )
         completion = self.provider.complete(
             [
                 Message(
                     Role.SYSTEM,
-                    SYNTHESIS_PROMPT + ("\n" + PERIOD_REPAIR_INSTRUCTIONS if repair_period else ""),
+                    SYNTHESIS_PROMPT + ("\n" + repair if repair else ""),
                 ),
                 Message(Role.SYSTEM, render_results(available)),
                 Message(Role.USER, question),

@@ -12,7 +12,14 @@ from test_co_movement import lake as lake
 from test_turn_two import CPI_ID, MONTHS, credit_column
 from test_turn_two import pool as pool
 
-from kkb_agent.agent import AnswerStatus, ExecutionContext, Session, ToolRegistry
+from kkb_agent.agent import (
+    AnswerStatus,
+    ExecutionContext,
+    Session,
+    ToolRegistry,
+    gate_answer,
+    render_results,
+)
 from kkb_agent.agent.executor import PlanRejected, execute, validate_plan
 from kkb_agent.agent.plan import AnalyticalPlan
 from kkb_agent.agent.presentation import period_table
@@ -228,6 +235,95 @@ def test_typed_dependency_orders_tools_and_computed_output_is_verified(pool):
     assert result_faults({"final": final}, pool[0].connection) == {}
     assert final.values[: len(source_of(pool).values)] == source_of(pool).values
     assert counts(final) == [5, 0, 5, 2, 3, 1]
+
+
+@pytest.mark.parametrize("written", ["1 ay", "1,0 ay"])
+def test_turn_three_supported_count_and_safe_decimal_format_bind(pool, written):
+    """The oracle-derived joint count is an exposed result value, not a row recount."""
+    outcome = execute(validate_plan(plan(), registry_for(pool)), registry_for(pool))
+    final = outcome.results[-1].output
+
+    gated = gate_answer(
+        f"Koşul altında iki yönü birlikte karşılayan dönem sayısı {written}.",
+        {"comparison": final},
+        pool[0].connection,
+    )
+
+    assert counts(final)[-1] == 1
+    assert gated.status is AnswerStatus.ACCEPTED
+    assert gated.verdict.numbers[-1].value_label.endswith(
+        "eligible transitions matching both directions"
+    )
+    context = render_results({"comparison": final})
+    assert "Koşul altında iki yönü birlikte karşılayan dönem sayısı: display 1" in context
+
+
+@pytest.mark.parametrize(
+    "draft",
+    [
+        "Koşul altındaki dönemlerin oranı %17 oldu.",
+        "Tabloda 6 aylık gözlem vardır.",
+        "Koşul altında iki yönü birlikte karşılayan 19 ay vardır.",
+        "Koşul altında hedef yönünü karşılayan dönem sayısı 1 ay.",
+        "Mart 2021 döneminde price 105 endeks oldu.",
+    ],
+)
+def test_turn_three_derived_fabricated_or_misattributed_numbers_stay_rejected(pool, draft):
+    outcome = execute(validate_plan(plan(), registry_for(pool)), registry_for(pool))
+    final = outcome.results[-1].output
+
+    gated = gate_answer(draft, {"comparison": final}, pool[0].connection)
+
+    assert gated.status is AnswerStatus.ABSTAINED
+    assert gated.omitted
+
+
+def test_turn_three_supported_claim_does_not_rescue_fabricated_extra_number(pool):
+    outcome = execute(validate_plan(plan(), registry_for(pool)), registry_for(pool))
+    final = outcome.results[-1].output
+    supported = "Koşul altında iki yönü birlikte karşılayan dönem sayısı 1 ay."
+
+    gated = gate_answer(
+        supported + " Ayrıca desteklenmeyen 19 dönem vardır.",
+        {"comparison": final},
+        pool[0].connection,
+    )
+
+    assert gated.status is AnswerStatus.QUALIFIED
+    assert gated.text == supported
+    assert gated.omitted[0].text == "Ayrıca desteklenmeyen 19 dönem vardır."
+
+
+@pytest.mark.parametrize(
+    ("repaired", "accepted"),
+    [
+        ("Koşul altında iki yönü birlikte karşılayan dönem sayısı 1 ay.", True),
+        ("Koşul altında iki yönü birlikte karşılayan dönem sayısı 19 ay.", False),
+    ],
+)
+def test_turn_three_numeric_rewrite_reverifies_before_publication(pool, repaired, accepted):
+    lake, workspace = pool
+    source = source_of(pool)
+    before = source.digest()
+    provider = scripted(
+        plan().model_dump_json(),
+        "Birlikte karşılanan geçiş sayısı 1 ay.",
+        repaired,
+    )
+
+    answered = Session(provider, registry_for(pool), repair_unmatched_numbers=True).answer(
+        plan().question,
+        lake.connection,
+        workspace=workspace,
+        remember="comparison",
+    )
+
+    assert len(provider.seen) == 3
+    assert provider.seen[1][1].content == provider.seen[2][1].content
+    assert "Birlikte karşılanan geçiş sayısı" not in provider.seen[2][0].content
+    assert workspace.value_of("konut_kredisi_ve_faiz").digest() == before
+    assert answered.answer.status is (AnswerStatus.ACCEPTED if accepted else AnswerStatus.ABSTAINED)
+    assert ("comparison" in workspace.names()) is accepted
 
 
 @pytest.mark.parametrize(

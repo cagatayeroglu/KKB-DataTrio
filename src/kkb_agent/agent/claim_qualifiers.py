@@ -247,6 +247,65 @@ def identity_fault(
     return None
 
 
+TABLE_COUNT_LABELS = {
+    "complete monthly transitions": "Tam aylık geçiş sayısı",
+    "transitions excluded for missing observations": (
+        "Eksik gözlemler nedeniyle dışlanan geçiş sayısı"
+    ),
+    "transitions meeting the condition": "Koşulu karşılayan geçiş sayısı",
+    "eligible transitions matching the driver direction": (
+        "Koşul altında sürücü yönünü karşılayan dönem sayısı"
+    ),
+    "eligible transitions matching the target direction": (
+        "Koşul altında hedef yönünü karşılayan dönem sayısı"
+    ),
+    "eligible transitions matching both directions": (
+        "Koşul altında iki yönü birlikte karşılayan dönem sayısı"
+    ),
+}
+
+
+def table_count_display_label(result: AnalyticalResult, value: ResultValue) -> str | None:
+    """Return the controlled prose label for the result's final table comparison."""
+    if result.evidence is None:
+        return None
+    comparison_id = next(
+        (
+            item.parameters.get("comparison_id")
+            for item in reversed(result.evidence.transformations)
+            if item.operation == "table_co_movement"
+        ),
+        None,
+    )
+    if not isinstance(comparison_id, str):
+        return None
+    prefix = f"table comparison {comparison_id}: "
+    if not value.label.startswith(prefix):
+        return None
+    return TABLE_COUNT_LABELS.get(value.label.removeprefix(prefix))
+
+
+def table_count_identity_fault(
+    clause: str, result: AnalyticalResult, value: ResultValue
+) -> str | None:
+    """Narrow a count claim to one controlled table-comparison meaning.
+
+    A final result can retain an earlier comparison count with the same value,
+    unit and coverage. Value-only binding would either reject the supported
+    claim as ambiguous or, worse, select the wrong count. A controlled phrase
+    identifies one of the six final comparison metrics; unrecognised prose
+    continues to receive no semantic privilege.
+    """
+    folded = _fold(clause)
+    selected = [label for label in TABLE_COUNT_LABELS.values() if _fold(label) in folded]
+    if not selected:
+        return None
+    expected = table_count_display_label(result, value)
+    if len(selected) != 1 or expected != selected[0]:
+        return "Explicit table-comparison count wording conflicts with this value identity"
+    return None
+
+
 #: Wording that marks a date as a price reference ("2025-12 fiyatlarıyla").
 PRICE_REFERENCE = r"(?:['’][^\W\d_]+)?\s*(?:fiyat|price)"
 
