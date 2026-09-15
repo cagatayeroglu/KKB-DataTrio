@@ -794,6 +794,45 @@ Both temporary servers were stopped after the rehearsal. Full proof UI and
 legacy/official-refresh dependency coverage remain incomplete.
 
 
+<a id="m10-08-result-proof-chain-2026-09-15"></a>
+## M10-08 result-level proof chain — 2026-09-15 (PR #171, unmerged)
+
+Offline evidence only; no Kloudeks, embedding, BDDK, EVDS or other network call.
+
+- Python targeted suites (proof, API boundary/selection, prepared API/selection,
+  selected runtime, execution evidence, BDDK monthly load): **288 passed /
+  11.24 s**. `tests/unit/test_api_proof.py` adds 28 cases: the real BDDK
+  monthly adapter (injected responses) traced to three raw responses and
+  `www.bddk.org.tr`; lakehouse table → add-series nesting with `analiz_1`;
+  missing CPI lineage → `partial`; changed result → `unavailable`; closed store
+  → `proof_unreadable`; unverified nested input reported and not followed;
+  raw-response and step budgets → `partial`; hostile titles scrubbed/redacted;
+  eleven locator shapes (http, credentials, bad port, IPv4/IPv6, localhost,
+  file, internal) reduced to https DNS hosts or dropped; eight inconsistent or
+  fabricated contract payloads refused; projection refuses another version's
+  proof; a foreign session receives 404 for the owning turn. Ruff, format,
+  strict mypy (`src/kkb_agent/api`, 8 files) and Bandit clean.
+- Client on Node 22.23.2: Prettier, strict TypeScript and **26/26** tests
+  (3 new proof tests: ordering/labels, eight refused schema payloads,
+  version-bound result) PASS; production `next build` PASS.
+- Real local pool, measured on a disposable copy (deleted afterwards; original
+  untouched): BDDK compare → `available`, 66 raw responses from
+  `www.bddk.org.tr`, 19.9 ms, 1,522 bytes; EVDS compare → `available`, one raw
+  batch response from `evds3.tcmb.gov.tr`, 4.0 ms; three-series lakehouse table
+  (198 values) → `available`, 14.5 ms, 3,135 bytes. No locator, endpoint path or
+  pool path in the serialized proofs.
+- Browser rehearsal with `tests/manual/proof_client.py` and the production
+  client: Turn 1 table (100/120/150 million TL) showed "zincir eksiksiz" with
+  three BDDK raw responses, the prepared read and the accepted gate; the
+  selected add-series Turn 2 showed "zincir kısmi" with both series, the nested
+  `analiz_1` step, the add-series step and the named lineage gap. Reload
+  restored Analiz 2; at 390 px the document client/scroll widths were both 390.
+  Temporary servers were stopped and the viewport override reset.
+
+Limits: result-level, not per-cell or per-claim mapping; `available` is recorded
+coverage, not source correctness or independent recomputation. Live Kloudeks
+turns, the full organizer three-turn flow and graph layout were not exercised.
+
 <a id="catalog-validation-records"></a>
 
 # Catalog validation records

@@ -9,7 +9,15 @@ from kkb_agent.agent.discovery import CLARIFICATION_TEXT
 from kkb_agent.agent.loop import Answered
 from kkb_agent.agent.presentation import display_value
 from kkb_agent.agent.verifier import AnswerStatus
-from kkb_agent.api.contracts import MAX_RESPONSE_BYTES, MAX_VALUES, Answer, Cell, Result
+from kkb_agent.api.contracts import (
+    MAX_RESPONSE_BYTES,
+    MAX_VALUES,
+    Answer,
+    Cell,
+    Proof,
+    Result,
+    unavailable_proof,
+)
 from kkb_agent.core import AnalyticalResult
 
 
@@ -37,12 +45,23 @@ def safe_text(text: str, *, limit: int = 8192, secrets: tuple[str, ...] = ()) ->
     return "".join(c for c in cleaned if ord(c) >= 32 or c in "\n\t")
 
 
+def _owned_proof(proof: Proof | None, version: str) -> Proof:
+    """A proof must describe exactly this published version, or none is shown."""
+    if proof is None:
+        return unavailable_proof()
+    canonical = Proof.model_validate_json(proof.model_dump_json())
+    if canonical.steps and canonical.steps[0].result_version != version:
+        raise OutputRefused("publication_mismatch")
+    return canonical
+
+
 def project_answer(
     answered: Answered,
     *,
     turn_id: str,
     published: AnalyticalResult | None,
     secrets: tuple[str, ...] = (),
+    proof: Proof | None = None,
 ) -> Answer:
     """The caller proves publication by reading its own workspace, not by a flag.
 
@@ -105,6 +124,7 @@ def project_answer(
                 )
                 for slot, value in enumerate(canonical.values)
             ),
+            proof=_owned_proof(proof, version),
         )
     elif gate.status is not AnswerStatus.ABSTAINED:
         notices.append("Bu turda yeni bir doğrulanmış tablo çalışma alanına yayımlanmadı.")

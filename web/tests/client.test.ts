@@ -237,7 +237,17 @@ function completed(reference = "a".repeat(32)) {
         claim_kind: "computed",
         published: true,
         cells: [base],
-        proof_graph: "unavailable",
+        proof: {
+          scope: "result",
+          availability: "unavailable",
+          gate: "accepted",
+          steps: [],
+          sources: [],
+          warnings: [],
+          limitations: [],
+          unresolved_semantics: [],
+          gaps: [],
+        },
       },
     },
   });

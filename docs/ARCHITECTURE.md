@@ -688,9 +688,11 @@ and canonical cells. No browser model client or secondary calculation path
 exists. Model/planner failure stays an explicit API result, not a fallback.
 
 Actual lifecycle states are polled; tool-stage SSE is not implied. Immutable
-result versions and recorded cell metadata can be inspected. Source refresh,
-uploads, charts/export, full claim/proof traversal, writable settings, cancel
-and hosted authentication are not part of this first slice. Scripted real-pool
+result versions and recorded cell metadata can be inspected; the cell detail now
+shows the server's [result-level proof chain](ARCHITECTURE.md#local_api-m10-08--result-level-proof-chain)
+under a strict, version-bound schema. Source refresh, uploads, charts/export,
+per-cell/claim-level proof mapping, graph layout, writable settings, cancel and
+hosted authentication are not part of this slice. Scripted real-pool
 browser rehearsal proves client wiring, not live-model reasoning.
 
 
@@ -821,9 +823,54 @@ transformation parameters are excluded. Gated prose/labels remain untrusted
 text: render text nodes, never raw HTML. Conservative locator/credential
 scrubbing and optional known-secret redaction prevent accidental display;
 this is not a general secret detector. A production runner must use this
-projector instead of raw internal serialization. `proof_graph="unavailable"`
-is explicit; stable references are not a fabricated graph or verification
-result. M10-08 owns bounded proof traversal; no unbounded Lineage.trace export.
+projector instead of raw internal serialization. A result's `proof` defaults to
+`availability="unavailable"`; stable references are not a fabricated graph or
+verification result. Only the runner that owns the publication's connection
+supplies a proof, and the projector refuses one for another result version. See
+[M10-08](ARCHITECTURE.md#local_api-m10-08--result-level-proof-chain).
+
+<a id="local_api-m10-08--result-level-proof-chain"></a>
+
+### M10-08 — result-level proof chain
+
+[build_proof](../src/kkb_agent/api/proof.py) runs read-only on the prepared
+runner's worker, inside the same lock and session connection that published the
+result. It starts only when the verifier's own `execution_proof` accepts the
+published result's execution record; otherwise the proof is `unavailable`
+(`execution_not_verified`, or `proof_unreadable` for a storage/shape failure).
+It never reruns a weaker matcher and never sets a verified flag from coverage.
+
+From that record it reads the bound input snapshots: prepared series reads
+(artifact, semantics, observation count/nulls/periods, catalog receipt), the
+lakehouse `silver_projection` rows plus inspection receipts, and nested
+published results (for example `analiz_1` under add-series). A nested result is
+followed only if its own execution record verifies (`input_result_not_verified`
+otherwise). Each series is then resolved through its lineage `series` node,
+upstream transforms (dataset manifest) and `source_file` responses to
+`bronze_artifacts`.
+
+| Budget | Limit |
+| --- | --- |
+| Steps (verified executions) | 8 |
+| Sources | 32; inputs per step 16 |
+| Upstream depth / transforms per level | 3 / 4 |
+| Raw responses per source | 512 rows per query |
+
+Exhausting any budget adds a gap and makes the proof `partial`, never
+`available`. Missing series lineage or dataset records are gaps, not errors.
+The payload carries typed facts only: producer/operation codes, result kind,
+version digests, coverage/samples, series identity and catalog title, declared
+semantic codes, dataset content identity, parser/normalization labels, raw
+response count/types, https DNS hostnames and retrieval window, plus the
+result's warnings/limitations/unresolved semantics through `safe_text`.
+Locators (paths/queries), request bodies, SQL, tool arguments, observation
+buffers, IP/credential/port-bearing hosts and internal paths are excluded.
+
+Scope is the result: every cell of a publication shares its chain, and per-cell
+observation mapping is not claimed. `available` means recorded coverage without
+gaps, not source correctness; the gate outcome is preserved separately. Other
+runners (scripted service tests, custom services) keep `unavailable`. On the
+real local pool a BDDK compare traced 66 raw responses in about 20 ms (1.5 KiB).
 
 
 ## Prepared runtime
@@ -913,7 +960,7 @@ These facts do not block operator-flow specification. They are acceptance requir
 
 ### Public payload requirements and implemented local API
 
-The bounded local API now implements versioned Pydantic/OpenAPI contracts, rejected extra fields, explicit nullable fields, finite numbers, body/count limits and fixed errors ([LOCAL_API](ARCHITECTURE.md#local_api-m10-16--version-one-local-api-and-owned-results)). The table retains broader payload requirements; prior-result submission, full proof and charts are not implemented by those contracts. All payloads are JSON data; the UI receives no internal Python objects.
+The bounded local API now implements versioned Pydantic/OpenAPI contracts, rejected extra fields, explicit nullable fields, finite numbers, body/count limits and fixed errors ([LOCAL_API](ARCHITECTURE.md#local_api-m10-16--version-one-local-api-and-owned-results)). The table retains broader payload requirements; selected prior-result submission (M10-18) and a result-level proof chain (M10-08) are implemented, while per-cell/claim proof mapping and charts are not. All payloads are JSON data; the UI receives no internal Python objects.
 
 | Payload | Required shape / reuse | What must not be forwarded |
 | --- | --- | --- |
@@ -955,7 +1002,7 @@ A target ProofGraph contains an owned result/cell reference, graph availability 
 
 The read-only adapter must resolve the owned immutable value first, then its actual evidence root. Traverse deterministically with explicit maximum nodes, edges, depth, label lengths, output bytes and database work; order parents by (ID, edge kind). Stop at budget exhaustion and report partial/truncated, never complete. Missing/invalid roots produce unavailable. Return no unrelated global roots and no fabricated edge to make disconnected evidence look complete. Existing document selected-cell proof is stronger than source presence; preserve that distinction. A complete-looking graph alone must never set a VERIFIED flag.
 
-The exact executable graph schema, numeric limits, query implementation and cross-session tests belong to the later API/evidence implementation. M10-08 owns claim-level evidence inspection; DEC-128 defers graph-heavy layout, not stable evidence references. No new graph database, mutable UI provenance store or networkx dependency is needed for this specification.
+The first executable slice is the [M10-08 result-level proof chain](ARCHITECTURE.md#local_api-m10-08--result-level-proof-chain): typed layers instead of a raw node/edge export, explicit budgets and gaps, embedded in the owned turn result. Per-cell binding, claim identifiers and graph layout remain later work. M10-08 owns claim-level evidence inspection; DEC-128 defers graph-heavy layout, not stable evidence references. No new graph database, mutable UI provenance store or networkx dependency is needed for this specification.
 
 <a id="operator_flow-sse-requirements-dec-123"></a>
 

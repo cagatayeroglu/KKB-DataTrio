@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated, Literal, Self
 
-from pydantic import Field, StringConstraints, model_validator
+from pydantic import AwareDatetime, Field, StringConstraints, model_validator
 
 from kkb_agent.agent.verifier import AnswerStatus
 from kkb_agent.core import ClaimKind, Period, ResultKind, SampleCounts, Scale, StockFlow
@@ -80,6 +81,120 @@ class Cell(ContractModel):
     lag: int | None
 
 
+Digest = Annotated[str, StringConstraints(strict=True, pattern=r"^[a-f0-9]{64}$")]
+# Code-owned identifiers only (tool, operation, parser, semantic codes).
+Code = Annotated[
+    str, StringConstraints(strict=True, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:;+-]{0,119}$")
+]
+Count = Annotated[int, Field(strict=True, ge=0)]
+ProofGap = Literal[
+    "execution_not_verified",
+    "input_not_recognized",
+    "input_result_not_verified",
+    "dataset_record_missing",
+    "source_lineage_missing",
+    "raw_response_limit",
+    "step_limit",
+    "source_limit",
+    "proof_unreadable",
+]
+MAX_PROOF_STEPS = 8
+MAX_PROOF_SOURCES = 32
+MAX_STEP_INPUTS = 16
+
+
+class ProofSource(ContractModel):
+    """A prepared series an execution actually read, and its recorded origin.
+
+    `dataset_sha256` is content identity, not correctness. Only an https host is
+    shown for raw responses; locator paths, queries and request bodies are not.
+    """
+
+    series_id: Label
+    title: Label | None
+    # execution_snapshot: artifact identity captured when the tool read the data.
+    # series_record: the tool recorded an inspection receipt; the artifact comes
+    # from the session's immutable prepared series record instead.
+    binding: Literal["execution_snapshot", "series_record"]
+    dataset_sha256: Digest | None
+    dataset_source_type: Code | None
+    # Declared codes as recorded; None when that snapshot did not capture them.
+    unit: Label | None
+    scale: Code | None
+    frequency: Code | None
+    measure: Code | None
+    cumulative: Code | None
+    aggregation: Code | None
+    catalog_status: Code | None
+    observations: Count | None
+    missing_values: Count | None
+    first_period: date | None
+    last_period: date | None
+    parser: Code | None
+    normalization: Label | None
+    raw_responses: Count
+    raw_response_types: Annotated[tuple[Code, ...], Field(max_length=4)]
+    hosts: Annotated[tuple[Label, ...], Field(max_length=4)]
+    first_retrieved: AwareDatetime | None
+    last_retrieved: AwareDatetime | None
+
+
+class ProofInput(ContractModel):
+    kind: Literal["series", "result"]
+    # Index into Proof.sources or Proof.steps respectively.
+    index: Annotated[int, Field(strict=True, ge=0, lt=MAX_PROOF_SOURCES)]
+
+
+class ProofStep(ContractModel):
+    producer: Code
+    operation: Code | None
+    kind: ResultKind
+    method: Code | None
+    execution: Literal["verified", "not_verified"]
+    result_version: Digest
+    # Server-owned publication name (analiz_N) when the input was a published table.
+    workspace_name: Code | None
+    coverage: Period | None
+    samples: SampleCounts | None
+    inputs: Annotated[tuple[ProofInput, ...], Field(max_length=MAX_STEP_INPUTS)]
+
+
+class Proof(ContractModel):
+    """Bounded, recorded result-level evidence; availability is coverage, not truth."""
+
+    scope: Literal["result"] = "result"
+    availability: Literal["available", "partial", "unavailable"]
+    # The answer gate's outcome is preserved separately from recorded coverage.
+    gate: Literal["accepted"] = "accepted"
+    steps: Annotated[tuple[ProofStep, ...], Field(max_length=MAX_PROOF_STEPS)] = ()
+    sources: Annotated[tuple[ProofSource, ...], Field(max_length=MAX_PROOF_SOURCES)] = ()
+    warnings: Annotated[tuple[Text, ...], Field(max_length=16)] = ()
+    limitations: Annotated[tuple[Text, ...], Field(max_length=16)] = ()
+    unresolved_semantics: Annotated[tuple[Text, ...], Field(max_length=16)] = ()
+    gaps: Annotated[tuple[ProofGap, ...], Field(max_length=8)] = ()
+
+    @model_validator(mode="after")
+    def consistent(self) -> Self:
+        if self.availability == "unavailable":
+            if self.steps or self.sources:
+                raise ValueError("Unavailable proof carries no recorded chain")
+            return self
+        if not self.steps or self.steps[0].execution != "verified":
+            raise ValueError("Recorded proof starts at a verified execution")
+        if self.availability == "available" and self.gaps:
+            raise ValueError("A proof with gaps is partial")
+        for step in self.steps:
+            for item in step.inputs:
+                limit = len(self.sources) if item.kind == "series" else len(self.steps)
+                if item.index >= limit:
+                    raise ValueError("Proof input references a missing entry")
+        return self
+
+
+def unavailable_proof(*gaps: ProofGap) -> Proof:
+    return Proof(availability="unavailable", gaps=gaps)
+
+
 class Result(ContractModel):
     result_ref: Reference
     version: Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{64}$")]
@@ -88,8 +203,8 @@ class Result(ContractModel):
     # Only an exactly published workspace result may enter this contract.
     published: Literal[True] = True
     cells: Annotated[tuple[Cell, ...], Field(max_length=MAX_VALUES)]
-    # Stable references do not claim an implemented public proof traversal.
-    proof_graph: Literal["unavailable"] = "unavailable"
+    # Built only by the runner that owns the publication's connection.
+    proof: Proof = Field(default_factory=unavailable_proof)
 
 
 class Answer(ContractModel):
