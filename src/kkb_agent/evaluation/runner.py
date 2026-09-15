@@ -219,7 +219,7 @@ def evaluate_case(case: CaseSpec) -> CaseOutcome:
     return CaseOutcome(
         case_id=case.case_id,
         category=case.category,
-        status=CaseStatus.FAIL if failures else CaseStatus.PASS,
+        status=CaseStatus.FAILURE if failures else CaseStatus.SUCCESS,
         input_fixture=case.input_fixture,
         expected=case.expected,
         actual=actual,
@@ -243,11 +243,11 @@ def run_suite(cases: Sequence[CaseSpec] | None = None) -> EvaluationReport:
     category_summaries: dict[str, CategorySummary] = {}
     for category in sorted({outcome.category for outcome in outcomes}):
         rows = [outcome for outcome in outcomes if outcome.category == category]
-        passed = sum(outcome.status is CaseStatus.PASS for outcome in rows)
+        passed = sum(outcome.status is CaseStatus.SUCCESS for outcome in rows)
         category_summaries[category] = CategorySummary(
             total=len(rows), passed=passed, failed=len(rows) - passed
         )
-    passed = sum(outcome.status is CaseStatus.PASS for outcome in outcomes)
+    passed = sum(outcome.status is CaseStatus.SUCCESS for outcome in outcomes)
     return EvaluationReport(
         case_set_sha256=_case_set_sha256(selected),
         summary=SuiteSummary(

@@ -22,7 +22,7 @@ def test_fixed_smoke_cases_pass_with_category_denominators() -> None:
         "unknown-scale-abstention",
     ]
     assert (report.summary.total, report.summary.passed, report.summary.failed) == (5, 5, 0)
-    assert all(case.status is CaseStatus.PASS and not case.failures for case in report.cases)
+    assert all(case.status is CaseStatus.SUCCESS and not case.failures for case in report.cases)
     assert set(report.summary.categories) == {
         "abstention",
         "finance_semantics",
@@ -53,7 +53,7 @@ def test_wrong_independent_oracle_is_a_clear_failure() -> None:
 
     outcome = evaluate_case(replace(case, expected=expected))
 
-    assert outcome.status is CaseStatus.FAIL
+    assert outcome.status is CaseStatus.FAILURE
     assert [(failure.path, failure.reason) for failure in outcome.failures] == [
         ("$.highlighted_periods[0]", "exact value mismatch")
     ]
@@ -75,7 +75,7 @@ def test_an_incorrect_production_result_cannot_agree_with_the_oracle(monkeypatch
     monkeypatch.setattr(case_module, "co_movement", wrong_result)
     outcome = evaluate_case(smoke_cases()[0])
 
-    assert outcome.status is CaseStatus.FAIL
+    assert outcome.status is CaseStatus.FAILURE
     assert any(failure.path == "$.counts.rate_fell" for failure in outcome.failures)
 
 
@@ -99,4 +99,4 @@ def test_cli_outputs_machine_readable_report_and_selects_cases(capsys) -> None:
         "failed": 0,
         "categories": {"abstention": {"total": 1, "passed": 1, "failed": 0}},
     }
-    assert report["cases"][0]["status"] == "pass"
+    assert report["cases"][0]["status"] == "PASS"

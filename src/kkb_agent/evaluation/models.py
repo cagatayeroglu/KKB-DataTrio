@@ -11,8 +11,8 @@ from kkb_agent.core.models import ContractModel
 class CaseStatus(StrEnum):
     """Verdict for one independently scored case."""
 
-    PASS = "pass"
-    FAIL = "fail"
+    SUCCESS = "PASS"
+    FAILURE = "FAIL"
 
 
 class OracleRecord(ContractModel):
