@@ -291,6 +291,7 @@ Evidence policy: original organizer constraints are **team-reported** unless a l
 - Alternatives: Streamlit needs less work and remains the fallback if front-end capacity disappears, but it renders a lineage graph poorly. A static rendered report would not support the multi-turn scenario.
 - Consequences: The web client lives in `web/` at the repository root, outside the Python package (DEC-125). M10 owns it. The API contract must be stable before the front end is built against it; the front end is not a prerequisite for backend acceptance and must not gate M5–M8.
 - Revisit trigger: Front-end work measurably delaying backend acceptance, in which case the Streamlit fallback is taken deliberately and recorded.
+- Implementation note (2026-09-15, M10-07, Eray): charts use `react-plotly.js` 4.1.0 through its factory, bound to `plotly.js-dist-min` 4.1.1 installed under the `plotly.js` name to satisfy the peer dependency without the source build; the plot chunk (about 4.6 MB) loads client-only when a result has a period table. No other chart library is added.
 - Clarification (2026-09-09): DEC-128 defers graph-heavy proof UI. A concise claim/evidence view can serve the first UI; React Flow layout is not a prerequisite for the core slice. Framework choice remains confirmed.
 
 ### DEC-124 — Dependency manifest and excluded technologies

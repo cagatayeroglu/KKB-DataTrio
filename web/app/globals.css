@@ -1130,6 +1130,52 @@ svg {
   color: #52705d;
   overflow-wrap: anywhere;
 }
+.result-chart {
+  margin: 0 16px 14px;
+  border: 1px solid #e3eee7;
+  border-radius: 9px;
+  padding: 10px 12px 8px;
+  background: #fdfefd;
+}
+.chart-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: #587a64;
+}
+.chart-heading > span {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.chart-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chart-groups button {
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid #d4e3d9;
+  color: #587a64;
+  background: #fff;
+}
+.chart-groups button.active {
+  background: #e8f3ec;
+  border-color: #9cc5ab;
+  color: #2f6b45;
+}
+.chart-loading,
+.chart-empty,
+.chart-note {
+  font-size: 11px;
+  color: #8b9c91;
+  margin: 6px 0 0;
+}
 .proof-chain {
   margin-top: 16px;
   padding-top: 13px;

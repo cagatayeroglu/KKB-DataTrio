@@ -692,7 +692,12 @@ exists. Model/planner failure stays an explicit API result, not a fallback.
 Actual lifecycle states are polled; tool-stage SSE is not implied. Immutable
 result versions and recorded cell metadata can be inspected; the cell detail now
 shows the server's [result-level proof chain](ARCHITECTURE.md#local_api-m10-08--result-level-proof-chain)
-under a strict, version-bound schema. Source refresh, uploads, charts/export,
+under a strict, version-bound schema. Since M10-07 a period chart
+(`react-plotly.js` factory bound to `plotly.js-dist-min`, loaded client-only)
+plots the published cells' canonical values per period, one unit/scale group per
+axis (at most two shown), empty periods as gaps, change columns hidden by default
+and full names/display phrases on hover; no browser-side calculation. Source
+refresh, uploads, chart export,
 per-cell/claim-level proof mapping, graph layout, writable settings, cancel and
 hosted authentication are not part of this slice. Scripted real-pool
 browser rehearsal proves client wiring, not live-model reasoning.
@@ -972,7 +977,7 @@ The bounded local API now implements versioned Pydantic/OpenAPI contracts, rejec
 | Result/table | result identity plus immutable version; bounded columns/rows projected from canonical ResultValue data; value separate from optional display text; Period, unit, Scale, sample counts, claim_kind retained | LLM-calculated presentation values, fabricated cells, implicit currency/scale, arbitrary raw SQL-result export |
 | Cell reference | Opaque address scoped to session + immutable result snapshot + value slot; selected document coordinates/source fragment retained by existing proof | Row-index/label alone across mutable versions; a hash treated as proof or exposed in answer prose |
 | Source/evidence | Bounded safe source label/type, nullable period/semantics, warnings and evidence/proof references | Full locator query/credentials, internal paths, arbitrary node attributes or raw source/provider contents |
-| Chart | Optional reference to a trusted result-derived data/spec, absent until supported by M10-07 | Generated Python/JS/HTML, model-executable chart code, an empty chart claimed as implemented |
+| Chart | Derived in the client only from the published result cells (M10-07); no separate chart payload or server-generated spec | Generated Python/JS/HTML, model-executable chart code, an empty chart claimed as implemented |
 
 For DEC-132, preserve `literal_source_value`, unit=null and scale=unknown when that is the source state. The complete bounded source quotation may be supported only after existing exact result/cell/source-fragment proof. Unknown analytical values remain unsupported. A literal figure is not implicitly a verified financial interpretation, and the display must retain the unspecified-unit/scale qualification.
 
