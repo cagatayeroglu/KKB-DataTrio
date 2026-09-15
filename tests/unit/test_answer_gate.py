@@ -12,6 +12,7 @@ scripted.
 from __future__ import annotations
 
 import json
+import math
 from datetime import UTC, date, datetime
 
 import pytest
@@ -25,6 +26,8 @@ from kkb_agent.agent import (
     gate_answer,
     render_result,
 )
+from kkb_agent.agent.presentation import display_value, format_number
+from kkb_agent.agent.verifier import DEFAULT_TOLERANCE, Binding, extract_numbers, parse_written
 from kkb_agent.core import (
     Aggregation,
     AnalyticalResult,
@@ -103,6 +106,27 @@ def result(**overrides) -> AnalyticalResult:
     }
     fields.update(overrides)
     return AnalyticalResult(**fields)
+
+
+@pytest.fixture(autouse=True)
+def producer_fixture_for_sentence_tests(request, monkeypatch):
+    if request.cls not in {
+        TestASupportedAnswerPassesThrough,
+        TestAnUnsupportedSentenceIsWithheld,
+        TestAbstention,
+    }:
+        return
+    house = request.getfixturevalue("house")
+    produced = (
+        make_lakehouse_tool(house.connection)
+        .run(LakehouseArguments(sql=FULLY_TYPED), ExecutionContext(question="fixture"))
+        .output.result
+    )
+
+    def supplied(**overrides):
+        return produced.model_copy(deep=True, update=overrides)
+
+    monkeypatch.setattr(__name__ + ".result", supplied)
 
 
 class TestASupportedAnswerPassesThrough:
@@ -217,11 +241,151 @@ class TestAbstention:
         assert gated.abstention == "The answer was empty"
 
 
+@pytest.fixture
+def verified_execution_boundary(monkeypatch):
+    """Display/rounding unit tests start after execution verification."""
+    monkeypatch.setattr("kkb_agent.agent.verifier.execution_proof", lambda result, db: True)
+
+
+@pytest.mark.usefixtures("verified_execution_boundary")
+class TestReadableVerifiedFigures:
+    @pytest.mark.parametrize(
+        "number, expected",
+        [
+            (767314.0, "767.314"),
+            (1234567.89, "1.234.570"),
+            (4.447201536789372, "4,4472"),
+            (0.0000123456789, "0,0000123457"),
+            (-767314.0, "-767.314"),
+            (-4.447201536789372, "-4,4472"),
+            (46.75, "46,75"),
+            (1.234, "1,2340"),
+            (0.001, "0,0010"),
+            (1234.125, "1.234,12"),
+            (0.0, "0"),
+            (-0.0, "0"),
+        ],
+    )
+    def test_display_round_trips_to_the_original_result(self, number, expected):
+        value = ResultValue(label="rate", value=number, unit="percent", scale=Scale.ONE)
+        trusted = result(values=[value])
+        original = trusted.model_dump_json(), trusted.digest(), value.value.hex()
+        assert format_number(number) == expected
+        display = display_value(value)
+        assert display == f"{expected} yüzde"
+        verdict = gate_answer(f"rate: {display}.", trusted)
+        assert verdict.status is AnswerStatus.ACCEPTED
+        bound = verdict.verdict.numbers
+        assert len(bound) == 1
+        assert bound[0].binding is Binding.RESULT
+        assert bound[0].result_id == trusted.result_id
+        assert bound[0].value_label == "rate"
+        assert original == (trusted.model_dump_json(), trusted.digest(), value.value.hex())
+
+    @pytest.mark.parametrize(
+        "number", [5e-324, 1e-300, -1e-300, 1.23456789e100, 1.7976931348623157e308]
+    )
+    def test_finite_float_extremes_are_bounded_single_numbers(self, number):
+        display = format_number(number)
+        extracted = extract_numbers(display)
+        assert len(display) < 420
+        assert len(extracted) == 1
+        assert extracted[0].text == display
+        # Relative-only assertion is stricter than the gate's additional 1e-9 floor.
+        assert math.isclose(extracted[0].value, number, rel_tol=DEFAULT_TOLERANCE)
+
+    @pytest.mark.parametrize("number", [math.nan, math.inf, -math.inf])
+    def test_nonfinite_values_have_no_display(self, number):
+        with pytest.raises(ValueError, match="finite"):
+            format_number(number)
+
+    def test_currency_scale_period_and_identity_survive_rendering(self):
+        value = ResultValue(
+            label="credit", value=767314.0, unit="TRY", scale=Scale.MILLION, period=JUNE
+        )
+        trusted = result(values=[value])
+        before = trusted.model_dump_json(), trusted.digest()
+        rendered = render_result(trusted)
+        assert "display 767.314 milyon TL" in rendered
+        assert "767314.0" not in rendered
+        assert "unit TRY, scale million, period 2026-06-01..2026-06-30" in rendered
+        gated = gate_answer(f"credit: Haziran 2026'da {display_value(value)}.", trusted)
+        assert gated.status is AnswerStatus.ACCEPTED
+        assert next(n for n in gated.verdict.numbers if n.binding is Binding.RESULT).source == "r1"
+        assert before == (trusted.model_dump_json(), trusted.digest())
+
+    @pytest.mark.parametrize(
+        "draft",
+        [
+            "Haziran 2026'da 801.438 milyon USD.",
+            "Haziran 2026'da 801.438 bin TL.",
+            "Temmuz 2026'da 801.438 milyon TL.",
+            "Haziran 2026'da 912.000 milyon TL.",
+            "result_id=wrong 801.438 milyon TL.",
+        ],
+    )
+    def test_display_does_not_bypass_semantic_or_numeric_checks(self, draft):
+        assert gate_answer(draft, result()).status is AnswerStatus.ABSTAINED
+
+    def test_naive_rounding_is_still_withheld(self):
+        value = ResultValue(label="rate", value=4.447201536789372, unit="percent", scale=Scale.ONE)
+        trusted = result(values=[value])
+        assert DEFAULT_TOLERANCE == 5e-4
+        assert parse_written("4,447") == 4447.0  # Existing locale policy is not relaxed.
+        assert gate_answer("rate: 4,45 yüzde.", trusted).status is AnswerStatus.ABSTAINED
+        assert gate_answer("rate: 4,447 yüzde.", trusted).status is AnswerStatus.ABSTAINED
+        assert (
+            gate_answer(f"rate: {display_value(value)}.", trusted).status is AnswerStatus.ACCEPTED
+        )
+
+    @pytest.mark.parametrize(
+        "unit, scale, expected",
+        [
+            ("TRY", Scale.THOUSAND, "12,5 bin TL"),
+            ("USD", Scale.BILLION, "12,5 milyar USD"),
+            ("%", Scale.ONE, "12,5 yüzde"),
+            ("percentage_points", Scale.ONE, "12,5 yüzde puan"),
+            ("basis points", Scale.ONE, "12,5 baz puan"),
+            ("index points", Scale.ONE, "12,5 endeks puan"),
+            ("dimensionless", Scale.ONE, "12,5 dimensionless"),
+        ],
+    )
+    def test_only_explicit_unit_and_scale_mappings_are_used(self, unit, scale, expected):
+        value = ResultValue(label="metric", value=12.5, unit=unit, scale=scale)
+        assert display_value(value) == expected
+        assert gate_answer(expected, result(values=[value])).status is AnswerStatus.ACCEPTED
+
+    @pytest.mark.parametrize(
+        "unit, scale", [(None, Scale.ONE), ("TRY", Scale.UNKNOWN), ("unlisted-unit", Scale.ONE)]
+    )
+    def test_unknown_or_unsupported_metadata_has_no_numeric_display(self, unit, scale):
+        value = ResultValue(label="metric", value=987654.0, unit=unit, scale=scale)
+        trusted = result(values=[value], unresolved_semantics=["unit/scale not established"])
+        assert display_value(value) is None
+        rendered = render_result(trusted)
+        assert "display UNAVAILABLE" in rendered
+        assert "987654" not in rendered
+        assert gate_answer("987.654 milyon TL.", trusted).status is AnswerStatus.ABSTAINED
+
+    def test_writer_receives_only_display_then_gate_checks_its_actual_draft(self):
+        value = ResultValue(label="rate", value=4.447201536789372, unit="percent", scale=Scale.ONE)
+        trusted = result(values=[value])
+        provider = scripted("rate: 4,45 yüzde.")
+        session = Session(provider, ToolRegistry())
+        draft = session.draft("Oran?", {"rate": trusted})
+        context = "\n".join(m.content for m in provider.seen[-1])
+        assert "display 4,4472 yüzde" in context
+        assert "4.447201536789372" not in context
+        assert "copying each number, unit and scale exactly" in context
+        assert gate_answer(draft, {"rate": trusted}).status is AnswerStatus.ABSTAINED
+
+
 class TestWhatTheWriterIsGiven:
     def test_the_rendered_result_carries_units_and_periods(self):
         rendered = render_result(result())
 
-        assert "801438.0" in rendered
+        assert "display 801.438 milyon TL" in rendered
+        assert "801438.0" not in rendered
         assert "unit TRY" in rendered
         assert "scale million" in rendered
         assert "2026-06-01..2026-06-30" in rendered
@@ -297,7 +461,8 @@ class TestTheWholeSliceEndToEnd:
         session.answer("Haziran'da konut kredisi stoğu neydi?", house.connection)
 
         writer_prompt = "\n".join(m.content for m in provider.seen[-1])
-        assert "801438" in writer_prompt
+        assert "display 801.438 milyon TL" in writer_prompt
+        assert "801438.0" not in writer_prompt
         assert "SELECT" not in writer_prompt
 
     def test_a_query_that_establishes_nothing_abstains_without_a_draft(self, house):

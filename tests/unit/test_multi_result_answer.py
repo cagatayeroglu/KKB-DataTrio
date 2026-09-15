@@ -19,6 +19,7 @@ import pytest
 from kkb_agent.agent import (
     AnswerStatus,
     ArtifactKind,
+    ExecutionContext,
     Session,
     ToolRegistry,
     Workspace,
@@ -43,7 +44,7 @@ from kkb_agent.core import (
 )
 from kkb_agent.lakehouse import Observation, SeriesSemantics, open_lakehouse
 from kkb_agent.llm.doubles import scripted
-from kkb_agent.tools import make_lakehouse_tool
+from kkb_agent.tools import LakehouseArguments, make_lakehouse_tool
 
 NOW = datetime(2026, 9, 9, tzinfo=UTC)
 MONTHLY = SeriesSemantics(
@@ -102,6 +103,13 @@ def house(tmp_path):
         yield lake
 
 
+@pytest.fixture
+def verified_execution_boundary(monkeypatch):
+    """Unit-test multi-column claim selection after execution verification."""
+    monkeypatch.setattr("kkb_agent.agent.verifier.execution_proof", lambda result, db: True)
+
+
+@pytest.mark.usefixtures("verified_execution_boundary")
 class TestOneAnswerOverSeveralColumns:
     def test_a_sentence_citing_two_columns_is_accepted(self, house):
         gated = gate_answer(BOTH, TABLE, house.connection)
@@ -137,6 +145,7 @@ class TestOneAnswerOverSeveralColumns:
         assert gated.status is AnswerStatus.ABSTAINED
 
 
+@pytest.mark.usefixtures("verified_execution_boundary")
 class TestABrokenColumnDoesNotSilenceASoundOne:
     def broken_table(self):
         return {
@@ -196,8 +205,8 @@ class TestWhatTheWriterSees:
 
         assert "[konut_stok]" in rendered
         assert "[konut_faiz]" in rendered
-        assert "801438.0" in rendered
-        assert "46.75" in rendered
+        assert "display 801.438 milyon TL" in rendered
+        assert "display 46,75 yüzde" in rendered
 
     def test_units_stay_attached_to_the_right_column(self):
         rendered = render_results(TABLE)
@@ -224,17 +233,41 @@ SERIES_SQL = (
 )
 
 
+@pytest.fixture
+def proven_rate(house):
+    from dataclasses import replace
+
+    house.register_series(
+        "evds:TP.KTF12",
+        title="rate",
+        semantics=replace(MONTHLY, unit="percent", scale=Scale.ONE, observation=StockFlow.RATE),
+        artifact_id=house.connection.execute("SELECT artifact_id FROM bronze_artifacts").fetchone()[
+            0
+        ],
+    )
+    house.append_observations("evds:TP.KTF12", [Observation(JUNE.start, JUNE.end, 46.75)])
+    sql = SERIES_SQL + " AND o.series_id = 'evds:TP.KTF12'"
+    return (
+        make_lakehouse_tool(house.connection)
+        .run(LakehouseArguments(sql=sql), ExecutionContext(question="fixture rate"))
+        .output.result
+    )
+
+
 class TestAFollowUpCitesTheWholeTable:
     def registry(self, house):
         registry = ToolRegistry()
         registry.register(make_lakehouse_tool(house.connection, lineage=house.lineage))
         return registry
 
-    def test_a_second_turn_may_quote_a_column_the_first_turn_computed(self, house):
+    def test_a_second_turn_may_quote_a_column_the_first_turn_computed(self, house, proven_rate):
         space = Workspace.open(house.connection)
-        space.record("konut_faiz", ArtifactKind.VALUE, FAIZ)
+        space.record("konut_faiz", ArtifactKind.VALUE, proven_rate)
 
-        provider = scripted(plan_json(SERIES_SQL), BOTH)
+        provider = scripted(
+            plan_json(SERIES_SQL + " AND o.series_id = 'bddk:konut'"),
+            BOTH,
+        )
         session = Session(provider, self.registry(house))
         answered = session.answer(
             "Konut kredisi ve faiz nedir?",
@@ -247,11 +280,14 @@ class TestAFollowUpCitesTheWholeTable:
         assert answered.answer.status is AnswerStatus.ACCEPTED, answered.answer.verdict.rejected
         assert "46,75" in answered.answer.text
 
-    def test_the_writer_is_shown_the_prior_column_too(self, house):
+    def test_the_writer_is_shown_the_prior_column_too(self, house, proven_rate):
         space = Workspace.open(house.connection)
-        space.record("konut_faiz", ArtifactKind.VALUE, FAIZ)
+        space.record("konut_faiz", ArtifactKind.VALUE, proven_rate)
 
-        provider = scripted(plan_json(SERIES_SQL), BOTH)
+        provider = scripted(
+            plan_json(SERIES_SQL + " AND o.series_id = 'bddk:konut'"),
+            BOTH,
+        )
         Session(provider, self.registry(house)).answer(
             "Konut kredisi ve faiz nedir?",
             house.connection,
@@ -263,13 +299,22 @@ class TestAFollowUpCitesTheWholeTable:
         assert "[konut_faiz]" in writer_prompt
         assert "[konut_stok]" in writer_prompt
 
-    def test_a_stale_column_cannot_re_enter_the_answer(self, house):
+    def test_a_stale_column_cannot_re_enter_the_answer(self, house, proven_rate):
         space = Workspace.open(house.connection)
         space.define("range", ArtifactKind.SOURCE, parameters={"to": "2025-12"})
-        space.record("konut_faiz", ArtifactKind.VALUE, FAIZ, inputs=["range"])
+        space.record("konut_faiz", ArtifactKind.VALUE, proven_rate, inputs=["range"])
         space.define("range", ArtifactKind.SOURCE, parameters={"to": "2026-06"})
 
-        provider = scripted(plan_json(SERIES_SQL), BOTH)
+        before = space.connection.execute(
+            "SELECT * FROM workspace_bindings ORDER BY name"
+        ).fetchall()
+        history_before = space.connection.execute(
+            "SELECT * FROM workspace_history ORDER BY name, revision"
+        ).fetchall()
+        provider = scripted(
+            plan_json(SERIES_SQL + " AND o.series_id = 'bddk:konut'"),
+            BOTH,
+        )
         answered = Session(provider, self.registry(house)).answer(
             "Konut kredisi ve faiz nedir?",
             house.connection,
@@ -277,8 +322,18 @@ class TestAFollowUpCitesTheWholeTable:
             remember="konut_stok",
         )
 
-        # The rate is stale, so the sentence quoting it must not be shown.
+        # The rate is stale, so neither the sentence nor a new binding may publish.
         assert answered.answer.status is AnswerStatus.ABSTAINED
+        assert (
+            space.connection.execute("SELECT * FROM workspace_bindings ORDER BY name").fetchall()
+            == before
+        )
+        assert (
+            space.connection.execute(
+                "SELECT * FROM workspace_history ORDER BY name, revision"
+            ).fetchall()
+            == history_before
+        )
 
     def test_without_a_workspace_the_answer_still_works_on_this_turn_alone(self, house):
         provider = scripted(plan_json(SERIES_SQL), "Konut kredisi 801.438 milyon TL.")

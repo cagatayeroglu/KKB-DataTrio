@@ -1,0 +1,4134 @@
+{
+  "schema_version": 1,
+  "snapshot_version": "m13-08-prepared-v3",
+  "purpose": "demo_development",
+  "review_owner": "Arda",
+  "review_date": "2026-09-14",
+  "review_revision": "r4",
+  "review_pr": "https://github.com/cagatayeroglu/KKB-DataTrio/pull/160",
+  "review_note": "Adds nine reviewed weekly new-loan rates and thirteen monthly CPI divisions. Historical v1/v2 and original identities remain unchanged. Candidate metadata is not local availability, calculation permission, full source coverage or live dense acceptance. KMH scope, loan denomination, index base and rate versus amount remain explicit. r4 corrects only the EVDS_COVERAGE evidence hash from pre-commit CRLF bytes to the pinned LF Git blob; source identities, aliases and semantics are unchanged. Correction delivered in PR #159.",
+  "evidence": [
+    {
+      "evidence_id": "evds_rates",
+      "path": "docs/EVDS_SOURCE.md",
+      "revision": "904e22dd9e70100e0a7b69b02aa08dffb5daa905",
+      "file_sha256": "305856eff8d5988c90773b6fc564b6879b7385aeeff0a4cd616cce056e5753eb",
+      "section": "The demo's own series are genuinely ambiguous"
+    },
+    {
+      "evidence_id": "evds_metadata",
+      "path": "docs/EVDS_SOURCE.md",
+      "revision": "904e22dd9e70100e0a7b69b02aa08dffb5daa905",
+      "file_sha256": "305856eff8d5988c90773b6fc564b6879b7385aeeff0a4cd616cce056e5753eb",
+      "section": "The catalog is the semantic layer, already built"
+    },
+    {
+      "evidence_id": "evds_archives",
+      "path": "docs/EVDS_SOURCE.md",
+      "revision": "904e22dd9e70100e0a7b69b02aa08dffb5daa905",
+      "file_sha256": "305856eff8d5988c90773b6fc564b6879b7385aeeff0a4cd616cce056e5753eb",
+      "section": "A third of the catalog is archived"
+    },
+    {
+      "evidence_id": "evds_indices",
+      "path": "docs/EVDS_SOURCE.md",
+      "revision": "904e22dd9e70100e0a7b69b02aa08dffb5daa905",
+      "file_sha256": "305856eff8d5988c90773b6fc564b6879b7385aeeff0a4cd616cce056e5753eb",
+      "section": "Base-year variants make deflation a trap"
+    },
+    {
+      "evidence_id": "bddk_monthly",
+      "path": "docs/BDDK_SOURCE.md",
+      "revision": "904e22dd9e70100e0a7b69b02aa08dffb5daa905",
+      "file_sha256": "a85c6a3c9acc5429e17734544d8a776b3eb39462ab62567771a726fc3f413df2",
+      "section": "Aylık Bülten"
+    },
+    {
+      "evidence_id": "bddk_semantics",
+      "path": "docs/BDDK_SOURCE.md",
+      "revision": "904e22dd9e70100e0a7b69b02aa08dffb5daa905",
+      "file_sha256": "a85c6a3c9acc5429e17734544d8a776b3eb39462ab62567771a726fc3f413df2",
+      "section": "The reference scenario needs a clarification, not a lookup"
+    },
+    {
+      "evidence_id": "bddk_weekly",
+      "path": "docs/BDDK_SOURCE.md",
+      "revision": "904e22dd9e70100e0a7b69b02aa08dffb5daa905",
+      "file_sha256": "a85c6a3c9acc5429e17734544d8a776b3eb39462ab62567771a726fc3f413df2",
+      "section": "Haftalık Bülten"
+    },
+    {
+      "evidence_id": "bddk_finturk",
+      "path": "docs/BDDK_SOURCE.md",
+      "revision": "904e22dd9e70100e0a7b69b02aa08dffb5daa905",
+      "file_sha256": "a85c6a3c9acc5429e17734544d8a776b3eb39462ab62567771a726fc3f413df2",
+      "section": "FinTürk"
+    },
+    {
+      "evidence_id": "evds_reviewed_20260914",
+      "path": "docs/EVDS_SERIES_METADATA.md",
+      "revision": "5c88cbf78fee3d00861dce9e068da8a6993633a3",
+      "file_sha256": "7684e27d887764654dbb3ebc1ff107ca7781281df22a043d2323e3087cc9a249",
+      "section": "Reviewed identities"
+    },
+    {
+      "evidence_id": "bddk_selector_review",
+      "path": "docs/BDDK_MONTHLY_METADATA.md",
+      "revision": "5c88cbf78fee3d00861dce9e068da8a6993633a3",
+      "file_sha256": "fd5e0319adb94077525c97be80f4cff60e6b008502cf59b86c97c101fe6977f7",
+      "section": "Identity and review boundary"
+    },
+    {
+      "evidence_id": "evds_coverage_20260914",
+      "path": "docs/EVDS_COVERAGE.md",
+      "revision": "1958d9abfbbabb2e0ec0ccd4a76d37b6bfd664ea",
+      "file_sha256": "996c11247f24de3b2d98873c5b00a5aa750f44be59289c6386a7c54a264b864f",
+      "section": "Reviewed additional identities"
+    }
+  ],
+  "series": [
+    {
+      "record": {
+        "series_id": "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0",
+        "provider": "BDDK",
+        "source_series_id": "selector-v1:{\"bank_group\":10001,\"bulletin_family\":\"monthly\",\"geography\":null,\"presentation_currency\":\"TL\",\"provider\":\"BDDK\",\"row\":2,\"schema\":\"bddk-selector-v1\",\"table\":4,\"value_dimension\":\"TP\"}",
+        "title": "Tüketici Kredileri - Konut",
+        "source": {
+          "source_id": "bddk:monthly-housing-selector-v1",
+          "source_type": "repository_inventory",
+          "locator": "repo:904e22dd9e70100e0a7b69b02aa08dffb5daa905:docs/BDDK_SOURCE.md",
+          "retrieved_at": null,
+          "content_hash": "a85c6a3c9acc5429e17734544d8a776b3eb39462ab62567771a726fc3f413df2"
+        },
+        "description": "Reviewed monthly period-end outstanding stock; not disbursement. Internal composite selector, not an official BDDK series code. A candidate is not a natural-language selection or calculation permission.",
+        "labels": [
+          "Aylık Bülten",
+          "Sektör",
+          "TP",
+          "Sunum para birimi: TL"
+        ],
+        "group": {
+          "group_id": "4",
+          "group_title": "Tüketici Kredileri",
+          "category_id": null,
+          "category_title": null,
+          "publisher": "BDDK"
+        },
+        "status": "unknown",
+        "unit": "TRY",
+        "scale": "million",
+        "frequency": "monthly",
+        "weekly_anchor": null,
+        "stock_flow": "stock",
+        "cumulative": "none",
+        "aggregation": {
+          "default": "unknown",
+          "sum": null,
+          "average": null,
+          "first": null,
+          "last": null,
+          "min": null,
+          "max": null
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "bddk_selector_review",
+        "bddk_monthly"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "unknown",
+      "geography": "Türkiye",
+      "note": "Sector monthly housing outstanding balance, TP component in million TRY. Internal composite selector, not an official source-native code. YP presentation in TRY is not USD. No disbursement, availability or aggregation permission is inferred."
+    },
+    {
+      "record": {
+        "series_id": "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66",
+        "provider": "BDDK",
+        "source_series_id": "selector-v1:{\"bank_group\":10001,\"bulletin_family\":\"monthly\",\"geography\":null,\"presentation_currency\":\"TL\",\"provider\":\"BDDK\",\"row\":2,\"schema\":\"bddk-selector-v1\",\"table\":4,\"value_dimension\":\"TOTAL\"}",
+        "title": "Tüketici Kredileri - Konut",
+        "source": {
+          "source_id": "bddk:monthly-housing-selector-v1",
+          "source_type": "repository_inventory",
+          "locator": "repo:904e22dd9e70100e0a7b69b02aa08dffb5daa905:docs/BDDK_SOURCE.md",
+          "retrieved_at": null,
+          "content_hash": "a85c6a3c9acc5429e17734544d8a776b3eb39462ab62567771a726fc3f413df2"
+        },
+        "description": "Reviewed monthly period-end outstanding stock; not disbursement. Internal composite selector, not an official BDDK series code. A candidate is not a natural-language selection or calculation permission.",
+        "labels": [
+          "Aylık Bülten",
+          "Sektör",
+          "TOTAL",
+          "Sunum para birimi: TL"
+        ],
+        "group": {
+          "group_id": "4",
+          "group_title": "Tüketici Kredileri",
+          "category_id": null,
+          "category_title": null,
+          "publisher": "BDDK"
+        },
+        "status": "unknown",
+        "unit": "TRY",
+        "scale": "million",
+        "frequency": "monthly",
+        "weekly_anchor": null,
+        "stock_flow": "stock",
+        "cumulative": "none",
+        "aggregation": {
+          "default": "unknown",
+          "sum": null,
+          "average": null,
+          "first": null,
+          "last": null,
+          "min": null,
+          "max": null
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "bddk_selector_review",
+        "bddk_monthly"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "unknown",
+      "geography": "Türkiye",
+      "note": "Sector monthly housing outstanding balance, TOTAL component in million TRY. Internal composite selector, not an official source-native code. YP presentation in TRY is not USD. No disbursement, availability or aggregation permission is inferred."
+    },
+    {
+      "record": {
+        "series_id": "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2",
+        "provider": "BDDK",
+        "source_series_id": "selector-v1:{\"bank_group\":10001,\"bulletin_family\":\"monthly\",\"geography\":null,\"presentation_currency\":\"TL\",\"provider\":\"BDDK\",\"row\":2,\"schema\":\"bddk-selector-v1\",\"table\":4,\"value_dimension\":\"YP\"}",
+        "title": "Tüketici Kredileri - Konut",
+        "source": {
+          "source_id": "bddk:monthly-housing-selector-v1",
+          "source_type": "repository_inventory",
+          "locator": "repo:904e22dd9e70100e0a7b69b02aa08dffb5daa905:docs/BDDK_SOURCE.md",
+          "retrieved_at": null,
+          "content_hash": "a85c6a3c9acc5429e17734544d8a776b3eb39462ab62567771a726fc3f413df2"
+        },
+        "description": "Reviewed monthly period-end outstanding stock; not disbursement. Internal composite selector, not an official BDDK series code. A candidate is not a natural-language selection or calculation permission.",
+        "labels": [
+          "Aylık Bülten",
+          "Sektör",
+          "YP",
+          "Sunum para birimi: TL"
+        ],
+        "group": {
+          "group_id": "4",
+          "group_title": "Tüketici Kredileri",
+          "category_id": null,
+          "category_title": null,
+          "publisher": "BDDK"
+        },
+        "status": "unknown",
+        "unit": "TRY",
+        "scale": "million",
+        "frequency": "monthly",
+        "weekly_anchor": null,
+        "stock_flow": "stock",
+        "cumulative": "none",
+        "aggregation": {
+          "default": "unknown",
+          "sum": null,
+          "average": null,
+          "first": null,
+          "last": null,
+          "min": null,
+          "max": null
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "bddk_selector_review",
+        "bddk_monthly"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "unknown",
+      "geography": "Türkiye",
+      "note": "Sector monthly housing outstanding balance, YP component in million TRY. Internal composite selector, not an official source-native code. YP presentation in TRY is not USD. No disbursement, availability or aggregation permission is inferred."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.BKR.TRY.18",
+        "provider": "EVDS",
+        "source_series_id": "TP.BKR.TRY.18",
+        "title": "Konut Kredisi (TL, Stok, %)",
+        "source": {
+          "source_id": "inventory:TP.BKR.TRY.18",
+          "source_type": "repository_inventory",
+          "locator": "repo:904e22dd9e70100e0a7b69b02aa08dffb5daa905:docs/EVDS_SOURCE.md",
+          "retrieved_at": null,
+          "content_hash": "305856eff8d5988c90773b6fc564b6879b7385aeeff0a4cd616cce056e5753eb"
+        },
+        "description": "Deposit banks: interest rate on the outstanding housing portfolio; not new-loan interest.",
+        "labels": [],
+        "group": {
+          "group_id": null,
+          "group_title": null,
+          "category_id": null,
+          "category_title": null,
+          "publisher": null
+        },
+        "status": "unknown",
+        "unit": "percent",
+        "scale": "one",
+        "frequency": "monthly",
+        "weekly_anchor": null,
+        "stock_flow": "rate",
+        "cumulative": "unknown",
+        "aggregation": {
+          "default": "unknown",
+          "sum": null,
+          "average": null,
+          "first": null,
+          "last": null,
+          "min": null,
+          "max": null
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_rates",
+        "evds_reviewed_20260914"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "outstanding_portfolio",
+      "geography": null,
+      "note": "Deposit banks: interest rate on the outstanding housing portfolio; not new-loan interest. Other metadata remains the historical reviewed declaration."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.GENENDEKS.T1",
+        "provider": "EVDS",
+        "source_series_id": "TP.GENENDEKS.T1",
+        "title": "Genel Endeks (2003=100)",
+        "source": {
+          "source_id": "evds:serie-list:bie_tukfiy2003",
+          "source_type": "http-json",
+          "locator": "https://evds3.tcmb.gov.tr/igmevdsms-dis/serieList/fe/type=json&code=bie_tukfiy2003",
+          "retrieved_at": "2026-09-14T00:00:00Z",
+          "content_hash": "bcb8071d41ebefbe5d4b59b87ea8522eb64326e539024570a9c0f5986f53182a"
+        },
+        "description": "Headline CPI on the 2003=100 base; kept as an independent cross-check.",
+        "labels": [
+          "General Endeks (2003=100)",
+          "TÜİK"
+        ],
+        "group": {
+          "group_id": "bie_tukfiy2003",
+          "group_title": "Tüketici Fiyat Endeksi (Genel) (2003=100)",
+          "category_id": null,
+          "category_title": null,
+          "publisher": "TÜİK"
+        },
+        "status": "unknown",
+        "unit": "index",
+        "scale": "one",
+        "frequency": "monthly",
+        "weekly_anchor": null,
+        "stock_flow": "index",
+        "cumulative": "none",
+        "aggregation": {
+          "default": "average",
+          "sum": false,
+          "average": true,
+          "first": true,
+          "last": true,
+          "min": true,
+          "max": true
+        },
+        "base_year": 2003,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_reviewed_20260914"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "unknown",
+      "geography": "Türkiye",
+      "note": "Headline CPI on the 2003=100 base; kept as an independent cross-check. Coverage and active/archive status remain unknown; declarations are not calculation permission or local availability."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.KBK.TRY.18",
+        "provider": "EVDS",
+        "source_series_id": "TP.KBK.TRY.18",
+        "title": "Konut Kredisi, (TL, Akım, %)",
+        "source": {
+          "source_id": "inventory:TP.KBK.TRY.18",
+          "source_type": "repository_inventory",
+          "locator": "repo:904e22dd9e70100e0a7b69b02aa08dffb5daa905:docs/EVDS_SOURCE.md",
+          "retrieved_at": null,
+          "content_hash": "305856eff8d5988c90773b6fc564b6879b7385aeeff0a4cd616cce056e5753eb"
+        },
+        "description": "Participation banks: profit-share rate on new housing financing; not deposit-bank interest.",
+        "labels": [],
+        "group": {
+          "group_id": null,
+          "group_title": null,
+          "category_id": null,
+          "category_title": null,
+          "publisher": null
+        },
+        "status": "unknown",
+        "unit": "percent",
+        "scale": "one",
+        "frequency": "weekly",
+        "weekly_anchor": "friday",
+        "stock_flow": "rate",
+        "cumulative": "unknown",
+        "aggregation": {
+          "default": "unknown",
+          "sum": null,
+          "average": null,
+          "first": null,
+          "last": null,
+          "min": null,
+          "max": null
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_rates",
+        "evds_metadata",
+        "evds_reviewed_20260914"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "new_credit",
+      "geography": null,
+      "note": "Participation banks: profit-share rate on new housing financing; not deposit-bank interest. Other metadata remains the historical reviewed declaration."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.KFE.TR",
+        "provider": "EVDS",
+        "source_series_id": "TP.KFE.TR",
+        "title": "Konut Fiyat Endeksi (KFE)",
+        "source": {
+          "source_id": "evds:serie-list:bie_kfe",
+          "source_type": "http-json",
+          "locator": "https://evds3.tcmb.gov.tr/igmevdsms-dis/serieList/fe/type=json&code=bie_kfe",
+          "retrieved_at": "2026-09-14T00:00:00Z",
+          "content_hash": "fef75407bf6a999779594efc1d2d500227310605aadb1f3fee7edaf52a079c1b"
+        },
+        "description": "National KFE. EVDS titles carry no base label; 2023=100 is reviewed from the published observations (2023 mean 99.999 on 2026-09-14), not from a title.",
+        "labels": [
+          "Residential Property Price Index (RPPI)",
+          "TCMB"
+        ],
+        "group": {
+          "group_id": "bie_kfe",
+          "group_title": "Konut Fiyat Endeksi",
+          "category_id": null,
+          "category_title": null,
+          "publisher": "TCMB"
+        },
+        "status": "unknown",
+        "unit": "index",
+        "scale": "one",
+        "frequency": "monthly",
+        "weekly_anchor": null,
+        "stock_flow": "index",
+        "cumulative": "none",
+        "aggregation": {
+          "default": "average",
+          "sum": false,
+          "average": true,
+          "first": true,
+          "last": true,
+          "min": true,
+          "max": true
+        },
+        "base_year": 2023,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_reviewed_20260914"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "unknown",
+      "geography": "Türkiye",
+      "note": "National KFE. EVDS titles carry no base label; 2023=100 is reviewed from the published observations (2023 mean 99.999 on 2026-09-14), not from a title. Coverage and active/archive status remain unknown; declarations are not calculation permission or local availability."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.KFE.TR10",
+        "provider": "EVDS",
+        "source_series_id": "TP.KFE.TR10",
+        "title": "Konut Fiyat Endeksi — İstanbul",
+        "source": {
+          "source_id": "inventory:TP.KFE.TR10",
+          "source_type": "repository_inventory",
+          "locator": "repo:904e22dd9e70100e0a7b69b02aa08dffb5daa905:docs/EVDS_SOURCE.md",
+          "retrieved_at": null,
+          "content_hash": "305856eff8d5988c90773b6fc564b6879b7385aeeff0a4cd616cce056e5753eb"
+        },
+        "description": null,
+        "labels": [],
+        "group": {
+          "group_id": "bie_kfe",
+          "group_title": "Konut Fiyat Endeksi",
+          "category_id": null,
+          "category_title": null,
+          "publisher": null
+        },
+        "status": "unknown",
+        "unit": null,
+        "scale": "unknown",
+        "frequency": "monthly",
+        "weekly_anchor": null,
+        "stock_flow": "index",
+        "cumulative": "unknown",
+        "aggregation": {
+          "default": "unknown",
+          "sum": null,
+          "average": null,
+          "first": null,
+          "last": null,
+          "min": null,
+          "max": null
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_indices",
+        "evds_metadata"
+      ],
+      "title_basis": "inventory_description",
+      "rate_basis": "unknown",
+      "geography": "İstanbul",
+      "note": "Repository-reviewed declaration, not live validation. Missing metadata stays unknown; no calculation permission."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.KFE.TR31",
+        "provider": "EVDS",
+        "source_series_id": "TP.KFE.TR31",
+        "title": "Konut Fiyat Endeksi — İzmir",
+        "source": {
+          "source_id": "inventory:TP.KFE.TR31",
+          "source_type": "repository_inventory",
+          "locator": "repo:904e22dd9e70100e0a7b69b02aa08dffb5daa905:docs/EVDS_SOURCE.md",
+          "retrieved_at": null,
+          "content_hash": "305856eff8d5988c90773b6fc564b6879b7385aeeff0a4cd616cce056e5753eb"
+        },
+        "description": null,
+        "labels": [],
+        "group": {
+          "group_id": "bie_kfe",
+          "group_title": "Konut Fiyat Endeksi",
+          "category_id": null,
+          "category_title": null,
+          "publisher": null
+        },
+        "status": "unknown",
+        "unit": null,
+        "scale": "unknown",
+        "frequency": "monthly",
+        "weekly_anchor": null,
+        "stock_flow": "index",
+        "cumulative": "unknown",
+        "aggregation": {
+          "default": "unknown",
+          "sum": null,
+          "average": null,
+          "first": null,
+          "last": null,
+          "min": null,
+          "max": null
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_indices",
+        "evds_metadata"
+      ],
+      "title_basis": "inventory_description",
+      "rate_basis": "unknown",
+      "geography": "İzmir",
+      "note": "Repository-reviewed declaration, not live validation. Missing metadata stays unknown; no calculation permission."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.KFE.TR51",
+        "provider": "EVDS",
+        "source_series_id": "TP.KFE.TR51",
+        "title": "Konut Fiyat Endeksi — Ankara",
+        "source": {
+          "source_id": "inventory:TP.KFE.TR51",
+          "source_type": "repository_inventory",
+          "locator": "repo:904e22dd9e70100e0a7b69b02aa08dffb5daa905:docs/EVDS_SOURCE.md",
+          "retrieved_at": null,
+          "content_hash": "305856eff8d5988c90773b6fc564b6879b7385aeeff0a4cd616cce056e5753eb"
+        },
+        "description": null,
+        "labels": [],
+        "group": {
+          "group_id": "bie_kfe",
+          "group_title": "Konut Fiyat Endeksi",
+          "category_id": null,
+          "category_title": null,
+          "publisher": null
+        },
+        "status": "unknown",
+        "unit": null,
+        "scale": "unknown",
+        "frequency": "monthly",
+        "weekly_anchor": null,
+        "stock_flow": "index",
+        "cumulative": "unknown",
+        "aggregation": {
+          "default": "unknown",
+          "sum": null,
+          "average": null,
+          "first": null,
+          "last": null,
+          "min": null,
+          "max": null
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_indices",
+        "evds_metadata"
+      ],
+      "title_basis": "inventory_description",
+      "rate_basis": "unknown",
+      "geography": "Ankara",
+      "note": "Repository-reviewed declaration, not live validation. Missing metadata stays unknown; no calculation permission."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.KKP.TRY.18",
+        "provider": "EVDS",
+        "source_series_id": "TP.KKP.TRY.18",
+        "title": "Konut Kredisi (TL, Stok, %)",
+        "source": {
+          "source_id": "inventory:TP.KKP.TRY.18",
+          "source_type": "repository_inventory",
+          "locator": "repo:904e22dd9e70100e0a7b69b02aa08dffb5daa905:docs/EVDS_SOURCE.md",
+          "retrieved_at": null,
+          "content_hash": "305856eff8d5988c90773b6fc564b6879b7385aeeff0a4cd616cce056e5753eb"
+        },
+        "description": "Participation banks: profit-share rate on the outstanding housing portfolio; not deposit-bank interest.",
+        "labels": [],
+        "group": {
+          "group_id": null,
+          "group_title": null,
+          "category_id": null,
+          "category_title": null,
+          "publisher": null
+        },
+        "status": "unknown",
+        "unit": "percent",
+        "scale": "one",
+        "frequency": "monthly",
+        "weekly_anchor": null,
+        "stock_flow": "rate",
+        "cumulative": "unknown",
+        "aggregation": {
+          "default": "unknown",
+          "sum": null,
+          "average": null,
+          "first": null,
+          "last": null,
+          "min": null,
+          "max": null
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_rates",
+        "evds_reviewed_20260914"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "outstanding_portfolio",
+      "geography": null,
+      "note": "Participation banks: profit-share rate on the outstanding housing portfolio; not deposit-bank interest. Other metadata remains the historical reviewed declaration."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.KTF10",
+        "provider": "EVDS",
+        "source_series_id": "TP.KTF10",
+        "title": "İhtiyaç Kredisi (TL, Akım, %)",
+        "source": {
+          "source_id": "evds:serie-list:bie_kt100h",
+          "source_type": "http-json",
+          "locator": "https://evds3.tcmb.gov.tr/igmevdsms-dis/serieList/fe/type=json&code=bie_kt100h",
+          "retrieved_at": "2026-09-14T00:00:00Z",
+          "content_hash": "b05143c4693d5b9e6057b5caaeb07123baefcbf594d1f57d9847481bbcde14c9"
+        },
+        "description": "New-loan interest rate, not a loan amount or outstanding-portfolio rate. Preserve the named credit category, denomination and KMH/card scope. EUR/USD identifies loan denomination; the measured value is a percent, not an exchange rate. Source allows average and forbids sum.",
+        "labels": [
+          "Personal Loans (TRY) (Flow, %)",
+          "Mevduat, Kalkınma ve Yatırım Bankaları"
+        ],
+        "group": {
+          "group_id": "bie_kt100h",
+          "group_title": "Kredi Faiz Oranları (Akım)",
+          "category_id": null,
+          "category_title": null,
+          "publisher": "Mevduat, Kalkınma ve Yatırım Bankaları"
+        },
+        "status": "unknown",
+        "unit": "percent",
+        "scale": "one",
+        "frequency": "weekly",
+        "weekly_anchor": "friday",
+        "stock_flow": "rate",
+        "cumulative": "none",
+        "aggregation": {
+          "default": "average",
+          "sum": false,
+          "average": true,
+          "first": true,
+          "last": true,
+          "min": true,
+          "max": true
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "new_credit",
+      "geography": "Türkiye",
+      "note": "New-loan interest rate, not a loan amount or outstanding-portfolio rate. Preserve the named credit category, denomination and KMH/card scope. EUR/USD identifies loan denomination; the measured value is a percent, not an exchange rate. Source allows average and forbids sum."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.KTF101",
+        "provider": "EVDS",
+        "source_series_id": "TP.KTF101",
+        "title": "İhtiyaç Kredisi (KMH Dahil) (TL, Akım, %)",
+        "source": {
+          "source_id": "evds:serie-list:bie_kt100h",
+          "source_type": "http-json",
+          "locator": "https://evds3.tcmb.gov.tr/igmevdsms-dis/serieList/fe/type=json&code=bie_kt100h",
+          "retrieved_at": "2026-09-14T00:00:00Z",
+          "content_hash": "b05143c4693d5b9e6057b5caaeb07123baefcbf594d1f57d9847481bbcde14c9"
+        },
+        "description": "New-loan interest rate, not a loan amount or outstanding-portfolio rate. Preserve the named credit category, denomination and KMH/card scope. EUR/USD identifies loan denomination; the measured value is a percent, not an exchange rate. Source allows average and forbids sum.",
+        "labels": [
+          "Personal Loans (TRY) (Including Real Person Overdraft Account) (Flow, %)",
+          "Mevduat, Kalkınma ve Yatırım Bankaları"
+        ],
+        "group": {
+          "group_id": "bie_kt100h",
+          "group_title": "Kredi Faiz Oranları (Akım)",
+          "category_id": null,
+          "category_title": null,
+          "publisher": "Mevduat, Kalkınma ve Yatırım Bankaları"
+        },
+        "status": "unknown",
+        "unit": "percent",
+        "scale": "one",
+        "frequency": "weekly",
+        "weekly_anchor": "friday",
+        "stock_flow": "rate",
+        "cumulative": "none",
+        "aggregation": {
+          "default": "average",
+          "sum": false,
+          "average": true,
+          "first": true,
+          "last": true,
+          "min": true,
+          "max": true
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "new_credit",
+      "geography": "Türkiye",
+      "note": "New-loan interest rate, not a loan amount or outstanding-portfolio rate. Preserve the named credit category, denomination and KMH/card scope. EUR/USD identifies loan denomination; the measured value is a percent, not an exchange rate. Source allows average and forbids sum."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.KTF11",
+        "provider": "EVDS",
+        "source_series_id": "TP.KTF11",
+        "title": "Taşıt Kredisi (TL, Akım, %)",
+        "source": {
+          "source_id": "evds:serie-list:bie_kt100h",
+          "source_type": "http-json",
+          "locator": "https://evds3.tcmb.gov.tr/igmevdsms-dis/serieList/fe/type=json&code=bie_kt100h",
+          "retrieved_at": "2026-09-14T00:00:00Z",
+          "content_hash": "b05143c4693d5b9e6057b5caaeb07123baefcbf594d1f57d9847481bbcde14c9"
+        },
+        "description": "New-loan interest rate, not a loan amount or outstanding-portfolio rate. Preserve the named credit category, denomination and KMH/card scope. EUR/USD identifies loan denomination; the measured value is a percent, not an exchange rate. Source allows average and forbids sum.",
+        "labels": [
+          "Vehicle Loans (TRY) (Flow, %)",
+          "Mevduat, Kalkınma ve Yatırım Bankaları"
+        ],
+        "group": {
+          "group_id": "bie_kt100h",
+          "group_title": "Kredi Faiz Oranları (Akım)",
+          "category_id": null,
+          "category_title": null,
+          "publisher": "Mevduat, Kalkınma ve Yatırım Bankaları"
+        },
+        "status": "unknown",
+        "unit": "percent",
+        "scale": "one",
+        "frequency": "weekly",
+        "weekly_anchor": "friday",
+        "stock_flow": "rate",
+        "cumulative": "none",
+        "aggregation": {
+          "default": "average",
+          "sum": false,
+          "average": true,
+          "first": true,
+          "last": true,
+          "min": true,
+          "max": true
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "new_credit",
+      "geography": "Türkiye",
+      "note": "New-loan interest rate, not a loan amount or outstanding-portfolio rate. Preserve the named credit category, denomination and KMH/card scope. EUR/USD identifies loan denomination; the measured value is a percent, not an exchange rate. Source allows average and forbids sum."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.KTF12",
+        "provider": "EVDS",
+        "source_series_id": "TP.KTF12",
+        "title": "Konut Kredisi (TL, Akım, %)",
+        "source": {
+          "source_id": "evds:serie-list:bie_kt100h",
+          "source_type": "http-json",
+          "locator": "https://evds3.tcmb.gov.tr/igmevdsms-dis/serieList/fe/type=json&code=bie_kt100h",
+          "retrieved_at": "2026-09-14T00:00:00Z",
+          "content_hash": "b05143c4693d5b9e6057b5caaeb07123baefcbf594d1f57d9847481bbcde14c9"
+        },
+        "description": "Weighted-average interest rate on new TRY housing loans (flow) by deposit, development and investment banks; not participation-bank profit shares (TP.KBK.TRY.18) and not the outstanding-portfolio rate (TP.BKR.TRY.18).",
+        "labels": [
+          "Housing Loans (TRY) (Flow, %)",
+          "Mevduat, Kalkınma ve Yatırım Bankaları"
+        ],
+        "group": {
+          "group_id": "bie_kt100h",
+          "group_title": "Kredi Faiz Oranları (Akım)",
+          "category_id": null,
+          "category_title": null,
+          "publisher": "Mevduat, Kalkınma ve Yatırım Bankaları"
+        },
+        "status": "unknown",
+        "unit": "percent",
+        "scale": "one",
+        "frequency": "weekly",
+        "weekly_anchor": "friday",
+        "stock_flow": "rate",
+        "cumulative": "none",
+        "aggregation": {
+          "default": "average",
+          "sum": false,
+          "average": true,
+          "first": true,
+          "last": true,
+          "min": true,
+          "max": true
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_reviewed_20260914"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "new_credit",
+      "geography": "Türkiye",
+      "note": "Weighted-average interest rate on new TRY housing loans (flow) by deposit, development and investment banks; not participation-bank profit shares (TP.KBK.TRY.18) and not the outstanding-portfolio rate (TP.BKR.TRY.18). Coverage and active/archive status remain unknown; declarations are not calculation permission or local availability."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.KTF17",
+        "provider": "EVDS",
+        "source_series_id": "TP.KTF17",
+        "title": "Ticari Krediler (TL, Akım, %)",
+        "source": {
+          "source_id": "evds:serie-list:bie_kt100h",
+          "source_type": "http-json",
+          "locator": "https://evds3.tcmb.gov.tr/igmevdsms-dis/serieList/fe/type=json&code=bie_kt100h",
+          "retrieved_at": "2026-09-14T00:00:00Z",
+          "content_hash": "b05143c4693d5b9e6057b5caaeb07123baefcbf594d1f57d9847481bbcde14c9"
+        },
+        "description": "New-loan interest rate, not a loan amount or outstanding-portfolio rate. Preserve the named credit category, denomination and KMH/card scope. EUR/USD identifies loan denomination; the measured value is a percent, not an exchange rate. Source allows average and forbids sum.",
+        "labels": [
+          "Commercial Loans (TRY) (Flow, %)",
+          "Mevduat, Kalkınma ve Yatırım Bankaları"
+        ],
+        "group": {
+          "group_id": "bie_kt100h",
+          "group_title": "Kredi Faiz Oranları (Akım)",
+          "category_id": null,
+          "category_title": null,
+          "publisher": "Mevduat, Kalkınma ve Yatırım Bankaları"
+        },
+        "status": "unknown",
+        "unit": "percent",
+        "scale": "one",
+        "frequency": "weekly",
+        "weekly_anchor": "friday",
+        "stock_flow": "rate",
+        "cumulative": "none",
+        "aggregation": {
+          "default": "average",
+          "sum": false,
+          "average": true,
+          "first": true,
+          "last": true,
+          "min": true,
+          "max": true
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "new_credit",
+      "geography": "Türkiye",
+      "note": "New-loan interest rate, not a loan amount or outstanding-portfolio rate. Preserve the named credit category, denomination and KMH/card scope. EUR/USD identifies loan denomination; the measured value is a percent, not an exchange rate. Source allows average and forbids sum."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.KTF17.EUR",
+        "provider": "EVDS",
+        "source_series_id": "TP.KTF17.EUR",
+        "title": "Ticari Krediler (Euro, Akım, %)",
+        "source": {
+          "source_id": "evds:serie-list:bie_kt100h",
+          "source_type": "http-json",
+          "locator": "https://evds3.tcmb.gov.tr/igmevdsms-dis/serieList/fe/type=json&code=bie_kt100h",
+          "retrieved_at": "2026-09-14T00:00:00Z",
+          "content_hash": "b05143c4693d5b9e6057b5caaeb07123baefcbf594d1f57d9847481bbcde14c9"
+        },
+        "description": "New-loan interest rate, not a loan amount or outstanding-portfolio rate. Preserve the named credit category, denomination and KMH/card scope. EUR/USD identifies loan denomination; the measured value is a percent, not an exchange rate. Source allows average and forbids sum.",
+        "labels": [
+          "Commercial Loans (EUR) (Flow, %)",
+          "Mevduat, Kalkınma ve Yatırım Bankaları"
+        ],
+        "group": {
+          "group_id": "bie_kt100h",
+          "group_title": "Kredi Faiz Oranları (Akım)",
+          "category_id": null,
+          "category_title": null,
+          "publisher": "Mevduat, Kalkınma ve Yatırım Bankaları"
+        },
+        "status": "unknown",
+        "unit": "percent",
+        "scale": "one",
+        "frequency": "weekly",
+        "weekly_anchor": "friday",
+        "stock_flow": "rate",
+        "cumulative": "none",
+        "aggregation": {
+          "default": "average",
+          "sum": false,
+          "average": true,
+          "first": true,
+          "last": true,
+          "min": true,
+          "max": true
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "new_credit",
+      "geography": "Türkiye",
+      "note": "New-loan interest rate, not a loan amount or outstanding-portfolio rate. Preserve the named credit category, denomination and KMH/card scope. EUR/USD identifies loan denomination; the measured value is a percent, not an exchange rate. Source allows average and forbids sum."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.KTF17.USD",
+        "provider": "EVDS",
+        "source_series_id": "TP.KTF17.USD",
+        "title": "Ticari Krediler (ABD doları, Akım,%)",
+        "source": {
+          "source_id": "evds:serie-list:bie_kt100h",
+          "source_type": "http-json",
+          "locator": "https://evds3.tcmb.gov.tr/igmevdsms-dis/serieList/fe/type=json&code=bie_kt100h",
+          "retrieved_at": "2026-09-14T00:00:00Z",
+          "content_hash": "b05143c4693d5b9e6057b5caaeb07123baefcbf594d1f57d9847481bbcde14c9"
+        },
+        "description": "New-loan interest rate, not a loan amount or outstanding-portfolio rate. Preserve the named credit category, denomination and KMH/card scope. EUR/USD identifies loan denomination; the measured value is a percent, not an exchange rate. Source allows average and forbids sum.",
+        "labels": [
+          "Commercial Loans (USD) (Flow, %)",
+          "Mevduat, Kalkınma ve Yatırım Bankaları"
+        ],
+        "group": {
+          "group_id": "bie_kt100h",
+          "group_title": "Kredi Faiz Oranları (Akım)",
+          "category_id": null,
+          "category_title": null,
+          "publisher": "Mevduat, Kalkınma ve Yatırım Bankaları"
+        },
+        "status": "unknown",
+        "unit": "percent",
+        "scale": "one",
+        "frequency": "weekly",
+        "weekly_anchor": "friday",
+        "stock_flow": "rate",
+        "cumulative": "none",
+        "aggregation": {
+          "default": "average",
+          "sum": false,
+          "average": true,
+          "first": true,
+          "last": true,
+          "min": true,
+          "max": true
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "new_credit",
+      "geography": "Türkiye",
+      "note": "New-loan interest rate, not a loan amount or outstanding-portfolio rate. Preserve the named credit category, denomination and KMH/card scope. EUR/USD identifies loan denomination; the measured value is a percent, not an exchange rate. Source allows average and forbids sum."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.KTF18",
+        "provider": "EVDS",
+        "source_series_id": "TP.KTF18",
+        "title": "Ticari Krediler (Tüzel Kişi KMH ve Kurumsal Kredi Kartları Hariç) (TL, Akım, %)",
+        "source": {
+          "source_id": "evds:serie-list:bie_kt100h",
+          "source_type": "http-json",
+          "locator": "https://evds3.tcmb.gov.tr/igmevdsms-dis/serieList/fe/type=json&code=bie_kt100h",
+          "retrieved_at": "2026-09-14T00:00:00Z",
+          "content_hash": "b05143c4693d5b9e6057b5caaeb07123baefcbf594d1f57d9847481bbcde14c9"
+        },
+        "description": "New-loan interest rate, not a loan amount or outstanding-portfolio rate. Preserve the named credit category, denomination and KMH/card scope. EUR/USD identifies loan denomination; the measured value is a percent, not an exchange rate. Source allows average and forbids sum.",
+        "labels": [
+          "Commercial Loans (TRY) (Excluding Corporate Overdraft Account and Corporate Credit Cards) (Flow, %)",
+          "Mevduat, Kalkınma ve Yatırım Bankaları"
+        ],
+        "group": {
+          "group_id": "bie_kt100h",
+          "group_title": "Kredi Faiz Oranları (Akım)",
+          "category_id": null,
+          "category_title": null,
+          "publisher": "Mevduat, Kalkınma ve Yatırım Bankaları"
+        },
+        "status": "unknown",
+        "unit": "percent",
+        "scale": "one",
+        "frequency": "weekly",
+        "weekly_anchor": "friday",
+        "stock_flow": "rate",
+        "cumulative": "none",
+        "aggregation": {
+          "default": "average",
+          "sum": false,
+          "average": true,
+          "first": true,
+          "last": true,
+          "min": true,
+          "max": true
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "new_credit",
+      "geography": "Türkiye",
+      "note": "New-loan interest rate, not a loan amount or outstanding-portfolio rate. Preserve the named credit category, denomination and KMH/card scope. EUR/USD identifies loan denomination; the measured value is a percent, not an exchange rate. Source allows average and forbids sum."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.KTFTUK",
+        "provider": "EVDS",
+        "source_series_id": "TP.KTFTUK",
+        "title": "Tüketici Kredisi (İhtiyaç+Taşıt+Konut) (TL, Akım, %)",
+        "source": {
+          "source_id": "evds:serie-list:bie_kt100h",
+          "source_type": "http-json",
+          "locator": "https://evds3.tcmb.gov.tr/igmevdsms-dis/serieList/fe/type=json&code=bie_kt100h",
+          "retrieved_at": "2026-09-14T00:00:00Z",
+          "content_hash": "b05143c4693d5b9e6057b5caaeb07123baefcbf594d1f57d9847481bbcde14c9"
+        },
+        "description": "New-loan interest rate, not a loan amount or outstanding-portfolio rate. Preserve the named credit category, denomination and KMH/card scope. EUR/USD identifies loan denomination; the measured value is a percent, not an exchange rate. Source allows average and forbids sum.",
+        "labels": [
+          "Consumer Loans (TRY) (Personal+Vehicle+Housing) (Flow, %)",
+          "Mevduat, Kalkınma ve Yatırım Bankaları"
+        ],
+        "group": {
+          "group_id": "bie_kt100h",
+          "group_title": "Kredi Faiz Oranları (Akım)",
+          "category_id": null,
+          "category_title": null,
+          "publisher": "Mevduat, Kalkınma ve Yatırım Bankaları"
+        },
+        "status": "unknown",
+        "unit": "percent",
+        "scale": "one",
+        "frequency": "weekly",
+        "weekly_anchor": "friday",
+        "stock_flow": "rate",
+        "cumulative": "none",
+        "aggregation": {
+          "default": "average",
+          "sum": false,
+          "average": true,
+          "first": true,
+          "last": true,
+          "min": true,
+          "max": true
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "new_credit",
+      "geography": "Türkiye",
+      "note": "New-loan interest rate, not a loan amount or outstanding-portfolio rate. Preserve the named credit category, denomination and KMH/card scope. EUR/USD identifies loan denomination; the measured value is a percent, not an exchange rate. Source allows average and forbids sum."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.KTFTUK01",
+        "provider": "EVDS",
+        "source_series_id": "TP.KTFTUK01",
+        "title": "Tüketici Kredisi (KMH Dahil) (İhtiyaç+Taşıt+Konut) (TL, Akım, %)",
+        "source": {
+          "source_id": "evds:serie-list:bie_kt100h",
+          "source_type": "http-json",
+          "locator": "https://evds3.tcmb.gov.tr/igmevdsms-dis/serieList/fe/type=json&code=bie_kt100h",
+          "retrieved_at": "2026-09-14T00:00:00Z",
+          "content_hash": "b05143c4693d5b9e6057b5caaeb07123baefcbf594d1f57d9847481bbcde14c9"
+        },
+        "description": "New-loan interest rate, not a loan amount or outstanding-portfolio rate. Preserve the named credit category, denomination and KMH/card scope. EUR/USD identifies loan denomination; the measured value is a percent, not an exchange rate. Source allows average and forbids sum.",
+        "labels": [
+          "Consumer Loans (TRY) (Personal+Vehicle+Housing) (Including Real Person Overdraft Account) (Flow, %)",
+          "Mevduat, Kalkınma ve Yatırım Bankaları"
+        ],
+        "group": {
+          "group_id": "bie_kt100h",
+          "group_title": "Kredi Faiz Oranları (Akım)",
+          "category_id": null,
+          "category_title": null,
+          "publisher": "Mevduat, Kalkınma ve Yatırım Bankaları"
+        },
+        "status": "unknown",
+        "unit": "percent",
+        "scale": "one",
+        "frequency": "weekly",
+        "weekly_anchor": "friday",
+        "stock_flow": "rate",
+        "cumulative": "none",
+        "aggregation": {
+          "default": "average",
+          "sum": false,
+          "average": true,
+          "first": true,
+          "last": true,
+          "min": true,
+          "max": true
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "new_credit",
+      "geography": "Türkiye",
+      "note": "New-loan interest rate, not a loan amount or outstanding-portfolio rate. Preserve the named credit category, denomination and KMH/card scope. EUR/USD identifies loan denomination; the measured value is a percent, not an exchange rate. Source allows average and forbids sum."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.TK02",
+        "provider": "EVDS",
+        "source_series_id": "TP.TK02",
+        "title": "IA- KONUT (Arşiv)",
+        "source": {
+          "source_id": "inventory:TP.TK02",
+          "source_type": "repository_inventory",
+          "locator": "repo:904e22dd9e70100e0a7b69b02aa08dffb5daa905:docs/EVDS_SOURCE.md",
+          "retrieved_at": null,
+          "content_hash": "305856eff8d5988c90773b6fc564b6879b7385aeeff0a4cd616cce056e5753eb"
+        },
+        "description": null,
+        "labels": [],
+        "group": {
+          "group_id": null,
+          "group_title": null,
+          "category_id": null,
+          "category_title": null,
+          "publisher": null
+        },
+        "status": "archived",
+        "unit": null,
+        "scale": "unknown",
+        "frequency": "unknown",
+        "weekly_anchor": null,
+        "stock_flow": "unknown",
+        "cumulative": "unknown",
+        "aggregation": {
+          "default": "unknown",
+          "sum": null,
+          "average": null,
+          "first": null,
+          "last": null,
+          "min": null,
+          "max": null
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_archives"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "unknown",
+      "geography": null,
+      "note": "Repository-reviewed declaration, not live validation. Missing metadata stays unknown; no calculation permission."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.TUKFIY2025.01",
+        "provider": "EVDS",
+        "source_series_id": "TP.TUKFIY2025.01",
+        "title": "01. Gıda Ve Alkolsüz İçecekler",
+        "source": {
+          "source_id": "evds:serie-list:bie_tukfiy2025",
+          "source_type": "http-json",
+          "locator": "https://evds3.tcmb.gov.tr/igmevdsms-dis/serieList/fe/type=json&code=bie_tukfiy2025",
+          "retrieved_at": "2026-09-14T00:00:00Z",
+          "content_hash": "e9e556bed380546ce930ae192171f71f5e37e3a6e0367b370e66c2bb60d62f67"
+        },
+        "description": "CPI expenditure-division index level, 2025=100 per source group. Not headline CPI, an inflation rate or a contribution/weight. The housing/utilities division is not the residential property price index (KFE). Do not substitute it as a general deflator without an explicit matching analytical scope; missing periods remain explicit.",
+        "labels": [
+          "01. Food and Non-Alcoholic Beverages",
+          "TÜİK"
+        ],
+        "group": {
+          "group_id": "bie_tukfiy2025",
+          "group_title": "Tüketici Fiyat Endeksi (2025=100)",
+          "category_id": null,
+          "category_title": null,
+          "publisher": "TÜİK"
+        },
+        "status": "unknown",
+        "unit": "index",
+        "scale": "one",
+        "frequency": "monthly",
+        "weekly_anchor": null,
+        "stock_flow": "index",
+        "cumulative": "none",
+        "aggregation": {
+          "default": "average",
+          "sum": false,
+          "average": true,
+          "first": true,
+          "last": true,
+          "min": true,
+          "max": true
+        },
+        "base_year": 2025,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "unknown",
+      "geography": "Türkiye",
+      "note": "CPI expenditure-division index level, 2025=100 per source group. Not headline CPI, an inflation rate or a contribution/weight. The housing/utilities division is not the residential property price index (KFE). Do not substitute it as a general deflator without an explicit matching analytical scope; missing periods remain explicit."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.TUKFIY2025.02",
+        "provider": "EVDS",
+        "source_series_id": "TP.TUKFIY2025.02",
+        "title": "02. Alkollü İçecekler, Tütün Ve Tütün Ürünleri",
+        "source": {
+          "source_id": "evds:serie-list:bie_tukfiy2025",
+          "source_type": "http-json",
+          "locator": "https://evds3.tcmb.gov.tr/igmevdsms-dis/serieList/fe/type=json&code=bie_tukfiy2025",
+          "retrieved_at": "2026-09-14T00:00:00Z",
+          "content_hash": "e9e556bed380546ce930ae192171f71f5e37e3a6e0367b370e66c2bb60d62f67"
+        },
+        "description": "CPI expenditure-division index level, 2025=100 per source group. Not headline CPI, an inflation rate or a contribution/weight. The housing/utilities division is not the residential property price index (KFE). Do not substitute it as a general deflator without an explicit matching analytical scope; missing periods remain explicit.",
+        "labels": [
+          "02. Alcoholic Beverages, Tobacco and Tobacco Products",
+          "TÜİK"
+        ],
+        "group": {
+          "group_id": "bie_tukfiy2025",
+          "group_title": "Tüketici Fiyat Endeksi (2025=100)",
+          "category_id": null,
+          "category_title": null,
+          "publisher": "TÜİK"
+        },
+        "status": "unknown",
+        "unit": "index",
+        "scale": "one",
+        "frequency": "monthly",
+        "weekly_anchor": null,
+        "stock_flow": "index",
+        "cumulative": "none",
+        "aggregation": {
+          "default": "average",
+          "sum": false,
+          "average": true,
+          "first": true,
+          "last": true,
+          "min": true,
+          "max": true
+        },
+        "base_year": 2025,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "unknown",
+      "geography": "Türkiye",
+      "note": "CPI expenditure-division index level, 2025=100 per source group. Not headline CPI, an inflation rate or a contribution/weight. The housing/utilities division is not the residential property price index (KFE). Do not substitute it as a general deflator without an explicit matching analytical scope; missing periods remain explicit."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.TUKFIY2025.03",
+        "provider": "EVDS",
+        "source_series_id": "TP.TUKFIY2025.03",
+        "title": "03. Giyim Ve Ayakkabı",
+        "source": {
+          "source_id": "evds:serie-list:bie_tukfiy2025",
+          "source_type": "http-json",
+          "locator": "https://evds3.tcmb.gov.tr/igmevdsms-dis/serieList/fe/type=json&code=bie_tukfiy2025",
+          "retrieved_at": "2026-09-14T00:00:00Z",
+          "content_hash": "e9e556bed380546ce930ae192171f71f5e37e3a6e0367b370e66c2bb60d62f67"
+        },
+        "description": "CPI expenditure-division index level, 2025=100 per source group. Not headline CPI, an inflation rate or a contribution/weight. The housing/utilities division is not the residential property price index (KFE). Do not substitute it as a general deflator without an explicit matching analytical scope; missing periods remain explicit.",
+        "labels": [
+          "03. Clothing and Footwear",
+          "TÜİK"
+        ],
+        "group": {
+          "group_id": "bie_tukfiy2025",
+          "group_title": "Tüketici Fiyat Endeksi (2025=100)",
+          "category_id": null,
+          "category_title": null,
+          "publisher": "TÜİK"
+        },
+        "status": "unknown",
+        "unit": "index",
+        "scale": "one",
+        "frequency": "monthly",
+        "weekly_anchor": null,
+        "stock_flow": "index",
+        "cumulative": "none",
+        "aggregation": {
+          "default": "average",
+          "sum": false,
+          "average": true,
+          "first": true,
+          "last": true,
+          "min": true,
+          "max": true
+        },
+        "base_year": 2025,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "unknown",
+      "geography": "Türkiye",
+      "note": "CPI expenditure-division index level, 2025=100 per source group. Not headline CPI, an inflation rate or a contribution/weight. The housing/utilities division is not the residential property price index (KFE). Do not substitute it as a general deflator without an explicit matching analytical scope; missing periods remain explicit."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.TUKFIY2025.04",
+        "provider": "EVDS",
+        "source_series_id": "TP.TUKFIY2025.04",
+        "title": "04. Konut, Su, Elektrik, Gaz Ve Diğer Yakıtlar",
+        "source": {
+          "source_id": "evds:serie-list:bie_tukfiy2025",
+          "source_type": "http-json",
+          "locator": "https://evds3.tcmb.gov.tr/igmevdsms-dis/serieList/fe/type=json&code=bie_tukfiy2025",
+          "retrieved_at": "2026-09-14T00:00:00Z",
+          "content_hash": "e9e556bed380546ce930ae192171f71f5e37e3a6e0367b370e66c2bb60d62f67"
+        },
+        "description": "CPI expenditure-division index level, 2025=100 per source group. Not headline CPI, an inflation rate or a contribution/weight. The housing/utilities division is not the residential property price index (KFE). Do not substitute it as a general deflator without an explicit matching analytical scope; missing periods remain explicit.",
+        "labels": [
+          "04. Housing, Water, Electricity, Gas, and Other Fuels",
+          "TÜİK"
+        ],
+        "group": {
+          "group_id": "bie_tukfiy2025",
+          "group_title": "Tüketici Fiyat Endeksi (2025=100)",
+          "category_id": null,
+          "category_title": null,
+          "publisher": "TÜİK"
+        },
+        "status": "unknown",
+        "unit": "index",
+        "scale": "one",
+        "frequency": "monthly",
+        "weekly_anchor": null,
+        "stock_flow": "index",
+        "cumulative": "none",
+        "aggregation": {
+          "default": "average",
+          "sum": false,
+          "average": true,
+          "first": true,
+          "last": true,
+          "min": true,
+          "max": true
+        },
+        "base_year": 2025,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "unknown",
+      "geography": "Türkiye",
+      "note": "CPI expenditure-division index level, 2025=100 per source group. Not headline CPI, an inflation rate or a contribution/weight. The housing/utilities division is not the residential property price index (KFE). Do not substitute it as a general deflator without an explicit matching analytical scope; missing periods remain explicit."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.TUKFIY2025.05",
+        "provider": "EVDS",
+        "source_series_id": "TP.TUKFIY2025.05",
+        "title": "05. Mobilya, Mefruşat Ve Evde Kullanılan Ekipmanlar İle Rutin Ev Bakım Ve Onarımı",
+        "source": {
+          "source_id": "evds:serie-list:bie_tukfiy2025",
+          "source_type": "http-json",
+          "locator": "https://evds3.tcmb.gov.tr/igmevdsms-dis/serieList/fe/type=json&code=bie_tukfiy2025",
+          "retrieved_at": "2026-09-14T00:00:00Z",
+          "content_hash": "e9e556bed380546ce930ae192171f71f5e37e3a6e0367b370e66c2bb60d62f67"
+        },
+        "description": "CPI expenditure-division index level, 2025=100 per source group. Not headline CPI, an inflation rate or a contribution/weight. The housing/utilities division is not the residential property price index (KFE). Do not substitute it as a general deflator without an explicit matching analytical scope; missing periods remain explicit.",
+        "labels": [
+          "05. Furniture, Furnishings, and Household Equipment, and Routine Home Maintenance and Repair",
+          "TÜİK"
+        ],
+        "group": {
+          "group_id": "bie_tukfiy2025",
+          "group_title": "Tüketici Fiyat Endeksi (2025=100)",
+          "category_id": null,
+          "category_title": null,
+          "publisher": "TÜİK"
+        },
+        "status": "unknown",
+        "unit": "index",
+        "scale": "one",
+        "frequency": "monthly",
+        "weekly_anchor": null,
+        "stock_flow": "index",
+        "cumulative": "none",
+        "aggregation": {
+          "default": "average",
+          "sum": false,
+          "average": true,
+          "first": true,
+          "last": true,
+          "min": true,
+          "max": true
+        },
+        "base_year": 2025,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "unknown",
+      "geography": "Türkiye",
+      "note": "CPI expenditure-division index level, 2025=100 per source group. Not headline CPI, an inflation rate or a contribution/weight. The housing/utilities division is not the residential property price index (KFE). Do not substitute it as a general deflator without an explicit matching analytical scope; missing periods remain explicit."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.TUKFIY2025.06",
+        "provider": "EVDS",
+        "source_series_id": "TP.TUKFIY2025.06",
+        "title": "06. Sağlık",
+        "source": {
+          "source_id": "evds:serie-list:bie_tukfiy2025",
+          "source_type": "http-json",
+          "locator": "https://evds3.tcmb.gov.tr/igmevdsms-dis/serieList/fe/type=json&code=bie_tukfiy2025",
+          "retrieved_at": "2026-09-14T00:00:00Z",
+          "content_hash": "e9e556bed380546ce930ae192171f71f5e37e3a6e0367b370e66c2bb60d62f67"
+        },
+        "description": "CPI expenditure-division index level, 2025=100 per source group. Not headline CPI, an inflation rate or a contribution/weight. The housing/utilities division is not the residential property price index (KFE). Do not substitute it as a general deflator without an explicit matching analytical scope; missing periods remain explicit.",
+        "labels": [
+          "06. Health",
+          "TÜİK"
+        ],
+        "group": {
+          "group_id": "bie_tukfiy2025",
+          "group_title": "Tüketici Fiyat Endeksi (2025=100)",
+          "category_id": null,
+          "category_title": null,
+          "publisher": "TÜİK"
+        },
+        "status": "unknown",
+        "unit": "index",
+        "scale": "one",
+        "frequency": "monthly",
+        "weekly_anchor": null,
+        "stock_flow": "index",
+        "cumulative": "none",
+        "aggregation": {
+          "default": "average",
+          "sum": false,
+          "average": true,
+          "first": true,
+          "last": true,
+          "min": true,
+          "max": true
+        },
+        "base_year": 2025,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "unknown",
+      "geography": "Türkiye",
+      "note": "CPI expenditure-division index level, 2025=100 per source group. Not headline CPI, an inflation rate or a contribution/weight. The housing/utilities division is not the residential property price index (KFE). Do not substitute it as a general deflator without an explicit matching analytical scope; missing periods remain explicit."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.TUKFIY2025.07",
+        "provider": "EVDS",
+        "source_series_id": "TP.TUKFIY2025.07",
+        "title": "07. Ulaştırma",
+        "source": {
+          "source_id": "evds:serie-list:bie_tukfiy2025",
+          "source_type": "http-json",
+          "locator": "https://evds3.tcmb.gov.tr/igmevdsms-dis/serieList/fe/type=json&code=bie_tukfiy2025",
+          "retrieved_at": "2026-09-14T00:00:00Z",
+          "content_hash": "e9e556bed380546ce930ae192171f71f5e37e3a6e0367b370e66c2bb60d62f67"
+        },
+        "description": "CPI expenditure-division index level, 2025=100 per source group. Not headline CPI, an inflation rate or a contribution/weight. The housing/utilities division is not the residential property price index (KFE). Do not substitute it as a general deflator without an explicit matching analytical scope; missing periods remain explicit.",
+        "labels": [
+          "07. Transportation",
+          "TÜİK"
+        ],
+        "group": {
+          "group_id": "bie_tukfiy2025",
+          "group_title": "Tüketici Fiyat Endeksi (2025=100)",
+          "category_id": null,
+          "category_title": null,
+          "publisher": "TÜİK"
+        },
+        "status": "unknown",
+        "unit": "index",
+        "scale": "one",
+        "frequency": "monthly",
+        "weekly_anchor": null,
+        "stock_flow": "index",
+        "cumulative": "none",
+        "aggregation": {
+          "default": "average",
+          "sum": false,
+          "average": true,
+          "first": true,
+          "last": true,
+          "min": true,
+          "max": true
+        },
+        "base_year": 2025,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "unknown",
+      "geography": "Türkiye",
+      "note": "CPI expenditure-division index level, 2025=100 per source group. Not headline CPI, an inflation rate or a contribution/weight. The housing/utilities division is not the residential property price index (KFE). Do not substitute it as a general deflator without an explicit matching analytical scope; missing periods remain explicit."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.TUKFIY2025.08",
+        "provider": "EVDS",
+        "source_series_id": "TP.TUKFIY2025.08",
+        "title": "08. Bilgi Ve İletişim",
+        "source": {
+          "source_id": "evds:serie-list:bie_tukfiy2025",
+          "source_type": "http-json",
+          "locator": "https://evds3.tcmb.gov.tr/igmevdsms-dis/serieList/fe/type=json&code=bie_tukfiy2025",
+          "retrieved_at": "2026-09-14T00:00:00Z",
+          "content_hash": "e9e556bed380546ce930ae192171f71f5e37e3a6e0367b370e66c2bb60d62f67"
+        },
+        "description": "CPI expenditure-division index level, 2025=100 per source group. Not headline CPI, an inflation rate or a contribution/weight. The housing/utilities division is not the residential property price index (KFE). Do not substitute it as a general deflator without an explicit matching analytical scope; missing periods remain explicit.",
+        "labels": [
+          "08. Information and Communication",
+          "TÜİK"
+        ],
+        "group": {
+          "group_id": "bie_tukfiy2025",
+          "group_title": "Tüketici Fiyat Endeksi (2025=100)",
+          "category_id": null,
+          "category_title": null,
+          "publisher": "TÜİK"
+        },
+        "status": "unknown",
+        "unit": "index",
+        "scale": "one",
+        "frequency": "monthly",
+        "weekly_anchor": null,
+        "stock_flow": "index",
+        "cumulative": "none",
+        "aggregation": {
+          "default": "average",
+          "sum": false,
+          "average": true,
+          "first": true,
+          "last": true,
+          "min": true,
+          "max": true
+        },
+        "base_year": 2025,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "unknown",
+      "geography": "Türkiye",
+      "note": "CPI expenditure-division index level, 2025=100 per source group. Not headline CPI, an inflation rate or a contribution/weight. The housing/utilities division is not the residential property price index (KFE). Do not substitute it as a general deflator without an explicit matching analytical scope; missing periods remain explicit."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.TUKFIY2025.09",
+        "provider": "EVDS",
+        "source_series_id": "TP.TUKFIY2025.09",
+        "title": "09. Eğlence, Dinlence, Spor Ve Kültür",
+        "source": {
+          "source_id": "evds:serie-list:bie_tukfiy2025",
+          "source_type": "http-json",
+          "locator": "https://evds3.tcmb.gov.tr/igmevdsms-dis/serieList/fe/type=json&code=bie_tukfiy2025",
+          "retrieved_at": "2026-09-14T00:00:00Z",
+          "content_hash": "e9e556bed380546ce930ae192171f71f5e37e3a6e0367b370e66c2bb60d62f67"
+        },
+        "description": "CPI expenditure-division index level, 2025=100 per source group. Not headline CPI, an inflation rate or a contribution/weight. The housing/utilities division is not the residential property price index (KFE). Do not substitute it as a general deflator without an explicit matching analytical scope; missing periods remain explicit.",
+        "labels": [
+          "09. Entertainment, Recreation, Sports, and Culture",
+          "TÜİK"
+        ],
+        "group": {
+          "group_id": "bie_tukfiy2025",
+          "group_title": "Tüketici Fiyat Endeksi (2025=100)",
+          "category_id": null,
+          "category_title": null,
+          "publisher": "TÜİK"
+        },
+        "status": "unknown",
+        "unit": "index",
+        "scale": "one",
+        "frequency": "monthly",
+        "weekly_anchor": null,
+        "stock_flow": "index",
+        "cumulative": "none",
+        "aggregation": {
+          "default": "average",
+          "sum": false,
+          "average": true,
+          "first": true,
+          "last": true,
+          "min": true,
+          "max": true
+        },
+        "base_year": 2025,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "unknown",
+      "geography": "Türkiye",
+      "note": "CPI expenditure-division index level, 2025=100 per source group. Not headline CPI, an inflation rate or a contribution/weight. The housing/utilities division is not the residential property price index (KFE). Do not substitute it as a general deflator without an explicit matching analytical scope; missing periods remain explicit."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.TUKFIY2025.10",
+        "provider": "EVDS",
+        "source_series_id": "TP.TUKFIY2025.10",
+        "title": "10. Eğitim Hizmetleri",
+        "source": {
+          "source_id": "evds:serie-list:bie_tukfiy2025",
+          "source_type": "http-json",
+          "locator": "https://evds3.tcmb.gov.tr/igmevdsms-dis/serieList/fe/type=json&code=bie_tukfiy2025",
+          "retrieved_at": "2026-09-14T00:00:00Z",
+          "content_hash": "e9e556bed380546ce930ae192171f71f5e37e3a6e0367b370e66c2bb60d62f67"
+        },
+        "description": "CPI expenditure-division index level, 2025=100 per source group. Not headline CPI, an inflation rate or a contribution/weight. The housing/utilities division is not the residential property price index (KFE). Do not substitute it as a general deflator without an explicit matching analytical scope; missing periods remain explicit.",
+        "labels": [
+          "10. Educational Services",
+          "TÜİK"
+        ],
+        "group": {
+          "group_id": "bie_tukfiy2025",
+          "group_title": "Tüketici Fiyat Endeksi (2025=100)",
+          "category_id": null,
+          "category_title": null,
+          "publisher": "TÜİK"
+        },
+        "status": "unknown",
+        "unit": "index",
+        "scale": "one",
+        "frequency": "monthly",
+        "weekly_anchor": null,
+        "stock_flow": "index",
+        "cumulative": "none",
+        "aggregation": {
+          "default": "average",
+          "sum": false,
+          "average": true,
+          "first": true,
+          "last": true,
+          "min": true,
+          "max": true
+        },
+        "base_year": 2025,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "unknown",
+      "geography": "Türkiye",
+      "note": "CPI expenditure-division index level, 2025=100 per source group. Not headline CPI, an inflation rate or a contribution/weight. The housing/utilities division is not the residential property price index (KFE). Do not substitute it as a general deflator without an explicit matching analytical scope; missing periods remain explicit."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.TUKFIY2025.11",
+        "provider": "EVDS",
+        "source_series_id": "TP.TUKFIY2025.11",
+        "title": "11. Lokantalar Ve Konaklama Hizmetleri",
+        "source": {
+          "source_id": "evds:serie-list:bie_tukfiy2025",
+          "source_type": "http-json",
+          "locator": "https://evds3.tcmb.gov.tr/igmevdsms-dis/serieList/fe/type=json&code=bie_tukfiy2025",
+          "retrieved_at": "2026-09-14T00:00:00Z",
+          "content_hash": "e9e556bed380546ce930ae192171f71f5e37e3a6e0367b370e66c2bb60d62f67"
+        },
+        "description": "CPI expenditure-division index level, 2025=100 per source group. Not headline CPI, an inflation rate or a contribution/weight. The housing/utilities division is not the residential property price index (KFE). Do not substitute it as a general deflator without an explicit matching analytical scope; missing periods remain explicit.",
+        "labels": [
+          "11. Restaurants and Accommodation Services",
+          "TÜİK"
+        ],
+        "group": {
+          "group_id": "bie_tukfiy2025",
+          "group_title": "Tüketici Fiyat Endeksi (2025=100)",
+          "category_id": null,
+          "category_title": null,
+          "publisher": "TÜİK"
+        },
+        "status": "unknown",
+        "unit": "index",
+        "scale": "one",
+        "frequency": "monthly",
+        "weekly_anchor": null,
+        "stock_flow": "index",
+        "cumulative": "none",
+        "aggregation": {
+          "default": "average",
+          "sum": false,
+          "average": true,
+          "first": true,
+          "last": true,
+          "min": true,
+          "max": true
+        },
+        "base_year": 2025,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "unknown",
+      "geography": "Türkiye",
+      "note": "CPI expenditure-division index level, 2025=100 per source group. Not headline CPI, an inflation rate or a contribution/weight. The housing/utilities division is not the residential property price index (KFE). Do not substitute it as a general deflator without an explicit matching analytical scope; missing periods remain explicit."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.TUKFIY2025.12",
+        "provider": "EVDS",
+        "source_series_id": "TP.TUKFIY2025.12",
+        "title": "12. Sigorta Ve Finansal Hizmetler",
+        "source": {
+          "source_id": "evds:serie-list:bie_tukfiy2025",
+          "source_type": "http-json",
+          "locator": "https://evds3.tcmb.gov.tr/igmevdsms-dis/serieList/fe/type=json&code=bie_tukfiy2025",
+          "retrieved_at": "2026-09-14T00:00:00Z",
+          "content_hash": "e9e556bed380546ce930ae192171f71f5e37e3a6e0367b370e66c2bb60d62f67"
+        },
+        "description": "CPI expenditure-division index level, 2025=100 per source group. Not headline CPI, an inflation rate or a contribution/weight. The housing/utilities division is not the residential property price index (KFE). Do not substitute it as a general deflator without an explicit matching analytical scope; missing periods remain explicit.",
+        "labels": [
+          "12. Insurance and Financial Services",
+          "TÜİK"
+        ],
+        "group": {
+          "group_id": "bie_tukfiy2025",
+          "group_title": "Tüketici Fiyat Endeksi (2025=100)",
+          "category_id": null,
+          "category_title": null,
+          "publisher": "TÜİK"
+        },
+        "status": "unknown",
+        "unit": "index",
+        "scale": "one",
+        "frequency": "monthly",
+        "weekly_anchor": null,
+        "stock_flow": "index",
+        "cumulative": "none",
+        "aggregation": {
+          "default": "average",
+          "sum": false,
+          "average": true,
+          "first": true,
+          "last": true,
+          "min": true,
+          "max": true
+        },
+        "base_year": 2025,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "unknown",
+      "geography": "Türkiye",
+      "note": "CPI expenditure-division index level, 2025=100 per source group. Not headline CPI, an inflation rate or a contribution/weight. The housing/utilities division is not the residential property price index (KFE). Do not substitute it as a general deflator without an explicit matching analytical scope; missing periods remain explicit."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.TUKFIY2025.13",
+        "provider": "EVDS",
+        "source_series_id": "TP.TUKFIY2025.13",
+        "title": "13. Kişisel Bakım, Sosyal Koruma Ve Çeşitli Mal Ve Hizmetler",
+        "source": {
+          "source_id": "evds:serie-list:bie_tukfiy2025",
+          "source_type": "http-json",
+          "locator": "https://evds3.tcmb.gov.tr/igmevdsms-dis/serieList/fe/type=json&code=bie_tukfiy2025",
+          "retrieved_at": "2026-09-14T00:00:00Z",
+          "content_hash": "e9e556bed380546ce930ae192171f71f5e37e3a6e0367b370e66c2bb60d62f67"
+        },
+        "description": "CPI expenditure-division index level, 2025=100 per source group. Not headline CPI, an inflation rate or a contribution/weight. The housing/utilities division is not the residential property price index (KFE). Do not substitute it as a general deflator without an explicit matching analytical scope; missing periods remain explicit.",
+        "labels": [
+          "13. Personal Care, Social Protection, and Miscellaneous Goods and Services",
+          "TÜİK"
+        ],
+        "group": {
+          "group_id": "bie_tukfiy2025",
+          "group_title": "Tüketici Fiyat Endeksi (2025=100)",
+          "category_id": null,
+          "category_title": null,
+          "publisher": "TÜİK"
+        },
+        "status": "unknown",
+        "unit": "index",
+        "scale": "one",
+        "frequency": "monthly",
+        "weekly_anchor": null,
+        "stock_flow": "index",
+        "cumulative": "none",
+        "aggregation": {
+          "default": "average",
+          "sum": false,
+          "average": true,
+          "first": true,
+          "last": true,
+          "min": true,
+          "max": true
+        },
+        "base_year": 2025,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "unknown",
+      "geography": "Türkiye",
+      "note": "CPI expenditure-division index level, 2025=100 per source group. Not headline CPI, an inflation rate or a contribution/weight. The housing/utilities division is not the residential property price index (KFE). Do not substitute it as a general deflator without an explicit matching analytical scope; missing periods remain explicit."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.TUKFIY2025.GENEL",
+        "provider": "EVDS",
+        "source_series_id": "TP.TUKFIY2025.GENEL",
+        "title": "Genel Endeks",
+        "source": {
+          "source_id": "evds:serie-list:bie_tukfiy2025",
+          "source_type": "http-json",
+          "locator": "https://evds3.tcmb.gov.tr/igmevdsms-dis/serieList/fe/type=json&code=bie_tukfiy2025",
+          "retrieved_at": "2026-09-14T00:00:00Z",
+          "content_hash": "e9e556bed380546ce930ae192171f71f5e37e3a6e0367b370e66c2bb60d62f67"
+        },
+        "description": "Headline CPI, 2025=100 per the datagroup title; earlier periods are linked.",
+        "labels": [
+          "General Index",
+          "TÜİK"
+        ],
+        "group": {
+          "group_id": "bie_tukfiy2025",
+          "group_title": "Tüketici Fiyat Endeksi (2025=100)",
+          "category_id": null,
+          "category_title": null,
+          "publisher": "TÜİK"
+        },
+        "status": "unknown",
+        "unit": "index",
+        "scale": "one",
+        "frequency": "monthly",
+        "weekly_anchor": null,
+        "stock_flow": "index",
+        "cumulative": "none",
+        "aggregation": {
+          "default": "average",
+          "sum": false,
+          "average": true,
+          "first": true,
+          "last": true,
+          "min": true,
+          "max": true
+        },
+        "base_year": 2025,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_reviewed_20260914"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "unknown",
+      "geography": "Türkiye",
+      "note": "Headline CPI, 2025=100 per the datagroup title; earlier periods are linked. Coverage and active/archive status remain unknown; declarations are not calculation permission or local availability."
+    },
+    {
+      "record": {
+        "series_id": "EVDS:TP.VK02",
+        "provider": "EVDS",
+        "source_series_id": "TP.VK02",
+        "title": "A) KONUT (Arşiv)",
+        "source": {
+          "source_id": "inventory:TP.VK02",
+          "source_type": "repository_inventory",
+          "locator": "repo:904e22dd9e70100e0a7b69b02aa08dffb5daa905:docs/EVDS_SOURCE.md",
+          "retrieved_at": null,
+          "content_hash": "305856eff8d5988c90773b6fc564b6879b7385aeeff0a4cd616cce056e5753eb"
+        },
+        "description": null,
+        "labels": [],
+        "group": {
+          "group_id": null,
+          "group_title": null,
+          "category_id": null,
+          "category_title": null,
+          "publisher": null
+        },
+        "status": "archived",
+        "unit": null,
+        "scale": "unknown",
+        "frequency": "unknown",
+        "weekly_anchor": null,
+        "stock_flow": "unknown",
+        "cumulative": "unknown",
+        "aggregation": {
+          "default": "unknown",
+          "sum": null,
+          "average": null,
+          "first": null,
+          "last": null,
+          "min": null,
+          "max": null
+        },
+        "base_year": null,
+        "coverage": {
+          "start": null,
+          "end": null
+        },
+        "sample_values": []
+      },
+      "evidence_ids": [
+        "evds_archives"
+      ],
+      "title_basis": "documented_title",
+      "rate_basis": "unknown",
+      "geography": null,
+      "note": "Repository-reviewed declaration, not live validation. Missing metadata stays unknown; no calculation permission."
+    }
+  ],
+  "contexts": [
+    {
+      "context_id": "bddk_monthly",
+      "evidence_ids": [
+        "bddk_monthly",
+        "bddk_semantics",
+        "bddk_selector_review"
+      ],
+      "facts": [
+        "Aylık Bülten; tabloNo=4; row id=2; Tüketici Kredileri - Konut",
+        "taraf=10001 Sektör; other bank groups are distinct selectors",
+        "paraBirimi=TL or USD; TP / YP / Toplam are separate columns",
+        "Documented housing balance is monthly outstanding stock; caption declares Milyon TL and period",
+        "Differencing the stock is net change, not disbursement",
+        "M3-05 delivers reviewed composite identities for the three sector/TL housing components."
+      ],
+      "unresolved": "Other bank groups, currencies, rows and bulletin families remain unreviewed; stock is not new disbursement."
+    },
+    {
+      "context_id": "bddk_weekly",
+      "evidence_ids": [
+        "bddk_weekly"
+      ],
+      "facts": [
+        "Haftalık Bülten; form POST; server-rendered HTML",
+        "yil / donemId / para selectors; donemId is not a date",
+        "Friday captions declare Milyon TL; do not infer missing row/series identity"
+      ],
+      "unresolved": "Documented source shape only; no supported housing series identity or full row schema."
+    },
+    {
+      "context_id": "bddk_finturk",
+      "evidence_ids": [
+        "bddk_finturk"
+      ],
+      "facts": [
+        "FinTürk is quarterly (3/6/9/12), not monthly",
+        "Selectors include bank group, province and table",
+        "Krediler / Mevduat / Bireysel Bankacılık: Bin TL",
+        "Oranlar: %; Şubeler ve Nüfusa Göre Dağılım: mixed Adet and TL",
+        "Do not substitute a province for national coverage or infer column-level unit"
+      ],
+      "unresolved": "No documented series selector/column mapping for the requested housing concept."
+    },
+    {
+      "context_id": "cpi_groups",
+      "evidence_ids": [
+        "evds_indices",
+        "evds_reviewed_20260914"
+      ],
+      "facts": [
+        "bie_tukfiy2025: CPI group, 2025=100",
+        "bie_tukfiy2003: CPI group, 2003=100",
+        "bie_tukfiy4: archived CPI group, 2003=100",
+        "Group identities are not series identities; an index level is not inflation rate",
+        "Reviewed headline codes: TP.TUKFIY2025.GENEL (2025) and TP.GENENDEKS.T1 (2003)."
+      ],
+      "unresolved": "Archived CPI group codes and native inflation-rate identity remain unresolved. Base and deflation reference period are distinct."
+    },
+    {
+      "context_id": "kfe_old_groups",
+      "evidence_ids": [
+        "evds_indices",
+        "evds_reviewed_20260914"
+      ],
+      "facts": [
+        "bie_kfe: national TP.KFE.TR has an observation-derived reviewed 2023=100 base.",
+        "bie_tkfe: archived group, 2010=100",
+        "bie_hkfe: archived group, 2017=100"
+      ],
+      "unresolved": "Old-group identities and regional current-series bases remain unknown; no active status is inferred."
+    }
+  ],
+  "concepts": [
+    {
+      "concept_id": "housing_credit",
+      "definition": "Unqualified housing credit: amount versus rate requires clarification.",
+      "aliases": [
+        {
+          "original": "konut kredisi",
+          "normalized": "konut kredisi"
+        },
+        {
+          "original": "konut kredileri",
+          "normalized": "konut kredileri"
+        },
+        {
+          "original": "konut finansmanı",
+          "normalized": "konut finansmani"
+        },
+        {
+          "original": "mortgage kredisi",
+          "normalized": "mortgage kredisi"
+        },
+        {
+          "original": "mortgage",
+          "normalized": "mortgage"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.KBK.TRY.18",
+        "EVDS:TP.KTF12",
+        "EVDS:TP.BKR.TRY.18",
+        "EVDS:TP.KKP.TRY.18",
+        "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0",
+        "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2",
+        "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66"
+      ],
+      "resolution": "PARTIAL",
+      "clarification_required": true,
+      "conditions": [
+        "Do not default to a rate when the user means an amount."
+      ],
+      "family_ids": [
+        "housing_amount",
+        "housing_rates"
+      ],
+      "evidence_ids": [
+        "evds_rates",
+        "bddk_semantics",
+        "bddk_selector_review",
+        "evds_reviewed_20260914"
+      ],
+      "context_ids": [
+        "bddk_monthly"
+      ],
+      "exclusions": [
+        "No alias grants calculation, transformation or causal authority."
+      ],
+      "unresolved": [
+        "New disbursement identity is still unresolved; clarify amount versus financing rate and scope."
+      ]
+    },
+    {
+      "concept_id": "housing_balance",
+      "definition": "Outstanding housing balance, not new disbursement.",
+      "aliases": [
+        {
+          "original": "konut kredisi",
+          "normalized": "konut kredisi"
+        },
+        {
+          "original": "konut kredisi bakiyesi",
+          "normalized": "konut kredisi bakiyesi"
+        },
+        {
+          "original": "konut kredisi stoku",
+          "normalized": "konut kredisi stoku"
+        },
+        {
+          "original": "konut kredisi hacmi",
+          "normalized": "konut kredisi hacmi"
+        }
+      ],
+      "candidate_series_ids": [
+        "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0",
+        "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2",
+        "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Scoped candidates: BDDK Monthly, sector, TL presentation; choose TP, YP or TOTAL explicitly.",
+        "Outstanding stock, not disbursement. Other groups, currencies and bulletin families are not substituted."
+      ],
+      "family_ids": [
+        "housing_amount"
+      ],
+      "evidence_ids": [
+        "bddk_monthly",
+        "bddk_selector_review",
+        "bddk_semantics"
+      ],
+      "context_ids": [
+        "bddk_monthly",
+        "bddk_weekly",
+        "bddk_finturk"
+      ],
+      "exclusions": [
+        "No alias grants calculation, transformation or causal authority."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "housing_disbursement",
+      "definition": "New housing loan disbursement amount.",
+      "aliases": [
+        {
+          "original": "yeni konut kredisi kullandırımı",
+          "normalized": "yeni konut kredisi kullandirimi"
+        },
+        {
+          "original": "kullandırılan konut kredileri",
+          "normalized": "kullandirilan konut kredileri"
+        },
+        {
+          "original": "konut kredisi akımı",
+          "normalized": "konut kredisi akimi"
+        },
+        {
+          "original": "yeni kullandırılan konut kredisi",
+          "normalized": "yeni kullandirilan konut kredisi"
+        }
+      ],
+      "candidate_series_ids": [],
+      "resolution": "UNRESOLVED",
+      "clarification_required": true,
+      "conditions": [
+        "A balance difference cannot substitute for disbursement."
+      ],
+      "family_ids": [
+        "housing_amount"
+      ],
+      "evidence_ids": [
+        "bddk_semantics"
+      ],
+      "context_ids": [
+        "bddk_monthly"
+      ],
+      "exclusions": [
+        "No alias grants calculation, transformation or causal authority."
+      ],
+      "unresolved": [
+        "No evidenced real disbursement series identity."
+      ]
+    },
+    {
+      "concept_id": "housing_rate",
+      "definition": "Housing interest rate, retaining both rate bases.",
+      "aliases": [
+        {
+          "original": "konut kredisi faiz oranı",
+          "normalized": "konut kredisi faiz orani"
+        },
+        {
+          "original": "konut kredi faizi",
+          "normalized": "konut kredi faizi"
+        },
+        {
+          "original": "konut kredisi faizleri",
+          "normalized": "konut kredisi faizleri"
+        },
+        {
+          "original": "mortgage faiz oranı",
+          "normalized": "mortgage faiz orani"
+        },
+        {
+          "original": "konut finansmanı faiz oranı",
+          "normalized": "konut finansmani faiz orani"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.KTF12",
+        "EVDS:TP.BKR.TRY.18"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Interest and participation-bank profit share are distinct; choose new-credit versus outstanding-portfolio interest.",
+        "Rate basis is not an amount stock/flow declaration."
+      ],
+      "family_ids": [
+        "housing_rates"
+      ],
+      "evidence_ids": [
+        "evds_rates",
+        "evds_reviewed_20260914"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias grants calculation, transformation or causal authority."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "housing_rate_new",
+      "definition": "Rate on newly extended housing loans.",
+      "aliases": [
+        {
+          "original": "konut kredisi akım faiz oranı",
+          "normalized": "konut kredisi akim faiz orani"
+        },
+        {
+          "original": "yeni konut kredisi faiz oranı",
+          "normalized": "yeni konut kredisi faiz orani"
+        },
+        {
+          "original": "yeni kullandırılan konut kredisi faizi",
+          "normalized": "yeni kullandirilan konut kredisi faizi"
+        },
+        {
+          "original": "konut kredisi faizi (akım)",
+          "normalized": "konut kredisi faizi akim"
+        },
+        {
+          "original": "konut kredisi faiz oranı (TL, Akım, %)",
+          "normalized": "konut kredisi faiz orani tl akim %"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.KTF12"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Reviewed interest on new TRY housing loans from deposit, development and investment banks.",
+        "Participation-bank profit share is separate; weekly rate requires explicit monthly alignment for comparison."
+      ],
+      "family_ids": [
+        "housing_rates"
+      ],
+      "evidence_ids": [
+        "evds_metadata",
+        "evds_rates",
+        "evds_reviewed_20260914"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias grants calculation, transformation or causal authority."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "housing_rate_portfolio",
+      "definition": "Average rate on outstanding housing portfolio.",
+      "aliases": [
+        {
+          "original": "konut kredisi stok faiz oranı",
+          "normalized": "konut kredisi stok faiz orani"
+        },
+        {
+          "original": "mevcut konut kredisi faiz oranı",
+          "normalized": "mevcut konut kredisi faiz orani"
+        },
+        {
+          "original": "konut kredisi portföy faizi",
+          "normalized": "konut kredisi portfoy faizi"
+        },
+        {
+          "original": "konut kredisi faiz oranı (TL, Stok, %)",
+          "normalized": "konut kredisi faiz orani tl stok %"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.BKR.TRY.18"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Deposit-bank outstanding-portfolio interest, not new-loan interest or participation profit share.",
+        "This identity is not in the seven-series prepared operator slice; do not claim availability."
+      ],
+      "family_ids": [
+        "housing_rates"
+      ],
+      "evidence_ids": [
+        "evds_rates",
+        "evds_reviewed_20260914"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias grants calculation, transformation or causal authority."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "cpi_level",
+      "definition": "Consumer price index level.",
+      "aliases": [
+        {
+          "original": "TÜFE",
+          "normalized": "tufe"
+        },
+        {
+          "original": "tüketici fiyat endeksi",
+          "normalized": "tuketici fiyat endeksi"
+        },
+        {
+          "original": "TÜFE endeks düzeyi",
+          "normalized": "tufe endeks duzeyi"
+        },
+        {
+          "original": "tüketici fiyatları endeksi",
+          "normalized": "tuketici fiyatlari endeksi"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.TUKFIY2025.GENEL",
+        "EVDS:TP.GENENDEKS.T1"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Two reviewed headline CPI levels: 2025=100 and 2003=100; distinguish the base year.",
+        "An index level is not an inflation rate; deflation additionally needs an explicit reference period."
+      ],
+      "family_ids": [
+        "consumer_prices"
+      ],
+      "evidence_ids": [
+        "evds_indices",
+        "evds_reviewed_20260914"
+      ],
+      "context_ids": [
+        "cpi_groups"
+      ],
+      "exclusions": [
+        "No alias grants calculation, transformation or causal authority."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "inflation_rate",
+      "definition": "Inflation rate; not the raw CPI index level.",
+      "aliases": [
+        {
+          "original": "enflasyon oranı",
+          "normalized": "enflasyon orani"
+        },
+        {
+          "original": "TÜFE değişim oranı",
+          "normalized": "tufe degisim orani"
+        },
+        {
+          "original": "tüketici fiyat enflasyonu",
+          "normalized": "tuketici fiyat enflasyonu"
+        },
+        {
+          "original": "TÜFE artış oranı",
+          "normalized": "tufe artis orani"
+        }
+      ],
+      "candidate_series_ids": [],
+      "resolution": "UNRESOLVED",
+      "clarification_required": true,
+      "conditions": [
+        "Monthly versus annual change and source/transform must be explicit."
+      ],
+      "family_ids": [
+        "consumer_prices"
+      ],
+      "evidence_ids": [
+        "evds_indices"
+      ],
+      "context_ids": [
+        "cpi_groups"
+      ],
+      "exclusions": [
+        "No alias grants calculation, transformation or causal authority."
+      ],
+      "unresolved": [
+        "No documented native inflation-rate series; no implicit transform."
+      ]
+    },
+    {
+      "concept_id": "kfe",
+      "definition": "Housing price index: geography and version are not implicit.",
+      "aliases": [
+        {
+          "original": "KFE",
+          "normalized": "kfe"
+        },
+        {
+          "original": "konut fiyat endeksi",
+          "normalized": "konut fiyat endeksi"
+        },
+        {
+          "original": "konut fiyatları endeksi",
+          "normalized": "konut fiyatlari endeksi"
+        },
+        {
+          "original": "konut fiyat göstergesi",
+          "normalized": "konut fiyat gostergesi"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.KFE.TR",
+        "EVDS:TP.KFE.TR10",
+        "EVDS:TP.KFE.TR51",
+        "EVDS:TP.KFE.TR31"
+      ],
+      "resolution": "PARTIAL",
+      "clarification_required": true,
+      "conditions": [
+        "Keep national and regional candidates; do not assume national from an unspecified query."
+      ],
+      "family_ids": [
+        "housing_prices"
+      ],
+      "evidence_ids": [
+        "evds_indices"
+      ],
+      "context_ids": [
+        "kfe_old_groups"
+      ],
+      "exclusions": [
+        "No alias grants calculation, transformation or causal authority."
+      ],
+      "unresolved": [
+        "Old base-year groups have no documented series identities."
+      ]
+    },
+    {
+      "concept_id": "kfe_national",
+      "definition": "National housing price index.",
+      "aliases": [
+        {
+          "original": "Türkiye konut fiyat endeksi",
+          "normalized": "turkiye konut fiyat endeksi"
+        },
+        {
+          "original": "ulusal konut fiyat endeksi",
+          "normalized": "ulusal konut fiyat endeksi"
+        },
+        {
+          "original": "Türkiye KFE",
+          "normalized": "turkiye kfe"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.KFE.TR"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "National identity; 2023=100 is reviewed from observations, not an official base label in the EVDS title.",
+        "Coverage and active status stay unknown; regional base years are not inherited."
+      ],
+      "family_ids": [
+        "housing_prices"
+      ],
+      "evidence_ids": [
+        "evds_indices",
+        "evds_reviewed_20260914"
+      ],
+      "context_ids": [
+        "kfe_old_groups"
+      ],
+      "exclusions": [
+        "No alias grants calculation, transformation or causal authority."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "kfe_istanbul",
+      "definition": "İstanbul housing price index.",
+      "aliases": [
+        {
+          "original": "İstanbul konut fiyat endeksi",
+          "normalized": "istanbul konut fiyat endeksi"
+        },
+        {
+          "original": "İstanbul KFE",
+          "normalized": "istanbul kfe"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.KFE.TR10"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Geography must agree; no national substitution or invented base year."
+      ],
+      "family_ids": [
+        "housing_prices"
+      ],
+      "evidence_ids": [
+        "evds_indices"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias grants calculation, transformation or causal authority."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "kfe_ankara",
+      "definition": "Ankara housing price index.",
+      "aliases": [
+        {
+          "original": "Ankara konut fiyat endeksi",
+          "normalized": "ankara konut fiyat endeksi"
+        },
+        {
+          "original": "Ankara KFE",
+          "normalized": "ankara kfe"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.KFE.TR51"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Geography must agree; no national substitution or invented base year."
+      ],
+      "family_ids": [
+        "housing_prices"
+      ],
+      "evidence_ids": [
+        "evds_indices"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias grants calculation, transformation or causal authority."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "kfe_izmir",
+      "definition": "İzmir housing price index.",
+      "aliases": [
+        {
+          "original": "İzmir konut fiyat endeksi",
+          "normalized": "izmir konut fiyat endeksi"
+        },
+        {
+          "original": "İzmir KFE",
+          "normalized": "izmir kfe"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.KFE.TR31"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Geography must agree; no national substitution or invented base year."
+      ],
+      "family_ids": [
+        "housing_prices"
+      ],
+      "evidence_ids": [
+        "evds_indices"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias grants calculation, transformation or causal authority."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "housing_archived",
+      "definition": "Archived housing-labelled identities; exact economic meaning unresolved.",
+      "aliases": [
+        {
+          "original": "konut arşiv serileri",
+          "normalized": "konut arsiv serileri"
+        },
+        {
+          "original": "arşiv konut serisi",
+          "normalized": "arsiv konut serisi"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.VK02",
+        "EVDS:TP.TK02"
+      ],
+      "resolution": "PARTIAL",
+      "clarification_required": true,
+      "conditions": [
+        "Archived lookup is opt-in; these are not automatic active equivalents."
+      ],
+      "family_ids": [],
+      "evidence_ids": [
+        "evds_archives"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "Exclude from default discovery families and active-alternative selection."
+      ],
+      "unresolved": [
+        "Rate/amount, frequency and replacement relationships are not documented."
+      ]
+    },
+    {
+      "concept_id": "housing_balance_total",
+      "definition": "Sector total outstanding housing balance (TP plus YP).",
+      "aliases": [
+        {
+          "original": "toplam konut kredisi bakiyesi",
+          "normalized": "toplam konut kredisi bakiyesi"
+        },
+        {
+          "original": "kullanılan toplam konut kredisi",
+          "normalized": "kullanilan toplam konut kredisi"
+        },
+        {
+          "original": "kullanılan toplam konut kredileri",
+          "normalized": "kullanilan toplam konut kredileri"
+        },
+        {
+          "original": "BDDK toplam konut kredisi",
+          "normalized": "bddk toplam konut kredisi"
+        },
+        {
+          "original": "konut kredisi toplam stok",
+          "normalized": "konut kredisi toplam stok"
+        }
+      ],
+      "candidate_series_ids": [
+        "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "DEC-139: kullanılan in this stock question means outstanding balance, not new disbursement.",
+        "BDDK Monthly sector, TP+YP together, million TRY; preserve scope in the answer."
+      ],
+      "family_ids": [
+        "housing_amount"
+      ],
+      "evidence_ids": [
+        "bddk_selector_review",
+        "bddk_monthly"
+      ],
+      "context_ids": [
+        "bddk_monthly"
+      ],
+      "exclusions": [
+        "No alias grants calculation, transformation, fetch or causal authority."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "housing_balance_tp",
+      "definition": "Sector housing balance, TP component.",
+      "aliases": [
+        {
+          "original": "TP konut kredisi bakiyesi",
+          "normalized": "tp konut kredisi bakiyesi"
+        },
+        {
+          "original": "Türk parası konut kredisi bakiyesi",
+          "normalized": "turk parasi konut kredisi bakiyesi"
+        }
+      ],
+      "candidate_series_ids": [
+        "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Component is distinct from presentation currency: this candidate is in million TRY.",
+        "Do not replace it with TOTAL or infer a USD presentation."
+      ],
+      "family_ids": [
+        "housing_amount"
+      ],
+      "evidence_ids": [
+        "bddk_selector_review"
+      ],
+      "context_ids": [
+        "bddk_monthly"
+      ],
+      "exclusions": [
+        "No alias grants calculation, transformation, fetch or causal authority."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "housing_balance_yp",
+      "definition": "Sector housing balance, YP component.",
+      "aliases": [
+        {
+          "original": "YP konut kredisi bakiyesi",
+          "normalized": "yp konut kredisi bakiyesi"
+        },
+        {
+          "original": "yabancı para konut kredisi bakiyesi",
+          "normalized": "yabanci para konut kredisi bakiyesi"
+        }
+      ],
+      "candidate_series_ids": [
+        "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Component is distinct from presentation currency: this candidate is in million TRY.",
+        "Do not replace it with TOTAL or infer a USD presentation."
+      ],
+      "family_ids": [
+        "housing_amount"
+      ],
+      "evidence_ids": [
+        "bddk_selector_review"
+      ],
+      "context_ids": [
+        "bddk_monthly"
+      ],
+      "exclusions": [
+        "No alias grants calculation, transformation, fetch or causal authority."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "cpi_level_2025",
+      "definition": "Headline CPI index on 2025=100 base.",
+      "aliases": [
+        {
+          "original": "TÜFE 2025=100",
+          "normalized": "tufe 2025=100"
+        },
+        {
+          "original": "2025 bazlı TÜFE",
+          "normalized": "2025 bazli tufe"
+        },
+        {
+          "original": "tüketici fiyat endeksi 2025",
+          "normalized": "tuketici fiyat endeksi 2025"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.TUKFIY2025.GENEL"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Published index level, base 2025; not monthly or annual inflation rate.",
+        "Deflation reference period is separate from the index base year."
+      ],
+      "family_ids": [
+        "consumer_prices"
+      ],
+      "evidence_ids": [
+        "evds_reviewed_20260914"
+      ],
+      "context_ids": [
+        "cpi_groups"
+      ],
+      "exclusions": [
+        "No alias grants calculation, transformation, fetch or causal authority."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "cpi_level_2003",
+      "definition": "Headline CPI index on 2003=100 base.",
+      "aliases": [
+        {
+          "original": "TÜFE 2003=100",
+          "normalized": "tufe 2003=100"
+        },
+        {
+          "original": "2003 bazlı TÜFE",
+          "normalized": "2003 bazli tufe"
+        },
+        {
+          "original": "tüketici fiyat endeksi 2003",
+          "normalized": "tuketici fiyat endeksi 2003"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.GENENDEKS.T1"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Published index level, base 2003; not monthly or annual inflation rate.",
+        "Deflation reference period is separate from the index base year."
+      ],
+      "family_ids": [
+        "consumer_prices"
+      ],
+      "evidence_ids": [
+        "evds_reviewed_20260914"
+      ],
+      "context_ids": [
+        "cpi_groups"
+      ],
+      "exclusions": [
+        "No alias grants calculation, transformation, fetch or causal authority."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "housing_profit_share_new",
+      "definition": "Participation-bank profit share on new housing financing.",
+      "aliases": [
+        {
+          "original": "yeni konut finansmanı kâr payı",
+          "normalized": "yeni konut finansmani kar payi"
+        },
+        {
+          "original": "konut kredisi akım kâr payı",
+          "normalized": "konut kredisi akim kar payi"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.KBK.TRY.18"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Profit share, not deposit-bank interest; new-credit basis.",
+        "Catalog discovery is not local prepared availability."
+      ],
+      "family_ids": [
+        "housing_rates"
+      ],
+      "evidence_ids": [
+        "evds_reviewed_20260914"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias grants calculation, transformation, fetch or causal authority."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "housing_profit_share_portfolio",
+      "definition": "Participation-bank profit share on outstanding housing portfolio.",
+      "aliases": [
+        {
+          "original": "konut finansmanı stok kâr payı",
+          "normalized": "konut finansmani stok kar payi"
+        },
+        {
+          "original": "mevcut konut kredisi kâr payı",
+          "normalized": "mevcut konut kredisi kar payi"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.KKP.TRY.18"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Profit share, not deposit-bank interest; outstanding-portfolio basis.",
+        "Catalog discovery is not local prepared availability."
+      ],
+      "family_ids": [
+        "housing_rates"
+      ],
+      "evidence_ids": [
+        "evds_reviewed_20260914"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias grants calculation, transformation, fetch or causal authority."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "new_loan_tp_ktf10",
+      "definition": "İhtiyaç Kredisi (TL, Akım, %)",
+      "aliases": [
+        {
+          "original": "İhtiyaç Kredisi (TL, Akım, %)",
+          "normalized": "ihtiyac kredisi tl akim %"
+        },
+        {
+          "original": "ihtiyaç kredisi TL akım faiz serisi",
+          "normalized": "ihtiyac kredisi tl akim faiz serisi"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.KTF10"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "New-lending interest RATE, not amount, outstanding-portfolio interest or profit share.",
+        "Keep the named denomination and KMH/card inclusion scope; weekly Friday percent, never sum rates."
+      ],
+      "family_ids": [
+        "loan_interest_rates"
+      ],
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias authorizes source fetching, calculation, automatic deflation or a causal claim."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "new_loan_tp_ktf101",
+      "definition": "İhtiyaç Kredisi (KMH Dahil) (TL, Akım, %)",
+      "aliases": [
+        {
+          "original": "İhtiyaç Kredisi (KMH Dahil) (TL, Akım, %)",
+          "normalized": "ihtiyac kredisi kmh dahil tl akim %"
+        },
+        {
+          "original": "KMH dahil ihtiyaç kredisi faiz oranı",
+          "normalized": "kmh dahil ihtiyac kredisi faiz orani"
+        },
+        {
+          "original": "KMH dahil ihtiyaç kredisi faizi",
+          "normalized": "kmh dahil ihtiyac kredisi faizi"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.KTF101"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "New-lending interest RATE, not amount, outstanding-portfolio interest or profit share.",
+        "Keep the named denomination and KMH/card inclusion scope; weekly Friday percent, never sum rates."
+      ],
+      "family_ids": [
+        "loan_interest_rates"
+      ],
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias authorizes source fetching, calculation, automatic deflation or a causal claim."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "new_loan_tp_ktf11",
+      "definition": "Taşıt Kredisi (TL, Akım, %)",
+      "aliases": [
+        {
+          "original": "Taşıt Kredisi (TL, Akım, %)",
+          "normalized": "tasit kredisi tl akim %"
+        },
+        {
+          "original": "taşıt kredisi faiz oranı",
+          "normalized": "tasit kredisi faiz orani"
+        },
+        {
+          "original": "taşıt kredisi faizi",
+          "normalized": "tasit kredisi faizi"
+        },
+        {
+          "original": "otomobil kredisi faiz oranı",
+          "normalized": "otomobil kredisi faiz orani"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.KTF11"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "New-lending interest RATE, not amount, outstanding-portfolio interest or profit share.",
+        "Keep the named denomination and KMH/card inclusion scope; weekly Friday percent, never sum rates."
+      ],
+      "family_ids": [
+        "loan_interest_rates"
+      ],
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias authorizes source fetching, calculation, automatic deflation or a causal claim."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "new_loan_tp_ktf17",
+      "definition": "Ticari Krediler (TL, Akım, %)",
+      "aliases": [
+        {
+          "original": "Ticari Krediler (TL, Akım, %)",
+          "normalized": "ticari krediler tl akim %"
+        },
+        {
+          "original": "TL ticari kredi akım faiz serisi",
+          "normalized": "tl ticari kredi akim faiz serisi"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.KTF17"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "New-lending interest RATE, not amount, outstanding-portfolio interest or profit share.",
+        "Keep the named denomination and KMH/card inclusion scope; weekly Friday percent, never sum rates."
+      ],
+      "family_ids": [
+        "loan_interest_rates"
+      ],
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias authorizes source fetching, calculation, automatic deflation or a causal claim."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "new_loan_tp_ktf17_eur",
+      "definition": "Ticari Krediler (Euro, Akım, %)",
+      "aliases": [
+        {
+          "original": "Ticari Krediler (Euro, Akım, %)",
+          "normalized": "ticari krediler euro akim %"
+        },
+        {
+          "original": "euro ticari kredi faiz oranı",
+          "normalized": "euro ticari kredi faiz orani"
+        },
+        {
+          "original": "EUR ticari kredi faizi",
+          "normalized": "eur ticari kredi faizi"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.KTF17.EUR"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "New-lending interest RATE, not amount, outstanding-portfolio interest or profit share.",
+        "Keep the named denomination and KMH/card inclusion scope; weekly Friday percent, never sum rates."
+      ],
+      "family_ids": [
+        "loan_interest_rates"
+      ],
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias authorizes source fetching, calculation, automatic deflation or a causal claim."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "new_loan_tp_ktf17_usd",
+      "definition": "Ticari Krediler (ABD doları, Akım,%)",
+      "aliases": [
+        {
+          "original": "Ticari Krediler (ABD doları, Akım,%)",
+          "normalized": "ticari krediler abd dolari akim %"
+        },
+        {
+          "original": "dolar ticari kredi faiz oranı",
+          "normalized": "dolar ticari kredi faiz orani"
+        },
+        {
+          "original": "USD ticari kredi faizi",
+          "normalized": "usd ticari kredi faizi"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.KTF17.USD"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "New-lending interest RATE, not amount, outstanding-portfolio interest or profit share.",
+        "Keep the named denomination and KMH/card inclusion scope; weekly Friday percent, never sum rates."
+      ],
+      "family_ids": [
+        "loan_interest_rates"
+      ],
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias authorizes source fetching, calculation, automatic deflation or a causal claim."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "new_loan_tp_ktf18",
+      "definition": "Ticari Krediler (Tüzel Kişi KMH ve Kurumsal Kredi Kartları Hariç) (TL, Akım, %)",
+      "aliases": [
+        {
+          "original": "Ticari Krediler (Tüzel Kişi KMH ve Kurumsal Kredi Kartları Hariç) (TL, Akım, %)",
+          "normalized": "ticari krediler tuzel kisi kmh ve kurumsal kredi kartlari haric tl akim %"
+        },
+        {
+          "original": "KMH ve kurumsal kart hariç ticari kredi faiz oranı",
+          "normalized": "kmh ve kurumsal kart haric ticari kredi faiz orani"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.KTF18"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "New-lending interest RATE, not amount, outstanding-portfolio interest or profit share.",
+        "Keep the named denomination and KMH/card inclusion scope; weekly Friday percent, never sum rates."
+      ],
+      "family_ids": [
+        "loan_interest_rates"
+      ],
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias authorizes source fetching, calculation, automatic deflation or a causal claim."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "new_loan_tp_ktftuk",
+      "definition": "Tüketici Kredisi (İhtiyaç+Taşıt+Konut) (TL, Akım, %)",
+      "aliases": [
+        {
+          "original": "Tüketici Kredisi (İhtiyaç+Taşıt+Konut) (TL, Akım, %)",
+          "normalized": "tuketici kredisi ihtiyac+tasit+konut tl akim %"
+        },
+        {
+          "original": "ihtiyaç taşıt konut birleşik faiz serisi",
+          "normalized": "ihtiyac tasit konut birlesik faiz serisi"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.KTFTUK"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "New-lending interest RATE, not amount, outstanding-portfolio interest or profit share.",
+        "Keep the named denomination and KMH/card inclusion scope; weekly Friday percent, never sum rates."
+      ],
+      "family_ids": [
+        "loan_interest_rates"
+      ],
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias authorizes source fetching, calculation, automatic deflation or a causal claim."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "new_loan_tp_ktftuk01",
+      "definition": "Tüketici Kredisi (KMH Dahil) (İhtiyaç+Taşıt+Konut) (TL, Akım, %)",
+      "aliases": [
+        {
+          "original": "Tüketici Kredisi (KMH Dahil) (İhtiyaç+Taşıt+Konut) (TL, Akım, %)",
+          "normalized": "tuketici kredisi kmh dahil ihtiyac+tasit+konut tl akim %"
+        },
+        {
+          "original": "KMH dahil tüketici kredisi faiz oranı",
+          "normalized": "kmh dahil tuketici kredisi faiz orani"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.KTFTUK01"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "New-lending interest RATE, not amount, outstanding-portfolio interest or profit share.",
+        "Keep the named denomination and KMH/card inclusion scope; weekly Friday percent, never sum rates."
+      ],
+      "family_ids": [
+        "loan_interest_rates"
+      ],
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias authorizes source fetching, calculation, automatic deflation or a causal claim."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "cpi_division_01",
+      "definition": "01. Gıda Ve Alkolsüz İçecekler (2025=100)",
+      "aliases": [
+        {
+          "original": "01. Gıda Ve Alkolsüz İçecekler",
+          "normalized": "01 gida ve alkolsuz icecekler"
+        },
+        {
+          "original": "gıda fiyat endeksi",
+          "normalized": "gida fiyat endeksi"
+        },
+        {
+          "original": "gıda TÜFE",
+          "normalized": "gida tufe"
+        },
+        {
+          "original": "gıda ve alkolsüz içecekler endeksi",
+          "normalized": "gida ve alkolsuz icecekler endeksi"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.TUKFIY2025.01"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Division CPI INDEX level on 2025=100, not headline CPI, inflation rate, contribution or weight.",
+        "Housing/utilities expenditure is not KFE. A deflator needs matching scope and explicit reference period."
+      ],
+      "family_ids": [
+        "cpi_divisions"
+      ],
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias authorizes source fetching, calculation, automatic deflation or a causal claim."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "cpi_division_02",
+      "definition": "02. Alkollü İçecekler, Tütün Ve Tütün Ürünleri (2025=100)",
+      "aliases": [
+        {
+          "original": "02. Alkollü İçecekler, Tütün Ve Tütün Ürünleri",
+          "normalized": "02 alkollu icecekler tutun ve tutun urunleri"
+        },
+        {
+          "original": "alkollü içecekler ve tütün endeksi",
+          "normalized": "alkollu icecekler ve tutun endeksi"
+        },
+        {
+          "original": "tütün TÜFE",
+          "normalized": "tutun tufe"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.TUKFIY2025.02"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Division CPI INDEX level on 2025=100, not headline CPI, inflation rate, contribution or weight.",
+        "Housing/utilities expenditure is not KFE. A deflator needs matching scope and explicit reference period."
+      ],
+      "family_ids": [
+        "cpi_divisions"
+      ],
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias authorizes source fetching, calculation, automatic deflation or a causal claim."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "cpi_division_03",
+      "definition": "03. Giyim Ve Ayakkabı (2025=100)",
+      "aliases": [
+        {
+          "original": "03. Giyim Ve Ayakkabı",
+          "normalized": "03 giyim ve ayakkabi"
+        },
+        {
+          "original": "giyim ve ayakkabı endeksi",
+          "normalized": "giyim ve ayakkabi endeksi"
+        },
+        {
+          "original": "giyim TÜFE",
+          "normalized": "giyim tufe"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.TUKFIY2025.03"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Division CPI INDEX level on 2025=100, not headline CPI, inflation rate, contribution or weight.",
+        "Housing/utilities expenditure is not KFE. A deflator needs matching scope and explicit reference period."
+      ],
+      "family_ids": [
+        "cpi_divisions"
+      ],
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias authorizes source fetching, calculation, automatic deflation or a causal claim."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "cpi_division_04",
+      "definition": "04. Konut, Su, Elektrik, Gaz Ve Diğer Yakıtlar (2025=100)",
+      "aliases": [
+        {
+          "original": "04. Konut, Su, Elektrik, Gaz Ve Diğer Yakıtlar",
+          "normalized": "04 konut su elektrik gaz ve diger yakitlar"
+        },
+        {
+          "original": "konut giderleri TÜFE",
+          "normalized": "konut giderleri tufe"
+        },
+        {
+          "original": "konut su elektrik gaz endeksi",
+          "normalized": "konut su elektrik gaz endeksi"
+        },
+        {
+          "original": "konut giderleri fiyat endeksi",
+          "normalized": "konut giderleri fiyat endeksi"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.TUKFIY2025.04"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Division CPI INDEX level on 2025=100, not headline CPI, inflation rate, contribution or weight.",
+        "Housing/utilities expenditure is not KFE. A deflator needs matching scope and explicit reference period."
+      ],
+      "family_ids": [
+        "cpi_divisions"
+      ],
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias authorizes source fetching, calculation, automatic deflation or a causal claim."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "cpi_division_05",
+      "definition": "05. Mobilya, Mefruşat Ve Evde Kullanılan Ekipmanlar İle Rutin Ev Bakım Ve Onarımı (2025=100)",
+      "aliases": [
+        {
+          "original": "05. Mobilya, Mefruşat Ve Evde Kullanılan Ekipmanlar İle Rutin Ev Bakım Ve Onarımı",
+          "normalized": "05 mobilya mefrusat ve evde kullanilan ekipmanlar ile rutin ev bakim ve onarimi"
+        },
+        {
+          "original": "mobilya ve ev eşyası endeksi",
+          "normalized": "mobilya ve ev esyasi endeksi"
+        },
+        {
+          "original": "mobilya TÜFE",
+          "normalized": "mobilya tufe"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.TUKFIY2025.05"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Division CPI INDEX level on 2025=100, not headline CPI, inflation rate, contribution or weight.",
+        "Housing/utilities expenditure is not KFE. A deflator needs matching scope and explicit reference period."
+      ],
+      "family_ids": [
+        "cpi_divisions"
+      ],
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias authorizes source fetching, calculation, automatic deflation or a causal claim."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "cpi_division_06",
+      "definition": "06. Sağlık (2025=100)",
+      "aliases": [
+        {
+          "original": "06. Sağlık",
+          "normalized": "06 saglik"
+        },
+        {
+          "original": "sağlık fiyat endeksi",
+          "normalized": "saglik fiyat endeksi"
+        },
+        {
+          "original": "sağlık TÜFE",
+          "normalized": "saglik tufe"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.TUKFIY2025.06"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Division CPI INDEX level on 2025=100, not headline CPI, inflation rate, contribution or weight.",
+        "Housing/utilities expenditure is not KFE. A deflator needs matching scope and explicit reference period."
+      ],
+      "family_ids": [
+        "cpi_divisions"
+      ],
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias authorizes source fetching, calculation, automatic deflation or a causal claim."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "cpi_division_07",
+      "definition": "07. Ulaştırma (2025=100)",
+      "aliases": [
+        {
+          "original": "07. Ulaştırma",
+          "normalized": "07 ulastirma"
+        },
+        {
+          "original": "ulaştırma fiyat endeksi",
+          "normalized": "ulastirma fiyat endeksi"
+        },
+        {
+          "original": "ulaştırma TÜFE",
+          "normalized": "ulastirma tufe"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.TUKFIY2025.07"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Division CPI INDEX level on 2025=100, not headline CPI, inflation rate, contribution or weight.",
+        "Housing/utilities expenditure is not KFE. A deflator needs matching scope and explicit reference period."
+      ],
+      "family_ids": [
+        "cpi_divisions"
+      ],
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias authorizes source fetching, calculation, automatic deflation or a causal claim."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "cpi_division_08",
+      "definition": "08. Bilgi Ve İletişim (2025=100)",
+      "aliases": [
+        {
+          "original": "08. Bilgi Ve İletişim",
+          "normalized": "08 bilgi ve iletisim"
+        },
+        {
+          "original": "bilgi ve iletişim fiyat endeksi",
+          "normalized": "bilgi ve iletisim fiyat endeksi"
+        },
+        {
+          "original": "iletişim TÜFE",
+          "normalized": "iletisim tufe"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.TUKFIY2025.08"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Division CPI INDEX level on 2025=100, not headline CPI, inflation rate, contribution or weight.",
+        "Housing/utilities expenditure is not KFE. A deflator needs matching scope and explicit reference period."
+      ],
+      "family_ids": [
+        "cpi_divisions"
+      ],
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias authorizes source fetching, calculation, automatic deflation or a causal claim."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "cpi_division_09",
+      "definition": "09. Eğlence, Dinlence, Spor Ve Kültür (2025=100)",
+      "aliases": [
+        {
+          "original": "09. Eğlence, Dinlence, Spor Ve Kültür",
+          "normalized": "09 eglence dinlence spor ve kultur"
+        },
+        {
+          "original": "eğlence dinlence spor kültür endeksi",
+          "normalized": "eglence dinlence spor kultur endeksi"
+        },
+        {
+          "original": "eğlence TÜFE",
+          "normalized": "eglence tufe"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.TUKFIY2025.09"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Division CPI INDEX level on 2025=100, not headline CPI, inflation rate, contribution or weight.",
+        "Housing/utilities expenditure is not KFE. A deflator needs matching scope and explicit reference period."
+      ],
+      "family_ids": [
+        "cpi_divisions"
+      ],
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias authorizes source fetching, calculation, automatic deflation or a causal claim."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "cpi_division_10",
+      "definition": "10. Eğitim Hizmetleri (2025=100)",
+      "aliases": [
+        {
+          "original": "10. Eğitim Hizmetleri",
+          "normalized": "10 egitim hizmetleri"
+        },
+        {
+          "original": "eğitim hizmetleri fiyat endeksi",
+          "normalized": "egitim hizmetleri fiyat endeksi"
+        },
+        {
+          "original": "eğitim TÜFE",
+          "normalized": "egitim tufe"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.TUKFIY2025.10"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Division CPI INDEX level on 2025=100, not headline CPI, inflation rate, contribution or weight.",
+        "Housing/utilities expenditure is not KFE. A deflator needs matching scope and explicit reference period."
+      ],
+      "family_ids": [
+        "cpi_divisions"
+      ],
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias authorizes source fetching, calculation, automatic deflation or a causal claim."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "cpi_division_11",
+      "definition": "11. Lokantalar Ve Konaklama Hizmetleri (2025=100)",
+      "aliases": [
+        {
+          "original": "11. Lokantalar Ve Konaklama Hizmetleri",
+          "normalized": "11 lokantalar ve konaklama hizmetleri"
+        },
+        {
+          "original": "lokanta ve konaklama fiyat endeksi",
+          "normalized": "lokanta ve konaklama fiyat endeksi"
+        },
+        {
+          "original": "lokanta TÜFE",
+          "normalized": "lokanta tufe"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.TUKFIY2025.11"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Division CPI INDEX level on 2025=100, not headline CPI, inflation rate, contribution or weight.",
+        "Housing/utilities expenditure is not KFE. A deflator needs matching scope and explicit reference period."
+      ],
+      "family_ids": [
+        "cpi_divisions"
+      ],
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias authorizes source fetching, calculation, automatic deflation or a causal claim."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "cpi_division_12",
+      "definition": "12. Sigorta Ve Finansal Hizmetler (2025=100)",
+      "aliases": [
+        {
+          "original": "12. Sigorta Ve Finansal Hizmetler",
+          "normalized": "12 sigorta ve finansal hizmetler"
+        },
+        {
+          "original": "sigorta ve finansal hizmetler endeksi",
+          "normalized": "sigorta ve finansal hizmetler endeksi"
+        },
+        {
+          "original": "sigorta TÜFE",
+          "normalized": "sigorta tufe"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.TUKFIY2025.12"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Division CPI INDEX level on 2025=100, not headline CPI, inflation rate, contribution or weight.",
+        "Housing/utilities expenditure is not KFE. A deflator needs matching scope and explicit reference period."
+      ],
+      "family_ids": [
+        "cpi_divisions"
+      ],
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias authorizes source fetching, calculation, automatic deflation or a causal claim."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "cpi_division_13",
+      "definition": "13. Kişisel Bakım, Sosyal Koruma Ve Çeşitli Mal Ve Hizmetler (2025=100)",
+      "aliases": [
+        {
+          "original": "13. Kişisel Bakım, Sosyal Koruma Ve Çeşitli Mal Ve Hizmetler",
+          "normalized": "13 kisisel bakim sosyal koruma ve cesitli mal ve hizmetler"
+        },
+        {
+          "original": "kişisel bakım ve sosyal koruma endeksi",
+          "normalized": "kisisel bakim ve sosyal koruma endeksi"
+        },
+        {
+          "original": "kişisel bakım TÜFE",
+          "normalized": "kisisel bakim tufe"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.TUKFIY2025.13"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Division CPI INDEX level on 2025=100, not headline CPI, inflation rate, contribution or weight.",
+        "Housing/utilities expenditure is not KFE. A deflator needs matching scope and explicit reference period."
+      ],
+      "family_ids": [
+        "cpi_divisions"
+      ],
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias authorizes source fetching, calculation, automatic deflation or a causal claim."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "personal_rate_scope",
+      "definition": "Personal-loan rates with separately named KMH scope.",
+      "aliases": [
+        {
+          "original": "ihtiyaç kredisi faiz oranı",
+          "normalized": "ihtiyac kredisi faiz orani"
+        },
+        {
+          "original": "ihtiyaç kredisi faizi",
+          "normalized": "ihtiyac kredisi faizi"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.KTF10",
+        "EVDS:TP.KTF101"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Clarify KMH inclusion; these two identities are not silently interchangeable."
+      ],
+      "family_ids": [
+        "loan_interest_rates"
+      ],
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias authorizes source fetching, calculation, automatic deflation or a causal claim."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "commercial_rate_scope",
+      "definition": "Commercial-loan rate candidates by denomination and KMH/card scope.",
+      "aliases": [
+        {
+          "original": "ticari kredi faiz oranı",
+          "normalized": "ticari kredi faiz orani"
+        },
+        {
+          "original": "ticari kredi faizi",
+          "normalized": "ticari kredi faizi"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.KTF17",
+        "EVDS:TP.KTF17.EUR",
+        "EVDS:TP.KTF17.USD",
+        "EVDS:TP.KTF18"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Clarify loan denomination and KMH/card scope. FX-denominated loan rate is still a percentage, not an exchange rate."
+      ],
+      "family_ids": [
+        "loan_interest_rates"
+      ],
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias authorizes source fetching, calculation, automatic deflation or a causal claim."
+      ],
+      "unresolved": []
+    },
+    {
+      "concept_id": "consumer_rate_scope",
+      "definition": "Consumer-loan aggregate rates with separate KMH scope.",
+      "aliases": [
+        {
+          "original": "tüketici kredisi faiz oranı",
+          "normalized": "tuketici kredisi faiz orani"
+        },
+        {
+          "original": "tüketici kredisi faizi",
+          "normalized": "tuketici kredisi faizi"
+        }
+      ],
+      "candidate_series_ids": [
+        "EVDS:TP.KTFTUK",
+        "EVDS:TP.KTFTUK01"
+      ],
+      "resolution": "MAPPED",
+      "clarification_required": true,
+      "conditions": [
+        "Aggregate consumer loans are distinct from each personal/vehicle/housing component; clarify KMH."
+      ],
+      "family_ids": [
+        "loan_interest_rates"
+      ],
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "context_ids": [],
+      "exclusions": [
+        "No alias authorizes source fetching, calculation, automatic deflation or a causal claim."
+      ],
+      "unresolved": []
+    }
+  ],
+  "families": [
+    {
+      "family_id": "housing_amount",
+      "label": "Konut kredi miktarı",
+      "rationale": "Reviewed sector monthly balance components; new disbursement remains unresolved.",
+      "evidence_ids": [
+        "evds_indices",
+        "evds_rates",
+        "bddk_semantics",
+        "bddk_selector_review"
+      ],
+      "excluded_series_ids": [
+        "EVDS:TP.VK02",
+        "EVDS:TP.TK02"
+      ],
+      "exclusions": [
+        "Membership is an investigation neighborhood, never evidence of an economic cause.",
+        "No automatic expansion to other families; target/derived copies must be excluded before relationship analysis."
+      ]
+    },
+    {
+      "family_id": "housing_rates",
+      "label": "Konut finansman maliyeti",
+      "rationale": "Inspect new-credit and portfolio rates as distinct candidates, not causes.",
+      "evidence_ids": [
+        "evds_indices",
+        "evds_rates",
+        "bddk_semantics"
+      ],
+      "excluded_series_ids": [
+        "EVDS:TP.VK02",
+        "EVDS:TP.TK02"
+      ],
+      "exclusions": [
+        "Membership is an investigation neighborhood, never evidence of an economic cause.",
+        "No automatic expansion to other families; target/derived copies must be excluded before relationship analysis."
+      ]
+    },
+    {
+      "family_id": "consumer_prices",
+      "label": "Tüketici fiyatları",
+      "rationale": "Reviewed headline CPI levels on two bases; native inflation-rate identity remains unresolved.",
+      "evidence_ids": [
+        "evds_indices",
+        "evds_rates",
+        "bddk_semantics",
+        "evds_reviewed_20260914"
+      ],
+      "excluded_series_ids": [
+        "EVDS:TP.VK02",
+        "EVDS:TP.TK02"
+      ],
+      "exclusions": [
+        "Membership is an investigation neighborhood, never evidence of an economic cause.",
+        "No automatic expansion to other families; target/derived copies must be excluded before relationship analysis."
+      ]
+    },
+    {
+      "family_id": "housing_prices",
+      "label": "Konut fiyatları",
+      "rationale": "Keep geography and vintage distinctions; exclude target copies in later relationship discovery.",
+      "evidence_ids": [
+        "evds_indices",
+        "evds_rates",
+        "bddk_semantics"
+      ],
+      "excluded_series_ids": [
+        "EVDS:TP.VK02",
+        "EVDS:TP.TK02"
+      ],
+      "exclusions": [
+        "Membership is an investigation neighborhood, never evidence of an economic cause.",
+        "No automatic expansion to other families; target/derived copies must be excluded before relationship analysis."
+      ]
+    },
+    {
+      "family_id": "loan_interest_rates",
+      "label": "New-loan interest rates",
+      "rationale": "Reviewed related candidates, not a causal model or a selection grant.",
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "excluded_series_ids": [],
+      "exclusions": [
+        "Do not substitute scopes, infer local availability or causal authority."
+      ]
+    },
+    {
+      "family_id": "cpi_divisions",
+      "label": "CPI expenditure divisions",
+      "rationale": "Reviewed related candidates, not a causal model or a selection grant.",
+      "evidence_ids": [
+        "evds_coverage_20260914"
+      ],
+      "excluded_series_ids": [],
+      "exclusions": [
+        "Do not substitute scopes, infer local availability or causal authority."
+      ]
+    }
+  ],
+  "content_sha256": "e0bbaac8eb4d1b1e90deacab42989cd6f74181f8ce267150825e8d24e169fb11"
+}

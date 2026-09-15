@@ -749,6 +749,23 @@ def gapped_house(tmp_path):
 
 
 class TestTheTool:
+    @pytest.mark.parametrize("operation", ["association", "lag"])
+    def test_numeric_output_has_resolvable_execution_evidence(self, house, operation):
+        from kkb_agent.agent import AnswerStatus, gate_answer
+        from kkb_agent.agent.presentation import format_number
+        from kkb_agent.agent.verifier import result_faults
+
+        result = self.run(house, operation=operation).output
+        assert not result_faults({"result": result}, house.connection)
+        value = result.values[0]
+        draft = (
+            f"Gösterge {value.label} için {format_number(value.value)}."
+            if operation == "association"
+            else f"Değer {format_number(value.value)}."
+        )
+        gated = gate_answer(draft, result, house.connection)
+        assert gated.status is AnswerStatus.ACCEPTED, gated.verdict.rejected
+
     def registry(self, house, lineage=True):
         registry = ToolRegistry()
         registry.register(

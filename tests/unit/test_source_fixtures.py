@@ -58,7 +58,7 @@ def test_fixtures_are_small_stable_utf8_json_without_hidden_fields(name):
 
 
 def test_inventory_and_documented_fidelity_limits():
-    assert {str(p.relative_to(ROOT)) for p in ROOT.rglob("*.json")} == set(HASHES)
+    assert {p.relative_to(ROOT).as_posix() for p in ROOT.rglob("*.json")} == set(HASHES)
     assert sum((ROOT / name).stat().st_size for name in HASHES) < 8192
     note = (ROOT / "README.md").read_text(encoding="utf-8")
     for phrase in (

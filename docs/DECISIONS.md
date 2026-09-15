@@ -1,8 +1,10 @@
 # Decision log
 
-This file owns constraints and reasons for choices. [ROADMAP](ROADMAP.md) owns implementation status; [OPEN_QUESTIONS](OPEN_QUESTIONS.md) owns unanswered questions. CONFIRMED does **not** mean implemented.
+Decision entries and dated amendments preserve their original rationale and implementation snapshots. They do not independently track current delivery; consult [ROADMAP](ROADMAP.md#current-project-status) and [ARCHITECTURE](ARCHITECTURE.md).
 
-Evidence policy: organizer constraints below are carried forward from the original repository decision log and agent instructions. They are **team-reported**; no primary organizer rulebook or dated confirmation is attached. Add the actual response/reference when received. Do not invent an approval, quotation, or date. Record authorized changes here before changing a hard constraint.
+This file owns constraints and reasons for choices. [ROADMAP](ROADMAP.md) owns implementation status; the [Open Questions section](#open-questions) owns unanswered questions. CONFIRMED does **not** mean implemented.
+
+Evidence policy: original organizer constraints are **team-reported** unless a later entry identifies primary evidence (for example DEC-129/131). [DEC-141](#dec-141-organizer-verbal-criteria) records the new verbal criteria as relayed by Çağatay, not independently verified transcript evidence. Add the actual response/reference when received; do not invent an approval, quotation, or date. Record authorized changes here before changing a hard constraint.
 
 “Original date unrecorded” means exactly that. The review date is not a claimed decision date. Status vocabulary: CONFIRMED is authorized direction; SUPERSEDED retains history but is no longer governing; PROPOSED needs review/evidence; BLOCKED needs the named answer; DEFERRED is outside the current delivery path. Implementation progress belongs only in ROADMAP.
 
@@ -164,7 +166,7 @@ Evidence policy: organizer constraints below are carried forward from the origin
 
 ### DEC-112 — DuckDB and Parquet as the analytical engine and lakehouse
 
-- Status: CONFIRMED — team decision on 2026-09-09; answers [Q-TEAM-02](OPEN_QUESTIONS.md#q-team-02--analyticalparsing-engine).
+- Status: CONFIRMED — team decision on 2026-09-09; answers [Q-TEAM-02](DECISIONS.md#history-q-team-02--analyticalparsing-engine).
 - Date: 2026-09-09.
 - Decision: DuckDB over Parquet files is the storage and query engine, organized as a medallion lakehouse: `bronze` holds the retrieved artifact plus its hash and retrieval time, `silver` holds normalized series with explicit semantics, `gold` holds analysis-ready facts. Pandas is the in-process transformation and table-shaping library. Polars is not adopted.
 - Reason: The organizer brief names DuckDB and Pandas; both run in-process with no server to deploy or fail during the demo. Parquet plus DuckDB gives typed columnar storage, SQL for the `lakehouse` tool, and a file layout that is directly deliverable as the required database definition.
@@ -174,7 +176,7 @@ Evidence policy: organizer constraints below are carried forward from the origin
 
 ### DEC-113 — Custom bounded orchestration loop
 
-- Status: CONFIRMED — team decision on 2026-09-09; answers [Q-TEAM-01](OPEN_QUESTIONS.md#q-team-01--orchestration-mechanism).
+- Status: CONFIRMED — team decision on 2026-09-09; answers [Q-TEAM-01](DECISIONS.md#history-q-team-01--orchestration-mechanism).
 - Date: 2026-09-09.
 - Decision: Implement orchestration as an explicit planner -> router -> executor -> verifier state machine in our own code. The planner produces a typed plan, the router selects a registered tool and typed arguments, the executor dispatches after validation, and the verifier gates the answer. LangChain, LangGraph and Celery are rejected.
 - Reason: The lifecycle is a handful of states over a fixed tool set. A framework would add an abstraction whose failure modes we would have to learn during the delivery window, and it obscures exactly the plan/validation boundary DEC-101 requires us to test.
@@ -216,7 +218,7 @@ Evidence policy: organizer constraints below are carried forward from the origin
 
 ### DEC-117 — Analysis workspace as a persisted artifact DAG
 
-- Status: CONFIRMED — team decision on 2026-09-09; answers [Q-TEAM-05](OPEN_QUESTIONS.md#q-team-05--workspace-persistence-and-reference-storage).
+- Status: CONFIRMED — team decision on 2026-09-09; answers [Q-TEAM-05](DECISIONS.md#history-q-team-05--workspace-persistence-and-reference-storage).
 - Date: 2026-09-09.
 - Decision: Represent the analysis workspace as a directed acyclic graph of artifacts stored in DuckDB. A follow-up that adds a column adds a node; existing nodes and their computed cells are not rebuilt. Replaying the graph reproduces a result, and node identity drives cache invalidation.
 - Reason: The organizer's reference scenario is explicitly incremental — inflation-adjust one column, then add another, without disturbing the table. Regenerating the table each turn is how stale or silently changed numbers reach the user. The same structure gives reproducibility and cache behavior without a second mechanism.
@@ -249,7 +251,7 @@ Evidence policy: organizer constraints below are carried forward from the origin
 
 ### DEC-120 — Causality reports association with stated limits
 
-- Status: CONFIRMED — team decision on 2026-09-09; answers [Q-TEAM-04](OPEN_QUESTIONS.md#q-team-04--causality-implementation-and-prerequisites).
+- Status: CONFIRMED — team decision on 2026-09-09; answers [Q-TEAM-04](DECISIONS.md#history-q-team-04--causality-implementation-and-prerequisites).
 - Date: 2026-09-09.
 - Decision: The `causality` tool computes lagged cross-correlation and Granger causality tests using `statsmodels`, with `ruptures` for structural breaks and `scipy` for supporting statistics. Its output must always carry its limitations: small sample, common drivers such as inflation and the policy rate, and structural breaks in the window. The system does not emit a sentence of the form "X causes Y".
 - Reason: Sixty to sixty-six monthly observations cannot identify a causal effect, and a finance jury knows it. Presenting an honest, well-qualified association is more defensible than an overclaim, and it satisfies the brief's causality tool without pretending to more.
@@ -267,6 +269,7 @@ Evidence policy: organizer constraints below are carried forward from the origin
 - Alternatives: Renaming the tools obscures the mapping to the brief. Duplicating schemas by hand drifts. Free-form generated Python is prohibited outright.
 - Consequences: M5 owns the registry and the argument validation; M6 owns `anomaly`, `causality` and `change_detection`; M7 owns `web_search` and `web_url`. Tool additions need their own decision entry.
 - Scope clarification (2026-09-10, M6-22): a tool name may cover several operations, named in an `operation` argument rather than split into a new tool. `change_detection` implements `compare` — the level change between two published periods — with breakpoint and trend-break detection joining the same schema when M6-05/06 gives it a method. Keeping an unimplemented operation **out** of the schema is deliberate: a planner cannot request what it is never offered. This uses an existing brief name rather than the addition clause above, which stays unused.
+- Amendment (2026-09-12): [DEC-133](#dec-133--eleven-tool-product-target-and-mandatory-harness) uses the addition clause to approve five product tools. The original six-name ceiling and the historical “addition clause unused” observation above are superseded; schemas and restricted SQL controls remain in force. Approval is a target, not evidence of runtime registration. DEC-135 subsequently supersedes the planner-callable portion of DEC-133; this amendment remains historical.
 - Revisit trigger: An organizer clarification changing the tool set or its names.
 
 ### DEC-122 — LLMProvider interface and structured-output fallback
@@ -281,16 +284,19 @@ Evidence policy: organizer constraints below are carried forward from the origin
 
 ### DEC-123 — FastAPI with SSE behind a Next.js front end
 
-- Status: CONFIRMED — team decision on 2026-09-09; answers [Q-TEAM-03](OPEN_QUESTIONS.md#q-team-03--frontend-framework).
+- Status: CONFIRMED — team decision on 2026-09-09; answers [Q-TEAM-03](DECISIONS.md#history-q-team-03--frontend-framework).
 - Date: 2026-09-09.
 - Decision: Serve the application from FastAPI, streaming plan and tool progress to the client over server-sent events. Build the user interface in Next.js with Tailwind and shadcn/ui, TanStack Table for the analysis table, `react-plotly.js` for charts, and React Flow for the evidence panel that renders a claim's lineage subgraph.
 - Reason: The deliverable is a deployed working system that a jury operates, and the trust layer is only visible if provenance is rendered. Streaming the tool steps makes a multi-step analysis legible while it runs instead of after it finishes. The team has front-end capacity, so the stronger presentation is worth its cost.
 - Alternatives: Streamlit needs less work and remains the fallback if front-end capacity disappears, but it renders a lineage graph poorly. A static rendered report would not support the multi-turn scenario.
 - Consequences: The web client lives in `web/` at the repository root, outside the Python package (DEC-125). M10 owns it. The API contract must be stable before the front end is built against it; the front end is not a prerequisite for backend acceptance and must not gate M5–M8.
 - Revisit trigger: Front-end work measurably delaying backend acceptance, in which case the Streamlit fallback is taken deliberately and recorded.
+- Implementation note (2026-09-15, M10-07, Eray): charts use `react-plotly.js` 4.1.0 through its factory, bound to `plotly.js-dist-min` 4.1.1 installed under the `plotly.js` name to satisfy the peer dependency without the source build; the plot chunk (about 4.6 MB) loads client-only when a result has a period table. No other chart library is added.
 - Clarification (2026-09-09): DEC-128 defers graph-heavy proof UI. A concise claim/evidence view can serve the first UI; React Flow layout is not a prerequisite for the core slice. Framework choice remains confirmed.
 
 ### DEC-124 — Dependency manifest and excluded technologies
+
+> Refinement (2026-09-14): [DEC-137](#dec-137--catalog-complete-lakehouse-first-official-source-materialization-architecture) preserves this decision-time record. Hybrid lexical+dense retrieval remains required; DEC-137 supersedes the earlier mandatory LanceDB product selection. Named library examples/allowlists do not establish a currently selected or implemented vector backend.
 
 - Status: CONFIRMED — team decision on 2026-09-09; extends DEC-003.
 - Date: 2026-09-09.
@@ -313,7 +319,7 @@ Evidence policy: organizer constraints below are carried forward from the origin
 
 ### DEC-126 — Single-VM deployment with Docker Compose
 
-- Status: CONFIRMED as our target — team decision on 2026-09-09; the environment itself remains blocked on [Q-INFRA-01](OPEN_QUESTIONS.md#q-infra-01--runtimedeployment-environment).
+- Status: CONFIRMED as our target — team decision on 2026-09-09; the environment itself remains blocked on [Q-INFRA-01](DECISIONS.md#open_questions-q-infra-01--runtimedeployment-environment).
 - Date: 2026-09-09.
 - Decision: Deploy as containers on a single virtual machine, composed with Docker Compose and fronted by Caddy for TLS and routing. Kubernetes and managed orchestration are excluded.
 - Reason: The deliverable must be running and reachable on demo day. One host with one compose file is the topology a three-person team can rebuild under pressure, and it makes the required architecture and database definitions straightforward to hand over.
@@ -354,6 +360,8 @@ Evidence policy: organizer constraints below are carried forward from the origin
 
 - Status: CONFIRMED — official organizer integration information relayed by Çağatay on 2026-09-09 for the PR #34 follow-up, then **verified against the organizer's primary document** `MIA · Hackathon Rehberi` supplied over Slack on 2026-09-10. The relayed facts below match the primary guide; the 2026-09-10 amendment adds the literal request contracts the earlier relay lacked. This records supplied guidance, not a live connectivity/capability test.
 - Credential state (2026-09-10): the team's MIA API key was delivered over Slack and now exists **only in the operator-local, git-ignored `.env`**. No key value is recorded in this repository, and no live request has been made or authorized by a documentation task. See [SEC-KEY-01](SECURITY.md#sec-key-01--secrets-and-credential-storage).
+- Live verification (2026-09-11 11:35 +0300, M4-12, explicitly authorized by Eray): one structured chat request and one embedding request through the M4-07 transport with the provisioned key both succeeded. `kkbhackathon2026/Qwen3.8-27B` accepted the key and returned JSON that passed strict local validation on the first attempt (`finish_reason: stop`, 529 ms); `kkbhackathon2026/Qwen3-Embedding-8B` returned one **4096-dimensional** vector (142 ms). One call each is evidence of access and shape, not of limits or quality. The OCR model was not called.
+- Observed platform behaviour (2026-09-11 11:59 +0300, M4-15): the served chat model answers **`400` to a request carrying two system messages** and accepts the same content as one; two synthetic diagnostic calls isolated this after the first live end-to-end question failed on it. The product keeps its instructions and tool list as separate system turns, so the M4-07 transport joins leading system turns into one before sending. A later system turn after the conversation starts was not tested.
 - Transport: API host `https://mia.csp.kloudeks.com`; Python/OpenAI-compatible base URL `https://mia.csp.kloudeks.com/v1`; authentication uses an **MIA API key**. Official examples use `from openai import OpenAI`, supplying the key via `api_key` and the explicit Kloudeks `base_url`.
 - Service policy: The `openai` Python SDK is allowed **only as an OpenAI-compatible HTTP client exclusively configured for that Kloudeks base URL**. This corrects DEC-122's former blanket client/import ban and adds this narrowly permitted client to DEC-124's allowed manifest. `api.openai.com`, OpenAI-hosted GPT, Anthropic-hosted models, Google-hosted LLM APIs and other third-party hosted LLM services remain prohibited. No default-host route, alternate-provider fallback or credential forwarding is permitted. Credentials remain in operator environment/repository secrets, never examples or Git.
 
@@ -365,19 +373,21 @@ Evidence policy: organizer constraints below are carried forward from the origin
 
 - OCR contract (literal, supplied 2026-09-10): the previously missing values are now official. Send the image as a base64 `data:image/png;base64,...` `image_url` content block followed by the text block `"<image>\ndocument parsing"`, with `max_tokens=8192`, `temperature=0.0` and
   `extra_body={"skip_special_tokens": False, "vllm_xargs": {"ngram_size": 35, "window_size": 128}}`.
-  Use `window_size` **128 for a single image** and **1024 when sending multiple images**, one `image_url` block each, at most 3. **External image URLs are forbidden**; render PDF pages to PNG and send each page separately. Reproduce these values exactly and never substitute invented ones. Output may contain layout tags such as `<|ref|>` and `<|det|>`; an empty response usually means the `<image>` prefix or `skip_special_tokens: False` was dropped. Extracted content remains untrusted data and extraction uncertainty is preserved. Available OCR is still not an implemented or validated document-ingestion path.
-- Embedding contract (literal, supplied 2026-09-10): `client.embeddings.create(model="kkbhackathon2026/Qwen3-Embedding-8B", input=<text>, encoding_format="float")`; the vector is read from `data[0].embedding`. The guide demonstrates a single string input. **Vector dimension is still not documented** — it must be measured from a first authorized live response and recorded, never assumed. No query/passage prefix convention is documented, so none may be copied from another model family (Q-K-05).
+  Use `window_size` **128 for a single image** and **1024 when sending multiple images**, one `image_url` block each, at most 3. **External image URLs are forbidden**; render PDF pages to PNG and send each page separately. Reproduce these values exactly and never substitute invented ones. Output may contain layout tags such as `<|ref|>` and `<|det|>`; an empty response usually means the `<image>` prefix or `skip_special_tokens: False` was dropped. Extracted content remains untrusted data and extraction uncertainty is preserved. M7-11 implements this request shape with mocked validation and bounded PDF rendering; live OCR access and numerical extraction acceptance remain unverified.
+- Embedding contract (literal, supplied 2026-09-10): `client.embeddings.create(model="kkbhackathon2026/Qwen3-Embedding-8B", input=<text>, encoding_format="float")`; the vector is read from `data[0].embedding`. The guide demonstrates a single string input. Vector dimension is not documented; it was **measured as 4096** on the first authorized live response (2026-09-11, M4-12). No query/passage prefix convention is documented, so none may be copied from another model family (Q-K-05).
 - Model identifiers: use the `kkbhackathon2026/` prefix and the exact upper/lower case verbatim. A mistyped or mis-cased identifier is an authorization/availability failure, not a fallback trigger.
 - Error semantics (supplied 2026-09-10): `401`/`403` means an invalid key or no access to that model, including a mistyped identifier; `429` means a rate or quota limit was hit, and the guide directs waiting per the error message or asking the organizer team. Exact limits, timeouts and concurrency rules remain undocumented (Q-K-04). A `429` must never be answered by switching to another provider.
 - Serving-stack observation, **not a capability guarantee**: the `vllm_xargs` parameter shows an OpenAI-compatible vLLM server behind the endpoint. That does **not** establish native function/tool calling or guaranteed JSON/JSON-schema output; Q-K-03 stays OPEN and local strict validation with the repair loop remains the default path.
 - Secret handling restated by the organizer: keep the key out of screenshots, slides, chats and browser-side code; never commit files containing a real key, including to a private repository; keep it in an environment variable and add `.env` to `.gitignore`. This matches the existing SEC-KEY-01 control and adds no exception.
-- Still unknown after the 2026-09-10 amendment: Native function/tool calling; guaranteed structured JSON/JSON-schema; context window; general maximum output tokens beyond the OCR example's `8192`; exact request/rate/concurrency limits behind the documented `429`; provider timeout behavior; embedding vector dimension and query/passage prefix convention; dedicated reranker availability; demo internet/egress. No dedicated reranker in this supplied model list does **not** prove none can be provided later. The key is now provisioned, but **live authentication has still not been exercised**.
+- Still unknown after the 2026-09-10 amendment: Native function/tool calling; guaranteed structured JSON/JSON-schema; context window; general maximum output tokens beyond the OCR example's `8192`; exact request/rate/concurrency limits behind the documented `429`; provider timeout behavior; the embedding query/passage prefix convention; dedicated reranker availability; demo internet/egress. No dedicated reranker in this supplied model list does **not** prove none can be provided later. Live authentication was exercised for the chat and embedding models on 2026-09-11 (above); OCR access is still unverified.
 - Capability wording: The main chat/LLM model supports the supplied chat/text and image-input behavior; no separate reasoning API, mode or guarantee is inferred. Its model ID is unchanged.
 - Retrieval consequence (amended 2026-09-09): The subsequent explicit team decision DEC-130 makes the confirmed embedding model part of the initial hybrid baseline. DEC-127 is superseded; RRF/reranking and extra retrieval infrastructure still require measured benefit. Embedding dimension/prefix and remaining limits are still unknown.
 - Implementation consequence: No SDK dependency or live client is delivered by this docs change. M4 must separately correct the package-wide `openai` string ban in [test_llm_provider.py](../tests/unit/test_llm_provider.py) and stale provider-policy comments, then validate exclusive Kloudeks routing, no hosted fallback and secret redaction. [ROADMAP M4](ROADMAP.md#m4) records the exact remaining policy conflict; do not weaken the hosted-service ban to make a test pass.
 - Revisit trigger: Further official capability/limit guidance or a separately authorized, sanitized live test. Keep unanswered details in OPEN_QUESTIONS. The former "obtain the literal OCR guidance first" blocker is **cleared**; OCR implementation is now gated only by bounded rendering/parsing work and input-scope decisions, not by missing organizer values.
 
 ### DEC-130 — Initial hybrid retrieval baseline
+
+> Refinement (2026-09-14): [DEC-137](#dec-137--catalog-complete-lakehouse-first-official-source-materialization-architecture) preserves this decision-time record. Hybrid lexical+dense retrieval remains required; DEC-137 supersedes the earlier mandatory LanceDB product selection. Named library examples/allowlists do not establish a currently selected or implemented vector backend.
 
 - Status: CONFIRMED — new explicit team decision supplied by Çağatay on 2026-09-09 for PR #34; supersedes DEC-127. DEC-115 remains historical/SUPERSEDED and its mandatory RRF/reranking pipeline is not reinstated.
 - Decision: The initial default **HYBRID baseline** is **Turkish normalization + reviewed alias/concept-family mapping + metadata filtering + lexical/BM25 retrieval + Qwen3-Embedding-8B dense semantic retrieval**. Use the organizer-provided `kkbhackathon2026/Qwen3-Embedding-8B` through `https://mia.csp.kloudeks.com/v1/embeddings` under DEC-129. Dense retrieval is baseline from the start; its use is not conditional on lexical failure or prior measured gain.
@@ -392,6 +402,8 @@ Evidence policy: organizer constraints below are carried forward from the origin
 
 ### DEC-131 — Organizer kick-off brief: schedule, delivery form and demo-day input scope
 
+> Refinement (2026-09-14): [DEC-137](#dec-137--catalog-complete-lakehouse-first-official-source-materialization-architecture) preserves this decision-time record. Hybrid lexical+dense retrieval remains required; DEC-137 supersedes the earlier mandatory LanceDB product selection. Named library examples/allowlists do not establish a currently selected or implemented vector backend.
+
 - Status: CONFIRMED — organizer constraints read from the primary kick-off deck `KKB Hackathon 2026 Kick Off Sunum_07092026_FİNAL` (7 September 2026), reviewed on 2026-09-10. Several of these facts had shaped earlier work second-hand (the six tools, the three BDDK datasets, the reference scenario, the database deliverable) but the schedule, delivery form and demo-day input scope were never recorded. This entry records organizer requirements; it is not a team preference and cannot be traded away internally.
 - Confirmed calendar: kick-off and brief **7 September 2026**; online development over Slack with mentoring **7–20 September 2026**; project review and announcement of the **top 10 teams on 5 October 2026**; **Final Day 17 October 2026** with jury presentations and awards.
 - Consequence for planning: the **hard development deadline is 20 September 2026**, not the informal "8–9 day" window the earlier plan assumed, and the demo happens ~4 weeks later for teams that advance. [ROADMAP](ROADMAP.md#relative-execution-plan-anchored-to-the-confirmed-calendar) anchors the relative day plan to these dates. A longer window is not permission to widen scope; core-first sequencing under [DEC-128](#dec-128--financial-question-validation-and-claim-level-evidence) is unchanged.
@@ -405,6 +417,161 @@ Evidence policy: organizer constraints below are carried forward from the origin
 - Reason: These constraints determine the deadline, the delivery mechanism and the required `web_url` capability surface. Leaving them unrecorded made the roadmap plan against an invented schedule and treat URL-document extraction as optional.
 - Revisit trigger: An organizer schedule change, a published allowlist, or Slack answers to Q-INFRA-01, Q-NET-02, Q-DEMO-01/03 or Q-DEV-01.
 
+### DEC-132 — Literal document quotation versus analytical meaning
+
+- Status: CONFIRMED — explicit Çağatay product authorization, 2026-09-12.
+- Decision: **Unknown semantics block interpretation and transformation, not exact source quotation.** Execution may mark an exact document-cell result `LITERAL_SOURCE_VALUE`; the default remains `ANALYTICAL_VALUE`. A model cannot request this privilege. It is usable only after the selected value, cell coordinates, result identity and source/transform lineage snapshot resolve in the same store, without analytical transformations.
+- Reason: A correctly parsed source number with no declared unit can still be quoted as source text; it cannot be interpreted as currency, percent, an index, or a transformed/comparable amount.
+- Consequences: DEC-104/119 analytical guards remain. Unknown literal values use one bounded Turkish source-quotation template, explicitly saying unit or scale is unspecified; extra interpretation is refused. No generic prose semantic understanding is claimed. Known-unit analytical presentation remains unchanged. M7-19 requires a supported retained claim bound to the exact document result, including an eligible literal claim; accepted prose alone is insufficient. Persist only the selected reading/cell proof metadata, never the whole downloaded document. Old cell nodes without a reading snapshot are ineligible until the document is selected again.
+- Alternatives: Guessing a unit, weakening all unresolved-semantic checks, trusting a model's literal label, or treating a source URL alone as proof are rejected.
+- Revisit trigger: A separately specified need for multiple literal values, alternate verified quotation templates or metadata outside the selected header. No new framework or live call is authorized by this decision.
+
+### DEC-133 — Eleven-tool product target and mandatory harness
+
+> Refinement (2026-09-14): [DEC-137](#dec-137--catalog-complete-lakehouse-first-official-source-materialization-architecture) preserves this decision-time record. Hybrid lexical+dense retrieval remains required; DEC-137 supersedes the earlier mandatory LanceDB product selection. Named library examples/allowlists do not establish a currently selected or implemented vector backend.
+
+> Historical decision-time record. Its planner-callable target/roles are **SUPERSEDED IN PART by [DEC-135](#dec-135--planner-actions-and-mandatory-correctness-harness)**. The original text and implementation snapshot below are retained; current delivery is in ROADMAP. Retrieval and execution-control requirements remain in force.
+
+- Status: CONFIRMED — explicit Çağatay authorization, 2026-09-12.
+- Decision: Retain the six first-class organizer tools (`lakehouse`, `web_search`, `web_url`, `anomaly`, `causality`, `change_detection`) and approve five product tools in sequential delivery order: `catalog_search`, `series_inspect`, `table_transform`, `data_quality`, `reconcile_sources`. This amends DEC-121's name ceiling, not its execution controls. [ARCHITECTURE](ARCHITECTURE.md#approved-tool-surface) tracks actual implementation status; currently only five base tools have callable implementations.
+- Responsibilities: `catalog_search` returns bounded ranked trusted CatalogRecord candidates, preserving ambiguity and unknowns; `series_inspect` exposes one trusted series' declared metadata and usable-operation limits; `table_transform` changes a trusted table deterministically while preserving other columns, state and lineage; `data_quality` reports deterministic data diagnostics, never model confidence; `reconcile_sources` compares trusted paths with semantic prerequisites and explicit CONSISTENT / DIFFERENT / NOT_COMPARABLE / NEEDS_TRANSFORM / NEEDS_INPUT outcomes.
+- Boundaries: Semantic guards, verifier, security guards and lineage recording remain mandatory harness behavior, never planner-optional tools. `proof` remains API/UI over lineage; `document_search` is outside this target. Every delivered tool requires closed typed arguments and typed results, bounded execution, trusted reference validation and the existing semantic/verifier/gate checks. Planned names must not be exposed in planner schemas or executable registry entries before implementation and tests. Current ToolResult.output is not centrally schema-enforced; this decision does not claim that M5 validation gap is closed.
+- Retrieval: Reuse M13 rather than build a second subsystem. DEC-130's initial hybrid baseline remains normalization, reviewed aliases/concept families, metadata filtering, lexical/BM25 and Qwen dense retrieval with LanceDB. M13-04 may deliver an explicitly lexical-only offline stage after its own prerequisites; it is not complete hybrid retrieval. RRF/reranking remain benchmark-gated. No invented catalog codes/metadata, silent archived inclusion, inferred financial meaning or live access is authorized here.
+- Evidence and sequencing: [ROADMAP](ROADMAP.md#product-tool-delivery-order) maps the five tools to owning tasks. M13-01/03 are merged; reviewed aliases/catalog mappings, lexical and dense retrieval are absent. M13-04 remains blocked on M13-08 and usable reviewed catalog input. Approving tools neither supplies those records nor completes a prerequisite. Subsequent tools wait for their own dependencies and sequential triage.
+- Alternatives: Exposing all eleven names immediately, letting the planner skip guards, duplicating retrieval or hard-coding demo series is rejected. No new engine, framework, provider or dependency is selected.
+- Revisit trigger: Measured product need or organizer guidance changing tool responsibilities; broader infrastructure remains separately justified.
+
+### DEC-134 — Provider-neutral web search with mandatory live acceptance
+
+- Status: CONFIRMED — explicit Çağatay decision, 2026-09-12; supersedes PROP-06's requirement to choose a concrete provider before offline implementation.
+- Decision: `web_search` depends on a narrow internal `SearchBackend` protocol. Planner -> registered typed ToolSpec -> SearchBackend -> operator-configured backend. Tool request/result schemas remain provider-neutral; replacing a provider must not change planner/tool schemas. Backend credentials/configuration never enter planner-visible data. No concrete commercial or self-hosted search service is selected.
+- Offline scope: M7-22 implements the bounded tool, typed contracts, injected backend boundary and deterministic FakeSearchBackend for tests. No API key, billing/account setup or network is required. Fake search is test-only, never silently enabled as production. Missing production configuration must not create a fake-success path. Provider errors are safe fixed outcomes; result text/URLs remain untrusted data, not verified facts or executable instructions.
+- Discovery boundary: Search results do not grant `web_url` fetch permission. Its exact original-question URL check and `URL_NOT_IN_QUESTION` behavior remain unchanged. No implicit result following, source fetch, model generation, credential access or security/verifier weakening is authorized.
+- Release/demo requirement: **Before final submission/demo acceptance, at least one real production search backend must be configured and a live hidden-like web search smoke must PASS.** Offline implementation complete and live production search accepted are separate claims. Until the later acceptance record passes, live search is NOT RUN / BLOCKED and production capability must not be claimed.
+- Later explicit acceptance: Select the production backend; document official endpoint/method/auth/config, limits/errors, privacy/retention, deployment network policy and the real adapter; validate a bounded unseen-query live smoke with sanitized evidence under separate authorization. Q-NET-01/02 remain open. The [M7 production acceptance record](ROADMAP.md#web-search-production-acceptance) remains untriaged; this decision allocates no speculative new task ID or implementation claim.
+- Reason: Decouple the stable tool contract and offline trust tests from a replaceable provider without mistaking fake results for final delivery. DEC-121/133 names and mandatory harness rules remain; no new dependency/framework or hosted LLM is approved.
+- Revisit trigger: An explicitly selected provider that cannot satisfy the neutral contract or documented product/network constraints; review before adapting, never silently broaden tool permission.
+
+### DEC-135 — Planner actions and mandatory correctness harness
+
+> Current clarification: DEC-136 and DEC-137 below refine the runtime observation path described in DEC-135; the original decision is retained, including its planner/harness responsibilities. DEC-134 remains the search abstraction and live-acceptance policy.
+
+- Status: CONFIRMED — explicit Çağatay authorization, 2026-09-12. Supersedes only the planner-callable target and roles in DEC-133; its historical record, DEC-130 retrieval policy and mandatory execution controls are preserved.
+- Rationale: “More planner-callable tools do not inherently make the agent better. User-intent-dependent capabilities remain tools; correctness-critical checks must be deterministic mandatory harness behavior.”
+- Planner target: Eight names — `lakehouse`, `web_search`, `web_url`, `anomaly`, `causality`, `change_detection`, `catalog_search`, `table_transform`. Seven callable factories exist after M13-04; `table_transform` remains planned. Sessions expose only explicitly registered implementations. This documentation decision registers/unregisters nothing.
+- Mandatory inspection: Selecting a financial series must trigger deterministic `series_inspect` before its observations are used. Inspect trusted source/identity, frequency, unit, scale, archive state, stock/flow/rate semantics, aggregation permissions, coverage and other available catalog semantics; unknowns remain explicit. M13-13 owns this future harness step, not a planner-optional tool. Automatic wiring is not implemented.
+- Mandatory quality: Retrieving observations for analysis must trigger bounded deterministic `data_quality` before analysis-ready status: missing periods, coverage/gaps, frequency consistency, trusted stale/archive evidence and known validity constraints. M1-12 owns this future gate; the LLM cannot skip it. Existing diagnostics are not proof of automatic wiring, which remains unimplemented.
+- Conditional reconciliation: When multiple trusted sources/results purport to support the same financial measure, M8-09 must provide deterministic/hybrid `reconcile_sources` outside planner discretion. Compare semantic compatibility, period, frequency, unit, scale and values; return CONSISTENT / DIFFERENT / NOT_COMPARABLE / NEEDS_TRANSFORM / NEEDS_INPUT. No invented equivalence or silent conversion. This capability is not implemented or counted as a normal planner tool. A later explicit comparison action may expose it if separately designed, but correctness cannot depend solely on the LLM invoking it.
+- Harness boundary: Financial transformations require semantic compatibility guards; numeric final claims require lineage/evidence/verifier binding. Existing semantic guards, verifier/gate, lineage and security controls remain system layers. The new inspection/quality/reconciliation triggers are required target behavior, not a claim that every path is already wired or unfinished output/ownership validation is complete.
+- Catalog versus observations: Discovery reads trusted versioned local catalog metadata and reviewed aliases/concept mappings. Runtime observations use approved source adapters/data paths when available; discovery does not fetch observations or let the LLM invent IDs. M13-08's ten-identity demo snapshot is not the final full catalog. Reviewed aliases are precision shortcuts, not the only possible catalog knowledge or a prohibition on unseen concepts. A broader versioned BDDK/EVDS metadata snapshot is intended later, not implemented now.
+- Current lexical delivery: M13-04 is DONE for the reviewed offline demo scope: shared Turkish normalization, reviewed aliases/concepts, metadata filtering and bounded pure-Python BM25. Exact/reviewed aliases take precedence; ambiguity remains explicit, top-1 is not truth, and UNRESOLVED never invents an ID. No DuckDB FTS extension was installed, no dependency added and no lakehouse security relaxed. This is the authoritative current lexical/reviewed baseline, not completed DEC-130 hybrid retrieval; mandatory dense retrieval remains separate work.
+- Web search unchanged: DEC-134's provider-neutral SearchBackend/offline implementation is DONE; no production provider is selected, and live production acceptance remains NOT RUN / BLOCKED. Organizer clarification of external search API/network policy remains necessary. Untrusted search snippets do not grant web_url fetch authority.
+- Task mapping: Preserve M13-13, M1-12 and M8-09 IDs with the harness roles above; M5-20 retains the planned table_transform callable. No task is claimed or promoted to READY/DONE, no full catalog/dense completion is claimed, and no new dependency, runtime behavior or live access is authorized by this docs reconciliation.
+- Revisit trigger: Explicit product/organizer evidence requiring a changed user-facing action or harness trigger; any new callable registration still needs implemented, validated contracts.
+
+### DEC-136 — Scoped official-data preparation and lakehouse-first demo runtime
+
+> Refinement (2026-09-14): [DEC-137](#dec-137--catalog-complete-lakehouse-first-official-source-materialization-architecture) preserves this decision-time record. Its scoped preparation remains valid; the final target also includes broader coverage and policy-permitted official-source materialization on catalog cache misses.
+
+- Status: CONFIRMED team architecture direction, 2026-09-13, explicitly requested by Çağatay. This does not grant organizer/source/network permissions or claim implementation.
+- Decision: Demo-critical official BDDK/EVDS observations are prepared through scoped ingestion into the trusted local/versioned DuckDB + Parquet lakehouse. Runtime financial queries use those observations; general web discovery remains a separate `web_search` capability.
+- Preparation: official sources → approved bounded retrieval → thin source-specific ingestion adapters → common trusted Observation representation → bronze/silver/gold. Adapters own endpoint/request shape, selectors, source parsing, frequency/unit/scale and provenance; they reuse common network/security/parser/storage infrastructure. BDDK/EVDS ingestion adapters and the prepared official demo dataset are not delivered.
+- Initial scope: approximately **2021-01 through 2026-06**, for **housing credit balance, housing/mortgage credit interest rate, CPI/TÜFE and KFE**. This is scoped ingestion, not the entire BDDK/EVDS universe. Consumer, vehicle and commercial loans, deposits/additional rates and broader catalogs are later coverage expansion.
+- Semantic contract: preserve BDDK Monthly/Weekly Bulletin and FinTürk distinctions where relevant, source table/selectors, TP/YP/Total, bank group/geography, unit/scale, period and stock/flow/cumulative meaning. Preserve EVDS real series IDs versus datagroups, native frequency/anchor, active/archived/unknown status, comma-decimal/date parsing, aggregation and base/reference-year meaning, and new-credit flow-rate versus outstanding stock-rate. Unresolved IDs/metadata remain unresolved; catalog ancestry alone does not prove values.
+- Runtime: question → planner/`catalog_search` → trusted series/concept → `lakehouse` prepared observations → alignment/transforms/analytics → verifier. Preparation reduces source availability, page/endpoint drift and network-latency dependencies during questions. Optional operational refresh is separate and must retain provenance, version identity, retrieval vintage and explicit refresh/revision policy. It is not a silent runtime fallback.
+- Separate web discovery: retain `SearchBackend`; a production backend is not implemented. **SearXNG is the preferred compatibility-evaluation candidate**, not selected, integrated or live accepted. Self-hosting may still forward queries to upstream engines; organizer/network/privacy/retention confirmation remains required. DEC-134's real production-backend live acceptance remains mandatory.
+- Separate URL extraction: preserve current `web_url` for a specific supplied/authorized URL and its bounded safe retrieval/supported document parsing. **Crawl4AI is only an optional future compatibility candidate** when static/document extraction is insufficient, especially dynamic/JS pages; it is neither selected nor a replacement. Any future integration must preserve URL authorization, SSRF/private-address, redirect/TLS, size/time, provenance and verifier controls.
+- Search → fetch: returned search URLs remain `fetch_authorized=false`; discovery does not authorize `web_url`. Any expansion needs a separate product/security decision, still unresolved.
+- Priority: scoped data definition → BDDK ingestion → EVDS ingestion → prepared dataset → demo catalog mappings → table_transform → multi-turn table grounding → mandatory inspection/quality/semantic gates → organizer real three-turn E2E → production search compatibility → API/UI → evaluation/deployment/rehearsal. This is planning direction, not READY/DONE status or permission to postpone mandatory guards: each dependent capability must satisfy its correctness prerequisites before exposure.
+- Supersedes only DEC-135's implication that runtime financial observations require source-adapter retrieval; its eight planner tools and mandatory harness roles remain unchanged. DEC-131's real deployed solution and on-day inputs still apply: prepare official observations, not canned answers or synthetic substitutes. Q-DATA-01/03, Q-NET-01/02 and relevant demo/environment questions remain open.
+- Evidence and consequences: existing safe-fetch, parsing, storage, catalog and verification components provide reusable boundaries, not completed source ingestion. [ARCHITECTURE](ARCHITECTURE.md#official-data-preparation-and-demo-runtime) owns the target flow; [ROADMAP](ROADMAP.md#ordered-next-safe-tasks) owns readiness. Historical source inventories and completion records remain evidence of their original scope.
+
+### DEC-137 — Catalog-complete, lakehouse-first, official-source materialization architecture
+
+- Status: CONFIRMED team architecture direction, 2026-09-14, explicitly requested by Çağatay. This docs-only decision grants no source access, deployment/egress permission or implementation readiness.
+- Rationale: The four-series vertical slice proves correctness but does not define final product scope. Prepared observations are the fast, reliable path; a broader trusted catalog enables unseen-series discovery, and approved reusable source adapters can fill known materialization gaps. Generic web discovery remains a separate trust domain.
+- Coverage: Start with housing-credit outstanding balance, housing/mortgage interest rate, CPI/TÜFE and national KFE, approximately 2021-01–2026-06, with unresolved component/rate/base choices explicit. Expand to safely representable structured BDDK Monthly/Weekly/FinTürk financial measures (loans including consumer/vehicle/commercial/SME, deposits, NPL, rates/ratios, supported TP/YP/TOTAL, bank-group/geography dimensions) and relevant EVDS rates, indices, macro/banking families. This is neither a four-series ceiling nor an obligation to ingest every byte; exact broad-prepared coverage remains open.
+- Catalog: Map natural-language concept → official ID/canonical selector candidates → trusted metadata/ambiguity → availability → routing. Preserve provider, concept/family, labels/aliases, frequency, unit/scale, stock/flow/rate/index, cumulative and aggregation rules, base year, archive state, coverage and provenance. Conceptual availability distinguishes prepared/materialized, fetchable through an approved official adapter, unresolved and unavailable/unsupported. These are target capabilities, not new fields/enums in the current CatalogRecord. Unresolved identity is never promoted to fetchable by ranking or model output.
+- BDDK identity: Delivered bounded M3-05 uses `BDDK:selector:v1:<SHA256>` over provider, bulletin_family, table, row, bank_group, presentation_currency, value_dimension and geography. This is an internal canonical selector key, not a BDDK-native series code; period/retrieval time belong to observations/snapshots. General M3-05 stays PARTIAL; TP/YP/TOTAL and stock/disbursement ambiguity remains unresolved unless explicitly supported.
+- Routing: Trusted candidate + required semantic inspection + requested-window availability check → lakehouse on a usable prepared hit. A known missing series/window may use a registered official adapter only when identity/semantics, bounded request contract and environment/source policy permit it; validate and materialize/version before analytical use, then reuse through lakehouse. Missing policy, adapter, valid source evidence or sufficient semantics → clarification/abstention. No arbitrary URL/search fallback, invented endpoint/series or new planner tool is authorized.
+- Reusable adapters: Own official endpoint/request shape, selector/series mapping, response validation, source parsing, semantic declarations and provenance. Reuse common safe networking, TLS/bounds, parser, bronze/silver/gold, hashing, lineage and security primitives. Support initial preparation, broader pre-materialization, policy-permitted cache misses and later refresh; housing and CPI/KFE/rate cases are first verified use cases, not hardcoded adapter limits. These adapters are not delivered.
+- Lifecycle target: DISCOVER → FETCH → SNAPSHOT → PARSE → VALIDATE → MATERIALIZE → VERSION → QUERY → REFRESH. Snapshot hashes, selector/request, retrieval/release metadata, parser/semantic policy and transformation evidence must identify reproducible input/output versions. Same official input content, selector and parser/semantic policy should produce the same content version or an idempotent no-op; another retrieval timestamp alone is not new financial content. Refresh can add periods or reveal corrected history, metadata/archive changes; preserve previous snapshots/versions and resolve revisions explicitly. No silent overwrite of trusted historical evidence, no new scheduler, and no completed vintage/manifest system is claimed.
+- Publication boundaries: Materialization must validate a staged dataset before publishing a usable version/availability pointer; failed fetch/validation leaves prior trusted versions intact. This target is separate from M5-21's delivered accepted-turn workspace publication. A fetched dataset is not proof of an analytical claim; M8-21 result-to-execution binding and all final gates remain required.
+- Prepared hot path: Broad preparation improves latency, demo reliability, repeatability, stable provenance and deterministic benchmarking across the requested 2021-01–2026-06 range, with fewer runtime network dependencies and less exposure to official-site outage/layout drift. Policy-permitted materialization complements that path; it is not guaranteed demo-time egress.
+- Storage: Parquet is persistent analytical data/artifact format; DuckDB is an embedded compute/query engine, not a hosted database service. Dataset/object storage should support a local persistent filesystem/volume and, if justified/available, S3-compatible object storage for bronze snapshots, Parquet, manifests and versioned datasets. AWS S3 is not selected; S3-compatible integration, deployment durability and credentials are unresolved/unimplemented.
+- Trust domains: Prepared official catalog datasets are persistent/versioned target state. Uploaded CSV/XLSX, PDF, arbitrary authorized URLs and BIST/IMF/other documents are session-scoped external artifacts; common parser/storage primitives do not promote them into permanent official catalog series. `web_search` remains general discovery behind SearchBackend; SearXNG is a preferred compatibility candidate, not integrated/live accepted, with upstream network/privacy policy open. `web_url` remains a specific authorized-document path; Crawl4AI is optional future extraction evaluation only. Search results still confer no fetch authority.
+- Hybrid target: Preserve DEC-130's Turkish normalization, reviewed aliases, metadata filters, lexical/BM25 plus required dense retrieval using `kkbhackathon2026/Qwen3-Embedding-8B`; measured dimension 4096 (DEC-129/M4-12). Current catalog_search is aliases/filters/bounded BM25 only. Dense retrieval is not optional to final hybrid acceptance and is not implemented. RRF/reranking remain benchmark-gated.
+- Vector product refinement: Supersede only the mandatory LanceDB index choice in DEC-130 and inherited DEC-115/124/133 wording. No vector product is selected now. A small/moderate catalog may use a versioned embedding cache keyed by series/concept ID, catalog text hash, model ID and dimension, with embeddings and deterministic cosine similarity. Benchmark a dedicated index such as LanceDB only when scale/latency justifies it. Financial observation values remain in DuckDB/Parquet; vector retrieval concerns catalog descriptions, aliases, concepts and semantic discovery. No dependency change is authorized by this decision.
+- Evaluation: Expand beyond the four concepts: prepared known/unseen concepts, known-but-unmaterialized series, ambiguity/unknown semantics, permitted cache-miss materialization and reuse, refresh/new periods, historical revisions, Turkish paraphrases and lexical-versus-hybrid behavior. Preserve M13-09 independent holdout, numeric oracles and explicit abstention; no benchmark result is implied.
+- Relationship: DEC-135's eight planner target names and mandatory correctness harness remain valid. DEC-136 remains valid for preparation/lakehouse-first runtime; this refines its final coverage, optional operational-refresh-only limitation and sequencing with controlled official cache-miss materialization and versioned refresh. DEC-112/117 storage/workspace choices, DEC-129/131 organizer constraints, DEC-134 search acceptance and current M5-21/M8-21/weekly M12-08 protections remain in force. Original decisions and historical source inventories remain intact.
+- Consequences: [ARCHITECTURE](ARCHITECTURE.md#official-data-preparation-and-demo-runtime) owns contracts/routing, [ROADMAP](ROADMAP.md#ordered-next-safe-tasks) the staged priorities without READY promotion, and [OPEN_QUESTIONS](DECISIONS.md#open_questions-dec-137-unresolved-materialization-and-storage-policy) unresolved source-use/retention, demo egress/fetch, storage, broad coverage, vector implementation and vintage policy. No implementation task is started.
+
+<a id="dec-137-prepared-pool-refinement"></a>
+#### Current refinement — prepared-pool demo priority and catalog vector layer (2026-09-14)
+
+Confirmed team priority refinement, explicitly requested by Çağatay after M3-06's offline delivery (#134/#135). The original DEC-137 record above remains historical and valid as the scalable architecture; this subsection owns current hackathon priority. It grants no organizer/source permission, new implementation or completed dataset acceptance.
+
+- **Primary / demo-critical:** build and validate a broad, safely supported BDDK/EVDS prepared data pool before questions arrive: trusted adapters → immutable raw/bronze snapshots → validation/normalization → canonical silver observations → required gold analytical materializations → prepared DuckDB + Parquet lakehouse. Runtime uses user → planner → catalog_search → trusted prepared candidate → lakehouse → guarded transforms/analytics → mandatory correctness harness → verifier → accepted answer/table/chart. Mandatory checks run before dependent use; bronze ancestry alone is not analytical truth. The normal structured official-data path does not fetch BDDK/EVDS at question time. Financial-source network independence does not imply offline Kloudeks planning or query embeddings.
+- **First vertical slice, not final coverage:** housing-credit balance, housing/mortgage rate, CPI/TÜFE and national KFE around 2021-01–2026-06. After the first real E2E slice works, broaden hackathon-relevant prepared official coverage as safely practical. Unknown identities/semantics remain UNKNOWN; neither every source byte nor unsupported calendars are promised.
+- **Reusable adapters now:** build the prepared pool and support later controlled refresh through the same trusted identity/request/parser/provenance/materialization primitives. M3-06 is reusable infrastructure, not a one-off housing download. Its bounded offline slice is delivered; overall M3-05/M3-06 remain PARTIAL, with live BDDK/CA and real dataset preparation unaccepted. Minimal content identity, revision refusal and trusted publication protections apply now; sophisticated refresh/vintage orchestration is later work.
+- **Scalability, not a core three-turn prerequisite:** a catalog-known unmaterialized series may later use a policy-approved official adapter → validate → materialize/version → reuse lakehouse. Runtime official-source cache-miss materialization, sophisticated refresh/vintage orchestration and object-storage optimization are not current demo blockers and are not implemented by this refinement. Demo prepared-pool misses may clarify or abstain; no generic web fetch fallback or invented coverage.
+- **Required final catalog retrieval:** shared Turkish normalization + reviewed aliases + metadata filters + BM25/lexical retrieval + `kkbhackathon2026/Qwen3-Embedding-8B` dense retrieval, dimension **4096**, through Kloudeks. Current M13-04 remains lexical/BM25 only; dense and full hybrid acceptance are not delivered. Dense is not optional to the final architecture.
+- **Separate vector-search layer:** the intended dense architecture includes a catalog vector DB/index boundary for storing/indexing/searching embeddings. Conceptual records bind official series/canonical selector ID, concept/family, normalized catalog/search text, text/content hash, model ID, dimension, vector and snapshot/version metadata. Runtime combines BM25 candidates with Qwen query embedding → vector similarity candidates, applies metadata constraints and returns a bounded candidate set. These are architectural records, not a new implemented schema. Financial observations never belong in this vector layer; bronze/silver/gold and analytical values belong to the DuckDB + Parquet lakehouse.
+- **Product remains unselected:** LanceDB is a strong candidate and the preferred dedicated index to benchmark first. A small catalog may start with exact cosine over a versioned embedding cache; the logical vector-search responsibility remains explicit without requiring a separate service. Select a dedicated product only from catalog scale, latency, deployment simplicity, benchmark quality and dependency cost. No vector DB/index is implemented, and no PostgreSQL/pgvector service is justified or added by this decision. Scaling beyond measured need remains non-blocking; the required dense retrieval capability does not.
+- **Separate web path:** web_search → SearchBackend for general discovery; SearXNG remains a candidate, not integrated/live accepted. web_url handles a specific authorized URL/document. Neither is the normal structured BDDK/EVDS data path. Source-use, retention, deployment and network questions remain open.
+- **Execution guidance:** prioritize BDDK live acceptance/preparation; EVDS trusted metadata/ingestion; prepared pool; four-series real slice; organizer Turn 1; hybrid retrieval/vector baseline; table_transform; multi-turn grounding; mandatory inspection/quality integration; full three-turn E2E; broader prepared coverage; web acceptance; API/UI/deployment/rehearsal. This is priority guidance, not a READY queue or permission to defer correctness/security prerequisites. Existing checkboxes and bounded completion records remain authoritative.
+
+> Refinement (2026-09-14): [DEC-138](#dec-138--handback-priorities-lancedb-catalog-index-and-no-prepared-data-in-git) moves deflation and table_transform ahead of dense retrieval and selects LanceDB; the rest of this execution guidance stands.
+
+### DEC-138 — Handback priorities, LanceDB catalog index and no prepared data in Git
+
+- Status: CONFIRMED team decisions, 2026-09-14, by Eray after Çağatay handed the project back (no other teammate active). Grants no organizer permission and claims no implementation.
+- Context: The organizer's reference process (kick-off deck p.11) asks, after Turn 1, to inflation-adjust only the housing-credit column without breaking the table (Turn 2) and to add KFE as a new column (Turn 3). Deflation/rebasing (M2-14/15) and table_transform (M5-20) are absent, and the DEC-137 refinement sequence placed dense retrieval before them without naming deflation. Six development days remain to 20 September. M3-06 live BDDK acceptance and the 2021-01–2026-06 housing preparation passed on 2026-09-14 (PR #138).
+- **Sequencing:** after EVDS metadata/ingestion, the four-series preparation and organizer Turn 1, deliver explicit index rebasing/deflation (M2-14/15, with M6-13 where needed) and table_transform with multi-turn table grounding (M5-20 and remaining M5 references) **before** hybrid dense retrieval (M13-05). Dense retrieval stays required for DEC-130 final hybrid acceptance; only its order changes. Mandatory correctness/security prerequisites are not deferred.
+- **Vector index:** **LanceDB is selected** as the catalog vector index for M13-05. This supersedes "no vector product is selected" and the exact-cosine-first baseline in DEC-137 and its refinement; the kick-off deck lists LanceDB among the expected open-source libraries, and DEC-124 already allowlists `lancedb`. It is added to `pyproject.toml` only by the implementing task, with a pinned version, audit and deterministic ranking/failure tests. Vectors hold catalog representations (IDs, concepts, aliases, normalized text/hash, model and dimension 4096, snapshot version); financial observations stay in DuckDB + Parquet. No PostgreSQL/pgvector.
+- **Prepared data storage:** retrieved official responses and prepared lakehouse contents are not committed to Git. They live in ignored operator-local roots (`data/processed/lakehouse`) and reach the demo through deployment preparation. This is team policy; organizer redistribution/retention (Q-DATA-03) remains open.
+- **Source retrieval:** Eray authorized bounded official BDDK retrieval for preparation (applied in M3-06, 2026-09-14) and the move to EVDS trusted metadata/ingestion; each live run stays bounded and recorded in its task. Organizer-level Q-DATA-01/Q-NET-01 remain open.
+- **Deferred for re-evaluation (resolved by [DEC-139](#dec-139--kullanılan-konut-kredisi-means-the-outstanding-balance), 2026-09-14):** the Turn 1 reading of "kullanılan toplam konut kredisi" (outstanding stock versus disbursement) and TP/YP/TOTAL presentation. The CPI index/base-year choice for Turn 2 is made from metadata evidence in the EVDS task and recorded there. A `dev -> main` promotion before 20 September is to be scheduled; it is not authorized here.
+- Consequences: [ROADMAP](ROADMAP.md#ordered-next-safe-tasks) reorders its priority table; [OPEN_QUESTIONS](DECISIONS.md#history-q-team-06--vector-cacheindex-implementation) Q-TEAM-06 is answered. DEC-135's planner/harness roles, DEC-136/137 preparation architecture and the M5-21/M8-21/M12-08 protections are unchanged.
+
+### DEC-139 — "Kullanılan konut kredisi" means the outstanding balance
+
+- Status: CONFIRMED team decision, 2026-09-14, by Eray. Resolves the Turn 1 reading deferred in DEC-138; grants no organizer permission.
+- Decision: in the organizer's Turn 1 question, "Türkiye'de kullanılan toplam konut kredileri" is the BDDK Monthly Bulletin table 4 row 2 (`Tüketici Kredileri - Konut`), Sektör (10001), TL presentation, **TOTAL** component — the month-end **outstanding stock** (`BDDK:selector:v1:fa6e3c79…0f66`). Answers present it as the housing-credit balance in use without a "does not answer the question" disclaimer.
+- Still true and still stated: it is a stock, so a month-over-month change is a net change in the balance, not new lending or disbursement; no disbursement series is prepared or implied. TP/YP components stay separate series and are not the default.
+- Consequences: the reviewed series name and writer guidance may drop wording that suggests the stock does not answer "kullanılan"; nothing is re-ingested. DEC-136/137 semantics, the BDDK source inventory and the stock limitations are unchanged.
+
+### DEC-140 — Strict source typing at the fast PR boundary
+
+- Status: engineering maintenance in Arda's delegated development scope, 2026-09-14, PR #151; effective when merged.
+- Evidence: the earlier M0-08 release cleared typing, but later code accumulated 64 errors in six files while `make pr` stayed green. Checking all 86 source files takes about three seconds locally; the ordinary unit suite takes about three minutes. Checking only changed modules misses errors introduced at their consumers.
+- Decision: include `mypy src` in `make pr` and its Windows equivalent after Ruff checks. Keep strict mode enabled. `make quick` and targeted edit-time checks remain lightweight. The full release gate still owns all-test execution, dependency audit and main promotion; this is not a per-edit full/release gate.
+- Rejected: suppressing module errors or leaving the inexpensive contract check until the final release. Keep the existing narrow third-party typing exceptions documented; add no blanket ignore or new runtime dependency.
+- Consequences: a new type error must be fixed before merging into dev. This amends the fast PR placement described in DEC-109/AGENTS, without altering organizer rules, runtime behavior or authorization boundaries.
+
+<a id="dec-141-organizer-verbal-criteria"></a>
+
+### DEC-141 — Organizer verbal criteria relayed by Çağatay
+
+- Status: CONFIRMED as organizer-reported criteria, relayed by Çağatay on 2026-09-14 in the documentation-reconciliation request. The underlying organizer communication/transcript was not independently verified; no scoring weights or numeric judging thresholds were supplied.
+- **Development versus runtime:** development coding assistants such as Cursor, Claude Code, Codex and Gemini are allowed (consistent with Q-DEV-01). The open-weight restriction applies to the delivered/runtime/demo harness: use allowed models through Kloudeks under DEC-002/129/131, never Codex/Claude/Gemini/OpenAI-hosted agent reasoning as a runtime analyst. This does not change the explicitly Kloudeks-configured SDK allowance.
+- **Own harness and smaller-model usefulness:** the team must build its own harness. The reported judging intent is that deterministic/custom logic carries as much work as possible so the system remains useful with a smaller allowed open-weight model. DEC-101/113's typed planning, deterministic tools and custom validation/execution/gating support this criterion; their existence does not prove smaller-model acceptance.
+- **Domain genericity — historical organizer relay, retained as provenance:** the core should remain reusable when BDDK/EVDS is replaced by a substantially different dataset/domain. DEC-001/103's source-adapter separation is necessary but does not establish cross-domain acceptance; finance-specific semantics and prompts must not be treated as universal contracts.
+- **Current scope clarification (2026-09-14, relayed by Çağatay):** Genericity means avoiding hardcoding to one organizer question, BDDK table, EVDS series or exact financial schema. Current acceptance: add a new supported financial source / dataset / schema through reviewed catalog metadata and adapter/policy configuration without rewriting the core lakehouse, workspace, execution, lineage, verifier or API architecture. Finance-specific adapters, stock/flow/rate/index semantics, cumulative rules, deflation, KFE, guards/transforms and catalog mappings may remain finance-specific. Healthcare support, arbitrary cross-domain adapters and a universal data platform are not product requirements; the historical relay above is not a cross-domain implementation mandate.
+- **Own lakehouse:** ready-made/managed lakehouse shortcuts, including Snowflake-style outsourcing, must not replace the team's lakehouse/harness architecture (DEC-003/112). This records the architecture criterion, not an invented ban on every hosting or infrastructure service.
+- **Secrets:** committing API keys/secrets is negative even in a private repository. DEC-129 and SECURITY's existing prohibition still applies; private visibility is no exception.
+- **Chained tables:** preserve the existing table, transform only requested columns, add columns without destroying the prior table, and continue from the intended current result. Immutable history alone does not satisfy this: UI selection must bind the following question to the intended owned result/version. Current display-only selection and remaining dependency invalidation are acceptance gaps, not completed behavior.
+- Consequences: apply these criteria to current architecture and evaluation under DEC-135's mandatory harness boundaries. Record delivered slices and remaining acceptance separately in ROADMAP; this entry changes no runtime behavior and grants no live-call or merge authorization.
+
+### DEC-142 — Catalog query embedding policy and reviewed-match combination
+
+- Status: CONFIRMED team decision, 2026-09-15, by Eray (approves PROP-07 and PROP-08 after the M13-09 evidence in PR #178). Grants no live call beyond the task authorization recorded in ROADMAP.
+- **Query policy:** catalog dense retrieval embeds passages unchanged and queries as `Instruct: <task>\nQuery:<text>` (`qwen3-instruct-query-v1`, Qwen3-Embedding model-card convention). M13-09 measured dense hit@1 0.8718 against 0.7179 for unchanged queries on 44 reviewed cases. Q-K-05 (the platform's own convention) remains open; a Kloudeks answer that contradicts this is a revisit trigger, not an automatic change.
+- **Combination:** hybrid candidates keep the alternating lexical-first order only when a reviewed alias or phrase matched the query, and alternate dense-first otherwise (`reviewed-match-order-v1`). Archive tiering, the reviewed-concept eligibility restriction, fixed stage budgets, clarification requirement and explicit lexical degradation are unchanged. No score arithmetic, fusion or reranking is introduced (M13-06/07 remain benchmark-gated).
+- **Evidence rule:** the M13-09 holdout was inspected when PROP-08 was proposed, so it becomes development data. A gain claim for this combination needs a fresh holdout written before any run on it; the measured result is recorded in EVALUATION whether or not it confirms the gain.
+- Evidence after adoption (M13-05, #179, fresh holdout): hybrid hit@1 0.684 vs 0.579 for the alternating baseline (2 wins, 0 losses) and 0.842 for dense-only; the remaining gap comes from broad multi-series concepts keeping lexical order and the archive tier ([EVALUATION](EVALUATION.md#m13-05-fresh-holdout-2026-09-15)). Changing either is a new decision that needs another fresh holdout.
+- Consequences: the prepared runtime may configure the dense stage with this policy and combination when an operator supplies a matching local index generation; without it, retrieval stays lexical. DEC-130 hybrid acceptance, DEC-138 LanceDB selection and the untrusted-discovery boundary of `catalog_search` are unchanged.
+
 ## Proposed decisions
 
 Candidates below are not approved selections. Compare options in a bounded task; do not silently promote a proposal to CONFIRMED.
@@ -416,6 +583,13 @@ Candidates below are not approved selections. Compare options in a bounded task;
 | PROP-03 | RESOLVED by DEC-123 | FastAPI with SSE behind Next.js selected; Streamlit retained as a recorded fallback | Eray | None; implement in M10 |
 | PROP-04 | PROPOSED: retry and latency budgets | Exact counts/timeouts depend on platform limits and baseline measurements | Unassigned | Obtain Q-K-04 and measure before fixing limits |
 | PROP-05 | RESOLVED by DEC-120 | Lagged correlation and Granger with mandatory stated limits; stronger identification rejected for this data | Eray | None; implement in M6 |
+| PROP-06 | RESOLVED by DEC-134: provider abstraction approved | Concrete production adapter deferred; live acceptance still blocked | Çağatay | M7-22 offline implementation, then separately triaged production acceptance |
+| PROP-07 | RESOLVED by [DEC-142](#dec-142--catalog-query-embedding-policy-and-reviewed-match-combination) | Model-card query policy `qwen3-instruct-query-v1` selected from M13-09 evidence; Q-K-05 still unanswered | Eray | Wire into the prepared runtime (M13-05) |
+| PROP-08 | RESOLVED by [DEC-142](#dec-142--catalog-query-embedding-policy-and-reviewed-match-combination) | Reviewed-match order selected; gain claim requires the fresh holdout | Eray | Evaluate on development and the fresh holdout (M13-06) |
+
+### Web search provider decision (M7-21)
+
+Historical proposal: PR #113 initially required a named provider and official API contract before M7-22. Çağatay explicitly replaced that prerequisite with [DEC-134](#dec-134--provider-neutral-web-search-with-mandatory-live-acceptance): approve the provider abstraction now, defer the real adapter to a separately authorized production acceptance task. No provider, endpoint, auth scheme, credential presence or quota is implied. Live production search remains NOT RUN / BLOCKED; Q-NET-01/02 are not resolved.
 
 ## Deferred decisions
 
@@ -428,10 +602,547 @@ Candidates below are not approved selections. Compare options in a bounded task;
 | GPU/training deployment | DEFERRED | Resource availability/need unknown | Q-COMP-01 answered and workload requires it |
 | Enterprise security infrastructure | DEFERRED | Outside the 7–20 September development window (DEC-131) | Concrete production/organizer requirement |
 
-DEC-129 records confirmed Kloudeks transport, authentication, models, image-count limits and — since the 2026-09-10 primary-guide amendment — the literal OCR and embedding request contracts and documented error semantics. The MIA key is provisioned locally but unexercised. Still unresolved: live authentication, native function/tool calling, guaranteed JSON/JSON-schema output, context/output capacity, exact rate/concurrency/timeout limits behind the documented `429`, embedding vector dimension/prefix convention and dedicated reranker availability (narrowed Q-K-01..05). DEC-131 records the organizer calendar, delivery form and demo-day input scope; hosting constraints (Q-INFRA-01) and URL permission policy (Q-NET-02) remain open, while coding-assistant policy (Q-DEV-01) is answered for development use without touching the runtime ban. Neither compatibility nor example parameters answer these questions.
+DEC-129 records confirmed Kloudeks transport, authentication, models, image-count limits and — since the 2026-09-10 primary-guide amendment — the literal OCR and embedding request contracts and documented error semantics. The MIA key authenticated for chat and embedding in the 2026-09-11 live smoke (M4-12), and the embedding dimension is measured as 4096. Still unresolved: OCR access, native function/tool calling, guaranteed JSON/JSON-schema output, context/output capacity, exact rate/concurrency/timeout limits behind the documented `429`, the embedding prefix convention and dedicated reranker availability (narrowed Q-K-01..05). DEC-131 records the organizer calendar, delivery form and demo-day input scope; hosting constraints (Q-INFRA-01) and URL permission policy (Q-NET-02) remain open, while coding-assistant policy (Q-DEV-01) is answered for development use without touching the runtime ban. Neither compatibility nor example parameters answer these questions.
 
 Orchestration, analytical engine, frontend framework, causality method and workspace persistence are **no longer open** — see DEC-112, DEC-113, DEC-117, DEC-120 and DEC-123. Router fine-tuning and multi-agent topology remain deferred.
 
 ## Maintenance
 
 Add an ADR when a constraint or choice actually changes. Use the fields above and link the answer, experiment, or PR. Keep rejected alternatives brief. Update OPEN_QUESTIONS for unresolved issues and ROADMAP for implementation progress.
+
+
+## Open Questions
+
+Active unresolved questions, including partially answered entries with their remaining scope. Fully answered records are preserved separately; question IDs and provenance are unchanged.
+
+<a id="open_questions-actionable-open-questions"></a>
+
+### Actionable open questions
+
+This file owns unresolved external/team questions and their evidence. [DECISIONS](DECISIONS.md) owns confirmed choices; [ROADMAP](ROADMAP.md) owns blocked/ready tasks. A temporary assumption is a planning aid, not organizer permission or an implementation fact.
+
+Snapshot: 2026-09-10. Two organizer **primary documents** were reviewed on this date: the kick-off deck of 7 September 2026 and the `MIA · Hackathon Rehberi` integration guide received over Slack, together with the team's MIA API key. [DEC-131](DECISIONS.md#dec-131--organizer-kick-off-brief-schedule-delivery-form-and-demo-day-input-scope) owns the brief's schedule/delivery/demo-input constraints and the 2026-09-10 amendment to [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy) owns the literal OCR/embedding request contracts. Q-DEMO-01, Q-INFRA-01, Q-NET-02, Q-DATA-01 and Q-DEV-02 gained real evidence below and are narrowed rather than closed. **Q-DEV-01 is ANSWERED (2026-09-10): coding assistants are permitted as development tools, and the Kloudeks-only runtime restriction is unaffected.** The five team-decision questions Q-TEAM-01 through Q-TEAM-05 are **ANSWERED** by M0-ARCH and recorded in DECISIONS; those five choices are no longer blockers. Task-level proof/result schemas, reviewed concept-family membership and measured thresholds remain proposals until reviewed; they do not reopen those answered questions. Official Kloudeks integration information relayed by Çağatay on 2026-09-09 answers endpoint/authentication, model availability and image-input limits; [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy) owns the exact capability contract. Q-K-01/02/05 are narrowed below. Other organizer categories have no newly recorded answers and remain open; suggested lanes are not assignments.
+
+The organizer questions are now the project's only external blockers, and several of them gate long-lead work: unexercised OCR access (Q-K-01), capacity (Q-K-02/04) and capability guarantees (Q-K-03) constrain their respective live acceptance. Ordinary compatible text transport can be built against the confirmed contract with local schema validation; no native tool/JSON guarantee is needed for that path. Q-K-05 retains configuration questions for the now-required dense baseline and optional dedicated-reranker availability under DEC-130 (DEC-127/115 are SUPERSEDED); Q-NET-01/02 gate the `web_search` and `web_url` tools, Q-DATA-01 gates live source retrieval, and Q-INFRA-01 can override DEC-126. Ask them early rather than near the delivery date.
+
+<a id="open_questions-dec-137-unresolved-materialization-and-storage-policy"></a>
+
+### DEC-137 unresolved materialization and storage policy
+
+[DEC-137](DECISIONS.md#dec-137--catalog-complete-lakehouse-first-official-source-materialization-architecture) records team architecture direction, not organizer answers. The original dated organizer evidence below is preserved. Still unresolved: Q-INFRA-01/02 (Kloudeks/demo S3-compatible object-storage availability, persistent-volume lifetime, credentials/runtime access); Q-DATA-01/03 (source-use, redistribution and retention); Q-NET-01 with Q-DATA-01 (demo egress and whether on-demand official BDDK/EVDS materialization is permitted); Q-NET-01/02 and the M7 production record (SearXNG/upstream search policy); Q-DATA-04 (authoritative semantics/revisions). No AWS/S3 provider is selected. Vector product choice is answered by DEC-138; remaining embedding-policy questions are Q-K-05. No live acceptance is implied.
+
+The [DEC-137 dated refinement](DECISIONS.md#dec-137-prepared-pool-refinement) makes the broad prepared pool demo-critical and question-time official materialization a later extension. Preparation permission, trusted identity/semantics and minimum revision-conflict safeguards still matter now; unresolved runtime official-fetch permission and sophisticated vintage/index/object-storage scaling are not core three-turn prerequisites. This is team priority, not a new organizer answer.
+
+Internal questions Q-TEAM-07/08 below concern exact broader prepared coverage and refresh/vintage selection policy. These are team decisions, not organizer permissions; [Q-TEAM-06](DECISIONS.md#history-q-team-06--vector-cacheindex-implementation) is answered by DEC-138 (LanceDB), Q-TEAM-07/08 remain OPEN. Known embedding dimension is 4096 from M4-12; no new live call is needed to re-establish it.
+
+Fully answered Q-DEV-01 and Q-TEAM-01..06 are preserved in [HISTORY](ROADMAP.md#history-historical-handbacks-and-answered-questions); partially answered questions stay here with their remaining scope.
+
+<a id="open_questions-how-to-use-this-list"></a>
+
+### How to use this list
+
+- Claim the relevant question, obtain an answer, and record a dated message/document/reference without secrets or private payloads.
+- Check a question only when the answer/evidence is recorded and its affected roadmap blockers are updated. A question being sent is not a resolved question.
+- `Can we proceed before answer?` applies to the **blocked slice named in that entry**. Independent synthetic work may still proceed even when the answer is NO.
+- Use Status: OPEN, WAITING (asked, no answer), ANSWERED, or DEFERRED. Add actual owner and next follow-up date when someone accepts the question; no automated messaging is implied.
+- Once fully answered, preserve the complete question/evidence in HISTORY and link its decision; remove it from this active list.
+- Do not ask organizers for every internal implementation preference. The team-decision section is resolved by teammates and recorded as an ADR.
+
+<a id="open_questions-priority-queue"></a>
+
+### Priority queue
+
+| Priority | Questions | Why now | Independent work while waiting |
+| --- | --- | --- | --- |
+| Ask on Slack now | Q-NET-02, Q-DATA-01, Q-NET-01 | URL/source permission gates the confirmed demo-day capability and live source retrieval | Safe-fetch boundary, parsers, offline provider/tool integration |
+| First available organizer contact | Q-K-02/03/04, Q-DATA-02, Q-DEMO-01 | Determine capacity, guarantees and remaining demo format | Synthetic contracts/oracles, conservative local budgets |
+| Remaining model configuration | Q-K-01 OCR access; Q-K-05 prefix/batch/token limits | Chat/embedding smoke and 4096 dimension already measured in M4-12; do not repeat as an unresolved dimension question | Offline bounded contracts; separately authorized live acceptance where still needed |
+| Before private data or deployment | Q-DATA-03, Q-INFRA-01/02, Q-COMP-01, Q-DEMO-02/03 | Determine retention, environment, session/fallback rules | Credential-free unit tests, operator-flow design |
+| Before final scope/experiments | Q-K-04/05, Q-DEV-02, Q-JUDGE-01/02, Q-COMP-02, Q-DATA-04 | Avoid unsupported tooling/scoring/resource assumptions | Core deterministic baseline |
+| ~~Before affected implementation choice~~ | Q-TEAM-01/02/03/04/05 — **ANSWERED 2026-09-09** | Resolved by M0-ARCH; see DEC-112, DEC-113, DEC-117, DEC-120, DEC-123 | No longer blocking; implementation may proceed |
+
+<a id="open_questions-kloudeks"></a>
+
+### Kloudeks
+
+
+
+<a id="open_questions-q-k-01--endpoint-authentication-and-credential-delivery"></a>
+
+#### Q-K-01 — Endpoint, authentication, and credential delivery
+
+- [x] Record the official endpoint, MIA-key authentication and compatible-client contract in [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy).
+- [x] Obtain the team's MIA API key. Delivered over Slack on 2026-09-10 and stored **only** in the operator-local, git-ignored `.env`. The key value is not recorded here, in DECISIONS, or anywhere in Git.
+- [x] Exercise one authorized live request to prove the key actually authenticates against the confirmed endpoints; never record the key itself. Done for chat and embedding on 2026-09-11 (M4-12, DEC-129); OCR not called.
+- Remaining question: Is the OCR model (`kkbhackathon2026/Unlimited-OCR`) reachable on this account? Chat and embedding authenticated in the 2026-09-11 smoke.
+- Why it matters: Possessing a key is not proof of access. Per DEC-129 a `401`/`403` would mean an invalid key, a model this account cannot reach, or a mis-cased model identifier — three different failures that only a live call distinguishes.
+- Blocks which milestone? M4-12 live smoke and M11 live demo access; no longer the endpoint/auth design of M4-07.
+- Can we proceed before answer? YES for bounded transport implementation and fake-transport tests; NO for claiming live authentication passed.
+- Temporary assumption: Use only the confirmed Kloudeks destination and the operator-supplied secret; no hosted fallback under any error, including `429`.
+- Owner: Unassigned; the live smoke is M4-12 work and needs explicit authorization, not a side effect of another task.
+- Status: OPEN only for OCR access; endpoint/auth/SDK, key provisioning and live chat/embedding authentication are ANSWERED.
+- Answer / evidence: Official guidance relayed by Çağatay 2026-09-09, verified against the primary MIA guide 2026-09-10; DEC-129. Key provisioned 2026-09-10. Live smoke 2026-09-11 11:35 +0300 (M4-12, explicitly authorized): chat and embedding succeeded through the M4-07 transport; no key or model text recorded.
+
+<a id="open_questions-q-k-02--available-models-and-context-capacity"></a>
+
+#### Q-K-02 — Available models and context capacity
+
+- [x] Record exact main chat/text/vision, embedding and OCR model IDs plus confirmed image-count limits in [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy).
+- [ ] Record context window and general maximum output tokens beyond example-specific values. The primary guide's only figure is the OCR example's `max_tokens=8192`, which is an example setting rather than a documented ceiling.
+- Remaining question: What context/output-token capacity applies to each confirmed model? Example settings are not guaranteed maxima.
+- Why it matters: Bounded prompts and output budgets must fit the platform; availability is not a capacity measurement.
+- Blocks which milestone? M4/M5 validated context sizing and M11 capacity claims, not model-ID selection or offline integration.
+- Can we proceed before answer? YES using confirmed IDs and conservative configurable local budgets; NO for promising undocumented limits.
+- Temporary assumption: Use the documented image counts; do not infer token limits, a cheaper router model or native tool/JSON support.
+- Owner: Unassigned; suggested lane B.
+- Status: OPEN only for remaining capacity; model availability and listed image limits ANSWERED.
+- Answer / evidence: Official guidance relayed by Çağatay, 2026-09-09; DEC-129. General context/output limits were not supplied.
+
+<a id="open_questions-q-k-03--structured-output-and-tool-calling"></a>
+
+#### Q-K-03 — Structured output and tool calling
+
+- [ ] Record native function/tool calling, JSON-schema support, and response-format behavior.
+- Question: Does Kloudeks expose native tool calling or guaranteed structured JSON, and which schema features/error responses are supported?
+- Why it matters: Determines provider parsing/repair approach without weakening local validation.
+- Blocks which milestone? Enabling native function/tool calling or guaranteed structured-output mode in M4/M5; does not block ordinary text requests with strict local parsing/repair.
+- Can we proceed before answer? YES for the confirmed compatible text transport with strict local schemas and malformed-output fixtures; NO for asserting or relying on native tool/JSON guarantees.
+- Temporary assumption: No guarantee of native structured output; model results must validate locally in all cases.
+- Owner: Unassigned; suggested lane B.
+- Status: OPEN.
+- Answer / evidence: DEC-129 confirms OpenAI-compatible transport, not native function/tool calling or guaranteed JSON/JSON-schema. The primary guide's `vllm_xargs` parameter shows a vLLM-based server behind the endpoint — an **observation about the stack, not a capability guarantee**. vLLM builds commonly expose guided decoding, but nothing organizer-supplied states that this deployment enables it, so `structured_output` stays false and the local repair loop stays the default. Probing it is a question for Slack or an authorized live smoke, not an inference.
+
+<a id="open_questions-q-k-04--quotas-timeouts-and-retry-behavior"></a>
+
+#### Q-K-04 — Quotas, timeouts, and retry behavior
+
+- [x] Record the documented error semantics: `401`/`403` for an invalid key or unreachable/mis-cased model, `429` for a rate or quota limit, with the guide directing a wait per the error message or a question to the organizer team (DEC-129, 2026-09-10 amendment).
+- [ ] Record the actual request/token/concurrency limits, timeouts, and permitted retry behavior behind that `429`.
+- Question: What rate/token/request limits, timeouts, concurrency rules, and retry guidance apply during development and the demo? Knowing that `429` exists does not give a number to budget against.
+- Why it matters: Exact attempt/deadline budgets and latency expectations need real constraints.
+- Blocks which milestone? M4 transport budgets; M5 bounded live loop; M9 live latency thresholds; M11 capacity rehearsal.
+- Can we proceed before answer? YES for configurable bounded behavior and offline tests; NO for claiming quotas or a validated live SLA.
+- Temporary assumption: Use conservative configurable limits in later implementation, measure them, and do not assume unlimited calls.
+- Owner: Unassigned; suggested lane B with C measurement.
+- Status: OPEN.
+- Answer / evidence: None recorded.
+
+<a id="open_questions-q-k-05--embeddings-and-rerankers"></a>
+
+#### Q-K-05 — Embeddings and rerankers
+
+- [x] Record the official embedding model and endpoint in [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy).
+- [x] Record the literal embedding request shape: `/v1/embeddings` with `encoding_format="float"`, a single-string `input` in the official example, vector read from `data[0].embedding` (DEC-129, 2026-09-10 amendment).
+- [x] Measure the vector dimension: **4096**, from the first authorized live call (2026-09-11, M4-12; DEC-129).
+- [ ] Resolve the query/passage prefix convention, batch/token limits and whether a dedicated reranker is available.
+- Remaining question: What are those embedding configuration/limit details, and can a dedicated reranker be provided? General request/rate/concurrency limits remain Q-K-04.
+- Why it matters: Availability alone does not define a valid index/configuration or establish retrieval quality.
+- Blocks which milestone? M13-05 dense-baseline configuration (remaining prefix/limits; dimension 4096 established) and optional dedicated-reranker use under M13-07. Lexical work, contracts and offline benchmark design can proceed; full hybrid acceptance requires both retrieval paths. Dense use itself is confirmed by DEC-130, not gated on lexical failure.
+- Can we proceed before answer? YES for lexical work and hybrid contracts/benchmark design; use the measured 4096 dimension and do not invent prefix values or claim complete hybrid integration while those prerequisites remain unresolved.
+- Temporary assumption: Keep DEC-130's mandatory lexical+dense baseline and measured activation policy for RRF/reranking/extra stages. Do not copy an E5 prefix convention onto the confirmed Qwen model. The supplied list's omission of a dedicated reranker is not proof one can never be offered.
+- Owner: Unassigned; suggested lane B.
+- Status: OPEN only for remaining embedding details/dedicated reranker; embedding availability ANSWERED.
+- Answer / evidence: Official guidance relayed by Çağatay, 2026-09-09; DEC-129. Dimension measured as 4096 on 2026-09-11 (M4-12). No prefix convention or dedicated-reranker answer supplied. M13-09 (2026-09-15) showed batched `input` lists of 16 passages work (37 passages in 3 requests, about 1.8 s) and measured two local query policies (PROP-07); a fresh holdout in M13-05 (#179) confirmed the instruct query policy (dense hit@1 0.842 vs 0.737), now selected by DEC-142 for the prepared runtime. This is an internal measurement, not the platform's answer.
+
+<a id="open_questions-organizer-infrastructure"></a>
+
+### Organizer infrastructure
+
+
+
+<a id="open_questions-q-infra-01--runtimedeployment-environment"></a>
+
+#### Q-INFRA-01 — Runtime/deployment environment
+
+- [x] Record the delivery form and the demo-day runtime expectation: teams develop in their own environment, keep code in a **private GitHub repository** and deliver by granting KKB access; on Final Day a **solution deployed and running live** is expected (DEC-131).
+- [ ] Record OS/runtime/container/port/storage constraints for that live deployment, and who hosts it.
+- Question: The brief requires a live deployed solution but names no hosting environment. Do we host it ourselves, and what OS, Python/package installation, container, port and filesystem restrictions apply? Is S3-compatible/object storage available in Kloudeks/the demo environment; what credentials and runtime access model apply? No vendor or AWS S3 selection is inferred.
+- Why it matters: Determines reproducible setup, parser availability, and UI delivery. "Deployed and live" is now a confirmed requirement rather than an assumption, which makes the hosting answer more urgent, not less.
+- Blocks which milestone? M0 final setup validation, M10 deployment choice, M11 rehearsal environment.
+- Can we proceed before answer? YES for local Python >=3.12 contracts/tests and for the DEC-126 single-VM target; NO for claiming deployment compatibility with an unstated environment.
+- Temporary assumption: We provide the host ourselves under DEC-126 until told otherwise; no GPU requirement is inferred. DEC-126 yields to an organizer-supplied environment if one is named.
+- Owner: Unassigned; suggested lane B / organizer liaison.
+- Status: OPEN for environment/hosting constraints; delivery form and the live-deployment requirement are ANSWERED.
+- Answer / evidence: Kick-off deck, 7 September 2026, reviewed 2026-09-10; DEC-131.
+
+<a id="open_questions-q-infra-02--storage-lifetime-and-isolation"></a>
+
+#### Q-INFRA-02 — Storage lifetime and isolation
+
+- [ ] Record local disk limits, reset behavior, persistence lifetime, and private-data cleanup requirements.
+- Question: What survives process restart, demo questions, or session reset, and what storage/cleanup/isolation requirements apply? Are persistent volumes available, and what are their lifetime/size/durability guarantees for versioned official datasets versus session artifacts?
+- Why it matters: Workspace semantics must match actual retention/durability expectations.
+- Blocks which milestone? M5 persistence acceptance, M10 reset/session behavior, M11 cleanup/restart demonstration.
+- Can we proceed before answer? YES for explicit in-process state and synthetic tests; NO for promised restart durability/private retention.
+- Temporary assumption: The merged workspace persists definition/binding/history tables, but result durability, cleanup and cross-session retention are not established. Do not commit or retain organizer data based on an assumption.
+- Owner: Unassigned; suggested lane B with C operator requirements.
+- Status: OPEN.
+- Answer / evidence: None recorded.
+
+<a id="open_questions-datasets"></a>
+
+### Datasets
+
+
+
+<a id="open_questions-q-data-01--bddkevds-and-provided-source-access"></a>
+
+#### Q-DATA-01 — BDDK/EVDS and provided source access
+
+- [x] Record the brief's named source scope: BDDK `Haftalık Bülten`, `Aylık Bülten` and `FinTürk - İllere Göre`, plus EVDS `tumSeriler`, all bounded to **January 2021 – June 2026** (DEC-131). BDDK is described as weekly/monthly and EVDS as daily/weekly/monthly, matching the [BDDK](BDDK_SOURCE.md) and [EVDS](EVDS_SOURCE.md) inventories.
+- [ ] Record approved access/formats, access requirements, and source-use permissions. A named dataset is not granted access.
+- Question: How may initial/broad BDDK/EVDS preparation, incremental refresh and on-demand official materialization for trusted catalog misses access official sources? Is demo-time official fetch permitted, with what rates/retention restrictions, and which metadata/revision conventions are authoritative? DEC-137 keeps prepared data as the hot path; it does not grant these permissions.
+- Why it matters: Scoped ingestion adapters and semantic mappings require confirmed inputs; familiar source names do not prove access.
+- Blocks which milestone? M3 official-source preparation and semantic acceptance; M11 representative analysis of the prepared official dataset.
+- Can we proceed before answer? NO for source-specific live acceptance; YES for generic ingestion and synthetic source-shaped fixtures.
+- Temporary assumption: BDDK/EVDS are confirmed intended sources but not the only possible ones; the brief also requires reading arbitrary prompt-supplied URLs (Q-NET-02). PR #21/#22 source inventories record observed endpoints/series metadata, not organizer-approved runtime access or redistribution. Do not invent missing request payloads, permissions or auth requirements. The 2021-01 – 2026-06 window is a scope bound, not a permission.
+- Owner: Unassigned; suggested lane A.
+- Status: OPEN for access permission; the named source list and date window are ANSWERED.
+- Answer / evidence: Kick-off deck, 7 September 2026, reviewed 2026-09-10; DEC-131. No access or redistribution permission recorded.
+
+<a id="open_questions-q-data-02--hidden-formats-schema-variation-and-size"></a>
+
+#### Q-DATA-02 — Hidden formats, schema variation, and size
+
+- [ ] Record required file formats, maximum sizes, languages/encodings, and expected schema variation.
+- Question: Can hidden inputs contain CSV/XLSX/multi-sheet workbooks, HTML, PDF/scanned PDF, images, unknown schemas, or unusually large files?
+- Why it matters: Defines required parsers, limits, OCR scope, and adversarial coverage.
+- Blocks which milestone? M1/M7 final format scope, M9 required coverage, M11 support claims.
+- Can we proceed before answer? YES for bounded CSV/XLSX baseline and explicit unsupported-format behavior; NO for claiming full hidden-format coverage.
+- Temporary assumption: CSV/XLSX first; PDFs with a text layer are extracted offline (M7-09), HTML is planned. Vision/OCR availability is confirmed by DEC-129; required input scope and safe document/OCR implementation remain separate questions. All enabled parsers need tested limits.
+- Owner: Unassigned; suggested lane A with C coverage.
+- Status: OPEN.
+- Answer / evidence: None recorded.
+
+<a id="open_questions-q-data-03--caching-retention-and-redistribution"></a>
+
+#### Q-DATA-03 — Caching, retention, and redistribution
+
+- [ ] Record permitted local cache/retention/export/fixture use and cleanup requirements.
+- Question: May organizer datasets and derived results be cached locally, included in a demo fallback, exported, or committed/shared, and for how long?
+- Why it matters: Determines legal/organizer permission for data handling and fallback artifacts; permission cannot be inferred from access.
+- Blocks which milestone? M1 private storage, M3/M7 cache, M10/M11 fallback/exports, SEC-DATA-01.
+- Can we proceed before answer? NO for private retention/redistribution/fallback use; YES with synthetic fixtures and explicitly permitted public-safe data.
+- Temporary assumption: Do not commit organizer/private data or assume cache/fallback permission. Team policy ([DEC-138](DECISIONS.md#dec-138--handback-priorities-lancedb-catalog-index-and-no-prepared-data-in-git), 2026-09-14): prepared official BDDK/EVDS data stays in ignored operator-local roots and ships through deployment, never Git; this is not an organizer answer.
+- Owner: Unassigned; suggested lane A / organizer liaison.
+- Status: OPEN.
+- Answer / evidence: None recorded; link the actual permission and scope when received.
+
+<a id="open_questions-q-data-04--authoritative-semantics-and-revisions"></a>
+
+#### Q-DATA-04 — Authoritative semantics and revisions
+
+- [ ] Record who resolves missing/conflicting units, stock-flow/reset rules, and historical revisions.
+- Question: Is an authoritative data dictionary/release vintage supplied, and how should we handle missing semantics or contradictory revised observations during judging?
+- Why it matters: Prevents silently selecting a convenient interpretation to produce a number.
+- Blocks which milestone? M2/M3 disputed source mappings; M9 oracle adjudication.
+- Can we proceed before answer? YES with explicit unknowns and hand-specified synthetic semantics; NO for unsupported source-specific conversions.
+- Temporary assumption: Preserve unknowns and vintages; clarify/abstain where required meaning is missing.
+- Owner: Unassigned; suggested lane A with C oracle review.
+- Status: OPEN.
+- Answer / evidence: None recorded.
+
+<a id="open_questions-external-internet--network"></a>
+
+### External internet / network
+
+
+
+<a id="open_questions-q-net-01--demodevelopment-internet-access"></a>
+
+#### Q-NET-01 — Demo/development internet access
+
+- [ ] Record outbound network, DNS, proxy, firewall, and package-install access for each environment.
+- Question: Is internet access available to the application during development and demo, and through which DNS/proxy/firewall restrictions? Does demo egress permit policy-bounded official BDDK/EVDS cache-miss materialization, and which upstream engines may a self-hosted search backend contact? Self-hosting alone does not answer privacy/egress policy.
+- Why it matters: Live retrieval/provider setup and reproducibility depend on actual connectivity.
+- Blocks which milestone? M3/M4/M7 live paths and M11 network rehearsal.
+- Can we proceed before answer? NO for promised live-source availability; YES for offline tools and fake transports.
+- Temporary assumption: No guaranteed external internet; do not enable an unrestricted fallback fetch path.
+- Owner: Unassigned; suggested lane B / organizer liaison.
+- Status: OPEN.
+- Answer / evidence: None recorded.
+
+<a id="open_questions-q-net-02--allowed-external-source-urls"></a>
+
+#### Q-NET-02 — Allowed external source URLs
+
+- [x] Record that reading **prompt-supplied URLs is a required demo-day capability**, not an optional extra: on Final Day URLs are handed to the system inside the prompt and meaning must be extracted from PDF, Excel, image and text content there. The brief illustrates this with the `borsaistanbul.com` precious-metals market-data page (values from its gold-transactions PDF) and the `xtumy` index page (BIST 100 daily/monthly change) (DEC-131).
+- [ ] Record whether arbitrary public URLs are permitted or an organizer-approved allowlist applies, including redirect destinations.
+- Question: The requirement to read prompt-supplied URLs is confirmed, but its boundary is not. May the app fetch any public HTTP(S) address, or only approved domains?
+- Why it matters: Product capability policy is additional to technical SSRF protection. The two named pages are **examples of a capability, not an allowlist and not a promise those URLs appear** — building only for them would fail an unseen address on the day.
+- Blocks which milestone? M7 live retrieval exposure and M11 supported-source claims; M3 source access is Q-DATA-01.
+- Can we proceed before answer? YES for the safe-fetch boundary, parsers and negative tests, which are now clearly required work; NO for enabling unrestricted fetching in a delivered build.
+- Temporary assumption: Build for an arbitrary public HTTPS address behind the M7 safe-fetch boundary, keep the enable switch operator-controlled, and never relax the private/metadata/loopback blocks. Do not hard-code the two example URLs into the product.
+- Owner: Unassigned; suggested lane B with A source needs.
+- Status: OPEN for the permission boundary; the capability requirement itself is ANSWERED.
+- Answer / evidence: Kick-off deck, 7 September 2026, reviewed 2026-09-10; DEC-131.
+
+<a id="open_questions-demo-format"></a>
+
+### Demo format
+
+
+
+<a id="open_questions-q-demo-01--timing-format-and-user-interaction"></a>
+
+#### Q-DEMO-01 — Timing, format, and user interaction
+
+- [x] Record the event dates and the real preparation window: kick-off **7 September 2026**; online development over Slack **7–20 September 2026**; top-10 announcement **5 October 2026**; **Final Day 17 October 2026** with jury presentations (DEC-131). The development deadline is **20 September**, not the informal "8–9 day" window previously assumed.
+- [ ] Record demo duration, the required interface, and who enters the questions on Final Day.
+- Question: How long is each team's slot, and will judges operate the app themselves, upload files, or ask live follow-ups?
+- Why it matters: The dates are now fixed, so the remaining unknowns are interaction and latency budgets. Two separate gates exist: the **repository reviewed after 20 September** and the **live demo on 17 October** — work that only serves the second must not displace the first.
+- Blocks which milestone? M10 UI/delivery acceptance and M11 timed rehearsal; the schedule itself is no longer provisional.
+- Can we proceed before answer? YES for backend/flow specification; NO for final demo-format assumptions.
+- Temporary assumption: Prepare one clear analysis/evidence/follow-up path operable by someone who did not build it, since the brief says teams produce output from inputs handed to them on the day.
+- Owner: Unassigned; suggested lane C.
+- Status: OPEN for demo format/interaction; dates and the preparation window are ANSWERED.
+- Answer / evidence: Kick-off deck, 7 September 2026, reviewed 2026-09-10; DEC-131.
+
+<a id="open_questions-q-demo-02--multi-turn-state-and-reset-semantics"></a>
+
+#### Q-DEMO-02 — Multi-turn state and reset semantics
+
+- [ ] Record whether state persists between questions, users, runs, or restarts, and how reset is expected to work.
+- Question: What exactly is retained between demo turns, and must the system restore an analysis after process restart or user change?
+- Why it matters: Explicit workspace state is required, but durable storage may not be.
+- Blocks which milestone? M5/M10 final session/persistence behavior; M11 operator reset/restart script.
+- Can we proceed before answer? YES for same-session explicit workspace; NO for a claim of required/working restart persistence.
+- Temporary assumption: Preserve same-workspace analytical state; do not promise cross-session durability.
+- Owner: Unassigned; suggested lane C with B implementation.
+- Status: OPEN.
+- Answer / evidence: None recorded.
+
+<a id="open_questions-q-demo-03--permitted-fallback-and-demonstration-assets"></a>
+
+#### Q-DEMO-03 — Permitted fallback and demonstration assets
+
+- [ ] Record whether local fixture/cache fallback, recorded screens, or preloaded data are permitted and how they must be labeled.
+- Question: What fallback is allowed if live source/provider access fails, and which prepared demo assets may be used?
+- Why it matters: Reliable recovery must remain honest about live versus synthetic/cached behavior.
+- Blocks which milestone? M10 fallback UI and M11 outage rehearsal acceptance.
+- Can we proceed before answer? NO for treating prepared assets as an approved demo fallback; YES for synthetic development/recovery tests.
+- Temporary assumption: No silent fixture substitution or claim that a cache is live; no presumed fallback permission.
+- Owner: Unassigned; suggested lane C.
+- Status: OPEN for fallback permission. DEC-136 distinguishes prepared official observations from replacing real on-day analysis with prepared answers or fixtures.
+- Answer / evidence: The kick-off deck requires running the real scenario on Final Day and producing output from **inputs supplied on the day**, from a live deployed solution (DEC-131). The original review treated this as evidence against prepared-asset substitution. DEC-136 clarifies that a prepared official observation dataset is the intended normal analytical input, not a canned-answer/recorded-screen/synthetic substitute. The brief does not settle outage fallback permission, so the question stays open. Coordinate data permission with Q-DATA-03.
+
+<a id="open_questions-allowed-development-tooling"></a>
+
+### Allowed development tooling
+
+
+
+<a id="open_questions-q-dev-02--external-tools-libraries-and-code-disclosure"></a>
+
+#### Q-DEV-02 — External tools, libraries, and code disclosure
+
+- [x] Record the stated technology expectations: **Python is the main development language** with no second backend language unless specifically needed, the frontend framework is free, **open-weights** models are expected (the deck names Qwen, Mistral, gpt-oss, Kimi) and **open-source libraries** are expected, with `pypdf`, Pandas, DuckDB, Plotly and LanceDB named explicitly (DEC-131). This corroborates the existing DEC-112/124/130 stack and authorizes no new dependency.
+- [ ] Record restrictions on packages, development-time internet/tools, external services, and required attribution/disclosure.
+- Question: Are there restrictions on third-party libraries, development services, pre-existing code, or generated assets beyond the known runtime constraints? "Open-source libraries are expected" is an expectation, not a published allowlist.
+- Why it matters: Avoid adopting tooling/assets that cannot be used in the submitted product.
+- Blocks which milestone? M0 setup policy, optional M7 extraction dependencies, M10 assets, M11 submission review.
+- Can we proceed before answer? YES with the existing minimal declared stack and explicit hard constraints; NO for claiming unrestricted additional tooling permission.
+- Temporary assumption: Add no speculative service dependency; record concrete package needs and ask before assuming event allowance. Prefer the explicitly named libraries where they fit, since they are known-acceptable.
+- Owner: Unassigned; suggested organizer liaison with B technical input.
+- Status: OPEN for restrictions/disclosure; language and library/model expectations are ANSWERED.
+- Answer / evidence: Kick-off deck, 7 September 2026, reviewed 2026-09-10; DEC-131.
+
+<a id="open_questions-scoring--judging"></a>
+
+### Scoring / judging
+
+
+
+<a id="open_questions-q-judge-01--rubric-and-unsupported-answer-handling"></a>
+
+#### Q-JUDGE-01 — Rubric and unsupported-answer handling
+
+Known qualitative criteria: [DEC-141](DECISIONS.md#dec-141-organizer-verbal-criteria) records Çağatay's 2026-09-14 organizer relay: development assistants allowed; allowed open-weight/Kloudeks runtime only; own harness with minimal model dependence; cross-domain genericity; own lakehouse rather than managed substitution; no committed secrets even in private Git; chained table preservation and intended-result continuation. No transcript-independent verification or scoring weights are claimed. The quantitative rubric below remains open.
+
+- [ ] Record scoring weights, required use cases, numeric tolerances, and treatment of clarification/abstention/causality.
+- Question: How are correctness, evidence, recovery, latency, UI, and unsupported/causal answers scored, and are hidden-case categories or tolerances specified?
+- Why it matters: Determines final acceptance thresholds and rational scope cuts without gaming unknown criteria.
+- Blocks which milestone? M9 final score thresholds and M11 go/no-go criteria.
+- Can we proceed before answer? YES with category-based correctness metrics; NO for claiming organizer score thresholds.
+- Temporary assumption: Prioritize correct, traceable results and honest abstention; do not invent weights or required pass percentages.
+- Owner: Unassigned; suggested lane C.
+- Status: OPEN.
+- Answer / evidence: Qualitative criteria relayed by Çağatay are recorded in DEC-141; numerical weights/tolerances and a complete rubric remain unconfirmed.
+
+<a id="open_questions-q-judge-02--submission-and-development-history-evidence"></a>
+
+#### Q-JUDGE-02 — Submission and development-history evidence
+
+- [ ] Record deliverables, repository visibility/access, history/review expectations, and submission deadline.
+- Question: Which source/history/PR/benchmark/demo artifacts must be submitted, and how will development progression be reviewed?
+- Why it matters: The team-reported review expectation needs an actionable submission contract.
+- Blocks which milestone? M0 remote-sharing setup and M11 final submission/release packaging.
+- Can we proceed before answer? YES with coherent local changes and safe records; NO for assuming publication/access requirements.
+- Temporary assumption: Keep history understandable; no automatic commit/push/merge or private-data disclosure.
+- Owner: Unassigned; suggested lane C / organizer liaison.
+- Status: OPEN.
+- Answer / evidence: None recorded.
+
+<a id="open_questions-compute--resources"></a>
+
+### Compute / resources
+
+
+
+<a id="open_questions-q-comp-01--provided-machine-and-resource-limits"></a>
+
+#### Q-COMP-01 — Provided machine and resource limits
+
+- [ ] Record CPU/RAM/disk/GPU availability and whether the team must use its own machine.
+- Question: Will organizers provide a machine/GPU or require team hardware, and what CPU/RAM/disk/concurrency limits apply?
+- Why it matters: Determines parser limits, local setup, and realistic latency/rehearsal conditions.
+- Blocks which milestone? M0 environment acceptance, M7 resource limits, M10/M11 deployment/rehearsal.
+- Can we proceed before answer? YES for bounded CPU-friendly baseline; NO for claiming resource compatibility or assuming a GPU.
+- Temporary assumption: No dedicated GPU or distributed infrastructure; measure on the actual environment when known.
+- Owner: Unassigned; suggested lane B.
+- Status: OPEN.
+- Answer / evidence: None recorded.
+
+<a id="open_questions-q-comp-02--optional-traininginference-experiment-budget"></a>
+
+#### Q-COMP-02 — Optional training/inference experiment budget
+
+- [ ] Record permitted compute/time/quota for optional fine-tuning or retrieval experiments if a measured need appears.
+- Question: If a baseline reveals a routing/retrieval weakness, are local training or additional inference experiments permitted and resourced?
+- Why it matters: Prevents speculative fine-tuning work from consuming the delivery window.
+- Blocks which milestone? Optional enhancements only; no baseline milestone.
+- Can we proceed before answer? YES.
+- Temporary assumption: No fine-tuning pipeline, vector infrastructure, or additional model topology is allocated by default.
+- Owner: Unassigned; suggested lane B with C benchmark evidence.
+- Status: OPEN; experiments DEFERRED until justified.
+- Answer / evidence: None recorded.
+
+<a id="open_questions-internal-team-choices--resolve-with-evidence-not-organizer-guesses"></a>
+
+### Internal team choices — resolve with evidence, not organizer guesses
+
+
+
+<a id="open_questions-q-team-07--broad-prepared-coverage-target"></a>
+
+#### Q-TEAM-07 — Broad prepared coverage target
+
+- Question: Which additional BDDK Monthly/Weekly/FinTürk and EVDS financial families, selectors, periods and coverage thresholds fit the deadline and source permissions after the first four-series vertical slice?
+- Constraints: Approximately 2021-01–2026-06 is the initial analysis window; broader structured financial coverage must have trusted identity/semantics. Do not promise every source record or guess unsupported calendars/units.
+- Owner: Unassigned. Status: OPEN. Blocks a claimed broad dataset acceptance scope, not the bounded first reusable adapter design.
+- Evidence needed: reviewed catalog inventory, access/retention permission, measured ingestion/storage budget and independent coverage acceptance. No new task or READY state assigned.
+
+<a id="open_questions-q-team-08--refresh-and-vintage-selection-policy"></a>
+
+#### Q-TEAM-08 — Refresh and vintage selection policy
+
+- Question: How should users/analyses select dataset versions when new periods, historical corrections, metadata or retirement/archive changes arrive, and what constitutes an idempotent no-op?
+- Constraints: Same official content/selector/parser/semantic policy must be reproducible; preserve prior snapshots/versions and never silently overwrite trusted evidence. Source-authoritative interpretation still depends on Q-DATA-04; retention on Q-DATA-03.
+- Owner: Unassigned. Status: OPEN. Blocks sophisticated M3/M12 version-selection/refresh acceptance, not a fixed validated prepared-pool demo with immutable snapshots and explicit conflict refusal. No scheduler is required or selected.
+- Evidence needed: explicit content-version/manifest policy, revision/conflict fixtures, publication-failure preservation and requested-window behavior. Existing storage does not settle these decisions.
+
+
+## Answered question records
+
+Historical records retain original wording, ownership, revisions and limitations. They are not current status, new authorization or active claims.
+
+<a id="q-team-06--vector-cacheindex-implementation"></a>
+<a id="history-q-team-06--vector-cacheindex-implementation"></a>
+
+### Q-TEAM-06 — Vector cache/index implementation
+
+- Question: Does measured catalog size/latency justify a dedicated index, or is a versioned embedding cache with deterministic cosine similarity sufficient?
+- Historical constraints (before DEC-138): Required hybrid retrieval is decided; the vector product is not. Key by series/concept ID, catalog text hash, model ID and measured dimension 4096; never store observation values as vectors. A dedicated catalog vector-search layer is intended, but no product/index is implemented. LanceDB is the strong/preferred dedicated-index candidate to benchmark first; exact cosine over a versioned embedding cache may be the small-catalog baseline. No PostgreSQL/pgvector service without a later explicit justification.
+- Owner: Eray (original decision). Status: **ANSWERED (2026-09-14) by [DEC-138](DECISIONS.md#dec-138--handback-priorities-lancedb-catalog-index-and-no-prepared-data-in-git): LanceDB is the catalog vector index.** PRs #153/#154 delivered pinned LanceDB 0.38.0, bounded local search and optional combined candidates. Prepared runtime still uses lexical retrieval without real Qwen embedding injection; input-policy/limit review and live semantic-quality acceptance remain unfinished. The question and pre-DEC-138 constraints above are historical.
+- Evidence needed: versioned catalog scale, cold/warm latency, deployment simplicity, benchmark quality, dependency cost, deterministic ranking and failure tests. DEC-137 supersedes only the prior mandatory product choice; its dated refinement prioritizes required hybrid retrieval while deferring dedicated-index scaling beyond measured need.
+
+<a id="q-team-05--workspace-persistence-and-reference-storage"></a>
+<a id="history-q-team-05--workspace-persistence-and-reference-storage"></a>
+
+### Q-TEAM-05 — Workspace persistence and reference storage
+
+- [x] Record the minimum persistence mechanism after lifetime/reset requirements are known.
+- Question: Is in-process state sufficient, or do confirmed demo requirements require a local durable store and restore behavior?
+- Why it matters: Explicit state is mandatory; a specific database is not.
+- Blocks which milestone? M5 durable storage selection and M10/M11 restart acceptance.
+- Can we proceed before answer? YES for explicit model/state-transition tests; NO for a database commitment or durability claim.
+- Temporary assumption (superseded by the answer below): Preserve state explicitly within a workspace; persistence engine remains deferred.
+- Owner: Eray (M0-ARCH). Original suggestion: suggested lane B with C operator input.
+- Status: ANSWERED (2026-09-09, M0-ARCH).
+- Answer / evidence: An artifact DAG persisted in DuckDB, recorded in [DEC-117](DECISIONS.md#dec-117--analysis-workspace-as-a-persisted-artifact-dag). Adding a column adds a node rather than rebuilding the table, which is what the organizer's incremental scenario requires, and the same structure supplies replay and cache invalidation. No separate persistence engine is needed once DEC-112 puts DuckDB in the stack. Cross-process durability and reset semantics still depend on Q-INFRA-02 and Q-DEMO-02. Implemented in M5.
+
+<a id="q-team-04--causality-implementation-and-prerequisites"></a>
+<a id="history-q-team-04--causality-implementation-and-prerequisites"></a>
+
+### Q-TEAM-04 — Causality implementation and prerequisites
+
+- [x] Record method, supported claims, sample/assumption rules, and scope decision.
+- Question: Which statistical/causality method, if any, is defensible within the deadline and actual data, and when must it abstain?
+- Why it matters: A named test is not sufficient evidence of causal identification.
+- Blocks which milestone? M6 advanced method; M9 method-specific oracles; not change/association/abstention baseline.
+- Can we proceed before answer? YES for deterministic descriptive statistics and causal-discipline tests; NO for claiming an exact causal method is agreed.
+- Temporary assumption (superseded by the answer below): Report association honestly; advanced causal inference stays unselected/optional pending need and review.
+- Owner: Eray (M0-ARCH). Original suggestion: suggested lane A/C statistical review.
+- Status: ANSWERED (2026-09-09, M0-ARCH).
+- Answer / evidence: Lagged cross-correlation plus Granger tests via `statsmodels`, with `ruptures` for structural breaks, and mandatory printed limitations, recorded in [DEC-120](DECISIONS.md#dec-120--causality-reports-association-with-stated-limits). Sixty to sixty-six monthly observations cannot identify a causal effect, so the system never emits an "X causes Y" claim and Granger output is reported as predictive precedence. Implemented in M6; abstention and phrasing tested in M9.
+
+<a id="q-team-03--frontend-framework"></a>
+<a id="history-q-team-03--frontend-framework"></a>
+
+### Q-TEAM-03 — Frontend framework
+
+- [x] Record UI choice after confirming demo environment and operator needs.
+- Question: Which frontend approach delivers the required upload/plan/result/evidence/follow-up flow with the least setup risk?
+- Why it matters: UI polish must not outrun backend acceptance or environment compatibility.
+- Blocks which milestone? M10 implementation choice.
+- Can we proceed before answer? YES for flow specification; NO for framework commitment.
+- Temporary assumption (superseded by the answer below): Minimal clear UI, no chosen framework or hosting product.
+- Owner: Eray (M0-ARCH). Original suggestion: suggested lane C with B deployment review.
+- Status: ANSWERED (2026-09-09, M0-ARCH).
+- Answer / evidence: FastAPI with server-sent events behind a Next.js client using Tailwind, shadcn/ui, TanStack Table, react-plotly.js and React Flow, recorded in [DEC-123](DECISIONS.md#dec-123--fastapi-with-sse-behind-a-nextjs-front-end). The team has front-end capacity and the trust layer is only visible if lineage is rendered. Streamlit is retained as an explicitly recorded fallback if front-end work starts delaying backend acceptance. Q-DEMO-01 and Q-INFRA-01 still shape hosting, not the framework choice. Implemented in M10.
+
+<a id="q-team-02--analyticalparsing-engine"></a>
+<a id="history-q-team-02--analyticalparsing-engine"></a>
+
+### Q-TEAM-02 — Analytical/parsing engine
+
+- [x] Record engine/dependency choice against concrete ingestion/normalization requirements.
+- Question: Which minimal combination of Pandas, Polars, DuckDB, or another engine best meets parsing/date/semantic needs and installation constraints?
+- Why it matters: Shared data references, deterministic operations, and dependency setup depend on the choice.
+- Blocks which milestone? M1 implementation dependency, M2/M6 engine-specific operations.
+- Can we proceed before answer? YES for contracts/synthetic oracles; NO for engine adoption by assumption.
+- Temporary assumption (superseded by the answer below): Python and Pydantic exist; no analytical engine is selected; Snowflake remains prohibited.
+- Owner: Eray (M0-ARCH). Original suggestion: suggested lane A with B review.
+- Status: ANSWERED (2026-09-09, M0-ARCH).
+- Answer / evidence: DuckDB over Parquet in a bronze/silver/gold medallion, with Pandas for in-process transformation, recorded in [DEC-112](DECISIONS.md#dec-112--duckdb-and-parquet-as-the-analytical-engine-and-lakehouse). Polars rejected as a third dataframe dialect at this corpus size. Spreadsheet reading is split by trust boundary between [DEC-111](DECISIONS.md#dec-111--openpyxl-for-the-untrusted-xlsx-boundary) and [DEC-114](DECISIONS.md#dec-114--pandas-with-calamine-for-operator-fetched-bulk-spreadsheets). Unblocks M1-03, M1-06 and the M2/M6 engine-dependent tasks; implemented in M12.
+
+<a id="q-team-01--orchestration-mechanism"></a>
+<a id="history-q-team-01--orchestration-mechanism"></a>
+
+### Q-TEAM-01 — Orchestration mechanism
+
+- [x] Record chosen minimal mechanism and rationale in DECISIONS after team review.
+- Question: Does the tested lifecycle need a custom bounded loop, LangGraph, or another framework?
+- Why it matters: Adds coordination/dependency cost and affects shared plan/workspace boundaries.
+- Blocks which milestone? M5 framework adoption; lifecycle fixtures and registry contracts can proceed.
+- Can we proceed before answer? YES for interface/tests; NO for silently committing the team to a framework.
+- Temporary assumption (superseded by the answer below): Simple orchestration is a confirmed preference, not a selected implementation.
+- Owner: Eray (M0-ARCH). Original suggestion: suggested lane B; another teammate reviews.
+- Status: ANSWERED (2026-09-09, M0-ARCH).
+- Answer / evidence: Custom bounded planner -> router -> executor -> verifier loop, recorded in [DEC-113](DECISIONS.md#dec-113--custom-bounded-orchestration-loop). LangChain, LangGraph and Celery rejected; the lifecycle is small enough that owning retry, repair and cancellation explicitly is cheaper than learning a framework's failure modes during delivery. Implemented in M5.
+
+<a id="q-dev-01--coding-assistants-during-development"></a>
+<a id="history-q-dev-01--coding-assistants-during-development"></a>
+
+### Q-DEV-01 — Coding assistants during development
+
+- [x] Record organizer policy on coding assistants used only to build the product. **ANSWERED 2026-09-10: coding assistants are permitted as development tools.**
+- Question (resolved): Are Codex/Claude Code or other coding assistants permitted strictly as development tools while runtime uses only Kloudeks, and is disclosure required?
+- Why it matters: Development-tool permission is separate from the confirmed runtime restriction, and the kick-off deck's wording did not clearly keep them separate. The repository is built with assistant help, so an unfavourable reading would have been a compliance problem discovered at submission.
+- Blocks which milestone? Nothing further; the development workflow and M11 submission are unblocked on this point.
+- Can we proceed before answer? Resolved — assistant-assisted development may proceed.
+- Standing constraint: **the runtime restriction is untouched by this answer.** Permission covers assistants used to write the product; the delivered product still reaches an LLM only through Kloudeks under DEC-002/DEC-129/DEC-131. No assistant, and no model an assistant runs on, may appear in a runtime path, a dependency or a delivered request.
+- Owner: Eray (obtained the answer).
+- Status: **ANSWERED** for development use; the runtime ban is unchanged and remains a hard constraint.
+- Answer / evidence: The team is permitted to use coding assistants as development tools — relayed by Eray on 2026-09-10. This resolves the ambiguity recorded the same day: the kick-off deck answers "may we use cloud AI services?" with no, prohibits third-party LLM API services, and adds (deck, 7 September 2026): "Geliştirme süreçlerinde yalnızca Kloudeks platformu üzerinden erişilebilen açık kaynaklı dil modelleri kullanılmalıdır." That sentence governs the **models the delivered product calls**, not the tools used to write it. Attach the underlying organizer message reference and its date to this entry if one is available, so the record does not rest on a relay alone.
+- Disclosure: no disclosure requirement was reported. If the organizers later ask for one, this entry and the Git history are the evidence; do not retrofit attribution selectively.

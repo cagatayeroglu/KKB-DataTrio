@@ -289,3 +289,47 @@ class TestConversionRefusesWhatItCannotSupport:
         rows = monthly(NET_PROFIT_RESET)
         with pytest.raises(CumulativeError, match="not defined for"):
             to_flow(rows, CumulativeKind.YEARLY_RESET, frequency=Frequency.WEEKLY)
+
+
+@pytest.mark.parametrize(
+    "frequency,first,last,ends",
+    [
+        (
+            Frequency.QUARTERLY,
+            date(2024, 3, 31),
+            date(2024, 12, 31),
+            [date(2024, 3, 31), date(2024, 6, 30), date(2024, 9, 30), date(2024, 12, 31)],
+        ),
+        (
+            Frequency.SEMIANNUAL,
+            date(2024, 6, 30),
+            date(2024, 12, 31),
+            [date(2024, 6, 30), date(2024, 12, 31)],
+        ),
+        (
+            Frequency.ANNUAL,
+            date(2023, 12, 31),
+            date(2025, 12, 31),
+            [date(2023, 12, 31), date(2024, 12, 31), date(2025, 12, 31)],
+        ),
+    ],
+)
+def test_month_based_spines_remain_strict_and_unchanged(frequency, first, last, ends):
+    assert [end for _, end in spine(frequency, first, last)] == ends
+    with pytest.raises(PeriodMismatch):
+        spine(frequency, first.replace(day=15), last)
+
+
+@pytest.mark.parametrize(
+    "frequency",
+    [
+        Frequency.UNKNOWN,
+        Frequency.DAILY,
+        Frequency.BUSINESS_DAY,
+        Frequency.TWICE_MONTHLY,
+        Frequency.IRREGULAR,
+    ],
+)
+def test_unsupported_calendars_still_have_no_spine(frequency):
+    with pytest.raises(SemanticsError):
+        spine(frequency, date(2024, 1, 1), date(2024, 1, 31))

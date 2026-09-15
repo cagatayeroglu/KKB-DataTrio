@@ -21,8 +21,11 @@ from datetime import date
 from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
+import duckdb
+
 from kkb_agent.agent.claim_qualifiers import SCALE_WORDS as SCALE_WORDS
 from kkb_agent.agent.claim_qualifiers import (
+    absence_fault,
     amount_qualifiers,
     causal_fault,
     clause_context,
@@ -32,7 +35,9 @@ from kkb_agent.agent.claim_qualifiers import (
     period_fault,
     unit_fault,
 )
-from kkb_agent.core import AnalyticalResult, ResultStatus, ResultValue, Scale
+from kkb_agent.agent.literal import exposes_literal_identity, literal_proof, literal_text
+from kkb_agent.core import AnalyticalResult, ClaimKind, ResultStatus, ResultValue, Scale
+from kkb_agent.lakehouse.result_evidence import execution_proof
 
 if TYPE_CHECKING:  # pragma: no cover
     from duckdb import DuckDBPyConnection
@@ -68,7 +73,9 @@ class Binding(StrEnum):
     UNBOUND = "unbound"
 
 
-_SENTENCE_BREAK: Final = re.compile(r"[.!?\n]\s")
+# A line break always ends a claim: a table row or list item is its own sentence, so
+# one row's period can never qualify a number on another row.
+_SENTENCE_BREAK: Final = re.compile(r"[.!?]\s|\n")
 
 
 @dataclass(frozen=True, slots=True)
@@ -441,9 +448,21 @@ def result_faults(
     found: dict[str, tuple[str, ...]] = {}
     for name, result in named.items():
         faults = _result_faults(result, minimum_samples)
-        if connection is not None:
-            faults.extend(_evidence_faults(result, connection))
-            faults.extend(recheck_against_store(result, connection, tolerance=tolerance))
+        try:
+            if result.claim_kind is ClaimKind.LITERAL_SOURCE_VALUE:
+                if not literal_proof(result, connection):
+                    faults.append(
+                        "Literal source value does not resolve to its exact recorded cell"
+                    )
+            elif result.status is ResultStatus.COMPUTED and not execution_proof(result, connection):
+                faults.append(
+                    "Numeric analytical result lacks matching trusted producer execution evidence"
+                )
+            if connection is not None:
+                faults.extend(_evidence_faults(result, connection))
+                faults.extend(recheck_against_store(result, connection, tolerance=tolerance))
+        except (duckdb.Error, ValueError, TypeError, AttributeError, RuntimeError):
+            faults.append("Evidence resolver unavailable or invalid; result cannot be verified")
         if faults:
             found[name] = tuple(f"{name}: {fault}" for fault in faults)
     return found
@@ -504,6 +523,8 @@ def verify_claims(
     ]
 
     rejected: list[str] = []
+    if exposes_literal_identity(answer, list(named.values())):
+        rejected.append("Internal document proof identifiers are not answer text")
     for start, end in _sentence_spans(answer):
         if fault := causal_fault(answer[start:end]):
             rejected.append(fault)
@@ -561,10 +582,16 @@ def _bind_to_results(
                 fault
                 for fault in (
                     _scale_fault(answer, number, value),
-                    period_fault(clause, prefix, value),
+                    period_fault(clause, prefix, value, _price_references(result, value)),
                     unit_fault(answer, number.start, end, value),
                     identity_fault(clause, prefix, name, result, value, named),
-                    _semantics_fault(number, value),
+                    None
+                    if (
+                        result.claim_kind is ClaimKind.LITERAL_SOURCE_VALUE
+                        and name not in disqualified
+                        and answer.strip() == literal_text(result)
+                    )
+                    else _semantics_fault(number, value),
                 )
                 if fault is not None
             )
@@ -669,6 +696,21 @@ def _sentence_spans(text: str) -> list[tuple[int, int]]:
     return spans or [(0, len(text))]
 
 
+def _price_references(result: AnalyticalResult, value: ResultValue) -> tuple[date, ...]:
+    """Recorded deflation reference months for exactly this value's column."""
+    if result.evidence is None:
+        return ()
+    found = []
+    for record in result.evidence.transformations:
+        reference = record.parameters.get("reference_period")
+        if record.operation == "deflate" and record.output_ref == value.label:
+            try:
+                found.append(date.fromisoformat(str(reference)))
+            except ValueError:
+                continue
+    return tuple(found)
+
+
 def gate_answer(
     draft: str,
     results: AnalyticalResult | Sequence[AnalyticalResult] | Mapping[str, AnalyticalResult],
@@ -718,8 +760,17 @@ def gate_answer(
 
     failures: dict[tuple[int, int], list[str]] = {}
     spans = _sentence_spans(draft)
+    computed = any(
+        result.status is ResultStatus.COMPUTED and result.values for result in named.values()
+    )
     for span in spans:
+        if exposes_literal_identity(draft[span[0] : span[1]], list(named.values())):
+            failures.setdefault(span, []).append(
+                "Internal document proof identifiers are not answer text"
+            )
         if fault := causal_fault(draft[span[0] : span[1]]):
+            failures.setdefault(span, []).append(fault)
+        if computed and (fault := absence_fault(draft[span[0] : span[1]])):
             failures.setdefault(span, []).append(fault)
     for item in verdict.numbers:
         if item.supported:

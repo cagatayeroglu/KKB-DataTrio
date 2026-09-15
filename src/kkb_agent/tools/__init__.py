@@ -1,6 +1,12 @@
-"""The six brief-named tools. Four exist; `web_search` and `web_url` do not."""
+"""Six brief-named factories plus M13-04 catalog_search.
+
+web_search requires an explicitly injected backend.
+
+No production search adapter or default fake is included (DEC-134).
+"""
 
 from kkb_agent.tools.anomaly import AnomalyArguments, make_anomaly_tool
+from kkb_agent.tools.catalog_search import make_catalog_search_tool
 from kkb_agent.tools.causality import CausalityArguments, make_causality_tool
 from kkb_agent.tools.change_detection import (
     ChangeDetectionArguments,
@@ -20,8 +26,34 @@ from kkb_agent.tools.lakehouse import (
     referenced_tables,
     run_query,
 )
+from kkb_agent.tools.table_transform import TableTransformArguments, make_table_transform_tool
+from kkb_agent.tools.web_search import (
+    BackendHit,
+    SearchBackend,
+    SearchCandidate,
+    SearchCode,
+    SearchReply,
+    SearchRequest,
+    WebSearchOutput,
+    make_web_search_tool,
+)
+from kkb_agent.tools.web_url import (
+    WebUrlArguments,
+    WebUrlOutput,
+    addresses_in,
+    make_web_url_tool,
+)
 
 __all__ = [
+    "make_catalog_search_tool",
+    "BackendHit",
+    "SearchBackend",
+    "SearchCandidate",
+    "SearchCode",
+    "SearchReply",
+    "SearchRequest",
+    "WebSearchOutput",
+    "make_web_search_tool",
     "DEFAULT_MAX_ROWS",
     "AnomalyArguments",
     "CausalityArguments",
@@ -32,11 +64,17 @@ __all__ = [
     "QueryResult",
     "SeriesUnknown",
     "SqlRejected",
+    "WebUrlArguments",
+    "WebUrlOutput",
+    "addresses_in",
     "check_sql",
     "make_anomaly_tool",
     "make_causality_tool",
     "make_change_detection_tool",
     "make_lakehouse_tool",
+    "make_web_url_tool",
+    "TableTransformArguments",
+    "make_table_transform_tool",
     "read_series",
     "referenced_tables",
     "run_query",

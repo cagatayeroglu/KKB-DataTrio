@@ -38,8 +38,10 @@ from kkb_agent.analytics import (
     granger_precedence,
     lagged_association,
 )
+from kkb_agent.catalog.inspection import PreparedSeriesInspector
 from kkb_agent.core import AnalyticalResult, ResultStatus
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
+from kkb_agent.lakehouse.result_evidence import _record_execution
 from kkb_agent.tools.change_detection import SeriesUnknown, read_series
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -81,7 +83,10 @@ class CausalityArguments(BaseModel):
 
 
 def make_causality_tool(
-    connection: DuckDBPyConnection, *, lineage: Lineage | None = None
+    connection: DuckDBPyConnection,
+    *,
+    lineage: Lineage | None = None,
+    inspector: PreparedSeriesInspector | None = None,
 ) -> ToolSpec:
     """Bind the tool to one database. The registry holds the closure, not the data."""
 
@@ -91,8 +96,8 @@ def make_causality_tool(
         if not isinstance(arguments, CausalityArguments):  # pragma: no cover
             raise TypeError("causality received arguments it did not declare")
         try:
-            left = read_series(connection, arguments.left_series_id)
-            right = read_series(connection, arguments.right_series_id)
+            left = read_series(connection, arguments.left_series_id, inspector=inspector)
+            right = read_series(connection, arguments.right_series_id, inspector=inspector)
         except SeriesUnknown as error:
             return ToolResult(
                 ToolStatus.FAILURE,
@@ -141,6 +146,14 @@ def make_causality_tool(
             result = result.model_copy(
                 update={"evidence": result.evidence.model_copy(update={"lineage_node": node})}
             )
+
+        result = _record_execution(
+            connection,
+            producer="causality",
+            arguments=arguments.model_dump_json(),
+            inputs=[left.snapshot, right.snapshot],
+            result=result,
+        )
 
         warnings = tuple(result.warnings) + tuple(result.limitations)
         if result.status is not ResultStatus.COMPUTED and result.reason is not None:

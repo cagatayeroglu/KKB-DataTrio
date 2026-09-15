@@ -24,6 +24,16 @@ from kkb_agent.core import (
 from kkb_agent.database import apply_schema
 
 
+@pytest.fixture(autouse=True)
+def verified_execution_boundary(monkeypatch):
+    """Unit-test qualifiers after execution proof; never issue fake evidence.
+
+    M8-21's real producer/resolver/gate integration is covered separately in
+    test_execution_evidence.py and test_projection_provenance.py.
+    """
+    monkeypatch.setattr("kkb_agent.agent.verifier.execution_proof", lambda result, db: True)
+
+
 @pytest.fixture
 def connection():
     with duckdb.connect(":memory:") as connection:

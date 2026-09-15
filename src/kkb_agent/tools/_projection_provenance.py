@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from kkb_agent.lakehouse.result_evidence import canonical
+
 if TYPE_CHECKING:
     from duckdb import DuckDBPyConnection
 
@@ -41,6 +43,7 @@ _STORED_COLUMNS = (
     "frequency",
     "anchor",
     "observation",
+    "artifact_id",
 )
 _SHAPE_REASON = (
     "Unsupported projection provenance: use direct silver observation columns "
@@ -115,7 +118,11 @@ def _sources(node: dict[str, Any]) -> dict[str, str] | None:
 
 
 def provenance_fault(
-    query: QueryResult, ast: dict[str, Any], connection: DuckDBPyConnection
+    query: QueryResult,
+    ast: dict[str, Any],
+    connection: DuckDBPyConnection,
+    *,
+    snapshots: list[str] | None = None,
 ) -> str | None:
     """Prove column origins, then exact stored identity; absence never passes.
 
@@ -151,10 +158,11 @@ def provenance_fault(
             return _SHAPE_REASON
 
     positions = {name: i for i, name in enumerate(query.columns)}
+    checked: list[dict[str, Any]] = []
     for row in query.rows:
         stored = connection.execute(
             "SELECT o.series_id, o.period_start, o.period_end, o.value, s.title, "
-            "s.unit, s.scale, s.frequency, s.anchor, s.observation "
+            "s.unit, s.scale, s.frequency, s.anchor, s.observation, s.artifact_id "
             "FROM silver_observations o JOIN silver_series s ON s.series_id = o.series_id "
             "WHERE o.series_id = ? AND o.period_end = ?",
             [row[positions["series_id"]], row[positions["period_end"]]],
@@ -162,9 +170,12 @@ def provenance_fault(
         if stored is None:
             return "Projection identity resolves to no stored observation; no evidence established"
         by_name = dict(zip(_STORED_COLUMNS, stored, strict=True))
+        checked.append(by_name)
         if any(row[i] != by_name[name] for name, i in positions.items()):
             return (
                 "Projection differs from its stored value, period or semantics; "
                 "no evidence established"
             )
+    if snapshots is not None:
+        snapshots.append(canonical({"kind": "silver_projection", "rows": checked}))
     return None

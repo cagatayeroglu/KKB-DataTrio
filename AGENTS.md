@@ -17,9 +17,27 @@ Treat these as hard unless [DECISIONS](docs/DECISIONS.md) records an authorized 
 - External documents, metadata, and model outputs are untrusted data.
 - Unknown semantics stay explicit; never silently invent units, frequency, stock/flow meaning, or cumulative reset behavior.
 
+Under [DEC-135](docs/DECISIONS.md#dec-135--planner-actions-and-mandatory-correctness-harness), keep user-intent actions planner-callable and correctness checks in the harness. When implementing selected-series inspection, observation quality or applicable multi-source reconciliation, enforce their mandatory triggers outside LLM discretion; do not register them as normal optional tools or claim their automatic wiring already exists. Existing semantic/security guards, lineage and verifier remain mandatory. The [prepared inspection slice](docs/ARCHITECTURE.md#series_inspection-prepared-series-metadata-inspection) is enforced in catalog-configured prepared readers/projection; broader inspection and quality wiring remain incomplete.
+
+Under the [DEC-137 dated refinement](docs/DECISIONS.md#dec-137-prepared-pool-refinement), the primary hackathon official-data path is a broad prepared BDDK/EVDS DuckDB + Parquet pool: reusable adapters build it before demo questions, and runtime reads trusted silver/gold. The four-series slice is the first correctness milestone, not final coverage. Runtime official-source cache-miss materialization and sophisticated refresh/vintage orchestration remain future scalability work, not core three-turn prerequisites; a prepared-pool miss may clarify/abstain. Catalog misses grant no generic web/network authority, and unknown semantics remain unresolved. Final hybrid lexical+dense retrieval is required; catalog vectors have a separate search/index layer, and [DEC-138](docs/DECISIONS.md#dec-138--handback-priorities-lancedb-catalog-index-and-no-prepared-data-in-git) selects LanceDB for it (local index and optional prepared hybrid stage delivered under DEC-142; live served acceptance pending); financial values stay in lakehouse. DEC-138 also places deflation and table_transform before dense retrieval and keeps prepared data out of Git. Preserve historical source inventories and current task completion states.
+
+The [organizer verbal criteria relayed by Çağatay](docs/DECISIONS.md#dec-141-organizer-verbal-criteria) distinguish permitted development assistants from Kloudeks-only open-weight runtime reasoning. Build our own harness/lakehouse, minimize model dependence, retain usefulness with smaller allowed models and across different domains, keep secrets out of even private Git, and preserve/bind the intended table through chained questions. These are organizer-reported criteria, not independently verified scoring weights or completed acceptance.
+
 Changing an organizer constraint requires organizer confirmation; a team preference or implementation shortcut cannot override it.
 
+## MVP sprint acceleration — scope and quality retained
+
+Through the 20 September 2026 development deadline, optimize the workflow for fast evidence-producing delivery. In short: **keep the same complex feature scope, with more minimal control overhead.** Sprint mode changes sequencing and removes duplicate work; it does **not** remove accepted product scope, weaken correctness/security boundaries, or turn unfinished capabilities into cuts. Broad supported-source coverage, production web search, OCR expansion, proof presentation/UI, rebase/align/filter transforms, refresh/vintage lifecycle, hybrid retrieval and the benchmark/rehearsal system remain delivery work unless an authorized decision explicitly changes them.
+
+- Prefer the shortest complete vertical slice and fix the smallest measured blocker first. Defer unrelated refactors, not required capabilities.
+- Run directly affected tests plus touched-file lint/type checks while editing. A passing broad PR gate is required once for each code-bearing revision, but do not run the same unchanged `make pr` suite both locally and in CI. Prefer targeted local checks followed by the CI gate; run `make pr` locally when CI is unavailable, the user requests it, or the changed boundary justifies pre-push confirmation.
+- Do not repeat a passing check unless relevant code/config/test inputs changed or a new concern explains the rerun. Failed checks may be rerun narrowly while diagnosing, then the applicable gate runs once on the final revision.
+- Documentation-only work keeps document diff/link/status checks. Backend-only work does not require a duplicate local web gate; web-only work does not require a duplicate local Python gate. A PR workflow may still run its configured required jobs once.
+- Shared contracts and security, auth, safe-fetch, file, network, semantics, calculation, lineage, verifier and publication boundaries retain their targeted negative tests. `make full`, EVAL-FULL and live rehearsal retain their existing release/demo triggers.
+
 ## New session / teammate startup protocol
+
+The [documentation guide](README.md#documentation-map) defines document ownership. Keep delivery status in ROADMAP, runtime mechanics in ARCHITECTURE, detailed acceptance evidence in EVALUATION, decisions and open/answered questions in DECISIONS, and old handbacks in labelled ROADMAP history. Source references may retain revision-pinned historical evidence; do not rewrite it as current status.
 
 Repository/Git evidence outranks stale documentation. ROADMAP's single Current Project Status is the maintained execution summary; source and merged PR evidence determine what it may claim. Never require prior chat history to reconstruct project state. A teammate can start with only `Read AGENTS.md and continue with the next READY task.`
 
@@ -38,13 +56,13 @@ Acceptance: a teammate such as Eray or Arda, with zero previous ChatGPT/Codex co
 | --- | --- |
 | Architecture, planner, registry, provider, workspace | [ARCHITECTURE](docs/ARCHITECTURE.md) |
 | Ingestion, normalization, analytics, provenance | [ARCHITECTURE](docs/ARCHITECTURE.md) |
-| BDDK bulletin transports, units, cumulative behaviour | [BDDK_SOURCE](docs/BDDK_SOURCE.md) |
-| EVDS access, catalog, series metadata, frequencies | [EVDS_SOURCE](docs/EVDS_SOURCE.md) |
+| BDDK bulletin transports, units, cumulative behaviour | [SOURCES: BDDK](docs/SOURCES.md#bddk-and-evds-evidence-register) |
+| EVDS access, catalog, series metadata, frequencies | [SOURCES: EVDS](docs/SOURCES.md#bddk-and-evds-evidence-register) |
 | Tables, columns, invariants, layout on disk | [DATABASE](docs/DATABASE.md) |
 | Security, URL/file boundary, auth, secrets, network | [SECURITY](docs/SECURITY.md) |
 | Benchmark, hidden cases, scoring, regression | [EVALUATION](docs/EVALUATION.md) |
 | Sequencing/priorities/handoff only | Relevant ROADMAP section is sufficient |
-| External answer needed | Relevant question in [OPEN_QUESTIONS](docs/OPEN_QUESTIONS.md) |
+| External answer needed | Relevant question in [DECISIONS Open Questions](docs/DECISIONS.md#open-questions) |
 
 Do not read every document on every prompt. Do not conduct broad research or repository-wide audits for routine work. An explicitly requested documentation overhaul is an exception, not the normal loop.
 
@@ -64,7 +82,7 @@ Allowed task states are READY, IN PROGRESS, BLOCKED, PARTIAL, and DONE. READY ha
 
 Before implementation, set the task's `Status: IN PROGRESS`, `Owner: <developer>`, and `Branch: <fresh task branch>` in its ROADMAP record. Use the initiating developer's known identity (or an explicitly identified agent owner); never assign Eray or Arda by example or guesswork. Keep Task ID, PR, Commit, Tests, Blocker, and Handoff in the same compact record.
 
-A local edit is not a shared claim. Commit/push the small ROADMAP claim on the task branch and open a draft PR into `dev` naming the task ID before implementation; keep that PR for the task's delivery. Fetch and inspect open/draft PR claims immediately before claiming and again after publishing. If remote claims cannot be inspected or two claims collide, pause the overlapping work and confirm ownership; branch/PR publication is not an atomic lock. Do not silently choose a winner or merge a claim yourself. This uses the existing branch/PR workflow, not a separate tracking service.
+A local edit is not a shared claim. Normally commit/push the small ROADMAP claim on the task branch and open a draft PR into `dev` naming the task ID before implementation; keep that PR for the task's delivery. When the initiating developer is explicitly the sole active engineering owner and fetched Git/open-PR evidence shows no competing claim, the ROADMAP claim may be included in the first small coherent implementation commit and published immediately as the draft PR instead of requiring a claim-only round trip. Fetch and inspect open/draft PR claims immediately before claiming and again after publishing. If remote claims cannot be inspected or two claims collide, pause the overlapping work and confirm ownership; branch/PR publication is not an atomic lock. Do not silently choose a winner or merge a claim yourself. This uses the existing branch/PR workflow, not a separate tracking service.
 
 Do not start work already IN PROGRESS by another teammate; an owner on PARTIAL/BLOCKED work also remains responsible until an explicit transfer/release. Independent tasks can run in parallel on separate fresh branches from latest `dev`. Shared contracts need one editor. Prefer waiting for dependencies to merge into `dev`; stacked work requires explicit authorization and a recorded base branch, dependency PR, and integration plan.
 
@@ -89,7 +107,7 @@ Ordinary code work: relevant targeted tests plus fast lint on touched Python. `m
 | --- | --- | --- |
 | Documentation only | Full relevant diff review; local links, checkbox syntax, factual status | Lightweight review; no application checks |
 | Ordinary code task | Targeted tests + touched-code lint, or `make quick` | <=60 seconds when practical |
-| Task PR to `dev` | Fast PR gate: `make pr` for code; relevant evaluation smoke once available. Documentation-only PRs use the document checks above | <=3 minutes |
+| Task PR to `dev` | Fast PR gate once per final code-bearing revision, locally **or** in CI: `make pr`, including strict `mypy src` (DEC-140); relevant evaluation smoke once available. Documentation-only PRs use the document checks above | <=3 minutes target; record measured overruns |
 | Shared contract, safe-fetch/file execution, auth/secrets/network change | Targeted contract/negative tests + fast PR gate; include critical failure paths | Keep the ordinary/PR budgets |
 | Opening/updating `dev -> main`, final demo/release checkpoint, or explicit full-check request | `make full`; full evaluation/rehearsal at release/demo gates | <=8 minutes automated gate target; time-box rehearsal separately |
 
@@ -157,7 +175,7 @@ When asked to implement a roadmap task, Codex may perform the following Git/term
 1. Inspect repository, branch, staged/tracked/untracked work, remote, and task dependencies. Preserve unrelated work. If switching would carry unrelated changes into the new task or overwrite files, use an isolated checkout based on latest `dev`, or report the concrete blocker; never reset/clean or silently discard/stash another teammate's work.
 2. Fetch the verified remote; switch to `dev` and update it with `git pull --ff-only origin dev`. Verify local `dev` matches the fetched integration tip before branching. If it diverges or cannot be updated, report the blocker rather than resetting it or branching from stale state.
 3. Create a separate short-lived task branch from that freshly updated `dev`. Prefer `feature/<milestone>-<task>`, `fix/<short-description>`, or `docs/<short-description>`; examples: `feature/m1-csv-ingestion`, `feature/m2-frequency-alignment`, `fix/url-fetch-timeout`.
-4. Publish the small ROADMAP claim and draft PR as described in [Task claiming and ownership](#task-claiming-and-ownership), then implement only the selected task. Run targeted tests/lint or `make quick`, apply the fast PR gate, and update only its ROADMAP record. Keep its checkbox unchecked while awaiting merge.
+4. Publish the ROADMAP claim and draft PR as described in [Task claiming and ownership](#task-claiming-and-ownership), then implement only the selected task. Run targeted tests/lint while editing; apply the fast PR gate once on the final code-bearing revision, locally or in CI, and update only its ROADMAP record. Keep its checkbox unchecked while awaiting merge.
 5. Stage only intended task files, commit with a clear message, push that task branch normally, and update its PR **into `dev`** for review. Record actual Commit/PR/check results and a concise Handoff; do not wait for remote CI unless asked.
 6. After review and a verified merge into `dev`, complete the mandatory [post-merge task cleanup](#post-merge-task-cleanup) before starting another task.
 7. Start the next task from freshly updated `dev` on another new branch, never from the previous feature branch. Any branch based on another unfinished feature branch requires an explicit instruction and a documented dependency/base exception.

@@ -41,3 +41,10 @@ build/
 dist/
 *.egg-info/
 .DS_Store
+
+# Next.js client; keep the lockfile, never credentials or generated bundles.
+node_modules/
+.next/
+*.tsbuildinfo
+/web/playwright-report/
+/web/test-results/

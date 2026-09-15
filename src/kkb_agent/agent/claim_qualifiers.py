@@ -8,7 +8,7 @@ Unrecognised prose is outside this vocabulary, not a proof of its meaning.
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import date
 
 from kkb_agent.core import AnalyticalResult, ResultValue, Scale
@@ -53,6 +53,9 @@ UNITS = {
     "yüzde": "percent",
     "percent": "percent",
     "percentage points": "percentage_points",
+    # analytics.change records point changes under these singular names.
+    "percentage point": "percentage_points",
+    "index point": "index_points",
     "yüzde puan": "percentage_points",
     "baz puan": "basis_points",
     "basis points": "basis_points",
@@ -63,6 +66,11 @@ _UNIT_TEXT = "|".join(re.escape(u) for u in sorted(UNITS, key=len, reverse=True)
 UNIT = re.compile(r"(?<!\w)(" + _UNIT_TEXT + r")(?!\w)", re.I)
 YEAR = re.compile(r"(?<!\w)(?:19|20)\d{2}(?!\w)")
 ISO_DATE = re.compile(r"(?<!\w)\d{4}-\d{2}-\d{2}(?!\w)")
+#: A year-month such as 2025-12 (for example a price reference month). Its digits are
+#: a calendar token, never a quantity; it is not a period qualifier by itself.
+YEAR_MONTH = re.compile(r"(?<![\w-])(?:19|20)\d{2}-(?:0[1-9]|1[0-2])(?![\w-])")
+#: The period display this system itself writes, e.g. 2021-02-01..2021-02-28.
+DATE_RANGE = re.compile(r"\d{4}-\d{2}-\d{2}\.\.\d{4}-\d{2}-\d{2}")
 MONTHS = {
     _fold(name): month
     for month, names in enumerate(
@@ -91,6 +99,7 @@ EXPLICIT_ID = re.compile(
     re.I,
 )
 HEADER_ID = re.compile(r"^\s*[`\"']?([\w.:-]+?)[`\"']?:\s")
+IDENTIFIER_SHAPE = re.compile(r"[_.:\d-]")
 #: Wording that asserts one thing moves another, which DEC-120 forbids an
 #: answer to say. Still a bounded vocabulary: an unlisted causative verb
 #: ("artırdı", "affected") is not caught, and nothing here parses prose.
@@ -118,6 +127,31 @@ CAUSAL_PHRASES = (
     r"yüzünden",
 )
 CAUSAL = re.compile(r"\b(?:" + "|".join(CAUSAL_PHRASES) + r")\b", re.I)
+
+
+#: Wording that says values, data or results do not exist or cannot be computed.
+#: The gate cannot prove an absence, and a computed result shown beside the
+#: answer contradicts one (the M11-07 live Turn 3 said an added column had no
+#: values). Bounded folded vocabulary, not a parser: "geçiş yok" or "dışlanan
+#: dönem bulunmuyor" describe counts and are deliberately not listed.
+ABSENCE_PHRASES = (
+    r"(?:değer|veri|sonuç)\w*\s+(?:bulunm(?:uyor|am)\w*|yok\w*|mevcut\s+değil\w*)",
+    r"(?:değer|veri|sonuç)\w*\s+(?:yer\s+)?almi(?:yor|yo)\w*",
+    r"hesaplanam\w*",
+    r"bulunamad\w*",
+    r"no\s+(?:values?|data|results?)",
+    r"(?:values?|data|results?)\s+(?:is|are)\s+(?:missing|unavailable|not\s+available)",
+    r"(?:cannot|could\s+not)\s+be\s+(?:computed|calculated)",
+)
+ABSENCE = re.compile(r"\b(?:" + "|".join(ABSENCE_PHRASES) + r")", re.I)
+
+
+def absence_fault(text: str) -> str | None:
+    if ABSENCE.search(_fold(text)):
+        return (
+            "Unsupported absence claim: computed results are shown; the gate cannot prove absence"
+        )
+    return None
 
 
 def causal_fault(text: str) -> str | None:
@@ -149,6 +183,9 @@ def has_amount_context(text: str, start: int, end: int) -> bool:
 
 
 def is_date_token(text: str, start: int, end: int) -> bool:
+    for match in YEAR_MONTH.finditer(text):
+        if match.start() <= start and end <= match.end():
+            return not has_amount_context(text, match.start(), match.end())
     for match in ISO_DATE.finditer(text):
         if match.start() <= start and end <= match.end():
             try:
@@ -190,9 +227,17 @@ def identity_fault(
         if match[2] != fields[_fold(match[1])]:
             return f"Explicit {match[1]} {match[2]!r} conflicts with this result/value identity"
     header = HEADER_ID.match(clause)
-    if header and header[1] not in aliases:
+    # A plain word before a colon that names nothing known ("Değerlendirme:",
+    # "Sonuç:") is a discourse label. Identifier-shaped headers and any known
+    # result/value name still must identify this value.
+    if (
+        header
+        and header[1] not in aliases
+        and (IDENTIFIER_SHAPE.search(header[1]) or header[1] in known)
+    ):
         # Calendar headers are period qualifiers, not result IDs.
-        if not any(pattern.fullmatch(header[1]) for pattern in (ISO_DATE, YEAR, MONTH)):
+        calendar = (ISO_DATE, YEAR, MONTH, DATE_RANGE, YEAR_MONTH)
+        if not any(pattern.fullmatch(header[1]) for pattern in calendar):
             return f"Explicit identity {header[1]!r} does not identify this result/value"
     for alias in known:
         if alias not in aliases and re.search(
@@ -202,9 +247,41 @@ def identity_fault(
     return None
 
 
-def period_fault(clause: str, prefix: str, value: ResultValue) -> str | None:
+#: Wording that marks a date as a price reference ("2025-12 fiyatlarıyla").
+PRICE_REFERENCE = r"(?:['’][^\W\d_]+)?\s*(?:fiyat|price)"
+
+
+def mask_price_references(text: str, references: Sequence[date]) -> str:
+    """Blank a recorded deflation reference month written as a price reference.
+
+    Only the exact recorded month (e.g. 2025-12, Aralık 2025, 2025 Aralık) and
+    only before price wording is masked; any other date still qualifies the claim.
+    """
+    for reference in references:
+        names = "|".join(
+            name.replace("i", "[iıİI]")
+            for name, month in MONTHS.items()
+            if month == reference.month
+        )
+        token = (
+            rf"(?:(?<![\w-]){reference.year}-{reference.month:02d}(?![\w-])"
+            rf"|(?<!\w)(?:{names})\s+{reference.year}(?!\w)"
+            rf"|(?<!\w){reference.year}\s+(?:{names})(?!\w))"
+        )
+        text = re.sub(
+            token + rf"(?={PRICE_REFERENCE})", lambda m: " " * len(m[0]), text, flags=re.I
+        )
+    return text
+
+
+def period_fault(
+    clause: str, prefix: str, value: ResultValue, references: Sequence[date] = ()
+) -> str | None:
     # A leading date may scope several columns. An explicit local date takes
     # precedence, so a later column cannot borrow another column's month.
+    if references:
+        clause = mask_price_references(clause, references)
+        prefix = mask_price_references(prefix, references)
     context = clause
     if not YEAR.search(context) and not MONTH.search(context) and not ISO_DATE.search(context):
         context = prefix

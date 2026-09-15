@@ -12,6 +12,7 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Final
 
+from kkb_agent.catalog.inspection import InspectionRefused, PreparedSeriesInspector
 from kkb_agent.core import (
     AnalyticalResult,
     Frequency,
@@ -184,6 +185,8 @@ def project(
     tables: Sequence[str],
     lineage_node: str | None = None,
     parameters: Mapping[str, Any] | None = None,
+    snapshots: list[str] | None = None,
+    inspector: PreparedSeriesInspector | None = None,
 ) -> AnalyticalResult:
     """Describe what a query actually established, and nothing more.
 
@@ -236,9 +239,22 @@ def project(
             reason="The query returned no rows",
         )
 
-    fault = provenance_fault(query, ast, connection)
+    fault = provenance_fault(query, ast, connection, snapshots=snapshots)
     if fault is not None:
         return _abstain(result_id, fault, shared)
+
+    if inspector is not None:
+        # Provenance already requires a direct, stored silver series_id column.
+        # SQL rows remain inspection data until every selected identity passes.
+        try:
+            receipts = [
+                inspector.inspect(connection, sid).evidence()
+                for sid in sorted({row[positions["series_id"]] for row in query.rows})
+            ]
+        except InspectionRefused as error:
+            return _abstain(result_id, str(error), shared)
+        if snapshots is not None:
+            snapshots.extend(receipts)
 
     values: list[ResultValue] = []
     notes: set[str] = set()

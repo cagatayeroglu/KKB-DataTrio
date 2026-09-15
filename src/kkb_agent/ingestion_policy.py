@@ -18,6 +18,8 @@ from typing import BinaryIO
 class FileKind(StrEnum):
     CSV = "csv"
     XLSX = "xlsx"
+    PDF = "pdf"
+    HTML = "html"
 
 
 class RejectionCode(StrEnum):
@@ -70,6 +72,10 @@ class AdmissionLimits:
     max_expanded_bytes: int = 50 * 1024 * 1024
     max_compression_ratio: int = 100
     max_parser_seconds: int = 5
+    #: PDF layout analysis is slower per byte than a spreadsheet, so it has its
+    #: own page cap and deadline rather than stretching the shared one.
+    max_pdf_pages: int = 30
+    max_pdf_parser_seconds: int = 10
 
     def __post_init__(self) -> None:
         for item in fields(self):
@@ -97,6 +103,8 @@ DEFAULT_LIMITS = AdmissionLimits()
 MIME_TYPES = {
     FileKind.CSV: "text/csv",
     FileKind.XLSX: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    FileKind.PDF: "application/pdf",
+    FileKind.HTML: "text/html",
 }
 
 
@@ -129,7 +137,7 @@ def _metadata_kind(filename: str, content_type: str) -> FileKind:
     for parameter in parts[1:]:
         key, separator, value = parameter.strip().partition("=")
         if (
-            kind != FileKind.CSV
+            kind not in (FileKind.CSV, FileKind.HTML)
             or key.strip() != "charset"
             or not separator
             or value.strip().strip('"') not in {"utf-8", "utf8"}
@@ -170,6 +178,16 @@ def _check_csv_content(content: bytes) -> None:
         raise AdmissionError(RejectionCode.FORMAT_MISMATCH)
     # CSV has no magic signature. Delimiter, header, width and cell interpretation
     # still require an explicit parsing declaration and the future bounded loader.
+
+
+def _check_pdf_header(content: bytes) -> None:
+    """A `%PDF-` header in the first 1024 bytes, where readers look for it.
+
+    Only the signature is checked here. Objects, streams, encryption and pages
+    are the bounded parser's to validate; nothing is decompressed or resolved.
+    """
+    if content.find(b"%PDF-", 0, 1024) < 0:
+        raise AdmissionError(RejectionCode.FORMAT_MISMATCH)
 
 
 def _check_xlsx_envelope(content: bytes, limits: AdmissionLimits) -> None:
@@ -230,6 +248,17 @@ def admit_upload(
     content = _bounded_read(stream, limits.max_bytes)
     if kind == FileKind.CSV:
         _check_csv_content(content)
+    elif kind == FileKind.HTML:
+        try:
+            text = content.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            raise AdmissionError(RejectionCode.UNSUPPORTED_ENCODING) from None
+        if not text.lstrip().startswith("<") or any(
+            ord(c) < 32 and c not in "\t\r\n" or ord(c) == 127 for c in text
+        ):
+            raise AdmissionError(RejectionCode.FORMAT_MISMATCH)
+    elif kind == FileKind.PDF:
+        _check_pdf_header(content)
     else:
         try:
             _check_xlsx_envelope(content, limits)

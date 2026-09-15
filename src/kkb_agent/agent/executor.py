@@ -13,13 +13,17 @@ downstream is reported as not run, rather than being skipped silently.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
-from kkb_agent.agent.plan import AnalyticalPlan, PlanStep
+from kkb_agent.agent.plan import AnalyticalPlan, ClarificationReason, PlanStep
 from kkb_agent.agent.registry import ArgumentsRejected, RegistryError, ToolRegistry
+
+if TYPE_CHECKING:
+    from kkb_agent.agent.selection import SelectedTable
 
 
 class PlanRejected(ValueError):
@@ -85,6 +89,7 @@ class ValidatedPlan:
 
     question: str
     steps: tuple[ValidatedStep, ...]
+    clarification: ClarificationReason | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,6 +130,12 @@ def validate_plan(
             arguments = spec.parse(step.arguments)
         except ArgumentsRejected as error:
             raise PlanRejected(str(error)) from error
+        required = spec.required_steps(arguments) if spec.required_steps is not None else ()
+        for reference in required:
+            if reference not in step.depends_on:
+                raise PlanRejected(
+                    f"Step {step.step_id!r} must declare input step {reference!r} in depends_on"
+                )
         for dependency in step.depends_on:
             if dependency not in seen:
                 raise PlanRejected(f"Step {step.step_id!r} depends on unknown step {dependency!r}")
@@ -132,7 +143,24 @@ def validate_plan(
                 raise PlanRejected(f"Step {step.step_id!r} depends on itself")
         validated[step.step_id] = ValidatedStep(step, arguments)
 
-    return ValidatedPlan(plan.question, tuple(_ordered(plan, validated)))
+    # Only the last computed result is answered and published. A second
+    # unconsumed calculation would be silently discarded, so refuse the plan and
+    # let the planner combine conditions or chain the steps instead (M11-11).
+    consumed = {dependency for step in plan.steps for dependency in step.depends_on}
+    final = [
+        step.step_id
+        for step in plan.steps
+        if step.step_id not in consumed and not registry.get(step.tool).discovery_only
+    ]
+    if len(final) > 1:
+        raise PlanRejected(
+            f"Plan has {len(final)} final calculation steps ({', '.join(final)}); only one "
+            "final result is answered and published. Express every condition in one "
+            "operation (for example table_co_movement when_column/when_direction) or make "
+            "each later step depend on the earlier one"
+        )
+
+    return ValidatedPlan(plan.question, tuple(_ordered(plan, validated)), plan.clarification)
 
 
 def _ordered(plan: AnalyticalPlan, validated: dict[str, ValidatedStep]) -> list[ValidatedStep]:
@@ -157,9 +185,12 @@ def execute(
     *,
     context: ExecutionContext | None = None,
     budget: Budget = DEFAULT_BUDGET,
+    selection: SelectedTable | None = None,
 ) -> ExecutionOutcome:
     """Run a validated plan in order, stopping at the first terminal failure."""
     context = context or ExecutionContext(question=plan.question)
+    if selection is not None:
+        selection.validate_plan(plan, registry)
     results: list[ToolResult] = []
     stopped = False
 
@@ -169,7 +200,7 @@ def execute(
                 ToolResult(ToolStatus.NOT_RUN, validated.step.step_id, validated.step.tool)
             )
             continue
-        result = _run_step(validated, registry, context, budget)
+        result = _run_step(validated, registry, context, budget, selection)
         results.append(result)
         if result.status is ToolStatus.SUCCESS:
             context.outputs[validated.step.step_id] = result.output
@@ -184,12 +215,15 @@ def _run_step(
     registry: ToolRegistry,
     context: ExecutionContext,
     budget: Budget,
+    selection: SelectedTable | None,
 ) -> ToolResult:
     spec = registry.get(validated.step.tool)
     attempts = budget.max_tool_retries + 1
     last: ToolResult | None = None
     for _ in range(attempts):
         try:
+            if selection is not None:
+                selection.check()
             last = spec.run(validated.arguments, context)
         except Exception as error:  # noqa: BLE001 - a tool must not abort the run
             last = ToolResult(
@@ -199,8 +233,8 @@ def _run_step(
                 error_category=type(error).__name__,
             )
         if last.status is not ToolStatus.FAILURE or not last.recoverable:
-            return last
+            return replace(last, step_id=validated.step.step_id, tool=validated.step.tool)
     # Budget exhausted on a recoverable failure: report it as terminal.
     if last is None:  # pragma: no cover - attempts is always at least one
         raise PlanRejected("Tool retry budget must allow at least one attempt")
-    return last
+    return replace(last, step_id=validated.step.step_id, tool=validated.step.tool)

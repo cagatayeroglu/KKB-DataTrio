@@ -2,7 +2,7 @@
 
 Protect the boundaries relevant to this short-window product — development closes 20 September 2026 under [DEC-131](DECISIONS.md#dec-131--organizer-kick-off-brief-schedule-delivery-form-and-demo-day-input-scope) — without making ordinary development a security-release ceremony. [ROADMAP](ROADMAP.md) owns execution status, [AGENTS](../AGENTS.md) check triggers, and [EVALUATION](EVALUATION.md) adversarial coverage. These controls are required behavior for enabled capabilities, not a claim that those capabilities exist.
 
-Implementation evidence lives in [ROADMAP Current Project Status](ROADMAP.md#current-project-status) and the linked task records. Delivered boundaries include ignore/config hygiene, fast CI, file admission and bounded XLSX parsing, the offline provider/config/repair path, registry/argument/count validation, restricted lakehouse SQL and partial workspace/lineage/numeric matching. Safe fetch, live provider transport, end-to-end stale/reference isolation and complete proof gating remain incomplete. This docs task performs no application/security scan or full/release check; existing delivery results are not new runs.
+Implementation evidence lives in [ROADMAP Current Project Status](ROADMAP.md#current-project-status) and the linked task records. Delivered boundaries include ignore/config hygiene, fast CI, file admission with bounded CSV/XLSX/PDF parsing, bounded GET safe fetch with validated redirects, the Kloudeks transport with its destination and redaction controls, registry/argument/count validation, restricted lakehouse SQL, `web_url`'s binding to addresses the user wrote, and partial workspace/lineage/numeric matching. End-to-end stale/reference isolation and complete proof gating remain incomplete. M7-04 adds offline redirect negatives; validation and merge state are recorded in its ROADMAP record.
 
 ## Threat model and scope
 
@@ -14,6 +14,18 @@ Primary threats: credential/data leakage; SSRF to local/private/metadata targets
 
 This is not a production multi-tenant platform. Kubernetes security, enterprise RBAC/RLS, production backup/restore, full DAST, SBOM/signing, and complex security infrastructure are not mandatory. Revisit only for concrete organizer/deployment requirements in DECISIONS.
 
+## Prepared data and separate web capabilities
+
+[DEC-136](DECISIONS.md#dec-136--scoped-official-data-preparation-and-lakehouse-first-demo-runtime) places scoped BDDK/EVDS retrieval in an operator-approved preparation phase. Thin ingestion adapters must reuse the same bounded retrieval/parser/storage controls; preparation creates no network or TLS exception. Runtime financial queries read the prepared lakehouse, preserving source/vintage/value-producing evidence and explicit refresh/revision policy. Official origin or local storage alone does not make a value trustworthy. [DEC-137](DECISIONS.md#dec-137--catalog-complete-lakehouse-first-official-source-materialization-architecture) extends the intended reusable adapter path to broader preparation, policy-permitted known cache misses and refresh. Source access, retention and redistribution still require Q-DATA-01/03; no permissions or new controls are marked delivered here.
+
+Under the [DEC-137 dated refinement](DECISIONS.md#dec-137-prepared-pool-refinement), official fetching primarily builds the prepared pool before demo questions; the core runtime reads trusted silver/appropriate gold and may clarify/abstain on a pool miss. Runtime official-source materialization is a later scalability extension, not a core-demo permission prerequisite. Preparation still needs source/egress approval. Official fetch requires a trusted catalog identity plus a registered official adapter plus a bounded approved request contract and environment policy. LLM intent cannot invent selectors/IDs, endpoints, semantics or materialization status. Catalog-known is not fetch-authorized; UNKNOWN semantics remain UNKNOWN, and unsafe/unavailable misses clarify or abstain. No generic web fallback for structured numeric data is authorized. Preserve DNS/peer, SSRF/private-address, redirects/TLS and response bounds; adapters reuse these controls. Validate a staged dataset before publishing availability/version state, preserve prior versions on failure/revision, and require value-producing evidence through M8-21 and the final gate. Session external artifacts do not become permanent official catalog data through shared storage. These are target routing controls, not delivered cache-miss orchestration.
+
+Bronze is untrusted raw/source evidence until parsing/semantic validation; neither storage nor a vector match proves a number. The required final dense target uses a separate catalog vector-search boundary (Qwen 4096), not a financial-value store. The [local LanceDB slice](CATALOG.md) validates snapshot/text/model/input-policy bindings, finite vectors and local generation integrity. It accepts only operator-owned local roots and explicit eligibility, uses checked numeric predicates, and opens no model/network route. Financial values stay in lakehouse; metadata stays inert. The [combined catalog stage](CATALOG.md#catalog_search-bounded-combined-candidate-contract) preserves reviewed eligibility and reports dense failures as explicit lexical degradation. In the prepared API the stage is opt-in: startup refuses a mismatched snapshot, profile or embedding model before building a provider, query text reaches only the configured Kloudeks embedding endpoint, and embedding errors are not copied into answers or planner data. The [dated dependency audit](EVALUATION.md#catalog_index-validation-and-dependency-review) records the PyArrow advisory and its applicability to this boundary; no global audit suppression was added. Retrieval completion belongs to [ROADMAP](ROADMAP.md#m13).
+
+`web_search` remains general discovery behind `SearchBackend`, separate from official structured observations. SearXNG is the preferred compatibility candidate, not a selected/integrated/live-accepted provider. Self-hosting may forward queries to upstream engines; review egress, query privacy, retention and organizer policy under Q-NET-01/02 before production acceptance.
+
+`web_url` keeps its current specific supplied/authorized URL boundary. Crawl4AI is only an optional future dynamic/JS extraction candidate and cannot bypass URL authorization, SSRF/private-address protections, redirect/TLS checks, size/time limits, provenance or verifier evidence. A `web_search` URL remains `fetch_authorized=false`; search → fetch expansion requires a separate product/security decision. No discovery output implicitly extends the authorized URL set.
+
 ## Control status and maintenance
 
 - `[ ]` means control implementation or validation is unfinished.
@@ -24,7 +36,7 @@ This is not a production multi-tenant platform. Kubernetes security, enterprise 
 
 ## SEC-KEY-01 — Secrets and credential storage
 
-Status: PARTIAL — M0-04 (#3) validated ignore/config hygiene; M4 (#27) tests configuration and structured-error redaction; the secret-pattern scan is in fast CI. Full logging/export and live credential handling are not established. **A real MIA API key now exists** (delivered 2026-09-10) in the operator-local, git-ignored `.env`; it has not been used in a request, and no key value appears in this repository. This raises the stakes on the untested export/logging paths below rather than closing anything.
+Status: PARTIAL — M0-04 (#3) validated ignore/config hygiene; M4 (#27) tests configuration and structured-error redaction; the secret-pattern scan is in fast CI. Full logging/export and live credential handling are not established. **A real MIA API key now exists** (delivered 2026-09-10) in the operator-local, git-ignored `.env`; it has been used only in operator runs Eray explicitly authorized on 2026-09-11 (the M4-12 smoke and the M4-15 live question), and no key value appears in this repository. This raises the stakes on the untested export/logging paths below rather than closing anything.
 
 Threat: Keys or private credentials leak through Git, fixtures, logs, screenshots, exception representations, or CI output.
 
@@ -46,7 +58,7 @@ Acceptance: No real credential is required for unit tests; configured secret sen
 
 ## SEC-KLO-01 — Kloudeks transport configuration
 
-Status: PARTIAL — merged offline provider/config/schema-repair/doubles (#27); [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy) records official transport/auth/models and image limits. Live SDK integration, destination enforcement and live validation remain unimplemented; native tool/JSON guarantees and remaining limits are still open. Availability/configuration is not a passing live test.
+Status: PARTIAL — merged offline provider/config/schema-repair/doubles (#27); [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy) records official transport/auth/models and image limits. M4-07 adds the transport ([kloudeks.py](../src/kkb_agent/llm/kloudeks.py)): DEC-129's host only, fixed paths and configured models, no redirects and no ambient proxy/environment settings, responses bounded in time and size, sanitized errors, and destination tests in place of the former `openai` name ban. M4-12's authorized live smoke passed for chat and embedding on 2026-09-11, reporting only safe metadata; OCR access, native tool/JSON guarantees and limits are still open. Availability/configuration is not a passing live test.
 
 Threat: User/model text selects an attacker endpoint, credentials go to an unintended host, requests exceed quotas, or a silent third-party LLM fallback violates constraints.
 
@@ -55,13 +67,13 @@ Required control: The DEC-129 endpoint/auth contract is trusted operator configu
 When: M4 live transport/auth implementation, before any real credential is used.
 
 - Contract evidence: DEC-129 records the organizer endpoint/auth/model contract without credentials; this answers the documentation subpart, not the unfinished runtime control acceptance below.
-- [ ] Restrict endpoint selection to trusted configuration; user/source/model content cannot override it.
-- [ ] Validate approved destination policy and require secure transport for credentials.
-- [ ] Define redirects explicitly; reject unexpected origin changes and credential forwarding.
-- [ ] Set connection/read/total timeouts, response limits, and bounded attempts.
-- [ ] Validate structured response locally and sanitize provider errors.
-- [ ] Test exclusive Kloudeks routing and absence of third-party hosted LLM fallback, allowing the compatible SDK import itself. Correct the existing blanket `openai` string-ban test in a later M4 implementation PR; see ROADMAP M4.
-- [ ] Add offline negative tests plus a separately authorized live smoke with safe metadata.
+- [x] Restrict endpoint selection to trusted configuration; user/source/model content cannot override it. (M4-07, #76)
+- [x] Validate approved destination policy and require secure transport for credentials. (M4-07, #76)
+- [x] Define redirects explicitly; reject unexpected origin changes and credential forwarding. (M4-07: never followed)
+- [x] Set connection/read/total timeouts, response limits, and bounded attempts. (M4-07; transport retries remain M4-10)
+- [x] Validate structured response locally and sanitize provider errors. (M4-07, #76)
+- [x] Test exclusive Kloudeks routing and absence of third-party hosted LLM fallback, allowing the compatible SDK import itself. The blanket `openai` string-ban test was replaced in M4-07 (#76).
+- [x] Add offline negative tests plus a separately authorized live smoke with safe metadata. Offline tests by M4-07 (#76); the authorized live smoke by M4-12 (#78), passed 2026-09-11.
 
 Intended tests: Fake provider transport for alternate endpoint injection, redirect, timeout, oversized response, malformed model output, missing credentials, and failed TLS/config paths where applicable.
 
@@ -69,7 +81,7 @@ Acceptance: Only the confirmed configured provider can receive credentials; malf
 
 ## SEC-TRUST-01 — External content and prompt injection
 
-Status: PARTIAL — registry/argument injection negatives and user/system-role separation exist (#28). Document extraction, permitted-reference enforcement and live URL/tool integration remain incomplete.
+Status: PARTIAL — registry/argument injection negatives and user/system-role separation exist (#28). `web_url` (M7-17) fetches only an address written in the user's question, so neither a fetched cell nor a plan's restated question can pick a destination; its tests cover both. A value it returns (M7-18) is labelled with the plan's column and row, never document text, so a header cannot write into the answer prompt. Document extraction beyond CSV/XLSX, workspace/data permitted-reference enforcement and live URL use remain incomplete.
 
 Threat: A PDF, spreadsheet cell, HTML page, image/OCR result, metadata field, or model response instructs the agent to disclose secrets, change rules, invoke unsafe tools, or fabricate evidence.
 
@@ -156,7 +168,7 @@ Acceptance: No supported product input provides arbitrary Python/shell execution
 
 ## SEC-FILE-01 — File admission and safe storage
 
-Status: PARTIAL — local admission/storage checks and negatives delivered in M1-02 (#5), specified in [FILE_ADMISSION](FILE_ADMISSION.md). M7-05 (#38) now bounds direct-GET response/decompression streams. Fetched bytes are not yet wired into file admission/parser routing; local file checks alone do not establish safe downloads.
+Status: PARTIAL — local admission/storage checks and negatives delivered in M1-02 (#5), specified in [FILE_ADMISSION](SECURITY.md#file_admission-m1-02--file-admission-policy). M7-05 (#38) now bounds direct-GET response/decompression streams. Fetched CSV/XLSX bytes pass the same admission checks and loaders as uploads (M7-08), and PDF bytes likewise (M7-09), with the loader chosen by the validated response media type and the bytes re-checked against it; other downloaded formats have no parser route.
 
 Threat: Uploaded/downloaded filenames escape storage roots; misleading extensions/MIME route malicious content; large inputs exhaust memory; private uploads leak into Git/artifacts.
 
@@ -165,8 +177,8 @@ Required control: One admission boundary for uploaded and downloaded files, with
 When: M1 CSV/XLSX ingestion; reuse at M7. Implement before any upload/download parsing exposure.
 
 - [x] Define supported formats and per-format byte/row/column limits.
-- [ ] Enforce byte limits before full buffering/parsing, including streamed downloads.
-- [ ] Check extension, declared MIME, and content signature/structure; reject mismatches or route only under an explicit safe policy.
+- [x] Enforce byte limits before full buffering/parsing, including streamed downloads.
+- [x] Check extension, declared MIME, and content signature/structure; reject mismatches or route only under an explicit safe policy.
 - [ ] Normalize/validate storage paths and generate internal names; reject traversal, absolute paths, and unauthorized symlink escapes.
 - [ ] Separate raw/derived/temp data from source code and Git-tracked fixtures.
 - [ ] Return sanitized errors for empty, malformed, oversized, unsupported, and ambiguous input.
@@ -178,7 +190,7 @@ Acceptance: Rejected files never reach parsers; accepted files remain inside con
 
 ## SEC-FILE-02 — Parser and document resource limits
 
-Status: PARTIAL — bounded XLSX package validation, explicit selection, active-content rejection and terminated parser worker delivered in M1-09/10 (#11/#16). The bounded CSV loader followed in M1-06 (#53): structural row/column/cell/field limits run before row allocation, and a terminated spawn worker bounds parse time, output size and (on Linux) address space. HTML/PDF/image parsing and operator bulk-path containment are not delivered.
+Status: PARTIAL — bounded XLSX package validation, explicit selection, active-content rejection and terminated parser worker delivered in M1-09/10 (#11/#16). The bounded CSV loader followed in M1-06 (#53): structural row/column/cell/field limits run before row allocation, and a terminated spawn worker bounds parse time, output size and (on Linux) address space. The PDF loader (M7-09/M7-10) uses the same worker with a page cap, field/table/cell budgets and its own deadline, and refuses encrypted, malformed and text-less PDFs with fixed codes; its tests include a 6 KB file that expands into runaway work and is killed at the deadline. M7-11 adds explicitly enabled, bounded PDF OCR text only; M7-07 adds bounded static HTML; image-address parsing and operator bulk-path containment are not delivered.
 
 Threat: XLSX/other containers expand massively, PDFs/images consume excessive resources, embedded formulas/macros/scripts execute, or parser uncertainty becomes fabricated analytical data.
 
@@ -191,9 +203,9 @@ When: M1 parser implementation and each additional M7 format before enablement.
 - [x] Make formula cached-value handling explicit; never silently imply recalculation or trustworthy freshness.
 - [ ] Disable external-link/resource resolution where applicable.
 - [ ] Bound PDF page/object/text processing and image/OCR dimensions/work; reject unsupported encrypted/scanned content explicitly.
-- [ ] Ensure parser work can stop within configured time/resource limits; an outer timeout alone must not leave runaway work.
-- [ ] Preserve page/sheet/table/cell location and low-confidence extraction warnings.
-- [ ] Test corrupt containers, excessive expansion, malformed documents, embedded instructions, and limit exhaustion.
+- [x] Ensure parser work can stop within configured time/resource limits; an outer timeout alone must not leave runaway work.
+- [x] Preserve page/sheet/table/cell location and low-confidence extraction warnings.
+- [x] Test corrupt containers, excessive expansion, malformed documents, embedded instructions, and limit exhaustion.
 
 Intended tests: Small synthetic pathological fixtures rather than huge harmful files; instrumented bounded parser behavior and maximum-output assertions.
 
@@ -201,7 +213,11 @@ Acceptance: Enabled parsers cannot exceed documented tested limits silently or e
 
 ## SEC-URL-01 — Central safe fetch / SSRF / redirects
 
-Status: PARTIAL — M7-01/02/03/05/06 are merged and validated (#35–38; 340 targeted / 892 unit at #38 delivery). [safe_fetch](../src/kkb_agent/ingest/safe_fetch.py) implements direct GET with DNS-to-socket binding, verified TLS and bounded response handling. All 3xx are rejected; redirect following, POST, source trust configuration and adapter/parser integration remain incomplete. Live exposure still requires Q-DATA-01/Q-NET-01/02.
+Status: PARTIAL — M7-01/02/03/05/06 are merged and validated (#35–38; 340 targeted / 892 unit at #38 delivery). [safe_fetch](../src/kkb_agent/ingest/safe_fetch.py) implements GET with DNS-to-socket binding, verified TLS and bounded response handling. M7-04 follows only 301/302/303/307/308, with fresh validation/binding per hop, a default cap of 3 and canonical-URL loop detection. Headers share one aggregate budget, redirect bodies are closed unread, and the same supervised worker retains one total deadline plus per-hop DNS/connect deadlines. M3-06 adds a closed reviewed Monthly POST descriptor and M3-08 a closed EVDS `fe` JSON POST descriptor through this same worker; arbitrary POST remains unsupported. Source trust configuration and broader adapter integration remain incomplete. Downloaded CSV/XLSX/PDF reach the upload parsers only through `web_url` (M7-08/M7-17/M7-09). Live exposure still requires Q-DATA-01/Q-NET-01/02.
+
+M3-06 POST is fixed to HTTPS `www.bddk.org.tr/BultenAylik/tr/Home/BasitRaporGetir`; worker-side selector review and endpoint/limit equality precede DNS. Only fixed form fields are generated; no URL/body/header/auth/CA input reaches the planner. It forbids all redirects and reuses system trust with required hostname/certificate verification, all-address DNS validation and exact peer binding. Because `www.bddk.org.tr` serves only its leaf, the worker adds one code-reviewed intermediate (GlobalSign RSA OV SSL CA 2018, DER SHA-256 `b676ffa3…764a`, rechecked on every use) from a closed hostname registry in [_reviewed_trust](../src/kkb_agent/ingest/_reviewed_trust.py) — only to the Monthly POST context, never to generic GET or a redirect hop. It is chain material, not an anchor: system roots must still verify it and partial-chain acceptance is switched off. No input, environment or response can add or replace an entry; a pin mismatch fails closed before the handshake ([tests](../tests/unit/test_reviewed_trust.py)). Limits are 120 sequential requests, 256 form bytes, 16 KiB headers, 1 MiB encoded / 2 MiB decoded body and 5/5/30-second connect/read/total deadlines per request. Raw provider errors are fixed categories. Offline socket/TLS/protocol negatives are in [Monthly transport tests](../tests/unit/test_bddk_monthly_transport.py). Owner-authorized live acceptance on 2026-09-14 verified the BDDK chain through this path (M3-06 record in ROADMAP); the deployment trust store must still carry GlobalSign Root CA - R3, and the leaf expires 2026-11-15. See [the adapter contract](BDDK_MONTHLY_METADATA.md#m3-06-bounded-monthly-ingestion-offline-validated).
+
+M3-08 EVDS POST is fixed to HTTPS `evds3.tcmb.gov.tr/igmevdsms-dis/fe` for the four codes in the closed reviewed registry; worker-side descriptor, endpoint and limit equality precede DNS, and a Monthly and EVDS descriptor together are refused. The JSON body is generated from fixed fields (native frequency, level formula, no custom formulas, eight decimals, no group separator); the only added headers are the constant EVDS client `Origin`/`Referer` the server requires, with no cookie, key or session. It forbids redirects, uses system trust only (the BDDK reviewed issuer is never applied), and bounds 1 MiB encoded / 2 MiB decoded body and 5/5/30-second deadlines. The parser refuses unknown envelope fields, formula or foreign columns, comma/group-separated or non-string values and label/UNIXTIME disagreement; failures are fixed categories without remote text. Negatives are in [EVDS request tests](../tests/unit/test_evds_request.py) and [EVDS load tests](../tests/unit/test_evds_load.py); live acceptance is recorded in [EVDS_SERIES_METADATA](EVDS_SERIES_METADATA.md#live-acceptance-2026-09-14).
 
 Threat: User/model URLs target localhost, private services, link-local/cloud metadata, redirect to forbidden targets, rebind DNS, steal credentials, or stream excessive content.
 
@@ -215,13 +231,13 @@ When: M7 safe fetch, before M3/M7 live source retrieval. Network-policy answers 
 - [x] Block localhost/loopback, private RFC1918, IPv6 local ranges, link-local, unspecified/reserved unsafe destinations, and cloud-metadata addresses/hostnames.
 - [x] Validate all resolved DNS addresses; reject mixed public/private results.
 - [x] Bind validation to the actual connection target to address DNS rebinding/time-of-check mismatch; test the chosen approach.
-- [ ] Handle redirects explicitly and revalidate every followed hop before connecting. Current direct-GET policy rejects every 3xx; following remains M7-04.
-- [ ] Enforce redirect cap and loop detection; never forward credentials/cookies to a new origin automatically.
+- [x] Handle redirects explicitly and revalidate every followed hop before connecting. M7-04 requires exactly one usable Location; malformed/unsupported redirects fail closed.
+- [x] Enforce redirect cap and loop detection; never forward credentials/cookies to a new origin automatically. M7-04 rebuilds only fixed GET headers and preserves hostname/TLS checks.
 - [x] Configure connect/read/total deadlines and bound compressed/decompressed response bytes.
-- [ ] Validate content type and bytes before parser routing; limit streams even when Content-Length is absent/false.
+- [x] Validate content type and bytes before parser routing; limit streams even when Content-Length is absent/false.
 - [x] Control proxy/environment behavior so it cannot silently bypass destination policy.
 - [x] Return sanitized structured blocked/timeout/size/content errors and record safe destination metadata.
-- [ ] Add negative tests for schemes, public-to-private redirects, IPv4/IPv6, metadata, mixed DNS, rebinding, slow/oversized streams, and redirect loops.
+- [x] Add negative tests for schemes, public-to-private redirects, IPv4/IPv6, metadata, mixed DNS, rebinding, slow/oversized streams, and redirect loops. M7-02/03/05 and `test_safe_redirects.py` cover the enabled GET boundary offline.
 
 Intended tests: Fake DNS/transport or controlled local test doubles that simulate destinations; do not actually contact metadata/private services. Assert forbidden destinations are never contacted, not merely that the final response is rejected.
 
@@ -229,7 +245,7 @@ Acceptance: Every enabled source network path enforces destination checks throug
 
 ## SEC-LOG-01 — Logging, redaction, and evidence exports
 
-Status: PARTIAL — provider representations and validation errors have targeted redaction tests (#27). No integrated logging/export sanitization service exists. Source locators and query-purpose metadata still need consumer-side sanitization.
+Status: PARTIAL — provider representations and validation errors have targeted redaction tests (#27). No integrated logging/export sanitization service exists. Source locators and query-purpose metadata still need consumer-side sanitization. M7-20 adds only enum-allowlisted `FetchCode` to the document operator report for fetch failures; arbitrary reason strings, URLs, DNS addresses and raw exceptions are excluded. The M7-19 admission-report follow-up applies the same allowlist-only policy to existing admission/loader codes (`document_code`); no raw document or error text is exposed. This does not establish a general logging/export service.
 
 Threat: Logs/traces/scorecards leak credentials, signed query strings, private document contents, or cross-workspace data; raw exceptions expose sensitive configuration.
 
@@ -275,7 +291,7 @@ Status: PARTIAL — fast credential-free PR CI is delivered (#15) and runs on PR
 
 Threat: A supposedly private repo is public, history/artifacts expose data, workflow changes leak secrets, or broad Git operations publish unrelated work.
 
-Required control: Verify remote visibility/access in an authorized setup task; inspect intended diffs/files before publication; keep ordinary CI synthetic and credential-free. A private repository is not a secret store.
+Required control: Verify remote visibility/access in an authorized setup task; inspect intended diffs/files before publication; keep ordinary CI synthetic and credential-free. A private repository is not a secret store. [DEC-141](DECISIONS.md#dec-141-organizer-verbal-criteria) records Çağatay's organizer relay that committed API keys/secrets are negative even in private repositories; this adds no exception to the existing prohibition.
 
 When: M0 setup before sharing/publishing; authorized PR/release tasks; M11 final artifact review.
 
@@ -293,7 +309,7 @@ Acceptance: Visibility/settings are evidenced, published changes contain only in
 
 ## SEC-DEP-01 — Dependency policy
 
-Status: PARTIAL — dependency integration/installation evidence is recorded in M1-03 and merged fast gates. Since M0-08, `make full` runs `pip-audit` with two named, reviewed exceptions (PYSEC-2026-113, Arrow C++ IPC pre-buffering that pyarrow does not expose; PYSEC-2026-1845, pytest's shared `/tmp` directory in a development-only tool); any other finding fails the gate. Reasons live in ROADMAP's M0-08 record; release reproducibility remains checkpoint work. DEC-124 is an allowlist, not a requirement to install all packages; DEC-130 requires the hybrid lexical+dense baseline with the retained lightweight LanceDB index, while RRF/reranking and extra retrieval infrastructure remain benchmark-gated. This does not claim those dependencies or runtime paths are delivered.
+Status: PARTIAL — dependency integration/installation evidence is recorded in M1-03 and merged fast gates. Since M0-08, `make full` runs `pip-audit` with two named, reviewed exceptions (PYSEC-2026-113, Arrow C++ IPC pre-buffering that pyarrow does not expose; PYSEC-2026-1845, pytest's shared `/tmp` directory in a development-only tool); any other finding fails the gate. Reasons live in ROADMAP's M0-08 record; release reproducibility remains checkpoint work. `pdfplumber` joined the runtime manifest from the DEC-124 allowlist for M7-09 (with `pdfminer.six`, `pypdfium2`, `Pillow` and `cryptography`), and `make full` on that head found nothing new; its Ghostscript repair path is never called. DEC-124 is an allowlist, not a requirement to install all packages; DEC-138 selects LanceDB for local catalog indexing. Operator-owned index roots are not an upload format; index/profile validation does not authenticate an attacker-controlled database. Indexing grants no model/network authority. [CATALOG](CATALOG.md) owns the mechanism, [EVALUATION](EVALUATION.md#catalog-validation-records) preserves the dated dependency review, and [ROADMAP](ROADMAP.md#m13) owns retrieval delivery status. RRF/reranking and extra infrastructure still require measured benefit.
 
 Threat: Unnecessary or unsuitable dependencies add parser/network vulnerabilities, slow setup, or make the demo irreproducible.
 
@@ -341,3 +357,159 @@ Run this at M11, not after ordinary prompts. Record command/review evidence in M
 - [ ] Confirm retention/cache/fallback permissions and test cleanup/workspace separation.
 - [ ] Rehearse a hostile input, provider/source outage, and recovery within the actual demo workflow.
 - [ ] Record remaining limitations and go/no-go; do not enable an untested risky capability to make the demo appear broader.
+
+### Literal document claims (DEC-132)
+
+External document values remain untrusted until exact source/value binding succeeds. The execution-owned literal tag is not a model argument. Its selected-reading snapshot, raw-cell digest, coordinates and source fragment must match the content-addressed lineage nodes in the current store; source presence alone, a changed value or an analytical transformation is insufficient. Only a fixed source-quotation answer can use unresolved semantics, with an explicit unspecified-unit/scale statement; it grants no currency, percent, index, comparison or transformation permission. Internal result/evidence/lineage handles are withheld. Full source bytes remain unpersisted; the proof retains only bounded selected-cell metadata. No fetch, admission, parser or OCR guard is relaxed.
+
+### M7-11 OCR trust boundary
+
+Only text-less pages use the opt-in OCR fallback. pypdfium2 renders inside the existing killed/reaped parser worker with page/pixel/PNG/output/deadline bounds; no browser, Ghostscript, external image URL or repair execution is introduced. Kloudeks OCR uses fixed destination/model/request fields and inherited TLS/no-proxy/no-redirect/response bounds. At most three separate page calls, no retries. No environment is read by the loader; the operator must inject capability explicitly.
+
+OCR output is untrusted text, even when it looks like a table or says it has been verified. Layout-token removal is presentation cleanup, not validation. It stays outside native PDF cells and cannot create an AnalyticalResult, verifier-supported number or DEC-132 literal quotation. Missing schema and total/consistency checks are not waived. Raw OCR/provider content and PNGs stay out of repr, warnings and lineage; fixed OCR_FAILED/OCR_EMPTY/OCR_INCOMPLETE codes are operator-allowlisted. Native selected-cell proof is unchanged. Mocked tests only; live OCR needs separate approval and does not follow from prior CSV acceptance.
+
+### M7-07 static HTML boundary
+
+HTML never grants authority. Only the original question URL reaches unchanged safe_fetch DNS/peer/TLS/redirect guards. HTML charset is checked before response parameters are discarded; only UTF-8/BOM is admitted, with meta declarations checked locally. The terminated parser worker bounds input/depth/text/tables/cells/output/time; malformed or unsupported table structures fail closed. No scripts, styles, forms, event attributes, meta navigation, browser rendering or linked assets are executed/fetched. Source-local table/cell IDs and redacted content-hash provenance reuse the existing literal proof; captions/visual styling cannot invent units. OCR behavior and analytical unknown-semantic checks remain unchanged. Parser failures expose fixed categories only. CSS-computed visibility and JS-rendered content are not supported; untrusted text remains data, not safe HTML for UI insertion.
+
+### M10 operator/API boundary requirements
+
+[M10-01](ARCHITECTURE.md#operator_flow-m10-01--operator-flow-and-api-boundary-requirements) specifies the wider boundary. [M10-16](ARCHITECTURE.md#local_api-m10-16--version-one-local-api-and-owned-results) now implements local Host/Origin/JSON/body controls, session-token possession and owned turn lookup, bounded single-worker admission, fixed errors and canonical published-value projection. No raw Session, shared artifact lookup or unbounded Lineage.trace export is exposed. M5-21 remains the publication authority; QUALIFIED/ABSTAINED/failure paths do not publish. The API does not roll back prior tool-side evidence or establish public-host authentication. The M10-08 [result-level proof chain](ARCHITECTURE.md#local_api-m10-08--result-level-proof-chain) is read-only, built only from a verifier-accepted execution record inside the owning runner, budgeted (partial on exhaustion) and limited to typed facts: https DNS hostnames only, no locators, request bodies, SQL, arguments, observation buffers or paths; titles/warnings pass `safe_text` and configured redactions. Tampered/unverified executions, unverified nested inputs, hostile locators/titles, budget exhaustion, foreign-version proofs and foreign-session reads have targeted negative tests. The local runner must own its connection, use the existing gate/projector, bind only loopback and disable access logs. [Prepared runtime wiring](OPERATIONS.md#prepared_api-m10-17--run-the-api-over-a-prepared-local-pool) now owns a checked immutable seed, separate session copies and per-turn connections; readiness never calls a model and serving needs explicit operator enablement. Full stage progress, retention/auth/deployment and public proof traversal remain separate.
+
+<a id="product-tool-boundary-dec-133"></a>
+
+## Product tool boundary (DEC-135)
+
+Approved target names are not executable capabilities. Expose only registered, implemented tools with closed typed arguments and typed results, bounded execution and trusted reference checks. M13-04 `catalog_search` reads operator-injected reviewed catalog state only: no model-supplied SQL, filesystem path or network URL; no mutation or implicit external loading. Treat labels, aliases and source metadata as untrusted data, including instruction-looking text. Return only catalog-backed metadata; unknowns remain unknown. Semantic/security guards, lineage and verifier/gate remain mandatory harness layers, never optional planner calls. Planned table_transform must meet these same controls before registration; this rule does not claim unfinished executor output/reference checks already exist.
+
+DEC-135 requires deterministic metadata inspection before selected financial-series observations are used and bounded quality validation before observations become analysis-ready. Multiple trusted sources/results supporting the same measure require conditional reconciliation of semantics, period, frequency, unit, scale and values; unsupported comparability remains NOT_COMPARABLE/NEEDS_TRANSFORM/NEEDS_INPUT, never inferred. These controls must not depend on planner tool selection or a model-supplied bypass flag. The [M13-13 prepared-reader slice](ARCHITECTURE.md#series_inspection-prepared-series-metadata-inspection) now enforces exact reviewed identity and catalog/store metadata consistency before selected-series calculations or direct-silver numerical projection in catalog-configured runs. No model bypass or new tool exists; unknowns stay explicit and a receipt grants no calculation permission. Broader M13-13/M1-12/M8-09 wiring remains incomplete; existing guard/verifier checks remain mandatory.
+
+### M5-06 bounded catalog continuation
+
+The opt-in [catalog continuation](CATALOG.md) accepts at most four
+independent catalog queries and 32 KiB of revalidated projected metadata in a
+user/data message, never a system instruction. One continuation is restricted to
+registered analysis tools or a fixed typed clarification; catalog results grant
+no web tool authority and cannot be used as numerical step inputs. Step and
+repair budgets are cumulative across the two phases. Executor-bound step/tool
+identities preserve the trace; clarification neither calls the writer nor
+publishes state. This count-bounded path does not implement total cancellation,
+mandatory selected-series inspection or prove live model selection quality.
+
+### M7-22 offline search boundary
+
+`web_search` accepts only bounded query/max_results and an operator-injected trusted SearchBackend. Backend credentials/configuration are outside planner schemas; exceptions become fixed codes. Spawned execution has a deadline, terminated/reaped worker, suppressed backend stdout/stderr, typed hit/field caps and a 64 KiB JSON response cap; adapters must bound their own wire I/O and are not sandboxed. Existing URL policy is applied offline: unsafe schemes/credentials/local/private literal targets are excluded; hostname DNS is not asserted. Query/fragment-free display locators are flagged and deduplicated conservatively, never treated as equivalent fetch authority. Titles/snippets remain untrusted metadata, not AnalyticalResults or writer evidence. `URL_NOT_IN_QUESTION`, DNS pinning, TLS, lineage and verifier behavior are unchanged. Only synthetic test backends exist; no production/live search acceptance is claimed.
+
+### M8-21 numeric execution evidence boundary
+
+A COMPUTED analytical result requires a committed, content-addressed execution record matching its complete output and input snapshots. Only the trusted lakehouse/change_detection/anomaly/causality producer paths write these records after actual computation; constructors, collectors, workspace storage and the verifier cannot mint proof for arbitrary values. The resolver checks record types, hashes, parent edges and exact result content, and fails closed on unavailable/uncommitted/mismatched evidence. Restricted SQL cannot write evidence tables; the default readable allowlist excludes them. Model flags, a run/tool name or a self-computed digest grant no authority. Existing projection and document literal checks remain mandatory. Application/database writers are trusted; this is not cryptographic attestation against privileged code, independent recomputation or a complete replay system. Numeric input/output snapshots remain local evidence data and must not be dumped into writer prompts, logs or an unbounded future API export. Legacy history is preserved without silently granting proof.
+
+
+## First local browser client boundary
+
+M10-03's `web/lib/proxy.ts` forwards only allowlisted health/dataset/session/turn
+JSON routes. The server-owned destination is an explicit loopback HTTP origin;
+browser paths/query strings cannot select a host. Host, Origin and fetch-site
+checks reject foreign origins; POST requires the exact frontend origin.
+Only the bounded session-capability header crosses to Python, never arbitrary
+browser cookies/authorization headers. Requests are capped at 16 KiB, replies
+at 1 MiB and transfer at ten seconds, with redirects refused. Canonical payloads
+are validated with closed schemas. Fixed errors conceal upstream exception text.
+
+The per-tab sessionStorage capability is a local bearer secret, not production
+authentication or protection against same-origin XSS/OS access. Plain React
+text renders model/source content; no HTML injection or external font/CDN
+script is introduced. Next binds loopback at port 3000. This bridge is not an
+internet-facing multi-user deployment, a generic network proxy or a way to
+change model/tool/security policy. Writable settings remain absent.
+
+The repository secret scan prunes generated `node_modules` and `.next` directory
+trees. It still scans authored JS/TS including mjs/cjs, configuration, lockfiles
+and `.env` names. Ten regression cases cover those boundaries, including
+similarly named directories that must not be excluded. No blanket web-folder
+exclusion or credential logging was added. See [LOCAL_CLIENT](OPERATIONS.md#local_client-datatrio-local-analysis-workspace).
+
+
+## Local API contracts
+
+
+<a id="local_api-local-http-boundary"></a>
+
+### Local HTTP boundary
+
+Exact localhost/127.0.0.1 Hosts with configured port and matching HTTP Origins
+are accepted; default port is 8000. Foreign/null Origins, cross-site requests
+and duplicate sensitive headers are refused. POST requires JSON; query strings,
+form/plain-text submission, wildcard CORS, cookies and forwarded-host trust
+are absent. The launcher must bind loopback. Possession is **not production
+authentication** and resolves no hosting/TLS/retention question.
+
+Errors contain only version and a fixed category, never rejected input or raw
+exceptions. Unexpected route errors are contained before the ASGI logger.
+Responses use no-store, nosniff and no-referrer. The launcher must disable
+access logs; callers protect capabilities. No route accepts credentials,
+paths, SQL, tool definitions or gate overrides.
+
+
+## File admission
+
+Original bounded admission/profile specification. References to future integration describe this contract’s delivery scope; current completion belongs to ROADMAP.
+
+<a id="file_admission-m1-02--file-admission-policy"></a>
+
+### M1-02 — File admission policy
+
+[ingestion_policy.py](../src/kkb_agent/ingestion_policy.py) implements standalone admission/limit/storage guards for [M1-02](ROADMAP.md#m1). It uses only the Python standard library and does not select an analytical engine or depend on the stash-only SourceAdapter. [INGESTION_PROFILE](ARCHITECTURE.md#ingestion_profile-m1-01--ingestionprofile-result-specification) remains the result specification.
+
+Admission checks establish whether input may proceed to a future bounded loader. They do not establish a valid table, known semantics, or an `ok` profile. No HTTP upload route, source adapter, CSV/XLSX loader, profiling service, or data retention backend is enabled by this change.
+
+<a id="file_admission-practical-local-limits"></a>
+
+### Practical local limits
+
+Both initial formats use `AdmissionLimits`; callers may supply explicitly reviewed tighter/different positive integer limits. Overrides are operator configuration, never uploaded instructions or model-generated arguments. Defaults keep development bounded without depending on platform/model answers.
+
+| Budget | Default | Enforcement in M1-02 |
+| --- | --- | --- |
+| Uploaded bytes | 10 MiB | Reader requests at most 64 KiB per read and stops at the cap plus one sentinel byte; rejects oversize before staging. Short reads are supported. |
+| Data rows / columns | 100,000 / 256 | `check_table_size`; caller must invoke incrementally in the future loader, not after unbounded allocation. Header is not a data row. |
+| Total cells | 1,000,000 | Product limit in `check_table_size`, including all selected columns. |
+| Cell / label length | 65,536 / 256 Unicode characters | `check_field`; future loader/profile integration required. No silent truncation. |
+| Serialized profile | 1 MiB | `check_profile_size`; future bounded serializer must also avoid unbounded intermediate output. |
+| XLSX sheets / ZIP entries | 20 / 1,024 | Counts from package entry metadata; not a substitute for workbook relationship validation. |
+| XLSX expanded size | 50 MiB total | Declared ZIP sizes checked before any extraction; future loader must enforce actual expanded-byte limits too. |
+| XLSX compression ratio | 100:1 per member | Declared uncompressed/compressed sizes; may conservatively reject highly repetitive workbooks. |
+| Parser time | 5 seconds | Configuration only; no parser runs here. Future parser must have enforceable cancellation/resource bounds; an outer timeout alone is insufficient. |
+| PDF pages / parser time | 30 / 10 seconds | Used by the PDF loader (M7-09): pages counted before any is laid out; its terminated worker has its own deadline because layout analysis is slower than a spreadsheet read. Page text and cells reuse the field limit, tables the row/column/cell limits. |
+
+Exact limits are inclusive; limit + 1 fails. Dimension checks accept zero while counting incrementally, but the completed loader must reject zero-row/header-only input per M1-01/M1-13. Row/cell/profile/time limits are not advertised as enforced over an uploaded file until the corresponding loader/profile calls these guards.
+
+XLSX preflight rejects unsafe member paths, duplicate names (including case variants), encrypted or symlink members, unsupported compression, macro binary members, embedded objects, and external-link parts. Only stored/deflated ZIP members are admitted. These checks are a conservative envelope filter, not a full document security verdict.
+
+<a id="file_admission-transient-storage-and-errors"></a>
+
+### Transient storage and errors
+
+`staged_upload(...)` validates metadata/content before creating anything, then creates a generated `upload-*` directory (0700) and exclusive `input.csv` or `input.xlsx` (0600) beneath an existing, operator-owned `storage_root`. Use an ignored local directory such as repository `uploads/`, separately provisioned by the operator. The API has no default path, never creates arbitrary parent directories, rejects a symlink/missing root, and must never receive a root from file metadata or model output. The root and its parents must remain under operator control during the operation.
+
+The context manager removes staging on normal exit and downstream exceptions; callers must finish reading within the context. Failed storage operations return a sanitized code; cleanup failure is reported as `STORAGE_FAILED` for operator handling. This is temporary processing only, not permission to retain organizer/private inputs or a workspace persistence decision. Tests create synthetic inputs under pytest temporary directories; no private inputs are used.
+
+`admit_upload(...)` accepts a blocking binary stream whose I/O timeout is already controlled by its caller. It bounds bytes, not the time a stream's `read` can block; remote retrieval still belongs behind safe-fetch. Accepted bytes remain unchanged and are omitted from the result's representation. The guard does not infer units, frequency, stock/flow, or cumulative semantics.
+
+`AdmissionError` exposes a fixed `RejectionCode`, never a copied filename, path, cell, or low-level exception. `profile_failure(source_ref)` maps rejection into the M1-01 shape with `data_ref: null`, `row_count: null`, empty columns/semantics, and a diagnostic code. Its source reference must come from the caller's controlled provenance identity, not arbitrary source text. Admission success itself never emits an `ok` profile.
+
+
+## Ingestion and profile specification
+
+Original bounded admission/profile specification. References to future integration describe this contract’s delivery scope; current completion belongs to ROADMAP.
+
+<a id="ingestion_profile-bounded-profiling-and-deferred-limits"></a>
+
+### Bounded profiling and deferred limits
+
+M1-01 specifies result behavior at limits; [M1-02](ROADMAP.md#m1) owns the extension/MIME/content policy, numerical byte/row/column/time caps, and storage paths before loaders are enabled. [SEC-FILE-01/02](SECURITY.md#sec-file-01--file-admission-and-safe-storage) also require expansion/sheet limits and no formula/macro execution or external-link resolution. No loader may advertise support while these guards are undefined or unenforced.
+
+- Profile only the accepted bounded table; counts and candidate coverage refer to every accepted row. If parsing/profiling cannot finish within its configured bounds, return `rejected` with `LIMIT_EXCEEDED`, not an `ok` sample mislabeled as the full table.
+- Do not include raw-cell samples in the default profile. Preserve data behind its reference. Profile metadata has one column record per guarded column; label lengths and total metadata size must fit the admission/output limits specified in M1-02.
+- Proposed small reporting caps for this profile: at most **2 candidate interpretations per kind per column** and **20 diagnostics**. If more candidate interpretations exist, retain `ambiguous` with `CANDIDATES_TRUNCATED`; if further diagnostics cannot be listed, set `diagnostics_truncated: true`. These are result reporting caps, not parser CPU/input limits or proof of exhaustive interpretation.
+- Keep checks deterministic and local. A header/cell containing instructions is source data and cannot trigger a tool, network request, expression evaluation, or filesystem action.

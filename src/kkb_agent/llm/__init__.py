@@ -2,6 +2,7 @@
 
 from kkb_agent.llm.config import ProviderConfig
 from kkb_agent.llm.doubles import ScriptedProvider, scripted, transcript
+from kkb_agent.llm.kloudeks import APPROVED_HOSTS, KloudeksProvider, approved_base_url
 from kkb_agent.llm.provider import (
     CapabilityUnavailable,
     Completion,
@@ -17,13 +18,20 @@ from kkb_agent.llm.provider import (
     SchemaViolation,
     TransportError,
 )
-from kkb_agent.llm.structured import extract_json, parse_structured, repair_feedback
+from kkb_agent.llm.structured import (
+    complete_with_repair,
+    extract_json,
+    parse_structured,
+    repair_feedback,
+)
 
 __all__ = [
+    "APPROVED_HOSTS",
     "CapabilityUnavailable",
     "Completion",
     "ConfigurationError",
     "EmbeddingKind",
+    "KloudeksProvider",
     "LLMProvider",
     "Message",
     "ModelUnavailable",
@@ -35,6 +43,8 @@ __all__ = [
     "SchemaViolation",
     "ScriptedProvider",
     "TransportError",
+    "approved_base_url",
+    "complete_with_repair",
     "extract_json",
     "parse_structured",
     "repair_feedback",

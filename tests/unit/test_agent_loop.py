@@ -31,6 +31,8 @@ from kkb_agent.agent import (
     validate_plan,
 )
 from kkb_agent.llm import ScriptedProvider, scripted
+from kkb_agent.llm.provider import Role
+from kkb_agent.llm.structured import schema_instructions
 
 
 class LakehouseArgs(BaseModel):
@@ -89,7 +91,7 @@ TWO_STEPS = [
 class TestTheRegistryOwnsTheNames:
     def test_only_the_brief_names_can_be_registered(self):
         reg = ToolRegistry()
-        with pytest.raises(RegistryError, match="not one of the six names"):
+        with pytest.raises(RegistryError, match="not an implemented approved tool"):
             reg.register(ToolSpec("shell", "run anything", LakehouseArgs, lakehouse_run))
 
     def test_a_duplicate_registration_is_refused(self):
@@ -267,6 +269,8 @@ class TestThePlannerLoop:
         planned, outcome = session.run("konut kredisi 2023")
         assert planned.attempts == 1
         assert outcome.completed
+        assert len(session.provider.seen) == 1  # One model turn, zero schema/plan repairs.
+        assert not planned.rejections
 
     def test_a_rejected_plan_is_fed_back_and_corrected(self):
         bad = plan_json([{"step_id": "s1", "tool": "shell", "arguments": {}}])
@@ -292,6 +296,7 @@ class TestThePlannerLoop:
         session = Session(provider, registry(), budget=Budget(max_plan_repairs=2))
         with pytest.raises(PlanningFailed, match="No runnable plan after 3"):
             session.plan("konut kredisi")
+        assert len(provider.seen) == 3
 
     def test_the_planner_sees_the_tools_and_not_much_else(self):
         session = Session(scripted(plan_json(ONE_STEP)), registry())
@@ -300,6 +305,57 @@ class TestThePlannerLoop:
         joined = " ".join(message.content for message in prompt)
         assert "lakehouse" in joined and "anomaly" in joined
         assert "shell" not in joined
+
+    def test_initial_contract_is_authoritative_small_and_not_duplicated(self):
+        provider = scripted(plan_json(ONE_STEP))
+        reg = registry()
+        Session(provider, reg).plan("konut kredisi")
+        initial = provider.seen[0]
+        contract = schema_instructions(AnalyticalPlan)
+        assert [message.role for message in initial] == [Role.SYSTEM, Role.SYSTEM, Role.USER]
+        assert initial[0].content.endswith(contract)
+        emitted_schema = json.loads(contract.split("\n", 1)[1])
+        assert emitted_schema == AnalyticalPlan.model_json_schema()
+        assert emitted_schema["required"] == ["question", "steps"]
+        assert emitted_schema["$defs"]["PlanStep"]["required"] == ["step_id", "tool"]
+        # Only the plan contract is added; registry arguments already have one owner.
+        assert json.loads(initial[1].content.split("\n", 1)[1]) == reg.descriptions()
+        assert sum(message.content.count(contract) for message in initial) == 1
+        assert len(contract.encode("utf-8")) < 2048  # Regression budget for this fixed contract.
+
+    def test_schema_failure_retains_initial_contract_and_uses_it_for_repair(self):
+        bad = '{"steps": []}'
+        provider = scripted(bad, plan_json(ONE_STEP))
+        planned = Session(provider, registry()).plan("konut kredisi")
+        initial, retry = provider.seen
+        contract = schema_instructions(AnalyticalPlan)
+        assert initial[0].content.endswith(contract)  # Already present before failure.
+        assert retry[:-2] == initial
+        assert retry[-2].role is Role.ASSISTANT and retry[-2].content == bad
+        assert retry[-1].role is Role.USER
+        assert "question: missing" in retry[-1].content
+        assert retry[-1].content.endswith(contract)
+        assert len(provider.seen) == 2  # One invalid turn, one repair; no planner retry.
+        assert planned.attempts == 1 and not planned.rejections
+
+    @pytest.mark.parametrize("max_attempts", [1, 2, 3])
+    def test_invalid_schema_stops_at_existing_provider_budget(self, max_attempts):
+        provider = ScriptedProvider(responses=["{}"] * 4, max_attempts=max_attempts)
+        with pytest.raises(PlanningFailed, match=f"after {max_attempts} attempt"):
+            Session(provider, registry()).plan("konut kredisi")
+        assert len(provider.seen) == max_attempts
+        assert len(provider.responses) == 4 - max_attempts
+
+    def test_prompt_is_deterministic_and_user_content_cannot_change_contract(self):
+        seen = []
+        for question in ["konut kredisi", "konut kredisi", TestSourceTextCannotAuthorize.INJECTION]:
+            provider = scripted(plan_json(ONE_STEP))
+            Session(provider, registry()).plan(question)
+            seen.append(provider.seen[0])
+        assert seen[0] == seen[1]
+        assert seen[2][:-1] == seen[0][:-1]
+        assert seen[2][-1].role is Role.USER
+        assert seen[2][-1].content == TestSourceTextCannotAuthorize.INJECTION
 
 
 class TestSourceTextCannotAuthorize:

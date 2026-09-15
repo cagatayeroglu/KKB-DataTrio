@@ -7,7 +7,7 @@ TLS still authenticates the original URL hostname, not the resolved IP.
 
 No proxy/environment routing, DNS cache, address retries or redirect following.
 M7-05 supervises DNS/connect/total deadlines and bounded responses. M7-04
-owns redirect following; the current public fetch path rejects every redirect.
+owns redirect following and its shared budgets; this class only binds each hop.
 """
 
 from __future__ import annotations
@@ -22,6 +22,11 @@ from typing import NoReturn
 
 from pydantic import SecretStr
 
+from kkb_agent.ingest._reviewed_trust import (
+    ReviewedTrustError,
+    add_reviewed_issuer,
+    has_reviewed_issuer,
+)
 from kkb_agent.ingest.safe_fetch import (
     DEFAULT_LIMITS,
     FetchCode,
@@ -54,13 +59,29 @@ class SourceConnection(HTTPConnection):
     must close the connection and supervise its blocking DNS/total deadline.
     """
 
-    def __init__(self, request: FetchRequest, *, limits: FetchLimits = DEFAULT_LIMITS) -> None:
+    def __init__(
+        self,
+        request: FetchRequest,
+        *,
+        limits: FetchLimits = DEFAULT_LIMITS,
+        reviewed_issuer: bool = False,
+    ) -> None:
+        """`reviewed_issuer` adds the closed registry's pinned intermediate.
+
+        Only trusted callers set it (the fixed Monthly POST). It never follows a
+        redirect and fails before any DNS for a host without a reviewed entry.
+        """
         self._request = FetchRequest.model_validate(request)
         self._limits = FetchLimits.model_validate(limits)
         target = validate_url_target(
             self._request.url.get_secret_value(), max_url_chars=self._limits.max_url_chars
         )
         self._target = self._checked_target(target)
+        self._reviewed_issuer = reviewed_issuer
+        if reviewed_issuer and (
+            self._target.scheme != "https" or not has_reviewed_issuer(self._target.hostname)
+        ):
+            self._reject(FetchCode.INVALID_REQUEST)
         super().__init__(
             self._target.hostname, port=self._target.port, timeout=self._limits.connect_seconds
         )
@@ -160,6 +181,11 @@ class SourceConnection(HTTPConnection):
                 context = ssl.create_default_context()
                 if context.verify_mode != ssl.CERT_REQUIRED or not context.check_hostname:
                     self._reject(FetchCode.TRANSPORT_FAILURE)
+                if self._reviewed_issuer:
+                    try:
+                        add_reviewed_issuer(context, self._target.hostname)
+                    except (ReviewedTrustError, ssl.SSLError):
+                        self._reject(FetchCode.TRANSPORT_FAILURE)
                 active = context.wrap_socket(active, server_hostname=self._target.hostname)
                 self._check_peer(active, selected)
             active.settimeout(self._limits.read_seconds)

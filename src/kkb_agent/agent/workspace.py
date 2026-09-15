@@ -138,6 +138,27 @@ class Binding:
     revision: int
 
 
+@dataclass(frozen=True, slots=True)
+class PublicationPreview:
+    """An in-memory candidate and the exact workspace view reviewed by the gate.
+
+    JSON snapshots keep mutable result models from changing the staged payload.
+    This is not verification evidence; Session owns publication eligibility.
+    """
+
+    workspace_id: str
+    name: str
+    candidate_json: str
+    state_token: str
+    named_json: tuple[tuple[str, str], ...]
+    inputs: tuple[str, ...] = ()
+
+    def values(self) -> dict[str, AnalyticalResult]:
+        return {
+            name: AnalyticalResult.model_validate_json(payload) for name, payload in self.named_json
+        }
+
+
 class Workspace:
     """Named analysis state over one DuckDB connection.
 
@@ -183,21 +204,10 @@ class Workspace:
         not recomputed here, because whether they *should* be recomputed is the
         caller's decision and doing it silently is how stale results hide.
         """
-        if not name.strip():
-            raise WorkspaceError("An artifact needs a name")
-        parameters = dict(parameters or {})
-        resolved: list[str] = []
-        for dependency in inputs:
-            if dependency == name:
-                raise WorkspaceError(f"{name!r} cannot depend on itself")
-            binding = self._binding(dependency)
-            if binding is None:
-                raise WorkspaceError(f"{name!r} depends on undefined {dependency!r}")
-            resolved.append(binding.artifact_id)
-        if self._would_cycle(name, inputs):
-            raise WorkspaceError(f"Defining {name!r} would create a dependency cycle")
-
-        identifier = artifact_id(kind, name, parameters, resolved, value_ref)
+        definition = self._definition(name, kind, parameters, inputs, value_ref, lineage_node)
+        identifier = definition.artifact_id
+        parameters = definition.parameters
+        resolved = definition.inputs
         existing = self._binding(name)
         if existing is not None and existing.artifact_id == identifier and not existing.stale:
             return self.artifact(identifier)
@@ -226,6 +236,35 @@ class Workspace:
         if existing is not None and existing.artifact_id != identifier:
             self._mark_stale(self.dependents(name))
         return self.artifact(identifier)
+
+    def _definition(
+        self,
+        name: str,
+        kind: ArtifactKind,
+        parameters: Mapping[str, str] | None,
+        inputs: Sequence[str],
+        value_ref: str | None,
+        lineage_node: str | None,
+    ) -> Artifact:
+        """Resolve a definition without writing; shared by define and preview."""
+        if not name.strip():
+            raise WorkspaceError("An artifact needs a name")
+        parameters = dict(parameters or {})
+        resolved: list[str] = []
+        for dependency in inputs:
+            if dependency == name:
+                raise WorkspaceError(f"{name!r} cannot depend on itself")
+            binding = self._binding(dependency)
+            if binding is None:
+                raise WorkspaceError(f"{name!r} depends on undefined {dependency!r}")
+            resolved.append(binding.artifact_id)
+        if self._would_cycle(name, inputs):
+            raise WorkspaceError(f"Defining {name!r} would create a dependency cycle")
+
+        identifier = artifact_id(kind, name, parameters, resolved, value_ref)
+        return Artifact(
+            identifier, kind, name, parameters, tuple(resolved), value_ref, lineage_node
+        )
 
     # -- reading -------------------------------------------------------------
 
@@ -408,6 +447,104 @@ class Workspace:
             value_ref=self.store_result(result),
             lineage_node=result.evidence.lineage_node if result.evidence else None,
         )
+
+    def _publication_state(self) -> str:
+        """Version the bound workspace, including stale flags and stored payloads.
+
+        Revisions detect change-and-change-back; definitions/payloads also detect
+        mutation underneath an unchanged binding. Other workspaces are excluded.
+        """
+        rows = self.connection.execute(
+            "SELECT b.name, b.artifact_id, b.stale, b.revision, "
+            "a.kind, a.name, a.parameters, a.inputs, a.value_ref, a.lineage_node, "
+            "r.result_id, r.payload FROM workspace_bindings b "
+            "LEFT JOIN workspace_artifacts a ON a.artifact_id = b.artifact_id "
+            "LEFT JOIN workspace_results r ON r.result_digest = a.value_ref "
+            "WHERE b.workspace_id = ? ORDER BY b.name",
+            [self.workspace_id],
+        ).fetchall()
+        return hashlib.sha256(json.dumps(rows, ensure_ascii=False).encode()).hexdigest()
+
+    def preview(
+        self, name: str, result: AnalyticalResult, *, inputs: tuple[str, ...] = ()
+    ) -> PublicationPreview:
+        """Preview Session's VALUE publication with define's existing semantics."""
+        token = self._publication_state()
+        for dependency in inputs:
+            self.resolve(dependency)  # Refuse stale or missing publication inputs.
+        definition = self._definition(
+            name,
+            ArtifactKind.VALUE,
+            None,
+            inputs,
+            result.digest(),
+            result.evidence.lineage_node if result.evidence else None,
+        )
+        existing = self._binding(name)
+        invalidated = (
+            self.dependents(name)
+            if existing is not None and existing.artifact_id != definition.artifact_id
+            else set()
+        )
+        # Read only values that survive the proposed transition. In particular,
+        # do not revive a stale dependent or reread the superseded target value.
+        values = {}
+        for current in self.names():
+            if current == name or current in invalidated or self.is_stale(current):
+                continue
+            if self.resolve(current).value_ref is not None:
+                values[current] = self.value_of(current)
+        values[name] = result
+        if self._publication_state() != token:
+            raise WorkspaceError("Workspace changed while preparing publication")
+        return PublicationPreview(
+            self.workspace_id,
+            name,
+            result.model_dump_json(),
+            token,
+            tuple((key, value.model_dump_json()) for key, value in sorted(values.items())),
+            inputs,
+        )
+
+    def publish(self, preview: PublicationPreview) -> Artifact:
+        """Commit an eligible preview in a short, independently owned transaction.
+
+        A DuckDB cursor is a separate connection/transaction to the same database.
+        Never begin/commit/rollback on the caller's connection. Uncommitted caller
+        workspace edits cannot match the committed state checked here. Provider
+        and verifier work has already finished before this method is entered.
+        """
+        if preview.workspace_id != self.workspace_id:
+            raise WorkspaceError("Publication belongs to another workspace")
+        result = AnalyticalResult.model_validate_json(preview.candidate_json)
+        connection = self.connection.cursor()
+        try:
+            connection.execute("BEGIN TRANSACTION")
+            try:
+                current = Workspace(connection, self.workspace_id)
+                if current._publication_state() != preview.state_token:
+                    raise WorkspaceError("Workspace changed since publication preview")
+                artifact = current.record(
+                    preview.name, ArtifactKind.VALUE, result, inputs=preview.inputs
+                )
+                # A fresh reader also catches commits made during our short
+                # write transaction, whose own reads use a snapshot.
+                observer = self.connection.cursor()
+                try:
+                    if (
+                        Workspace(observer, self.workspace_id)._publication_state()
+                        != preview.state_token
+                    ):
+                        raise WorkspaceError("Workspace changed during publication")
+                finally:
+                    observer.close()
+                connection.execute("COMMIT")
+                return artifact
+            except BaseException:
+                connection.execute("ROLLBACK")
+                raise
+        finally:
+            connection.close()
 
     def value_of(self, name: str, *, allow_stale: bool = False) -> AnalyticalResult:
         """The result bound to `name`. Stale names are refused, as in `resolve`."""

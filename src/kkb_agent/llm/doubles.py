@@ -1,10 +1,10 @@
-"""A scripted provider for building against while the platform is unresolved (M4-09).
+"""A scripted provider for credential-free building and testing (M4-09).
 
-This is not a mock in the test-only sense. Q-K-01 through Q-K-03 are unanswered,
-so the planner, the router and every tool have to be written and exercised
-against something, and that something should behave like the platform is
-expected to behave — including badly. Scripting refusals, rate limits and
-malformed JSON here is how those paths get tested before a credential exists.
+This is not a mock in the test-only sense. The planner, the router and every
+tool have to be exercised without a key or a network, and what they run
+against should behave like the platform is expected to behave — including
+badly. Scripting refusals, rate limits and malformed JSON here is how those
+paths get tested; the real transport is `kloudeks.KloudeksProvider`.
 
 It performs no networking of any kind, which is also what makes it safe to run
 in credential-free CI.
@@ -23,10 +23,8 @@ from kkb_agent.llm.provider import (
     EmbeddingKind,
     Message,
     ProviderError,
-    Role,
-    SchemaViolation,
 )
-from kkb_agent.llm.structured import parse_structured, repair_feedback
+from kkb_agent.llm.structured import complete_with_repair
 
 #: A scripted turn: text to return, or an error to raise instead.
 Scripted = str | ProviderError
@@ -68,30 +66,16 @@ class ScriptedProvider:
         model: str | None = None,
         schema: type[BaseModel] | None = None,
     ) -> Completion:
-        conversation = list(messages)
-        last_problem = ""
-        for attempt in range(1, self.max_attempts + 1):
+        def ask(conversation: list[Message]) -> tuple[str, str | None]:
             self.seen.append(list(conversation))
-            text = self._next()
-            if schema is None:
-                return Completion(text=text, model=model or self.model, attempts=attempt)
-            try:
-                parsed = parse_structured(text, schema)
-            except SchemaViolation as error:
-                last_problem = str(error)
-                if attempt == self.max_attempts:
-                    break
-                # Feed the fault back rather than retrying the same prompt: an
-                # unchanged prompt tends to reproduce the same malformation.
-                conversation = [
-                    *conversation,
-                    Message(Role.ASSISTANT, text),
-                    Message(Role.USER, repair_feedback(schema, last_problem)),
-                ]
-                continue
-            return Completion(text=text, model=model or self.model, attempts=attempt, parsed=parsed)
-        raise SchemaViolation(
-            f"Schema not satisfied after {self.max_attempts} attempt(s): {last_problem}"
+            return self._next(), None
+
+        return complete_with_repair(
+            ask,
+            messages,
+            schema=schema,
+            max_attempts=self.max_attempts,
+            model=model or self.model,
         )
 
     def embed(self, texts: Sequence[str], *, kind: EmbeddingKind) -> list[list[float]]:

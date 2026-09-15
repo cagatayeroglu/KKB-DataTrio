@@ -6,6 +6,36 @@ One DuckDB file holds every table. There is no server: DuckDB runs inside the ap
 
 Every table is created by `apply_schema` in [database.py](../src/kkb_agent/database.py), which is also the only list of what exists. The DDL itself lives beside the code that reads and writes each table, so a table's rules sit next to their enforcement; `TABLES` keeps a single answer to "what is in here", and [test_database.py](../tests/unit/test_database.py) fails if this document and the code disagree.
 
+## Prepared official-data boundary
+
+Under [DEC-136](DECISIONS.md#dec-136--scoped-official-data-preparation-and-lakehouse-first-demo-runtime), scoped official BDDK/EVDS ingestion prepares the initial housing balance/rate, CPI and KFE observations (approximately 2021-01–2026-06) before demo runtime. Bronze preserves source artifacts and retrieval provenance; silver records normalized values with explicit source semantics; gold holds required derived/aligned representations. Thin source adapters reuse these storage boundaries. Runtime `catalog_search` selects trusted metadata and `lakehouse` queries prepared values; neither a metadata snapshot nor empty storage tables constitute a prepared dataset.
+
+The tables below are implemented storage. Bounded Monthly and EVDS adapters now prepare official data through the existing bronze/manifest/silver/lineage boundaries. [EVALUATION](EVALUATION.md#prepared-api-delivery-and-pool-evidence) owns measured pool coverage, local-artifact identity and reproducibility limits. Preparation must retain source identity, vintage, normalization and computation evidence. Fixed-pool acceptance does not require sophisticated refresh orchestration, but competing vintages and retention remain M3-09/M12-12 and Q-DATA-03 concerns.
+
+## Versioned dataset and object storage target
+
+Under DEC-137, catalog identity is separate from availability for an exact requested window and dataset version. Intended lifecycle: discover → fetch → snapshot → parse → validate → materialize → version → query → refresh. Stage/validate before publishing a usable dataset version; failure must leave prior trusted versions intact. Same source content/selector/parser/semantic policy yields the same content version or idempotent no-op. Preserve raw snapshots, retrieval/release context and prior vintages when new periods, corrected values, metadata or archive state appear. Existing silver primary keys/upserts do not implement this version/refresh policy; M3-09/M12-12 must establish it.
+
+Parquet is persistent analytical data/artifact format; DuckDB is embedded computation/query, not a hosted service. A future provider-neutral Dataset/Object Storage boundary may support local persistent filesystem/volume and S3-compatible storage for bronze, Parquet, manifests and versions. AWS S3 is not selected; S3-compatible integration is not implemented. Q-INFRA-01/02 own volume lifetime, availability and runtime credentials. Vector caches/indexes contain catalog descriptions/aliases/concepts, never financial observation values.
+
+Core official materialization is intended persistent/versioned catalog data. CSV/XLSX/PDF and authorized URL artifacts remain session-scoped external data, even when common bronze/parser/lakehouse primitives are reused; they cannot automatically become permanent official series. Retention/redistribution and dataset publication are distinct from M5-21's accepted-turn workspace commit.
+
+## Lakehouse layers and separate vector-search responsibility
+
+The [DEC-137 dated refinement](DECISIONS.md#dec-137-prepared-pool-refinement) makes the prepared pool the primary structured BDDK/EVDS demo path. Build it through approved adapters before questions arrive; normal runtime uses silver canonical observations and gold where an appropriate trusted analytical materialization exists. Bronze is immutable raw source evidence, never direct analytical truth. All three are lakehouse layers:
+
+| Boundary | Owns / serves |
+| --- | --- |
+| Bronze | Content-addressed raw official responses/snapshots and retrieval provenance |
+| Silver | Normalized trusted canonical observations with declared source semantics |
+| Gold | Aligned/joined/transformed analytical materializations/results with evidence |
+| DuckDB + Parquet lakehouse | Financial observations and analytical data across those layers; raw bytes remain artifact files with database metadata |
+| Intended vector DB/index layer | Catalog text embeddings and semantic series/selector discovery only; no financial observation values |
+
+LanceDB stores the catalog vector index separately from this DuckDB schema. Its identity, text/hash, profile/dimension and snapshot contracts belong to [CATALOG](CATALOG.md); runtime composition belongs to [ARCHITECTURE](ARCHITECTURE.md#catalog-runtime-composition). No PostgreSQL service or financial observation storage is implied by the vector layer.
+
+Runtime official-source cache-miss materialization, sophisticated refresh/vintage orchestration and object-storage optimization remain future scalability work, not core demo prerequisites. Minimum source identity/version evidence and refusal of silent historical overwrite still apply to every prepared dataset. Pool misses may clarify/abstain; no full availability router is claimed.
+
 ## Layout on disk
 
 ```text
@@ -80,6 +110,8 @@ Read it as one sentence: bytes arrive and are hashed, a series says what those n
 | `base_year` | INTEGER | Required for an index; null otherwise |
 
 **Rules.** A series cannot be registered while its unit, scale, frequency, observation kind or accumulation behaviour is unknown. Re-registering the same series with *different* semantics is refused, because rows already stored were validated against the old declaration. Both rules exist because BDDK publishes in million TRY and FinTürk in thousand, and because one BDDK bulletin contains three different accumulation behaviours — see [BDDK_SOURCE](BDDK_SOURCE.md).
+
+M3-06 uses an **internal** content-addressed batch manifest as the single `artifact_id`: canonical selector, inclusive month range, ordered raw hashes/request identities, parser/semantic versions, transformation policy and normalized-observation hash. Each raw response remains a separate bronze artifact; typed source → manifest → normalized-series lineage resolves all inputs. No new table or alternative storage engine is introduced. Whole-batch validation precedes a short series/observations/lineage transaction; failed materialization leaves silver unchanged, while immutable bronze may remain. Identical repeats are no-ops; changed bytes/range/contracts raise `VERSION_CONFLICT`, including range extensions, until version promotion is separately implemented. `materialized_monthly` verifies only the exact stored selector/window and counts nulls separately from successful materialization. This is offline-tested infrastructure, not real-source dataset acceptance. [Contract and limitations](BDDK_MONTHLY_METADATA.md#m3-06-bounded-monthly-ingestion-offline-validated).
 
 `anchor` is a separate column rather than part of `frequency` because EVDS anchors 87 datagroups to Friday and one to Wednesday, and a single "weekly" bucket would silently misalign them ([EVDS_SOURCE](EVDS_SOURCE.md)).
 
@@ -183,6 +215,6 @@ Foreign keys are declared for readability. DuckDB enforces them, but the applica
 
 ## What is not here yet
 
-The series catalog and its search indexes ([M13](ROADMAP.md#m13)) will add DuckDB tables for series metadata and the alias dictionary, plus a DuckDB full-text index. Vectors live in LanceDB, outside this file, under [DEC-115](DECISIONS.md#dec-115--hybrid-series-retrieval-over-lancedb-and-duckdb-fts). Evaluation results ([M9](ROADMAP.md#m9)) and a turn log will add tables here. No second relational database is planned.
+Catalog discovery ([M13](ROADMAP.md#m13)) currently uses the M13-08 versioned local reviewed JSON snapshot and M13-04 in-memory pure-Python BM25; no DuckDB FTS extension/index was installed. [DEC-136](DECISIONS.md#dec-136--scoped-official-data-preparation-and-lakehouse-first-demo-runtime) separates catalog metadata from runtime queries over observations prepared in the lakehouse. A broader versioned BDDK/EVDS metadata snapshot remains future work; its storage expansion is not delivered or selected here. DEC-138 selects LanceDB; local vector persistence/exact search and optional hybrid composition are implemented. Actual Qwen embeddings are not wired into default prepared retrieval, and semantic-quality acceptance remains pending; DEC-115 is historical/superseded. Evaluation results ([M9](ROADMAP.md#m9)) and a turn log will add tables here. No second relational database is planned.
 
 Revisions and source vintages ([M12-12](ROADMAP.md#m12)) are unresolved: `silver_observations` currently permits one value per period, and whether BDDK or EVDS restate a published figure has not been tested.

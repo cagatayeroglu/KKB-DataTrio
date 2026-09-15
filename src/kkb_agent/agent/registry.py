@@ -27,6 +27,10 @@ BRIEF_TOOLS = frozenset(
 )
 
 
+# M13-04 catalog_search; M5-20 table_transform (DEC-135, delivered operations only).
+IMPLEMENTED_PRODUCT_TOOLS = frozenset({"catalog_search", "table_transform"})
+
+
 class RegistryError(ValueError):
     """A tool was registered or requested in a way the registry cannot honour."""
 
@@ -36,11 +40,24 @@ class ArgumentsRejected(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class TableInput:
+    """Registry-owned declaration of a tool's actual table input."""
+
+    source: str | None = None
+    input_step: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ToolSpec:
     name: str
     description: str
     arguments: type[BaseModel]
     run: Callable[[BaseModel, ExecutionContext], ToolResult]
+    # A tool may consume earlier step outputs only through explicit plan edges.
+    required_steps: Callable[[BaseModel], tuple[str, ...]] | None = None
+
+    table_input: Callable[[BaseModel], TableInput | None] | None = None
+    discovery_only: bool = False
 
     def parse(self, raw: dict[str, Any]) -> BaseModel:
         try:
@@ -62,9 +79,9 @@ class ToolRegistry:
     def register(self, spec: ToolSpec) -> None:
         if spec.name in self._tools:
             raise RegistryError(f"Tool {spec.name!r} is already registered")
-        if spec.name not in BRIEF_TOOLS:
+        if spec.name not in BRIEF_TOOLS | IMPLEMENTED_PRODUCT_TOOLS:
             raise RegistryError(
-                f"Tool {spec.name!r} is not one of the six names the brief fixes; "
+                f"Tool {spec.name!r} is not an implemented approved tool; "
                 "adding one needs its own decision"
             )
         self._tools[spec.name] = spec

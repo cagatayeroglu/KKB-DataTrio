@@ -42,9 +42,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
 from kkb_agent.agent.registry import ToolSpec
+from kkb_agent.catalog.inspection import PreparedSeriesInspector
 from kkb_agent.core import AnalyticalResult, ResultStatus
 from kkb_agent.database import all_tables
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
+from kkb_agent.lakehouse.result_evidence import _record_execution, canonical
 from kkb_agent.tools import _projection
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -224,6 +226,7 @@ def make_lakehouse_tool(
     readable: Sequence[str] = DEFAULT_READABLE,
     max_rows: int = DEFAULT_MAX_ROWS,
     lineage: Lineage | None = None,
+    inspector: PreparedSeriesInspector | None = None,
 ) -> ToolSpec:
     """Bind the tool to one database. The registry holds the closure, not the data.
 
@@ -255,6 +258,7 @@ def make_lakehouse_tool(
             )
         ast = _ast_of(arguments.sql)
         tables = sorted(referenced_tables(ast) & set(readable))
+        snapshots: list[str] = []
         typed = _projection.project(
             result,
             ast=ast,
@@ -262,6 +266,8 @@ def make_lakehouse_tool(
             result_id=_result_id(arguments, None),
             tables=tables,
             parameters={"purpose": arguments.purpose, "max_rows": max_rows},
+            snapshots=snapshots,
+            inspector=inspector,
         )
         node = None
         if typed.status is ResultStatus.COMPUTED:
@@ -273,6 +279,19 @@ def make_lakehouse_tool(
                         "evidence": typed.evidence.model_copy(update={"lineage_node": node}),
                     }
                 )
+        typed = _record_execution(
+            connection,
+            producer="lakehouse",
+            arguments=canonical(
+                {
+                    "sql_sha256": _statement_digest(arguments.sql),
+                    "purpose": arguments.purpose,
+                    "max_rows": max_rows,
+                }
+            ),
+            inputs=snapshots,
+            result=typed,
+        )
         warnings = tuple(typed.warnings)
         if result.truncated:
             warnings = (f"Result truncated to {max_rows} rows; narrow the query", *warnings)
@@ -303,8 +322,10 @@ def _describe(readable: Iterable[str]) -> str:
         "Run one read-only SELECT over the analysis tables. "
         f"Readable tables: {', '.join(sorted(readable))}. "
         "Only SELECT is accepted; no table functions, no writes, no other tables."
-        " Measurements require direct silver_observations columns joined to silver_series"
-        " by series_id, selecting series_id, period_start, period_end, value, unit and scale."
+        " Measurements require direct columns: silver_observations o (series_id, period_start,"
+        " period_end, value) joined to silver_series s (series_id, unit, scale, frequency,"
+        " anchor, observation) on series_id, selecting o.series_id, o.period_start,"
+        " o.period_end, o.value, s.unit and s.scale. unit and scale exist only on silver_series."
         " Expressions and other projections return inspection rows only, not financial evidence."
     )
 
