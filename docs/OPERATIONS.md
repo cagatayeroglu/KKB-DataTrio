@@ -400,11 +400,34 @@ is contacted.
 
 For an owner-authorized live rehearsal with a hard request ceiling, run
 `tests/manual/live_client.py` (same prepared runner/service as `--serve`,
-`--max-model-requests N`, `KLOUDEKS_MAX_ATTEMPTS=1` required, embedding/vision
-refused, content-free ledger in `artifacts/live-rehearsal-ledger.jsonl` with call
-timings and each gate status plus omission reason categories, never sentences) and
+`--max-model-requests N` between 1 and 15, `KLOUDEKS_MAX_ATTEMPTS=1` required) and
 compare answers with `python tests/manual/organizer_oracle.py data/processed/lakehouse`.
-Each run needs explicit model-request authorization.
+The timeout must be finite and between 1 and 900 seconds. Each run needs separate
+bounded model-request authorization; these flags do not themselves grant permission.
+
+Embedding is disabled by default. To rehearse hybrid discovery, supply all three:
+`--catalog-index <matching-generation>`, `--max-embedding-requests N` (1–15), and
+`--enable-embedding-requests`. Startup verifies the configured embedding model and
+index snapshot/profile/origin before constructing a provider. Use catalog v3 and
+the matching `qwen3-instruct-query-v1-e0bbaac8` generation until a reviewed replacement
+is handed over. Building an absent index needs separate embedding authorization.
+
+Chat and query-embedding budgets are independent, shared by all sessions in that
+launcher process and reserved before dispatch. Failures consume a slot; retries
+are disabled. Only one nonempty query per embedding call is permitted; passage
+embedding and vision remain refused. Cached queries make no new provider request.
+Once the embedding budget is exhausted, uncached dense searches explicitly degrade
+to lexical retrieval under the existing catalog policy; chat can continue within
+its own ceiling. This degraded result does not establish live hybrid acceptance.
+
+Choose a fresh `--ledger artifacts/<run-name>.jsonl` for each run. The default is
+`artifacts/live-rehearsal-ledger.jsonl`; an existing file refuses startup rather than
+being overwritten. The content-free ledger records configured limits, catalog
+digest, dispatch starts and outcomes, timings, final counters and each gate's
+omission categories, never messages, vectors, sentences or credentials. Count
+`started` entries per kind, not all lines: each dispatch has a separate outcome.
+A stopped process may leave a start without an outcome; never interpret that as a
+free retry. A logging failure before dispatch prevents that provider call.
 
 Use this exact question order in a fresh browser workspace for the selection rehearsal:
 
