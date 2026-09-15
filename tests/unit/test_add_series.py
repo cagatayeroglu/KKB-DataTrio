@@ -268,7 +268,13 @@ def test_planner_schema_exposes_separate_closed_operation_objects(pool):
     registry.register(bound_tool(pool))
     schema = registry.descriptions()[0]["arguments"]
     assert schema["discriminator"]["propertyName"] == "operation"
-    assert set(schema["discriminator"]["mapping"]) == {"deflate", "add_series"}
+    assert set(schema["discriminator"]["mapping"]) == {
+        "deflate",
+        "add_series",
+        "rebase",
+        "align",
+        "filter",
+    }
     definitions = schema["$defs"]
     assert set(definitions["AddSeriesArguments"]["required"]) == {
         "operation",
