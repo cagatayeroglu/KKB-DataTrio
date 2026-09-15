@@ -84,7 +84,7 @@ PREPARATION / DEMO-CRITICAL (source policy required)
   -> prepared DuckDB + Parquet lakehouse
 
 PRIMARY DEMO RUNTIME TARGET
-  user -> planner -> catalog_search (lexical now; required dense hybrid target)
+  user -> planner -> catalog_search (lexical; hybrid with an explicit catalog index, DEC-142)
   -> trusted prepared candidate -> lakehouse (silver / appropriate trusted gold)
   -> guarded transforms / analytics -> mandatory correctness harness -> verifier
   -> accepted workspace publication / answer / table / chart
@@ -547,7 +547,7 @@ The [M13-13 prepared inspection](ARCHITECTURE.md#series_inspection-prepared-seri
 
 DEC-137 separates trusted **local/versioned catalog metadata and discovery** from **observation availability/materialization and lakehouse queries**. Approved reusable source adapters primarily populate the prepared official pool. Demo catalog routing is concept → trusted prepared candidate → lakehouse; a pool miss may clarify/abstain. Official adapter filling of known requested-window misses is future scalability, not a core demo prerequisite. catalog_search consumes reviewed catalog state; it does not fetch observations or invent IDs. The M13-08 demo snapshot is not a permanent full-catalog ceiling: reviewed aliases are precision shortcuts, not the only catalog knowledge. Broader versioned BDDK/EVDS metadata coverage is intended later and remains unimplemented; unseen concepts may use catalog retrieval without an exact alias, while unsupported identities remain unresolved.
 
-TARGET under [DEC-130](DECISIONS.md#dec-130--initial-hybrid-retrieval-baseline), superseding DEC-127; DEC-115 remains historical. M13-04 supplies the lexical stage; local LanceDB search and optional hybrid composition are implemented. Default prepared API retrieval is lexical, without real Qwen embedding injection; live semantic-quality acceptance remains unfinished.
+TARGET under [DEC-130](DECISIONS.md#dec-130--initial-hybrid-retrieval-baseline), superseding DEC-127; DEC-115 remains historical. M13-04 supplies the lexical stage; local LanceDB search and hybrid composition are implemented. Real Qwen embeddings were evaluated on reviewed development and fresh holdout cases (M13-09 #178, M13-05 #179), and the prepared API injects the DEC-142 dense stage only when started with `--catalog-index`; without it retrieval is lexical. A live served turn with dense retrieval, out-of-scope abstention and broader-catalog quality remain unfinished.
 
 Mandatory HYBRID baseline: one Turkish normalizer shared by query/index paths, reviewed aliases/concept families, metadata filters, lexical/BM25 and dense semantic retrieval using the organizer's Qwen3-Embedding-8B (exact model/endpoint in DEC-129). DEC-138 selects LanceDB as the catalog vector index, keyed by series/concept ID, catalog text hash, model ID and dimension, with deterministic ranking tests. The confirmed model is `kkbhackathon2026/Qwen3-Embedding-8B`, measured at 4096 dimensions. Vectors index descriptions/aliases/concepts, never financial observation values; those remain DuckDB/Parquet. Dense retrieval starts in the baseline without waiting for lexical failure or a prior gain measurement. Candidates retain IDs, original titles, source, unit/scale/frequency, coverage and archived/unknown flags. Exact aliases do not bypass ambiguity or semantic checks.
 
