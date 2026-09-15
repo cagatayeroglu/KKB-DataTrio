@@ -143,6 +143,23 @@ def validate_plan(
                 raise PlanRejected(f"Step {step.step_id!r} depends on itself")
         validated[step.step_id] = ValidatedStep(step, arguments)
 
+    # Only the last computed result is answered and published. A second
+    # unconsumed calculation would be silently discarded, so refuse the plan and
+    # let the planner combine conditions or chain the steps instead (M11-11).
+    consumed = {dependency for step in plan.steps for dependency in step.depends_on}
+    final = [
+        step.step_id
+        for step in plan.steps
+        if step.step_id not in consumed and not registry.get(step.tool).discovery_only
+    ]
+    if len(final) > 1:
+        raise PlanRejected(
+            f"Plan has {len(final)} final calculation steps ({', '.join(final)}); only one "
+            "final result is answered and published. Express every condition in one "
+            "operation (for example table_co_movement when_column/when_direction) or make "
+            "each later step depend on the earlier one"
+        )
+
     return ValidatedPlan(plan.question, tuple(_ordered(plan, validated)), plan.clarification)
 
 

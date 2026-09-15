@@ -69,8 +69,10 @@ SYNTHESIS_PROMPT = (
     "quotation is separate: copy its complete answer exactly, with no additions. "
     "Do not calculate, round, convert, "
     "extrapolate or introduce any number that is not listed. State the unit and "
-    "period a value carries. If the results do not answer the question, say so "
-    "plainly. When results hold values for many periods, the reader is shown a separate "
+    "period a value carries. If the results do not cover part of the question, name that "
+    "part plainly, but never claim that a listed column, value or result is missing, "
+    "unavailable or impossible to compute: the verifier withholds such claims. "
+    "When results hold values for many periods, the reader is shown a separate "
     "table of every period's values built from these results: do not reproduce per-period "
     "rows or tables; summarize and quote only the few figures that answer the question. "
     "Refer to series by the meaning given for them, never by raw labels or identifiers "
@@ -227,6 +229,25 @@ def render_result(result: AnalyticalResult) -> str:
             + "; ".join(tabled)
             + ". Only highlighted periods and summary values are listed below."
         )
+        table = period_table(result)
+        if table is not None:
+            # Presence is stated from the table itself, so the writer is never left
+            # to infer that a column absent from the short list has no values.
+            gapped = {
+                index for _, cells in table.rows for index, cell in enumerate(cells) if not cell
+            }
+            complete = [c for i, c in enumerate(table.columns) if i not in gapped]
+            partial = [c for i, c in enumerate(table.columns) if i in gapped]
+            if complete:
+                lines.append(
+                    "These table columns have a value in every period of that table: "
+                    + "; ".join(complete)
+                )
+            if partial:
+                lines.append(
+                    "These table columns have values but are empty in some periods: "
+                    + "; ".join(partial)
+                )
     for value in values:
         display = display_value(value)
         parts = [

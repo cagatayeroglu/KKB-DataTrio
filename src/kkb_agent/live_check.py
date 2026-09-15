@@ -29,7 +29,7 @@ import shutil
 import sys
 import tempfile
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -382,17 +382,32 @@ def _turn_three_relationship(result: object) -> bool:
         for r in records
         if r.operation == "align_weekly_to_monthly" and r.input_refs == ["EVDS:TP.KTF12"]
     }
+
+    def roles(parameters: Mapping[str, object]) -> set[str] | None:
+        # The joint period set is the same whichever of the three conditions is
+        # the driver, target or condition column, so any assignment is accepted.
+        found = set()
+        for role in ("driver", "target", "when"):
+            column = parameters.get(f"{role}_column")
+            direction = parameters.get(f"{role}_direction")
+            if not isinstance(column, str):
+                return None
+            if column == "EVDS:TP.KFE.TR" and direction == "up":
+                found.add("price_up")
+            elif column in real_columns and direction == "non_increasing":
+                found.add("real_not_rising")
+            elif column in rate_columns and direction == "down":
+                found.add("rate_down")
+            else:
+                return None
+        return found
+
     return (
         any(r.operation == "add_series" for r in records)
         and any(v.label == "EVDS:TP.KFE.TR" for v in result.values)
         and any(
             r.operation == "table_co_movement"
-            and r.parameters.get("driver_column") == "EVDS:TP.KFE.TR"
-            and r.parameters.get("driver_direction") == "up"
-            and r.parameters.get("target_column") in real_columns
-            and r.parameters.get("target_direction") == "non_increasing"
-            and r.parameters.get("when_column") in rate_columns
-            and r.parameters.get("when_direction") == "down"
+            and roles(r.parameters) == {"price_up", "real_not_rising", "rate_down"}
             for r in records
         )
     )

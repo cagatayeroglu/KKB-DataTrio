@@ -128,6 +128,31 @@ CAUSAL_PHRASES = (
 CAUSAL = re.compile(r"\b(?:" + "|".join(CAUSAL_PHRASES) + r")\b", re.I)
 
 
+#: Wording that says values, data or results do not exist or cannot be computed.
+#: The gate cannot prove an absence, and a computed result shown beside the
+#: answer contradicts one (the M11-07 live Turn 3 said an added column had no
+#: values). Bounded folded vocabulary, not a parser: "geçiş yok" or "dışlanan
+#: dönem bulunmuyor" describe counts and are deliberately not listed.
+ABSENCE_PHRASES = (
+    r"(?:değer|veri|sonuç)\w*\s+(?:bulunm(?:uyor|am)\w*|yok\w*|mevcut\s+değil\w*)",
+    r"(?:değer|veri|sonuç)\w*\s+(?:yer\s+)?almi(?:yor|yo)\w*",
+    r"hesaplanam\w*",
+    r"bulunamad\w*",
+    r"no\s+(?:values?|data|results?)",
+    r"(?:values?|data|results?)\s+(?:is|are)\s+(?:missing|unavailable|not\s+available)",
+    r"(?:cannot|could\s+not)\s+be\s+(?:computed|calculated)",
+)
+ABSENCE = re.compile(r"\b(?:" + "|".join(ABSENCE_PHRASES) + r")", re.I)
+
+
+def absence_fault(text: str) -> str | None:
+    if ABSENCE.search(_fold(text)):
+        return (
+            "Unsupported absence claim: computed results are shown; the gate cannot prove absence"
+        )
+    return None
+
+
 def causal_fault(text: str) -> str | None:
     if CAUSAL.search(_fold(text)):
         # Even ResultKind.CAUSALITY is association-only under DEC-120.

@@ -121,3 +121,71 @@ def test_final_qualified_answer_without_publication_is_not_a_passing_rehearsal(l
     assert final["answer"]["status"] == "qualified"
     assert final["published"] == [live_check.TURN_ONE_NAME]
     assert final["passed"] is False
+
+
+def comparison(step_id, target, when=None, direction="non_increasing"):
+    arguments = {
+        "operation": "table_co_movement",
+        "input_step": "add",
+        "driver_column": "EVDS:TP.KTF12 monthly average (by_end)",
+        "target_column": target,
+        "driver_direction": "down",
+        "target_direction": direction,
+    }
+    if when is not None:
+        arguments.update(when_column=when[0], when_direction=when[1])
+    return step("change_detection", arguments, step_id, ("add",))
+
+
+ADD_KFE = step(
+    "table_transform",
+    {"operation": "add_series", "source": live_check.TURN_TWO_NAME, "series_id": "EVDS:TP.KFE.TR"},
+    "add",
+)
+REAL = f"{TOTAL_ID} real, 2021-06 prices ({CPI_ID})"
+
+
+def test_live_parallel_comparisons_are_repaired_into_one_published_condition(lake, tmp_path):
+    """M11-07 live Turn 3: two unconsumed comparisons published only the last one."""
+    prepared(lake)
+    parallel = [
+        ADD_KFE,
+        comparison("kfe", "EVDS:TP.KFE.TR", when=(REAL, "non_increasing"), direction="up"),
+        comparison("real", REAL),
+    ]
+    combined = [ADD_KFE, comparison("compare", REAL, when=("EVDS:TP.KFE.TR", "up"))]
+    provider = scripted(
+        *first_two(),
+        proposal(live_check.TURN_THREE_QUESTION, parallel),
+        proposal(live_check.TURN_THREE_QUESTION, combined),
+        "Tablo hazırlandı.",
+    )
+    report = live_check.run_prepared_check(provider, lake.root, tmp_path / "work", turns=3)
+    final = report["turns"][-1]
+    assert report["passed"] is True and final["relationship_checked"] is True, report
+    assert final["published"][-1] == live_check.TURN_THREE_NAME
+    assert final["result"]["transformations"][-1] == "table_co_movement"
+    planner_feedback = " ".join(m.content for m in provider.seen[-2])
+    assert "final calculation steps" in planner_feedback
+    writer_context = " ".join(m.content for m in provider.seen[-1])
+    assert "condition column EVDS:TP.KFE.TR direction up" in writer_context
+    presence = next(
+        line for line in writer_context.splitlines() if "have a value in every period" in line
+    )
+    assert "EVDS:TP.KFE.TR" in presence or "Konut" in presence
+
+
+def test_live_absence_prose_cannot_pass_turn_three(lake, tmp_path):
+    prepared(lake)
+    third = [ADD_KFE, comparison("compare", REAL, when=("EVDS:TP.KFE.TR", "up"))]
+    provider = scripted(
+        *first_two(),
+        proposal(live_check.TURN_THREE_QUESTION, third),
+        "Konut fiyat endeksi sütunu için sonuçlarda değer bulunmuyor. Bu durumda birlikte "
+        "hareket hesaplanamıyor.",
+    )
+    report = live_check.run_prepared_check(provider, lake.root, tmp_path / "work", turns=3)
+    final = report["turns"][-1]
+    assert report["passed"] is False and final["passed"] is False
+    assert final["answer"]["status"] != "accepted"
+    assert live_check.TURN_THREE_NAME not in final["published"]
