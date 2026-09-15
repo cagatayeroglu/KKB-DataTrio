@@ -71,8 +71,9 @@ def test_both_stages_run_and_complementary_candidates_keep_their_own_scores(setu
     assert calls == ["faiz"]
     assert result.retrieval_mode == "hybrid" and result.dense_status == "success"
     assert result.embedding_origin == "offline_fixture"
-    assert result.combination_policy == "alternating-archive-tier-v1"
-    assert ids(result)[0] == ids(lexical)[0]
+    assert result.combination_policy == "reviewed-match-order-v1"
+    # No reviewed alias/phrase matched, so the dense rank leads the interleave (DEC-142).
+    assert not lexical.concepts and result.candidates[0].dense_rank == 1
     assert len(ids(result)) == len(set(ids(result))) == 10
     assert any(c.retrieval_sources == ("dense",) for c in result.candidates)
     for c in result.candidates:
@@ -89,6 +90,45 @@ def test_both_stages_run_and_complementary_candidates_keep_their_own_scores(setu
     assert not result.observation_fetch_authorized and not result.analytical_evidence
     assert result.total_candidates >= len(result.candidates)
     assert result.truncated  # At least one upstream stage is bounded below the eligible pool.
+
+
+def stage_order(result, rank):
+    ranked = sorted(
+        (c for c in result.candidates if getattr(c, rank)), key=lambda c: getattr(c, rank)
+    )
+    return [c.series.record.series_id for c in ranked]
+
+
+@pytest.mark.parametrize(
+    ("query", "policy", "lexical_first"),
+    [
+        ("faiz", "reviewed-match-order-v1", False),
+        ("faiz", "alternating-archive-tier-v1", True),
+        ("konut kredisi", "reviewed-match-order-v1", True),
+        ("konut kredisi", "alternating-archive-tier-v1", True),
+    ],
+)
+def test_combination_order_follows_the_declared_policy(setup, query, policy, lexical_first):
+    snapshot, dense, _, _ = setup
+    args = CatalogSearchArguments(query=query)
+    lexical = search_catalog(snapshot, args)
+    result = search_hybrid_catalog(snapshot, args, replace(dense, combination_policy=policy))
+    assert result.combination_policy == policy and result.retrieval_mode == "hybrid"
+    assert bool(lexical.concepts) == (query == "konut kredisi")
+    lex, vec = stage_order(result, "lexical_rank"), stage_order(result, "dense_rank")
+    assert lex[0] == lexical.candidates[0].series.record.series_id
+    assert lex[0] != vec[0]  # The fixture separates the two stage leaders.
+    first, second = (lex, vec) if lexical_first else (vec, lex)
+    # Stage ranks alternate, starting with the policy's first stage.
+    assert ids(result)[:2] == [first[0], second[0]]
+    assert ids(result)[2] in (first[1], second[1])
+
+
+def test_unknown_combination_policy_is_refused_at_configuration(setup):
+    _, dense, calls, _ = setup
+    with pytest.raises(ValueError, match="combination policy"):
+        replace(dense, combination_policy="rrf-v1")
+    assert not calls
 
 
 @pytest.mark.parametrize("limit", [1, 3, 5, 10])

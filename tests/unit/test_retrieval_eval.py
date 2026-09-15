@@ -17,6 +17,7 @@ from kkb_agent.llm.provider import ProviderError
 ROOT = Path(__file__).parents[2]
 CATALOG = ROOT / "docs/catalog/prepared_v3.json"
 CASES = ROOT / "docs/catalog/retrieval_cases_v3.json"
+CASES_R2 = ROOT / "docs/catalog/retrieval_cases_v3_r2.json"
 
 
 @pytest.fixture(scope="module")
@@ -40,6 +41,17 @@ def test_reviewed_case_file_matches_the_catalog(snapshot):
         "out_of_scope",
         "archived",
     }
+
+
+def test_fresh_holdout_revision_keeps_every_earlier_case_as_development(snapshot):
+    earlier = evaluation.load_cases(CASES.read_bytes(), snapshot)
+    revised = evaluation.load_cases(CASES_R2.read_bytes(), snapshot)
+    development = [c for c in revised.cases if c.split == "development"]
+    holdout = [c for c in revised.cases if c.split == "holdout"]
+    assert [c.model_copy(update={"split": "development"}) for c in earlier.cases] == development
+    assert len(holdout) == 22 and all(c.case_id.startswith("N") for c in holdout)
+    queries = {c.query.casefold() for c in development}
+    assert not any(c.query.casefold() in queries for c in holdout)
 
 
 @pytest.mark.parametrize(
@@ -171,13 +183,78 @@ def test_fixture_index_supports_dense_and_hybrid_evaluation(snapshot, tmp_path):
         embedding.query_embedder(provider, "qwen3-plain-v1", origin="offline_fixture", stats=stats),
     )
     cases = evaluation.load_cases(CASES.read_bytes(), snapshot)
-    report = evaluation.evaluate(cases, snapshot, ["lexical", "dense", "hybrid"], dense=dense)
-    assert {o["mode"] for o in report["cases"]} == {"lexical", "dense", "hybrid"}
+    modes = ["lexical", "dense", "hybrid", "hybrid_alternating"]
+    report = evaluation.evaluate(cases, snapshot, modes, dense=dense)
+    assert {o["mode"] for o in report["cases"]} == set(modes)
     assert report["embedding_origin"] == "offline_fixture"
     assert report["summary"]["all/hybrid"]["dense_failures"] == 0
-    # Dense and hybrid share one cached embedding per distinct normalized query.
+    assert report["summary"]["all/hybrid_alternating"]["dense_failures"] == 0
+    # Dense and both hybrid modes share one cached embedding per distinct normalized query.
     assert stats.requests <= 44
     assert all(o["archived_leak"] is False for o in report["cases"])
+
+
+def test_top1_changes_pair_modes_per_split():
+    def row(case_id, split, mode, hit):
+        return {"case_id": case_id, "split": split, "mode": mode, "hit_at_1": hit}
+
+    outcomes = [
+        row("A", "development", "lexical", False),
+        row("A", "development", "hybrid", True),
+        row("B", "holdout", "lexical", True),
+        row("B", "holdout", "hybrid", False),
+        row("C", "holdout", "lexical", True),
+        row("C", "holdout", "hybrid", True),
+        {"case_id": "D", "split": "holdout", "mode": "hybrid", "status_ok": True},
+    ]
+    assert evaluation.top1_changes(outcomes, "lexical", "hybrid") == {
+        "development": {"won": ["A"], "lost": []},
+        "holdout": {"won": [], "lost": ["B"]},
+    }
+
+
+def test_real_embedding_clis_refuse_a_mislabelled_model_before_any_provider(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "kkb_agent.llm.KloudeksProvider", lambda *a: pytest.fail("no provider for another model")
+    )
+    for key, value in {
+        "KLOUDEKS_BASE_URL": "https://mia.csp.kloudeks.com/v1",
+        "KLOUDEKS_API_KEY": "test-only-canary-not-a-real-key",
+        "KLOUDEKS_PLANNER_MODEL": "approved-test-model",
+        "KLOUDEKS_ROUTER_MODEL": "approved-test-model",
+        "KLOUDEKS_EMBEDDING_MODEL": "another/embedding-model",
+    }.items():
+        monkeypatch.setenv(key, value)
+    with pytest.raises(ValueError, match="embedding model"):
+        embedding.main(
+            [
+                "--catalog",
+                str(CATALOG),
+                "--root",
+                str(tmp_path / "i"),
+                "--policy",
+                "qwen3-instruct-query-v1",
+                "--enable-embedding-requests",
+            ]
+        )
+    assert not (tmp_path / "i").exists()
+    with pytest.raises(ValueError, match="embedding model"):
+        evaluation.main(
+            [
+                "--catalog",
+                str(CATALOG),
+                "--cases",
+                str(CASES_R2),
+                "--index",
+                str(tmp_path),
+                "--policy",
+                "qwen3-instruct-query-v1",
+                "--enable-embedding-requests",
+                "--out",
+                str(tmp_path / "r.json"),
+            ]
+        )
+    assert not (tmp_path / "r.json").exists()
 
 
 def test_dense_cli_needs_explicit_enablement_before_any_provider(monkeypatch, tmp_path):

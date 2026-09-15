@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, get_args
 
 from kkb_agent.catalog.lance_index import LocalCatalogIndex
 from kkb_agent.catalog.mappings import ReviewedSnapshot
@@ -20,6 +20,9 @@ from kkb_agent.catalog.search import (
 )
 from kkb_agent.catalog.vectors import QueryVector
 
+#: DEC-142 order first; the M13-09 alternating baseline stays measurable.
+CombinationPolicy = Literal["reviewed-match-order-v1", "alternating-archive-tier-v1"]
+
 
 @dataclass(frozen=True, slots=True)
 class CatalogDenseStage:
@@ -28,10 +31,17 @@ class CatalogDenseStage:
     No endpoint, credential, prefix or external fallback is selected here. The
     embedding callback must follow its declared policy for normalized query text
     and return a QueryVector whose profile matches the checked local index.
+    `reviewed-match-order-v1` (DEC-142) interleaves lexical-first only when a
+    reviewed alias or phrase matched, and dense-first otherwise.
     """
 
     index: LocalCatalogIndex
     embed_query: Callable[[str], QueryVector]
+    combination_policy: CombinationPolicy = "reviewed-match-order-v1"
+
+    def __post_init__(self) -> None:
+        if self.combination_policy not in get_args(CombinationPolicy):
+            raise ValueError("unknown catalog combination policy")
 
 
 def search_hybrid_catalog(
@@ -45,7 +55,7 @@ def search_hybrid_catalog(
     profile = dense.index.profile
     metadata = {
         "retrieval_version": "m13-05-combined-v1",
-        "combination_policy": "alternating-archive-tier-v1",
+        "combination_policy": dense.combination_policy,
         "embedding_origin": profile.origin,
         "input_policy_id": profile.input_policy_id,
         "profile_sha256": profile.fingerprint(),
@@ -113,11 +123,19 @@ def search_hybrid_catalog(
         return lexical_result("failed", "index_failed")
     lexical_by_id = {c.series.record.series_id: c for c in lexical.candidates}
     dense_by_id = {h.series_id: h for h in hits}
+    lexical_ids = [c.series.record.series_id for c in lexical.candidates]
+    dense_ids = [h.series_id for h in hits]
+    # A reviewed alias/phrase match already bounded eligibility to its concepts;
+    # without one, BM25 overlap is weaker evidence than the dense rank (M13-09).
+    lexical_first = dense.combination_policy == "alternating-archive-tier-v1" or bool(
+        lexical.concepts
+    )
+    first, second = (lexical_ids, dense_ids) if lexical_first else (dense_ids, lexical_ids)
     order: list[str] = []
-    for i in range(max(len(lexical.candidates), len(hits))):
+    for i in range(max(len(first), len(second))):
         for sid in (
-            lexical.candidates[i].series.record.series_id if i < len(lexical.candidates) else None,
-            hits[i].series_id if i < len(hits) else None,
+            first[i] if i < len(first) else None,
+            second[i] if i < len(second) else None,
         ):
             if sid is not None and sid not in order:
                 order.append(sid)
