@@ -10,7 +10,7 @@ from typing import Literal, get_args
 from kkb_agent.catalog.lance_index import LocalCatalogIndex
 from kkb_agent.catalog.mappings import ReviewedSnapshot
 from kkb_agent.catalog.normalization import normalize_query_text
-from kkb_agent.catalog.records import CatalogStatus
+from kkb_agent.catalog.ranking import rerank_by_reviewed_intent
 from kkb_agent.catalog.search import (
     CatalogCandidate,
     CatalogSearchArguments,
@@ -139,8 +139,11 @@ def search_hybrid_catalog(
         ):
             if sid is not None and sid not in order:
                 order.append(sid)
-    # Explicit archive opt-in permits archived candidates, not silent preference.
-    order.sort(key=lambda sid: eligible[sid].record.status is CatalogStatus.ARCHIVED)
+    # Explicit qualifiers may refine stage order, but not candidate membership or
+    # retrieval status. Without archive intent, archived candidates remain last.
+    order = rerank_by_reviewed_intent(
+        args.query, order, reviewed_series=lambda series_id: eligible[series_id]
+    )
     candidates = []
     for rank, sid in enumerate(order[: args.max_results], start=1):
         lex = lexical_by_id.get(sid)

@@ -32,15 +32,22 @@ widen a precise CPI-base query or fill unresolved disbursement with balance.
 Empty eligibility skips embedding and retains UNRESOLVED/FILTERED_OUT.
 
 Both combination policies take up to ten candidates per stage, interleave stage
-positions, deduplicate IDs, keep explicitly requested archives after current/unknown
-records, then apply the caller's 1–10 final limit. The default
+positions and deduplicate IDs. The shared deterministic reviewed-intent post-order
+then refines candidates only for explicit query qualifiers with typed/reviewed
+counterparts: amount/rate kind, new/outstanding rate basis, inclusion/exclusion,
+currency/component, base year and archive intent. Unknown candidate semantics are
+neutral, and the pre-policy order breaks ties. Archived records stay after
+non-archived records unless the caller both opts in and explicitly requests archive
+material; UNKNOWN status is never called active. The caller's 1–10 limit applies
+last. The default
 **`reviewed-match-order-v1`** ([DEC-142](DECISIONS.md#dec-142--catalog-query-embedding-policy-and-reviewed-match-combination))
 starts with the lexical position only when a reviewed alias or phrase matched and
 with the dense position otherwise. **`alternating-archive-tier-v1`**, the M13-09
 baseline, always starts lexical and stays selectable for comparison. Native distance
-ties use stable IDs. There is no BM25/cosine score addition, RRF or reranker.
+ties use stable IDs. There is no BM25/cosine score addition, RRF or model/listwise
+reranker; the post-order never creates candidates or changes stage scores/status.
 Measured gains and remaining losses are in
-[EVALUATION](EVALUATION.md#m13-05-fresh-holdout-2026-09-15).
+[EVALUATION](EVALUATION.md#m13-15-catalog-quality-hardening-2026-09-15).
 
 Candidates carry retrieval source(s), per-stage rank, BM25 score if present in
 that stage, and cosine distance if present in dense. Unmeasured scores are null.
@@ -155,9 +162,12 @@ Metadata remains untrusted and cannot authorize fetches or calculations.
    `log(1 + (N-df+0.5)/(df+0.5))` IDF. Query terms count once. Corpus statistics
    use eligible records; scores are rounded to 12 decimal places. Scores are
    relevance evidence, never probabilities or cross-query comparable confidence.
-5. Order is non-archived before explicitly included archived, descending score,
-   then stable series ID. No active status is inferred for UNKNOWN records.
-   Apply max_results last; return the pre-cap count and truncation flag.
+5. Initial order is non-archived before explicitly included archived, descending
+   score, then stable series ID. The shared reviewed-intent policy described above
+   may stably refine that order for explicit compatible qualifiers. It does not
+   expand retrieval, infer missing candidate metadata, or change MATCH/PARTIAL.
+   No active status is inferred for UNKNOWN records. Apply max_results last;
+   return the pre-cap count and truncation flag.
 
 All returned candidates require clarification/semantic review, even top-1.
 Four housing-rate IDs, the two weekly and two monthly pairs, KFE geographies,

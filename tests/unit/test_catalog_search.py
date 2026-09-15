@@ -191,7 +191,7 @@ def test_archives_default_and_explicit(tool):
     explicit = search(tool, "konut arşiv serileri", include_archived=True)
     assert ids(explicit) == ARCHIVE and explicit.status == "PARTIAL"
     assert all(c.series.record.status.value == "archived" for c in explicit.candidates)
-    broad = search(tool, "arşiv KONUT xxx", include_archived=True)
+    broad = search(tool, "KONUT xxx", include_archived=True)
     flags = [c.series.record.status.value == "archived" for c in broad.candidates]
     assert flags == sorted(flags)
 

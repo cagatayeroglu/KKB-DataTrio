@@ -64,11 +64,11 @@ def ids(result):
 
 def test_both_stages_run_and_complementary_candidates_keep_their_own_scores(setup):
     snapshot, dense, calls, _ = setup
-    args = CatalogSearchArguments(query="faiz")
+    args = CatalogSearchArguments(query="konut")
     lexical = search_catalog(snapshot, args)
     assert lexical.candidates  # Dense must run despite lexical success.
     result = search_hybrid_catalog(snapshot, args, dense)
-    assert calls == ["faiz"]
+    assert calls == ["konut"]
     assert result.retrieval_mode == "hybrid" and result.dense_status == "success"
     assert result.embedding_origin == "offline_fixture"
     assert result.combination_policy == "reviewed-match-order-v1"
@@ -102,8 +102,8 @@ def stage_order(result, rank):
 @pytest.mark.parametrize(
     ("query", "policy", "lexical_first"),
     [
-        ("faiz", "reviewed-match-order-v1", False),
-        ("faiz", "alternating-archive-tier-v1", True),
+        ("konut", "reviewed-match-order-v1", False),
+        ("konut", "alternating-archive-tier-v1", True),
         ("konut kredisi", "reviewed-match-order-v1", True),
         ("konut kredisi", "alternating-archive-tier-v1", True),
     ],
@@ -199,7 +199,7 @@ def test_dense_candidates_can_be_returned_when_lexical_has_no_overlap(setup):
     assert result.clarification_required  # Candidate proximity does not answer the question.
 
 
-def test_archived_records_stay_opt_in_and_after_current_candidates(setup):
+def test_archived_records_stay_opt_in_and_follow_explicit_intent(setup):
     snapshot, dense, calls, _ = setup
     default = search_hybrid_catalog(
         snapshot, CatalogSearchArguments(query="konut arşiv serileri"), dense
@@ -209,11 +209,30 @@ def test_archived_records_stay_opt_in_and_after_current_candidates(setup):
         snapshot, CatalogSearchArguments(query="konut arşiv serileri", include_archived=True), dense
     )
     assert set(ids(archive)) == {"EVDS:TP.VK02", "EVDS:TP.TK02"}
+    explicit_flags = [c.series.record.status.value == "archived" for c in archive.candidates]
+    assert explicit_flags and explicit_flags[0]
     mixed = search_hybrid_catalog(
         snapshot, CatalogSearchArguments(query="arşiv KONUT xxx", include_archived=True), dense
     )
-    flags = [c.series.record.status.value == "archived" for c in mixed.candidates]
+    assert mixed.candidates[0].series.record.status.value == "archived"
+    neutral = search_hybrid_catalog(
+        snapshot, CatalogSearchArguments(query="KONUT xxx", include_archived=True), dense
+    )
+    flags = [c.series.record.status.value == "archived" for c in neutral.candidates]
     assert flags == sorted(flags)
+
+
+def test_reviewed_qualifier_refines_hybrid_order_without_resolving_ambiguity(setup):
+    snapshot, dense, _, _ = setup
+    result = search_hybrid_catalog(
+        snapshot,
+        CatalogSearchArguments(query="döviz cinsi konut kredisi bakiyesi"),
+        dense,
+    )
+    assert ids(result)[0] == (
+        "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2"
+    )
+    assert result.status == "MATCH" and result.clarification_required
 
 
 @pytest.mark.parametrize("failure", ["exception", "bad_vector", "different_policy"])

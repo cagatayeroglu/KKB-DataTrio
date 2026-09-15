@@ -580,6 +580,15 @@ Confirmed team priority refinement, explicitly requested by Çağatay after M3-0
 - **Evidence rule:** the focused M13-14 holdout was committed before its first retrieval run and is evaluation-only. On its 16 unseen cases, eight supported rankings remain top-1 correct while eight unsupported intents move from 0/8 to 8/8 acceptable clarification status; candidate rankings are identical before and after. See [EVALUATION](EVALUATION.md#m13-14-catalog-similarity-safety-2026-09-15).
 - Consequences: `MATCH` now means the query has reviewed concept evidence, not merely lexical/vector proximity. The planner, API, prepared pool, embeddings and archive-intent policy are unchanged.
 
+### DEC-144 — Explicit reviewed qualifiers refine catalog candidate order
+
+- Status: CONFIRMED task decision, 2026-09-15, by Çağatay through M13-15. It grants no live call, new catalog identity, alias change or broader retrieval redesign.
+- **Policy:** After BM25 ordering or DEC-142 stage interleaving, apply one stable deterministic post-order using only explicit query qualifiers that have typed/reviewed candidate counterparts: amount/rate kind, new-credit versus outstanding-portfolio rate basis, inclusion/exclusion wording, currency/component, base year and archive intent. A semantic contradiction ranks after compatible or unknown metadata; compatible declarations rank ahead of unknowns; the incoming order remains the final tie-break. This step never creates/removes candidates, alters BM25/cosine scores, or changes reviewed concept eligibility.
+- **Archive boundary:** `include_archived=false` still excludes archives. When archives are opted in, explicit archive intent may rank them first; otherwise archived records remain after non-archived records. The current snapshot declares its other records UNKNOWN rather than ACTIVE, so the policy makes no active-status claim.
+- **Safety:** DEC-143 status is unchanged. Similarity-only candidates remain `PARTIAL`; every nonempty result remains clarification-required. Under-specified multi-series concepts retain all reviewed alternatives instead of manufacturing a primary. The vocabulary is a bounded qualifier policy, not a set of question-to-series aliases, and runtime never reads evaluation cases.
+- **Evidence:** The 22-case holdout was committed at `b2f2098` before its first run. Offline lexical hit@1/MRR improved 0.7368/0.8333 to 1.0/1.0, Recall@5/10 improved 0.9474/0.9474 to 1.0/1.0, no-answer status acceptance stayed 1.0 and archive leaks stayed zero. Previously seen N07 and N09 moved rank 2→1. N18 stayed `PARTIAL` with no BDDK balance candidate because post-ordering does not expand lexical generation. See [EVALUATION](EVALUATION.md#m13-15-catalog-quality-hardening-2026-09-15).
+- Consequences: DEC-142 still owns initial lexical/dense interleaving and DEC-143 owns resolution status. A live dense measurement is still required before claiming real-embedding gains; no embedding/source/search request was made for this decision.
+
 ## Proposed decisions
 
 Candidates below are not approved selections. Compare options in a bounded task; do not silently promote a proposal to CONFIRMED.
