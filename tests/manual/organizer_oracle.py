@@ -10,6 +10,7 @@ against the live answer cells. Usage:
 import json
 import sys
 from collections import defaultdict
+from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -41,6 +42,20 @@ def weekly_average_by_end(connection, series_id):
     return {month: sum(values) / len(values) for month, values in groups.items()}
 
 
+def weekly_average_by_majority(connection, series_id):
+    """Assign each week to the month holding at least four of its seven days."""
+    groups = defaultdict(list)
+    for start, end, value in connection.execute(
+        "SELECT period_start, period_end, value FROM silver_observations WHERE series_id = ?"
+        " ORDER BY period_end",
+        [series_id],
+    ).fetchall():
+        if value is not None and (end - start).days == 6:
+            middle = start + timedelta(days=3)
+            groups[f"{middle:%Y-%m}"].append(Decimal(str(value)))
+    return {month: sum(values) / len(values) for month, values in groups.items()}
+
+
 def main(root: Path) -> None:
     connection = duckdb.connect(str(root / "kkb.duckdb"), read_only=True)
     try:
@@ -48,6 +63,7 @@ def main(root: Path) -> None:
         cpi = monthly(connection, CPI)
         kfe = monthly(connection, KFE)
         rate = weekly_average_by_end(connection, RATE)
+        majority = weekly_average_by_majority(connection, RATE)
     finally:
         connection.close()
     months = sorted(m for m in balance if FIRST <= m <= LAST)
@@ -71,6 +87,19 @@ def main(root: Path) -> None:
                         b: str(balance[b] - balance[a])
                         for a, b in rate_fell
                         if b in nominal_not_rising
+                    },
+                },
+                "turn1_by_majority": {
+                    "rate_fell": sum(1 for a, b in transitions if majority[b] < majority[a]),
+                    "balance_not_rising": [
+                        b
+                        for a, b in transitions
+                        if majority[b] < majority[a] and balance[b] <= balance[a]
+                    ],
+                    "rate_change": {
+                        m: str(round(majority[m] - majority[p], 4))
+                        for p, m in transitions
+                        if m in ("2021-02", "2021-05", "2023-12", "2024-01")
                     },
                 },
                 "turn2": {

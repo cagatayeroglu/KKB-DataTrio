@@ -794,6 +794,32 @@ Both temporary servers were stopped after the rehearsal. Full proof UI and
 legacy/official-refresh dependency coverage remain incomplete.
 
 
+<a id="m11-07-live-repeat-2026-09-15"></a>
+## M11-07 live repeat after M11-11 — 2026-09-15 (PR #174, unmerged)
+
+Owner-authorized by Eray: Kloudeks chat completions only, hard ceiling 15
+requests, no automatic retry, 600 s timeout, private pool copy; **10 requests
+used**; stopped early by Eray's decision to fix the measured failure first. No
+embedding, BDDK, EVDS or search call. Ledgers are local ignored artifacts; the
+second API process also recorded gate status and omission categories (no text).
+
+| Process / turn | Calls (plan / writer) | Outcome |
+| --- | --- | --- |
+| 1 — Turn 1 | 33.3 s / 119.2 s | ACCEPTED, published Analiz 1 (242 values), oracle-equal |
+| 1 — Turn 2 | 6.6 s / 27.8 s | QUALIFIED (one sentence withheld, not published); category not yet recorded |
+| 2 — Turn 1 | 40.2 s / 55.1 s | ACCEPTED, no omission, published Analiz 1. Planner chose `by_majority` weekly assignment; counts 59/32/28/4, the four months and rate changes (−0.3475/−0.2875/−0.4025/−0.5020 pp) equal the by-majority oracle; balance changes equal the nominal oracle |
+| 2 — Turn 2 | 9.0 s / 600.0 s TransportError | failed turn (`provider_failed`, 609 s); prior table retained; the client stopped polling at ten minutes and a page reload showed the fixed failure |
+| 2 — Turn 2 retry | 9.1 s / 26.3 s | QUALIFIED: one sentence withheld for `period` (two numbers); not published, so Turn 3 was not asked |
+
+Offline diagnosis: a real figure's sentence carrying the recorded CPI reference
+month ("2023-12 … 2025-12 fiyatlarıyla 828.155 milyon TL") failed the period rule
+because 2025 was read as the claim's year. The new absence rule did not trigger.
+Fixed in this PR (see ARCHITECTURE claim qualifiers) with cross-year gate tests.
+Unconfirmed: the in-page "Aynı isteğin durumunu al" click did not refresh the
+view, but pointer/keyboard input to the browser pane was not being delivered at
+that time (typing also failed); reload recovered correctly and code review of the
+handler found no defect.
+
 <a id="m11-11-turn-three-grounding-2026-09-15"></a>
 ## M11-11 Turn 3 grounding fixes — 2026-09-15 (offline, unmerged)
 
