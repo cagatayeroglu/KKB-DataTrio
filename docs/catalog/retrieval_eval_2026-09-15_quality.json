@@ -1,0 +1,40 @@
+{
+  "report": "m13-15-offline-catalog-quality-v1",
+  "snapshot_sha256": "e0bbaac8eb4d1b1e90deacab42989cd6f74181f8ce267150825e8d24e169fb11",
+  "cases_sha256": "f3390c67830e7ab851cef3d6940c88aa988c08e63530ea4ae3d4fd6329cceddb",
+  "mode": "lexical",
+  "network_calls": 0,
+  "holdout": {
+    "cases": 22,
+    "scored": 19,
+    "no_answer": 3,
+    "before": {
+      "hit_at_1": 0.7368,
+      "recall_at_5": 0.9474,
+      "recall_at_10": 0.9474,
+      "mrr": 0.8333,
+      "primary_at_1": 0.7333,
+      "no_answer_status_ok": 1.0,
+      "archived_leaks": 0
+    },
+    "after": {
+      "hit_at_1": 1.0,
+      "recall_at_5": 1.0,
+      "recall_at_10": 1.0,
+      "mrr": 1.0,
+      "primary_at_1": 1.0,
+      "no_answer_status_ok": 1.0,
+      "archived_leaks": 0
+    },
+    "baseline_top1_failures": ["Q03", "Q07", "Q14", "Q19", "Q20"],
+    "after_top1_failures": []
+  },
+  "known_cases": {
+    "N07": {"before_rank": 2, "after_rank": 1, "status": "PARTIAL"},
+    "N09": {"before_rank": 2, "after_rank": 1, "status": "MATCH"},
+    "N18": {"before_rank": null, "after_rank": null, "status": "PARTIAL"}
+  },
+  "status_changes": 0,
+  "candidate_scores_changed": false,
+  "note": "The fresh holdout was committed at b2f2098 before its first retrieval run. N18 remains a lexical candidate-generation limitation: deterministic post-ordering cannot rank a reviewed BDDK balance identity that BM25 did not surface. No live embedding, Kloudeks, BDDK, EVDS or search call was made."
+}

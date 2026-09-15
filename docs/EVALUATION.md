@@ -829,6 +829,47 @@ Both temporary servers were stopped after the rehearsal. Full proof UI and
 legacy/official-refresh dependency coverage remain incomplete.
 
 
+<a id="m13-15-catalog-quality-hardening-2026-09-15"></a>
+## M13-15 catalog quality hardening — 2026-09-15 (PR #190, open)
+
+The offline case set
+[retrieval_cases_v3_quality.json](catalog/retrieval_cases_v3_quality.json) has six
+previously reviewed development calibrations and 22 fresh holdout queries. Holdout
+Q01–Q22 was committed at `b2f2098` before its first retrieval run and has no exact
+query overlap with the three earlier case files. It covers rate basis, KMH/card
+inclusion scope, currency and BDDK TP/YP/TOTAL components, CPI base years, explicit
+archive/current wording, under-specified multi-series concepts and neighboring
+unsupported intents. Relevance comes from the reviewed v3/r4 metadata and finance
+semantics, never from the function under test. The runtime does not read case files.
+
+| Fresh holdout metric (offline lexical) | Before | After |
+| --- | ---: | ---: |
+| hit@1 | 0.7368 | **1.0000** |
+| MRR | 0.8333 | **1.0000** |
+| Recall@5 / Recall@10 | 0.9474 / 0.9474 | **1.0000 / 1.0000** |
+| primary@1 (15 cases) | 0.7333 | **1.0000** |
+| unsupported acceptable status (3 cases) | 1.0000 | 1.0000 |
+| archive leaks | 0 | 0 |
+
+Baseline top-1 failures were Q03 (KMH excluded), Q07 (avro denomination), Q14
+(explicit archive request), Q19 (English outstanding mortgage interest) and Q20
+(English TRY mortgage balance). The bounded reviewed-intent post-order in DEC-144
+fixes all five without changing status, similarity scores, candidate generation,
+aliases or the catalog snapshot. Under-specified Q16/Q17 remain multi-candidate and
+clarification-required. The earlier r2 lexical set has five top-1 improvements
+(N07, N09, N10, N14, N15), no top-1 losses, and identical development metrics;
+the M13-14 safety holdout remains 1.0 hit@1/MRR/status acceptance with zero archive
+leaks. Machine-readable results are in
+[retrieval_eval_2026-09-15_quality.json](catalog/retrieval_eval_2026-09-15_quality.json).
+
+N07 and N09 move from rank 2 to rank 1. N18 remains an explicit `PARTIAL`: its
+English wording does not cause lexical candidate generation to surface a reviewed
+BDDK balance identity, and this post-order intentionally cannot add one. Real dense
+quality after this policy is NOT RUN because no live embedding call was authorized;
+fixture-vector hybrid tests prove only deterministic mechanics and status/archive
+boundaries. No Kloudeks, embedding, BDDK, EVDS, production-search or chat call was
+made.
+
 <a id="m13-14-catalog-similarity-safety-2026-09-15"></a>
 ## M13-14 catalog similarity-only safety — 2026-09-15 (PR #188)
 

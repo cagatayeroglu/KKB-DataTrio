@@ -20,6 +20,8 @@ CASES = ROOT / "docs/catalog/retrieval_cases_v3.json"
 CASES_R2 = ROOT / "docs/catalog/retrieval_cases_v3_r2.json"
 SAFETY_CASES = ROOT / "docs/catalog/retrieval_cases_v3_safety.json"
 SAFETY_REPORT = ROOT / "docs/catalog/retrieval_eval_2026-09-15_safety.json"
+QUALITY_CASES = ROOT / "docs/catalog/retrieval_cases_v3_quality.json"
+QUALITY_REPORT = ROOT / "docs/catalog/retrieval_eval_2026-09-15_quality.json"
 
 
 @pytest.fixture(scope="module")
@@ -76,14 +78,56 @@ def test_catalog_safety_holdout_is_independent_and_status_safe(snapshot):
     assert unsupported and all(row["status"] in ("PARTIAL", "NO_MATCH") for row in unsupported)
     evidence = json.loads(SAFETY_REPORT.read_text(encoding="utf-8"))
     assert evidence["cases_sha256"] == report["cases_sha256"]
-    assert evidence["holdout"]["after"] == {
-        "hit_at_1": summary["hit_at_1"],
-        "recall_at_5": summary["recall_at_5"],
-        "recall_at_10": summary["recall_at_10"],
-        "mrr": summary["mrr"],
-        "unsupported_status_ok": summary["no_answer_status_ok"],
-        "archive_leaks": summary["archived_leaks"],
+    # The M13-14 artifact is immutable historical evidence. Later ordering may
+    # improve recall, but its safety/status acceptance cannot regress.
+    assert summary["recall_at_5"] >= evidence["holdout"]["after"]["recall_at_5"]
+    assert summary["recall_at_10"] >= evidence["holdout"]["after"]["recall_at_10"]
+    assert summary["hit_at_1"] == evidence["holdout"]["after"]["hit_at_1"]
+    assert summary["mrr"] == evidence["holdout"]["after"]["mrr"]
+    assert summary["no_answer_status_ok"] == evidence["holdout"]["after"]["unsupported_status_ok"]
+    assert summary["archived_leaks"] == evidence["holdout"]["after"]["archive_leaks"]
+
+
+def test_catalog_quality_holdout_is_independent_and_matches_offline_evidence(snapshot):
+    earlier_queries = {
+        case.query.casefold()
+        for path in (CASES, CASES_R2, SAFETY_CASES)
+        for case in evaluation.load_cases(path.read_bytes(), snapshot).cases
     }
+    quality = evaluation.load_cases(QUALITY_CASES.read_bytes(), snapshot)
+    development = [case for case in quality.cases if case.split == "development"]
+    holdout = [case for case in quality.cases if case.split == "holdout"]
+    assert len(development) == 6 and len(holdout) == 22
+    assert not (earlier_queries & {case.query.casefold() for case in holdout})
+    assert {case.category for case in holdout} >= {
+        "rate_basis",
+        "inclusion_scope",
+        "currency_component",
+        "base_year",
+        "archive_intent",
+        "current_intent",
+        "ambiguity",
+        "unsupported_neighbor",
+    }
+
+    report = evaluation.evaluate(quality, snapshot, ["lexical"])
+    summary = report["summary"]["holdout/lexical"]
+    evidence = json.loads(QUALITY_REPORT.read_text(encoding="utf-8"))
+    assert evidence["cases_sha256"] == report["cases_sha256"]
+    assert evidence["holdout"]["after"] == {
+        key: summary[key]
+        for key in (
+            "hit_at_1",
+            "recall_at_5",
+            "recall_at_10",
+            "mrr",
+            "primary_at_1",
+            "no_answer_status_ok",
+            "archived_leaks",
+        )
+    }
+    assert summary["hit_at_1"] == summary["mrr"] == 1.0
+    assert summary["no_answer_status_ok"] == 1.0 and summary["archived_leaks"] == 0
 
 
 @pytest.mark.parametrize(

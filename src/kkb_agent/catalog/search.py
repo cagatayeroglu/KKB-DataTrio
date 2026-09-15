@@ -13,6 +13,7 @@ from pydantic import Field, StrictBool, StrictInt, StrictStr, field_validator
 
 from kkb_agent.catalog.mappings import Concept, ReviewedSeries, ReviewedSnapshot
 from kkb_agent.catalog.normalization import normalize_search_text
+from kkb_agent.catalog.ranking import rerank_by_reviewed_intent
 from kkb_agent.catalog.records import CatalogStatus
 from kkb_agent.core import Frequency
 from kkb_agent.core.models import ContractModel
@@ -186,6 +187,7 @@ def search_catalog(
             s.record.series_id,
         )
     )
+    ranked = rerank_by_reviewed_intent(args.query, ranked, reviewed_series=lambda item: item)
     unresolved = any(c.unresolved for c in matches)
     status: SearchStatus
     if ranked:
