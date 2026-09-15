@@ -62,12 +62,12 @@ def plan(*steps):
     return AnalyticalPlan.model_validate({"question": "fixture", "steps": list(steps)})
 
 
-def step(name, **args):
+def step(name, *, after=(), **args):
     return {
         "step_id": name,
         "tool": "anomaly",
         "arguments": args,
-        "depends_on": [args["input_step"]] if args.get("input_step") else [],
+        "depends_on": [args["input_step"]] if args.get("input_step") else list(after),
     }
 
 
@@ -81,9 +81,20 @@ def test_registry_declared_chain_uses_selected_source(scope):
 @pytest.mark.parametrize("args", [{"source": "other"}, {}, {"source": "chosen", "input_step": "a"}])
 def test_whole_invalid_plan_rejected_before_valid_prefix_runs(scope, args):
     registry, calls = setup(scope)
-    validated = validate_plan(plan(step("a", source="chosen"), step("b", **args)), registry)
+    # One final step, so the dispatch-time selection check (not the final-result
+    # rule) is what refuses the invalid second step.
+    validated = validate_plan(
+        plan(step("a", source="chosen"), step("b", after=("a",), **args)), registry
+    )
     with pytest.raises(PlanRejected):
         execute(validated, registry, context=ExecutionContext("fixture"), selection=scope)
+    assert calls == []
+
+
+def test_parallel_final_calculations_are_refused_before_dispatch(scope):
+    registry, calls = setup(scope)
+    with pytest.raises(PlanRejected, match="final calculation steps"):
+        validate_plan(plan(step("a", source="chosen"), step("b", source="chosen")), registry)
     assert calls == []
 
 

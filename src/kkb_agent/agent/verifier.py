@@ -25,6 +25,7 @@ import duckdb
 
 from kkb_agent.agent.claim_qualifiers import SCALE_WORDS as SCALE_WORDS
 from kkb_agent.agent.claim_qualifiers import (
+    absence_fault,
     amount_qualifiers,
     causal_fault,
     clause_context,
@@ -744,12 +745,17 @@ def gate_answer(
 
     failures: dict[tuple[int, int], list[str]] = {}
     spans = _sentence_spans(draft)
+    computed = any(
+        result.status is ResultStatus.COMPUTED and result.values for result in named.values()
+    )
     for span in spans:
         if exposes_literal_identity(draft[span[0] : span[1]], list(named.values())):
             failures.setdefault(span, []).append(
                 "Internal document proof identifiers are not answer text"
             )
         if fault := causal_fault(draft[span[0] : span[1]]):
+            failures.setdefault(span, []).append(fault)
+        if computed and (fault := absence_fault(draft[span[0] : span[1]])):
             failures.setdefault(span, []).append(fault)
     for item in verdict.numbers:
         if item.supported:

@@ -84,6 +84,7 @@ def main(root: Path) -> None:
                     },
                 },
                 "turn3": {
+                    "kfe_up": sum(1 for a, b in transitions if kfe[b] > kfe[a]),
                     "real_not_rising": len(real_not_rising),
                     "rate_fell_real_not_rising": len(rate_fell_real_not_rising),
                     "same_months_without_kfe_condition": (

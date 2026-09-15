@@ -794,6 +794,39 @@ Both temporary servers were stopped after the rehearsal. Full proof UI and
 legacy/official-refresh dependency coverage remain incomplete.
 
 
+<a id="m11-11-turn-three-grounding-2026-09-15"></a>
+## M11-11 Turn 3 grounding fixes — 2026-09-15 (offline, unmerged)
+
+Measured failure from [M11-07](#m11-07-organizer-three-turn-live-rehearsal-2026-09-15): the live Turn 3
+plan ran two unconsumed `table_co_movement` steps on the same added-KFE table.
+The first expressed the requested three-way condition; `Session.answer` kept
+only the last (no KFE condition). The writer, shown KFE only as "table shown
+separately", said KFE had no values, and the gate accepted the figure-free prose.
+Session records of that run were inspected offline; no model call was made.
+
+- **Plan rule:** more than one unconsumed non-discovery step is rejected before
+  dispatch with repair feedback. The exact live parallel plan, replayed with a
+  scripted provider over a disposable copy of the real pool, was rejected on
+  attempt 1; the repaired single comparison (rate down, real balance
+  non-increasing, when KFE up) published Turn 3 with counts 59 / 0 / 59 / 32 /
+  46 / 22 and passed the rehearsal relationship check. Oracle: KFE rose in all
+  59 transitions; rate fell ∧ KFE up ∧ real not rising = 22.
+- **Writer context:** presence lines list complete and partially empty table
+  columns (KFE in the complete list for that replay).
+- **Gate:** bounded absence wording is withheld beside computed results. The live
+  Turn 3 draft now abstains (both sentences withheld); counts, limits and every
+  analytics limitation string still pass.
+- **Rehearsal acceptance:** the Turn 3 relationship check accepts any assignment
+  of the three conditions to driver/target/condition roles (same joint set).
+- Tests: new `test_absence_claims.py` (28), live-shaped `test_turn_three.py`
+  regressions (repair and absence), selected-plan/document negatives kept at
+  dispatch plus new pre-dispatch refusals. Affected planning/session/gate suites
+  **1542 passed / 63.55 s**; Ruff, format and strict `mypy src` (100 files) clean.
+
+Not re-run live: whether the real planner follows the repair feedback, and
+writer prose quality, need a new bounded live rehearsal. A single withheld
+sentence still prevents publication (unchanged M5-21 policy).
+
 <a id="m11-07-organizer-three-turn-live-rehearsal-2026-09-15"></a>
 ## M11-07 organizer three-turn live rehearsal — 2026-09-15 (PR #172, unmerged)
 
