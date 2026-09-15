@@ -138,7 +138,8 @@ Use the executed trace, not the model's assertion that it ran a tool. Permit equ
 
 ### Implemented command registry
 
-These commands are present in [Makefile](../Makefile); results have not been established in this documentation task:
+The application gates are present in [Makefile](../Makefile). M9-05 adds the first benchmark
+CLI without changing that shared file:
 
 | Command | Actual current behavior |
 | --- | --- |
@@ -146,6 +147,7 @@ These commands are present in [Makefile](../Makefile); results have not been est
 | `make quick` | Ruff check on src/tests/scripts and unit pytest |
 | `make pr` | Ruff format/check, unit pytest, Bandit, local secret-pattern script |
 | `make full` | Ruff format/check, mypy, full pytest, Bandit, local secret-pattern script, pip-audit |
+| `python -m kkb_agent.evaluation` | Run the fixed offline M9-05 EVAL-SMOKE cases; emit deterministic JSON to stdout and exit nonzero when any case fails |
 
 M7-19's operator command is `python -m kkb_agent.live_check --document --question '…URL…'` ([approved-run setup](../README.md)). It is never invoked by a gate. Offline tests inject a fake fetch and scripted provider through the normal `Session.answer` path. **ONE LIVE PUBLIC CSV DOCUMENT ACCEPTANCE PASSED** ([bounded evidence](#m7-19-live-csv-acceptance)). A future live run requires separate operator approval and an accepted Q-NET-01/02 boundary; no network question is closed by these tests.
 
@@ -153,11 +155,12 @@ Document smoke success requires executed `web_url`, admitted/loaded content, a s
 
 M7-20 preserves the existing `WebUrlOutput.code` as operator-only `fetch_code` when the failure category is `fetch_failed` and the value is in `FetchCode`. Unknown/non-fetch codes return null. DNS, redirect loop/cap, time, size and media categories remain distinguishable; TLS shares `TRANSPORT_FAILURE` with other transport failures. This does not recover the code from the prior live run; a separately authorized future run would report it. User-facing abstention and all fetch/parser guards remain unchanged. The M7-19 admission-report follow-up likewise exposes allowlisted admission/loader codes as `document_code` for `not_admitted`/`needs_input`. Normal synthetic UTF-8 CSV passes the unchanged fetched/upload path; the prior live rejection cannot be diagnosed from its generic category alone, and no exact captured bytes are retained.
 
-`make eval-smoke`, `make eval-full`, and benchmark CLI commands **do not exist yet**. When M9 implements a runner, replace the planned entries below with actual commands and safe output locations. Do not document a placeholder as runnable.
+`make eval-smoke` and `make eval-full` aliases do not exist. The M9-05 CLI exists without a
+Makefile edit; EVAL-FULL and demo-rehearsal commands remain unimplemented.
 
-| Planned tier | Runner command | Result location | Status |
+| Tier | Runner command | Result location | Status |
 | --- | --- | --- | --- |
-| EVAL-SMOKE | TBD after runner implementation | TBD; local sanitized report | NOT IMPLEMENTED |
+| EVAL-SMOKE | `python -m kkb_agent.evaluation` (`--case CASE_ID` is repeatable) | Sanitized deterministic JSON on stdout; redirect only to an operator-chosen ignored/local path | IMPLEMENTED in M9-05 / PR #186; five fixed cases |
 | EVAL-FULL | TBD after runner implementation | TBD; versioned sanitized scorecard/summary | NOT IMPLEMENTED |
 | DEMO-REHEARSAL | Actual operator script/run steps TBD | M11 evidence record plus permitted artifacts | NOT IMPLEMENTED |
 
@@ -174,9 +177,41 @@ Historical Day 0 inspection described a BenchmarkCase draft with question/input/
 
 Author one minimized case per material behavior. Include at least one failure example for a new boundary and an independently reviewed expected result for a material calculation. Implement schema/runner support before adding unsupported keys to current fixture files. Keep inputs synthetic or permission-documented public data; treat all fixture text as untrusted at runtime.
 
+## M9-05 deterministic EVAL-SMOKE (2026-09-15, PR #186)
+
+The first executable smoke is a five-case, synthetic, offline slice. Stable typed results carry
+the case input, expected and actual structures, `PASS`/`FAIL`, mismatch paths/reasons, semantic
+assumptions, numeric tolerances, oracle derivation, category denominators and a SHA-256 identity
+of the selected case set. Reports intentionally omit timestamps and measured duration so equal
+code/cases produce byte-identical JSON. A bounded scripted provider supplies only the fixed
+operation selection; it contains no numerical or abstention answer. Actual values come from the
+production analytics functions, while expected values are literal hand calculations/constants.
+No manual helper, prepared pool, credential, Kloudeks, live source or production search is used.
+
+| Case | Actual production path | Independent oracle / expected behavior |
+| --- | --- | --- |
+| `turn1-monthly-directions` | `analytics.comovement.co_movement` | Hand-subtracted rate/credit changes over three consecutive months; 2 rate falls, one credit rise and one non-rise; stock/disbursement and non-causal limits retained |
+| `turn2-deflate-credit-only` | `analytics.deflation.deflate` | Four literal `nominal * 115 / CPI` results; original table digest/prefix and rate cells unchanged |
+| `turn3-add-monthly-kfe` | `analytics.table_series.add_monthly_series` | Four exact month keys and fixed KFE levels; eight existing cells preserved, four appended, no fill |
+| `table-direction-relationship` | `analytics.table_relationship.compare_table_directions` | Hand-enumerated down/up directions; only February matches and the result remains non-causal |
+| `unknown-scale-abstention` | `analytics.comovement.co_movement` semantic guard | Declared unknown credit scale yields `ABSTAINED`, zero values and explicit unresolved `target: scale` |
+
+Validation on implementation revision `3f14644`: focused suite and related analytical regressions
+`115 passed` in 8.95s; repeated reports were byte-identical; deliberately wrong expected periods
+and a deliberately corrupted production count both produced `FAIL`. The final local `make pr`
+gate passed: Ruff format/check, strict mypy over 107 source files, 3,499 unit tests in 144.66s,
+Bandit and secret scan. The earlier gate attempt reached the same 3,499 passing tests but stopped
+on Bandit's false-positive treatment of an enum member named `PASS`; renaming Python members
+while preserving the JSON verdicts `PASS`/`FAIL` resolved it. This is primitive-level smoke, not
+the full Session/API/UI three-turn flow, hidden-input coverage, EVAL-FULL or organizer scoring.
+
 ## Adversarial case catalog
 
-All checkboxes below track **validated executable coverage**, not the existence of a written scenario. The benchmark cases remain unchecked because no benchmark runner executes them; overlapping unit-test coverage exists and is recorded in ROADMAP, not counted as a benchmark run. Individual progress belongs in M9; update a catalog checkbox only when its runnable case and passing assertion are recorded, not after every unrelated task.
+All checkboxes below track **validated executable coverage**, not the existence of a written scenario.
+M9-05 is a small primitive smoke and does not by itself complete the broader catalog entries below;
+overlapping unit-test coverage is not counted as benchmark coverage. Individual progress belongs in
+M9; update a catalog checkbox only when its exact runnable case and passing assertion are recorded,
+not after every related smoke or unit test.
 
 ### Data semantics
 
@@ -346,7 +381,7 @@ Human summary format:
 
 | Run / revision | Tier / conditions | Passed / required | Not run / excluded | Failed categories / case IDs | Latency sample / p50 / p95 | Next fix |
 | --- | --- | --- | --- | --- | --- | --- |
-| No measured run yet | — | — | — | — | — | M9-01 then runner/oracles |
+| M9-05 / `3f14644` | EVAL-SMOKE; fixed synthetic inputs; scripted operation fixture; offline | 5 / 5 cases; five category denominators | Session/API/UI, invalid-tool/evidence-recovery, hidden formats, EVAL-FULL and live paths | None; wrong-oracle and corrupted-actual negative controls fail as expected | Not recorded by deterministic report | Review PR #186; expand only in separately claimed M9 work |
 
 Do not hide category failures inside an average. Numeric, semantic, evidence, and unsafe-dispatch failures need distinct visibility even when most easy cases pass.
 
