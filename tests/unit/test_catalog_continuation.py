@@ -121,6 +121,56 @@ def test_known_analysis_does_not_pay_for_discovery(rig):
     assert planned.discovery_rounds == 0
 
 
+def test_required_discovery_refuses_known_identity_before_any_tool_runs(rig):
+    reg, calls = rig
+    provider = scripted(proposal(calculate()))
+    with pytest.raises(PlanningFailed, match="catalog_search phase"):
+        enabled(
+            provider, reg, require_series_discovery=True, budget=Budget(max_plan_repairs=0)
+        ).run(QUESTION)
+    assert not calls
+
+
+def test_required_discovery_repairs_bypass_then_continues_once(rig):
+    reg, calls = rig
+    provider = scripted(proposal(calculate()), proposal(discover()), proposal(calculate()))
+    planned, outcome = enabled(provider, reg, require_series_discovery=True).run(QUESTION)
+    assert outcome.completed and planned.discovery_rounds == 1
+    assert len(calls) == 1 and len(provider.seen) == 3
+
+
+@pytest.mark.parametrize(
+    "operation, extra, requires",
+    [
+        ("filter", {"start_period": "2021-01-31"}, False),
+        ("rebase", {"column": "index", "reference_period": "2021-01-31", "new_base": 100.0}, False),
+        ("align", {"join": "inner", "columns": ["index", "amount"]}, False),
+        ("add_series", {"series_id": "new"}, True),
+        (
+            "deflate",
+            {"column": "amount", "index_series_id": "cpi", "reference_period": "2021-01-31"},
+            True,
+        ),
+    ],
+)
+def test_new_series_discovery_distinguishes_existing_table_operations(operation, extra, requires):
+    from kkb_agent.agent.discovery import validate_discovery_phase
+    from kkb_agent.agent.executor import PlanRejected, ValidatedPlan, ValidatedStep
+    from kkb_agent.agent.plan import PlanStep
+    from kkb_agent.tools.table_transform import TableTransformArguments
+
+    raw = {"operation": operation, "source": "table", **extra}
+    args = TableTransformArguments.model_validate(raw)
+    plan = ValidatedPlan(
+        "q", (ValidatedStep(PlanStep(step_id="a", tool="table_transform", arguments=raw), args),)
+    )
+    if requires:
+        with pytest.raises(PlanRejected, match="catalog_search phase"):
+            validate_discovery_phase(plan, continuation=False, require_series_discovery=True)
+    else:
+        validate_discovery_phase(plan, continuation=False, require_series_discovery=True)
+
+
 @pytest.mark.parametrize(
     "reason",
     [

@@ -10,7 +10,7 @@ from typing import Literal, get_args
 from kkb_agent.catalog.lance_index import LocalCatalogIndex
 from kkb_agent.catalog.mappings import ReviewedSnapshot
 from kkb_agent.catalog.normalization import normalize_query_text
-from kkb_agent.catalog.records import CatalogStatus
+from kkb_agent.catalog.ranking import rerank_by_reviewed_intent
 from kkb_agent.catalog.search import (
     CatalogCandidate,
     CatalogSearchArguments,
@@ -139,8 +139,11 @@ def search_hybrid_catalog(
         ):
             if sid is not None and sid not in order:
                 order.append(sid)
-    # Explicit archive opt-in permits archived candidates, not silent preference.
-    order.sort(key=lambda sid: eligible[sid].record.status is CatalogStatus.ARCHIVED)
+    # Explicit qualifiers may refine stage order, but not candidate membership or
+    # retrieval status. Without archive intent, archived candidates remain last.
+    order = rerank_by_reviewed_intent(
+        args.query, order, reviewed_series=lambda series_id: eligible[series_id]
+    )
     candidates = []
     for rank, sid in enumerate(order[: args.max_results], start=1):
         lex = lexical_by_id.get(sid)
@@ -169,7 +172,11 @@ def search_hybrid_catalog(
             **lexical.model_dump(),
             **metadata,
             "candidates": [c.model_dump() for c in candidates],
-            "status": "PARTIAL" if any(c.unresolved for c in lexical.concepts) else "MATCH",
+            # Dense/BM25 proximity without a reviewed concept is a candidate for
+            # clarification, not evidence that the requested intent is mapped.
+            "status": "PARTIAL"
+            if not lexical.concepts or any(c.unresolved for c in lexical.concepts)
+            else "MATCH",
             "total_candidates": len(order),
             "truncated": len(order) > args.max_results or lexical.truncated or len(eligible) > 10,
             "clarification_required": True,

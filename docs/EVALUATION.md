@@ -63,7 +63,13 @@ Run 4 showed free-prose monthly tables are shape-dependent and slow, so the tabl
 | 2 (`c99f5e2`) | Turn 1 ACCEPTED and published (74.1 s). Turn 2 exact plan; QUALIFIED in 33.4 s with one list sentence `a..b: value; ...` withheld because a period range header was read as an unknown identity. Fix: period ranges and year-months are calendar headers; the period check still refuses a range that does not cover the value. The withheld sentence re-gates ACCEPTED offline. |
 | **3 (`8d95448`)** | **Turn 1 ACCEPTED and published (86.6 s); Turn 2 ACCEPTED with no withheld sentence (33.5 s), published as `konut_kredisi_ve_faiz_reel` beside the untouched Turn 1 table; exact plan; 5 columns × 60 rows; transformations `align_weekly_to_monthly`, `deflate`.** |
 
-Remaining: repeated-run reliability, long reviewed series descriptions in prose, the deferred stock-versus-"kullanılan" reading (the Turn 1 writer now states it), Session publications still record no workspace dependency (redefining Turn 1 would not mark Turn 2 stale), and M2-14 rebasing.
+Remaining: repeated-run reliability, long reviewed series descriptions in prose, the deferred stock-versus-"kullanılan" reading (the Turn 1 writer now states it), and broader legacy/non-selected publication dependencies.
+
+### M2-14/M5-20 deterministic table-shaping checks (2026-09-15)
+
+The bounded offline suite uses hand-authored values rather than a production transform as its oracle. An index `[80, 100, 120]` rebased at the middle period to 200 must produce `[160, 200, 240]`; the tests separately assert original-result immutability, period/unit/INDEX semantics, and the complete formula/reference/base record. A deliberately sparse amount column independently checks exact-period inner and anchored-left alignment: inner retains only the two observed shared periods, while left retains all three index periods and leaves the middle amount cell absent. Inclusive period filtering compares the resulting cells directly with a selection from the fixture and verifies that a stale periodless summary is removed rather than carried into the shorter range.
+
+Tool-boundary tests run the operations over the existing synthetic prepared lakehouse/workspace path. They require trusted source evidence before transforming, compare rebasing with a separately written arithmetic expression, preserve the previous workspace digest, resolve the new execution/lineage evidence through `result_faults`, and confirm that altering one returned value makes verification fail. Negative cases cover a non-index column, absent reference, non-positive index, duplicate periods, absent alignment labels, no overlap, missing left anchor, empty/reversed range, and injected SQL/extra arguments. Existing weekly-to-monthly and `add_series` suites remain regression coverage; no live model, embedding, BDDK, EVDS, search, source adapter, API, or UI path is exercised. This is focused unit/integration evidence, not an M9 benchmark case or live acceptance claim.
 
 ## Scalable official-data acceptance target
 
@@ -138,7 +144,8 @@ Use the executed trace, not the model's assertion that it ran a tool. Permit equ
 
 ### Implemented command registry
 
-These commands are present in [Makefile](../Makefile); results have not been established in this documentation task:
+The application gates are present in [Makefile](../Makefile). M9-05 adds the first benchmark
+CLI without changing that shared file:
 
 | Command | Actual current behavior |
 | --- | --- |
@@ -146,6 +153,7 @@ These commands are present in [Makefile](../Makefile); results have not been est
 | `make quick` | Ruff check on src/tests/scripts and unit pytest |
 | `make pr` | Ruff format/check, unit pytest, Bandit, local secret-pattern script |
 | `make full` | Ruff format/check, mypy, full pytest, Bandit, local secret-pattern script, pip-audit |
+| `python -m kkb_agent.evaluation` | Run the fixed offline M9-05 EVAL-SMOKE cases; emit deterministic JSON to stdout and exit nonzero when any case fails |
 
 M7-19's operator command is `python -m kkb_agent.live_check --document --question '…URL…'` ([approved-run setup](../README.md)). It is never invoked by a gate. Offline tests inject a fake fetch and scripted provider through the normal `Session.answer` path. **ONE LIVE PUBLIC CSV DOCUMENT ACCEPTANCE PASSED** ([bounded evidence](#m7-19-live-csv-acceptance)). A future live run requires separate operator approval and an accepted Q-NET-01/02 boundary; no network question is closed by these tests.
 
@@ -153,11 +161,12 @@ Document smoke success requires executed `web_url`, admitted/loaded content, a s
 
 M7-20 preserves the existing `WebUrlOutput.code` as operator-only `fetch_code` when the failure category is `fetch_failed` and the value is in `FetchCode`. Unknown/non-fetch codes return null. DNS, redirect loop/cap, time, size and media categories remain distinguishable; TLS shares `TRANSPORT_FAILURE` with other transport failures. This does not recover the code from the prior live run; a separately authorized future run would report it. User-facing abstention and all fetch/parser guards remain unchanged. The M7-19 admission-report follow-up likewise exposes allowlisted admission/loader codes as `document_code` for `not_admitted`/`needs_input`. Normal synthetic UTF-8 CSV passes the unchanged fetched/upload path; the prior live rejection cannot be diagnosed from its generic category alone, and no exact captured bytes are retained.
 
-`make eval-smoke`, `make eval-full`, and benchmark CLI commands **do not exist yet**. When M9 implements a runner, replace the planned entries below with actual commands and safe output locations. Do not document a placeholder as runnable.
+`make eval-smoke` and `make eval-full` aliases do not exist. The M9-05 CLI exists without a
+Makefile edit; EVAL-FULL and demo-rehearsal commands remain unimplemented.
 
-| Planned tier | Runner command | Result location | Status |
+| Tier | Runner command | Result location | Status |
 | --- | --- | --- | --- |
-| EVAL-SMOKE | TBD after runner implementation | TBD; local sanitized report | NOT IMPLEMENTED |
+| EVAL-SMOKE | `python -m kkb_agent.evaluation` (`--case CASE_ID` is repeatable) | Sanitized deterministic JSON on stdout; redirect only to an operator-chosen ignored/local path | IMPLEMENTED in M9-05 / PR #186; five fixed cases |
 | EVAL-FULL | TBD after runner implementation | TBD; versioned sanitized scorecard/summary | NOT IMPLEMENTED |
 | DEMO-REHEARSAL | Actual operator script/run steps TBD | M11 evidence record plus permitted artifacts | NOT IMPLEMENTED |
 
@@ -174,9 +183,41 @@ Historical Day 0 inspection described a BenchmarkCase draft with question/input/
 
 Author one minimized case per material behavior. Include at least one failure example for a new boundary and an independently reviewed expected result for a material calculation. Implement schema/runner support before adding unsupported keys to current fixture files. Keep inputs synthetic or permission-documented public data; treat all fixture text as untrusted at runtime.
 
+## M9-05 deterministic EVAL-SMOKE (2026-09-15, PR #186)
+
+The first executable smoke is a five-case, synthetic, offline slice. Stable typed results carry
+the case input, expected and actual structures, `PASS`/`FAIL`, mismatch paths/reasons, semantic
+assumptions, numeric tolerances, oracle derivation, category denominators and a SHA-256 identity
+of the selected case set. Reports intentionally omit timestamps and measured duration so equal
+code/cases produce byte-identical JSON. A bounded scripted provider supplies only the fixed
+operation selection; it contains no numerical or abstention answer. Actual values come from the
+production analytics functions, while expected values are literal hand calculations/constants.
+No manual helper, prepared pool, credential, Kloudeks, live source or production search is used.
+
+| Case | Actual production path | Independent oracle / expected behavior |
+| --- | --- | --- |
+| `turn1-monthly-directions` | `analytics.comovement.co_movement` | Hand-subtracted rate/credit changes over three consecutive months; 2 rate falls, one credit rise and one non-rise; stock/disbursement and non-causal limits retained |
+| `turn2-deflate-credit-only` | `analytics.deflation.deflate` | Four literal `nominal * 115 / CPI` results; original table digest/prefix and rate cells unchanged |
+| `turn3-add-monthly-kfe` | `analytics.table_series.add_monthly_series` | Four exact month keys and fixed KFE levels; eight existing cells preserved, four appended, no fill |
+| `table-direction-relationship` | `analytics.table_relationship.compare_table_directions` | Hand-enumerated down/up directions; only February matches and the result remains non-causal |
+| `unknown-scale-abstention` | `analytics.comovement.co_movement` semantic guard | Declared unknown credit scale yields `ABSTAINED`, zero values and explicit unresolved `target: scale` |
+
+Validation on implementation revision `3f14644`: focused suite and related analytical regressions
+`115 passed` in 8.95s; repeated reports were byte-identical; deliberately wrong expected periods
+and a deliberately corrupted production count both produced `FAIL`. The final local `make pr`
+gate passed: Ruff format/check, strict mypy over 107 source files, 3,499 unit tests in 144.66s,
+Bandit and secret scan. The earlier gate attempt reached the same 3,499 passing tests but stopped
+on Bandit's false-positive treatment of an enum member named `PASS`; renaming Python members
+while preserving the JSON verdicts `PASS`/`FAIL` resolved it. This is primitive-level smoke, not
+the full Session/API/UI three-turn flow, hidden-input coverage, EVAL-FULL or organizer scoring.
+
 ## Adversarial case catalog
 
-All checkboxes below track **validated executable coverage**, not the existence of a written scenario. The benchmark cases remain unchecked because no benchmark runner executes them; overlapping unit-test coverage exists and is recorded in ROADMAP, not counted as a benchmark run. Individual progress belongs in M9; update a catalog checkbox only when its runnable case and passing assertion are recorded, not after every unrelated task.
+All checkboxes below track **validated executable coverage**, not the existence of a written scenario.
+M9-05 is a small primitive smoke and does not by itself complete the broader catalog entries below;
+overlapping unit-test coverage is not counted as benchmark coverage. Individual progress belongs in
+M9; update a catalog checkbox only when its exact runnable case and passing assertion are recorded,
+not after every related smoke or unit test.
 
 ### Data semantics
 
@@ -346,7 +387,7 @@ Human summary format:
 
 | Run / revision | Tier / conditions | Passed / required | Not run / excluded | Failed categories / case IDs | Latency sample / p50 / p95 | Next fix |
 | --- | --- | --- | --- | --- | --- | --- |
-| No measured run yet | — | — | — | — | — | M9-01 then runner/oracles |
+| M9-05 / `3f14644` | EVAL-SMOKE; fixed synthetic inputs; scripted operation fixture; offline | 5 / 5 cases; five category denominators | Session/API/UI, invalid-tool/evidence-recovery, hidden formats, EVAL-FULL and live paths | None; wrong-oracle and corrupted-actual negative controls fail as expected | Not recorded by deterministic report | Review PR #186; expand only in separately claimed M9 work |
 
 Do not hide category failures inside an average. Numeric, semantic, evidence, and unsafe-dispatch failures need distinct visibility even when most easy cases pass.
 
@@ -794,8 +835,202 @@ Both temporary servers were stopped after the rehearsal. Full proof UI and
 legacy/official-refresh dependency coverage remain incomplete.
 
 
+<a id="m13-15-catalog-quality-hardening-2026-09-15"></a>
+## M13-15 catalog quality hardening — 2026-09-15 (PR #190, open)
+
+The offline case set
+[retrieval_cases_v3_quality.json](catalog/retrieval_cases_v3_quality.json) has six
+previously reviewed development calibrations and 22 fresh holdout queries. Holdout
+Q01–Q22 was committed at `b2f2098` before its first retrieval run and has no exact
+query overlap with the three earlier case files. It covers rate basis, KMH/card
+inclusion scope, currency and BDDK TP/YP/TOTAL components, CPI base years, explicit
+archive/current wording, under-specified multi-series concepts and neighboring
+unsupported intents. Relevance comes from the reviewed v3/r4 metadata and finance
+semantics, never from the function under test. The runtime does not read case files.
+
+| Fresh holdout metric (offline lexical) | Before | After |
+| --- | ---: | ---: |
+| hit@1 | 0.7368 | **1.0000** |
+| MRR | 0.8333 | **1.0000** |
+| Recall@5 / Recall@10 | 0.9474 / 0.9474 | **1.0000 / 1.0000** |
+| primary@1 (15 cases) | 0.7333 | **1.0000** |
+| unsupported acceptable status (3 cases) | 1.0000 | 1.0000 |
+| archive leaks | 0 | 0 |
+
+Baseline top-1 failures were Q03 (KMH excluded), Q07 (avro denomination), Q14
+(explicit archive request), Q19 (English outstanding mortgage interest) and Q20
+(English TRY mortgage balance). The bounded reviewed-intent post-order in DEC-144
+fixes all five without changing status, similarity scores, candidate generation,
+aliases or the catalog snapshot. Under-specified Q16/Q17 remain multi-candidate and
+clarification-required. The earlier r2 lexical set has five top-1 improvements
+(N07, N09, N10, N14, N15), no top-1 losses, and identical development metrics;
+the M13-14 safety holdout remains 1.0 hit@1/MRR/status acceptance with zero archive
+leaks. Machine-readable results are in
+[retrieval_eval_2026-09-15_quality.json](catalog/retrieval_eval_2026-09-15_quality.json).
+
+N07 and N09 move from rank 2 to rank 1. N18 remains an explicit `PARTIAL`: its
+English wording does not cause lexical candidate generation to surface a reviewed
+BDDK balance identity, and this post-order intentionally cannot add one. Real dense
+quality after this policy is NOT RUN because no live embedding call was authorized;
+fixture-vector hybrid tests prove only deterministic mechanics and status/archive
+boundaries. No Kloudeks, embedding, BDDK, EVDS, production-search or chat call was
+made.
+
+<a id="m13-14-catalog-similarity-safety-2026-09-15"></a>
+## M13-14 catalog similarity-only safety — 2026-09-15 (PR #188)
+
+The focused offline case set
+[retrieval_cases_v3_safety.json](catalog/retrieval_cases_v3_safety.json) contains
+two previously seen development calibrations and 16 fresh holdout cases: eight
+supported financial intents and eight unsupported intents that share generic or
+neighboring catalog terms. Holdout S01–S16 was committed at `0cfead9` before its
+first retrieval run. Its exact queries do not occur in either earlier case set;
+the runtime never reads the case file, and no alias, indexed text, score or
+question-specific rule was changed. Case-set digest:
+`e3d9aefc3bb7e8ff8b14b5fb1898521c921b843cb75d76a2edf7bd0808edea0b`.
+
+| Holdout metric | Before | After |
+| --- | ---: | ---: |
+| Supported hit@1 / MRR (8 cases) | 1.0000 / 1.0000 | 1.0000 / 1.0000 |
+| Supported Recall@5 / Recall@10 | 0.9375 / 0.9375 | 0.9375 / 0.9375 |
+| Unsupported acceptable status (8 cases) | 0.0000 | 1.0000 |
+| Archive leaks | 0 | 0 |
+
+Before DEC-143, every unsupported holdout intent was reported `MATCH`: examples
+include a birth-rate request matching credit-rate records, an energy-production
+index matching KFE/CPI records, a euro exchange-rate request matching euro
+commercial-credit interest, and a housing-sales count matching housing credit and
+price records. After the change all eight are `PARTIAL`, preserving the same
+candidates for explicit clarification. Six supported BM25-only paraphrases also
+become `PARTIAL` while keeping their correct top-1; the two supported queries with
+reviewed concept matches retain their prior status. All 18 calibration/holdout
+rankings are identical before and after.
+
+The earlier r2 lexical ranking metrics reproduce exactly after the change:
+development hit@1 0.6667 / MRR 0.7120 and holdout hit@1 0.5789 / MRR 0.7105;
+its eight no-answer cases now all have an acceptable explicit status. This is a
+status-safety correction, not proof that nearby candidates are relevant, a dense
+quality measurement, or an out-of-scope classifier. No live embedding, Kloudeks,
+BDDK, EVDS or production-search call was made. Archive-intent ordering, broad
+multi-series ranking, N07/N09/N18 and full catalog coverage remain separate limits.
+
+<a id="handoff-checkpoint-2026-09-15"></a>
+## Authorized handoff checkpoint — 2026-09-15
+
+Runtime verified at `ef354f5` (merged #194); subsequent #193 and completion edits
+are documentation-only. Makefile `full` stages were executed with the Desktop
+Python 3.12 environment: Ruff format/lint and strict mypy PASS; full pytest
+initially 3543 PASS / 2 platform skips / 4 failures in 373.07 s. The four failures
+were Turkish fixture/source text decoded through the Windows default encoding;
+the same four tests PASS with `PYTHONUTF8=1` (0.98 s), without a source change.
+Passing tests were not rerun. Bandit, secret scan and the exact Makefile pip-audit
+command PASS using only its existing exceptions. This is component-level full
+gate evidence with a focused environment recheck, not a single green full run.
+Use UTF-8 for Windows commands; the initial API check also failed without it.
+
+Read-only API `--check` with UTF-8 PASS: hybrid, 29 prepared identities, 4124
+observations, 37 catalog identities, `model_checked=false`. Offline EVAL-SMOKE
+5/5 PASS. Exact final #194 and reconciled #193 Fast PR/Web gates SUCCESS; client
+code is unchanged. No new live requests. EVAL-FULL is not delivered, and the
+three-turn live acceptance/latency limitations below remain; this checkpoint is
+not final-demo certification. Ignored local full-gate logs are under
+`work/kkb-hybrid-rehearsal/artifacts/final-full*` in the operator workspace.
+
+<a id="m11-served-hybrid-rehearsal-2026-09-15"></a>
+## M11-07 / M13-05 served rehearsal and hybrid isolation — 2026-09-15
+
+Measured on `4083020`, with product code identical to dev `fdd666e`, in
+[PR #194](https://github.com/cagatayeroglu/KKB-DataTrio/pull/194). Local prepared
+pool: 29 series / 4,124 observations; v3 catalog: 37 identities; local LanceDB
+index generation `e0bbaac8`, `qwen3-instruct-query-v1`. Real Next.js client and
+prepared API, fresh workspace, Qwen3.8-27B through Kloudeks. The approved budget
+was 15 chat and 15 query-embedding requests, 600 seconds per request, one attempt.
+
+| Check | Observed result |
+| --- | --- |
+| Organizer Turn 1 | ACCEPTED, 68.875 s; 60 monthly rows / 242 values; 59 transitions, 32 rate falls, 28 balance rises and 4 non-rises. |
+| Independent source comparison | All 120 monthly balance/rate values match read-only SQL plus Decimal arithmetic using the existing manual oracle helpers; weekly rate assignment is `by_end`. Four non-rise months: February/May 2021, December 2023, January 2024. |
+| Organizer Turn 2 | QUALIFIED, 50.266 s; one sentence omitted with two `period` reason categories. No new workspace table published. |
+| Unpublished deflation candidate | 302 values: all 242 copied values unchanged and all 60 added real balances match independent CPI arithmetic with December 2025 reference prices. Execution/store evidence checks report no faults. |
+| State/proof | Original published result is byte-equivalent as a JSON model to its pre-follow-up snapshot. UI cell details open the complete result-level source/execution/verification chain; individual observation-to-cell proof is not claimed. |
+| Organizer Turn 3 | Not submitted: the required deflated table was not published. No automatic retry or substitute source table. |
+| Served retrieval | Hybrid configured, but zero query embeddings: planner selected `change_detection`, then `table_transform` directly. This is not served dense-stage acceptance. |
+| Direct hybrid isolation | On the user's follow-up request, the same catalog-tool factory, runtime query policy and index were exercised with one query, `konut kredisi bakiyesi`. One Qwen3-Embedding-8B call succeeded (344 ms provider timing); tool returned `hybrid`, dense `success`, three candidates with lexical+dense provenance and explicit clarification required. No degradation. This checks wiring for one query, not ranking quality or served planner continuation. |
+
+Actual total: **four chat requests plus one query embedding**, zero retries,
+passage/index-build/BDDK/EVDS/search/OCR calls during these measurements. The
+separately approved earlier index build is not part of this run. Test services
+were stopped afterwards. No product code changed and no broad suite repeated.
+
+Diagnosis is bounded by the evidence: the current discovery instructions allow
+direct analysis when reviewed identities/workspace data suffice, and prepared
+series identities are exposed in tool descriptions. Catalog invocation is not
+mandatory; configured hybrid retrieval does not imply it ran. Separately,
+publication requires an ACCEPTED answer, so the Turn 2 period-related omission
+withheld a numerically verified candidate. The content-free ledger does not
+retain the omitted draft; the exact problematic wording is therefore not
+established. The surviving answer says adjusted values were listed while the UI
+still shows the original table and an explicit non-publication notice: check
+that user-facing inconsistency in the focused M11-11 follow-up.
+
+Next checks belong to M11-11/M13-05: reproduce the period/publication issue
+without weakening verification; define and exercise the discovery-required path
+for new-series intents, while preserving valid selected-table reuse. Only then
+repeat the three-turn served hybrid acceptance under a new bounded live plan.
+Local ignored evidence: `artifacts/hybrid-rehearsal-ledger.jsonl`,
+`artifacts/rehearsal-verification.json`, `artifacts/turn1-baseline.json`,
+`artifacts/turn2-unpublished-candidate.json`, and
+`artifacts/hybrid-direct-probe-{ledger.jsonl,result.json}`. These contain local
+measurement evidence, not portable prepared data; the durable findings are above.
+
+**Authorized follow-up (same PR):** hybrid prepared plans now require discovery
+before new-series reads; existing-column transforms remain direct. A numerically
+verified candidate with exclusively period-attribution omissions gets one fresh
+writer attempt and the same full gate. Provider failure keeps the initial gated
+answer. Offline checks: 118 discovery/dense/gate tests, 137 API/selection/loop/live
+budget tests (one existing platform skip), plus the repair-transport regression
+passed; touched-source mypy and Ruff passed. Initial test execution encountered
+sandbox temp-directory access errors; rerunning with a fresh workspace-local temp
+root resolved setup. One new alignment fixture was corrected to supply its
+required columns before passing.
+
+**Fresh authorized rerun on code `99817486457fa0715041d1a3d0f3f15444b73f44`:**
+same prepared pool, catalog/index and three organizer questions, fresh workspace,
+selected-result follow-ups through the real client. Ceiling 15 chat / 15 query
+embeddings, 600 s/request, one transport attempt; actual **9 chat + 4 query
+embeddings**, all successful, no transport retry or synthesis-repair call.
+
+| Check | Rerun result |
+| --- | --- |
+| Turn 1 | ACCEPTED, 295.766 s; 60 rows / 242 values; all 120 balance/rate values match the independent oracle, `by_end`; 59 transitions / 32 rate falls / 28 balance rises / 4 non-rises. |
+| Turn 2 | ACCEPTED, 229.625 s; selected-table deflation published 302 values; all 60 real values match December 2025 CPI reference arithmetic; all prior cells preserved. |
+| Turn 3 | QUALIFIED, 290.406 s; two sentences omitted with `unmatched_number` categories; no third workspace result published, selected Analiz 2 retained. The surviving reply identifies the real-price reference and describes simultaneous association; the requested substantive analysis was not fully delivered. |
+| Unpublished Turn 3 candidate | 368 values; all prior 302 cells preserved; 60 KFE levels and the exact 22 joint months match independent SQL/Decimal arithmetic. Counts: 59 complete transitions, zero missing, 59 KFE-up, 32 rate-down, 46 real-balance non-rises, 22 joint. Execution/store proof checks pass. |
+| State and proof | Both published results remain JSON-equivalent to pre-follow-up snapshots. Client cell details display the complete result-level source/execution/verification chain and explicitly state the individual observation-to-cell limitation. |
+| Served discovery | Four query embeddings (two initial series, CPI, KFE), with successful discovery/analysis continuation in all three turns. Embedding provider times 172/109/219/219 ms; configured dense path was exercised. This is not broad ranking-quality or reliability evidence. |
+| Latency | Writer calls 195.953 / 183.046 / 198.469 s; planning pairs 60.375+36.063 / 19.000+26.078 / 7.047+82.547 s. Model planning/writing dominates; a single successful embedding connection does not resolve user-facing latency. |
+| Automated validation | Exact code head Fast PR and Web client gates SUCCESS; Fast PR 3543 passed in 227.47 s. No duplicate broad local run. Subsequent evidence-only edits do not alter tested runtime code. |
+
+Verdict: discovery wiring and selected-table numeric integrity are evidenced, but
+**three-turn served hybrid acceptance remains incomplete**. The period repair
+was covered offline but not exercised in this rerun. The new unmatched-number
+failure correctly stayed outside that repair's eligibility. The content-free
+ledger does not retain omitted drafts, so the exact unsupported number/wording
+is unknown; do not infer a particular arithmetic or parser bug from the category.
+Next: a focused safe reproduction of numeric claim/publication failure and
+measured latency work under M11-11, followed by separately authorized bounded
+rehearsals. No extra live run was made. No BDDK/EVDS/search/OCR/index-build call.
+Local ignored evidence: `artifacts/hybrid-rehearsal-r2-ledger.jsonl`,
+`artifacts/r2-verification.json`, `artifacts/r2-analiz_1.json`,
+`artifacts/r2-analiz_2.json`, `artifacts/r2-turn3-unpublished-candidate.json`, and
+`artifacts/r2-joint-verification.json`. Candidate reconstruction was read-only;
+it was never inserted into the workspace or shown as a published result.
+
 <a id="m13-05-fresh-holdout-2026-09-15"></a>
 ## M13-05 DEC-142 combination on a fresh holdout — 2026-09-15 (PR #179, merged)
+
+**Local index recovery, Arda / Codex, 2026-09-15 (runtime `fdd666e`).** User approved only index construction: at most three Kloudeks Qwen3-Embedding-8B passage calls, 60 s per request, one attempt/no retry. The existing builder embedded the 37 reviewed v3 catalog descriptions in batches of 16/16/5; 3 requests started and 3 completed. No chat/query embedding, official-source or web-search call. The operator-local ignored generation `data/processed/catalog-index/qwen3-instruct-query-v1-e0bbaac8` was built and reopened with the matching model, 4096 dimensions, query policy and catalog digest. The local embedding model-name typo was corrected; credentials were not copied into Git. Content-free ledger: ignored `artifacts/catalog-index-build-20260915T183834Z.jsonl`. Subsequent API `--check` reported ready/hybrid with `model_checked=false`, 37 catalog identities, 29 prepared series and 4,124 observations; the prepared snapshot identity was unchanged. Independent organizer oracle also ran read-only. This establishes index availability and embedding transport for the build, not query relevance or served three-turn hybrid acceptance. Live rehearsal remains separately approval-gated; its timeout/one-attempt settings must be applied before starting.
+
 
 Authorization: Eray approved PROP-07/PROP-08 (DEC-142) and the proposed next step.
 Live use: 132 Kloudeks `kkbhackathon2026/Qwen3-Embedding-8B` query requests (66 per

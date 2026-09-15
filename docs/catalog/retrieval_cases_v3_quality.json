@@ -1,0 +1,228 @@
+{
+  "schema": "m13-09-retrieval-cases-v1",
+  "snapshot_sha256": "e0bbaac8eb4d1b1e90deacab42989cd6f74181f8ce267150825e8d24e169fb11",
+  "authored": "2026-09-15 M13-15. Development contains six previously reviewed failure/calibration queries. Holdout Q01-Q22 was written from reviewed catalog v3/r4 metadata and finance semantics before any retrieval mode was run on these exact queries. It is evaluation-only and is not read by runtime ranking.",
+  "relevance": "Qualifiers distinguish new versus outstanding rates, inclusion scope, denomination/component, CPI base year and explicit archive intent. Under-specified cases retain every reviewed valid series and no primary. Unsupported neighboring intents accept only PARTIAL or NO_MATCH. Archived records require include_archived and explicit archive wording to be preferred; otherwise they must not outrank non-archived candidates.",
+  "cases": [
+    {
+      "case_id": "C07",
+      "split": "development",
+      "category": "rate_basis",
+      "query": "average interest rate on outstanding housing loans",
+      "relevant_series_ids": ["EVDS:TP.BKR.TRY.18"],
+      "primary_series_id": "EVDS:TP.BKR.TRY.18"
+    },
+    {
+      "case_id": "C09",
+      "split": "development",
+      "category": "inclusion_scope",
+      "query": "bireysel ihtiyaç kredisi faiz oranı, KMH hariç",
+      "relevant_series_ids": ["EVDS:TP.KTF10"],
+      "primary_series_id": "EVDS:TP.KTF10"
+    },
+    {
+      "case_id": "C10",
+      "split": "development",
+      "category": "currency_component",
+      "query": "döviz cinsi konut kredisi bakiyesi",
+      "relevant_series_ids": ["BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2"],
+      "primary_series_id": "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2"
+    },
+    {
+      "case_id": "C14",
+      "split": "development",
+      "category": "archive_intent",
+      "query": "artık güncellenmeyen eski konut serileri",
+      "include_archived": true,
+      "relevant_series_ids": ["EVDS:TP.VK02", "EVDS:TP.TK02"]
+    },
+    {
+      "case_id": "C15",
+      "split": "development",
+      "category": "base_year",
+      "query": "eski baz yıllı genel TÜFE serisi",
+      "relevant_series_ids": ["EVDS:TP.GENENDEKS.T1"],
+      "primary_series_id": "EVDS:TP.GENENDEKS.T1"
+    },
+    {
+      "case_id": "C18",
+      "split": "development",
+      "category": "currency_component",
+      "query": "Turkish lira housing loan balance at banks",
+      "relevant_series_ids": ["BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0"],
+      "primary_series_id": "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0"
+    },
+    {
+      "case_id": "Q01",
+      "split": "holdout",
+      "category": "rate_basis",
+      "query": "bankaların mevcut konut kredisi portföyüne uyguladığı ortalama faiz",
+      "relevant_series_ids": ["EVDS:TP.BKR.TRY.18"],
+      "primary_series_id": "EVDS:TP.BKR.TRY.18"
+    },
+    {
+      "case_id": "Q02",
+      "split": "holdout",
+      "category": "rate_basis",
+      "query": "yeni açılan TL konut kredilerinin ortalama faiz oranı",
+      "relevant_series_ids": ["EVDS:TP.KTF12"],
+      "primary_series_id": "EVDS:TP.KTF12"
+    },
+    {
+      "case_id": "Q03",
+      "split": "holdout",
+      "category": "inclusion_scope",
+      "query": "gerçek kişi KMH kapsam dışı ihtiyaç kredisi faizi",
+      "relevant_series_ids": ["EVDS:TP.KTF10"],
+      "primary_series_id": "EVDS:TP.KTF10"
+    },
+    {
+      "case_id": "Q04",
+      "split": "holdout",
+      "category": "inclusion_scope",
+      "query": "gerçek kişi kredili mevduat hesabını kapsayan ihtiyaç kredisi faizi",
+      "relevant_series_ids": ["EVDS:TP.KTF101"],
+      "primary_series_id": "EVDS:TP.KTF101"
+    },
+    {
+      "case_id": "Q05",
+      "split": "holdout",
+      "category": "inclusion_scope",
+      "query": "tüzel kişi kredili mevduat ve şirket kartları kapsam dışı ticari kredi faizi",
+      "relevant_series_ids": ["EVDS:TP.KTF18"],
+      "primary_series_id": "EVDS:TP.KTF18"
+    },
+    {
+      "case_id": "Q06",
+      "split": "holdout",
+      "category": "currency_component",
+      "query": "Türk lirası cinsinden ticari kredi faiz serisi",
+      "relevant_series_ids": ["EVDS:TP.KTF17", "EVDS:TP.KTF18"],
+      "primary_series_id": "EVDS:TP.KTF17"
+    },
+    {
+      "case_id": "Q07",
+      "split": "holdout",
+      "category": "currency_component",
+      "query": "avro cinsinden ticari kredi faiz serisi",
+      "relevant_series_ids": ["EVDS:TP.KTF17.EUR"],
+      "primary_series_id": "EVDS:TP.KTF17.EUR"
+    },
+    {
+      "case_id": "Q08",
+      "split": "holdout",
+      "category": "currency_component",
+      "query": "ABD doları cinsinden ticari kredi faiz serisi",
+      "relevant_series_ids": ["EVDS:TP.KTF17.USD"],
+      "primary_series_id": "EVDS:TP.KTF17.USD"
+    },
+    {
+      "case_id": "Q09",
+      "split": "holdout",
+      "category": "currency_component",
+      "query": "bankacılık sektörünün Türk parası konut kredisi stoku",
+      "relevant_series_ids": ["BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0"],
+      "primary_series_id": "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0"
+    },
+    {
+      "case_id": "Q10",
+      "split": "holdout",
+      "category": "currency_component",
+      "query": "bankacılık sektörünün yabancı para konut kredisi stoku",
+      "relevant_series_ids": ["BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2"],
+      "primary_series_id": "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2"
+    },
+    {
+      "case_id": "Q11",
+      "split": "holdout",
+      "category": "currency_component",
+      "query": "bankacılık sektörünün TP ve YP toplam konut kredisi stoku",
+      "relevant_series_ids": ["BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66"],
+      "primary_series_id": "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66"
+    },
+    {
+      "case_id": "Q12",
+      "split": "holdout",
+      "category": "base_year",
+      "query": "2003 temel yıllı manşet tüketici fiyat endeksi",
+      "relevant_series_ids": ["EVDS:TP.GENENDEKS.T1"],
+      "primary_series_id": "EVDS:TP.GENENDEKS.T1"
+    },
+    {
+      "case_id": "Q13",
+      "split": "holdout",
+      "category": "base_year",
+      "query": "2025 temel yıllı manşet tüketici fiyat endeksi",
+      "relevant_series_ids": ["EVDS:TP.TUKFIY2025.GENEL"],
+      "primary_series_id": "EVDS:TP.TUKFIY2025.GENEL"
+    },
+    {
+      "case_id": "Q14",
+      "split": "holdout",
+      "category": "archive_intent",
+      "query": "arşivde tutulan eski konut kayıtları",
+      "include_archived": true,
+      "relevant_series_ids": ["EVDS:TP.VK02", "EVDS:TP.TK02"]
+    },
+    {
+      "case_id": "Q15",
+      "split": "holdout",
+      "category": "current_intent",
+      "query": "güncel bölgesel konut fiyat endeksi serileri",
+      "include_archived": true,
+      "relevant_series_ids": ["EVDS:TP.KFE.TR10", "EVDS:TP.KFE.TR51", "EVDS:TP.KFE.TR31"]
+    },
+    {
+      "case_id": "Q16",
+      "split": "holdout",
+      "category": "ambiguity",
+      "query": "ihtiyaç kredisi faizini göster",
+      "relevant_series_ids": ["EVDS:TP.KTF10", "EVDS:TP.KTF101"]
+    },
+    {
+      "case_id": "Q17",
+      "split": "holdout",
+      "category": "ambiguity",
+      "query": "konut kredi faizini getir",
+      "relevant_series_ids": ["EVDS:TP.KTF12", "EVDS:TP.BKR.TRY.18"]
+    },
+    {
+      "case_id": "Q18",
+      "split": "holdout",
+      "category": "unsupported_neighbor",
+      "query": "avro döviz kuru serisi",
+      "expected_statuses": ["PARTIAL", "NO_MATCH"]
+    },
+    {
+      "case_id": "Q19",
+      "split": "holdout",
+      "category": "rate_basis",
+      "query": "interest charged on banks' existing mortgage portfolio",
+      "relevant_series_ids": ["EVDS:TP.BKR.TRY.18"],
+      "primary_series_id": "EVDS:TP.BKR.TRY.18"
+    },
+    {
+      "case_id": "Q20",
+      "split": "holdout",
+      "category": "currency_component",
+      "query": "TRY-denominated mortgage loan outstanding balance in the banking sector",
+      "relevant_series_ids": ["BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0"],
+      "primary_series_id": "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0"
+    },
+    {
+      "case_id": "Q21",
+      "split": "holdout",
+      "category": "archive_filter",
+      "query": "arşiv konut serisi",
+      "include_archived": false,
+      "expected_statuses": ["FILTERED_OUT"]
+    },
+    {
+      "case_id": "Q22",
+      "split": "holdout",
+      "category": "unsupported_neighbor",
+      "query": "konut satış adedi aylık seri",
+      "expected_statuses": ["PARTIAL", "NO_MATCH"]
+    }
+  ]
+}
