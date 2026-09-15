@@ -297,6 +297,10 @@ are not silently refreshed. A backend restart invalidates browser capabilities.
 - Each publication remains selectable. Cell detail shows recorded unit, period,
   cell identity and result version; unavailable semantics stay explicit.
 - Clarification, abstention and transport failure preserve the previous table.
+- A period chart above the table plots the same published values. Each unit
+  and scale has its own axis group; choose at most two (for example milyon TL
+  and %). Empty periods stay gaps and month-over-month change columns start
+  hidden in the legend. Hover shows the full series name and display value.
 - Cell detail shows the result-level proof chain: raw source responses (count,
   https host, retrieval date), the prepared series read, each verified
   calculation step including an earlier published table, and the accepted gate.

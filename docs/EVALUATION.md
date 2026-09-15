@@ -794,6 +794,29 @@ Both temporary servers were stopped after the rehearsal. Full proof UI and
 legacy/official-refresh dependency coverage remain incomplete.
 
 
+<a id="m10-07-period-chart-2026-09-15"></a>
+## M10-07 period chart — 2026-09-15 (offline, unmerged)
+
+- Dependencies (authorized by Eray): `react-plotly.js` 4.1.0 and
+  `plotly.js-dist-min` 4.1.1 aliased as `plotly.js`, installed with
+  `--ignore-scripts`; lazy plot chunk 4,629,092 bytes, not in the first load.
+- Client on Node 22.23.2: Prettier, strict TypeScript and **30/30** tests (4 new:
+  canonical values and gaps per period, separate unit groups, hidden change
+  columns, no chart for single-period/summary results, plain-text labels,
+  at-most-two active groups, distinguishing legend suffixes); production build
+  PASS.
+- Browser rehearsal with a scratch scripted API over the real prepared pool
+  (PreparedRunner copy; no model or source call): Turn 1 shows 60 months with
+  milyon TL (left) and % (right) axes, "500.000"-style ticks; Turn 3 offers four
+  groups (milyon TL, %, yüzde puan, endeks), switching % off and endeks on
+  re-plots the KFE line on the right axis; nominal, change and real balance
+  legends stay distinguishable. At 390 px the page has no horizontal overflow
+  (client/scroll width 390); legend text is clipped by a few pixels inside the
+  chart card.
+
+Limits: no export, per-cell highlighting or chart for summary-only results; the
+UI does not yet let the user pick more than two unit groups at once.
+
 <a id="m11-07-live-repeat-3-2026-09-15"></a>
 ## M11-07 live repeat 3 — first complete three-turn API/client acceptance — 2026-09-15 (PR #176, unmerged)
 

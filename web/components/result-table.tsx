@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProofChain } from "@/components/proof-chain";
+import { ResultChart } from "@/components/result-chart";
 import {
   arrange,
   displayValue,
@@ -129,6 +130,7 @@ export function ResultTable({
           />
         </label>
       </div>
+      <ResultChart key={result.version} result={result} dataset={dataset} />
       {arranged.metrics.length > 0 && (
         <div className="metric-strip">
           {arranged.metrics.map((cell) => (
