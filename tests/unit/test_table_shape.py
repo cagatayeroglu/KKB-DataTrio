@@ -180,8 +180,11 @@ def test_shape_changes_fail_closed(case):
             original, columns=("index", "absent"), join="inner", anchor_column=None
         )
     elif case == "no_overlap":
-        shifted = cell("later", date(2025, 1, 31), 1.0)
-        original = original.model_copy(update={"values": [*original.values, shifted]})
+        shifted = [
+            cell("later", date(2025, 1, 31), 1.0),
+            cell("later", date(2025, 2, 28), 2.0),
+        ]
+        original = original.model_copy(update={"values": [*original.values, *shifted]})
         call = lambda: align_periods(  # noqa: E731
             original, columns=("index", "later"), join="inner", anchor_column=None
         )
