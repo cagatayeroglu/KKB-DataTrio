@@ -917,6 +917,9 @@ multi-series ranking, N07/N09/N18 and full catalog coverage remain separate limi
 <a id="m13-05-fresh-holdout-2026-09-15"></a>
 ## M13-05 DEC-142 combination on a fresh holdout — 2026-09-15 (PR #179, merged)
 
+**Local index recovery, Arda / Codex, 2026-09-15 (runtime `fdd666e`).** User approved only index construction: at most three Kloudeks Qwen3-Embedding-8B passage calls, 60 s per request, one attempt/no retry. The existing builder embedded the 37 reviewed v3 catalog descriptions in batches of 16/16/5; 3 requests started and 3 completed. No chat/query embedding, official-source or web-search call. The operator-local ignored generation `data/processed/catalog-index/qwen3-instruct-query-v1-e0bbaac8` was built and reopened with the matching model, 4096 dimensions, query policy and catalog digest. The local embedding model-name typo was corrected; credentials were not copied into Git. Content-free ledger: ignored `artifacts/catalog-index-build-20260915T183834Z.jsonl`. Subsequent API `--check` reported ready/hybrid with `model_checked=false`, 37 catalog identities, 29 prepared series and 4,124 observations; the prepared snapshot identity was unchanged. Independent organizer oracle also ran read-only. This establishes index availability and embedding transport for the build, not query relevance or served three-turn hybrid acceptance. Live rehearsal remains separately approval-gated; its timeout/one-attempt settings must be applied before starting.
+
+
 Authorization: Eray approved PROP-07/PROP-08 (DEC-142) and the proposed next step.
 Live use: 132 Kloudeks `kkbhackathon2026/Qwen3-Embedding-8B` query requests (66 per
 policy, about 4.9 s and 4.5 s) against the two existing local index generations; no
