@@ -1,0 +1,206 @@
+{
+  "schema": "m13-09-retrieval-cases-v1",
+  "snapshot_sha256": "e0bbaac8eb4d1b1e90deacab42989cd6f74181f8ce267150825e8d24e169fb11",
+  "authored": "2026-09-15 M13-14. Development contains two previously seen calibration cases. Holdout S01-S16 was written from reviewed catalog v3/r4 semantics before any retrieval mode was run on these exact queries and is not used to add aliases, alter indexed text, tune scores, or encode question-specific rules.",
+  "relevance": "Supported cases list every reviewed identity accepted for the stated intent. Unsupported cases list no identities and accept PARTIAL when nearby candidates are explicitly unresolved or NO_MATCH when no candidate exists; MATCH is unsafe without a reviewed alias or phrase.",
+  "cases": [
+    {
+      "case_id": "C01",
+      "split": "development",
+      "category": "reviewed_match",
+      "query": "konut kredisi faiz oranı",
+      "include_archived": false,
+      "relevant_series_ids": [
+        "EVDS:TP.KTF12",
+        "EVDS:TP.BKR.TRY.18"
+      ]
+    },
+    {
+      "case_id": "C02",
+      "split": "development",
+      "category": "unsupported_neighbor",
+      "query": "dolar kuru",
+      "include_archived": false,
+      "expected_statuses": [
+        "PARTIAL",
+        "NO_MATCH"
+      ]
+    },
+    {
+      "case_id": "S01",
+      "split": "holdout",
+      "category": "supported_geography",
+      "query": "İstanbul KFE aylık serisi",
+      "include_archived": false,
+      "relevant_series_ids": [
+        "EVDS:TP.KFE.TR10"
+      ],
+      "primary_series_id": "EVDS:TP.KFE.TR10"
+    },
+    {
+      "case_id": "S02",
+      "split": "holdout",
+      "category": "supported_geography",
+      "query": "Ankara'daki konut fiyat göstergesi",
+      "include_archived": false,
+      "relevant_series_ids": [
+        "EVDS:TP.KFE.TR51"
+      ],
+      "primary_series_id": "EVDS:TP.KFE.TR51"
+    },
+    {
+      "case_id": "S03",
+      "split": "holdout",
+      "category": "supported_rate",
+      "query": "yeni kullandırılan ev kredilerinin faiz yüzdesi",
+      "include_archived": false,
+      "relevant_series_ids": [
+        "EVDS:TP.KTF12"
+      ],
+      "primary_series_id": "EVDS:TP.KTF12"
+    },
+    {
+      "case_id": "S04",
+      "split": "holdout",
+      "category": "supported_rate",
+      "query": "stoktaki konut kredilerinin ortalama faizi",
+      "include_archived": false,
+      "relevant_series_ids": [
+        "EVDS:TP.BKR.TRY.18",
+        "EVDS:TP.KKP.TRY.18"
+      ]
+    },
+    {
+      "case_id": "S05",
+      "split": "holdout",
+      "category": "supported_currency",
+      "query": "ABD dolarıyla açılan ticari kredilerin faizi",
+      "include_archived": false,
+      "relevant_series_ids": [
+        "EVDS:TP.KTF17.USD"
+      ],
+      "primary_series_id": "EVDS:TP.KTF17.USD"
+    },
+    {
+      "case_id": "S06",
+      "split": "holdout",
+      "category": "supported_cpi_division",
+      "query": "mobilya ve ev bakım ürünleri fiyat göstergesi",
+      "include_archived": false,
+      "relevant_series_ids": [
+        "EVDS:TP.TUKFIY2025.05"
+      ],
+      "primary_series_id": "EVDS:TP.TUKFIY2025.05"
+    },
+    {
+      "case_id": "S07",
+      "split": "holdout",
+      "category": "supported_cpi_division",
+      "query": "sigorta ücretleri tüketici fiyat serisi",
+      "include_archived": false,
+      "relevant_series_ids": [
+        "EVDS:TP.TUKFIY2025.12"
+      ],
+      "primary_series_id": "EVDS:TP.TUKFIY2025.12"
+    },
+    {
+      "case_id": "S08",
+      "split": "holdout",
+      "category": "supported_geography",
+      "query": "tüm Türkiye için konut fiyat göstergesi",
+      "include_archived": false,
+      "relevant_series_ids": [
+        "EVDS:TP.KFE.TR"
+      ],
+      "primary_series_id": "EVDS:TP.KFE.TR"
+    },
+    {
+      "case_id": "S09",
+      "split": "holdout",
+      "category": "unsupported_generic_term",
+      "query": "doğum oranı serisi",
+      "include_archived": false,
+      "expected_statuses": [
+        "PARTIAL",
+        "NO_MATCH"
+      ]
+    },
+    {
+      "case_id": "S10",
+      "split": "holdout",
+      "category": "unsupported_neighbor",
+      "query": "enerji üretim endeksi",
+      "include_archived": false,
+      "expected_statuses": [
+        "PARTIAL",
+        "NO_MATCH"
+      ]
+    },
+    {
+      "case_id": "S11",
+      "split": "holdout",
+      "category": "unsupported_neighbor",
+      "query": "euro döviz kuru",
+      "include_archived": false,
+      "expected_statuses": [
+        "PARTIAL",
+        "NO_MATCH"
+      ]
+    },
+    {
+      "case_id": "S12",
+      "split": "holdout",
+      "category": "unsupported_neighbor",
+      "query": "otomobil satış adedi",
+      "include_archived": false,
+      "expected_statuses": [
+        "PARTIAL",
+        "NO_MATCH"
+      ]
+    },
+    {
+      "case_id": "S13",
+      "split": "holdout",
+      "category": "unsupported_near_domain",
+      "query": "konut satış sayısı",
+      "include_archived": false,
+      "expected_statuses": [
+        "PARTIAL",
+        "NO_MATCH"
+      ]
+    },
+    {
+      "case_id": "S14",
+      "split": "holdout",
+      "category": "unsupported_generic_term",
+      "query": "nüfus artış oranı",
+      "include_archived": false,
+      "expected_statuses": [
+        "PARTIAL",
+        "NO_MATCH"
+      ]
+    },
+    {
+      "case_id": "S15",
+      "split": "holdout",
+      "category": "unsupported_generic_term",
+      "query": "ihracat birim değer endeksi",
+      "include_archived": false,
+      "expected_statuses": [
+        "PARTIAL",
+        "NO_MATCH"
+      ]
+    },
+    {
+      "case_id": "S16",
+      "split": "holdout",
+      "category": "unsupported_neighbor",
+      "query": "politika faiz kararları",
+      "include_archived": false,
+      "expected_statuses": [
+        "PARTIAL",
+        "NO_MATCH"
+      ]
+    }
+  ]
+}
