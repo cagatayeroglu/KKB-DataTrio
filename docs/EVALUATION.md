@@ -914,6 +914,96 @@ quality measurement, or an out-of-scope classifier. No live embedding, Kloudeks,
 BDDK, EVDS or production-search call was made. Archive-intent ordering, broad
 multi-series ranking, N07/N09/N18 and full catalog coverage remain separate limits.
 
+<a id="m11-served-hybrid-rehearsal-2026-09-15"></a>
+## M11-07 / M13-05 served rehearsal and hybrid isolation — 2026-09-15
+
+Measured on `4083020`, with product code identical to dev `fdd666e`, in
+[PR #194](https://github.com/cagatayeroglu/KKB-DataTrio/pull/194). Local prepared
+pool: 29 series / 4,124 observations; v3 catalog: 37 identities; local LanceDB
+index generation `e0bbaac8`, `qwen3-instruct-query-v1`. Real Next.js client and
+prepared API, fresh workspace, Qwen3.8-27B through Kloudeks. The approved budget
+was 15 chat and 15 query-embedding requests, 600 seconds per request, one attempt.
+
+| Check | Observed result |
+| --- | --- |
+| Organizer Turn 1 | ACCEPTED, 68.875 s; 60 monthly rows / 242 values; 59 transitions, 32 rate falls, 28 balance rises and 4 non-rises. |
+| Independent source comparison | All 120 monthly balance/rate values match read-only SQL plus Decimal arithmetic using the existing manual oracle helpers; weekly rate assignment is `by_end`. Four non-rise months: February/May 2021, December 2023, January 2024. |
+| Organizer Turn 2 | QUALIFIED, 50.266 s; one sentence omitted with two `period` reason categories. No new workspace table published. |
+| Unpublished deflation candidate | 302 values: all 242 copied values unchanged and all 60 added real balances match independent CPI arithmetic with December 2025 reference prices. Execution/store evidence checks report no faults. |
+| State/proof | Original published result is byte-equivalent as a JSON model to its pre-follow-up snapshot. UI cell details open the complete result-level source/execution/verification chain; individual observation-to-cell proof is not claimed. |
+| Organizer Turn 3 | Not submitted: the required deflated table was not published. No automatic retry or substitute source table. |
+| Served retrieval | Hybrid configured, but zero query embeddings: planner selected `change_detection`, then `table_transform` directly. This is not served dense-stage acceptance. |
+| Direct hybrid isolation | On the user's follow-up request, the same catalog-tool factory, runtime query policy and index were exercised with one query, `konut kredisi bakiyesi`. One Qwen3-Embedding-8B call succeeded (344 ms provider timing); tool returned `hybrid`, dense `success`, three candidates with lexical+dense provenance and explicit clarification required. No degradation. This checks wiring for one query, not ranking quality or served planner continuation. |
+
+Actual total: **four chat requests plus one query embedding**, zero retries,
+passage/index-build/BDDK/EVDS/search/OCR calls during these measurements. The
+separately approved earlier index build is not part of this run. Test services
+were stopped afterwards. No product code changed and no broad suite repeated.
+
+Diagnosis is bounded by the evidence: the current discovery instructions allow
+direct analysis when reviewed identities/workspace data suffice, and prepared
+series identities are exposed in tool descriptions. Catalog invocation is not
+mandatory; configured hybrid retrieval does not imply it ran. Separately,
+publication requires an ACCEPTED answer, so the Turn 2 period-related omission
+withheld a numerically verified candidate. The content-free ledger does not
+retain the omitted draft; the exact problematic wording is therefore not
+established. The surviving answer says adjusted values were listed while the UI
+still shows the original table and an explicit non-publication notice: check
+that user-facing inconsistency in the focused M11-11 follow-up.
+
+Next checks belong to M11-11/M13-05: reproduce the period/publication issue
+without weakening verification; define and exercise the discovery-required path
+for new-series intents, while preserving valid selected-table reuse. Only then
+repeat the three-turn served hybrid acceptance under a new bounded live plan.
+Local ignored evidence: `artifacts/hybrid-rehearsal-ledger.jsonl`,
+`artifacts/rehearsal-verification.json`, `artifacts/turn1-baseline.json`,
+`artifacts/turn2-unpublished-candidate.json`, and
+`artifacts/hybrid-direct-probe-{ledger.jsonl,result.json}`. These contain local
+measurement evidence, not portable prepared data; the durable findings are above.
+
+**Authorized follow-up (same PR):** hybrid prepared plans now require discovery
+before new-series reads; existing-column transforms remain direct. A numerically
+verified candidate with exclusively period-attribution omissions gets one fresh
+writer attempt and the same full gate. Provider failure keeps the initial gated
+answer. Offline checks: 118 discovery/dense/gate tests, 137 API/selection/loop/live
+budget tests (one existing platform skip), plus the repair-transport regression
+passed; touched-source mypy and Ruff passed. Initial test execution encountered
+sandbox temp-directory access errors; rerunning with a fresh workspace-local temp
+root resolved setup. One new alignment fixture was corrected to supply its
+required columns before passing.
+
+**Fresh authorized rerun on code `99817486457fa0715041d1a3d0f3f15444b73f44`:**
+same prepared pool, catalog/index and three organizer questions, fresh workspace,
+selected-result follow-ups through the real client. Ceiling 15 chat / 15 query
+embeddings, 600 s/request, one transport attempt; actual **9 chat + 4 query
+embeddings**, all successful, no transport retry or synthesis-repair call.
+
+| Check | Rerun result |
+| --- | --- |
+| Turn 1 | ACCEPTED, 295.766 s; 60 rows / 242 values; all 120 balance/rate values match the independent oracle, `by_end`; 59 transitions / 32 rate falls / 28 balance rises / 4 non-rises. |
+| Turn 2 | ACCEPTED, 229.625 s; selected-table deflation published 302 values; all 60 real values match December 2025 CPI reference arithmetic; all prior cells preserved. |
+| Turn 3 | QUALIFIED, 290.406 s; two sentences omitted with `unmatched_number` categories; no third workspace result published, selected Analiz 2 retained. The surviving reply identifies the real-price reference and describes simultaneous association; the requested substantive analysis was not fully delivered. |
+| Unpublished Turn 3 candidate | 368 values; all prior 302 cells preserved; 60 KFE levels and the exact 22 joint months match independent SQL/Decimal arithmetic. Counts: 59 complete transitions, zero missing, 59 KFE-up, 32 rate-down, 46 real-balance non-rises, 22 joint. Execution/store proof checks pass. |
+| State and proof | Both published results remain JSON-equivalent to pre-follow-up snapshots. Client cell details display the complete result-level source/execution/verification chain and explicitly state the individual observation-to-cell limitation. |
+| Served discovery | Four query embeddings (two initial series, CPI, KFE), with successful discovery/analysis continuation in all three turns. Embedding provider times 172/109/219/219 ms; configured dense path was exercised. This is not broad ranking-quality or reliability evidence. |
+| Latency | Writer calls 195.953 / 183.046 / 198.469 s; planning pairs 60.375+36.063 / 19.000+26.078 / 7.047+82.547 s. Model planning/writing dominates; a single successful embedding connection does not resolve user-facing latency. |
+| Automated validation | Exact code head Fast PR and Web client gates SUCCESS; Fast PR 3543 passed in 227.47 s. No duplicate broad local run. Subsequent evidence-only edits do not alter tested runtime code. |
+
+Verdict: discovery wiring and selected-table numeric integrity are evidenced, but
+**three-turn served hybrid acceptance remains incomplete**. The period repair
+was covered offline but not exercised in this rerun. The new unmatched-number
+failure correctly stayed outside that repair's eligibility. The content-free
+ledger does not retain omitted drafts, so the exact unsupported number/wording
+is unknown; do not infer a particular arithmetic or parser bug from the category.
+Next: a focused safe reproduction of numeric claim/publication failure and
+measured latency work under M11-11, followed by separately authorized bounded
+rehearsals. No extra live run was made. No BDDK/EVDS/search/OCR/index-build call.
+Local ignored evidence: `artifacts/hybrid-rehearsal-r2-ledger.jsonl`,
+`artifacts/r2-verification.json`, `artifacts/r2-analiz_1.json`,
+`artifacts/r2-analiz_2.json`, `artifacts/r2-turn3-unpublished-candidate.json`, and
+`artifacts/r2-joint-verification.json`. Candidate reconstruction was read-only;
+it was never inserted into the workspace or shown as a published result.
+
 <a id="m13-05-fresh-holdout-2026-09-15"></a>
 ## M13-05 DEC-142 combination on a fresh holdout — 2026-09-15 (PR #179, merged)
 

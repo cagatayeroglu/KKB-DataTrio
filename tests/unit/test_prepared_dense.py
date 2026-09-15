@@ -153,6 +153,18 @@ def test_prepared_turn_embeds_the_instructed_query_and_still_publishes(pool, tmp
     assert found["input_policy_id"] == POLICY and found["clarification_required"]
 
 
+def test_prepared_hybrid_refuses_planner_bypass_before_discovery(pool, tmp_path, index):
+    initial, calculation, writer = responses()
+    provider = Recording(
+        scripted(calculation, initial, calculation, writer, embedding_dimension=4096)
+    )
+    prepared = runner_with(pool, tmp_path, index, provider)
+    answer = prepared(uuid4().hex, uuid4().hex, QUESTION)
+    assert answer.status.value == "accepted" and answer.result is not None
+    assert len(provider.embedded) == 1 and len(provider.seen) == 4
+    assert "catalog_search phase" in provider.seen[1][-1].content
+
+
 def test_embedding_failure_degrades_to_lexical_without_leaking(pool, tmp_path, index):
     provider = Recording(scripted(*responses(), embedding_dimension=4096), fail=True)
     prepared = runner_with(pool, tmp_path, index, provider)

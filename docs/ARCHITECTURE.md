@@ -246,6 +246,18 @@ Each boundary below describes responsibility, inputs, outputs, prohibited behavi
 
 CURRENTLY IMPLEMENTED: [Session](../src/kkb_agent/agent/loop.py) plans and executes through the registry. `Session.answer` synthesizes computed results and calls the verifier gate; publication requires successful execution, an ACCEPTED answer and verified candidate evidence. It uses current named Workspace values across turns. The opt-in [bounded catalog continuation](CATALOG.md) executes catalog-only discovery and lets one further analysis/clarification plan consume candidate metadata in a data role. Step and repair counts cover both phases; tool retries remain bounded per step. Automatic workspace loading, planner-driven recomputation and total request deadlines/cancellation remain TARGET. A separate cheaper router call remains PROPOSED pending model/latency evidence.
 
+The configured prepared hybrid path requires a catalog-only discovery phase before
+new-series reads, including deflation indices and added columns. Enforcement
+uses validated tool operations, not question keywords; existing-column
+`rebase`/`align`/`filter` and `table_co_movement` may proceed directly. Clarification
+is permitted before discovery. Lexical-only and standalone Session defaults keep
+their explicit prior behavior. The prepared writer permits one extra synthesis
+call only when every omitted-sentence reason is period attribution and the
+candidate's execution/store checks pass. It reuses the same computed results,
+reruns the full gate, and publishes only an ACCEPTED answer. It never reruns
+calculations or bypasses verification; provider failure preserves the first gated
+answer. This extra call counts against the launcher's total chat ceiling.
+
 ### 2. LLMProvider / Kloudeks boundary — CONFIRMED interface direction
 
 - Responsibility: Isolate model-specific structured generation, plan generation, and concise synthesis.

@@ -30,6 +30,34 @@ CONTINUATION_INSTRUCTIONS = (
     "semantics. Ranking and similarity scores never resolve ambiguity by themselves. "
     "Use the original question to distinguish candidates; if insufficient, clarify."
 )
+REQUIRED_DISCOVERY_INSTRUCTIONS = (
+    "Before reading any new series, you MUST first plan catalog_search only, even if "
+    "a reviewed series identity is already visible. Search separately for each needed "
+    "measure. Direct analysis is permitted only for table_transform rebase/align/filter "
+    "or change_detection table_co_movement over existing workspace columns. Adding a "
+    "series or deflating needs discovery of the added series or price index first. "
+    "Clarification without tools is still permitted."
+)
+
+
+def needs_series_discovery(plan: ValidatedPlan) -> bool:
+    """Only existing-column operations may bypass discovery in hybrid mode.
+
+    This is an execution admission rule, not a keyword guess about the question.
+    Unknown/new tool operations conservatively require discovery.
+    """
+    workspace_operations = {
+        "table_transform": {"rebase", "align", "filter"},
+        "change_detection": {"table_co_movement"},
+    }
+    return any(
+        step.step.tool != "catalog_search"
+        and step.arguments.model_dump().get("operation")
+        not in workspace_operations.get(step.step.tool, set())
+        for step in plan.steps
+    )
+
+
 CLARIFICATION_TEXT = {
     "ambiguous_series": (
         "Birden fazla veri serisi uygun görünüyor. Hangi ölçümü istediğinizi netleştirin."
@@ -47,7 +75,11 @@ CLARIFICATION_TEXT = {
 
 
 def validate_discovery_phase(
-    plan: ValidatedPlan, *, continuation: bool, used_ids: frozenset[str] = frozenset()
+    plan: ValidatedPlan,
+    *,
+    continuation: bool,
+    used_ids: frozenset[str] = frozenset(),
+    require_series_discovery: bool = False,
 ) -> None:
     names = {v.step.tool for v in plan.steps}
     if any(v.step.step_id in used_ids for v in plan.steps):
@@ -64,6 +96,8 @@ def validate_discovery_phase(
             raise PlanRejected("Catalog discovery permits at most four queries")
         if any(v.step.depends_on for v in plan.steps):
             raise PlanRejected("Catalog queries must be independent")
+    elif require_series_discovery and needs_series_discovery(plan):
+        raise PlanRejected("New series require a catalog_search phase before analysis")
 
 
 def catalog_feedback(outcome: ExecutionOutcome) -> str:
