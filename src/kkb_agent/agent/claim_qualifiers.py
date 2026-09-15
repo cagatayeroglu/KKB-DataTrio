@@ -8,7 +8,7 @@ Unrecognised prose is outside this vocabulary, not a proof of its meaning.
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import date
 
 from kkb_agent.core import AnalyticalResult, ResultValue, Scale
@@ -239,9 +239,41 @@ def identity_fault(
     return None
 
 
-def period_fault(clause: str, prefix: str, value: ResultValue) -> str | None:
+#: Wording that marks a date as a price reference ("2025-12 fiyatlarıyla").
+PRICE_REFERENCE = r"(?:['’][^\W\d_]+)?\s*(?:fiyat|price)"
+
+
+def mask_price_references(text: str, references: Sequence[date]) -> str:
+    """Blank a recorded deflation reference month written as a price reference.
+
+    Only the exact recorded month (e.g. 2025-12, Aralık 2025, 2025 Aralık) and
+    only before price wording is masked; any other date still qualifies the claim.
+    """
+    for reference in references:
+        names = "|".join(
+            name.replace("i", "[iıİI]")
+            for name, month in MONTHS.items()
+            if month == reference.month
+        )
+        token = (
+            rf"(?:(?<![\w-]){reference.year}-{reference.month:02d}(?![\w-])"
+            rf"|(?<!\w)(?:{names})\s+{reference.year}(?!\w)"
+            rf"|(?<!\w){reference.year}\s+(?:{names})(?!\w))"
+        )
+        text = re.sub(
+            token + rf"(?={PRICE_REFERENCE})", lambda m: " " * len(m[0]), text, flags=re.I
+        )
+    return text
+
+
+def period_fault(
+    clause: str, prefix: str, value: ResultValue, references: Sequence[date] = ()
+) -> str | None:
     # A leading date may scope several columns. An explicit local date takes
     # precedence, so a later column cannot borrow another column's month.
+    if references:
+        clause = mask_price_references(clause, references)
+        prefix = mask_price_references(prefix, references)
     context = clause
     if not YEAR.search(context) and not MONTH.search(context) and not ISO_DATE.search(context):
         context = prefix

@@ -4,8 +4,9 @@ Same prepared runner/service/app as `python -m kkb_agent.api --serve`, wrapped s
 that at most `--max-model-requests` chat completions leave the process during
 its lifetime, with `KLOUDEKS_MAX_ATTEMPTS=1` required (one HTTP request per
 completion, no automatic retry). Embedding and vision are refused. A safe ledger
-of call index, structured/text kind, outcome category and elapsed time (no
-messages, answers or credentials) is written to `artifacts/live-rehearsal-ledger.jsonl`.
+of call index, structured/text kind, outcome category and elapsed time, plus
+each gate status with omission reason categories (no messages, answers, draft
+sentences or credentials), is written to `artifacts/live-rehearsal-ledger.jsonl`.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import threading
 import time
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import uvicorn
 from pydantic import BaseModel
@@ -36,6 +38,53 @@ from kkb_agent.llm.provider import (
 )
 
 LEDGER = Path(__file__).resolve().parents[2] / "artifacts" / "live-rehearsal-ledger.jsonl"
+_CATEGORIES = (
+    ("absence", "absence"),
+    ("causal", "causal"),
+    ("identit", "identity"),
+    ("identifier", "identity"),
+    ("unit", "unit_scale"),
+    ("currency", "unit_scale"),
+    ("scale", "unit_scale"),
+    ("period", "period"),
+    ("ambiguous", "ambiguous"),
+    ("does not match", "unmatched_number"),
+)
+
+
+def reason_category(reason: str) -> str:
+    """Code-owned reason text to a fixed category; no draft text is kept."""
+    folded = reason.lower()
+    return next((name for key, name in _CATEGORIES if key in folded), "other")
+
+
+def record_gate_outcomes(ledger: Path) -> None:
+    """Observe Session's gate result: status and omission categories only."""
+    from kkb_agent.agent import loop
+
+    gate = loop.gate_answer
+
+    def observed(*args: Any, **kwargs: Any) -> Any:
+        answer = gate(*args, **kwargs)
+        categories: dict[str, int] = {}
+        for item in answer.omitted:
+            for reason in item.reasons:
+                name = reason_category(reason)
+                categories[name] = categories.get(name, 0) + 1
+        with ledger.open("a", encoding="utf-8") as stream:
+            stream.write(
+                json.dumps(
+                    {
+                        "gate": answer.status.value,
+                        "omitted_sentences": len(answer.omitted),
+                        "categories": dict(sorted(categories.items())),
+                    }
+                )
+                + "\n"
+            )
+        return answer
+
+    loop.gate_answer = observed  # type: ignore[assignment]
 
 
 class RequestBudget:
@@ -116,6 +165,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("Set KLOUDEKS_MAX_ATTEMPTS=1 and KLOUDEKS_REQUEST_TIMEOUT<=900")
     LEDGER.parent.mkdir(exist_ok=True)
     LEDGER.write_text("", encoding="utf-8")
+    record_gate_outcomes(LEDGER)
     with KloudeksProvider(config) as provider:
         budget = RequestBudget(provider, args.max_model_requests, LEDGER)
         runner = PreparedRunner(

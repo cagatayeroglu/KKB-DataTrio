@@ -582,7 +582,7 @@ def _bind_to_results(
                 fault
                 for fault in (
                     _scale_fault(answer, number, value),
-                    period_fault(clause, prefix, value),
+                    period_fault(clause, prefix, value, _price_references(result, value)),
                     unit_fault(answer, number.start, end, value),
                     identity_fault(clause, prefix, name, result, value, named),
                     None
@@ -694,6 +694,21 @@ def _sentence_spans(text: str) -> list[tuple[int, int]]:
     if start < len(text):
         spans.append((start, len(text)))
     return spans or [(0, len(text))]
+
+
+def _price_references(result: AnalyticalResult, value: ResultValue) -> tuple[date, ...]:
+    """Recorded deflation reference months for exactly this value's column."""
+    if result.evidence is None:
+        return ()
+    found = []
+    for record in result.evidence.transformations:
+        reference = record.parameters.get("reference_period")
+        if record.operation == "deflate" and record.output_ref == value.label:
+            try:
+                found.append(date.fromisoformat(str(reference)))
+            except ValueError:
+                continue
+    return tuple(found)
 
 
 def gate_answer(

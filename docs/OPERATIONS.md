@@ -375,7 +375,8 @@ is contacted.
 For an owner-authorized live rehearsal with a hard request ceiling, run
 `tests/manual/live_client.py` (same prepared runner/service as `--serve`,
 `--max-model-requests N`, `KLOUDEKS_MAX_ATTEMPTS=1` required, embedding/vision
-refused, content-free ledger in `artifacts/live-rehearsal-ledger.jsonl`) and
+refused, content-free ledger in `artifacts/live-rehearsal-ledger.jsonl` with call
+timings and each gate status plus omission reason categories, never sentences) and
 compare answers with `python tests/manual/organizer_oracle.py data/processed/lakehouse`.
 Each run needs explicit model-request authorization.
 

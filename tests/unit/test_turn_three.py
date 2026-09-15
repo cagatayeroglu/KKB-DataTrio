@@ -189,3 +189,34 @@ def test_live_absence_prose_cannot_pass_turn_three(lake, tmp_path):
     assert report["passed"] is False and final["passed"] is False
     assert final["answer"]["status"] != "accepted"
     assert live_check.TURN_THREE_NAME not in final["published"]
+
+
+def real_may_draft(reference):
+    from test_turn_two import REAL
+
+    from kkb_agent.agent.presentation import display_value
+    from kkb_agent.core import ResultValue, Scale
+
+    shown = display_value(ResultValue(label="real", value=REAL[4], unit="TRY", scale=Scale.MILLION))
+    return (
+        "Tablo korunarak bakiye enflasyondan arındırıldı. 2021-05 döneminde enflasyondan "
+        f"arındırılmış bakiye {reference} fiyatlarıyla {shown}."
+    )
+
+
+@pytest.mark.parametrize(
+    ("reference", "accepted"),
+    [("2021-06", True), ("Haziran 2021", True)],
+)
+def test_recorded_price_reference_in_a_figure_sentence(lake, tmp_path, reference, accepted):
+    """End to end, the recorded reference month may be written beside a real figure.
+
+    The fixture's value and reference share 2021, so the cross-year live failure
+    (2023-12 value, 2025-12 prices) is proven in test_price_reference_period.py.
+    """
+    prepared(lake)
+    provider = scripted(*first_two(real_may_draft(reference)))
+    report = live_check.run_prepared_check(provider, lake.root, tmp_path / "work", turns=2)
+    final = report["turns"][-1]
+    assert (final["answer"]["status"] == "accepted") is accepted, final["answer"]
+    assert (live_check.TURN_TWO_NAME in final["published"]) is accepted
