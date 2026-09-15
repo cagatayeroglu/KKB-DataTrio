@@ -25,6 +25,7 @@ from typing import Any
 import uvicorn
 from pydantic import BaseModel
 
+from kkb_agent.agent import OmittedSentence, omission_code
 from kkb_agent.api.__main__ import literal_config
 from kkb_agent.api.app import create_app
 from kkb_agent.api.prepared import PreparedRunner, read_catalog
@@ -57,25 +58,29 @@ def record(ledger: Path, entry: dict[str, object]) -> None:
         stream.write(json.dumps(entry) + "\n")
 
 
-_CATEGORIES = (
-    ("ambiguous", "ambiguous"),
-    ("does not identify", "identity_header"),
-    ("absence", "absence"),
-    ("causal", "causal"),
-    ("identit", "identity"),
-    ("identifier", "identity"),
-    ("unit", "unit_scale"),
-    ("currency", "unit_scale"),
-    ("scale", "unit_scale"),
-    ("period", "period"),
-    ("does not match", "unmatched_number"),
-)
+def safe_omission(item: OmittedSentence) -> dict[str, object]:
+    """One withheld sentence as diagnosis only.
 
-
-def reason_category(reason: str) -> str:
-    """Code-owned reason text to a fixed category; no draft text is kept."""
-    folded = reason.lower()
-    return next((name for key, name in _CATEGORIES if key in folded), "other")
+    Enough to find the claim again offline — which sentence, which categories,
+    which quantity and what it did or did not bind to — and deliberately not
+    enough to reconstruct the sentence: no draft text and no number token as
+    the model wrote it. Parsed values and our own result/value identities are
+    data the operator already owns.
+    """
+    return {
+        "sentence": item.index,
+        "codes": [code.value for code in item.codes],
+        "numbers": [
+            {
+                "value": number.value,
+                "binding": number.binding.value,
+                "result_id": number.result_id,
+                "value_label": number.value_label,
+                "codes": [code.value for code in number.codes],
+            }
+            for number in item.numbers
+        ],
+    }
 
 
 @contextmanager
@@ -91,7 +96,7 @@ def record_gate_outcomes(ledger: Path) -> Iterator[None]:
         categories: dict[str, int] = {}
         for item in answer.omitted:
             for reason in item.reasons:
-                name = reason_category(reason)
+                name = omission_code(reason).value
                 categories[name] = categories.get(name, 0) + 1
         record(
             ledger,
@@ -99,6 +104,7 @@ def record_gate_outcomes(ledger: Path) -> Iterator[None]:
                 "gate": answer.status.value,
                 "omitted_sentences": len(answer.omitted),
                 "categories": dict(sorted(categories.items())),
+                "omissions": [safe_omission(item) for item in answer.omitted],
             },
         )
         return answer

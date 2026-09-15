@@ -424,7 +424,18 @@ Choose a fresh `--ledger artifacts/<run-name>.jsonl` for each run. The default i
 `artifacts/live-rehearsal-ledger.jsonl`; an existing file refuses startup rather than
 being overwritten. The content-free ledger records configured limits, catalog
 digest, dispatch starts and outcomes, timings, final counters and each gate's
-omission categories, never messages, vectors, sentences or credentials. Count
+omission categories, never messages, vectors, sentences or credentials.
+
+Each gate entry also carries an `omissions` list so a withheld sentence can be
+located afterwards without another live run. Per withheld sentence it records its
+`sentence` index among the draft's non-empty sentences (`-1` when the whole draft
+was disqualified at once), its reason `codes`, and for each rejected quantity the
+parsed `value`, its `binding`, the `result_id` and `value_label` it bound to when
+it bound to one, and that number's own `codes`. Reason text quotes the draft, so
+the codes come from the verifier's own classifier and the quoted spans are dropped
+before classification; neither the sentence nor the figure as the model wrote it is
+recorded. A parsed value and our own result/value identities are operator data, not
+answer text, and this list never makes the ledger a copy of the answer. Count
 `started` entries per kind, not all lines: each dispatch has a separate outcome.
 A stopped process may leave a start without an outcome; never interpret that as a
 free retry. A logging failure before dispatch prevents that provider call.

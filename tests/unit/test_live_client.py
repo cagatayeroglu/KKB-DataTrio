@@ -15,6 +15,15 @@ from test_prepared_api import responses, set_config
 from test_prepared_dense import build_index, discovery
 
 from kkb_agent.agent import loop
+from kkb_agent.agent.verifier import (
+    AnswerStatus,
+    Binding,
+    GatedAnswer,
+    OmissionCode,
+    OmittedNumber,
+    OmittedSentence,
+    Verdict,
+)
 from kkb_agent.catalog import embedding
 from kkb_agent.catalog.hybrid import CatalogDenseStage, search_hybrid_catalog
 from kkb_agent.catalog.lance_index import LocalCatalogIndex
@@ -191,6 +200,82 @@ def test_exhausted_embedding_budget_degrades_explicitly_without_another_dispatch
     assert second.dense_failure == "embedding_failed" and second.candidates
     assert provider.embeddings == 1
     assert entries(tmp_path / "ledger")[-1]["outcome"] == "budget_refused"
+
+
+DRAFT = "Temmuz ayında 912.000 milyon TL'ye ulaştı."
+
+
+def observe(monkeypatch, path, status, omitted):
+    """Wrap a scripted gate result, exactly as the launcher wraps the real one."""
+    answer = GatedAnswer(status, "kept", Verdict(accepted=False, numbers=()), tuple(omitted))
+    monkeypatch.setattr(loop, "gate_answer", lambda *a, **k: answer)
+    with cli.record_gate_outcomes(path):
+        loop.gate_answer("draft", {}, None)
+
+
+def test_the_ledger_records_a_diagnosis_but_never_the_sentence(tmp_path, monkeypatch):
+    # The operator needs to find the withheld claim again without another live
+    # run; the ledger still must not become a copy of the answer.
+    path = tmp_path / "ledger"
+    omitted = OmittedSentence(
+        DRAFT,
+        ("'912.000' does not match any value in these results",),
+        1,
+        (OmittedNumber(912000.0, Binding.UNBOUND, None, None, (OmissionCode.UNMATCHED_NUMBER,)),),
+    )
+    observe(monkeypatch, path, AnswerStatus.QUALIFIED, [omitted])
+
+    (entry,) = entries(path)
+    assert entry["gate"] == "qualified"
+    assert entry["omitted_sentences"] == 1
+    assert entry["categories"] == {"unmatched_number": 1}
+    assert entry["omissions"] == [
+        {
+            "sentence": 1,
+            "codes": ["unmatched_number"],
+            "numbers": [
+                {
+                    "value": 912000.0,
+                    "binding": "unbound",
+                    "result_id": None,
+                    "value_label": None,
+                    "codes": ["unmatched_number"],
+                }
+            ],
+        }
+    ]
+    written = path.read_text(encoding="utf-8")
+    for fragment in ("Temmuz", "ulaştı", "912.000", "does not match"):
+        assert fragment not in written
+
+
+def test_a_bound_but_faulted_number_names_only_our_own_identities(tmp_path, monkeypatch):
+    path = tmp_path / "ledger"
+    omitted = OmittedSentence(
+        DRAFT,
+        ("Claim is attributed to 'Temmuz ayında' but its period is 2026-06-01..2026-06-30",),
+        0,
+        (OmittedNumber(801438.0, Binding.CELL, "r1", "bddk:konut", (OmissionCode.PERIOD,)),),
+    )
+    observe(monkeypatch, path, AnswerStatus.QUALIFIED, [omitted])
+
+    (number,) = entries(path)[0]["omissions"][0]["numbers"]
+    assert number == {
+        "value": 801438.0,
+        "binding": "cell",
+        "result_id": "r1",
+        "value_label": "bddk:konut",
+        "codes": ["period"],
+    }
+    assert "Temmuz" not in path.read_text(encoding="utf-8")
+
+
+def test_an_accepted_answer_records_no_omissions(tmp_path, monkeypatch):
+    path = tmp_path / "ledger"
+    observe(monkeypatch, path, AnswerStatus.ACCEPTED, [])
+
+    (entry,) = entries(path)
+    assert (entry["categories"], entry["omissions"]) == ({}, [])
 
 
 def test_gate_observer_restored_on_exception(tmp_path):
