@@ -169,7 +169,11 @@ def search_hybrid_catalog(
             **lexical.model_dump(),
             **metadata,
             "candidates": [c.model_dump() for c in candidates],
-            "status": "PARTIAL" if any(c.unresolved for c in lexical.concepts) else "MATCH",
+            # Dense/BM25 proximity without a reviewed concept is a candidate for
+            # clarification, not evidence that the requested intent is mapped.
+            "status": "PARTIAL"
+            if not lexical.concepts or any(c.unresolved for c in lexical.concepts)
+            else "MATCH",
             "total_candidates": len(order),
             "truncated": len(order) > args.max_results or lexical.truncated or len(eligible) > 10,
             "clarification_required": True,

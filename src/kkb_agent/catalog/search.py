@@ -189,7 +189,9 @@ def search_catalog(
     unresolved = any(c.unresolved for c in matches)
     status: SearchStatus
     if ranked:
-        status = "PARTIAL" if unresolved else "MATCH"
+        # Token overlap can surface useful candidates, but only a reviewed
+        # alias/phrase establishes that the requested concept is represented.
+        status = "PARTIAL" if unresolved or not matches else "MATCH"
     elif matches and not mapped:
         status = "UNRESOLVED"
     elif matches and mapped:

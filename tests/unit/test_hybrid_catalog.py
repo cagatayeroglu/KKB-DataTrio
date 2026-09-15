@@ -194,6 +194,7 @@ def test_dense_candidates_can_be_returned_when_lexical_has_no_overlap(setup):
     assert search_catalog(snapshot, args).status == "NO_MATCH"
     result = search_hybrid_catalog(snapshot, args, dense)
     assert result.candidates and calls
+    assert result.status == "PARTIAL" and not result.concepts
     assert all(c.retrieval_sources == ("dense",) for c in result.candidates)
     assert result.clarification_required  # Candidate proximity does not answer the question.
 

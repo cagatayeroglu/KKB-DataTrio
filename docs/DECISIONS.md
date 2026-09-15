@@ -572,6 +572,14 @@ Confirmed team priority refinement, explicitly requested by Çağatay after M3-0
 - Evidence after adoption (M13-05, #179, fresh holdout): hybrid hit@1 0.684 vs 0.579 for the alternating baseline (2 wins, 0 losses) and 0.842 for dense-only; the remaining gap comes from broad multi-series concepts keeping lexical order and the archive tier ([EVALUATION](EVALUATION.md#m13-05-fresh-holdout-2026-09-15)). Changing either is a new decision that needs another fresh holdout.
 - Consequences: the prepared runtime may configure the dense stage with this policy and combination when an operator supplies a matching local index generation; without it, retrieval stays lexical. DEC-130 hybrid acceptance, DEC-138 LanceDB selection and the untrusted-discovery boundary of `catalog_search` are unchanged.
 
+### DEC-143 — Similarity-only catalog results are unresolved candidates
+
+- Status: CONFIRMED task decision, 2026-09-15, by Çağatay through the delegated M13-14 catalog-quality iteration. It grants no live call or broader retrieval redesign.
+- **Policy:** a nonempty BM25 or dense/hybrid result with no reviewed alias or reviewed phrase match is `PARTIAL`, not `MATCH`. The ranked candidates remain visible as untrusted discovery metadata so the caller can clarify; this status does not declare the request unsupported or select a series. A reviewed match may remain `MATCH` only when its mapped semantics are not otherwise partial/unresolved.
+- **Scope:** candidate identities, scores, stage order, DEC-142 combination, archive tier, filters, limits, `NO_MATCH`, `UNRESOLVED` and `FILTERED_OUT` are unchanged. No similarity threshold, stopword list, query-specific rule, alias addition, reranker or score fusion is introduced.
+- **Evidence rule:** the focused M13-14 holdout was committed before its first retrieval run and is evaluation-only. On its 16 unseen cases, eight supported rankings remain top-1 correct while eight unsupported intents move from 0/8 to 8/8 acceptable clarification status; candidate rankings are identical before and after. See [EVALUATION](EVALUATION.md#m13-14-catalog-similarity-safety-2026-09-15).
+- Consequences: `MATCH` now means the query has reviewed concept evidence, not merely lexical/vector proximity. The planner, API, prepared pool, embeddings and archive-intent policy are unchanged.
+
 ## Proposed decisions
 
 Candidates below are not approved selections. Compare options in a bounded task; do not silently promote a proposal to CONFIRMED.

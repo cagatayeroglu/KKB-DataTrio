@@ -829,6 +829,44 @@ Both temporary servers were stopped after the rehearsal. Full proof UI and
 legacy/official-refresh dependency coverage remain incomplete.
 
 
+<a id="m13-14-catalog-similarity-safety-2026-09-15"></a>
+## M13-14 catalog similarity-only safety — 2026-09-15 (PR #188)
+
+The focused offline case set
+[retrieval_cases_v3_safety.json](catalog/retrieval_cases_v3_safety.json) contains
+two previously seen development calibrations and 16 fresh holdout cases: eight
+supported financial intents and eight unsupported intents that share generic or
+neighboring catalog terms. Holdout S01–S16 was committed at `0cfead9` before its
+first retrieval run. Its exact queries do not occur in either earlier case set;
+the runtime never reads the case file, and no alias, indexed text, score or
+question-specific rule was changed. Case-set digest:
+`e3d9aefc3bb7e8ff8b14b5fb1898521c921b843cb75d76a2edf7bd0808edea0b`.
+
+| Holdout metric | Before | After |
+| --- | ---: | ---: |
+| Supported hit@1 / MRR (8 cases) | 1.0000 / 1.0000 | 1.0000 / 1.0000 |
+| Supported Recall@5 / Recall@10 | 0.9375 / 0.9375 | 0.9375 / 0.9375 |
+| Unsupported acceptable status (8 cases) | 0.0000 | 1.0000 |
+| Archive leaks | 0 | 0 |
+
+Before DEC-143, every unsupported holdout intent was reported `MATCH`: examples
+include a birth-rate request matching credit-rate records, an energy-production
+index matching KFE/CPI records, a euro exchange-rate request matching euro
+commercial-credit interest, and a housing-sales count matching housing credit and
+price records. After the change all eight are `PARTIAL`, preserving the same
+candidates for explicit clarification. Six supported BM25-only paraphrases also
+become `PARTIAL` while keeping their correct top-1; the two supported queries with
+reviewed concept matches retain their prior status. All 18 calibration/holdout
+rankings are identical before and after.
+
+The earlier r2 lexical ranking metrics reproduce exactly after the change:
+development hit@1 0.6667 / MRR 0.7120 and holdout hit@1 0.5789 / MRR 0.7105;
+its eight no-answer cases now all have an acceptable explicit status. This is a
+status-safety correction, not proof that nearby candidates are relevant, a dense
+quality measurement, or an out-of-scope classifier. No live embedding, Kloudeks,
+BDDK, EVDS or production-search call was made. Archive-intent ordering, broad
+multi-series ranking, N07/N09/N18 and full catalog coverage remain separate limits.
+
 <a id="m13-05-fresh-holdout-2026-09-15"></a>
 ## M13-05 DEC-142 combination on a fresh holdout — 2026-09-15 (PR #179, merged)
 
