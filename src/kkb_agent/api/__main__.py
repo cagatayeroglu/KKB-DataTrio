@@ -68,6 +68,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--env-file", type=Path, help="Optional literal Kloudeks settings file")
     parser.add_argument("--state-root", type=Path)
     parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument(
+        "--catalog-index",
+        type=Path,
+        help="Optional local catalog index generation built with the DEC-142 query policy",
+    )
     parser.add_argument("--enable-model-requests", action="store_true")
     args = parser.parse_args(argv)
     if args.serve and (not args.enable_model_requests or args.state_root is None):
@@ -90,14 +95,29 @@ def main(argv: Sequence[str] | None = None) -> int:
             or not 1 <= config.max_attempts <= 3
         ):
             raise ValueError("Local service provider budget refused")
+        snapshot = load_reviewed_snapshot(catalog_bytes)
+        index = None
+        if args.catalog_index is not None:
+            # Native vector engine loads only for an explicitly configured index.
+            from kkb_agent.catalog.embedding import RUNTIME_QUERY_POLICY, profile_for, require_model
+            from kkb_agent.catalog.lance_index import LocalCatalogIndex
+
+            require_model(config.embedding_model)
+            index = LocalCatalogIndex.open(
+                args.catalog_index.absolute(),
+                snapshot,
+                profile_for(RUNTIME_QUERY_POLICY, "kloudeks"),
+            )
+        retrieval = "lexical" if index is None else "hybrid"
         if args.check:
-            status = inspect_pool(root, load_reviewed_snapshot(catalog_bytes))
+            status = inspect_pool(root, snapshot)
             print(
                 json.dumps(
                     {
                         "ready": True,
                         "model_checked": False,
                         "provider_configured": True,
+                        "catalog_retrieval": retrieval,
                         "prepared": status.model_dump(mode="json"),
                     },
                     ensure_ascii=False,
@@ -105,12 +125,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             return 0
         with KloudeksProvider(config) as provider:
+            dense = None
+            if index is not None:
+                from kkb_agent.catalog.embedding import RUNTIME_QUERY_POLICY, query_embedder
+                from kkb_agent.catalog.hybrid import CatalogDenseStage
+
+                dense = CatalogDenseStage(
+                    index, query_embedder(provider, RUNTIME_QUERY_POLICY, origin="kloudeks")
+                )
             runner = PreparedRunner(
                 provider,
                 root,
                 args.state_root.absolute(),
                 catalog_bytes=catalog_bytes,
                 redactions=(config.credential.get_secret_value(),),
+                catalog_dense=dense,
             )
             service = AnalysisService(runner, mode="kloudeks", selected_runner=runner.selected)
             app = create_app(service, port=args.port, prepared=runner.status)
@@ -121,6 +150,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "host": "127.0.0.1",
                         "port": args.port,
                         "model_checked": False,
+                        "catalog_retrieval": retrieval,
                         "prepared_identities": runner.status.prepared_identities,
                     }
                 )

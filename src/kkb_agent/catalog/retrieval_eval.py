@@ -1,8 +1,10 @@
 """M13-09 question-to-series retrieval evaluation over reviewed cases.
 
 Lexical-only, dense-only and combined hybrid candidates are scored on the same
-cases with the same filters. Relevance comes from a separately reviewed case file,
-never from the function under test. Holdout cases are reported separately and are
+cases with the same filters. `hybrid` uses the DEC-142 reviewed-match order and
+`hybrid_alternating` the M13-09 baseline, so both combinations stay comparable.
+Relevance comes from a separately reviewed case file, never from the function
+under test. Holdout cases are reported separately and are
 not a tuning set. Dense modes need an operator-built index and query embedder;
 the lexical mode makes no model or network call.
 """
@@ -15,13 +17,14 @@ import json
 import sys
 import time
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from pathlib import Path
 from statistics import median
 from typing import Annotated, Literal, Self
 
 from pydantic import Field, StrictBool, StringConstraints, model_validator
 
-from kkb_agent.catalog.hybrid import CatalogDenseStage, search_hybrid_catalog
+from kkb_agent.catalog.hybrid import CatalogDenseStage, CombinationPolicy, search_hybrid_catalog
 from kkb_agent.catalog.lance_index import LocalCatalogIndex
 from kkb_agent.catalog.mappings import ReviewedSnapshot, load_reviewed_snapshot
 from kkb_agent.catalog.normalization import normalize_query_text
@@ -35,7 +38,11 @@ from kkb_agent.catalog.search import (
 from kkb_agent.catalog.vectors import QueryVector
 from kkb_agent.core.models import ContractModel
 
-Mode = Literal["lexical", "dense", "hybrid"]
+Mode = Literal["lexical", "dense", "hybrid", "hybrid_alternating"]
+COMBINATIONS: dict[str, CombinationPolicy] = {
+    "hybrid": "reviewed-match-order-v1",
+    "hybrid_alternating": "alternating-archive-tier-v1",
+}
 SeriesId = Annotated[str, StringConstraints(strict=True, min_length=1, max_length=1024)]
 MAX_CASES = 200
 
@@ -127,8 +134,9 @@ def evaluate(
                 status, degraded = output.status, None
             elif dense is None:
                 raise ValueError("dense and hybrid modes need an index and query embedder")
-            elif mode == "hybrid":
-                output = search_hybrid_catalog(snapshot, args, dense)
+            elif mode in COMBINATIONS:
+                stage = replace(dense, combination_policy=COMBINATIONS[mode])
+                output = search_hybrid_catalog(snapshot, args, stage)
                 ranked = [c.series.record.series_id for c in output.candidates]
                 status = output.status
                 degraded = output.dense_failure
@@ -171,6 +179,26 @@ def evaluate(
         "summary": summarize(outcomes),
         "cases": outcomes,
     }
+
+
+def top1_changes(
+    outcomes: Sequence[dict[str, object]], base: str, other: str
+) -> dict[str, dict[str, list[str]]]:
+    """Scored cases whose top-1 relevance differs between two modes, per split."""
+    rows = {(o["case_id"], o["mode"]): o for o in outcomes if "hit_at_1" in o}
+    changes: dict[str, dict[str, list[str]]] = {}
+    for split in ("development", "holdout"):
+        won, lost = [], []
+        for (case_id, mode), row in rows.items():
+            paired = rows.get((case_id, base))
+            if mode != other or row["split"] != split or paired is None:
+                continue
+            if row["hit_at_1"] and not paired["hit_at_1"]:
+                won.append(str(case_id))
+            elif paired["hit_at_1"] and not row["hit_at_1"]:
+                lost.append(str(case_id))
+        changes[split] = {"won": won, "lost": lost}
+    return changes
 
 
 def summarize(outcomes: Sequence[dict[str, object]]) -> dict[str, object]:
@@ -222,11 +250,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not args.enable_embedding_requests or args.policy is None:
             parser.error("dense modes need --policy and --enable-embedding-requests")
         from kkb_agent.api.__main__ import literal_config
-        from kkb_agent.catalog.embedding import EmbeddingStats, profile_for, query_embedder
+        from kkb_agent.catalog.embedding import (
+            EmbeddingStats,
+            profile_for,
+            query_embedder,
+            require_model,
+        )
         from kkb_agent.llm import KloudeksProvider, approved_base_url
 
         config = literal_config(args.env_file)
         approved_base_url(config.base_url)
+        require_model(config.embedding_model)
         index = LocalCatalogIndex.open(
             args.index.absolute(), snapshot, profile_for(args.policy, "kloudeks")
         )
@@ -235,7 +269,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             dense = CatalogDenseStage(
                 index, query_embedder(provider, args.policy, origin="kloudeks", stats=stats)
             )
-            report = evaluate(cases, snapshot, ["lexical", "dense", "hybrid"], dense=dense)
+            report = evaluate(
+                cases, snapshot, ["lexical", "dense", "hybrid", "hybrid_alternating"], dense=dense
+            )
+        report["top1_changes"] = {
+            f"{other}_vs_{base}": top1_changes(report["cases"], base, other)  # type: ignore[arg-type]
+            for base, other in (
+                ("lexical", "dense"),
+                ("lexical", "hybrid"),
+                ("hybrid_alternating", "hybrid"),
+                ("dense", "hybrid"),
+            )
+        }
         report["query_embedding_requests"] = stats.requests
         report["query_embedding_seconds"] = round(stats.seconds, 3)
     args.out.absolute().parent.mkdir(parents=True, exist_ok=True)

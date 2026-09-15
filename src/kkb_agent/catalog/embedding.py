@@ -1,11 +1,12 @@
 """Explicit Qwen3 embedding input policies and catalog/query embedding (M13-05).
 
-Policies are named, reviewed declarations, never defaults. `qwen3-plain-v1` sends
-normalized text unchanged for passages and queries. `qwen3-instruct-query-v1`
-follows the Qwen3-Embedding model card convention: passages unchanged, queries as
-``Instruct: <task>\\nQuery:<text>``. Kloudeks has not answered Q-K-05, so both are
-measured rather than assumed. Only an operator-constructed LLMProvider is called;
-no endpoint, credential or hosted fallback is chosen here.
+Policies are named, reviewed declarations. `qwen3-plain-v1` sends normalized text
+unchanged for passages and queries. `qwen3-instruct-query-v1` follows the
+Qwen3-Embedding model card convention: passages unchanged, queries as
+``Instruct: <task>\\nQuery:<text>``. M13-09 measured both; DEC-142 selects the
+instruct policy for the prepared runtime while Q-K-05 remains unanswered. Only an
+operator-constructed LLMProvider is called; no endpoint, credential or hosted
+fallback is chosen here.
 """
 
 from __future__ import annotations
@@ -37,6 +38,8 @@ TASK = (
     "retrieve the official statistical time series that answers it"
 )
 Origin = Literal["offline_fixture", "kloudeks"]
+RUNTIME_QUERY_POLICY = "qwen3-instruct-query-v1"  # DEC-142
+MAX_CACHED_QUERIES = 256
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +64,12 @@ def policy(policy_id: str) -> InputPolicy:
         return POLICIES[policy_id]
     except KeyError:
         raise ValueError("unknown embedding input policy") from None
+
+
+def require_model(configured: str | None) -> None:
+    """Vectors are labelled with MODEL; a differently configured model must not be mislabelled."""
+    if configured != MODEL:
+        raise ValueError("configured embedding model does not match the catalog index profile")
 
 
 def profile_for(policy_id: str, origin: Origin) -> VectorProfile:
@@ -123,7 +132,11 @@ def query_embedder(
     origin: Origin,
     stats: EmbeddingStats | None = None,
 ) -> Callable[[str], QueryVector]:
-    """Embed normalized query text under the declared policy; repeated text is cached."""
+    """Embed normalized query text under the declared policy.
+
+    Repeated text is served from a bounded cache (oldest entry evicted), so a
+    long-running service neither repeats identical requests nor grows without bound.
+    """
     chosen = policy(policy_id)
     profile = profile_for(policy_id, origin)
     stats = stats if stats is not None else EmbeddingStats()
@@ -136,6 +149,8 @@ def query_embedder(
             stats.seconds += time.perf_counter() - began
             stats.requests += 1
             stats.texts += 1
+            if len(cache) >= MAX_CACHED_QUERIES:
+                del cache[next(iter(cache))]
             cache[text] = QueryVector(profile=profile, values=_checked(vectors, 1)[0])
         return cache[text]
 
@@ -158,6 +173,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     snapshot = load_reviewed_snapshot(args.catalog.absolute().read_bytes())
     config = literal_config(args.env_file)
     approved_base_url(config.base_url)
+    require_model(config.embedding_model)
     stats = EmbeddingStats()
     with KloudeksProvider(config) as provider:
         vectors = embed_catalog(

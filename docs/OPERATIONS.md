@@ -141,6 +141,28 @@ production fake provider or third-party-host fallback. The CLI always binds
 forwarded-header handling, and caps concurrent HTTP connections at 32. Keep
 this service local until hosting/authentication is separately implemented.
 
+<a id="prepared_api-optional-dense-catalog-retrieval"></a>
+
+### Optional dense catalog retrieval (DEC-142)
+
+Catalog discovery is lexical unless an index generation is supplied. Build one
+generation per catalog snapshot once (37 passages in 3 batched embedding requests,
+about 2 s on 2026-09-15), into a new ignored directory:
+
+```bash
+python -m kkb_agent.catalog.embedding --catalog docs/catalog/prepared_v3.json --root "$PWD/data/processed/catalog-index/qwen3-instruct-query-v1-e0bbaac8" --policy qwen3-instruct-query-v1 --env-file .env --enable-embedding-requests
+```
+
+Then add `--catalog-index "$PWD/data/processed/catalog-index/qwen3-instruct-query-v1-e0bbaac8"`
+to `--check` and `--serve`. `KLOUDEKS_EMBEDDING_MODEL` must be
+`kkbhackathon2026/Qwen3-Embedding-8B`; a mismatched model, snapshot, policy or a
+missing generation refuses startup. `--check` prints `"catalog_retrieval": "hybrid"`
+without an embedding request. While serving, each distinct discovery query adds one
+embedding request (about 75 ms measured) using the same provider timeout and
+attempts; a failed request falls back to lexical candidates for that search.
+Rebuild the generation after any catalog snapshot change. Contract details are in
+[CATALOG](CATALOG.md#catalog_search-prepared-runtime-dense-stage).
+
 In addition to `/v1/health`, `/v1/dataset` exposes a bounded copy of the startup
 inventory: catalog and prepared counts, observations, file bytes, snapshot and
 catalog identities, series labels and recorded periods. It exposes no local

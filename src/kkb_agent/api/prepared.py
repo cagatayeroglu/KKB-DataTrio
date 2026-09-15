@@ -11,7 +11,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 from uuid import uuid4
 
 import duckdb
@@ -41,6 +41,9 @@ from kkb_agent.tools import (
     make_lakehouse_tool,
     make_table_transform_tool,
 )
+
+if TYPE_CHECKING:  # pragma: no cover
+    from kkb_agent.catalog.hybrid import CatalogDenseStage
 
 MAX_POOL_BYTES = 1024 * 1024 * 1024
 MAX_POOL_FILES = 10000
@@ -247,9 +250,16 @@ class PreparedRunner:
         *,
         catalog_bytes: bytes,
         redactions: tuple[str, ...] = (),
+        catalog_dense: CatalogDenseStage | None = None,
     ):
         self._catalog = load_reviewed_snapshot(catalog_bytes)
         self._catalog_bytes = catalog_bytes
+        # Optional operator-built index generation; without it discovery stays lexical.
+        if catalog_dense is not None and (
+            catalog_dense.index.snapshot_sha256 != self._catalog.content_sha256
+        ):
+            raise PreparedError("catalog_index_mismatch")
+        self._dense = catalog_dense
         self._provider = provider
         self._redactions = redactions
         root, state_root = _local(root), _local(state_root, exists=False)
@@ -401,7 +411,9 @@ class PreparedRunner:
         # in catalog continuation's USER data, never a SYSTEM tool description.
         names = prepared_series_names(connection)
         registry = ToolRegistry()
-        registry.register(make_catalog_search_tool(snapshot_bytes=self._catalog_bytes))
+        registry.register(
+            make_catalog_search_tool(snapshot_bytes=self._catalog_bytes, dense=self._dense)
+        )
         registry.register(make_lakehouse_tool(connection, lineage=lineage, inspector=inspector))
         registry.register(
             make_change_detection_tool(

@@ -73,7 +73,9 @@ class CatalogSearchOutput(ContractModel):
     snapshot_sha256: str
     retrieval_version: Literal["m13-04-lexical-v1", "m13-05-combined-v1"] = "m13-04-lexical-v1"
     retrieval_mode: Literal["lexical_only", "hybrid", "lexical_degraded"] = "lexical_only"
-    combination_policy: Literal["lexical-v1", "alternating-archive-tier-v1"] = "lexical-v1"
+    combination_policy: Literal[
+        "lexical-v1", "reviewed-match-order-v1", "alternating-archive-tier-v1"
+    ] = "lexical-v1"
     dense_status: Literal["not_configured", "skipped_no_eligible", "success", "failed"] = (
         "not_configured"
     )

@@ -173,9 +173,9 @@ class KloudeksProvider:
         items = list(texts)
         if not items:
             return []
-        # DEC-129 documents no query/passage prefix for this model (Q-K-05), and
-        # borrowing one from another model family would be a guess; `kind` is
-        # kept so the convention has one place to land once it is known.
+        # The platform documents no query/passage prefix (Q-K-05). Input policies
+        # are applied above this boundary (kkb_agent.catalog.embedding, DEC-142),
+        # so the provider sends exactly the texts it receives.
         document = self._post(
             EMBEDDINGS_PATH, {"model": model, "input": items, "encoding_format": "float"}
         )

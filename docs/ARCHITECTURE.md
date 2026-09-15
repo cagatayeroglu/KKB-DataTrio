@@ -555,9 +555,9 @@ Mandatory HYBRID baseline: one Turkish normalizer shared by query/index paths, r
 
 <a id="catalog-runtime-composition"></a>
 
-#### Catalog vector-search boundary: local index implemented, live acceptance pending
+#### Catalog vector-search boundary: local index implemented, optional prepared dense stage
 
-The final dense architecture includes a separate logical **vector DB / vector index layer** for catalog embeddings. The bounded [M13-05 local index](CATALOG.md) now persists reviewed representations and supplied vectors in pinned LanceDB 0.38.0, validates snapshot/text/model/input-policy bindings and searches exact cosine over explicit eligible IDs. It contains no financial observations and opens no model/network route. Its real-engine tests use labelled fixture vectors; an optional [combined catalog stage](CATALOG.md#catalog_search-bounded-combined-candidate-contract) now preserves both retrieval paths and explicit degradation. Confirmed live embedding policy and semantic-quality evaluation remain unfinished; the opt-in [bounded planner continuation](CATALOG.md) consumes candidate metadata separately from calculations. [DEC-138](DECISIONS.md#dec-138--handback-priorities-lancedb-catalog-index-and-no-prepared-data-in-git) selects this embedded index; no separate vector service is needed. PostgreSQL/pgvector requires a later decision justifying a separate PostgreSQL service.
+The final dense architecture includes a separate logical **vector DB / vector index layer** for catalog embeddings. The bounded [M13-05 local index](CATALOG.md) now persists reviewed representations and supplied vectors in pinned LanceDB 0.38.0, validates snapshot/text/model/input-policy bindings and searches exact cosine over explicit eligible IDs. It contains no financial observations and opens no model/network route. Its real-engine tests use labelled fixture vectors; an optional [combined catalog stage](CATALOG.md#catalog_search-bounded-combined-candidate-contract) now preserves both retrieval paths and explicit degradation. DEC-142 selects the `qwen3-instruct-query-v1` query policy and `reviewed-match-order-v1` combination after real-embedding evaluation; the prepared API uses them only with an explicit [`--catalog-index`](CATALOG.md#catalog_search-prepared-runtime-dense-stage) generation and otherwise stays lexical. The opt-in [bounded planner continuation](CATALOG.md) consumes candidate metadata separately from calculations. [DEC-138](DECISIONS.md#dec-138--handback-priorities-lancedb-catalog-index-and-no-prepared-data-in-git) selects this embedded index; no separate vector service is needed. PostgreSQL/pgvector requires a later decision justifying a separate PostgreSQL service.
 
 | Conceptual vector record | Purpose |
 | --- | --- |
@@ -566,7 +566,7 @@ The final dense architecture includes a separate logical **vector DB / vector in
 | Embedding model ID; dimension 4096; embedding vector | Enforce the confirmed Qwen representation contract |
 | Catalog snapshot / embedding version metadata | Prevent silent mixing of stale text/model/cache versions |
 
-These logical fields are bound by the implemented local index/profile contracts in [local index contract](CATALOG.md#catalog_index-inputs-and-storage); they do not imply a live embedding generation or query path.
+These logical fields are bound by the implemented local index/profile contracts in [local index contract](CATALOG.md#catalog_index-inputs-and-storage). Index generations are built by an explicit operator command and are never created or refreshed by the serving process.
 
 ```text
 catalog_search -> shared Turkish normalization / reviewed aliases / metadata filters
