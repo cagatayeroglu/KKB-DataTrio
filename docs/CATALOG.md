@@ -209,6 +209,35 @@ catalog ingestion and capacity/performance checks must precede raising the
 current 40-record snapshot limit for full-source coverage.
 
 
+<a id="catalog_evaluation-m13-09-retrieval-evaluation"></a>
+
+## M13-09 retrieval evaluation and real embedding policies
+
+[retrieval_cases_v3.json](catalog/retrieval_cases_v3.json) holds 44 reviewed
+question-to-series cases (26 development, 18 holdout) bound to the v3/r4 content
+digest. `relevant_series_ids` lists every acceptable identity; `primary_series_id`
+appears only when the wording selects one; empty relevance cases list acceptable
+lexical/hybrid statuses instead. The loader refuses unknown IDs, a primary outside
+relevance, duplicate IDs, a missing split or another snapshot.
+
+`python -m kkb_agent.catalog.retrieval_eval --catalog docs/catalog/prepared_v3.json --cases docs/catalog/retrieval_cases_v3.json --out <report>`
+scores lexical-only offline. Adding `--index <generation> --policy <id> --env-file .env --enable-embedding-requests`
+also scores dense-only (shared metadata eligibility, exact cosine) and the current
+combined stage, caching one query embedding per normalized query. Reports hold
+hit@1/5, Recall@5/10, MRR, primary@1, no-answer status, archive leaks, dense
+failures and latency per split and mode; dense-only has no abstention, so its top
+candidate on no-answer cases is reported, not scored.
+
+`kkb_agent.catalog.embedding` names two input policies: `qwen3-plain-v1`
+(unchanged text) and `qwen3-instruct-query-v1` (queries as
+`Instruct: <task>\nQuery:<text>`, passages unchanged).
+`python -m kkb_agent.catalog.embedding --catalog ... --root <new absolute generation> --policy <id> --env-file .env --enable-embedding-requests`
+embeds passages in batches (default 16) and builds a fresh generation; keep roots
+under ignored `data/processed`. Measured results and policy proposals are in
+[EVALUATION](EVALUATION.md#m13-09-retrieval-evaluation-with-real-qwen-embeddings--2026-09-15-pr-178-unmerged)
+and DECISIONS PROP-07/08. The prepared runtime still uses lexical retrieval until
+dense wiring is separately accepted.
+
 <a id="catalog_continuation-activation-and-compatibility"></a>
 
 ## Activation and compatibility

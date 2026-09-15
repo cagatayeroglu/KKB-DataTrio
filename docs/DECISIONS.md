@@ -575,6 +575,8 @@ Candidates below are not approved selections. Compare options in a bounded task;
 | PROP-04 | PROPOSED: retry and latency budgets | Exact counts/timeouts depend on platform limits and baseline measurements | Unassigned | Obtain Q-K-04 and measure before fixing limits |
 | PROP-05 | RESOLVED by DEC-120 | Lagged correlation and Granger with mandatory stated limits; stronger identification rejected for this data | Eray | None; implement in M6 |
 | PROP-06 | RESOLVED by DEC-134: provider abstraction approved | Concrete production adapter deferred; live acceptance still blocked | Çağatay | M7-22 offline implementation, then separately triaged production acceptance |
+| PROP-07 | PROPOSED: catalog query embedding policy `qwen3-instruct-query-v1` (queries `Instruct: <task>\nQuery:<text>`, passages unchanged, per the Qwen3-Embedding model card) | M13-09 2026-09-15 measured it against `qwen3-plain-v1` on 44 reviewed cases: dense hit@1 0.8718 vs 0.7179 and MRR 0.9231 vs 0.8193 (development 0.8696 vs 0.7826; holdout 0.875 vs 0.625). Q-K-05 (Kloudeks convention) remains unanswered; evidence is one 37-series catalog | Eray | Confirm before wiring dense retrieval into the prepared runtime |
+| PROP-08 | PROPOSED: replace `alternating-archive-tier-v1` with a combination that keeps lexical-first order only when a reviewed alias/phrase matched and dense-first otherwise | M13-09: alternating order held hybrid hit@1 at lexical 0.6667 while dense-only reached 0.8718; dense won top-1 on 11 cases and lost 3 (an exact alias and two geography cases that reviewed phrases resolve). Holdout was already seen, so any new policy needs a fresh held-out set before a gain claim (M13-06) | Eray | Author new holdout cases, then evaluate the policy on development and the new holdout |
 
 ### Web search provider decision (M7-21)
 
@@ -731,7 +733,7 @@ Fully answered Q-DEV-01 and Q-TEAM-01..06 are preserved in [HISTORY](ROADMAP.md#
 - Temporary assumption: Keep DEC-130's mandatory lexical+dense baseline and measured activation policy for RRF/reranking/extra stages. Do not copy an E5 prefix convention onto the confirmed Qwen model. The supplied list's omission of a dedicated reranker is not proof one can never be offered.
 - Owner: Unassigned; suggested lane B.
 - Status: OPEN only for remaining embedding details/dedicated reranker; embedding availability ANSWERED.
-- Answer / evidence: Official guidance relayed by Çağatay, 2026-09-09; DEC-129. Dimension measured as 4096 on 2026-09-11 (M4-12). No prefix convention or dedicated-reranker answer supplied.
+- Answer / evidence: Official guidance relayed by Çağatay, 2026-09-09; DEC-129. Dimension measured as 4096 on 2026-09-11 (M4-12). No prefix convention or dedicated-reranker answer supplied. M13-09 (2026-09-15) showed batched `input` lists of 16 passages work (37 passages in 3 requests, about 1.8 s) and measured two local query policies (PROP-07); this is an internal measurement, not the platform's answer.
 
 <a id="open_questions-organizer-infrastructure"></a>
 
