@@ -794,6 +794,42 @@ Both temporary servers were stopped after the rehearsal. Full proof UI and
 legacy/official-refresh dependency coverage remain incomplete.
 
 
+<a id="m11-07-organizer-three-turn-live-rehearsal-2026-09-15"></a>
+## M11-07 organizer three-turn live rehearsal — 2026-09-15 (PR #172, unmerged)
+
+Owner-authorized by Eray: Kloudeks chat completions only, no automatic retry
+(`KLOUDEKS_MAX_ATTEMPTS=1`), private per-session copy of the local prepared
+pool (29 series / 4,124 rows, catalog v3), production client, request ceiling
+raised by Eray from 9 to 15 during the run. **10 of 15 requests used.** No
+embedding, BDDK, EVDS or search call. Content-free ledgers are local ignored
+artifacts. Path: `tests/manual/live_client.py` → PreparedRunner/AnalysisService
+(catalog continuation enabled) → browser with follow-selection on.
+
+Independent oracle (`tests/manual/organizer_oracle.py`, SQL rows + Decimal, no
+tool code): 60 months / 59 transitions; rate (TP.KTF12 weekly, by-end monthly
+average) fell 32; nominal TOTAL balance did not rise 4 (2021-02, 2021-05,
+2023-12, 2024-01; −522/−1,196/−2,190/−1,534 million TRY); real = nominal ×
+CPI(2025-12)/CPI(t): 2021-01 1,894,772.1, 2021-02 1,874,183.9, 2021-05
+1,800,150.9, 2023-12 828,155.2, 2024-01 773,412.0; real not rising 46; rate fell
+∧ real not rising 22; rate fell ∧ KFE up ∧ real not rising 22 (same months).
+
+| Run | Timeout | Calls (plan / writer) | Outcome |
+| --- | --- | --- | --- |
+| 1 — Turn 1 | 120 s | 76.9 s ok / 120.0 s TransportError | Failed turn (`provider_failed`). Offline record check: exact one-step plan (`co_movement`, TOTAL, TP.KTF12, 2021-01..2025-12, `by_end`), 242 computed values; writer context only 5.3 KiB + 1.5 KiB system prompt, so latency, not prompt size. UI kept prior state and showed a fixed message. |
+| 2 — Turn 1 | 600 s | 80.5 s ok / 207.3 s ok | QUALIFIED in 288 s: every figure equals the oracle, one unsupported sentence withheld, so nothing was published (M5-21) and Turn 2 had no table to bind. |
+| 3 — Turn 1 | 600 s | 57.5 s ok / 171.5 s ok | **ACCEPTED, published Analiz 1 (242 values)** in ~229 s; counts, the four months and their balance/rate changes equal the oracle. Proof chain `available`: BDDK 66 raw responses (`www.bddk.org.tr`), EVDS 1 (`evds3.tcmb.gov.tr`), verified co-movement step. |
+| 3 — Turn 2 | 600 s | 10.9 s ok / 62.1 s ok | **ACCEPTED, published Analiz 2 (302 values)** in ~73 s with selected source Analiz 1; `deflate` of the TOTAL column by CPI at 2025-12. Displayed real values match the oracle at six significant digits. |
+| 3 — Turn 3 | 600 s | 87.8 s ok / 81.2 s ok | Gate ACCEPTED, published Analiz 3 (368 values) in ~169 s with selected source Analiz 2. Plan: `add_series` KFE, then two `table_co_movement` steps (KFE up; real balance non-increasing). Published comparison: 59 complete / 32 rate down / 46 real non-increasing / 22 both — equal to the oracle, and the 22 months equal the three-way oracle months — but the KFE condition is **not** part of the published comparison. **The prose is wrong:** it states the KFE column has no values and the intersection cannot be computed, although the table carries 60 KFE values. The gate accepted it because the sentences contain no bindable number. Proof chain `available`: four sources, co-movement (analiz_1) → deflate (analiz_2) → add_series → table co-movement. |
+
+Findings: (1) the 120 s launcher ceiling was a real blocker; it now accepts up
+to 900 s (targeted launcher tests). (2) Latency: 73–288 s per turn; a slow turn
+can exceed the client's ten-minute polling window. (3) A single withheld
+sentence prevents publication and breaks the follow-up chain. (4) Turn 3 is
+**not demo-acceptable**: the writer is given only highlighted/summary values
+(KFE values are "shown separately"), invents an absence claim, and non-numeric
+false statements pass the gate; the plan split the condition into two
+comparisons. (5) One run each is not a reliability rate.
+
 <a id="m10-08-result-proof-chain-2026-09-15"></a>
 ## M10-08 result-level proof chain — 2026-09-15 (PR #171, unmerged)
 

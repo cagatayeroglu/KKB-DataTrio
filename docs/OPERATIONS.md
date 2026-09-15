@@ -120,7 +120,10 @@ shell code, interpolate variables or change process environment. File values
 take precedence over corresponding environment values. Without this flag,
 existing process variables are used; `.env` is not loaded implicitly.
 The existing approved Kloudeks host check is mandatory; local service request
-timeout must be finite and 1–120 seconds, with 1–3 provider attempts configured.
+timeout must be finite and 1–900 seconds, with 1–3 provider attempts configured.
+The 2026-09-15 live rehearsal measured single completions up to 207 s, so a
+120 s timeout fails real turns; set `KLOUDEKS_REQUEST_TIMEOUT=600` and prefer
+`KLOUDEKS_MAX_ATTEMPTS=1` (a timed-out completion is not retried silently).
 
 <a id="prepared_api-start-only-when-model-requests-are-authorized"></a>
 
@@ -244,8 +247,10 @@ This binds `127.0.0.1:8000`. Submitting a question sends the required context to
 the explicitly configured Kloudeks provider. No OpenAI/Anthropic/Google-hosted
 fallback exists. The optional `--env-file` is parsed as bounded literal values;
 its values override corresponding process environment settings. It never runs
-shell interpolation. Model timeout must be 1–120 seconds and attempts 1–3;
-model latency must be measured before choosing a demo setting. Startup/health
+shell interpolation. Model timeout must be 1–900 seconds and attempts 1–3;
+measured turns took 73–288 s (see the [live rehearsal](EVALUATION.md#m11-07-organizer-three-turn-live-rehearsal-2026-09-15)),
+so use 600 s. The client stops polling after ten minutes and offers to resume
+the same turn; it never resubmits. Startup/health
 does not call the model. See PREPARED_API for the exact snapshot/worker bounds.
 
 In terminal 2, use Node.js 22 (tested with 22.17.0):
@@ -366,6 +371,13 @@ then, with follow-selection on, `Önceki tabloyu koruyup TÜFE ekle.`; open a ce
 in each result. The first chain is complete (three raw responses); the second is
 partial because CPI has no raw-source lineage. No Kloudeks or official source
 is contacted.
+
+For an owner-authorized live rehearsal with a hard request ceiling, run
+`tests/manual/live_client.py` (same prepared runner/service as `--serve`,
+`--max-model-requests N`, `KLOUDEKS_MAX_ATTEMPTS=1` required, embedding/vision
+refused, content-free ledger in `artifacts/live-rehearsal-ledger.jsonl`) and
+compare answers with `python tests/manual/organizer_oracle.py data/processed/lakehouse`.
+Each run needs explicit model-request authorization.
 
 Use this exact question order in a fresh browser workspace for the selection rehearsal:
 
