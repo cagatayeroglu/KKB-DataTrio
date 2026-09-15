@@ -656,6 +656,74 @@ class AnswerStatus(StrEnum):
     ABSTAINED = "abstained"
 
 
+class OmissionCode(StrEnum):
+    """Why a sentence was withheld, as a category rather than as prose.
+
+    Reason text quotes the draft's own wording — an unmatched number is
+    reported as the token the model wrote — so an operator log that kept the
+    reasons would keep answer text. These codes carry the same diagnosis
+    without it.
+    """
+
+    AMBIGUOUS = "ambiguous"
+    IDENTITY_HEADER = "identity_header"
+    ABSENCE = "absence"
+    CAUSAL = "causal"
+    IDENTITY = "identity"
+    UNIT_SCALE = "unit_scale"
+    PERIOD = "period"
+    UNMATCHED_NUMBER = "unmatched_number"
+    OTHER = "other"
+
+
+#: Ordered: a reason may contain several keys, and the first match wins. The
+#: narrower phrases precede the substrings they would otherwise be caught by.
+_OMISSION_KEYS: Final = (
+    ("ambiguous", OmissionCode.AMBIGUOUS),
+    ("does not identify", OmissionCode.IDENTITY_HEADER),
+    ("absence", OmissionCode.ABSENCE),
+    ("causal", OmissionCode.CAUSAL),
+    ("identit", OmissionCode.IDENTITY),
+    ("identifier", OmissionCode.IDENTITY),
+    ("is written as", OmissionCode.UNIT_SCALE),
+    ("unit", OmissionCode.UNIT_SCALE),
+    ("currency", OmissionCode.UNIT_SCALE),
+    ("scale", OmissionCode.UNIT_SCALE),
+    ("period", OmissionCode.PERIOD),
+    ("does not match", OmissionCode.UNMATCHED_NUMBER),
+)
+
+#: Reasons quote the figure or qualifier they reject as a repr.
+_QUOTED: Final = re.compile(r"'[^']*'")
+
+
+def omission_code(reason: str) -> OmissionCode:
+    """Classify one code-owned reason string. Never returns any of its text.
+
+    Quoted spans are dropped before matching. Every reason that rejects a
+    figure or an explicit qualifier embeds the draft's own wording, and
+    classifying on that would let the answer pick its own category.
+    """
+    folded = _QUOTED.sub(" ", reason).lower()
+    return next((code for key, code in _OMISSION_KEYS if key in folded), OmissionCode.OTHER)
+
+
+@dataclass(frozen=True, slots=True)
+class OmittedNumber:
+    """An unsupported quantity in a withheld sentence, without its wording.
+
+    The parsed value, its binding and the categories that disqualified it are
+    what localize a withheld claim afterwards; the token as the model wrote it
+    is deliberately absent, so this record cannot rebuild draft text.
+    """
+
+    value: float
+    binding: Binding
+    result_id: str | None = None
+    value_label: str | None = None
+    codes: tuple[OmissionCode, ...] = ()
+
+
 @dataclass(frozen=True, slots=True)
 class OmittedSentence:
     """A sentence withheld from the answer, and why it was withheld.
@@ -663,10 +731,23 @@ class OmittedSentence:
     Withholding is recorded rather than performed silently. An answer that
     quietly loses a sentence is indistinguishable from one that never made the
     claim, and the operator needs to see the difference.
+
+    `text` and `reasons` stay available in-process for the answer itself.
+    `index` and `numbers` are the content-free part: an operator log keeps
+    those and the categories, never the sentence. `index` counts non-empty
+    sentences of the draft from zero, and is -1 when the whole draft was
+    disqualified at once rather than sentence by sentence.
     """
 
     text: str
     reasons: tuple[str, ...]
+    index: int = -1
+    numbers: tuple[OmittedNumber, ...] = ()
+
+    @property
+    def codes(self) -> tuple[OmissionCode, ...]:
+        """Distinct reason categories, in the order the reasons were recorded."""
+        return tuple(dict.fromkeys(omission_code(reason) for reason in self.reasons))
 
 
 @dataclass(frozen=True, slots=True)
@@ -711,6 +792,22 @@ def _price_references(result: AnalyticalResult, value: ResultValue) -> tuple[dat
             except ValueError:
                 continue
     return tuple(found)
+
+
+def _omitted_number(item: NumberVerdict) -> OmittedNumber:
+    """Reduce one rejected number to its content-free diagnosis.
+
+    An unbound number carries no fault of its own: the reason naming it is
+    built from the draft's token, so the category is supplied here instead.
+    """
+    codes = tuple(dict.fromkeys(omission_code(fault) for fault in item.faults))
+    return OmittedNumber(
+        item.number.value,
+        item.binding,
+        item.result_id,
+        item.value_label,
+        codes or (OmissionCode.UNMATCHED_NUMBER,),
+    )
 
 
 def gate_answer(
@@ -774,6 +871,7 @@ def gate_answer(
             failures.setdefault(span, []).append(fault)
         if computed and (fault := absence_fault(draft[span[0] : span[1]])):
             failures.setdefault(span, []).append(fault)
+    unsupported: dict[tuple[int, int], list[NumberVerdict]] = {}
     for item in verdict.numbers:
         if item.supported:
             continue
@@ -784,18 +882,28 @@ def gate_answer(
                     item.faults
                     or (f"{item.number.text!r} does not match any value in these results",)
                 )
+                unsupported.setdefault(span, []).append(item)
                 break
 
     kept: list[str] = []
     omitted: list[OmittedSentence] = []
+    position = 0
     for span in spans:
         sentence = draft[span[0] : span[1]].strip()
         if not sentence:
             continue
         if span in failures:
-            omitted.append(OmittedSentence(sentence, tuple(failures[span])))
+            omitted.append(
+                OmittedSentence(
+                    sentence,
+                    tuple(failures[span]),
+                    position,
+                    tuple(_omitted_number(item) for item in unsupported.get(span, ())),
+                )
+            )
         else:
             kept.append(sentence)
+        position += 1
 
     if not kept:
         return GatedAnswer(
