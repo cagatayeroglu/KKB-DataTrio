@@ -39,6 +39,8 @@ from kkb_agent.llm.provider import (
 
 LEDGER = Path(__file__).resolve().parents[2] / "artifacts" / "live-rehearsal-ledger.jsonl"
 _CATEGORIES = (
+    ("ambiguous", "ambiguous"),
+    ("does not identify", "identity_header"),
     ("absence", "absence"),
     ("causal", "causal"),
     ("identit", "identity"),
@@ -47,7 +49,6 @@ _CATEGORIES = (
     ("currency", "unit_scale"),
     ("scale", "unit_scale"),
     ("period", "period"),
-    ("ambiguous", "ambiguous"),
     ("does not match", "unmatched_number"),
 )
 

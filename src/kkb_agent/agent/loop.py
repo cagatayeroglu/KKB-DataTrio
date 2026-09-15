@@ -65,7 +65,8 @@ SYNTHESIS_PROMPT = (
     "You write a short Turkish answer from computed analysis results. Use only the "
     "display phrases given below, copying each number, unit and scale exactly. "
     "A display is presentation only; canonical metadata is not an alternative figure. "
-    "Never quote an analytical value marked UNAVAILABLE. An explicit literal source "
+    "Never quote an analytical value marked UNAVAILABLE or AMBIGUOUS. Do not start a "
+    "sentence with a heading such as a word and a colon. An explicit literal source "
     "quotation is separate: copy its complete answer exactly, with no additions. "
     "Do not calculate, round, convert, "
     "extrapolate or introduce any number that is not listed. State the unit and "
@@ -147,7 +148,34 @@ def render_results(named: Mapping[str, AnalyticalResult]) -> str:
     and "konut_faiz" are how the reference scenario's table refers to itself,
     and a writer given two anonymous number lists cannot say which is which.
     """
-    return "\n\n".join(f"[{name}]\n{render_result(result)}" for name, result in named.items())
+    values = [
+        (name, index, value)
+        for name, result in named.items()
+        for index, value in enumerate(result.values)
+    ]
+    ambiguous: dict[str, set[int]] = {}
+    for name, index, value in values:
+        for other_name, other_index, other in values:
+            if (name, index) != (other_name, other_index) and _indistinguishable(value, other):
+                ambiguous.setdefault(name, set()).add(index)
+                break
+    return "\n\n".join(
+        f"[{name}]\n{render_result(result, frozenset(ambiguous.get(name, ())))}"
+        for name, result in named.items()
+    )
+
+
+def _indistinguishable(left: ResultValue, right: ResultValue) -> bool:
+    """Same number, unit, scale and period: the gate cannot tell which one a sentence cites."""
+    return (
+        left.unit == right.unit
+        and left.scale == right.scale
+        and left.period == right.period
+        and (
+            abs(left.value - right.value) <= abs(right.value) * DEFAULT_TOLERANCE + 1e-9
+            or abs(right.value - left.value) <= abs(left.value) * DEFAULT_TOLERANCE + 1e-9
+        )
+    )
 
 
 def _writer_values(result: AnalyticalResult) -> tuple[list[ResultValue], tuple[str, ...]]:
@@ -179,7 +207,7 @@ def _writer_values(result: AnalyticalResult) -> tuple[list[ResultValue], tuple[s
     return kept, table.columns
 
 
-def render_result(result: AnalyticalResult) -> str:
+def render_result(result: AnalyticalResult, ambiguous: frozenset[int] = frozenset()) -> str:
     """The values, as text the writer may quote and nothing more.
 
     Deliberately not the rows. A writer given rows will aggregate them, and a
@@ -248,13 +276,19 @@ def render_result(result: AnalyticalResult) -> str:
                     "These table columns have values but are empty in some periods: "
                     + "; ".join(partial)
                 )
+    positions = {id(value): index for index, value in enumerate(result.values)}
     for value in values:
         display = display_value(value)
-        parts = [
-            f"- {value.label}: display {display}"
-            if display is not None
-            else f"- {value.label}: display UNAVAILABLE (unresolved or unsupported unit/scale)"
-        ]
+        if positions.get(id(value)) in ambiguous:
+            # No figure to copy: the gate could not bind it to one value anyway.
+            parts = [
+                f"- {value.label}: display AMBIGUOUS (another value has the same number, "
+                "unit, scale and period; the verifier withholds it)"
+            ]
+        elif display is not None:
+            parts = [f"- {value.label}: display {display}"]
+        else:
+            parts = [f"- {value.label}: display UNAVAILABLE (unresolved or unsupported unit/scale)"]
         parts.append(f"unit {value.unit}" if value.unit else "unit UNKNOWN")
         if value.scale is not Scale.UNKNOWN:
             parts.append(f"scale {value.scale.value}")

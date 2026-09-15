@@ -794,6 +794,35 @@ Both temporary servers were stopped after the rehearsal. Full proof UI and
 legacy/official-refresh dependency coverage remain incomplete.
 
 
+<a id="m11-07-live-repeat-2-2026-09-15"></a>
+## M11-07 live repeat 2 — 2026-09-15 (PR #175, unmerged)
+
+Owner-authorized by Eray: Kloudeks chat completions only, ceiling 15, no retry,
+600 s, private pool copy; **9 requests used**, stopped after the second Turn 3
+qualification to fix the measured cause offline. No embedding/BDDK/EVDS/search.
+
+| Turn | Calls (plan / writer) | Gate | Outcome |
+| --- | --- | --- | --- |
+| 1 | 27.0 s / 52.8 s | accepted | published Analiz 1 (`by_end`), 59/32/28/4 and months oracle-equal |
+| 2 | 8.5 s / 43.0 s | accepted | published Analiz 2 on selected Analiz 1 with a real value quoted "2025-12 fiyatlarıyla" (the #174 fix); deflated by TÜFE 2003=100 (`TP.GENENDEKS.T1`), identical real values to the 2025=100 oracle because the ratio is base-invariant (1,874,180 and 773,412 million TRY) |
+| 3 | 28.3 s / 116.6 s | qualified (2 sentences) | one combined comparison (rate down, real non-increasing, when KFE up), counts 59/0/59/32/46/22 oracle-equal; "22 geçişte…" kept; not published |
+| 3 retry | 49.1 s + 22.4 s / 143.6 s | qualified (2 sentences) | combined comparison in another role order (driver KFE up, target real, when rate down), 59/0/32/32/22/22; not published |
+
+Offline diagnosis on the session copy, gating Turkish probes against the real
+candidate result: (1) plain headings such as "Değerlendirme:" / "Sonuç:" failed
+the identity-header rule; (2) counts carried from Turn 1 (59, 32) or repeated
+inside one comparison (32/32, 22/22) were ambiguous. The launcher classified
+"Ambiguous result/value identity" as identity; its category order is fixed.
+
+Fixes in this PR: plain unknown headings are discourse labels; the writer sees
+indistinguishable values as `display AMBIGUOUS` without a figure and is told not
+to quote them or open with a heading. Tests: `test_writer_ambiguity_and_headers.py`
+(12) plus a Turn 3 heading/duplicate-count regression; affected suites **1426
+passed / 56.04 s**; Ruff, format, strict `mypy src` (100 files) clean. Scripted
+replay over a disposable real-pool copy with both live role orders and drafts using
+a heading, a unique count and a cross-year price reference: **three turns
+accepted and published in both orders**, rehearsal check passed.
+
 <a id="m11-07-live-repeat-2026-09-15"></a>
 ## M11-07 live repeat after M11-11 — 2026-09-15 (PR #174, unmerged)
 
