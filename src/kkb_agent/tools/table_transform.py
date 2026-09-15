@@ -1,16 +1,18 @@
 """The `table_transform` tool: change a published table without rebuilding it (M5-20).
 
 The organizer's second and third turns begin "without disturbing the table".
-That is a statement about state: the follow-up must start from the result the
-user already accepted, keep every value in it exactly, and add what was asked
-for as a new, traceable column. So this tool reads a published workspace result
-by name — never a table the model describes — and returns that result's values
-unchanged plus the new ones.
+That is a statement about state: every follow-up starts from the result the user
+already accepted and produces a new traceable result without mutating it. Column
+operations keep every old value; row-shape operations may only select existing
+period cells under an explicit policy. The tool reads a published workspace
+result by name, never a table the model describes.
 
 Only delivered operations are offered (DEC-135). `deflate` (M2-15) converts
 one currency column in the prices of an explicit reference month, using a
 registered monthly price index. `add_series` adds a registered monthly series
-on the source table's exact periods. Rebase, align and filters remain unavailable.
+on the source table's exact periods. `rebase`, `align`, and `filter` are bounded
+unary changes over cells already present in the published result; they do not
+load another table, reduce a frequency, fill a gap, or accept arbitrary SQL.
 """
 
 from __future__ import annotations
@@ -19,7 +21,7 @@ from collections.abc import Mapping, Sequence
 from datetime import date
 from typing import TYPE_CHECKING, Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, RootModel, model_validator
 
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
 from kkb_agent.agent.registry import TableInput, ToolSpec
@@ -28,8 +30,26 @@ from kkb_agent.agent.workspace import Workspace, WorkspaceError
 from kkb_agent.analytics.deflation import FORMULA, METHOD, DeflationRefused, deflate
 from kkb_agent.analytics.table_series import METHOD as ADD_SERIES_METHOD
 from kkb_agent.analytics.table_series import SeriesAdditionRefused, add_monthly_series
+from kkb_agent.analytics.table_shape import (
+    ALIGN_METHOD,
+    FILTER_METHOD,
+    REBASE_FORMULA,
+    REBASE_METHOD,
+    ShapedTable,
+    TableShapeRefused,
+    align_periods,
+    filter_periods,
+    rebase_index,
+)
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
-from kkb_agent.core import AnalyticalResult, ResultEvidence, ResultKind, ResultStatus
+from kkb_agent.core import (
+    AnalyticalResult,
+    ResultEvidence,
+    ResultKind,
+    ResultStatus,
+    ResultValue,
+    TransformationRecord,
+)
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.lakehouse.records import Observation
 from kkb_agent.lakehouse.result_evidence import _record_execution, canonical
@@ -96,8 +116,74 @@ class AddSeriesArguments(BaseModel):
     )
 
 
+class RebaseArguments(BaseModel):
+    """Rebase one index column already present in the published table."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation: Literal["rebase"]
+    source: str = Field(pattern=r"^[A-Za-z0-9_.:-]{1,64}$")
+    column: str = Field(min_length=1, max_length=400)
+    reference_period: date = Field(description="Existing period end that becomes the new base")
+    new_base: float = Field(strict=True, gt=0, description="Explicit new index level, usually 100")
+
+
+class AlignArguments(BaseModel):
+    """Select an exact shared or anchored period spine from existing cells."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation: Literal["align"]
+    source: str = Field(pattern=r"^[A-Za-z0-9_.:-]{1,64}$")
+    columns: tuple[str, ...] = Field(min_length=2, max_length=32)
+    join: Literal["inner", "left"]
+    anchor_column: str | None = None
+
+    @model_validator(mode="after")
+    def policy_fields(self) -> Self:
+        if len(set(self.columns)) != len(self.columns):
+            raise ValueError("columns must be distinct")
+        if self.join == "inner" and self.anchor_column is not None:
+            raise ValueError("inner alignment does not take anchor_column")
+        if self.join == "left" and self.anchor_column not in self.columns:
+            raise ValueError("left alignment needs anchor_column listed in columns")
+        return self
+
+
+class FilterArguments(BaseModel):
+    """Keep cells in an inclusive period-end range; no free-form predicate."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation: Literal["filter"]
+    source: str = Field(pattern=r"^[A-Za-z0-9_.:-]{1,64}$")
+    start_period: date | None = None
+    end_period: date | None = None
+
+    @model_validator(mode="after")
+    def bounded_range(self) -> Self:
+        if self.start_period is None and self.end_period is None:
+            raise ValueError("filter needs start_period or end_period")
+        if (
+            self.start_period is not None
+            and self.end_period is not None
+            and self.start_period > self.end_period
+        ):
+            raise ValueError("start_period must not be after end_period")
+        return self
+
+
 class TableTransformArguments(
-    RootModel[Annotated[DeflateArguments | AddSeriesArguments, Field(discriminator="operation")]]
+    RootModel[
+        Annotated[
+            DeflateArguments
+            | AddSeriesArguments
+            | RebaseArguments
+            | AlignArguments
+            | FilterArguments,
+            Field(discriminator="operation"),
+        ]
+    ]
 ):
     """One tool with closed, operation-specific flat JSON argument objects."""
 
@@ -141,25 +227,29 @@ def make_table_transform_tool(
             )
         if source.status is not ResultStatus.COMPUTED:
             return failure("workspace_reference", f"{selected.source!r} holds no computed values")
-        if isinstance(selected, AddSeriesArguments) and result_faults(
-            {selected.source: source}, connection
-        ):
+        if result_faults({selected.source: source}, connection):
             return failure("workspace_evidence", "The source table cannot be verified")
-        series_id = (
-            selected.series_id
-            if isinstance(selected, AddSeriesArguments)
-            else selected.index_series_id
-        )
-        try:
-            series = read_series(connection, series_id, inspector=inspector)
-        except SeriesUnknown as error:
-            return failure("series_unknown", str(error))
-
-        result = (
-            _augmented(selected, source, series.observations, series.semantics, names)
-            if isinstance(selected, AddSeriesArguments)
-            else _deflated(selected, source, series.observations, series.semantics, names)
-        )
+        inputs = [
+            canonical({"workspace": selected.source, "result": source.model_dump(mode="json")})
+        ]
+        if isinstance(selected, (DeflateArguments, AddSeriesArguments)):
+            series_id = (
+                selected.series_id
+                if isinstance(selected, AddSeriesArguments)
+                else selected.index_series_id
+            )
+            try:
+                series = read_series(connection, series_id, inspector=inspector)
+            except SeriesUnknown as error:
+                return failure("series_unknown", str(error))
+            inputs.append(series.snapshot)
+            result = (
+                _augmented(selected, source, series.observations, series.semantics, names)
+                if isinstance(selected, AddSeriesArguments)
+                else _deflated(selected, source, series.observations, series.semantics, names)
+            )
+        else:
+            result = _closed_transform(selected, source)
         node = None
         if lineage is not None and result.status is ResultStatus.COMPUTED:
             node = lineage.record(
@@ -175,10 +265,7 @@ def make_table_transform_tool(
             connection,
             producer="table_transform",
             arguments=arguments.model_dump_json(),
-            inputs=[
-                canonical({"workspace": selected.source, "result": source.model_dump(mode="json")}),
-                series.snapshot,
-            ],
+            inputs=inputs,
             result=result,
         )
         warnings = tuple(result.warnings)
@@ -196,19 +283,173 @@ def make_table_transform_tool(
     return ToolSpec(
         name="table_transform",
         description=(
-            "Change a table published in an earlier turn without disturbing it: every existing "
-            "value is kept exactly and the requested column is added. deflate adds an "
+            "Change a table published in an earlier turn by producing a new result without "
+            "mutating the published source. deflate adds an "
             "inflation-adjusted copy of one currency column (for example a credit balance) in "
             "the prices of reference_period, using a registered monthly price index such as a "
             "consumer price index. Refer to the published result by its name and to the column "
             "by its exact label. add_series adds a registered monthly series (for example a "
             "housing price index) on the table's exact months. Use source and series_id only "
             "for add_series. It preserves every old column, records missing months without "
-            "filling them, and does not calculate a relationship or establish a cause."
+            "filling them, and does not calculate a relationship or establish a cause. "
+            "rebase adds an explicitly based copy of an existing index column. align selects "
+            "existing exact periods using inner or explicitly anchored-left policy. filter "
+            "selects an inclusive period-end range. These unary operations never fill cells, "
+            "convert frequency, or accept SQL."
         ),
         arguments=TableTransformArguments,
         run=run,
         table_input=_table_input,
+    )
+
+
+def _closed_transform(
+    arguments: RebaseArguments | AlignArguments | FilterArguments,
+    source: AnalyticalResult,
+) -> AnalyticalResult:
+    """Apply one no-I/O operation and preserve the source as a separate artifact."""
+    try:
+        if isinstance(arguments, RebaseArguments):
+            rebased = rebase_index(
+                source,
+                column_label=arguments.column,
+                reference_period=arguments.reference_period,
+                new_base=arguments.new_base,
+            )
+            return _rebased(
+                arguments,
+                source,
+                rebased.values,
+                rebased.transformation,
+                rebased.label,
+            )
+        if isinstance(arguments, AlignArguments):
+            shaped = align_periods(
+                source,
+                columns=arguments.columns,
+                join=arguments.join,
+                anchor_column=arguments.anchor_column,
+            )
+            return _shaped(arguments, source, shaped, method=ALIGN_METHOD)
+        shaped = filter_periods(
+            source,
+            start_period=arguments.start_period,
+            end_period=arguments.end_period,
+        )
+        return _shaped(arguments, source, shaped, method=FILTER_METHOD)
+    except TableShapeRefused as error:
+        return AnalyticalResult(
+            result_id=f"table_transform:{arguments.operation}:{arguments.source}",
+            kind=ResultKind.SERIES,
+            status=ResultStatus.ABSTAINED,
+            tool="table_transform",
+            method={
+                "rebase": REBASE_METHOD,
+                "align": ALIGN_METHOD,
+                "filter": FILTER_METHOD,
+            }[arguments.operation],
+            reason=str(error),
+        )
+
+
+def _prior_evidence(source: AnalyticalResult) -> tuple[list[str], list[TransformationRecord]]:
+    if source.evidence is None:
+        return [], []
+    refs = (
+        [source.evidence.lineage_node]
+        if source.evidence.lineage_node is not None
+        else list(source.evidence.input_refs)
+    )
+    return refs, list(source.evidence.transformations)
+
+
+def _rebased(
+    arguments: RebaseArguments,
+    source: AnalyticalResult,
+    values: Sequence[ResultValue],
+    transformation: TransformationRecord,
+    label: str,
+) -> AnalyticalResult:
+    refs, previous = _prior_evidence(source)
+    parameters = dict(source.parameters)
+    parameters.update({"source": arguments.source, "rebasing": transformation.parameters})
+    return AnalyticalResult(
+        result_id=(
+            f"table_transform:rebase:{arguments.source}:{arguments.column}:"
+            f"{arguments.reference_period.isoformat()}:{arguments.new_base}"
+        ),
+        kind=source.kind,
+        status=ResultStatus.COMPUTED,
+        tool="table_transform",
+        method=REBASE_METHOD,
+        values=[*source.values, *values],
+        coverage=source.coverage,
+        parameters=parameters,
+        samples=source.samples,
+        evidence=ResultEvidence(
+            input_refs=refs,
+            transformations=[*previous, transformation],
+            sources=list(source.evidence.sources) if source.evidence is not None else [],
+        ),
+        warnings=list(source.warnings),
+        limitations=[
+            *source.limitations,
+            f"Only {label} is rebased ({REBASE_FORMULA}); existing columns are unchanged",
+            "Index rebasing changes the index reference scale; it is not inflation adjustment",
+        ],
+        unresolved_semantics=list(source.unresolved_semantics),
+    )
+
+
+def _shaped(
+    arguments: AlignArguments | FilterArguments,
+    source: AnalyticalResult,
+    shaped: ShapedTable,
+    *,
+    method: str,
+) -> AnalyticalResult:
+    refs, previous = _prior_evidence(source)
+    parameters: dict[str, JsonValue] = {}
+    series_names = source.parameters.get("series_names")
+    if isinstance(series_names, dict):
+        parameters["series_names"] = dict(series_names)
+    key = "alignment" if isinstance(arguments, AlignArguments) else "filter"
+    parameters.update({"source": arguments.source, key: shaped.transformation.parameters})
+    warning = (
+        f"{shaped.dropped_non_period_values} non-period summary value(s) were removed because "
+        "they described the source row set"
+    )
+    if isinstance(arguments, AlignArguments):
+        identity = (
+            f"{arguments.join}:{arguments.anchor_column or '-'}:{'|'.join(arguments.columns)}"
+        )
+    else:
+        identity = (
+            f"{arguments.start_period.isoformat() if arguments.start_period else '-'}:"
+            f"{arguments.end_period.isoformat() if arguments.end_period else '-'}"
+        )
+    return AnalyticalResult(
+        result_id=f"table_transform:{arguments.operation}:{arguments.source}:{identity}",
+        kind=source.kind,
+        status=ResultStatus.COMPUTED,
+        tool="table_transform",
+        method=method,
+        values=list(shaped.values),
+        coverage=shaped.coverage,
+        parameters=parameters,
+        samples=None,
+        evidence=ResultEvidence(
+            input_refs=refs,
+            transformations=[*previous, shaped.transformation],
+            sources=list(source.evidence.sources) if source.evidence is not None else [],
+        ),
+        warnings=[*source.warnings, *([warning] if shaped.dropped_non_period_values else [])],
+        limitations=[
+            *source.limitations,
+            "Rows were selected by exact existing periods; no value was filled, interpolated, "
+            "resampled, converted, or recomputed",
+        ],
+        unresolved_semantics=list(source.unresolved_semantics),
     )
 
 
