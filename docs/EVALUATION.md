@@ -794,6 +794,32 @@ Both temporary servers were stopped after the rehearsal. Full proof UI and
 legacy/official-refresh dependency coverage remain incomplete.
 
 
+<a id="m11-07-live-repeat-3-2026-09-15"></a>
+## M11-07 live repeat 3 — first complete three-turn API/client acceptance — 2026-09-15 (PR #176, unmerged)
+
+Owner-authorized by Eray: Kloudeks chat completions only, ceiling 15, no retry,
+600 s, private pool copy; **6 requests used**, one API process and one browser
+session with follow-selection on. No embedding/BDDK/EVDS/search call. Code at
+`dev` `6e589b1` (#171–#175); no code change in this record.
+
+| Turn | Calls (plan / writer) | Gate | Published |
+| --- | --- | --- | --- |
+| 1 | 43.4 s / 114.5 s | accepted, 0 omitted | Analiz 1 (242 values): `co_movement`, TOTAL + TP.KTF12, 2021-01..2025-12, `by_end`; 59 / 32 / 28 / 4, the four months and their balance/rate changes equal the oracle |
+| 2 | 9.5 s / 29.4 s | accepted, 0 omitted | Analiz 2 (302 values) on selected Analiz 1: `deflate` by TÜFE 2003=100 (`TP.GENENDEKS.T1`) at 2025-12; quoted real values (1,874,180 million TRY) equal the base-invariant oracle; the price-reference sentence passed |
+| 3 | 54.1 s / 96.4 s | accepted, 0 omitted | Analiz 3 (368 values) on selected Analiz 2: `add_series` KFE then one `table_co_movement` (driver rate down, target KFE up, condition real balance non-increasing); counts 59 / 0 / 46 / 22 / 46 / 22 and the 22 joint periods equal the oracle intersection; rehearsal relationship check true |
+
+Turn 3 prose states the KFE column is present, lists four of the joint periods
+with oracle-equal rate and real-balance values, and says the co-movement alone
+does not show why credit did not rise (no causal wording). Proof chains are
+`available`: BDDK 66 raw responses; EVDS rate, TÜFE 2003=100 and KFE; nested
+co-movement (analiz_1) → deflate (analiz_2) → add_series → table co-movement.
+
+Quality notes (not gate failures): Turn 1 prose repeats long reviewed series
+names, includes the raw fragment "monthly average (by_end)" and a DEC-139
+"kullandırım" scope note; Turn 3 does not quote the 22 count (marked AMBIGUOUS
+because it repeats inside that comparison). One complete run is not a
+reliability rate; latency was 158 / 39 / 150 s per turn.
+
 <a id="m11-07-live-repeat-2-2026-09-15"></a>
 ## M11-07 live repeat 2 — 2026-09-15 (PR #175, unmerged)
 
