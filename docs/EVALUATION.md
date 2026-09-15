@@ -1061,6 +1061,61 @@ record does not alter runtime code. No live provider, source, embedding or
 search call was made. A bounded live rerun remains separate and requires
 explicit authorization.
 
+<a id="m11-07-hybrid-acceptance-2026-09-16"></a>
+### M11-07 / M13-05 served hybrid acceptance attempt — 2026-09-16 (PR #199)
+
+Owner-authorized by Eray after the ownership transfer from Çağatay. Bounded plan:
+Kloudeks only, 15 chat and 15 query-embedding ceiling, 600 s per request,
+`KLOUDEKS_MAX_ATTEMPTS=1`, no transport retry, fresh workspace state root, fresh
+content-free ledger, and no passage/index-build, BDDK/EVDS refresh, web-search or
+OCR call. Code is `dev` at `b115cb2` (M11-11 numeric binding merged in #197).
+Path: `tests/manual/live_client.py` -> PreparedRunner/AnalysisService with the
+DEC-142 dense stage -> production Next.js client with follow-selection on. The
+three organizer questions were entered verbatim in a fresh browser workspace.
+
+Prerequisites verified offline first, with no provider call: readiness `ready:
+true`, `model_checked: false`, `catalog_retrieval: "hybrid"`, 29 prepared
+identities, 4,124 observation rows, 37 catalog identities, 124 files, prepared
+snapshot `6fc3afd5…f887f`, catalog version `e0bbaac8…69f11`; LanceDB generation
+`qwen3-instruct-query-v1-e0bbaac8` opens with `kkbhackathon2026/Qwen3-Embedding-8B`,
+dimension 4096 and 37 rows; independent oracle 60 months, 59 transitions, 32 rate
+falls, 46 real-credit non-rises, 22 joint months, December 2025 KFE 204.36.
+
+| Check | Observed result |
+| --- | --- |
+| Turn 1 | **ACCEPTED**, 227 s, zero omitted sentences; published Analiz 1, `result_ref 286da187…`, 242 values. |
+| Turn 1 independent comparison | 238 value comparisons against read-only SQL plus `Decimal` arithmetic: 60 balance levels, 60 `by_end` monthly rate levels, 59 balance and 59 rate month-over-month changes. **Zero mismatches.** The four published metrics equal the independent counts exactly: 59 transitions, 32 rate falls, 28 balance rises, 4 non-rises, with non-rise months February/May 2021, December 2023 and January 2024. |
+| Turn 2 | **QUALIFIED**, 145 s, not published. First draft withheld one sentence with one `unmatched_number` reason. The M11-11 bounded numeric-wording retry then fired for the first time in a live run, reused the immutable candidate and reran the full gate; the replacement draft withheld one sentence with two `period` reasons. The turn therefore ended QUALIFIED and no deflated table reached the workspace. |
+| Turn 2 user-facing state | The surviving reply states that the table is preserved and that inflation-adjusted values are shown at December 2025 prices, while the workspace still holds only Analiz 1 and an explicit non-publication notice. This repeats the inconsistency already recorded for the 2026-09-15 rehearsal. |
+| Turn 3 | **Not attempted.** It requires the published Turn 2 table as its selected source; submitting it would have measured neither the KFE column nor the M11-11 binding, and the bounded plan stops at the first material blocker. |
+| Served discovery | Hybrid was configured and exercised: four query embeddings (two in Turn 1, two in Turn 2), provider times 138 / 77 / 125 / 70 ms, all successful, no degradation to lexical. |
+| Latency | Turn 1: planner 24.627 s + 104.411 s, writer 89.636 s. Turn 2: planner 16.723 s + 16.659 s, writer 62.887 s, retry writer 48.097 s. Model planning and writing dominate; embeddings are immaterial. |
+| Budget | Ledger final counters `chat_used: 7`, `embedding_used: 4` of the 15/15 ceiling. Every call succeeded on its single attempt; no transport retry, and no passage, BDDK, EVDS, search or OCR request. |
+| Data integrity | The prepared pool is byte-identical before and after the run (aggregate digest `dd4700df3c2b86c08238398812ab6bc31aa3c4649bffc42149b19fd7578c87fb` over all 124 files). Services were stopped afterwards. |
+
+Verdict: **served hybrid three-turn acceptance remains incomplete.** Turn 1 is a
+clean, fully oracle-equal live acceptance with real hybrid discovery. Turn 2
+computed a candidate but never published it, so the chain to Turn 3 never formed.
+
+Classification **F — acceptance/reliability failure**. It is not recorded as a
+regression: Turn 2 has flapped between QUALIFIED and ACCEPTED across earlier
+rehearsals with the same `period` and unmatched-number reason families, so one
+QUALIFIED run on the current revision does not establish that #197 caused it.
+The M11-11 retry behaved exactly as specified — same immutable candidate, no tool
+rerun, unchanged full gate — and correctly refused to publish a draft it could not
+bind; it is a publication-rate limit, not a verifier defect, and the verifier must
+not be weakened to obtain PASS.
+
+Diagnosis is bounded by the evidence. The content-free ledger retains no draft
+text and the API exposes only `omitted_claims` and sanitized notices, so the exact
+rejected wording is again unknown; do not infer a specific arithmetic or parser
+bug from the reason categories. The unpublished Turn 2 candidate was not persisted
+(`workspace_results` holds only Analiz 1), so its values could not be compared
+this time. Next work belongs to a separate task: retain sanitized per-omission
+diagnostics for operator runs so a withheld sentence can be localized without
+another live call, then reduce the withheld-sentence publication-failure rate
+without relaxing the gate. No further live call was made.
+
 <a id="m13-05-fresh-holdout-2026-09-15"></a>
 ## M13-05 DEC-142 combination on a fresh holdout — 2026-09-15 (PR #179, merged)
 
