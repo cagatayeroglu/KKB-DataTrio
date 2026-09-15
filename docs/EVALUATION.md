@@ -1055,8 +1055,11 @@ rescue a fabricated extra sentence. A repaired supported count publishes while
 an unsupported repaired count does not, and the prior trusted table remains
 byte-equivalent. Focused answer/verifier/relationship/three-turn/writer/
 multi-result/selected-runtime/prepared-API tests: **198 passed**. Touched-source
-Ruff and mypy passed. No live provider, source, embedding or search call was
-made. A bounded live rerun remains separate and requires explicit authorization.
+Ruff and mypy passed. Exact-head Fast PR and Web client gates passed on
+`6c3cc5e4a1fc72d06b93fd99e1e08fc31767b395`; this subsequent evidence-only
+record does not alter runtime code. No live provider, source, embedding or
+search call was made. A bounded live rerun remains separate and requires
+explicit authorization.
 
 <a id="m13-05-fresh-holdout-2026-09-15"></a>
 ## M13-05 DEC-142 combination on a fresh holdout — 2026-09-15 (PR #179, merged)
