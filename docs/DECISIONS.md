@@ -563,6 +563,14 @@ Confirmed team priority refinement, explicitly requested by Çağatay after M3-0
 - **Chained tables:** preserve the existing table, transform only requested columns, add columns without destroying the prior table, and continue from the intended current result. Immutable history alone does not satisfy this: UI selection must bind the following question to the intended owned result/version. Current display-only selection and remaining dependency invalidation are acceptance gaps, not completed behavior.
 - Consequences: apply these criteria to current architecture and evaluation under DEC-135's mandatory harness boundaries. Record delivered slices and remaining acceptance separately in ROADMAP; this entry changes no runtime behavior and grants no live-call or merge authorization.
 
+### DEC-142 — Catalog query embedding policy and reviewed-match combination
+
+- Status: CONFIRMED team decision, 2026-09-15, by Eray (approves PROP-07 and PROP-08 after the M13-09 evidence in PR #178). Grants no live call beyond the task authorization recorded in ROADMAP.
+- **Query policy:** catalog dense retrieval embeds passages unchanged and queries as `Instruct: <task>\nQuery:<text>` (`qwen3-instruct-query-v1`, Qwen3-Embedding model-card convention). M13-09 measured dense hit@1 0.8718 against 0.7179 for unchanged queries on 44 reviewed cases. Q-K-05 (the platform's own convention) remains open; a Kloudeks answer that contradicts this is a revisit trigger, not an automatic change.
+- **Combination:** hybrid candidates keep the alternating lexical-first order only when a reviewed alias or phrase matched the query, and alternate dense-first otherwise (`reviewed-match-order-v1`). Archive tiering, the reviewed-concept eligibility restriction, fixed stage budgets, clarification requirement and explicit lexical degradation are unchanged. No score arithmetic, fusion or reranking is introduced (M13-06/07 remain benchmark-gated).
+- **Evidence rule:** the M13-09 holdout was inspected when PROP-08 was proposed, so it becomes development data. A gain claim for this combination needs a fresh holdout written before any run on it; the measured result is recorded in EVALUATION whether or not it confirms the gain.
+- Consequences: the prepared runtime may configure the dense stage with this policy and combination when an operator supplies a matching local index generation; without it, retrieval stays lexical. DEC-130 hybrid acceptance, DEC-138 LanceDB selection and the untrusted-discovery boundary of `catalog_search` are unchanged.
+
 ## Proposed decisions
 
 Candidates below are not approved selections. Compare options in a bounded task; do not silently promote a proposal to CONFIRMED.
@@ -575,8 +583,8 @@ Candidates below are not approved selections. Compare options in a bounded task;
 | PROP-04 | PROPOSED: retry and latency budgets | Exact counts/timeouts depend on platform limits and baseline measurements | Unassigned | Obtain Q-K-04 and measure before fixing limits |
 | PROP-05 | RESOLVED by DEC-120 | Lagged correlation and Granger with mandatory stated limits; stronger identification rejected for this data | Eray | None; implement in M6 |
 | PROP-06 | RESOLVED by DEC-134: provider abstraction approved | Concrete production adapter deferred; live acceptance still blocked | Çağatay | M7-22 offline implementation, then separately triaged production acceptance |
-| PROP-07 | PROPOSED: catalog query embedding policy `qwen3-instruct-query-v1` (queries `Instruct: <task>\nQuery:<text>`, passages unchanged, per the Qwen3-Embedding model card) | M13-09 2026-09-15 measured it against `qwen3-plain-v1` on 44 reviewed cases: dense hit@1 0.8718 vs 0.7179 and MRR 0.9231 vs 0.8193 (development 0.8696 vs 0.7826; holdout 0.875 vs 0.625). Q-K-05 (Kloudeks convention) remains unanswered; evidence is one 37-series catalog | Eray | Confirm before wiring dense retrieval into the prepared runtime |
-| PROP-08 | PROPOSED: replace `alternating-archive-tier-v1` with a combination that keeps lexical-first order only when a reviewed alias/phrase matched and dense-first otherwise | M13-09: alternating order held hybrid hit@1 at lexical 0.6667 while dense-only reached 0.8718; dense won top-1 on 11 cases and lost 3 (an exact alias and two geography cases that reviewed phrases resolve). Holdout was already seen, so any new policy needs a fresh held-out set before a gain claim (M13-06) | Eray | Author new holdout cases, then evaluate the policy on development and the new holdout |
+| PROP-07 | RESOLVED by [DEC-142](#dec-142--catalog-query-embedding-policy-and-reviewed-match-combination) | Model-card query policy `qwen3-instruct-query-v1` selected from M13-09 evidence; Q-K-05 still unanswered | Eray | Wire into the prepared runtime (M13-05) |
+| PROP-08 | RESOLVED by [DEC-142](#dec-142--catalog-query-embedding-policy-and-reviewed-match-combination) | Reviewed-match order selected; gain claim requires the fresh holdout | Eray | Evaluate on development and the fresh holdout (M13-06) |
 
 ### Web search provider decision (M7-21)
 
