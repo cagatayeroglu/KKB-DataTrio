@@ -18,6 +18,8 @@ ROOT = Path(__file__).parents[2]
 CATALOG = ROOT / "docs/catalog/prepared_v3.json"
 CASES = ROOT / "docs/catalog/retrieval_cases_v3.json"
 CASES_R2 = ROOT / "docs/catalog/retrieval_cases_v3_r2.json"
+SAFETY_CASES = ROOT / "docs/catalog/retrieval_cases_v3_safety.json"
+SAFETY_REPORT = ROOT / "docs/catalog/retrieval_eval_2026-09-15_safety.json"
 
 
 @pytest.fixture(scope="module")
@@ -52,6 +54,36 @@ def test_fresh_holdout_revision_keeps_every_earlier_case_as_development(snapshot
     assert len(holdout) == 22 and all(c.case_id.startswith("N") for c in holdout)
     queries = {c.query.casefold() for c in development}
     assert not any(c.query.casefold() in queries for c in holdout)
+
+
+def test_catalog_safety_holdout_is_independent_and_status_safe(snapshot):
+    earlier = evaluation.load_cases(CASES_R2.read_bytes(), snapshot)
+    safety = evaluation.load_cases(SAFETY_CASES.read_bytes(), snapshot)
+    holdout = [case for case in safety.cases if case.split == "holdout"]
+    assert len(holdout) == 16
+    assert sum(bool(case.relevant_series_ids) for case in holdout) == 8
+    assert not (
+        {case.query.casefold() for case in earlier.cases}
+        & {case.query.casefold() for case in holdout}
+    )
+
+    report = evaluation.evaluate(safety, snapshot, ["lexical"])
+    summary = report["summary"]["holdout/lexical"]
+    assert summary["hit_at_1"] == 1.0
+    assert summary["mrr"] == 1.0
+    assert summary["no_answer_status_ok"] == 1.0
+    unsupported = [row for row in report["cases"] if row.get("status_ok") is not None]
+    assert unsupported and all(row["status"] in ("PARTIAL", "NO_MATCH") for row in unsupported)
+    evidence = json.loads(SAFETY_REPORT.read_text(encoding="utf-8"))
+    assert evidence["cases_sha256"] == report["cases_sha256"]
+    assert evidence["holdout"]["after"] == {
+        "hit_at_1": summary["hit_at_1"],
+        "recall_at_5": summary["recall_at_5"],
+        "recall_at_10": summary["recall_at_10"],
+        "mrr": summary["mrr"],
+        "unsupported_status_ok": summary["no_answer_status_ok"],
+        "archive_leaks": summary["archived_leaks"],
+    }
 
 
 @pytest.mark.parametrize(

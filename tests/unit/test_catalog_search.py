@@ -113,10 +113,17 @@ def test_no_match_is_not_unresolved(tool):
 def test_bm25_and_stable_order(tool):
     first = search(tool, "İstanbul fiyat")
     assert first.candidates and first.candidates[0].series.record.series_id == "EVDS:TP.KFE.TR10"
+    assert first.status == "PARTIAL" and not first.concepts
     assert all(c.method == "bm25" and c.bm25_score > 0 for c in first.candidates)
     assert all(c.matched_terms for c in first.candidates)
     assert first.model_dump_json() == search(tool, "İstanbul fiyat").model_dump_json()
     assert CatalogSearchOutput.model_validate_json(first.model_dump_json()) == first
+
+
+def test_reviewed_match_can_still_report_match(tool):
+    result = search(tool, "Türkiye KFE")
+    assert result.status == "MATCH"
+    assert [c.concept_id for c in result.concepts] == ["kfe_national"]
 
 
 def test_snapshot_order_cannot_break_score_or_tie_order(tool):

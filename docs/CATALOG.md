@@ -53,7 +53,10 @@ not confidence or permission to calculate.
 embedding origin. `hybrid` means both configured mechanics succeeded; an
 `offline_fixture` origin does not establish Qwen semantic quality. No similarity
 threshold is invented: unfamiliar wording may yield nearby candidates that still
-need relevance/semantic review or clarification.
+need relevance/semantic review or clarification. Under
+[DEC-143](DECISIONS.md#dec-143--similarity-only-catalog-results-are-unresolved-candidates),
+such a nonempty similarity-only result is `PARTIAL`, not `MATCH`, when no reviewed
+alias or phrase identified a catalog concept. Candidate order and visibility are unchanged.
 
 Snapshot mismatch, embedding/policy failure or invalid/native index output
 returns **`lexical_degraded`**, `dense_status=failed`, a fixed category and a tool
@@ -159,7 +162,8 @@ Metadata remains untrusted and cannot authorize fetches or calculations.
 All returned candidates require clarification/semantic review, even top-1.
 Four housing-rate IDs, the two weekly and two monthly pairs, KFE geographies,
 unknown bases and unresolved amount/rate distinctions are not collapsed.
-`PARTIAL` means candidates coexist with unresolved concept meaning; `UNRESOLVED`
+`PARTIAL` means candidates coexist with unresolved concept meaning or are supported
+only by BM25/dense similarity without a reviewed concept match; `UNRESOLVED`
 means a reviewed concept has no real candidate mapping. `FILTERED_OUT` means
 mapped IDs were excluded by filters; `NO_MATCH` means no positive lexical or
 reviewed match. Empty results never invent IDs. No stock/rate or unit inference

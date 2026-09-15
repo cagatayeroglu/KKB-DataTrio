@@ -1,0 +1,39 @@
+{
+  "report": "m13-14-catalog-similarity-safety-v1",
+  "snapshot_sha256": "e0bbaac8eb4d1b1e90deacab42989cd6f74181f8ce267150825e8d24e169fb11",
+  "cases_sha256": "e3d9aefc3bb7e8ff8b14b5fb1898521c921b843cb75d76a2edf7bd0808edea0b",
+  "mode": "lexical",
+  "holdout": {
+    "cases": 16,
+    "scored_supported": 8,
+    "unsupported": 8,
+    "before": {
+      "hit_at_1": 1.0,
+      "recall_at_5": 0.9375,
+      "recall_at_10": 0.9375,
+      "mrr": 1.0,
+      "unsupported_status_ok": 0.0,
+      "archive_leaks": 0
+    },
+    "after": {
+      "hit_at_1": 1.0,
+      "recall_at_5": 0.9375,
+      "recall_at_10": 0.9375,
+      "mrr": 1.0,
+      "unsupported_status_ok": 1.0,
+      "archive_leaks": 0
+    }
+  },
+  "rankings_identical": true,
+  "unsupported_status_changes": [
+    {"case_id": "S09", "before": "MATCH", "after": "PARTIAL"},
+    {"case_id": "S10", "before": "MATCH", "after": "PARTIAL"},
+    {"case_id": "S11", "before": "MATCH", "after": "PARTIAL"},
+    {"case_id": "S12", "before": "MATCH", "after": "PARTIAL"},
+    {"case_id": "S13", "before": "MATCH", "after": "PARTIAL"},
+    {"case_id": "S14", "before": "MATCH", "after": "PARTIAL"},
+    {"case_id": "S15", "before": "MATCH", "after": "PARTIAL"},
+    {"case_id": "S16", "before": "MATCH", "after": "PARTIAL"}
+  ],
+  "live_calls": 0
+}
