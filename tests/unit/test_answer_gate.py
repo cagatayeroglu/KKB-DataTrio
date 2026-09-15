@@ -496,3 +496,65 @@ class TestTheWholeSliceEndToEnd:
             results = (outcome,)
 
         assert collect_results(Outcome()) == ()
+
+
+@pytest.mark.parametrize("repaired", [SUPPORTED, "Temmuz 2026'da 801.438 milyon TL.", INVENTED])
+def test_period_wording_repair_is_bounded_and_reverified_before_publication(house, repaired):
+    from kkb_agent.agent import Workspace
+
+    wrong_period = "Temmuz 2026'da konut kredisi stoğu 801.438 milyon TL."
+    provider = scripted(plan_json(FULLY_TYPED), wrong_period, repaired)
+    registry = ToolRegistry()
+    registry.register(make_lakehouse_tool(house.connection))
+    workspace = Workspace.open(house.connection)
+    answer = Session(provider, registry, repair_period_wording=True).answer(
+        "Haziran bakiyesi?", house.connection, workspace=workspace, remember="table"
+    )
+    assert len(provider.seen) == 3
+    assert len(answer.outcome.results) == 1
+    # The second draft sees exactly the same computed values, not a recomputation.
+    assert provider.seen[1][1].content == provider.seen[2][1].content
+    assert wrong_period not in provider.seen[2][0].content
+    if repaired == SUPPORTED:
+        assert answer.answer.status is AnswerStatus.ACCEPTED
+        assert workspace.names() == ["table"]
+    else:
+        assert answer.answer.status is AnswerStatus.ABSTAINED
+        assert workspace.names() == []
+
+
+def test_period_repair_does_not_retry_invented_values(house):
+    provider = scripted(plan_json(FULLY_TYPED), INVENTED)
+    registry = ToolRegistry()
+    registry.register(make_lakehouse_tool(house.connection))
+    answer = Session(provider, registry, repair_period_wording=True).answer("q", house.connection)
+    assert answer.answer.status is AnswerStatus.ABSTAINED
+    assert len(provider.seen) == 2
+
+
+def test_period_repair_provider_failure_preserves_first_gated_answer(house, monkeypatch):
+    from kkb_agent.agent import Workspace
+    from kkb_agent.llm.provider import ProviderError
+
+    wrong_period = "Temmuz 2026'da konut kredisi stoğu 801.438 milyon TL."
+    provider = scripted(plan_json(FULLY_TYPED), "Seri aylık yayımlanmaktadır. " + wrong_period)
+    complete = provider.complete
+    calls = []
+
+    def fail_repair(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 3:
+            raise ProviderError("private transport detail")
+        return complete(*args, **kwargs)
+
+    monkeypatch.setattr(provider, "complete", fail_repair)
+    registry = ToolRegistry()
+    registry.register(make_lakehouse_tool(house.connection))
+    workspace = Workspace.open(house.connection)
+    answer = Session(provider, registry, repair_period_wording=True).answer(
+        "q", house.connection, workspace=workspace, remember="table"
+    )
+    assert len(calls) == 3 and workspace.names() == []
+    assert answer.answer.status is AnswerStatus.QUALIFIED
+    assert answer.answer.text == "Seri aylık yayımlanmaktadır."
+    assert "private transport detail" not in answer.answer.text
