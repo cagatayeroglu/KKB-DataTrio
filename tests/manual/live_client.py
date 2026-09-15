@@ -111,8 +111,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     config = literal_config(args.env_file)
     approved_base_url(config.base_url)
-    if config.max_attempts != 1 or not 1 <= config.request_timeout <= 120:
-        parser.error("Set KLOUDEKS_MAX_ATTEMPTS=1 and KLOUDEKS_REQUEST_TIMEOUT<=120")
+    # Observed Kloudeks completions can take several minutes; bound, never unlimited.
+    if config.max_attempts != 1 or not 1 <= config.request_timeout <= 900:
+        parser.error("Set KLOUDEKS_MAX_ATTEMPTS=1 and KLOUDEKS_REQUEST_TIMEOUT<=900")
     LEDGER.parent.mkdir(exist_ok=True)
     LEDGER.write_text("", encoding="utf-8")
     with KloudeksProvider(config) as provider:

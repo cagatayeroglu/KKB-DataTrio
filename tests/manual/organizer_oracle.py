@@ -57,6 +57,8 @@ def main(root: Path) -> None:
     rate_fell = [(a, b) for a, b in transitions if rate[b] < rate[a]]
     nominal_not_rising = [b for a, b in rate_fell if balance[b] <= balance[a]]
     kfe_up_real_not_rising = [b for a, b in rate_fell if kfe[b] > kfe[a] and real[b] <= real[a]]
+    real_not_rising = [b for a, b in transitions if real[b] <= real[a]]
+    rate_fell_real_not_rising = [b for a, b in rate_fell if real[b] <= real[a]]
     print(
         json.dumps(
             {
@@ -76,8 +78,17 @@ def main(root: Path) -> None:
                     "real_2021_01": str(round(real["2021-01"], 1)),
                     "real_2023_12": str(round(real["2023-12"], 1)),
                     "real_2025_12": str(round(real["2025-12"], 1)),
+                    "real_highlighted": {
+                        m: str(round(real[m], 1))
+                        for m in ("2021-02", "2021-05", "2023-12", "2024-01")
+                    },
                 },
                 "turn3": {
+                    "real_not_rising": len(real_not_rising),
+                    "rate_fell_real_not_rising": len(rate_fell_real_not_rising),
+                    "same_months_without_kfe_condition": (
+                        rate_fell_real_not_rising == kfe_up_real_not_rising
+                    ),
                     "rate_fell_kfe_up_real_not_rising": len(kfe_up_real_not_rising),
                     "months": kfe_up_real_not_rising,
                     "kfe_2025_12": str(kfe["2025-12"]),

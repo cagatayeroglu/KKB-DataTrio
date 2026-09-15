@@ -364,6 +364,8 @@ def test_check_command_never_constructs_provider_or_listener(pool, monkeypatch, 
         ("KLOUDEKS_BASE_URL", "https://api.openai.com/v1"),
         ("KLOUDEKS_REQUEST_TIMEOUT", "nan"),
         ("KLOUDEKS_REQUEST_TIMEOUT", "99999"),
+        ("KLOUDEKS_REQUEST_TIMEOUT", "901"),
+        ("KLOUDEKS_REQUEST_TIMEOUT", "0"),
         ("KLOUDEKS_MAX_ATTEMPTS", "99"),
         ("KLOUDEKS_API_KEY", ""),
     ],
@@ -377,6 +379,18 @@ def test_bad_settings_are_redacted_and_never_start_service(
     report = capsys.readouterr().out
     assert json.loads(report) == {"ready": False, "error": "configuration_or_runtime_unavailable"}
     assert str(pool) not in report and "canary" not in report
+
+
+def test_measured_slow_completion_timeout_is_accepted_without_a_model_call(
+    pool, monkeypatch, capsys
+):
+    set_config(monkeypatch)
+    monkeypatch.setenv("KLOUDEKS_REQUEST_TIMEOUT", "600")
+    monkeypatch.setattr(
+        cli, "KloudeksProvider", lambda *a: pytest.fail("provider should not be built")
+    )
+    assert cli.main(["--check", "--prepared-root", str(pool), "--catalog", str(CATALOG)]) == 0
+    assert json.loads(capsys.readouterr().out)["model_checked"] is False
 
 
 def test_serving_requires_explicit_enablement_before_reading_configuration(pool):

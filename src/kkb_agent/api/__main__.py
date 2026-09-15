@@ -19,6 +19,8 @@ from kkb_agent.api.service import AnalysisService
 from kkb_agent.catalog.mappings import load_reviewed_snapshot
 from kkb_agent.llm import KloudeksProvider, ProviderConfig, approved_base_url
 
+MAX_REQUEST_TIMEOUT = 900.0
+
 
 def literal_config(path: Path | None) -> ProviderConfig:
     """Optional operator-local settings, not shell/Python interpolation or global env edits."""
@@ -81,9 +83,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         catalog_bytes = read_catalog(catalog_path)
         config = literal_config(args.env_file)
         approved_base_url(config.base_url)
+        # Live Kloudeks completions took up to 207 s on 2026-09-15; bounded, not unlimited.
         if (
             not math.isfinite(config.request_timeout)
-            or not 1 <= config.request_timeout <= 120
+            or not 1 <= config.request_timeout <= MAX_REQUEST_TIMEOUT
             or not 1 <= config.max_attempts <= 3
         ):
             raise ValueError("Local service provider budget refused")
