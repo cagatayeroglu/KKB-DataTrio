@@ -41,7 +41,12 @@ class TableRelationshipArguments(BaseModel):
     target_column: str = Field(
         min_length=1,
         max_length=400,
-        description="Exact column label; use the existing real column for real-credit questions",
+        description=(
+            "Exact column label. When the table carries a "
+            "'<column> real, <month> prices (<index>)' counterpart, that inflation-adjusted "
+            "column is the one a question about real change needs; the nominal column "
+            "answers only a nominal question"
+        ),
     )
     driver_direction: Direction
     target_direction: Direction

@@ -393,3 +393,84 @@ def test_legacy_change_arguments_stay_flat():
     }
     parsed = ChangeDetectionArguments.model_validate(payload)
     assert json.loads(parsed.model_dump_json(exclude_unset=True)) == payload
+
+
+REAL_LABEL = "credit real, 2023-06 prices (CPI)"
+
+
+def table_with_real(real_values=(10, 11, 12, 13, 14, 15)):
+    """The Turn 2 shape: a nominal credit column beside its deflated counterpart."""
+    source = table()
+    return source.model_copy(
+        update={
+            "values": [
+                *source.values,
+                *credit_column(real_values, label=REAL_LABEL),
+            ]
+        }
+    )
+
+
+class TestNominalAndRealAreNotInterchangeable:
+    """M11-11: the 2026-09-16 Turn 3 compared the nominal column and said 4.
+
+    The table it was given also carried the deflated column built one turn
+    earlier, and the same comparison against that column is a different count.
+    Choosing between them is the planner's, but which one was used must not be
+    invisible in the result an answer is written from.
+    """
+
+    def test_the_nominal_choice_is_recorded_when_a_real_column_exists(self):
+        result = compare(table_with_real(), target_column="credit")
+
+        assert any(
+            "compared in nominal terms" in item and REAL_LABEL in item
+            for item in result.limitations
+        )
+
+    def test_using_the_real_column_carries_no_such_note(self):
+        result = compare(table_with_real(), target_column=REAL_LABEL)
+
+        assert not any("compared in nominal terms" in item for item in result.limitations)
+
+    def test_a_table_without_a_real_column_carries_no_such_note(self):
+        result = compare(target_column="credit")
+
+        assert not any("compared in nominal terms" in item for item in result.limitations)
+
+    def test_the_note_names_every_nominal_column_the_comparison_used(self):
+        source = table_with_real().model_copy()
+        source = source.model_copy(
+            update={
+                "values": [
+                    *source.values,
+                    *credit_column(
+                        (1, 2, 3, 4, 5, 6),
+                        label="rate real, 2023-06 prices (CPI)",
+                        unit="percent",
+                        measure=StockFlow.RATE,
+                    ),
+                ]
+            }
+        )
+        result = compare(source, target_column="credit", when_column="rate")
+
+        notes = [item for item in result.limitations if "compared in nominal terms" in item]
+        assert len(notes) == 2
+
+    def test_the_two_columns_really_do_give_different_counts(self):
+        # Without this the note would be a warning about nothing.
+        source = table_with_real()
+        nominal = counts(compare(source, target_column="credit"))
+        real = counts(compare(source, target_column=REAL_LABEL))
+
+        assert nominal != real
+
+    def test_the_note_does_not_disturb_the_counts_or_the_preserved_table(self):
+        plain = compare(table(), target_column="credit")
+        with_real = compare(table_with_real(), target_column="credit")
+
+        assert counts(plain) == counts(with_real)
+        assert [v.label for v in table().values] == [
+            v.label for v in with_real.values if not v.label.startswith("table comparison ")
+        ][: len(table().values)]

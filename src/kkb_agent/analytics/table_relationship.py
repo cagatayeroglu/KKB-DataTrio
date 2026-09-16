@@ -70,6 +70,17 @@ def _column(source: AnalyticalResult, label: str) -> dict[date, float]:
     return values
 
 
+def _real_counterpart(source: AnalyticalResult, label: str) -> str | None:
+    """The deflated column derived from this one, when the table already carries it.
+
+    `deflation` names its output `"<column> real, <YYYY-MM> prices (<index>)"`, so
+    the relationship between a nominal column and its real counterpart is readable
+    from the labels without re-deriving anything.
+    """
+    prefix = f"{label} real, "
+    return next((value.label for value in source.values if value.label.startswith(prefix)), None)
+
+
 def compare_table_directions(
     source: AnalyticalResult,
     *,
@@ -141,6 +152,15 @@ def compare_table_directions(
     coverage = Period(
         start=transitions[0][0].replace(day=1), end=transitions[-1][0], frequency=Frequency.MONTHLY
     )
+    # A table that already carries the deflated column can be compared either way,
+    # and the counts differ. Say which one this comparison used, so an answer built
+    # on it cannot read as a statement about real change.
+    nominal_notes = [
+        f"{column!r} was compared in nominal terms although this table also carries "
+        f"{counterpart!r}; a question about real change needs the real column"
+        for column in (driver_column, target_column, *([when_column] if when_column else []))
+        if (counterpart := _real_counterpart(source, column)) is not None
+    ]
     counts = {
         "complete monthly transitions": len(transitions),
         "transitions excluded for missing observations": possible - len(transitions),
@@ -204,6 +224,7 @@ def compare_table_directions(
         ],
         limitations=[
             *source.limitations,
+            *nominal_notes,
             "Direction counts describe contemporaneous movement, not an identified causal effect; "
             "other factors are not controlled",
             "Directions use the selected column as stored, including its existing price reference; "
