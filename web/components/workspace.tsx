@@ -30,7 +30,7 @@ import {
   api,
   ApiError,
   admissionRejection,
-  draftRequest,
+  draftWorkspaceRequest,
   publishedResult,
   restoredSelection,
   admit,
@@ -323,7 +323,11 @@ export function Workspace() {
       const source = items[selected]?.turn;
       if (followSelected && state.view_result_id && !publishedResult(source))
         throw new ApiError("selection_unavailable");
-      const entry = draftRequest(question, followSelected ? source : undefined);
+      const entry = draftWorkspaceRequest(
+        question,
+        followSelected,
+        source ?? items.at(-1)?.turn,
+      );
       const next = { ...state, turns: [...state.turns, entry] };
       record(next);
       setItems((old) => [...old, entry]);
@@ -714,7 +718,9 @@ export function Workspace() {
                     disabled={!ready || busy || pending}
                     onChange={(e) => chooseMode(e.target.checked)}
                   />
-                  Seçili tabloyla devam et
+                  {items.at(-1)?.turn?.answer?.status === "abstained" && !result
+                    ? "Önceki isteği netleştir"
+                    : "Seçili tabloyla devam et"}
                 </label>
                 <span>
                   {pending
@@ -723,7 +729,10 @@ export function Workspace() {
                       ? `Kaynak tablo: Analiz ${selected + 1}`
                       : followSelected && saved.current?.view_result_id
                         ? "Devam etmek için kaynak tabloyu seç"
-                        : "Serbest soru · belirli bir tabloya sabitlenmez"}
+                        : followSelected &&
+                            items.at(-1)?.turn?.answer?.status === "abstained"
+                          ? "Önceki isteğin bağlamıyla devam eder"
+                          : "Serbest soru · belirli bir tabloya sabitlenmez"}
                 </span>
               </div>
               <textarea

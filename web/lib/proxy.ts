@@ -26,6 +26,14 @@ export function backendOrigin(value = "http://127.0.0.1:8000") {
     throw new Error("invalid_backend");
   return url.origin;
 }
+export function proxyTimeoutMs(value: string | undefined) {
+  if (value === undefined) return 30000;
+  if (!/^[1-9]\d*$/.test(value)) throw new Error("invalid_proxy_timeout");
+  const timeout = Number(value);
+  if (!Number.isSafeInteger(timeout) || timeout > 900000)
+    throw new Error("invalid_proxy_timeout");
+  return timeout;
+}
 export async function boundedRead(
   stream: ReadableStream<Uint8Array> | null,
   limit: number,
@@ -97,7 +105,12 @@ export async function forward(
     if (!token || !tokenPattern.test(token)) return error("not_found", 404);
     headers.set("X-KKB-Session-Token", token);
   }
-  const timeoutMs = Number(process.env.KKB_PROXY_TIMEOUT_MS) || 900000;
+  let timeoutMs: number;
+  try {
+    timeoutMs = proxyTimeoutMs(process.env.KKB_PROXY_TIMEOUT_MS);
+  } catch {
+    return error("unavailable", 503);
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const disconnect = () => controller.abort();

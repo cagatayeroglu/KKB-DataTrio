@@ -336,6 +336,7 @@ class PreparedRunner:
         session_id: str,
         turn_id: str,
         question: str,
+        *,
         is_continuation: bool | None = None,
     ) -> Answer:
         return self._run(session_id, turn_id, question, is_continuation=is_continuation)
@@ -346,6 +347,7 @@ class PreparedRunner:
         turn_id: str,
         question: str,
         selection: SelectedResult,
+        *,
         is_continuation: bool | None = None,
     ) -> Answer:
         """Service worker entry; resolve and execute under the same runner lock."""

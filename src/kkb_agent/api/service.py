@@ -6,10 +6,9 @@ import hashlib
 import secrets
 import threading
 import time
-from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, Protocol
 from uuid import uuid4
 
 from kkb_agent.agent.loop import PlanningFailed
@@ -30,9 +29,13 @@ from kkb_agent.api.contracts import (
 from kkb_agent.api.projection import OutputRefused
 from kkb_agent.llm.provider import ProviderError
 
+
 # Executed only on the one worker. A runtime must own/open/close its connection
 # there and retain session state under the server-issued session_id.
-Runner = Callable[..., Answer]
+class Runner(Protocol):
+    def __call__(
+        self, session_id: str, turn_id: str, question: str, *, is_continuation: bool | None
+    ) -> Answer: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,7 +47,16 @@ class SelectedResult:
     version: str
 
 
-SelectedRunner = Callable[..., Answer]
+class SelectedRunner(Protocol):
+    def __call__(
+        self,
+        session_id: str,
+        turn_id: str,
+        question: str,
+        selection: SelectedResult,
+        *,
+        is_continuation: bool | None,
+    ) -> Answer: ...
 
 
 class ServiceError(Exception):

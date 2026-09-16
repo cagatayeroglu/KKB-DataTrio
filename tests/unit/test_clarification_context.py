@@ -9,6 +9,7 @@ from test_catalog_continuation import CATALOG, TOTAL, discover, proposal, seed_p
 from test_series_inspection import SQL
 
 from kkb_agent.agent.workspace import Workspace
+from kkb_agent.api import prepared as prepared_module
 from kkb_agent.api.app import create_app
 from kkb_agent.api.prepared import PreparedRunner, open_lakehouse
 from kkb_agent.api.service import AnalysisService, SelectedResult
@@ -383,28 +384,34 @@ def test_request_idempotency_does_not_duplicate_context(pool, tmp_path):
     assert len(prepared._pending_clarifications[sid].clarifications) == 0
 
 
-def test_negative_control_without_context_inheritance_fails(pool, tmp_path):
-    """Controlled negative test: disabling context inheritance causes Turn 2 to fail."""
-    provider = scripted(
-        proposal(discover("d1")),
-        proposal(clarification="ambiguous_series"),
-        # Without context inheritance, Turn 2 receives raw q2 without dates/filters
-        proposal(discover("d2")),
-        proposal(clarification="ambiguous_series"),
-    )
-    prepared = runner(pool, tmp_path, provider)
-    sid = uuid4().hex
+def test_negative_control_detects_lost_planner_context(pool, tmp_path, monkeypatch):
+    """The planner-input assertion fails if prompt composition drops the original."""
+    q1 = "Nisan-Haziran 2026 konut kredisinin faizle ilişkisini göster."
+    q2 = "BDDK Aylık Bülten toplam bakiyeyi kullan."
 
-    q1 = "Nisan-Haziran 2026 konut kredisini göster."
-    prepared(sid, uuid4().hex, q1)
-    assert sid in prepared._pending_clarifications
+    def planner_input() -> str:
+        provider = scripted(
+            proposal(discover("d1")),
+            proposal(clarification="ambiguous_series"),
+            proposal(discover("d2")),
+            proposal(clarification="unresolved_semantics"),
+        )
+        prepared = runner(pool, tmp_path, provider)
+        sid = uuid4().hex
+        prepared(sid, uuid4().hex, q1)
+        prepared(sid, uuid4().hex, q2, is_continuation=True)
+        return "\n".join(message.content for message in provider.seen[-2])
 
-    # Controlled negative check: pass is_continuation=False to bypass context inheritance
-    q2 = "BDDK verisini kullan."
-    turn2_raw = prepared(sid, uuid4().hex, q2, is_continuation=False)
-
-    # Without q1 context, q2 alone lacks dates and fails/abstains!
-    assert turn2_raw.status.value == "abstained"
+    assert f"Orijinal istek: {q1}" in planner_input()
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            prepared_module,
+            "_format_clarification_prompt",
+            lambda original, clarifications: clarifications[-1],
+        )
+        broken_input = planner_input()
+    assert q1 not in broken_input
+    assert q2 in broken_input
 
 
 BASE = "http://127.0.0.1:8000"

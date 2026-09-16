@@ -4,12 +4,45 @@ import {
   backendOrigin,
   boundedRead,
   forward,
+  proxyTimeoutMs,
   BODY_LIMIT,
   RESPONSE_LIMIT,
 } from "../lib/proxy";
 const sid = "1".repeat(32),
   tid = "2".repeat(32),
   token = "t".repeat(43);
+test("proxy timeout has a bounded, validated per-request setting", () => {
+  assert.equal(proxyTimeoutMs(undefined), 30000);
+  assert.equal(proxyTimeoutMs("12000"), 12000);
+  assert.equal(proxyTimeoutMs("900000"), 900000);
+  for (const value of [
+    "",
+    "0",
+    "-1",
+    "NaN",
+    "Infinity",
+    "1.5",
+    "900001",
+    "1e6",
+  ])
+    assert.throws(() => proxyTimeoutMs(value));
+});
+test("invalid proxy timeout refuses dispatch before local transport", async () => {
+  const prior = process.env.KKB_PROXY_TIMEOUT_MS;
+  process.env.KKB_PROXY_TIMEOUT_MS = "Infinity";
+  let calls = 0;
+  try {
+    const response = await forward(request(), ["v1", "health"], async () => {
+      calls++;
+      return Response.json({});
+    });
+    assert.equal(response.status, 503);
+    assert.equal(calls, 0);
+  } finally {
+    if (prior === undefined) delete process.env.KKB_PROXY_TIMEOUT_MS;
+    else process.env.KKB_PROXY_TIMEOUT_MS = prior;
+  }
+});
 function request(
   path = "v1/health",
   method = "GET",

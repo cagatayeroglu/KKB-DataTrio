@@ -148,6 +148,21 @@ export function draftRequest(
       : {}),
   };
 }
+export function draftWorkspaceRequest(
+  question: string,
+  followSelected: boolean,
+  source?: Turn,
+): Saved["turns"][number] {
+  const selected =
+    followSelected && publishedResult(source) ? source : undefined;
+  const clarifying =
+    source?.state === "completed" && source.answer?.status === "abstained";
+  return draftRequest(
+    question,
+    selected,
+    followSelected && (Boolean(selected) || Boolean(clarifying)),
+  );
+}
 export function admissionRejection(
   error: unknown,
 ): Saved["turns"][number]["admission_error"] {
