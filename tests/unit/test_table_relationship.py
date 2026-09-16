@@ -20,12 +20,21 @@ from kkb_agent.agent import (
     gate_answer,
     render_results,
 )
+from kkb_agent.agent.claim_qualifiers import comovement_count_meaning, controlled_count_label
 from kkb_agent.agent.executor import PlanRejected, execute, validate_plan
 from kkb_agent.agent.plan import AnalyticalPlan
 from kkb_agent.agent.presentation import period_table
 from kkb_agent.agent.verifier import result_faults
 from kkb_agent.analytics.table_relationship import TableComparisonRefused, compare_table_directions
-from kkb_agent.core import AnalyticalResult, ResultEvidence, ResultKind, ResultStatus, StockFlow
+from kkb_agent.core import (
+    DIMENSIONLESS,
+    AnalyticalResult,
+    ResultEvidence,
+    ResultKind,
+    ResultStatus,
+    Scale,
+    StockFlow,
+)
 from kkb_agent.llm import scripted
 from kkb_agent.tools import make_change_detection_tool
 from kkb_agent.tools.change_detection import ChangeDetectionArguments
@@ -573,3 +582,109 @@ class TestOneRewritePerWordingProblem:
         # Numeric rewrite runs; the period fault it leaves has no enabled repair.
         assert len(provider.seen) == 3
         assert "comparison" not in workspace.names()
+
+
+INHERITED_LABEL = "transitions where rate fell and credit did not rise"
+INHERITED_PHRASE = "Sürücü düşerken hedefin artmadığı geçiş sayısı"
+JOINT_PHRASE = "Koşul altında iki yönü birlikte karşılayan dönem sayısı"
+
+
+def with_inherited_count(value):
+    """A comparison whose source already carries an equal co-movement count.
+
+    This is the live Turn 3 shape: the table built in Turn 1 contributes its own
+    direction counts, and the new comparison publishes counts of its own.
+    """
+    source = table()
+    inherited = credit_column()[0].model_copy(
+        update={
+            "label": INHERITED_LABEL,
+            "value": value,
+            "unit": DIMENSIONLESS,
+            "scale": Scale.ONE,
+            "measure": StockFlow.UNKNOWN,
+        }
+    )
+    return compare(
+        source.model_copy(update={"values": [*source.values, inherited]}),
+        target_column="credit",
+    )
+
+
+class TestAnInheritedCountCanStillBeNamed:
+    """M11-11: the count a later comparison inherits needs wording of its own.
+
+    Measured twice live on 2026-09-16: Turn 3 withheld its sentence because the
+    literals 4 and 32 each matched an inherited co-movement count and one or
+    more new comparison counts, and the inherited one had no controlled phrase
+    to name it with, so no wording could bind it.
+    """
+
+    def test_the_inherited_count_now_has_a_controlled_phrase(self):
+        result = with_inherited_count(3.0)
+        inherited = next(v for v in result.values if v.label == INHERITED_LABEL)
+
+        assert controlled_count_label(result, inherited) == INHERITED_PHRASE
+
+    def test_it_differs_from_the_new_comparison_phrase_at_the_same_value(self):
+        result = with_inherited_count(3.0)
+        equal = [v for v in result.values if v.value == 3.0 and v.unit == DIMENSIONLESS]
+        phrases = {controlled_count_label(result, v) for v in equal}
+
+        assert len(equal) > 1
+        assert INHERITED_PHRASE in phrases and JOINT_PHRASE in phrases
+        assert len(phrases) == len(equal)
+
+    def test_the_writer_is_shown_the_phrase_rather_than_the_raw_label(self):
+        context = render_results({"comparison": with_inherited_count(3.0)})
+
+        assert f"{INHERITED_PHRASE}: display 3" in context
+        assert INHERITED_LABEL not in context
+
+    @pytest.mark.parametrize(
+        ("label", "meaning"),
+        [
+            ("consecutive monthly transitions compared", "transitions"),
+            ("transitions where rate fell", "driver_fell"),
+            ("transitions where rate fell and credit rose", "target_rose"),
+            ("transitions where rate fell and credit did not rise", "target_did_not_rise"),
+            ("credit real, 2023-06 prices (CPI)", None),
+            ("table comparison abc: complete monthly transitions", None),
+        ],
+    )
+    def test_each_co_movement_shape_is_classified_and_nothing_else_is(self, label, meaning):
+        assert comovement_count_meaning(label) is meaning
+
+    def test_naming_the_inherited_count_binds_it(self, pool):
+        outcome = execute(validate_plan(plan(), registry_for(pool)), registry_for(pool))
+        final = outcome.results[-1].output
+        inherited = next(
+            (v for v in final.values if comovement_count_meaning(v.label) is not None), None
+        )
+        assert inherited is not None
+
+        gated = gate_answer(
+            f"{controlled_count_label(final, inherited)} {inherited.value:.0f} ay.",
+            {"comparison": final},
+            pool[0].connection,
+        )
+
+        assert gated.status is AnswerStatus.ACCEPTED
+
+    def test_the_inherited_phrase_may_not_claim_a_different_count(self, pool):
+        outcome = execute(validate_plan(plan(), registry_for(pool)), registry_for(pool))
+        final = outcome.results[-1].output
+
+        # The joint count is 1; naming it with the inherited count's wording must fail.
+        gated = gate_answer(f"{INHERITED_PHRASE} 1 ay.", {"comparison": final}, pool[0].connection)
+
+        assert gated.status is AnswerStatus.ABSTAINED
+        assert any("co-movement count wording" in r for item in gated.omitted for r in item.reasons)
+
+    def test_a_bare_number_matching_several_counts_is_still_ambiguous(self, pool):
+        outcome = execute(validate_plan(plan(), registry_for(pool)), registry_for(pool))
+        final = outcome.results[-1].output
+
+        gated = gate_answer("Sonuç 1 aydır.", {"comparison": final}, pool[0].connection)
+
+        assert gated.status is AnswerStatus.ABSTAINED

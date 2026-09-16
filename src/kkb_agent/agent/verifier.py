@@ -29,6 +29,7 @@ from kkb_agent.agent.claim_qualifiers import (
     amount_qualifiers,
     causal_fault,
     clause_context,
+    comovement_count_identity_fault,
     has_amount_context,
     identity_fault,
     is_date_token,
@@ -587,6 +588,7 @@ def _bind_to_results(
                     unit_fault(answer, number.start, end, value),
                     identity_fault(clause, prefix, name, result, value, named),
                     table_count_identity_fault(clause, result, value),
+                    comovement_count_identity_fault(clause, result, value),
                     None
                     if (
                         result.claim_kind is ClaimKind.LITERAL_SOURCE_VALUE
