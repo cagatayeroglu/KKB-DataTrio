@@ -1061,6 +1061,47 @@ record does not alter runtime code. No live provider, source, embedding or
 search call was made. A bounded live rerun remains separate and requires
 explicit authorization.
 
+<a id="m11-07-count-identity-wording-2026-09-16"></a>
+### M11-07 / M13-05 rerun after the count phrases — 2026-09-16 (PR #208)
+
+Owner-authorized by Eray on merged `dev` `21a8e02`, carrying the co-movement count
+phrases (#207), the second bounded rewrite (#205), the nominal-versus-real note (#203)
+and the weekly window boundary (#202). Same bounded plan; prerequisites re-verified
+offline with no provider call. Usage: **12 chat and 6 query embeddings** of the 15/15
+ceiling.
+
+| Turn | Result |
+| --- | --- |
+| 1 | **ACCEPTED**, 151 s, zero omissions; published 242 values, `by_end`. All 238 independent comparisons match; metrics 59/32/28/4 and the four non-rise months match. |
+| 2 | **ACCEPTED**, 143 s; published 302 values after one `period` rewrite. All 60 real values match December 2025 CPI arithmetic, verified read-only from the session store (2021-01 1,894,772.1; 2023-12 828,155.2; 2024-01 773,412.0). |
+| 3 | **QUALIFIED**, not published. First draft withheld one sentence with three `ambiguous` reasons on the unbound literals 59, 32 and 4; the numeric rewrite reduced it to one `ambiguous` on 4 — the same category, so no second rewrite. |
+
+**#207 worked and was still not enough.** The inherited co-movement counts now carry
+controlled phrases and reach the writer under them, which offline tests confirm. But the
+writer wrote bare numbers anyway, and a bare count that equals several values cannot
+bind no matter how many phrases exist.
+
+The remaining gap is in the instructions, and it is exact. `SYNTHESIS_PROMPT` says to
+use the listed display phrases "copying each number, unit and scale exactly", and
+`NUMERIC_REPAIR_INSTRUCTIONS` says to "copy every number exactly from a listed display
+phrase, including its unit and period when present. Counts listed as displays may be
+described as counts." **Neither tells the writer to write the phrase that identifies a
+count beside the count.** For a level the unit and period identify the figure; for a
+count the label is the whole identity, so copying the number alone can never bind when
+the table holds several equal counts. The writer is being asked to satisfy a binding
+rule it is never told about.
+
+Confirmation status after this run: #202 is still unexercised because the planner chose
+`by_end` again; #203 is still unobserved because Turn 3 never published; #205 is still
+unexercised because both Turn 3 drafts failed in the same category; #207 is confirmed to
+supply and display the phrases, but its effect on binding is untested live because no
+draft used one.
+
+Every rejection was correct and every candidate value was correct. Classification
+**F — acceptance/reliability failure with an identified cause in the writer contract.**
+Prepared pool byte-identical before and after; services stopped; no BDDK/EVDS, search,
+OCR or index-build call.
+
 <a id="m11-07-inherited-count-ambiguity-2026-09-16"></a>
 ### M11-07 / M13-05 rerun after the rewrite fix — 2026-09-16 (PR #206)
 
