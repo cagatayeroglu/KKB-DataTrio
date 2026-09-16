@@ -1,4 +1,10 @@
-import type { Dataset, Proof, ProofSource, ProofStep } from "./contracts";
+import type {
+  Dataset,
+  Proof,
+  ProofDocument,
+  ProofSource,
+  ProofStep,
+} from "./contracts";
 import { seriesLabel, unitLabel } from "./table";
 
 /** Fixed wording for server-recorded proof facts; no inference beyond the payload. */
@@ -16,6 +22,7 @@ const producers: Record<string, string> = {
   table_transform: "Tablo dönüşümü",
   anomaly: "Olağandışı değer taraması",
   causality: "İlişki ve gecikme analizi",
+  web_url: "Sorudaki adresteki belgeden hücre okuma",
 };
 const gaps: Record<Proof["gaps"][number], string> = {
   execution_not_verified:
@@ -77,9 +84,54 @@ export function stepInputs(
     if (item.kind === "result") {
       return `${proof.steps[item.index]?.workspace_name ?? "önceki sonuç"} tablosu`;
     }
+    if (item.kind === "document") {
+      const document = proof.documents[item.index];
+      return document ? documentName(document) : "kayıtlı belge";
+    }
     const source = proof.sources[item.index];
     return source ? sourceName(source, dataset) : "kayıtlı seri";
   });
+}
+
+const formats: Record<ProofDocument["document_format"], string> = {
+  csv: "CSV",
+  xlsx: "Excel",
+  pdf: "PDF",
+  html: "HTML",
+};
+
+/** The document by format and https host only; the address path is never recorded. */
+export function documentName(document: ProofDocument) {
+  const format = formats[document.document_format];
+  return document.host
+    ? `${format} belgesi (${document.host})`
+    : `${format} belgesi`;
+}
+
+export function documentOrigin(document: ProofDocument) {
+  const when = document.retrieved_at
+    ? `${day(document.retrieved_at)} tarihinde okundu`
+    : "okunma zamanı kayıtlı değil";
+  return `Sorudaki adresten güvenli indirme, ${when}`;
+}
+
+/** Position of the one selected cell; sheet names and cell text stay out. */
+export function documentLocation(document: ProofDocument) {
+  return [
+    document.page === null ? null : `sayfa ${document.page}`,
+    document.sheet_selected ? "seçilen çalışma sayfası" : null,
+    document.table === null ? null : `tablo ${document.table}`,
+    `satır ${document.row}`,
+    `sütun ${document.column}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+export function stepCheck(step: ProofStep) {
+  return step.producer === "web_url"
+    ? "Seçilen hücre, belgenin içerik kimliği ve okunan değerle yeniden eşleşti"
+    : "Yürütme kaydı girdileri ve çıktısıyla yeniden eşleşti";
 }
 
 function day(value: string) {

@@ -893,6 +893,16 @@ gaps, not source correctness; the gate outcome is preserved separately. Other
 runners (scripted service tests, custom services) keep `unavailable`. On the
 real local pool a BDDK compare traced 66 raw responses in about 20 ms (1.5 KiB).
 
+A published literal document cell (`LITERAL_SOURCE_VALUE`, DEC-132) has no
+producer execution record. Its chain starts only when the gate's own
+`literal_proof` re-reads the exact cell snapshot, its single source edge and
+content hash; otherwise it is `unavailable` (`execution_not_verified`). The
+proof then carries one `web_url` step with a `document` input and one
+`documents` entry: format (csv/xlsx/pdf/html), https host, content SHA-256, the
+retrieval time recorded in the published result, and page/table/row/column
+positions with only a flag that a worksheet was named. The address path/query,
+sheet name, header, row label and cell text are document data and are excluded.
+
 
 ## Prepared runtime
 
@@ -929,8 +939,14 @@ the expanded 29-series pool is about 8.13 MiB; the earlier seven-series pool was
 The service's single worker opens/closes a session's connection for each turn.
 The runner also refuses accidental concurrent entry. It registers inspected
 `lakehouse`, `change_detection`, `anomaly`, `causality`, `table_transform`, plus
-`catalog_search` and bounded catalog continuation. This prepared mode exposes
-no generic web/search/upload tools or provider/gate settings to the caller.
+`catalog_search` and bounded catalog continuation. `web_url` is registered only
+when the operator starts the service with `--enable-web-url` (M7-14/M10-04 slice
+1; default off while Q-NET-02 is open); it uses the real `safe_fetch`, reads
+only an address written in the question, and records its cell proof in the
+session's own lineage. In hybrid mode a `web_url` step needs no catalog
+discovery, while any prepared-series step still does and a discovery
+continuation still cannot read an address. This prepared mode exposes no
+`web_search`/upload tools or provider/gate settings to the caller.
 Free catalog metadata remains continuation data, not SYSTEM instructions;
 existing code-reviewed display constants are the only names added to tool
 descriptions. Dense live retrieval is not silently enabled by this launcher.

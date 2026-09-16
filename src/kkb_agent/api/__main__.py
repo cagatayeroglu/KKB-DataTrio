@@ -17,6 +17,7 @@ from kkb_agent.api.app import create_app
 from kkb_agent.api.prepared import PreparedRunner, _local, inspect_pool, read_catalog
 from kkb_agent.api.service import AnalysisService
 from kkb_agent.catalog.mappings import load_reviewed_snapshot
+from kkb_agent.ingest.safe_fetch import safe_fetch
 from kkb_agent.llm import KloudeksProvider, ProviderConfig, approved_base_url
 
 MAX_REQUEST_TIMEOUT = 900.0
@@ -55,7 +56,9 @@ def literal_config(path: Path | None) -> ProviderConfig:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="KKB prepared local API; no source fetching")
+    parser = argparse.ArgumentParser(
+        description="KKB prepared local API; no source fetching unless --enable-web-url"
+    )
     action = parser.add_mutually_exclusive_group(required=True)
     action.add_argument(
         "--check", action="store_true", help="Read-only readiness; never call a model"
@@ -74,6 +77,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Optional local catalog index generation built with the DEC-142 query policy",
     )
     parser.add_argument("--enable-model-requests", action="store_true")
+    parser.add_argument(
+        "--enable-web-url",
+        action="store_true",
+        help="Let questions read a web address they contain, through safe fetch; off by default",
+    )
     args = parser.parse_args(argv)
     if args.serve and (not args.enable_model_requests or args.state_root is None):
         parser.error("--serve requires --enable-model-requests and --state-root")
@@ -118,6 +126,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "model_checked": False,
                         "provider_configured": True,
                         "catalog_retrieval": retrieval,
+                        "web_url": args.enable_web_url,
                         "prepared": status.model_dump(mode="json"),
                     },
                     ensure_ascii=False,
@@ -140,6 +149,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 catalog_bytes=catalog_bytes,
                 redactions=(config.credential.get_secret_value(),),
                 catalog_dense=dense,
+                web_url_fetch=safe_fetch if args.enable_web_url else None,
             )
             service = AnalysisService(runner, mode="kloudeks", selected_runner=runner.selected)
             app = create_app(service, port=args.port, prepared=runner.status)
@@ -151,6 +161,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "port": args.port,
                         "model_checked": False,
                         "catalog_retrieval": retrieval,
+                        "web_url": args.enable_web_url,
                         "prepared_identities": runner.status.prepared_identities,
                     }
                 )
