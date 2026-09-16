@@ -95,24 +95,22 @@ def _deflated_columns(source: AnalyticalResult, arguments: TableRelationshipArgu
     substitution that would collide with another selected column is skipped, so
     a plan comparing a column against its own real counterpart still works.
     """
-    chosen: dict[str, str | None] = {
-        "driver_column": arguments.driver_column,
-        "target_column": arguments.target_column,
-        "when_column": arguments.when_column,
-    }
+    driver, target = arguments.driver_column, arguments.target_column
+    when: str | None = arguments.when_column
     moved: dict[str, str] = {}
-    if not arguments.use_nominal:
-        for key, label in list(chosen.items()):
-            if label is None:
-                continue
-            counterpart = real_counterpart(source, label)
-            if counterpart is None or counterpart in {v for k, v in chosen.items() if k != key}:
-                continue
-            chosen[key] = counterpart
-            moved[key] = label
-    driver, target = chosen["driver_column"], chosen["target_column"]
-    assert driver is not None and target is not None  # noqa: S101 - required fields
-    return _Columns(driver, target, chosen["when_column"], moved)
+    if arguments.use_nominal:
+        return _Columns(driver, target, when, moved)
+    counterpart = real_counterpart(source, driver)
+    if counterpart is not None and counterpart not in {target, when}:
+        moved["driver_column"], driver = driver, counterpart
+    counterpart = real_counterpart(source, target)
+    if counterpart is not None and counterpart not in {driver, when}:
+        moved["target_column"], target = target, counterpart
+    if when is not None:
+        counterpart = real_counterpart(source, when)
+        if counterpart is not None and counterpart not in {driver, target}:
+            moved["when_column"], when = when, counterpart
+    return _Columns(driver, target, when, moved)
 
 
 def run_table_relationship(
