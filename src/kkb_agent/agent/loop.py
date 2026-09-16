@@ -17,7 +17,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Final
 
-from kkb_agent.agent.claim_qualifiers import table_count_display_label
+from kkb_agent.agent.claim_qualifiers import controlled_count_label
 from kkb_agent.agent.discovery import (
     CLARIFICATION_TEXT,
     CONTINUATION_INSTRUCTIONS,
@@ -201,10 +201,10 @@ def render_results(named: Mapping[str, AnalyticalResult]) -> str:
     ]
     ambiguous: dict[str, set[int]] = {}
     for name, index, value in values:
-        controlled_label = table_count_display_label(named[name], value)
+        controlled_label = controlled_count_label(named[name], value)
         for other_name, other_index, other in values:
             if (name, index) != (other_name, other_index) and _indistinguishable(value, other):
-                other_label = table_count_display_label(named[other_name], other)
+                other_label = controlled_count_label(named[other_name], other)
                 if controlled_label is not None and controlled_label != other_label:
                     # The answer can bind this final comparison count through
                     # its controlled prose label, even when an inherited
@@ -332,7 +332,7 @@ def render_result(result: AnalyticalResult, ambiguous: frozenset[int] = frozense
     positions = {id(value): index for index, value in enumerate(result.values)}
     for value in values:
         display = display_value(value)
-        label = table_count_display_label(result, value) or value.label
+        label = controlled_count_label(result, value) or value.label
         if positions.get(id(value)) in ambiguous:
             # No figure to copy: the gate could not bind it to one value anyway.
             parts = [

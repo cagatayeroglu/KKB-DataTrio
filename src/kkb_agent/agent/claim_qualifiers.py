@@ -11,7 +11,7 @@ import re
 from collections.abc import Mapping, Sequence
 from datetime import date
 
-from kkb_agent.core import AnalyticalResult, ResultValue, Scale
+from kkb_agent.core import DIMENSIONLESS, AnalyticalResult, ResultValue, Scale
 
 
 def _fold(text: str) -> str:
@@ -283,6 +283,69 @@ def table_count_display_label(result: AnalyticalResult, value: ResultValue) -> s
     if not value.label.startswith(prefix):
         return None
     return TABLE_COUNT_LABELS.get(value.label.removeprefix(prefix))
+
+
+#: Controlled prose for the four counts a co-movement result publishes. These are
+#: what a later comparison inherits, and without a phrase of their own they cannot
+#: be named at all once a new comparison contributes an equal count.
+COMOVEMENT_COUNT_LABELS = {
+    "transitions": "Karşılaştırılan ardışık ay geçişi sayısı",
+    "driver_fell": "Sürücü serinin düştüğü geçiş sayısı",
+    "target_rose": "Sürücü düşerken hedefin arttığı geçiş sayısı",
+    "target_did_not_rise": "Sürücü düşerken hedefin artmadığı geçiş sayısı",
+}
+
+
+def comovement_count_meaning(label: str) -> str | None:
+    """Which of the four co-movement counts a value label carries, if any.
+
+    The shape is the marker: only `analytics.comovement` builds these labels,
+    embedding the driver and target labels between fixed words.
+    """
+    if label == "consecutive monthly transitions compared":
+        return "transitions"
+    if not label.startswith("transitions where "):
+        return None
+    if label.endswith(" did not rise"):
+        return "target_did_not_rise"
+    if label.endswith(" rose"):
+        return "target_rose"
+    if label.endswith(" fell"):
+        return "driver_fell"
+    return None
+
+
+def comovement_count_display_label(result: AnalyticalResult, value: ResultValue) -> str | None:
+    """Return the controlled prose label for a co-movement count, inherited or not."""
+    if value.unit != DIMENSIONLESS:
+        return None
+    meaning = comovement_count_meaning(value.label)
+    return COMOVEMENT_COUNT_LABELS.get(meaning) if meaning is not None else None
+
+
+def controlled_count_label(result: AnalyticalResult, value: ResultValue) -> str | None:
+    """The one controlled phrase that names this count, from either family."""
+    return table_count_display_label(result, value) or comovement_count_display_label(result, value)
+
+
+def comovement_count_identity_fault(
+    clause: str, result: AnalyticalResult, value: ResultValue
+) -> str | None:
+    """Narrow a count claim to one controlled co-movement meaning.
+
+    The mirror of the table-comparison rule. A comparison built on an earlier
+    co-movement retains its four counts, and a new comparison can publish an
+    equal number; without this, the inherited count has no wording that binds it
+    and the whole sentence is withheld as ambiguous.
+    """
+    folded = _fold(clause)
+    selected = [label for label in COMOVEMENT_COUNT_LABELS.values() if _fold(label) in folded]
+    if not selected:
+        return None
+    expected = comovement_count_display_label(result, value)
+    if len(selected) != 1 or expected != selected[0]:
+        return "Explicit co-movement count wording conflicts with this value identity"
+    return None
 
 
 def table_count_identity_fault(

@@ -545,6 +545,10 @@ def test_writer_reads_summaries_and_highlighted_periods_but_the_gate_sees_everyt
     assert "shown to the reader separately for:" in writer_prompt
     assert "period 2021-02-01..2021-02-28" in writer_prompt  # highlighted
     assert "period 2021-03-01..2021-03-31" not in writer_prompt  # tabled only
-    assert "transitions where" in writer_prompt
+    # The direction counts reach the writer under their controlled phrases, which
+    # is what lets a later turn name an inherited count instead of a bare number.
+    assert "Sürücü serinin düştüğü geçiş sayısı" in writer_prompt
+    assert "Sürücü düşerken hedefin artmadığı geçiş sayısı" in writer_prompt
+    assert "transitions where" not in writer_prompt
     # Narrowing the writer's view does not narrow verification.
     assert answered.answer.status is AnswerStatus.ACCEPTED
