@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Literal, NamedTuple, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -107,6 +109,120 @@ def _deflated_columns(source: AnalyticalResult, arguments: TableRelationshipArgu
     return _Columns(driver, target, when, moved)
 
 
+def _continued_condition(
+    source: AnalyticalResult, arguments: TableRelationshipArguments, question: str
+) -> tuple[str, Direction] | None:
+    """Carry one verified earlier predicate only for an explanatory continuation.
+
+    A new two-column comparison is otherwise independent. In particular, merely
+    selecting a table must not silently condition every subsequent calculation.
+    """
+    if arguments.when_column is not None:
+        return None
+    wording = question.casefold()
+    if not any(cue in wording for cue in ("açıkl", "neden", "explain", "account for")):
+        return None
+    if any(
+        cue in wording
+        for cue in ("bağımsız", "sadece", "yalnızca", "hariç", "independent", "regardless", "only")
+    ):
+        return None
+    previous = source.parameters.get("direction_comparison")
+    if not isinstance(previous, Mapping):
+        return None
+    driver = previous.get("driver_column")
+    target = previous.get("target_column")
+    if not isinstance(driver, str) or not isinstance(target, str):
+        return None
+    if (
+        previous.get("driver_direction") != "down"
+        or previous.get("target_direction") != "non_increasing"
+    ):
+        return None
+    names = source.parameters.get("series_names")
+    reviewed = names if isinstance(names, Mapping) else {}
+
+    def words(label: str) -> set[str]:
+        display = reviewed.get(label)
+        if not isinstance(display, str):
+            display = next(
+                (
+                    name
+                    for series_id, name in reviewed.items()
+                    if isinstance(series_id, str)
+                    and isinstance(name, str)
+                    and label.startswith(f"{series_id} ")
+                ),
+                None,
+            )
+        text = f"{label} {display}" if isinstance(display, str) else label
+        return {token[:4] for token in re.findall(r"[^\W\d_]{4,}", text.casefold())}
+
+    counterpart = real_counterpart(source, target)
+    if arguments.target_column in (
+        target,
+        counterpart,
+    ) and arguments.target_direction == previous.get("target_direction"):
+        other_column = arguments.driver_column
+    elif arguments.driver_column in (
+        target,
+        counterpart,
+    ) and arguments.driver_direction == previous.get("target_direction"):
+        other_column = arguments.target_column
+    else:
+        return None
+    # The question must refer to the previously analysed target, not just ask
+    # why some other newly added series moved. Exclude words shared with the
+    # other selected column so a broad topic word cannot manufacture that reference.
+    target_words = words(target) - words(other_column)
+    question_tokens = re.findall(r"[^\W\d_]{4,}", wording)
+    question_words = {token[:4] for token in question_tokens}
+    non_rise_mentioned = any(
+        token.startswith(cue)
+        for token in question_tokens
+        for cue in (
+            "artmad",
+            "artmam",
+            "artmıy",
+            "artmay",
+            "yükselmed",
+            "yükselmem",
+            "yükselmiy",
+            "yükselmey",
+        )
+    ) or any(
+        phrase in wording
+        for phrase in (
+            "not rise",
+            "not rising",
+            "not increase",
+            "not increasing",
+            "didn't rise",
+            "didn't increase",
+            "non-increasing",
+        )
+    )
+    driver_words = words(driver) - words(target) - words(other_column)
+    opposite_driver_mentioned = any(
+        question_tokens[index][:4] in driver_words
+        and any(
+            token.startswith(("arttı", "artıy", "yüksel", "rose", "rising", "increas"))
+            for token in question_tokens[index + 1 : index + 3]
+        )
+        for index in range(len(question_tokens))
+    )
+    if (
+        driver in (arguments.driver_column, arguments.target_column)
+        or real_counterpart(source, driver) in (arguments.driver_column, arguments.target_column)
+        or not any(value.label == driver for value in source.values)
+        or not target_words.intersection(question_words)
+        or not non_rise_mentioned
+        or opposite_driver_mentioned
+    ):
+        return None
+    return driver, "down"
+
+
 def run_table_relationship(
     arguments: TableRelationshipArguments,
     context: ExecutionContext,
@@ -135,17 +251,23 @@ def run_table_relationship(
             error_category="table_reference",
             warnings=("The referenced table is unavailable or cannot be verified",),
         )
-    columns = _deflated_columns(source, arguments)
+    inherited = _continued_condition(source, arguments, context.question)
+    effective = (
+        arguments.model_copy(update={"when_column": inherited[0], "when_direction": inherited[1]})
+        if inherited is not None
+        else arguments
+    )
+    columns = _deflated_columns(source, effective)
     deflated = columns.moved
     try:
         result = compare_table_directions(
             source,
             driver_column=columns.driver,
             target_column=columns.target,
-            driver_direction=arguments.driver_direction,
-            target_direction=arguments.target_direction,
+            driver_direction=effective.driver_direction,
+            target_direction=effective.target_direction,
             when_column=columns.when,
-            when_direction=arguments.when_direction,
+            when_direction=effective.when_direction,
         )
     except TableComparisonRefused as error:
         result = AnalyticalResult(
@@ -164,6 +286,12 @@ def run_table_relationship(
         if deflated:
             # The answer must be able to say the comparison moved to real terms.
             extra["compared_in_real_terms_instead_of"] = deflated
+        if inherited is not None:
+            extra["continued_prior_condition"] = {
+                "source_result_id": source.result_id,
+                "column": columns.when,
+                "direction": inherited[1],
+            }
         if extra:
             result = result.model_copy(update={"parameters": {**result.parameters, **extra}})
         if lineage is not None:
