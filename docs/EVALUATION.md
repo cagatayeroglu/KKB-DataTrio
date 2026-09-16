@@ -1061,6 +1061,49 @@ record does not alter runtime code. No live provider, source, embedding or
 search call was made. A bounded live rerun remains separate and requires
 explicit authorization.
 
+<a id="m11-07-planner-opted-out-2026-09-16"></a>
+### M11-07 / M13-05 rerun after the real-column default — 2026-09-16 (PR #212)
+
+Owner-authorized by Eray on merged `dev` `46caaff`, carrying the real-column default
+(#211) and everything before it. Same bounded plan; prerequisites re-verified offline
+with no provider call. Usage: **9 chat and 4 query embeddings** of the 15/15 ceiling.
+
+All three turns were **ACCEPTED and published**, each on its first draft with zero
+omissions and no rewrite — the second run in a row with no synthesis rewrite at all.
+
+| Turn | Result |
+| --- | --- |
+| 1 | ACCEPTED, 170 s, 242 values, `by_end`. All 238 independent comparisons match. |
+| 2 | ACCEPTED, 149 s, 302 values, no rewrite. |
+| 3 | ACCEPTED, 368 values. All 302 prior identities preserved with zero value change; all 60 KFE values match the stored series. |
+
+**#211 did not take effect, and the reason is exact: the planner set `use_nominal: True`.**
+The recorded lineage attributes for the `table_co_movement` step show
+`use_nominal: True` with the nominal BDDK target, and the result parameters carry no
+`compared_in_real_terms_instead_of` entry, so no substitution ran. The published
+comparison — condition KFE up (59 eligible), driver rate down (32), target the nominal
+balance non-increasing (8), both 4 — matches an independent recomputation, and its four
+joint months are again February and May 2021, December 2023 and January 2024.
+
+The lesson is a design one, not a bug: **an opt-out the planner controls is not a default
+the planner will follow.** #211 added `use_nominal` so a deliberately nominal question
+stayed expressible, and the planner used it on a question that never asked for nominal
+terms. The argument's description says to set it only when the question asks for nominal
+terms; description text is not a constraint.
+
+Options for the next slice, in the project's own terms — planner-callable actions may
+choose *what* to analyse, but correctness checks belong in the harness outside LLM
+discretion (DEC-135):
+
+1. Remove `use_nominal` from the planner-facing schema. A nominal comparison stays reachable by selecting the Turn 1 table, which carries no real counterpart, so nominal is not lost — it is reached by choosing the source rather than by a flag.
+2. Keep the argument but honour it only when the question actually asks for nominal terms, as a code-owned check on a planner-supplied value.
+
+Option 1 is the smaller and more certain change and removes the escape hatch entirely.
+
+Every rejection and every published value in this run was correct; nothing in the verifier
+may be relaxed. Prepared pool byte-identical before and after; services stopped; no
+BDDK/EVDS, search, OCR or index-build call.
+
 <a id="m11-07-three-turn-with-kfe-2026-09-16"></a>
 ### M11-07 / M13-05 three-turn acceptance with KFE in the analysis — 2026-09-16 (PR #210)
 
