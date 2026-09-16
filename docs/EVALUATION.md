@@ -1061,6 +1061,54 @@ record does not alter runtime code. No live provider, source, embedding or
 search call was made. A bounded live rerun remains separate and requires
 explicit authorization.
 
+<a id="m11-07-turn2-repair-exhaustion-2026-09-16"></a>
+### M11-07 / M13-05 confirmation rerun and the single-repair limit — 2026-09-16 (PR #204)
+
+Owner-authorized by Eray on merged `dev` `1193c65`, which carries the weekly
+window-boundary fix (#202) and the nominal-versus-real note (#203). Purpose: confirm
+that Turn 3 reaches the oracle's 22 joint months. Same bounded plan; prerequisites
+re-verified offline with no provider call (pool digest
+`dd4700df3c2b86c08238398812ab6bc31aa3c4649bffc42149b19fd7578c87fb` unchanged,
+readiness hybrid, oracle 60/59/32/46/22 and December 2025 KFE 204.36).
+
+Actual usage: **7 chat and 5 query embeddings**, every call successful on one attempt.
+
+| Turn | Result |
+| --- | --- |
+| 1 | **ACCEPTED**, 166 s, zero omissions; published 242 values. The planner chose `by_end` this time, so the #202 `by_majority` boundary fix was not exercised live in this run. All 238 independent comparisons match and the four metrics equal 59/32/28/4 with the same four non-rise months. |
+| 2 | **QUALIFIED**, 107 s, not published. First draft withheld one sentence on the unbound literal **100** — the CPI index base; the M11-11 numeric retry then produced a draft that withheld one sentence with two `period` reasons on 828,155 and 773,412, each correctly bound to the deflate result and its real-price label. |
+| 3 | **Not reached** — Turn 2 published nothing to continue from, so the nominal-versus-real hypothesis was not tested. |
+
+**The measured cause is structural, not variance.** `Session.answer` selects at most
+one synthesis repair per turn: `period_repair` and `numeric_repair` are decided once,
+before drafting, and the re-gated repaired answer is final. A repaired draft is never
+re-eligible, so a turn gets one repair in total, not one per category.
+
+Across the three bounded runs the pattern is exact:
+
+| Run | First gate | Repair used | Final |
+| --- | --- | --- | --- |
+| 2026-09-16 blocked attempt (#199) | `unmatched_number` | numeric | `period` — not published |
+| 2026-09-16 three-turn rerun (#201) | `period` | period | **accepted and published** |
+| this run | `unmatched_number` (the literal 100) | numeric | `period` — not published |
+
+Turn 2 publishes when its first failure is `period`, because the #194 period repair
+then applies. When the first failure is a numeric binding, the single repair is spent
+on it and the `period` fault its replacement introduces has no repair left. In every
+case the computed candidate was correct: the rejected figures are real deflated values
+bound to the right result and value label, and only their period attribution failed.
+
+The per-omission diagnostics from #200 are what made this visible. They also show a
+recurring trigger worth its own fix: the writer quotes an index base — `100` for the
+2025=100 CPI here, and `100` for the 2023=100 KFE in the previous run's Turn 3 — which
+is legitimate series metadata but matches no value in the results.
+
+Classification **F — acceptance/reliability failure**, with a now-identified code-level
+cause. No verifier weakness: every rejection was correct, and nothing may be relaxed to
+obtain PASS. Prepared pool byte-identical before and after; services stopped; no
+BDDK/EVDS, search, OCR or index-build call. Turn 3 and the #202/#203 fixes remain
+unconfirmed live.
+
 <a id="m11-07-hybrid-three-turn-rerun-2026-09-16"></a>
 ### M11-07 / M13-05 served hybrid three-turn rerun — 2026-09-16 (PR #201)
 
