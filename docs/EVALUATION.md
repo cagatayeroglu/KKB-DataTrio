@@ -1095,8 +1095,8 @@ prior predicate**. Selected-table grounding, immutable values and real-column
 substitution worked; the writer could only quote a computed 46, not an absent 22.
 The offline correction records the prior comparison's typed column/direction
 identity and carries its unused down predicate only for an explanatory
-continuation naming the same target phenomenon, prior driver, and falling
-direction. Independent/new-only requests,
+continuation naming the same target and its non-rise phenomenon, even when
+the prior driver is implicit. Independent/new-only requests,
 wrong target/direction, absent prior identity, and explicit conditions do not
 inherit it. The resulting transformation records the effective condition; the
 numeric verifier and publication gate are unchanged. A scripted 60-month

@@ -891,12 +891,17 @@ def test_explanatory_continuation_keeps_distinct_joint_and_unconditional_counts(
         method="synthetic",
         values=values,
         parameters={
+            "series_names": {
+                "credit": "Konut kredisi bakiyesi",
+                "rate": "Konut kredisi faiz oranı",
+                "price": "Konut fiyat endeksi",
+            },
             "direction_comparison": {
                 "driver_column": "rate",
                 "driver_direction": "down",
                 "target_column": "credit",
                 "target_direction": "non_increasing",
-            }
+            },
         },
         evidence=ResultEvidence(input_refs=["synthetic fixture"]),
     )
@@ -919,6 +924,12 @@ def test_explanatory_continuation_keeps_distinct_joint_and_unconditional_counts(
         source, arguments, "When rates fell, could price growth explain why credit did not rise?"
     )
     assert condition == ("rate", "down")
+    assert _continued_condition(
+        source,
+        arguments,
+        "Tabloyu hiç bozmadan konut fiyat endeksini yeni bir sütun olarak ekle. "
+        "Fiyat artışları kredinin artmamasını açıklıyor olabilir mi?",
+    ) == ("rate", "down")
     continued = compare_table_directions(
         source,
         driver_column="price",
@@ -944,6 +955,16 @@ def test_explanatory_continuation_keeps_distinct_joint_and_unconditional_counts(
         source, swapped, "When rates fell, could price growth explain why credit did not rise?"
     ) == ("rate", "down")
     assert _continued_condition(source, arguments, "Could price growth explain credit? ") is None
+    assert (
+        _continued_condition(source, arguments, "Could price growth explain why credit rose?")
+        is None
+    )
+    assert (
+        _continued_condition(
+            source, arguments, "When rates rose, could price explain why credit did not rise?"
+        )
+        is None
+    )
     assert (
         _continued_condition(
             source, arguments, "When rates did not fall, could price explain credit?"

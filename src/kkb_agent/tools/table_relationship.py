@@ -134,8 +134,10 @@ def _continued_condition(
     target = previous.get("target_column")
     if not isinstance(driver, str) or not isinstance(target, str):
         return None
-    direction = previous.get("driver_direction")
-    if direction != "down":
+    if (
+        previous.get("driver_direction") != "down"
+        or previous.get("target_direction") != "non_increasing"
+    ):
         return None
     names = source.parameters.get("series_names")
     reviewed = names if isinstance(names, Mapping) else {}
@@ -173,25 +175,49 @@ def _continued_condition(
     # why some other newly added series moved. Exclude words shared with the
     # other selected column so a broad topic word cannot manufacture that reference.
     target_words = words(target) - words(other_column)
-    driver_words = words(driver) - words(target) - words(other_column)
     question_tokens = re.findall(r"[^\W\d_]{4,}", wording)
     question_words = {token[:4] for token in question_tokens}
-    direction_mentioned = any(
+    non_rise_mentioned = any(
         token.startswith(cue)
         for token in question_tokens
-        for cue in ("düş", "azal", "geril", "fell", "fall", "declin", "decreas")
+        for cue in (
+            "artmad",
+            "artmam",
+            "artmıy",
+            "artmay",
+            "yükselmed",
+            "yükselmem",
+            "yükselmiy",
+            "yükselmey",
+        )
+    ) or any(
+        phrase in wording
+        for phrase in (
+            "not rise",
+            "not rising",
+            "not increase",
+            "not increasing",
+            "didn't rise",
+            "didn't increase",
+            "non-increasing",
+        )
     )
-    if any(token.startswith(("düşme", "azalma", "gerileme")) for token in question_tokens) or any(
-        phrase in wording for phrase in ("not fall", "not decrease", "not decline")
-    ):
-        direction_mentioned = False
+    driver_words = words(driver) - words(target) - words(other_column)
+    opposite_driver_mentioned = any(
+        question_tokens[index][:4] in driver_words
+        and any(
+            token.startswith(("arttı", "artıy", "yüksel", "rose", "rising", "increas"))
+            for token in question_tokens[index + 1 : index + 3]
+        )
+        for index in range(len(question_tokens))
+    )
     if (
         driver in (arguments.driver_column, arguments.target_column)
         or real_counterpart(source, driver) in (arguments.driver_column, arguments.target_column)
         or not any(value.label == driver for value in source.values)
         or not target_words.intersection(question_words)
-        or not driver_words.intersection(question_words)
-        or not direction_mentioned
+        or not non_rise_mentioned
+        or opposite_driver_mentioned
     ):
         return None
     return driver, "down"
