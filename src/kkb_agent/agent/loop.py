@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from kkb_agent.agent.claim_qualifiers import table_count_display_label
 from kkb_agent.agent.discovery import (
@@ -71,7 +71,10 @@ SYNTHESIS_PROMPT = (
     "sentence with a heading such as a word and a colon. An explicit literal source "
     "quotation is separate: copy its complete answer exactly, with no additions. "
     "Do not calculate, round, convert, "
-    "extrapolate or introduce any number that is not listed. State the unit and "
+    "extrapolate or introduce any number that is not listed. Never quote an index's "
+    "base value, the 100 in a phrase such as '2023=100': it describes the series and "
+    "is not one of its values, so the verifier withholds the sentence. Name the base "
+    "year alone if it matters. State the unit and "
     "period a value carries. If the results do not cover part of the question, name that "
     "part plainly, but never claim that a listed column, value or result is missing, "
     "unavailable or impossible to compute: the verifier withholds such claims. "
@@ -104,6 +107,10 @@ NUMERIC_REPAIR_INSTRUCTIONS = (
     "listed values. If no listed display supports a numeric statement, make no numeric "
     "statement."
 )
+
+
+#: The wording problems a bounded rewrite may address, each at most once per turn.
+_REPAIR_CATEGORIES: Final = ("period", "numeric")
 
 
 def _omissions_are_period_only(answer: GatedAnswer) -> bool:
@@ -663,30 +670,43 @@ class Session:
             tolerance=gate.get("tolerance", DEFAULT_TOLERANCE),  # type: ignore[arg-type]
             minimum_samples=gate.get("minimum_samples"),  # type: ignore[arg-type]
         )
-        period_repair = self.repair_period_wording and _omissions_are_period_only(answer)
-        numeric_repair = self.repair_unmatched_numbers and _omissions_are_numeric_binding_only(
-            answer
-        )
-        if (
-            (period_repair or numeric_repair)
-            and not faults
-            and outcome.completed
-            and all(item.status is ToolStatus.SUCCESS for item in outcome.results)
-        ):
-            # One synthesis repair over the same immutable candidate; never rerun
-            # tools, relax a verifier rule, or pass draft/error text as authority.
-            # Transport failure leaves the first gated answer available.
+        # One synthesis repair per omission category, never the same category
+        # twice. A repaired draft can fail a *different* wording rule, and three
+        # bounded live runs showed a turn losing a fully verified table to that
+        # second problem with its only repair already spent. Each attempt uses
+        # the same immutable candidate: tools are never rerun, no verifier rule
+        # is relaxed, draft and error text are never passed back as authority,
+        # and the unchanged full gate runs again every time. Transport failure
+        # leaves the last gated answer available.
+        repaired: set[str] = set()
+        while len(repaired) < len(_REPAIR_CATEGORIES):
+            if faults or not outcome.completed:
+                break
+            if not all(item.status is ToolStatus.SUCCESS for item in outcome.results):
+                break
+            period_repair = (
+                self.repair_period_wording
+                and "period" not in repaired
+                and _omissions_are_period_only(answer)
+            )
+            numeric_repair = (
+                self.repair_unmatched_numbers
+                and "numeric" not in repaired
+                and _omissions_are_numeric_binding_only(answer)
+            )
+            if not (period_repair or numeric_repair):
+                break
             try:
-                repaired = self.draft(
+                rewritten = self.draft(
                     question,
                     available,
                     repair_period=period_repair,
                     repair_numeric=numeric_repair,
                 )
             except ProviderError:
-                pass
-            else:
-                answer = gate_answer(repaired, available, connection, **gate)  # type: ignore[arg-type]
+                break
+            answer = gate_answer(rewritten, available, connection, **gate)  # type: ignore[arg-type]
+            repaired.add("period" if period_repair else "numeric")
         if (
             preview is not None
             and workspace is not None
