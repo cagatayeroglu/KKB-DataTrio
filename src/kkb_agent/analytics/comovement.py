@@ -255,6 +255,14 @@ def co_movement(
             "end": end.isoformat(),
             "driver_fell": "driver change < 0",
             "target_did_not_rise": "target change <= 0",
+            # Typed, code-owned identity for a later selected-table question
+            # about this finding. The prose label alone is not a safe contract.
+            "direction_comparison": {
+                "driver_column": driver_label,
+                "driver_direction": "down",
+                "target_column": target_label,
+                "target_direction": "non_increasing",
+            },
             "transition": "month versus previous calendar month",
             # Period ends only, never a second copy of a value: duplicated numbers
             # would make every quoted change ambiguous to the answer gate.

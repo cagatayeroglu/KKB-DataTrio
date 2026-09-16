@@ -1061,6 +1061,49 @@ record does not alter runtime code. No live provider, source, embedding or
 search call was made. A bounded live rerun remains separate and requires
 explicit authorization.
 
+<a id="m11-07-selected-condition-forensics-2026-09-16"></a>
+### M11-07 selected-condition forensics — 2026-09-16 (PR #215)
+
+Read-only inspection of the previously completed `cagatay-hybrid-20260916-142827`
+run on merged `dev` `747f04f` found a computation-scope error, not a fabricated
+number. The ignored prepared pool still passes offline `--check` as hybrid
+(snapshot `6fc3afd5…f887f`, 29 identities, 4,124 observations, 124 files), and
+the independent SQL/Decimal oracle gives 60 months, 32 rate falls, 46 real-credit
+non-rises and **22** rate-fall ∧ KFE-up ∧ real-credit-nonrise months. No provider,
+embedding or source request was made for this investigation.
+
+The persisted workspace session `80e1162bf8814eef9ceea1a386a9e79f` published
+`analiz_1`, `analiz_2` and `analiz_3` at version 1. `analiz_3` is bound to the
+`analiz_2` artifact; all 302 earlier result values are identical, and 60 KFE
+values were appended (December 2025: 204.36). The final execution record's
+proposed `table_co_movement` arguments had KFE as driver (`up`), nominal credit
+as target (`non_increasing`), and null `when_column`/`when_direction`. The code-owned
+real-column substitution correctly changed the executed target to the 2025-12-price
+credit column. It did **not** supply the missing rate-down condition. Thus the
+executed criteria were KFE↑ ∧ real credit non-increasing across all complete
+transitions, returning six counts **59 / 0 / 59 / 59 / 46 / 46**; the 22-count
+three-way metric does not exist in this published result. The 46 value has the
+identity `eligible transitions matching both directions` for comparison
+`be9514c36c6a`. Replaying that controlled count phrase against the persisted
+result, read-only, binds the 46 to this exact metric and is ACCEPTED. The actual
+raw writer draft and per-number gate binding were not retained, so this replay
+is not a claim to recover their exact text/identity. The content-free ledger
+records Turn 3's gate as ACCEPTED with zero omissions.
+
+Classification: **A — the structured computation omitted a semantically relevant
+prior predicate**. Selected-table grounding, immutable values and real-column
+substitution worked; the writer could only quote a computed 46, not an absent 22.
+The offline correction records the prior comparison's typed column/direction
+identity and carries its unused down predicate only for an explanatory
+continuation naming the same target phenomenon, prior driver, and falling
+direction. Independent/new-only requests,
+wrong target/direction, absent prior identity, and explicit conditions do not
+inherit it. The resulting transformation records the effective condition; the
+numeric verifier and publication gate are unchanged. A scripted 60-month
+regression distinguishes 46 unconditional non-rises from 22 joint months, and
+an offline three-turn rehearsal exercises the omitted-condition plan. This is
+not yet a new live acceptance result.
+
 <a id="m11-07-provider-latency-abort-2026-09-16"></a>
 ### M11-07 / M13-05 attempt abandoned to provider latency — 2026-09-16 (PR #214)
 

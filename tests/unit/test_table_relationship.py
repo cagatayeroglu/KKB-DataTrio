@@ -1,6 +1,7 @@
 """Monthly table comparisons: hand-checked counts and actual execution boundaries."""
 
 import json
+from calendar import monthrange
 from datetime import date
 
 import pytest
@@ -30,9 +31,12 @@ from kkb_agent.analytics.table_relationship import TableComparisonRefused, compa
 from kkb_agent.core import (
     DIMENSIONLESS,
     AnalyticalResult,
+    Frequency,
+    Period,
     ResultEvidence,
     ResultKind,
     ResultStatus,
+    ResultValue,
     Scale,
     StockFlow,
 )
@@ -41,6 +45,7 @@ from kkb_agent.tools import make_change_detection_tool
 from kkb_agent.tools.change_detection import ChangeDetectionArguments
 from kkb_agent.tools.table_relationship import (
     TableRelationshipArguments,
+    _continued_condition,
     _deflated_columns,
 )
 
@@ -844,3 +849,116 @@ class TestTheDeflatedColumnIsWhatAChangeQuestionCompares:
         real = counts(compare(source, target_column=REAL_LABEL))
 
         assert nominal != real
+
+
+def test_explanatory_continuation_keeps_distinct_joint_and_unconditional_counts():
+    """A synthetic 60-month table separates 46 real non-rises from 22 joint months."""
+    values = []
+    nominal = real = rate = price = 100.0
+    for index in range(60):
+        year, month = 2021 + index // 12, index % 12 + 1
+        period = Period(
+            start=date(year, month, 1),
+            end=date(year, month, monthrange(year, month)[1]),
+            frequency=Frequency.MONTHLY,
+        )
+        if index:
+            nominal += 1
+            real += -1 if index <= 46 else 1
+            rate += -1 if index <= 22 or 47 <= index <= 56 else 1
+            price += 1
+        for label, value, unit, measure in (
+            ("credit", nominal, "TRY", StockFlow.STOCK),
+            (REAL_LABEL, real, "TRY", StockFlow.STOCK),
+            ("rate", rate, "percent", StockFlow.RATE),
+            ("price", price, "index", StockFlow.INDEX),
+        ):
+            values.append(
+                ResultValue(
+                    label=label,
+                    value=value,
+                    unit=unit,
+                    scale=Scale.ONE,
+                    measure=measure,
+                    period=period,
+                )
+            )
+    source = AnalyticalResult(
+        result_id="synthetic:continued-table",
+        kind=ResultKind.COMPARISON,
+        status=ResultStatus.COMPUTED,
+        tool="change_detection",
+        method="synthetic",
+        values=values,
+        parameters={
+            "direction_comparison": {
+                "driver_column": "rate",
+                "driver_direction": "down",
+                "target_column": "credit",
+                "target_direction": "non_increasing",
+            }
+        },
+        evidence=ResultEvidence(input_refs=["synthetic fixture"]),
+    )
+    arguments = TableRelationshipArguments(
+        operation="table_co_movement",
+        input_step="add",
+        driver_column="price",
+        target_column="credit",
+        driver_direction="up",
+        target_direction="non_increasing",
+    )
+    independent = compare_table_directions(
+        source,
+        driver_column="price",
+        target_column=REAL_LABEL,
+        driver_direction="up",
+        target_direction="non_increasing",
+    )
+    condition = _continued_condition(
+        source, arguments, "When rates fell, could price growth explain why credit did not rise?"
+    )
+    assert condition == ("rate", "down")
+    continued = compare_table_directions(
+        source,
+        driver_column="price",
+        target_column=REAL_LABEL,
+        driver_direction="up",
+        target_direction="non_increasing",
+        when_column=condition[0],
+        when_direction=condition[1],
+    )
+    assert counts(independent)[-1] == 46
+    assert counts(continued)[-1] == 22
+    assert counts(continued)[-2] == 22
+    assert continued.values[: len(source.values)] == source.values
+    swapped = arguments.model_copy(
+        update={
+            "driver_column": "credit",
+            "target_column": "price",
+            "driver_direction": "non_increasing",
+            "target_direction": "up",
+        }
+    )
+    assert _continued_condition(
+        source, swapped, "When rates fell, could price growth explain why credit did not rise?"
+    ) == ("rate", "down")
+    assert _continued_condition(source, arguments, "Could price growth explain credit? ") is None
+    assert (
+        _continued_condition(
+            source, arguments, "When rates did not fall, could price explain credit?"
+        )
+        is None
+    )
+    assert (
+        _continued_condition(source, arguments, "Compare price with credit independently.") is None
+    )
+    assert _continued_condition(source, arguments, "Could price growth explain deposits?") is None
+    unrelated = arguments.model_copy(update={"target_direction": "up"})
+    assert (
+        _continued_condition(source, unrelated, "Could price growth explain credit growth?") is None
+    )
+    nominal_only = source.model_copy(
+        update={"values": [value for value in source.values if value.label != REAL_LABEL]}
+    )
+    assert _deflated_columns(nominal_only, arguments).target == "credit"
