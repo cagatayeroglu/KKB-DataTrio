@@ -351,7 +351,8 @@ def turn_one(lake, draft):
         ],
     }
     workspace = Workspace.open(lake.connection)
-    session = Session(scripted(json.dumps(plan), draft), registry)
+    # These legacy cases exercise the model-writer/gate path explicitly.
+    session = Session(scripted(json.dumps(plan), draft), registry, deterministic_presentation=False)
     answered = session.answer(
         QUESTION, lake.connection, workspace=workspace, remember="konut_kredisi_ve_faiz"
     )
@@ -504,7 +505,7 @@ def test_no_table_accompanies_an_abstained_answer(lake):
     assert answered.answer.status is AnswerStatus.ABSTAINED and answered.tables == ()
 
 
-def test_prepared_report_lists_tables_and_withheld_text(lake, tmp_path):
+def test_prepared_report_uses_bounded_presentation_and_lists_tables(lake, tmp_path):
     from kkb_agent import live_check
 
     lake.connection.close()
@@ -522,8 +523,8 @@ def test_prepared_report_lists_tables_and_withheld_text(lake, tmp_path):
     report = live_check.run_prepared_check(
         scripted(json.dumps(plan), draft), lake.root, tmp_path / "work", question=QUESTION
     )
-    assert report["answer"]["status"] == "qualified"
-    assert report["answer"]["withheld_text"] == ["Bakiye Şubat 2021'de 987 milyon TL oldu."]
+    assert report["answer"]["status"] == "accepted"
+    assert report["answer"]["withheld_text"] == []
     (table,) = report["tables"]
     assert table["rows"] == 6 and table["first"] == "2021-01-01..2021-01-31"
 

@@ -40,7 +40,12 @@ from kkb_agent.agent.executor import (
 )
 from kkb_agent.agent.literal import literal_text
 from kkb_agent.agent.plan import AnalyticalPlan
-from kkb_agent.agent.presentation import PeriodTable, display_value, period_table
+from kkb_agent.agent.presentation import (
+    PeriodTable,
+    deterministic_draft,
+    display_value,
+    period_table,
+)
 from kkb_agent.agent.registry import ToolRegistry
 from kkb_agent.agent.selection import SelectedTable, SelectionError
 from kkb_agent.agent.verifier import (
@@ -421,6 +426,7 @@ class Session:
     require_series_discovery: bool = False
     repair_period_wording: bool = False
     repair_unmatched_numbers: bool = False
+    deterministic_presentation: bool = True
 
     def plan(self, question: str, workspace: Workspace | None = None) -> Planned:
         """Obtain a plan the registry will accept, or fail with the reasons why.
@@ -672,7 +678,8 @@ class Session:
             # time bounds the walk and terminates cycles; stored state is untouched.
             available = {key: value for key, value in available.items() if key != source}
             source = ancestor.parameters.get("source")
-        draft = self.draft(question, available)
+        fast_draft = deterministic_draft(result) if self.deterministic_presentation else None
+        draft = fast_draft if fast_draft is not None else self.draft(question, available)
         answer = gate_answer(draft, available, connection, **gate)  # type: ignore[arg-type]
         faults = result_faults(
             {name: available[name]},
