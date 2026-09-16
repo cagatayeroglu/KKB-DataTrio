@@ -1061,6 +1061,49 @@ record does not alter runtime code. No live provider, source, embedding or
 search call was made. A bounded live rerun remains separate and requires
 explicit authorization.
 
+<a id="m11-07-inherited-count-ambiguity-2026-09-16"></a>
+### M11-07 / M13-05 rerun after the rewrite fix — 2026-09-16 (PR #206)
+
+Owner-authorized by Eray on merged `dev` `f40e0a8`, carrying the second bounded
+rewrite (#205), the nominal-versus-real note (#203) and the weekly window boundary
+(#202). Same bounded plan; prerequisites re-verified offline with no provider call.
+Eray also authorized repeating a turn within the same budget, so Turn 3 was sent
+twice. Usage: **15 chat (ceiling reached) and 5 query embeddings**.
+
+| Turn | Result |
+| --- | --- |
+| 1 | **ACCEPTED**, 195 s, zero omissions; published 242 values, `by_end` again. All 238 independent comparisons match and the metrics equal 59/32/28/4 with the same four non-rise months. |
+| 2 | **ACCEPTED**, 139 s; published 302 values after one `period` rewrite. All 60 real values match December 2025 CPI arithmetic exactly (2021-01 1,894,772.1; 2023-12 828,155.2; 2024-01 773,412.0; 2025-12 678,970.0), verified read-only from the session store. |
+| 3, first send | **QUALIFIED**, not published. First draft withheld one sentence with three `ambiguous` reasons on the unbound literals 32, 4 and 32; the numeric rewrite reduced it to one `ambiguous` on 4, still the same category. |
+| 3, second send | **QUALIFIED**, not published. `ambiguous` on 4 again, before and after its rewrite. The chat ceiling was then reached and the launcher refused further dispatch. |
+
+**What this run did and did not confirm.** Turn 2 published through the pre-existing
+`period` path, so #205's second rewrite was never exercised: both Turn 3 failures
+repeated the *same* category, which it deliberately does not rewrite twice. #203 could
+not be confirmed because Turn 3 never published, and #202 could not be confirmed
+because the planner chose `by_end`. None of the three fixes is yet confirmed live.
+
+**The blocking defect is now identified precisely.** `TABLE_COUNT_LABELS` gives
+controlled Turkish display phrases to the six `table_co_movement` counts only. The
+`co_movement` metrics inherited from Turn 1 — `"transitions where <driver> fell"`,
+`"... and <target> rose"`, `"... did not rise"` and `"consecutive monthly transitions
+compared"` — have none. In the Turn 3 candidate the inherited
+`"transitions where RATE fell and BALANCE did not rise"` is 4.0 while the new
+`"eligible transitions matching the target direction"` and `"...matching both
+directions"` are also 4.0, and the inherited `"transitions where RATE fell"` is 32.0
+beside the new `"transitions meeting the condition"` and driver count at 32.0. A bare
+`4` or `32` therefore matches several values, and the one inherited value cannot be
+named unambiguously at all, because it has no controlled phrase to name it with. The
+published tables each hold only one 4.0; the collision appears only once the new
+comparison is added.
+
+This is the M11-11 identity-binding class that #197 addressed for table comparisons,
+left open for the co-movement metrics those comparisons are built on. Every rejection
+was correct, the candidate values were correct, and nothing in the verifier may be
+relaxed. Classification **F — acceptance/reliability failure with an identified
+cause**. Prepared pool byte-identical before and after; services stopped; no BDDK/EVDS,
+search, OCR or index-build call.
+
 <a id="m11-07-turn2-repair-exhaustion-2026-09-16"></a>
 ### M11-07 / M13-05 confirmation rerun and the single-repair limit — 2026-09-16 (PR #204)
 
