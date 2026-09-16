@@ -39,8 +39,9 @@ REQUIRED_DISCOVERY_INSTRUCTIONS = (
     "Clarification without tools is still permitted."
 )
 WEB_ADDRESS_INSTRUCTIONS = (
-    "A web address written in the question is read with web_url directly, without "
-    "catalog_search. Series from the prepared pool still need discovery first; a "
+    "A web address written in the question is read with web_url, or its table column is "
+    "added to a published table with table_transform add_document_column, directly and "
+    "without catalog_search. Series from the prepared pool still need discovery first; a "
     "discovery continuation cannot read a web address."
 )
 
@@ -54,7 +55,7 @@ def needs_series_discovery(plan: ValidatedPlan) -> bool:
     wrote, so the catalog cannot and need not authorize it.
     """
     workspace_operations = {
-        "table_transform": {"rebase", "align", "filter"},
+        "table_transform": {"rebase", "align", "filter", "add_document_column"},
         "change_detection": {"table_co_movement"},
     }
     return any(

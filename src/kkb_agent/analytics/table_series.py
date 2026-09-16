@@ -1,12 +1,13 @@
-"""An exact monthly left join onto a published table (M5-20).
+"""An exact monthly left join onto a published table (M5-20, M7-14).
 
 The source owns the row set. No calendar reduction, filling, conversion or
-relationship calculation is hidden inside a column addition.
+relationship calculation is hidden inside a column addition. A registered
+series and a column read from a fetched document join the same way.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from math import isfinite
@@ -19,12 +20,15 @@ from kkb_agent.core import (
     Period,
     ResultStatus,
     ResultValue,
+    Scale,
+    StockFlow,
     TransformationRecord,
 )
 from kkb_agent.lakehouse.records import Observation
 from kkb_agent.lakehouse.semantics import SemanticsError, SeriesSemantics, period_bounds
 
 METHOD = "add-monthly-series-v1"
+DOCUMENT_METHOD = "add-document-column-v1"
 
 
 class SeriesAdditionRefused(ValueError):
@@ -45,29 +49,19 @@ def _monthly(start: date, end: date) -> bool:
         return False
 
 
-def add_monthly_series(
-    source: AnalyticalResult,
-    observations: Sequence[Observation],
-    semantics: SeriesSemantics,
-    *,
-    series_id: str,
-) -> AddedSeries:
-    """Return the new column; the caller preserves the original values verbatim."""
+def table_months(source: AnalyticalResult, new_label: str) -> dict[date, Period]:
+    """The published table's monthly rows by period end; refuses anything else.
+
+    A new column label must not already exist. Summary metrics and single-period
+    prose values do not define rows.
+    """
     if source.status is not ResultStatus.COMPUTED or source.unresolved_semantics:
         raise SeriesAdditionRefused("The source table is not computed with resolved semantics")
-    if semantics.unresolved:
-        raise SeriesAdditionRefused("The selected series has unresolved semantics")
-    if semantics.frequency is not Frequency.MONTHLY:
-        raise SeriesAdditionRefused("Only monthly series can be added; align other calendars first")
-    if semantics.cumulative is not CumulativeKind.NONE:
-        raise SeriesAdditionRefused(
-            "Cumulative series need an explicit accumulation-aware operation"
-        )
     periods: dict[date, Period] = {}
     columns: dict[str, list[Period]] = {}
     cells: set[tuple[str, date, date]] = set()
     for value in source.values:
-        if value.label == series_id:
+        if value.label == new_label:
             raise SeriesAdditionRefused("That series is already a column in the source table")
         if value.period is None or value.unit == DIMENSIONLESS:
             continue  # Summary metrics do not define rows.
@@ -90,6 +84,26 @@ def add_monthly_series(
         raise SeriesAdditionRefused(
             "The source must contain a monthly table with at least two rows"
         )
+    return periods
+
+
+def add_monthly_series(
+    source: AnalyticalResult,
+    observations: Sequence[Observation],
+    semantics: SeriesSemantics,
+    *,
+    series_id: str,
+) -> AddedSeries:
+    """Return the new column; the caller preserves the original values verbatim."""
+    if semantics.unresolved:
+        raise SeriesAdditionRefused("The selected series has unresolved semantics")
+    if semantics.frequency is not Frequency.MONTHLY:
+        raise SeriesAdditionRefused("Only monthly series can be added; align other calendars first")
+    if semantics.cumulative is not CumulativeKind.NONE:
+        raise SeriesAdditionRefused(
+            "Cumulative series need an explicit accumulation-aware operation"
+        )
+    periods = table_months(source, series_id)
 
     # Check every supplied observation, including dates outside the displayed
     # window. An invalid or duplicated vintage must not disappear in the join.
@@ -139,5 +153,72 @@ def add_monthly_series(
         },
         input_refs=[source.result_id, series_id],
         output_ref=series_id,
+    )
+    return AddedSeries(tuple(added), tuple(missing), transformation)
+
+
+def add_document_column(
+    source: AnalyticalResult,
+    levels: Mapping[date, float | None],
+    *,
+    label: str,
+    unit: str,
+    scale: Scale,
+    document_rows: int,
+    content_hash: str,
+) -> AddedSeries:
+    """Join one fetched document column, keyed by month end, onto the table's months.
+
+    `levels` comes from a strict reader: one explicit month per row, a number
+    read without guessing, and a unit the column header stated. The document
+    does not state stock/flow meaning, so the cells say it is unknown.
+    """
+    if not label.strip() or not unit or scale is Scale.UNKNOWN:
+        raise SeriesAdditionRefused("A document column needs a label and a stated unit and scale")
+    periods = table_months(source, label)
+    for end, level in levels.items():
+        if not _monthly(date(end.year, end.month, 1), end):
+            raise SeriesAdditionRefused("The document column has an invalid monthly period")
+        if level is not None and not isfinite(level):
+            raise SeriesAdditionRefused("The document column has a non-finite value")
+    added: list[ResultValue] = []
+    missing: list[date] = []
+    for end, period in sorted(periods.items()):
+        level = levels.get(end)
+        if level is None:
+            missing.append(end)
+            continue
+        added.append(
+            ResultValue(
+                label=label,
+                value=level,
+                unit=unit,
+                scale=scale,
+                measure=StockFlow.UNKNOWN,
+                period=period,
+            )
+        )
+    if len(added) < 2:
+        raise SeriesAdditionRefused("Fewer than two matching document rows; no column can be shown")
+    transformation = TransformationRecord(
+        operation="add_document_column",
+        parameters={
+            "join": "left_exact_monthly_period",
+            "period_rule": "explicit month label, first or last day of a month",
+            "value_rule": "strict cell number; empty cells stay missing",
+            "unit": unit,
+            "unit_source": "column header",
+            "scale": scale.value,
+            "measure": StockFlow.UNKNOWN.value,
+            "document_rows": document_rows,
+            "source_rows": len(periods),
+            "matched_rows": len(added),
+            "missing_periods": [end.isoformat() for end in missing],
+            "outside_table_periods": len(set(levels) - set(periods)),
+            "content_hash": content_hash,
+            "fill": "none",
+        },
+        input_refs=[source.result_id, content_hash],
+        output_ref=label,
     )
     return AddedSeries(tuple(added), tuple(missing), transformation)

@@ -81,7 +81,7 @@ const proofSourceSchema = z
     last_retrieved: z.iso.datetime({ offset: true }).nullable(),
   })
   .strict();
-/** A fetched document one literal cell was read from; no address path or cell text. */
+/** A fetched document a literal cell or an added column was read from; no path or cell text. */
 const proofDocumentSchema = z
   .object({
     source_type: z.literal("web_url"),
@@ -91,9 +91,10 @@ const proofDocumentSchema = z
     retrieved_at: z.iso.datetime({ offset: true }).nullable(),
     page: z.number().int().min(1).nullable(),
     table: z.number().int().min(1).nullable(),
-    row: z.number().int().min(1),
+    row: z.number().int().min(1).nullable(),
     column: z.number().int().min(1),
     sheet_selected: z.boolean(),
+    values_read: z.number().int().nonnegative().nullable().default(null),
   })
   .strict();
 const proofStepSchema = z
@@ -126,7 +127,7 @@ export const proofSchema = z
     gate: z.literal("accepted"),
     steps: z.array(proofStepSchema).max(8),
     sources: z.array(proofSourceSchema).max(32),
-    documents: z.array(proofDocumentSchema).max(1).default([]),
+    documents: z.array(proofDocumentSchema).max(4).default([]),
     warnings: z.array(bounded).max(16),
     limitations: z.array(bounded).max(16),
     unresolved_semantics: z.array(bounded).max(16),

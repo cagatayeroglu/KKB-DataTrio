@@ -115,14 +115,17 @@ export function documentOrigin(document: ProofDocument) {
   return `Sorudaki adresten güvenli indirme, ${when}`;
 }
 
-/** Position of the one selected cell; sheet names and cell text stay out. */
+/** Position of the selected cell or column; sheet names and cell text stay out. */
 export function documentLocation(document: ProofDocument) {
   return [
     document.page === null ? null : `sayfa ${document.page}`,
     document.sheet_selected ? "seçilen çalışma sayfası" : null,
     document.table === null ? null : `tablo ${document.table}`,
-    `satır ${document.row}`,
+    document.row === null ? null : `satır ${document.row}`,
     `sütun ${document.column}`,
+    document.values_read === null
+      ? null
+      : `${document.values_read} değer okundu`,
   ]
     .filter(Boolean)
     .join(" · ");

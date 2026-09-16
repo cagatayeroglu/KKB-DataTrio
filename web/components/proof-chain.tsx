@@ -80,7 +80,10 @@ export function ProofChain({
               <div>
                 <h4>{documentName(document)}</h4>
                 <p>{documentOrigin(document)}</p>
-                <p>Okunan hücre: {documentLocation(document)}</p>
+                <p>
+                  {document.row === null ? "Okunan sütun" : "Okunan hücre"}:{" "}
+                  {documentLocation(document)}
+                </p>
                 <p
                   className="mono"
                   title="İçerik kimliği; doğruluk kanıtı değildir"

@@ -111,6 +111,7 @@ def test_prompt_address_is_published_with_a_document_proof(pool, tmp_path):
         "row": 1,
         "column": 2,
         "sheet_selected": False,
+        "values_read": None,
     }
     assert document["retrieved_at"] is not None
     serialized = json.dumps(turn, ensure_ascii=False)
