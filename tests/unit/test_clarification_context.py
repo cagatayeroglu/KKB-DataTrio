@@ -1,14 +1,17 @@
 """Targeted tests for session clarification context lifecycle and retention."""
 
+import time
 from uuid import uuid4
 
 import pytest
+from fastapi.testclient import TestClient
 from test_catalog_continuation import CATALOG, TOTAL, discover, proposal, seed_prepared
 from test_series_inspection import SQL
 
 from kkb_agent.agent.workspace import Workspace
+from kkb_agent.api.app import create_app
 from kkb_agent.api.prepared import PreparedRunner, open_lakehouse
-from kkb_agent.api.service import SelectedResult
+from kkb_agent.api.service import AnalysisService, SelectedResult
 from kkb_agent.llm import scripted
 
 
@@ -402,3 +405,170 @@ def test_negative_control_without_context_inheritance_fails(pool, tmp_path):
 
     # Without q1 context, q2 alone lacks dates and fails/abstains!
     assert turn2_raw.status.value == "abstained"
+
+
+BASE = "http://127.0.0.1:8000"
+
+
+def wait_http(client: TestClient, path: str, headers: dict[str, str]) -> dict:
+    for _ in range(100):
+        res = client.get(path, headers=headers).json()
+        if res.get("state") in ("completed", "failed"):
+            return res
+        time.sleep(0.05)
+    return res
+
+
+def test_fastapi_clarification_continuation_e2e(pool, tmp_path):
+    """FastAPI endpoint test for turns with is_continuation parameter e2e."""
+    provider = scripted(
+        # Turn 1: Discovery then clarification
+        proposal(discover("d1")),
+        proposal(clarification="ambiguous_series"),
+        # Turn 2: Discovery then analysis
+        proposal(discover("d2")),
+        proposal(calculate("a1", start="2026-04-30", end="2026-06-30")),
+        "Nisan'dan Haziran 2026'ya konut kredisi stoğu 50 milyon TL arttı.",
+    )
+    prepared = runner(pool, tmp_path, provider)
+    service = AnalysisService(prepared, mode="scripted", selected_runner=prepared.selected)
+
+    with TestClient(create_app(service, prepared=prepared.status), base_url=BASE) as client:
+        # 1. Create session
+        session = client.post("/v1/sessions", json={}).json()
+        headers = {"X-KKB-Session-Token": session["token"]}
+        turns_path = f"/v1/sessions/{session['session_id']}/turns"
+
+        # 2. Turn 1: Submit initial question that abstains for clarification
+        q1 = "Nisan-Haziran 2026 konut kredisi bakiyesini göster."
+        req1 = {"request_id": uuid4().hex, "question": q1}
+        admitted1 = client.post(turns_path, json=req1, headers=headers)
+        assert admitted1.status_code in (200, 201, 202)
+
+        turn1 = wait_http(client, f"{turns_path}/{admitted1.json()['turn_id']}", headers)
+        assert turn1["state"] == "completed"
+        assert turn1["answer"]["status"] == "abstained"
+
+        # 3. Turn 2: Submit clarification response with is_continuation=true
+        q2 = "BDDK Aylık Bülten bakiyesini kullan."
+        req2 = {"request_id": uuid4().hex, "question": q2, "is_continuation": True}
+        admitted2 = client.post(turns_path, json=req2, headers=headers)
+        assert admitted2.status_code in (200, 201, 202)
+
+        turn2 = wait_http(client, f"{turns_path}/{admitted2.json()['turn_id']}", headers)
+        assert turn2["state"] == "completed"
+        assert turn2["answer"]["status"] == "accepted"
+
+        # Verify effective prompt sent to LLM planner contained original request context
+        last_prompt = provider.seen[-1][-1].content
+        assert f"Orijinal istek: {q1}" in last_prompt
+        assert f"Açıklama: {q2}" in last_prompt
+
+
+def test_fastapi_independent_new_question_drops_pending_context_e2e(pool, tmp_path):
+    """FastAPI endpoint test: is_continuation=false drops pending clarification context."""
+    provider = scripted(
+        # Turn 1: Discovery then clarification
+        proposal(discover("d1")),
+        proposal(clarification="ambiguous_series"),
+        # Turn 2: Discovery then analysis for independent new question
+        proposal(discover("d2")),
+        proposal(calculate("a2", start="2026-04-30", end="2026-06-30")),
+        "Nisan'dan Haziran 2026'ya toplam kredi stoğu 50 milyon TL arttı.",
+    )
+    prepared = runner(pool, tmp_path, provider)
+    service = AnalysisService(prepared, mode="scripted", selected_runner=prepared.selected)
+
+    with TestClient(create_app(service, prepared=prepared.status), base_url=BASE) as client:
+        session = client.post("/v1/sessions", json={}).json()
+        headers = {"X-KKB-Session-Token": session["token"]}
+        turns_path = f"/v1/sessions/{session['session_id']}/turns"
+
+        # Turn 1: Abstained
+        q1 = "Nisan-Haziran 2026 konut kredisi bakiyesini göster."
+        admitted1 = client.post(
+            turns_path, json={"request_id": uuid4().hex, "question": q1}, headers=headers
+        )
+        wait_http(client, f"{turns_path}/{admitted1.json()['turn_id']}", headers)
+
+        # Turn 2: Independent question with is_continuation=false
+        q2 = "Nisan-Haziran 2026 toplam kredi bakiyesini göster."
+        req2 = {"request_id": uuid4().hex, "question": q2, "is_continuation": False}
+        admitted2 = client.post(turns_path, json=req2, headers=headers)
+        assert admitted2.status_code in (200, 201, 202)
+
+        turn2 = wait_http(client, f"{turns_path}/{admitted2.json()['turn_id']}", headers)
+        assert turn2["state"] == "completed"
+        assert turn2["answer"]["status"] == "accepted"
+
+        # Verify prompt did NOT contain q1 context
+        last_prompt = provider.seen[-1][-1].content
+        assert "Orijinal istek" not in last_prompt
+        assert q1 not in last_prompt
+
+
+def test_fastapi_real_idempotency_and_conflict(pool, tmp_path):
+    """FastAPI endpoint test: exact retry returns same turn; altered field returns 409 conflict."""
+    provider = scripted(
+        proposal(discover("d1")),
+        proposal(clarification="ambiguous_series"),
+    )
+    prepared = runner(pool, tmp_path, provider)
+    service = AnalysisService(prepared, mode="scripted", selected_runner=prepared.selected)
+
+    with TestClient(create_app(service, prepared=prepared.status), base_url=BASE) as client:
+        session = client.post("/v1/sessions", json={}).json()
+        headers = {"X-KKB-Session-Token": session["token"]}
+        turns_path = f"/v1/sessions/{session['session_id']}/turns"
+
+        rid = uuid4().hex
+        body = {"request_id": rid, "question": "Konut kredisini göster.", "is_continuation": True}
+
+        # 1. First submission succeeds
+        res1 = client.post(turns_path, json=body, headers=headers)
+        assert res1.status_code in (200, 201, 202)
+        turn_id = res1.json()["turn_id"]
+
+        # 2. Resubmission with exact same body returns same turn_id without calling runner again
+        res2 = client.post(turns_path, json=body, headers=headers)
+        assert res2.status_code in (200, 201, 202)
+        assert res2.json()["turn_id"] == turn_id
+
+        # 3. Resubmission with same request_id but different is_continuation returns 409 conflict
+        conflict_body = {
+            "request_id": rid,
+            "question": "Konut kredisini göster.",
+            "is_continuation": False,
+        }
+        res_conflict = client.post(turns_path, json=conflict_body, headers=headers)
+        assert res_conflict.status_code == 409
+        assert res_conflict.json()["error"] == "request_conflict"
+
+
+def test_fastapi_invalid_types_and_foreign_sessions_rejected(pool, tmp_path):
+    """FastAPI validation: invalid is_continuation types return 422, foreign sessions return 404."""
+    prepared = runner(pool, tmp_path, scripted(proposal(clarification="ambiguous_series")))
+    service = AnalysisService(prepared, mode="scripted", selected_runner=prepared.selected)
+
+    with TestClient(create_app(service, prepared=prepared.status), base_url=BASE) as client:
+        session = client.post("/v1/sessions", json={}).json()
+        headers = {"X-KKB-Session-Token": session["token"]}
+        turns_path = f"/v1/sessions/{session['session_id']}/turns"
+
+        # 1. Invalid is_continuation field type returns 422
+        bad_type = {
+            "request_id": uuid4().hex,
+            "question": "Konut kredisi",
+            "is_continuation": "invalid_string",
+        }
+        res_bad = client.post(turns_path, json=bad_type, headers=headers)
+        assert res_bad.status_code == 422
+        assert res_bad.json()["error"] == "invalid_request"
+
+        # 2. Foreign session ID returns 404
+        foreign_path = f"/v1/sessions/{uuid4().hex}/turns"
+        res_foreign = client.post(
+            foreign_path, json={"request_id": uuid4().hex, "question": "Test"}, headers=headers
+        )
+        assert res_foreign.status_code == 404
+        assert res_foreign.json()["error"] == "not_found"

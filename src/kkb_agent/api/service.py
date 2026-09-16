@@ -32,7 +32,7 @@ from kkb_agent.llm.provider import ProviderError
 
 # Executed only on the one worker. A runtime must own/open/close its connection
 # there and retain session state under the server-issued session_id.
-Runner = Callable[[str, str, str], Answer]
+Runner = Callable[..., Answer]
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,7 +44,7 @@ class SelectedResult:
     version: str
 
 
-SelectedRunner = Callable[[str, str, str, SelectedResult], Answer]
+SelectedRunner = Callable[..., Answer]
 
 
 class ServiceError(Exception):
@@ -148,7 +148,14 @@ class AnalysisService:
             session.requests[question.request_id] = (digest, turn_id)
             self._busy = True
             try:
-                self._executor.submit(self._run, session_id, turn_id, question.question, selected)
+                self._executor.submit(
+                    self._run,
+                    session_id,
+                    turn_id,
+                    question.question,
+                    selected,
+                    question.is_continuation,
+                )
             except RuntimeError:
                 self._busy = False
                 del session.turns[turn_id]
@@ -211,7 +218,12 @@ class AnalysisService:
             )
 
     def _run(
-        self, session_id: str, turn_id: str, question: str, selected: SelectedResult | None
+        self,
+        session_id: str,
+        turn_id: str,
+        question: str,
+        selected: SelectedResult | None,
+        is_continuation: bool | None = None,
     ) -> None:
         start = time.monotonic()
         answer = None
@@ -219,11 +231,15 @@ class AnalysisService:
         try:
             self._transition(session_id, turn_id, "running", start)
             if selected is None:
-                output = self._runner(session_id, turn_id, question)
+                output = self._runner(
+                    session_id, turn_id, question, is_continuation=is_continuation
+                )
             else:
                 if self._selected_runner is None:  # Defensive: never fall back to latest.
                     raise ServiceError("unavailable", 503)
-                output = self._selected_runner(session_id, turn_id, question, selected)
+                output = self._selected_runner(
+                    session_id, turn_id, question, selected, is_continuation=is_continuation
+                )
             answer = Answer.model_validate(output.model_dump())
             if len(answer.model_dump_json().encode()) > MAX_RESPONSE_BYTES - 4096:
                 raise OutputRefused("output_limit")
