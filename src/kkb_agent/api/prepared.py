@@ -64,13 +64,55 @@ class _Publication:
 
 @dataclass(frozen=True, slots=True)
 class PendingClarification:
-    question: str
+    original_question: str
+    clarifications: tuple[str, ...] = ()
     selection: SelectedResult | None = None
+
+
+_CANCELLATION_KEYWORDS = {"iptal", "vazgeç", "vazgeçtim", "cancel", "iptal et"}
+_CANCELLATION_PREFIXES = ("iptal:", "vazgeç:", "cancel:")
+
+_NEW_QUESTION_PREFIXES = (
+    "yeni soru:",
+    "yeni istek:",
+    "bağımsız soru:",
+    "farklı soru:",
+    "yeni:",
+    "new question:",
+    "vazgeçip başka",
+    "başka bir soru",
+)
+
+
+def _is_cancellation(question: str) -> bool:
+    q = question.strip().lower()
+    if q in _CANCELLATION_KEYWORDS:
+        return True
+    return any(q.startswith(prefix) for prefix in _CANCELLATION_PREFIXES)
+
+
+def _is_new_question(
+    question: str,
+    selection: SelectedResult | None,
+    pending: PendingClarification,
+) -> bool:
+    q = question.strip().lower()
+    if any(q.startswith(prefix) for prefix in _NEW_QUESTION_PREFIXES):
+        return True
+    if selection is not None and pending.selection is not None and selection != pending.selection:
+        return True
+    return False
+
+
+def _format_clarification_prompt(original: str, clarifications: tuple[str, ...]) -> str:
+    lines = [f"Orijinal istek: {original}"]
+    for c in clarifications:
+        lines.append(f"Açıklama: {c}")
+    return "\n".join(lines)
 
 
 @dataclass(frozen=True, slots=True)
 class ResolvedSelection:
-
     """Freshly read workspace value; not an execution or verifier authorization."""
 
     name: str
@@ -316,11 +358,26 @@ class PreparedRunner:
             pending = self._pending_clarifications.get(session_id)
             effective_question = question
             effective_selection = selection
+            is_cancel = False
+            is_new_q = False
             if pending is not None:
-                if effective_selection is None and pending.selection is not None:
-                    if (session_id, pending.selection.turn_id) in self._publications:
-                        effective_selection = pending.selection
-                effective_question = f"Orijinal istek: {pending.question}\nAçıklama: {question}"
+                if _is_cancellation(question):
+                    is_cancel = True
+                    self._pending_clarifications.pop(session_id, None)
+                    effective_question = question
+                    effective_selection = selection
+                elif _is_new_question(question, selection, pending):
+                    is_new_q = True
+                    self._pending_clarifications.pop(session_id, None)
+                    effective_question = question
+                    effective_selection = selection
+                else:
+                    if effective_selection is None and pending.selection is not None:
+                        if (session_id, pending.selection.turn_id) in self._publications:
+                            effective_selection = pending.selection
+                    effective_question = _format_clarification_prompt(
+                        pending.original_question, pending.clarifications + (question,)
+                    )
 
             if (
                 effective_selection is not None
@@ -395,13 +452,22 @@ class PreparedRunner:
                     "missing_series",
                     "unresolved_semantics",
                 ):
+                    if pending is not None and not is_cancel and not is_new_q:
+                        orig_q = pending.original_question
+                        accumulated = pending.clarifications + (question,)
+                        sel = effective_selection
+                    else:
+                        orig_q = question
+                        accumulated = ()
+                        sel = selection
                     self._pending_clarifications[session_id] = PendingClarification(
-                        effective_question, effective_selection
+                        original_question=orig_q,
+                        clarifications=accumulated,
+                        selection=sel,
                     )
                 elif clarification_reason == "unsupported_request":
                     self._pending_clarifications.pop(session_id, None)
                 return answer
-
 
         finally:
             self._lock.release()

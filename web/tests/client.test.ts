@@ -376,3 +376,46 @@ test("only explicit admission rejection ends recovery; transport and server erro
     globalThis.fetch = old;
   }
 });
+
+test("clarification flow and independent new question transition retain client selection boundaries", () => {
+  const abstainedTurn = turnSchema.parse({
+    ...turn,
+    state: "completed",
+    answer: {
+      status: "abstained",
+      text: "Seri seçimi net değil.",
+      omitted_claims: 0,
+      notices: [],
+      result: null,
+    },
+  });
+
+  // Abstained turn yields no published result
+  assert.equal(publishedResult(abstainedTurn), undefined);
+
+  // A follow-up clarification without selected_result_id
+  const clarificationReq = draftRequest("BDDK verisini kullan");
+  assert.equal(clarificationReq.selected_result_id, undefined);
+
+  // An independent new question also passes no selected_result_id
+  const independentReq = draftRequest("Yeni soru: 2026 yılı enflasyonu");
+  assert.equal(independentReq.selected_result_id, undefined);
+});
+
+test("abstained or error turns leave client UI state clean and selectable", () => {
+  const failedTurn = turnSchema.parse({
+    ...turn,
+    state: "failed",
+    error: "temporary_failure",
+    answer: null,
+  });
+
+  // Failed turn produces no published selection
+  assert.equal(publishedResult(failedTurn), undefined);
+
+  // Fresh question submission after failure succeeds without stuck state
+  const retryReq = draftRequest("Konut kredilerini göster");
+  assert.equal(retryReq.question, "Konut kredilerini göster");
+  assert.equal(retryReq.selected_result_id, undefined);
+});
+
