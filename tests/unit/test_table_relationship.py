@@ -474,3 +474,102 @@ class TestNominalAndRealAreNotInterchangeable:
         assert [v.label for v in table().values] == [
             v.label for v in with_real.values if not v.label.startswith("table comparison ")
         ][: len(table().values)]
+
+
+SUPPORTED_COUNT = "Koşul altında iki yönü birlikte karşılayan dönem sayısı 1 ay."
+#: An index base is not one of the series' values; the gate rejects it as an
+#: ambiguous binding, which is the numeric-rewrite category.
+NUMERIC_ONLY_DRAFT = "Endeks tabanı 100 olarak alınmıştır."
+#: The same base written beside a supported count fails period attribution
+#: instead, which is the other rewrite category.
+PERIOD_ONLY_DRAFT = "Endeks 2023=100 tabanlıdır ve birlikte karşılanan dönem sayısı 1 ay."
+
+
+def repair_session(pool, *drafts, **flags):
+    lake, workspace = pool
+    provider = scripted(plan().model_dump_json(), *drafts)
+    session = Session(
+        provider,
+        registry_for(pool),
+        repair_unmatched_numbers=True,
+        repair_period_wording=True,
+        **flags,
+    )
+    answered = session.answer(
+        plan().question, lake.connection, workspace=workspace, remember="comparison"
+    )
+    return provider, workspace, answered
+
+
+class TestOneRewritePerWordingProblem:
+    """M11-11: a repaired draft may fail a different rule, and did, live.
+
+    Three bounded runs on 2026-09-16 showed Turn 2 publishing exactly when its
+    first failure was period attribution. When the first failure was a numeric
+    binding instead, the single repair was spent there and the period fault the
+    replacement introduced had none left, so a fully verified table went
+    unpublished. Each category may now be rewritten once, and only once.
+    """
+
+    def test_a_second_problem_in_a_repaired_draft_gets_its_own_rewrite(self, pool):
+        provider, workspace, answered = repair_session(
+            pool, NUMERIC_ONLY_DRAFT, PERIOD_ONLY_DRAFT, SUPPORTED_COUNT
+        )
+
+        assert len(provider.seen) == 4
+        assert answered.answer.status is AnswerStatus.ACCEPTED
+        assert "comparison" in workspace.names()
+
+    def test_the_same_problem_is_never_rewritten_twice(self, pool):
+        provider, workspace, answered = repair_session(
+            pool, NUMERIC_ONLY_DRAFT, NUMERIC_ONLY_DRAFT, SUPPORTED_COUNT
+        )
+
+        # Plan, draft, one numeric rewrite. The repeated numeric fault stops there.
+        assert len(provider.seen) == 3
+        assert answered.answer.status is not AnswerStatus.ACCEPTED
+        assert "comparison" not in workspace.names()
+
+    def test_two_rewrites_are_the_ceiling(self, pool):
+        provider, workspace, answered = repair_session(
+            pool, NUMERIC_ONLY_DRAFT, PERIOD_ONLY_DRAFT, NUMERIC_ONLY_DRAFT, SUPPORTED_COUNT
+        )
+
+        assert len(provider.seen) == 4
+        assert answered.answer.status is not AnswerStatus.ACCEPTED
+        assert "comparison" not in workspace.names()
+
+    def test_every_rewrite_reuses_the_same_immutable_candidate(self, pool):
+        before = source_of(pool).digest()
+        provider, workspace, _ = repair_session(
+            pool, NUMERIC_ONLY_DRAFT, PERIOD_ONLY_DRAFT, SUPPORTED_COUNT
+        )
+
+        results = [seen[1].content for seen in provider.seen[1:]]
+        assert results[0] == results[1] == results[2]
+        assert workspace.value_of("konut_kredisi_ve_faiz").digest() == before
+
+    def test_a_rewrite_that_stays_unsupported_still_does_not_publish(self, pool):
+        provider, workspace, answered = repair_session(
+            pool,
+            NUMERIC_ONLY_DRAFT,
+            PERIOD_ONLY_DRAFT,
+            "Koşul altında iki yönü birlikte karşılayan dönem sayısı 19 ay.",
+        )
+
+        assert len(provider.seen) == 4
+        assert answered.answer.status is not AnswerStatus.ACCEPTED
+        assert "comparison" not in workspace.names()
+
+    def test_a_disabled_category_is_not_rewritten_at_all(self, pool):
+        lake, workspace = pool
+        provider = scripted(
+            plan().model_dump_json(), NUMERIC_ONLY_DRAFT, PERIOD_ONLY_DRAFT, SUPPORTED_COUNT
+        )
+        Session(provider, registry_for(pool), repair_unmatched_numbers=True).answer(
+            plan().question, lake.connection, workspace=workspace, remember="comparison"
+        )
+
+        # Numeric rewrite runs; the period fault it leaves has no enabled repair.
+        assert len(provider.seen) == 3
+        assert "comparison" not in workspace.names()
