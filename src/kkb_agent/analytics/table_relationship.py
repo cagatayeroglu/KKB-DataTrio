@@ -70,7 +70,7 @@ def _column(source: AnalyticalResult, label: str) -> dict[date, float]:
     return values
 
 
-def _real_counterpart(source: AnalyticalResult, label: str) -> str | None:
+def real_counterpart(source: AnalyticalResult, label: str) -> str | None:
     """The deflated column derived from this one, when the table already carries it.
 
     `deflation` names its output `"<column> real, <YYYY-MM> prices (<index>)"`, so
@@ -159,7 +159,7 @@ def compare_table_directions(
         f"{column!r} was compared in nominal terms although this table also carries "
         f"{counterpart!r}; a question about real change needs the real column"
         for column in (driver_column, target_column, *([when_column] if when_column else []))
-        if (counterpart := _real_counterpart(source, column)) is not None
+        if (counterpart := real_counterpart(source, column)) is not None
     ]
     counts = {
         "complete monthly transitions": len(transitions),

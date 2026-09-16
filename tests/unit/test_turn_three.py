@@ -83,6 +83,9 @@ def test_three_turn_acceptance_requires_requested_real_comparison(lake, tmp_path
                     "target_direction": "up" if case == "wrong_direction" else "non_increasing",
                     "when_column": "EVDS:TP.KTF12 monthly average (by_end)",
                     "when_direction": "down",
+                    # The tool now moves a nominal target to the deflated column
+                    # it finds, so a deliberately nominal comparison says so.
+                    **({"use_nominal": True} if case == "nominal" else {}),
                 },
                 "compare",
                 ("add",),
