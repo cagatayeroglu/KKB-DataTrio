@@ -97,8 +97,9 @@ export async function forward(
     if (!token || !tokenPattern.test(token)) return error("not_found", 404);
     headers.set("X-KKB-Session-Token", token);
   }
+  const timeoutMs = Number(process.env.KKB_PROXY_TIMEOUT_MS) || 900000;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   const disconnect = () => controller.abort();
   request.signal.addEventListener("abort", disconnect, { once: true });
   try {

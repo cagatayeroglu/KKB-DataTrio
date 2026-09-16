@@ -331,15 +331,32 @@ class PreparedRunner:
         self._pending_clarifications: dict[str, PendingClarification] = {}
         self._lock = threading.Lock()
 
-    def __call__(self, session_id: str, turn_id: str, question: str) -> Answer:
-        return self._run(session_id, turn_id, question)
+    def __call__(
+        self,
+        session_id: str,
+        turn_id: str,
+        question: str,
+        is_continuation: bool | None = None,
+    ) -> Answer:
+        return self._run(session_id, turn_id, question, is_continuation=is_continuation)
 
     def selected(
-        self, session_id: str, turn_id: str, question: str, selection: SelectedResult
+        self,
+        session_id: str,
+        turn_id: str,
+        question: str,
+        selection: SelectedResult,
+        is_continuation: bool | None = None,
     ) -> Answer:
         """Service worker entry; resolve and execute under the same runner lock."""
         try:
-            return self._run(session_id, turn_id, question, selection)
+            return self._run(
+                session_id,
+                turn_id,
+                question,
+                selection,
+                is_continuation=is_continuation,
+            )
         except (SelectionError, WorkspaceError):
             raise ServiceError("invalid_result", 422) from None
 
@@ -349,6 +366,7 @@ class PreparedRunner:
         turn_id: str,
         question: str,
         selection: SelectedResult | None = None,
+        is_continuation: bool | None = None,
     ) -> Answer:
         if not _IDENTIFIER.fullmatch(session_id) or not _IDENTIFIER.fullmatch(turn_id):
             raise PreparedError("invalid_runtime_identity")
@@ -361,7 +379,7 @@ class PreparedRunner:
             is_cancel = False
             is_new_q = False
             if pending is not None:
-                if _is_cancellation(question):
+                if is_continuation is False or _is_cancellation(question):
                     is_cancel = True
                     self._pending_clarifications.pop(session_id, None)
                     effective_question = question
@@ -465,8 +483,6 @@ class PreparedRunner:
                         clarifications=accumulated,
                         selection=sel,
                     )
-                elif clarification_reason == "unsupported_request":
-                    self._pending_clarifications.pop(session_id, None)
                 return answer
 
         finally:
