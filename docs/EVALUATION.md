@@ -1061,6 +1061,72 @@ record does not alter runtime code. No live provider, source, embedding or
 search call was made. A bounded live rerun remains separate and requires
 explicit authorization.
 
+<a id="m11-07-hybrid-three-turn-rerun-2026-09-16"></a>
+### M11-07 / M13-05 served hybrid three-turn rerun — 2026-09-16 (PR #201)
+
+Owner-authorized by Eray on merged `dev` `5f8a02c`, which carries the acceptance
+record (#199) and the per-omission diagnostics (#200). Same bounded plan as the
+earlier attempt: Kloudeks only, 15 chat and 15 query-embedding ceiling, 600 s per
+request, `KLOUDEKS_MAX_ATTEMPTS=1`, no transport retry, fresh workspace state root,
+fresh content-free ledger, no passage/index-build, BDDK/EVDS refresh, web-search or
+OCR call. Production Next.js client over `tests/manual/live_client.py`, fresh browser
+workspace, follow-selection on, the three organizer questions entered verbatim.
+
+Prerequisites re-verified offline with no provider call: prepared-pool aggregate
+digest `dd4700df3c2b86c08238398812ab6bc31aa3c4649bffc42149b19fd7578c87fb` unchanged,
+readiness `ready: true` / `model_checked: false` / `catalog_retrieval: "hybrid"`,
+29 identities, 4,124 rows, 37 catalog identities, 124 files, prepared snapshot
+`6fc3afd5…f887f`, catalog version `e0bbaac8…69f11`; oracle 60 months, 59 transitions,
+32 rate falls, 46 real non-rises, 22 joint months, December 2025 KFE 204.36.
+
+**All three turns were ACCEPTED and published.** Actual usage: **11 chat and 4 query
+embeddings**, every call successful on one attempt.
+
+| Turn | Result |
+| --- | --- |
+| 1 | **ACCEPTED**, 172 s, zero omissions; published 242 values. The planner chose the `by_majority` weekly assignment this time. 236 of 238 independent SQL/`Decimal` comparisons match, and the four published metrics equal the independent counts exactly: 59 transitions, 32 rate falls, 28 rises, 4 non-rises, months February/May 2021, December 2023, January 2024. The two exceptions are the December 2025 rate and its change — see the boundary defect below. |
+| 2 | **ACCEPTED**, 125 s, published 302 values. The first draft was QUALIFIED with one `period` omission; the bounded period-wording repair from #194 then produced an accepted answer. All 242 Turn-1 identities are present with zero value and zero display changes, and all 60 real values equal nominal x CPI(2025-12)/CPI(t) exactly (2021-01 1,894,772.1; 2021-02 1,874,183.9; 2023-12 828,155.2; 2024-01 773,412.0). |
+| 3 | **ACCEPTED**, 160 s, published 368 values. The first draft was QUALIFIED with one `unmatched_number` omission; the M11-11 bounded numeric-wording retry then produced an accepted answer — its first successful live exercise. All 302 Turn-2 identities are present with zero value changes, all 60 KFE values equal the stored series, and December 2025 KFE is 204.36. The published table comparison — 59 complete transitions, 0 excluded, 32 meeting the condition, 32 driver, 4 target, 4 both — equals an independent recomputation exactly. |
+| Diagnostics | Both omissions were localized from the ledger alone, with no extra live call. Turn 2: sentence 2, `period`, on values 1,874,180 and 773,412, each bound to the deflate result and its real-price value label — a correct figure with a rejected period attribution, not a fabricated number. Turn 3: sentence 0, `unmatched_number`, on the unbound literal 100 — the KFE index base, not an invented financial figure. Neither record contains draft text. |
+| Served discovery | Hybrid exercised throughout: four query embeddings at 102 / 77 / 149 / 128 ms, all successful, no lexical degradation. |
+| Latency | Turn 1 planner 40.672 + 16.645 s, writer 94.011 s. Turn 2 planner 7.278 + 11.528 s, writer 28.059 s, repair 63.832 s. Turn 3 planner 10.767 + 21.820 s, writer 43.499 s, retry 67.118 s. Model planning and writing still dominate. |
+| Data integrity | The prepared pool is byte-identical before and after. Services were stopped afterwards. |
+
+Two defects were measured, and neither is a verifier failure:
+
+**B — `by_majority` truncates the window's final month.** The Turn 1 table is
+labelled `EVDS:TP.KTF12 monthly average (by_majority)`, and 59 of its 60 months
+equal an independent majority assignment. December 2025 does not: the published
+37.29 is the average of the four weeks *ending* in December, while the majority
+assignment also owns the week 2025-12-27..2026-01-02, whose midpoint is 30 December,
+giving 37.108. The closed window filters weekly rows on `period_end` before the
+month assignment, so the straddling week is dropped and the last month is computed
+by a different rule than the label states. The published change for that month
+(-0.4725 pp instead of -0.6545 pp) inherits the same error, and Turns 2 and 3 carry
+the value forward unchanged. The counts are unaffected here — the rate falls in
+December under either rule and the balance rose — so no published count or month
+list changes, and the verifier cannot catch it because the figure is a real average
+of real observations. This is an aggregation-definition defect at the window
+boundary, not a hallucination.
+
+**F — Turn 3 delivers the column but not the requested relationship.** The KFE
+column is present and exact, and the answer correctly refuses the causal question
+("Fiyat artışıyla ilgili soru kısmı bu sonuçlarda ele alınmıyor"), so there is no
+causal overclaim. But the comparison it computes is the nominal Turn 1 relationship
+— rate falls against the *nominal* balance, 4 months — rather than the three-way
+relationship the question implies and the oracle defines: rate falls, KFE up, *real*
+balance not rising, which is 22 months. The KFE column therefore sits in the table
+without entering the analysis, and the deflated column built in Turn 2 is not used.
+Every published number is correct; the analysis is incomplete.
+
+Verdict: this is the **first run in which all three organizer turns were accepted
+and published in one workspace**, with every published value independently checked
+and both repair paths exercised live. Served hybrid three-turn acceptance is
+**not yet complete**: Turn 3's substantive relationship is missing and the weekly
+boundary defect puts one wrong cell in the demo table. Both are recorded as the next
+tasks. No further live call was made; no BDDK/EVDS, search, OCR or index-build call
+was made at any point.
+
 <a id="m11-07-hybrid-acceptance-2026-09-16"></a>
 ### M11-07 / M13-05 served hybrid acceptance attempt — 2026-09-16 (PR #199)
 
