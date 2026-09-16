@@ -19,7 +19,7 @@ import math
 import statistics
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from enum import StrEnum
 
 from kkb_agent.core import (
@@ -111,6 +111,53 @@ def assign_month(period_start: date, period_end: date, policy: WeekAssignment) -
     return month_end(period_end.year, period_end.month)
 
 
+def _whole_requested_months(requested_start: date, requested_end: date) -> set[date]:
+    """Month ends whose entire month lies inside the requested window."""
+    whole: set[date] = set()
+    target = month_end(requested_start.year, requested_start.month)
+    last = month_end(requested_end.year, requested_end.month)
+    while True:
+        if date(target.year, target.month, 1) >= requested_start and target <= requested_end:
+            whole.add(target)
+        if target == last:
+            break
+        target = add_months(target, 1)
+    return whole
+
+
+def _boundary_weeks(
+    canonical: Sequence[tuple[date, date]],
+    requested_start: date,
+    requested_end: date,
+    *,
+    anchor: WeeklyAnchor,
+) -> list[tuple[date, date]]:
+    """Weeks just outside the window that BY_MAJORITY places inside a whole month.
+
+    The window selects weeks by end date, so a week straddling its edge is never
+    offered to the month that owns most of the week's days. Without this, the
+    final month of a whole-month request averages one week short and still
+    reports complete coverage — a figure no reader can reproduce from the
+    assignment the answer names.
+
+    Only months requested in full draw a week in. A partial month was not asked
+    for as a month, so it keeps the plain by-end selection and the neighbouring
+    month a straddling week may still be assigned to.
+    """
+    whole = _whole_requested_months(requested_start, requested_end)
+    if not whole:
+        return []
+    week = timedelta(days=7)
+    before = requested_start - week if requested_start > date.min + week else date.min
+    after = requested_end + week if requested_end < date.max - week else date.max
+    known = {end for _, end in canonical}
+    return [
+        (start, end)
+        for start, end in weekly_window(before, after, anchor=anchor)
+        if end not in known and assign_month(start, end, WeekAssignment.BY_MAJORITY) in whole
+    ]
+
+
 def to_monthly(
     observations: Sequence[Observation],
     *,
@@ -127,7 +174,9 @@ def to_monthly(
     it per series and marks its rates unsummable; passing SUM for a rate is a
     caller error, not something to silently permit.
 
-    Only source period ends inside the inclusive requested window contribute.
+    Only source period ends inside the inclusive requested window contribute,
+    plus — under BY_MAJORITY — the weeks straddling the edge of a month that was
+    requested in full, which that assignment places inside it.
     Validate supplied periods even outside that window, but do not count or
     reduce them. Never infer expectation from the span of the supplied rows.
     Empty target months have coverage but no synthesized observation. A short
@@ -146,6 +195,11 @@ def to_monthly(
         raise AlignmentError("Alignment needs a declared week assignment")
     try:
         canonical = weekly_window(requested_start, requested_end, anchor=anchor)
+        if assignment is WeekAssignment.BY_MAJORITY:
+            canonical = sorted(
+                canonical
+                + _boundary_weeks(canonical, requested_start, requested_end, anchor=anchor)
+            )
     except SemanticsError as error:
         raise AlignmentError(str(error)) from error
 
@@ -172,8 +226,11 @@ def to_monthly(
         except SemanticsError as error:
             raise AlignmentError(str(error)) from error
 
+    spine_ends = {end for _, end in canonical}
     supplied = {
-        end: item for end, item in supplied.items() if requested_start <= end <= requested_end
+        end: item
+        for end, item in supplied.items()
+        if requested_start <= end <= requested_end or end in spine_ends
     }
 
     expected: dict[date, int] = {}
