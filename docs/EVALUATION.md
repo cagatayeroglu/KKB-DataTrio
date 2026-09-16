@@ -959,7 +959,11 @@ two-way and joint count phrases bind distinct typed metrics. The existing full
 in force. An injected evidence fault prevents publication, and wrong/extra
 numbers remain rejected. The focused Session/presentation/relationship and
 three-turn suite has 173 passes, touched Python Ruff is clean, and strict
-`mypy src` passes; the broad PR gate remains CI-owned. This is an offline
+`mypy src` passes. The first CI Fast PR run stopped at a legacy selected-runtime
+test that expected a writer call for `add_series`; its follow-up now injects a
+source mutation during deterministic presentation and still proves publication
+fails closed. The full local unit suite then passed 3640 tests; the final-head
+PR gate is pending. This is an offline
 call-count result, not a 60-month
 oracle run, live reliability result or measured wall-clock improvement. A
 separately authorized bounded live hybrid three-turn rerun must still check
