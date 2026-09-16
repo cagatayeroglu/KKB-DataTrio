@@ -15,6 +15,12 @@ from kkb_agent.ingest.evds_request import EvdsWindow
 from kkb_agent.llm import scripted
 
 
+@pytest.fixture(autouse=True)
+def _legacy_writer_rehearsals(monkeypatch):
+    """Keep these scripted negative/repair rehearsals on the writer fallback."""
+    monkeypatch.setattr("kkb_agent.agent.loop.deterministic_draft", lambda result: None)
+
+
 def proposal(question, steps):
     return json.dumps({"question": question, "steps": steps})
 

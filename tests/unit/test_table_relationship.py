@@ -330,7 +330,12 @@ def test_turn_three_numeric_rewrite_reverifies_before_publication(pool, repaired
         repaired,
     )
 
-    answered = Session(provider, registry_for(pool), repair_unmatched_numbers=True).answer(
+    answered = Session(
+        provider,
+        registry_for(pool),
+        repair_unmatched_numbers=True,
+        deterministic_presentation=False,
+    ).answer(
         plan().question,
         lake.connection,
         workspace=workspace,
@@ -387,7 +392,7 @@ def test_composed_session_publishes_one_preserved_table_and_bound_numeric_claim(
         proposed.model_dump_json(), "Hazırlanan tabloda Şubat 2021 bakiyesi 990 milyon TL."
     )
     before = source_of(pool).digest()
-    answered = Session(provider, registry).answer(
+    answered = Session(provider, registry, deterministic_presentation=False).answer(
         proposed.question,
         pool[0].connection,
         workspace=pool[1],
@@ -512,6 +517,7 @@ def repair_session(pool, *drafts, **flags):
         registry_for(pool),
         repair_unmatched_numbers=True,
         repair_period_wording=True,
+        deterministic_presentation=False,
         **flags,
     )
     answered = session.answer(
@@ -585,9 +591,12 @@ class TestOneRewritePerWordingProblem:
         provider = scripted(
             plan().model_dump_json(), NUMERIC_ONLY_DRAFT, PERIOD_ONLY_DRAFT, SUPPORTED_COUNT
         )
-        Session(provider, registry_for(pool), repair_unmatched_numbers=True).answer(
-            plan().question, lake.connection, workspace=workspace, remember="comparison"
-        )
+        Session(
+            provider,
+            registry_for(pool),
+            repair_unmatched_numbers=True,
+            deterministic_presentation=False,
+        ).answer(plan().question, lake.connection, workspace=workspace, remember="comparison")
 
         # Numeric rewrite runs; the period fault it leaves has no enabled repair.
         assert len(provider.seen) == 3

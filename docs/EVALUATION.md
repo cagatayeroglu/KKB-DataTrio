@@ -936,7 +936,38 @@ three-turn live acceptance/latency limitations below remain; this checkpoint is
 not final-demo certification. Ignored local full-gate logs are under
 `work/kkb-hybrid-rehearsal/artifacts/final-full*` in the operator workspace.
 
+<a id="m11-07-syn-bounded-presentation-offline-2026-09-16"></a>
+
+## M11-07-SYN bounded presentation offline — 2026-09-16
+
+The user-supplied ledger for `cagatay-final-3turn-20260916-222703` records Turn 1
+two planner chat calls (298625/277716 ms), two query embeddings (169/67 ms), then
+a 465446 ms writer call. Turn 2 recorded two planner calls (85023/93667 ms), a
+115 ms embedding and a final writer `provider_error` at 600004 ms after the
+calculation had succeeded. These are **pre-fix live observations**, not a measured
+post-fix speedup; the Turn 2 publication gate correctly preserved the previous
+table. The content-free ledger does not establish any missing draft wording.
+
+M11-07-SYN's offline regression uses synthetic prepared data and a scripted
+provider with only the planner response: eligible Turn 1 co-movement, Turn 2
+deflation and Turn 3 table-direction comparison each ACCEPT with **one Session
+planner call and zero synthesis calls**; a configured prepared hybrid discovery
+still needs its separate planner continuation and query embedding. Deflation
+keeps its source digest and explicit reference month; Turn 3's controlled
+two-way and joint count phrases bind distinct typed metrics. The existing full
+`gate_answer`, `result_faults` and workspace preview/publish conditions remain
+in force. An injected evidence fault prevents publication, and wrong/extra
+numbers remain rejected. The focused Session/presentation/relationship and
+three-turn suite has 173 passes, touched Python Ruff is clean, and strict
+`mypy src` passes; the broad PR gate remains CI-owned. This is an offline
+call-count result, not a 60-month
+oracle run, live reliability result or measured wall-clock improvement. A
+separately authorized bounded live hybrid three-turn rerun must still check
+60/59/32/28/4, 302 with the prior 242 preserved, the 22 three-way metric
+with the prior 302 preserved, and end-to-end timing.
+
 <a id="m11-served-hybrid-rehearsal-2026-09-15"></a>
+
 ## M11-07 / M13-05 served rehearsal and hybrid isolation — 2026-09-15
 
 Measured on `4083020`, with product code identical to dev `fdd666e`, in

@@ -330,7 +330,7 @@ def test_third_turn_copied_amounts_are_not_ambiguous_with_table_ancestors(pool):
             ],
         }
         provider = scripted(json.dumps(plan), draft)
-        answer = Session(provider, registry).answer(
+        answer = Session(provider, registry, deterministic_presentation=False).answer(
             question, lake.connection, workspace=workspace, remember=name
         )
         assert answer.answer.status is AnswerStatus.ACCEPTED, answer.answer
@@ -360,7 +360,7 @@ def test_equal_unrelated_result_is_not_hidden_by_ancestor_narrowing(pool):
         ],
     }
     provider = scripted(json.dumps(plan), "Tablo hazırlandı.")
-    answer = Session(provider, registry).answer(
+    answer = Session(provider, registry, deterministic_presentation=False).answer(
         question, lake.connection, workspace=workspace, remember="added"
     )
     assert answer.answer.status is AnswerStatus.ACCEPTED
