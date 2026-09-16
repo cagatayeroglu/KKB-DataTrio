@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, Self
+from typing import TYPE_CHECKING, Literal, NamedTuple, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -14,6 +14,7 @@ from kkb_agent.analytics.table_relationship import (
     Direction,
     TableComparisonRefused,
     compare_table_directions,
+    real_counterpart,
 )
 from kkb_agent.core import AnalyticalResult, ResultKind, ResultStatus
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
@@ -57,6 +58,15 @@ class TableRelationshipArguments(BaseModel):
         description="Optional column defining a direction condition, e.g. the monthly rate column",
     )
     when_direction: Direction | None = None
+    use_nominal: bool = Field(
+        default=False,
+        description=(
+            "Compare the nominal column even though the table carries its "
+            "'<column> real, <month> prices (<index>)' counterpart. Set this only when the "
+            "question asks for nominal terms; by default the deflated column is compared, "
+            "because it only exists after an earlier turn was asked to remove inflation"
+        ),
+    )
 
     @model_validator(mode="after")
     def references_and_condition(self) -> Self:
@@ -67,6 +77,40 @@ class TableRelationshipArguments(BaseModel):
         if self.driver_column == self.target_column:
             raise ValueError("Choose different driver and target columns")
         return self
+
+
+class _Columns(NamedTuple):
+    driver: str
+    target: str
+    when: str | None
+    moved: dict[str, str]
+
+
+def _deflated_columns(source: AnalyticalResult, arguments: TableRelationshipArguments) -> _Columns:
+    """Move each selected column to its deflated counterpart when one exists.
+
+    A real column is only in the table because an earlier turn was asked to
+    remove inflation, so a later question about change means that column unless
+    it says otherwise. `use_nominal` keeps the nominal reading, and a
+    substitution that would collide with another selected column is skipped, so
+    a plan comparing a column against its own real counterpart still works.
+    """
+    driver, target = arguments.driver_column, arguments.target_column
+    when: str | None = arguments.when_column
+    moved: dict[str, str] = {}
+    if arguments.use_nominal:
+        return _Columns(driver, target, when, moved)
+    counterpart = real_counterpart(source, driver)
+    if counterpart is not None and counterpart not in {target, when}:
+        moved["driver_column"], driver = driver, counterpart
+    counterpart = real_counterpart(source, target)
+    if counterpart is not None and counterpart not in {driver, when}:
+        moved["target_column"], target = target, counterpart
+    if when is not None:
+        counterpart = real_counterpart(source, when)
+        if counterpart is not None and counterpart not in {driver, target}:
+            moved["when_column"], when = when, counterpart
+    return _Columns(driver, target, when, moved)
 
 
 def run_table_relationship(
@@ -97,14 +141,16 @@ def run_table_relationship(
             error_category="table_reference",
             warnings=("The referenced table is unavailable or cannot be verified",),
         )
+    columns = _deflated_columns(source, arguments)
+    deflated = columns.moved
     try:
         result = compare_table_directions(
             source,
-            driver_column=arguments.driver_column,
-            target_column=arguments.target_column,
+            driver_column=columns.driver,
+            target_column=columns.target,
             driver_direction=arguments.driver_direction,
             target_direction=arguments.target_direction,
-            when_column=arguments.when_column,
+            when_column=columns.when,
             when_direction=arguments.when_direction,
         )
     except TableComparisonRefused as error:
@@ -118,10 +164,14 @@ def run_table_relationship(
         )
     node = None
     if result.status is ResultStatus.COMPUTED:
+        extra: dict[str, object] = {}
         if arguments.source is not None:
-            result = result.model_copy(
-                update={"parameters": {**result.parameters, "source": arguments.source}}
-            )
+            extra["source"] = arguments.source
+        if deflated:
+            # The answer must be able to say the comparison moved to real terms.
+            extra["compared_in_real_terms_instead_of"] = deflated
+        if extra:
+            result = result.model_copy(update={"parameters": {**result.parameters, **extra}})
         if lineage is not None:
             node = lineage.record(
                 NodeKind.TRANSFORM,

@@ -39,6 +39,10 @@ from kkb_agent.core import (
 from kkb_agent.llm import scripted
 from kkb_agent.tools import make_change_detection_tool
 from kkb_agent.tools.change_detection import ChangeDetectionArguments
+from kkb_agent.tools.table_relationship import (
+    TableRelationshipArguments,
+    _deflated_columns,
+)
 
 
 def table(prices=(100, 105, 103, 108, 110, 110), rates=(8, 7, 7, 6, 5, 6)):
@@ -747,3 +751,82 @@ class TestTheCountContractIsFollowable:
     def test_both_writer_contracts_carry_the_rule(self):
         assert "identified by its listed phrase" in SYNTHESIS_PROMPT
         assert "copy its listed phrase with the number" in NUMERIC_REPAIR_INSTRUCTIONS
+
+
+class TestTheDeflatedColumnIsWhatAChangeQuestionCompares:
+    """M11-11: a real column exists only because a turn was asked to deflate.
+
+    Measured on 2026-09-16: Turn 3 compared the nominal credit column and
+    published 4 joint months while the oracle's answer, over the deflated column
+    the previous turn had just built, is 22. The columns were the planner's to
+    pick and it kept picking nominal, so the tool now prefers the deflated
+    counterpart and a plan that wants nominal terms says so.
+    """
+
+    def test_a_nominal_target_is_replaced_and_the_move_is_recorded(self):
+        source = table_with_real()
+        arguments = TableRelationshipArguments(
+            operation="table_co_movement",
+            input_step="earlier",
+            driver_column="price",
+            target_column="credit",
+            driver_direction="up",
+            target_direction="non_increasing",
+        )
+        columns = _deflated_columns(source, arguments)
+
+        assert columns.target == REAL_LABEL
+        assert columns.moved == {"target_column": "credit"}
+        assert columns.driver == "price"
+
+    def test_use_nominal_keeps_the_nominal_column(self):
+        source = table_with_real()
+        arguments = TableRelationshipArguments(
+            operation="table_co_movement",
+            input_step="earlier",
+            driver_column="price",
+            target_column="credit",
+            driver_direction="up",
+            target_direction="non_increasing",
+            use_nominal=True,
+        )
+        columns = _deflated_columns(source, arguments)
+
+        assert (columns.target, columns.moved) == ("credit", {})
+
+    def test_a_table_without_a_real_column_is_untouched(self):
+        arguments = TableRelationshipArguments(
+            operation="table_co_movement",
+            input_step="earlier",
+            driver_column="price",
+            target_column="credit",
+            driver_direction="up",
+            target_direction="non_increasing",
+        )
+        columns = _deflated_columns(table(), arguments)
+
+        assert (columns.driver, columns.target, columns.moved) == ("price", "credit", {})
+
+    def test_a_plan_already_comparing_the_pair_is_not_collapsed(self):
+        # Nominal against its own real counterpart: substituting would make the
+        # two columns identical and refuse the comparison outright.
+        source = table_with_real()
+        arguments = TableRelationshipArguments(
+            operation="table_co_movement",
+            input_step="earlier",
+            driver_column="credit",
+            target_column=REAL_LABEL,
+            driver_direction="up",
+            target_direction="non_increasing",
+        )
+        columns = _deflated_columns(source, arguments)
+
+        assert columns.driver == "credit" and columns.target == REAL_LABEL
+        assert columns.moved == {}
+
+    def test_the_two_readings_really_do_differ(self):
+        source = table_with_real()
+        nominal = counts(compare(source, target_column="credit"))
+        real = counts(compare(source, target_column=REAL_LABEL))
+
+        assert nominal != real
