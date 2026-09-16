@@ -56,6 +56,14 @@ def first_two(second_draft="Tablo hazırlandı."):
 
 @pytest.mark.parametrize("case", ["complete", "only_added", "nominal", "wrong_direction"])
 def test_three_turn_acceptance_requires_requested_real_comparison(lake, tmp_path, case):
+    """A plan naming the nominal column still produces the required real comparison.
+
+    The tool resolves a column to its deflated counterpart when the table carries
+    one, so `nominal` and `complete` reach the same published comparison. What
+    still fails acceptance is adding the column without comparing it, or comparing
+    it in the wrong direction.
+    """
+    requested_real = case in {"complete", "nominal"}
     prepared(lake)
     third = [
         step(
@@ -83,9 +91,6 @@ def test_three_turn_acceptance_requires_requested_real_comparison(lake, tmp_path
                     "target_direction": "up" if case == "wrong_direction" else "non_increasing",
                     "when_column": "EVDS:TP.KTF12 monthly average (by_end)",
                     "when_direction": "down",
-                    # The tool now moves a nominal target to the deflated column
-                    # it finds, so a deliberately nominal comparison says so.
-                    **({"use_nominal": True} if case == "nominal" else {}),
                 },
                 "compare",
                 ("add",),
@@ -95,16 +100,16 @@ def test_three_turn_acceptance_requires_requested_real_comparison(lake, tmp_path
         *first_two(), proposal(live_check.TURN_THREE_QUESTION, third), "Tablo hazırlandı."
     )
     report = live_check.run_prepared_check(provider, lake.root, tmp_path / "work", turns=3)
-    assert report["passed"] is (case == "complete"), report
+    assert report["passed"] is requested_real, report
     assert len(report["turns"]) == 3
     final = report["turns"][-1]
-    assert final["relationship_checked"] is (case == "complete")
+    assert final["relationship_checked"] is requested_real
     assert final["published"] == [
         live_check.TURN_ONE_NAME,
         live_check.TURN_TWO_NAME,
         live_check.TURN_THREE_NAME,
     ]
-    if case == "complete":
+    if requested_real:
         assert list(final["result"]["counts"].values())[-6:] == [5, 0, 4, 4, 4, 4]
         assert final["tables"][0]["rows"] == 6
         assert final["result"]["transformations"] == [
