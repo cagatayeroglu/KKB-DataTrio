@@ -102,6 +102,7 @@ ProofGap = Literal[
 MAX_PROOF_STEPS = 8
 MAX_PROOF_SOURCES = 32
 MAX_STEP_INPUTS = 16
+MAX_PROOF_DOCUMENTS = 4
 
 
 class ProofSource(ContractModel):
@@ -141,7 +142,7 @@ class ProofSource(ContractModel):
 
 
 class ProofDocument(ContractModel):
-    """The fetched document one literal cell was read from (DEC-132, M7-14).
+    """A fetched document a literal cell (DEC-132) or an added column (M7-14) was read from.
 
     Only fixed facts recorded with the verified cell: never the address path or
     query, a sheet name, header, row label or cell text, which are document data.
@@ -154,8 +155,10 @@ class ProofDocument(ContractModel):
     retrieved_at: AwareDatetime | None
     page: Annotated[int, Field(strict=True, ge=1)] | None
     table: Annotated[int, Field(strict=True, ge=1)] | None
-    row: Annotated[int, Field(strict=True, ge=1)]
+    # None when a whole column was read rather than one cell.
+    row: Annotated[int, Field(strict=True, ge=1)] | None
     column: Annotated[int, Field(strict=True, ge=1)]
+    values_read: Count | None = None
     # A worksheet was named; its name is document text and is not shown.
     sheet_selected: bool
 
@@ -189,7 +192,7 @@ class Proof(ContractModel):
     gate: Literal["accepted"] = "accepted"
     steps: Annotated[tuple[ProofStep, ...], Field(max_length=MAX_PROOF_STEPS)] = ()
     sources: Annotated[tuple[ProofSource, ...], Field(max_length=MAX_PROOF_SOURCES)] = ()
-    documents: Annotated[tuple[ProofDocument, ...], Field(max_length=1)] = ()
+    documents: Annotated[tuple[ProofDocument, ...], Field(max_length=MAX_PROOF_DOCUMENTS)] = ()
     warnings: Annotated[tuple[Text, ...], Field(max_length=16)] = ()
     limitations: Annotated[tuple[Text, ...], Field(max_length=16)] = ()
     unresolved_semantics: Annotated[tuple[Text, ...], Field(max_length=16)] = ()

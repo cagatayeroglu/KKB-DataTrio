@@ -26,6 +26,7 @@ from pydantic import ValidationError
 
 from kkb_agent.agent.literal import literal_proof
 from kkb_agent.api.contracts import (
+    MAX_PROOF_DOCUMENTS,
     MAX_PROOF_SOURCES,
     MAX_PROOF_STEPS,
     MAX_STEP_INPUTS,
@@ -42,6 +43,7 @@ from kkb_agent.core import AnalyticalResult, ClaimKind
 from kkb_agent.ingestion_policy import MIME_TYPES
 from kkb_agent.lakehouse.lineage import Lineage, LineageError, NodeKind
 from kkb_agent.lakehouse.result_evidence import PREFIX, execution_proof
+from kkb_agent.tools._document_column import SNAPSHOT_KIND as DOCUMENT_COLUMN
 
 MAX_RAW_RESPONSES = 512
 MAX_SOURCE_DEPTH = 3
@@ -108,6 +110,7 @@ class _Builder:
     secrets: tuple[str, ...]
     steps: list[ProofStep] = field(default_factory=list)
     sources: list[ProofSource] = field(default_factory=list)
+    documents: list[ProofDocument] = field(default_factory=list)
     source_index: dict[tuple[str, str, Binding], int] = field(default_factory=dict)
     step_index: dict[str, int] = field(default_factory=dict)
     gaps: list[ProofGap] = field(default_factory=list)
@@ -187,6 +190,8 @@ class _Builder:
             return self._nested(snapshot)
         if snapshot.get("kind") == PROJECTION:
             return self._projection(snapshot.get("rows"))
+        if snapshot.get("kind") == DOCUMENT_COLUMN:
+            return self._document_column(snapshot)
         series_id = snapshot.get("series_id")
         if isinstance(series_id, str) and 1 <= len(series_id) <= 200:
             if snapshot.get("kind") == RECEIPT:
@@ -195,6 +200,50 @@ class _Builder:
                 return self._series(series_id, snapshot)
         self.gap("input_not_recognized")
         return []
+
+    def document(self, document: ProofDocument) -> list[ProofInput]:
+        if document in self.documents:
+            return [ProofInput(kind="document", index=self.documents.index(document))]
+        if len(self.documents) >= MAX_PROOF_DOCUMENTS:
+            self.gap("source_limit")
+            return []
+        self.documents.append(document)
+        return [ProofInput(kind="document", index=len(self.documents) - 1)]
+
+    def _document_column(self, snapshot: dict[str, Any]) -> list[ProofInput]:
+        """A column an execution read from a fetched document; fixed facts only."""
+        location, rows = snapshot.get("location"), snapshot.get("rows")
+        content_hash, media_type = snapshot.get("content_hash"), snapshot.get("media_type")
+        if not (
+            isinstance(location, dict)
+            and isinstance(rows, list)
+            and isinstance(content_hash, str)
+            and isinstance(media_type, str)
+            and media_type in _DOCUMENT_FORMATS
+            and all(isinstance(row, list) and len(row) == 3 for row in rows)
+        ):
+            self.gap("input_not_recognized")
+            return []
+        try:
+            document = ProofDocument.model_validate(
+                {
+                    "source_type": snapshot.get("source_type"),
+                    "document_format": _DOCUMENT_FORMATS[media_type],
+                    "host": _host(snapshot.get("locator")),
+                    "content_sha256": content_hash.removeprefix("sha256:"),
+                    "retrieved_at": snapshot.get("retrieved_at"),
+                    "page": location.get("page"),
+                    "table": location.get("table"),
+                    "row": None,
+                    "column": location.get("column_index"),
+                    "sheet_selected": "sheet" in location,
+                    "values_read": sum(1 for row in rows if row[1] is not None),
+                }
+            )
+        except ValidationError:
+            self.gap("input_not_recognized")
+            return []
+        return self.document(document)
 
     def _nested(self, snapshot: dict[str, Any]) -> list[ProofInput]:
         try:
@@ -438,12 +487,11 @@ def build_proof(
         with connection.cursor() as reader:
             builder = _Builder(reader, secrets)
 
-            documents: tuple[ProofDocument, ...] = ()
             if published.claim_kind is ClaimKind.LITERAL_SOURCE_VALUE:
                 document = _document(reader, published)
                 if document is None:
                     return unavailable_proof("execution_not_verified")
-                documents = (document,)
+                builder.documents.append(document)
                 builder.steps.append(
                     ProofStep(
                         producer="web_url",
@@ -468,7 +516,7 @@ def build_proof(
                 availability="partial" if builder.gaps else "available",
                 steps=tuple(builder.steps),
                 sources=tuple(builder.sources),
-                documents=documents,
+                documents=tuple(builder.documents),
                 warnings=texts(published.warnings),
                 limitations=texts(published.limitations),
                 unresolved_semantics=texts(published.unresolved_semantics),

@@ -320,7 +320,7 @@ CURRENTLY IMPLEMENTED: [ToolSpec / ToolRegistry](../src/kkb_agent/agent/registry
 | `causality` | IMPLEMENTED, bounded scope | Association, lag and Granger precedence with stated limits; not causal identification |
 | `change_detection` | PARTIAL | Period `compare`, monthly `co_movement` over series, and `table_co_movement` over verified table columns (M6-25); breakpoint/trend-break methods remain absent |
 | `catalog_search` | OFFLINE IMPLEMENTED | Natural-language query to bounded ranked trusted CatalogRecord candidates; M13-04 |
-| `table_transform` | PARTIAL | `deflate` and monthly `add_series` preserve the published source table; bounded unary index `rebase`, exact-period `align`, and period-range `filter` are implemented (M2-14/M5-20); normalize, frequency conversion, table-to-table alignment, and free-form predicates remain absent |
+| `table_transform` | PARTIAL | `deflate` and monthly `add_series` preserve the published source table; bounded unary index `rebase`, exact-period `align`, and period-range `filter` are implemented (M2-14/M5-20); `add_document_column` joins one column of a prompt-address table when `--enable-web-url` is on (M7-14); normalize, frequency conversion, table-to-table alignment, and free-form predicates remain absent |
 
 Every additional tool must define closed typed input and output contracts before registration. Query/filter/candidate limits reuse existing metadata enums; unknown or unavailable fields remain explicit. Candidate IDs, labels, unit/scale, frequency, stock/flow/cumulative kind, archive state and aggregation/coverage declarations come from trusted catalog state. Concept families and observation-kind metadata may be returned only when represented by reviewed source-backed contracts; retrieval must not manufacture them. Multiple plausible candidates remain multiple candidates, not a silently authoritative top-1.
 
@@ -546,6 +546,28 @@ TARGET adapters must retrieve/catalog series identifiers instead of hard-coding 
 
 
 M5-20 `add_series` adds a registered monthly series to a published table through the same tool. Its closed argument object contains only operation, source and series_id; deflate keeps its existing flat JSON fields in a separate discriminated schema. Before adding values, the tool rechecks the source result's evidence and reads the selected series' declared semantics. The join accepts resolved monthly, non-cumulative series, validates periods and duplicates, and preserves the displayed table's exact row set and all original values. Single-period prose metrics do not define table rows. Missing observations produce empty cells plus explicit warnings/coverage in the transformation record; zero stays zero. No filling, resampling, conversion or rebasing occurs. At least two matching observations are required by the current period-table renderer. The result records units, scale, measurement kind, index base, source/series snapshots and transformation lineage. Prior comparison metrics retain their original meaning; column addition does not calculate a new relationship.
+
+M7-14 `add_document_column` exists in the schema only when the runtime has a
+prompt-address fetch boundary (`--enable-web-url`). Its arguments are the source
+name, the address as written, an optional CSV delimiter or sheet, and the period
+and value headers as the user named them. The document is read through
+`web_url`'s shared `read_document` (address written in the question,
+`safe_fetch`, upload admission). The reader is strict: exactly one table holds
+both headers once; every non-empty period cell is an explicit month (`YYYY-MM`,
+`MM.YYYY`, Turkish/English month name with year, or a text/spreadsheet date on
+the first or last day of the month) and a month may appear once; values use the
+M7-18 cell number reader and empty cells stay missing; unit and scale come only
+from the value header's trailing parentheses (`(Puan)` reads as points) and a
+header without one refuses. Stock/flow meaning is recorded as unknown, so
+analytics that require a stock, rate or index column (for example
+`table_co_movement`) refuse the added column rather than guess. The join is the
+same exact monthly left join as `add_series` (`table_months`), keeps every
+existing cell, refuses a label that already exists or names a prepared series,
+and needs no catalog discovery in hybrid mode. The execution record binds the
+source table and a `document_column_v1` snapshot (content hash, sanitized
+locator, retrieval time, cell location, month/value/digest rows); lineage and the
+execution arguments keep the address only as its opaque source ID. Refusal
+reasons are fixed codes without document text.
 
 The M2-14/M5-20 unary table-shaping slice extends that same verified published-result boundary without adding source I/O. `rebase` requires an existing column explicitly typed as an unscaled period INDEX, a present positive reference-period value, and a positive new base; it adds `old / reference × new_base` as a new column and states that this is index scaling, not deflation. `align` takes at least two exact labels and either intersects their complete period identities or uses a named left anchor; `filter` keeps cells whose period end lies in an explicit inclusive range. Align/filter retain other table columns on the selected period spine, preserve input cell order and missing cells, and remove periodless or singleton summary values whose old aggregate would no longer describe the new row set. All three reject unresolved/mixed/duplicate/incompatible inputs, record parameters and source snapshots, and mint a new result without mutating the prior workspace result. They do not resample, aggregate, interpolate, convert frequency, join another table, or accept SQL/free-form predicates. Existing `lakehouse.alignment.to_monthly` remains the separate declared weekly-to-monthly reduction path; `add_series` remains the exact monthly left join for a registered series.
 
@@ -898,7 +920,8 @@ producer execution record. Its chain starts only when the gate's own
 `literal_proof` re-reads the exact cell snapshot, its single source edge and
 content hash; otherwise it is `unavailable` (`execution_not_verified`). The
 proof then carries one `web_url` step with a `document` input and one
-`documents` entry: format (csv/xlsx/pdf/html), https host, content SHA-256, the
+`documents` entry (a `document_column_v1` execution input produces the same
+entry with `row` null and `values_read`, up to four documents per proof): format (csv/xlsx/pdf/html), https host, content SHA-256, the
 retrieval time recorded in the published result, and page/table/row/column
 positions with only a flag that a worksheet was named. The address path/query,
 sheet name, header, row label and cell text are document data and are excluded.

@@ -215,6 +215,17 @@ test("a literal cell proof names its document without the address path", () => {
     "Excel belgesi",
   );
   assert.equal(proofSchema.parse(proof).documents.length, 0);
+  assert.equal(
+    documentLocation({
+      ...parsed.documents[0],
+      document_format: "csv",
+      page: null,
+      row: null,
+      column: 2,
+      values_read: 3,
+    }),
+    "tablo 1 · sütun 2 · 3 değer okundu",
+  );
 });
 
 test("document proof schema refuses dangling, leaking or foreign documents", () => {
@@ -230,7 +241,8 @@ test("document proof schema refuses dangling, leaking or foreign documents", () 
       ...documentProof,
       documents: [{ ...document, source_type: "lakehouse" }],
     },
-    { ...documentProof, documents: [document, document] },
+    { ...documentProof, documents: Array(5).fill(document) },
+    { ...documentProof, documents: [{ ...document, values_read: -1 }] },
   ];
   for (const item of invalid) {
     assert.equal(

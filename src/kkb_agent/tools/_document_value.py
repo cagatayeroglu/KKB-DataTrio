@@ -87,6 +87,8 @@ _UNITS = {
     "gram": "g",
     "ton": "t",
     "ons": "troy_ounce",
+    "puan": "points",
+    "points": "points",
 }
 _ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _DOTTED_DATE = re.compile(r"(\d{2})\.(\d{2})\.(\d{4})")
@@ -154,6 +156,16 @@ def grids(
                     header, *rows = pdf_table.rows
                     found.append(Grid({"page": page.number, "table": index}, header, tuple(rows)))
     return found
+
+
+def header_matches(header: object, wanted: str) -> bool:
+    """A header as the user named it, with or without its trailing unit."""
+    folded = normalize_search_text(wanted)
+    text = _text(header)
+    return bool(folded) and folded in (
+        normalize_search_text(text),
+        normalize_search_text(_bare(text)),
+    )
 
 
 def select_cell(tables: list[Grid], column: str, row: str) -> Cell:

@@ -559,6 +559,7 @@ class PreparedRunner:
                 lineage=lineage,
                 series_names=names,
                 inspector=inspector,
+                document_fetch=self._web_url_fetch,
             )
         )
         for make in (make_anomaly_tool, make_causality_tool):
