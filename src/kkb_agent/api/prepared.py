@@ -41,7 +41,9 @@ from kkb_agent.tools import (
     make_change_detection_tool,
     make_lakehouse_tool,
     make_table_transform_tool,
+    make_web_url_tool,
 )
+from kkb_agent.tools.web_url import Fetcher
 
 if TYPE_CHECKING:  # pragma: no cover
     from kkb_agent.catalog.hybrid import CatalogDenseStage
@@ -301,6 +303,7 @@ class PreparedRunner:
         catalog_bytes: bytes,
         redactions: tuple[str, ...] = (),
         catalog_dense: CatalogDenseStage | None = None,
+        web_url_fetch: Fetcher | None = None,
     ):
         self._catalog = load_reviewed_snapshot(catalog_bytes)
         self._catalog_bytes = catalog_bytes
@@ -310,6 +313,8 @@ class PreparedRunner:
         ):
             raise PreparedError("catalog_index_mismatch")
         self._dense = catalog_dense
+        # Operator switch for prompt addresses (DEC-131); absent while Q-NET-02 is open.
+        self._web_url_fetch = web_url_fetch
         self._provider = provider
         self._redactions = redactions
         root, state_root = _local(root), _local(state_root, exists=False)
@@ -558,4 +563,8 @@ class PreparedRunner:
         )
         for make in (make_anomaly_tool, make_causality_tool):
             registry.register(make(connection, lineage=lineage, inspector=inspector))
+        if self._web_url_fetch is not None:
+            # The cell proof lives in this session's own lineage, where the gate
+            # and the proof builder re-read it; the document itself is not kept.
+            registry.register(make_web_url_tool(fetch=self._web_url_fetch, lineage=lineage))
         return registry

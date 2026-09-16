@@ -6,6 +6,10 @@ published results, and the recorded lineage from each prepared series back to it
 raw source responses. Every database read has a row limit. Nothing here reruns a
 numeric matcher, grants verification, or serializes locators, request bodies,
 SQL, tool arguments or observation values. Recorded coverage is not correctness.
+
+A literal document cell (DEC-132) has no producer execution; its chain starts at
+the gate's own exact-cell check (`literal_proof`) and names only fixed facts about
+the fetched document, never its address path, sheet name or cell text.
 """
 
 from __future__ import annotations
@@ -20,11 +24,13 @@ from urllib.parse import urlsplit
 import duckdb
 from pydantic import ValidationError
 
+from kkb_agent.agent.literal import literal_proof
 from kkb_agent.api.contracts import (
     MAX_PROOF_SOURCES,
     MAX_PROOF_STEPS,
     MAX_STEP_INPUTS,
     Proof,
+    ProofDocument,
     ProofGap,
     ProofInput,
     ProofSource,
@@ -32,7 +38,8 @@ from kkb_agent.api.contracts import (
     unavailable_proof,
 )
 from kkb_agent.api.projection import safe_text
-from kkb_agent.core import AnalyticalResult
+from kkb_agent.core import AnalyticalResult, ClaimKind
+from kkb_agent.ingestion_policy import MIME_TYPES
 from kkb_agent.lakehouse.lineage import Lineage, LineageError, NodeKind
 from kkb_agent.lakehouse.result_evidence import PREFIX, execution_proof
 
@@ -47,6 +54,7 @@ _PUBLICATION = re.compile(r"analiz_[1-9][0-9]{0,2}\Z")
 _LABEL = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
 _HOST = re.compile(rf"{_LABEL}(?:\.{_LABEL})+\Z")
 _SEMANTICS = ("scale", "frequency", "measure", "cumulative", "aggregation")
+_DOCUMENT_FORMATS = {media_type: kind.value for kind, media_type in MIME_TYPES.items()}
 
 Binding = Literal["execution_snapshot", "series_record"]
 
@@ -429,7 +437,28 @@ def build_proof(
     try:
         with connection.cursor() as reader:
             builder = _Builder(reader, secrets)
-            if builder.step(published, None) != 0:
+
+            documents: tuple[ProofDocument, ...] = ()
+            if published.claim_kind is ClaimKind.LITERAL_SOURCE_VALUE:
+                document = _document(reader, published)
+                if document is None:
+                    return unavailable_proof("execution_not_verified")
+                documents = (document,)
+                builder.steps.append(
+                    ProofStep(
+                        producer="web_url",
+                        operation=None,
+                        kind=published.kind,
+                        method=_code(published.method),
+                        execution="verified",
+                        result_version=published.digest(),
+                        workspace_name=None,
+                        coverage=published.coverage,
+                        samples=published.samples,
+                        inputs=(ProofInput(kind="document", index=0),),
+                    )
+                )
+            elif builder.step(published, None) != 0:
                 return unavailable_proof("execution_not_verified")
 
             def texts(items: list[str]) -> tuple[str, ...]:
@@ -439,6 +468,7 @@ def build_proof(
                 availability="partial" if builder.gaps else "available",
                 steps=tuple(builder.steps),
                 sources=tuple(builder.sources),
+                documents=documents,
                 warnings=texts(published.warnings),
                 limitations=texts(published.limitations),
                 unresolved_semantics=texts(published.unresolved_semantics),
@@ -454,3 +484,36 @@ def build_proof(
         AttributeError,
     ):
         return unavailable_proof("proof_unreadable")
+
+
+def _document(
+    connection: duckdb.DuckDBPyConnection, published: AnalyticalResult
+) -> ProofDocument | None:
+    """Fixed facts about a verified literal cell's document; None when the cell fails.
+
+    The same check the answer gate applied re-reads the cell snapshot, its single
+    source edge, content hash and location first. The retrieval time is the one
+    recorded in the published, digest-bound result.
+    """
+    evidence = published.evidence
+    if not literal_proof(published, connection) or evidence is None or not evidence.lineage_node:
+        return None
+    graph = Lineage(connection)
+    cell = graph.node(evidence.lineage_node)
+    source = graph.node(evidence.input_refs[0])
+    location = json.loads(cell.attributes["location"])
+    # Validated rather than trusted: an unexpected source type or format refuses.
+    return ProofDocument.model_validate(
+        {
+            "source_type": source.attributes["source_type"],
+            "document_format": _DOCUMENT_FORMATS[source.attributes["media_type"]],
+            "host": _host(source.attributes["locator"]),
+            "content_sha256": source.attributes["content_hash"].removeprefix("sha256:"),
+            "retrieved_at": evidence.sources[0].retrieved_at,
+            "page": location.get("page"),
+            "table": location.get("table"),
+            "row": location["row_index"],
+            "column": location["column_index"],
+            "sheet_selected": "sheet" in location,
+        }
+    )

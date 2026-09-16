@@ -140,9 +140,29 @@ class ProofSource(ContractModel):
     last_retrieved: AwareDatetime | None
 
 
+class ProofDocument(ContractModel):
+    """The fetched document one literal cell was read from (DEC-132, M7-14).
+
+    Only fixed facts recorded with the verified cell: never the address path or
+    query, a sheet name, header, row label or cell text, which are document data.
+    """
+
+    source_type: Literal["web_url"]
+    document_format: Literal["csv", "xlsx", "pdf", "html"]
+    host: Label | None
+    content_sha256: Digest
+    retrieved_at: AwareDatetime | None
+    page: Annotated[int, Field(strict=True, ge=1)] | None
+    table: Annotated[int, Field(strict=True, ge=1)] | None
+    row: Annotated[int, Field(strict=True, ge=1)]
+    column: Annotated[int, Field(strict=True, ge=1)]
+    # A worksheet was named; its name is document text and is not shown.
+    sheet_selected: bool
+
+
 class ProofInput(ContractModel):
-    kind: Literal["series", "result"]
-    # Index into Proof.sources or Proof.steps respectively.
+    kind: Literal["series", "result", "document"]
+    # Index into Proof.sources, Proof.steps or Proof.documents respectively.
     index: Annotated[int, Field(strict=True, ge=0, lt=MAX_PROOF_SOURCES)]
 
 
@@ -169,6 +189,7 @@ class Proof(ContractModel):
     gate: Literal["accepted"] = "accepted"
     steps: Annotated[tuple[ProofStep, ...], Field(max_length=MAX_PROOF_STEPS)] = ()
     sources: Annotated[tuple[ProofSource, ...], Field(max_length=MAX_PROOF_SOURCES)] = ()
+    documents: Annotated[tuple[ProofDocument, ...], Field(max_length=1)] = ()
     warnings: Annotated[tuple[Text, ...], Field(max_length=16)] = ()
     limitations: Annotated[tuple[Text, ...], Field(max_length=16)] = ()
     unresolved_semantics: Annotated[tuple[Text, ...], Field(max_length=16)] = ()
@@ -177,7 +198,7 @@ class Proof(ContractModel):
     @model_validator(mode="after")
     def consistent(self) -> Self:
         if self.availability == "unavailable":
-            if self.steps or self.sources:
+            if self.steps or self.sources or self.documents:
                 raise ValueError("Unavailable proof carries no recorded chain")
             return self
         if not self.steps or self.steps[0].execution != "verified":
@@ -186,7 +207,11 @@ class Proof(ContractModel):
             raise ValueError("A proof with gaps is partial")
         for step in self.steps:
             for item in step.inputs:
-                limit = len(self.sources) if item.kind == "series" else len(self.steps)
+                limit = {
+                    "series": len(self.sources),
+                    "result": len(self.steps),
+                    "document": len(self.documents),
+                }[item.kind]
                 if item.index >= limit:
                     raise ValueError("Proof input references a missing entry")
         return self

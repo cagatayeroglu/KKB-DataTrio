@@ -24,6 +24,7 @@ from kkb_agent.agent.discovery import (
     CONTINUATION_TOOLS,
     DISCOVERY_INSTRUCTIONS,
     REQUIRED_DISCOVERY_INSTRUCTIONS,
+    WEB_ADDRESS_INSTRUCTIONS,
     catalog_feedback,
     validate_discovery_phase,
 )
@@ -463,6 +464,8 @@ class Session:
             )
             if self.require_series_discovery and discovery is None:
                 messages.append(Message(Role.SYSTEM, REQUIRED_DISCOVERY_INSTRUCTIONS))
+                if "web_url" in self.registry:
+                    messages.append(Message(Role.SYSTEM, WEB_ADDRESS_INSTRUCTIONS))
         published = workspace_prompt(workspace) if workspace is not None else None
         if published is not None:
             messages.append(Message(Role.SYSTEM, published))

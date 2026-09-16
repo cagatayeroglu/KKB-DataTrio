@@ -141,6 +141,16 @@ production fake provider or third-party-host fallback. The CLI always binds
 forwarded-header handling, and caps concurrent HTTP connections at 32. Keep
 this service local until hosting/authentication is separately implemented.
 
+Add `--enable-web-url` only when reading a web address written in a question is
+authorized. It is off by default (organizer URL policy Q-NET-02 is still open);
+the readiness JSON of `--check` and `--serve` reports `"web_url": true/false`.
+Enabled, a question containing an https CSV/XLSX/PDF/static-HTML address can
+answer one named cell through `safe_fetch`, the upload admission rules and the
+unchanged answer gate; the proof shows the document's format, host, content hash
+and cell position, never its path, query or cell text. Each run that actually
+fetches a public address is a live network action and needs its own approval;
+offline evidence is `tests/unit/test_prepared_web_url.py`.
+
 <a id="prepared_api-optional-dense-catalog-retrieval"></a>
 
 ### Optional dense catalog retrieval (DEC-142)

@@ -2,6 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { proofSchema, resultSchema } from "../lib/contracts";
 import {
+  documentLocation,
+  documentName,
+  documentOrigin,
   gapText,
   orderedSteps,
   proofHeadline,
@@ -9,6 +12,7 @@ import {
   sourceName,
   sourceOrigin,
   sourceSemantics,
+  stepCheck,
   stepInputs,
   stepTitle,
 } from "../lib/proof";
@@ -153,4 +157,86 @@ test("a result cannot carry a proof for another version", () => {
     resultSchema.safeParse({ ...result, proof_graph: "unavailable" }).success,
     false,
   );
+});
+
+const document = {
+  source_type: "web_url",
+  document_format: "pdf",
+  host: "www.borsaistanbul.com",
+  content_sha256: "e".repeat(64),
+  retrieved_at: "2026-09-17T10:15:00+03:00",
+  page: 2,
+  table: 1,
+  row: 3,
+  column: 4,
+  sheet_selected: false,
+};
+const documentProof = {
+  ...proof,
+  availability: "available",
+  steps: [
+    step({
+      producer: "web_url",
+      operation: null,
+      kind: "level",
+      method: "document_cell",
+      inputs: [{ kind: "document", index: 0 }],
+    }),
+  ],
+  sources: [],
+  documents: [document],
+  gaps: [],
+};
+
+test("a literal cell proof names its document without the address path", () => {
+  const parsed = proofSchema.parse(documentProof);
+  assert.equal(
+    stepTitle(parsed.steps[0]),
+    "Sorudaki adresteki belgeden hücre okuma",
+  );
+  assert.deepEqual(stepInputs(parsed, parsed.steps[0]), [
+    "PDF belgesi (www.borsaistanbul.com)",
+  ]);
+  assert.match(stepCheck(parsed.steps[0]), /hücre/);
+  assert.equal(
+    documentOrigin(parsed.documents[0]),
+    "Sorudaki adresten güvenli indirme, 2026-09-17 tarihinde okundu",
+  );
+  assert.equal(
+    documentLocation(parsed.documents[0]),
+    "sayfa 2 · tablo 1 · satır 3 · sütun 4",
+  );
+  assert.equal(
+    documentName({
+      ...parsed.documents[0],
+      host: null,
+      document_format: "xlsx",
+    }),
+    "Excel belgesi",
+  );
+  assert.equal(proofSchema.parse(proof).documents.length, 0);
+});
+
+test("document proof schema refuses dangling, leaking or foreign documents", () => {
+  const invalid = [
+    { ...documentProof, documents: [] },
+    { ...documentProof, availability: "unavailable", steps: [] },
+    {
+      ...documentProof,
+      documents: [{ ...document, url: "https://x/y?token=1" }],
+    },
+    { ...documentProof, documents: [{ ...document, cell_text: "1.234,56" }] },
+    {
+      ...documentProof,
+      documents: [{ ...document, source_type: "lakehouse" }],
+    },
+    { ...documentProof, documents: [document, document] },
+  ];
+  for (const item of invalid) {
+    assert.equal(
+      proofSchema.safeParse(item).success,
+      false,
+      JSON.stringify(item).slice(0, 80),
+    );
+  }
 });
