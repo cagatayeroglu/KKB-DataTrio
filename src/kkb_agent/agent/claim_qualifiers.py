@@ -249,9 +249,9 @@ def identity_fault(
 
 TABLE_COUNT_LABELS = {
     "complete monthly transitions": "Tam aylık geçiş sayısı",
-    "transitions excluded for missing observations": (
-        "Eksik gözlemler nedeniyle dışlanan geçiş sayısı"
-    ),
+    # "nedeniyle" and "yüzünden" are causal wording the gate withholds, so this
+    # phrase states the exclusion without asserting a cause for it.
+    "transitions excluded for missing observations": "Dışlanan eksik gözlemli geçiş sayısı",
     "transitions meeting the condition": "Koşulu karşılayan geçiş sayısı",
     "eligible transitions matching the driver direction": (
         "Koşul altında sürücü yönünü karşılayan dönem sayısı"

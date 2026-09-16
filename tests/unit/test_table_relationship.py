@@ -22,6 +22,7 @@ from kkb_agent.agent import (
 )
 from kkb_agent.agent.claim_qualifiers import comovement_count_meaning, controlled_count_label
 from kkb_agent.agent.executor import PlanRejected, execute, validate_plan
+from kkb_agent.agent.loop import NUMERIC_REPAIR_INSTRUCTIONS, SYNTHESIS_PROMPT
 from kkb_agent.agent.plan import AnalyticalPlan
 from kkb_agent.agent.presentation import period_table
 from kkb_agent.agent.verifier import result_faults
@@ -688,3 +689,61 @@ class TestAnInheritedCountCanStillBeNamed:
         gated = gate_answer("Sonuç 1 aydır.", {"comparison": final}, pool[0].connection)
 
         assert gated.status is AnswerStatus.ABSTAINED
+
+
+class TestTheCountContractIsFollowable:
+    """M11-11: the writer is now told to name a count; that must be enough.
+
+    Three live runs withheld Turn 3 on bare counts. Telling the writer to copy
+    the listed phrase only helps if writing exactly that always binds, so this
+    checks the instruction against every count a Turn 3 table carries rather
+    than asserting the wording of the prompt.
+    """
+
+    def final(self, pool):
+        outcome = execute(validate_plan(plan(), registry_for(pool)), registry_for(pool))
+        return outcome.results[-1].output
+
+    def listed_counts(self, result):
+        return [
+            (controlled_count_label(result, value), value.value)
+            for value in result.values
+            if value.unit == DIMENSIONLESS
+        ]
+
+    def test_every_count_in_the_table_has_a_phrase_to_write(self, pool):
+        listed = self.listed_counts(self.final(pool))
+
+        # Four inherited co-movement counts plus six comparison counts.
+        assert len(listed) == 10
+        assert all(phrase for phrase, _ in listed)
+        assert len({phrase for phrase, _ in listed}) == 10
+
+    def test_writing_a_count_as_instructed_binds_every_time(self, pool):
+        final = self.final(pool)
+
+        for phrase, value in self.listed_counts(final):
+            gated = gate_answer(
+                f"{phrase} {value:.0f} ay.", {"comparison": final}, pool[0].connection
+            )
+            assert gated.status is AnswerStatus.ACCEPTED, phrase
+
+    def test_the_same_count_without_its_phrase_does_not_bind(self, pool):
+        final = self.final(pool)
+        collisions = [
+            (phrase, value)
+            for phrase, value in self.listed_counts(final)
+            if [v for _, v in self.listed_counts(final)].count(value) > 1
+        ]
+        assert collisions, "the fixture must contain at least one shared count value"
+
+        phrase, value = collisions[0]
+        named = gate_answer(f"{phrase} {value:.0f} ay.", {"comparison": final}, pool[0].connection)
+        bare = gate_answer(f"Sonuç {value:.0f} aydır.", {"comparison": final}, pool[0].connection)
+
+        assert named.status is AnswerStatus.ACCEPTED
+        assert bare.status is not AnswerStatus.ACCEPTED
+
+    def test_both_writer_contracts_carry_the_rule(self):
+        assert "identified by its listed phrase" in SYNTHESIS_PROMPT
+        assert "copy its listed phrase with the number" in NUMERIC_REPAIR_INSTRUCTIONS
