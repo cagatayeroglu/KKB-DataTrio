@@ -19,6 +19,7 @@ from pydantic import Field
 
 from kkb_agent.agent import Session, ToolRegistry, Workspace
 from kkb_agent.agent.selection import SelectedTable, SelectionError
+from kkb_agent.agent.verifier import AnswerStatus
 from kkb_agent.agent.workspace import WorkspaceError
 from kkb_agent.api.contracts import MAX_SESSIONS, MAX_TURNS, Answer
 from kkb_agent.api.projection import project_answer, safe_text
@@ -62,7 +63,14 @@ class _Publication:
 
 
 @dataclass(frozen=True, slots=True)
+class PendingClarification:
+    question: str
+    selection: SelectedResult | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ResolvedSelection:
+
     """Freshly read workspace value; not an execution or verifier authorization."""
 
     name: str
@@ -278,6 +286,7 @@ class PreparedRunner:
         self._manifest = expected
         self._turns: dict[str, int] = {}
         self._publications: dict[tuple[str, str], _Publication] = {}
+        self._pending_clarifications: dict[str, PendingClarification] = {}
         self._lock = threading.Lock()
 
     def __call__(self, session_id: str, turn_id: str, question: str) -> Answer:
@@ -304,7 +313,19 @@ class PreparedRunner:
         if not self._lock.acquire(blocking=False):
             raise PreparedError("concurrent_runtime_refused")
         try:
-            if selection is not None and (session_id, selection.turn_id) not in self._publications:
+            pending = self._pending_clarifications.get(session_id)
+            effective_question = question
+            effective_selection = selection
+            if pending is not None:
+                if effective_selection is None and pending.selection is not None:
+                    if (session_id, pending.selection.turn_id) in self._publications:
+                        effective_selection = pending.selection
+                effective_question = f"Orijinal istek: {pending.question}\nAçıklama: {question}"
+
+            if (
+                effective_selection is not None
+                and (session_id, effective_selection.turn_id) not in self._publications
+            ):
                 raise ServiceError("invalid_result", 422)
             if (session_id, turn_id) in self._publications:
                 raise PreparedError("duplicate_publication_turn")
@@ -324,16 +345,16 @@ class PreparedRunner:
             with open_lakehouse(target) as lake:
                 workspace = Workspace.open(lake.connection, session_id)
                 selected_table = None
-                if selection is not None:
+                if effective_selection is not None:
                     try:
-                        resolved = self._resolve_selection(workspace, selection)
+                        resolved = self._resolve_selection(workspace, effective_selection)
                     except (ValueError, duckdb.Error):
                         raise ServiceError("invalid_result", 422) from None
                     selected_table = SelectedTable(
                         workspace,
                         resolved.name,
                         resolved.artifact_id,
-                        selection.version,
+                        effective_selection.version,
                     )
                 registry = self._registry(lake.connection, workspace, lake.lineage)
                 answered = Session(
@@ -344,7 +365,7 @@ class PreparedRunner:
                     require_series_discovery=self._dense is not None,
                     repair_period_wording=True,
                     repair_unmatched_numbers=True,
-                ).answer(question, lake.connection, workspace=workspace, remember=name)
+                ).answer(effective_question, lake.connection, workspace=workspace, remember=name)
                 published = workspace.value_of(name) if name in workspace.names() else None
                 answer = project_answer(
                     answered,
@@ -366,7 +387,22 @@ class PreparedRunner:
                         name,
                         workspace.resolve(name).artifact_id,
                     )
+                clarification_reason = answered.planned.plan.clarification
+                if answer.status == AnswerStatus.ACCEPTED:
+                    self._pending_clarifications.pop(session_id, None)
+                elif clarification_reason in (
+                    "ambiguous_series",
+                    "missing_series",
+                    "unresolved_semantics",
+                ):
+                    self._pending_clarifications[session_id] = PendingClarification(
+                        effective_question, effective_selection
+                    )
+                elif clarification_reason == "unsupported_request":
+                    self._pending_clarifications.pop(session_id, None)
                 return answer
+
+
         finally:
             self._lock.release()
 
