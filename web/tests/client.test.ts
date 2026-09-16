@@ -4,6 +4,7 @@ import {
   admit,
   admissionRejection,
   draftRequest,
+  draftWorkspaceRequest,
   publishedResult,
   restoredSelection,
   readTurn,
@@ -375,4 +376,78 @@ test("only explicit admission rejection ends recovery; transport and server erro
   } finally {
     globalThis.fetch = old;
   }
+});
+
+test("workspace continuation intent reaches the browser request body", async () => {
+  const abstainedTurn = turnSchema.parse({
+    ...turn,
+    state: "completed",
+    answer: {
+      status: "abstained",
+      text: "Seri seçimi net değil.",
+      omitted_claims: 0,
+      notices: [],
+      result: null,
+    },
+  });
+
+  assert.equal(publishedResult(abstainedTurn), undefined);
+  const cases = [
+    {
+      entry: draftWorkspaceRequest("BDDK verisini kullan", true, abstainedTurn),
+      expected: { is_continuation: true, selected_result_id: undefined },
+    },
+    {
+      entry: draftWorkspaceRequest(
+        "Yeni soru: 2026 yılı enflasyonu",
+        false,
+        abstainedTurn,
+      ),
+      expected: { is_continuation: false, selected_result_id: undefined },
+    },
+    {
+      entry: draftWorkspaceRequest("Bu tabloya TÜFE ekle", true, completed()),
+      expected: { is_continuation: true, selected_result_id: "a".repeat(32) },
+    },
+    {
+      entry: draftWorkspaceRequest("Bağımsız soru", false, completed()),
+      expected: { is_continuation: false, selected_result_id: undefined },
+    },
+    {
+      entry: draftWorkspaceRequest("İlk bağımsız soru", true),
+      expected: { is_continuation: false, selected_result_id: undefined },
+    },
+  ];
+  const old = globalThis.fetch;
+  const bodies: Record<string, unknown>[] = [];
+  globalThis.fetch = async (_url, init) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    return Response.json({ ...turn, request_id: bodies.at(-1)?.request_id });
+  };
+  try {
+    for (const { entry } of cases) await admit({ ...saved, turns: [entry] }, 0);
+  } finally {
+    globalThis.fetch = old;
+  }
+  cases.forEach(({ expected }, index) => {
+    assert.equal(bodies[index].is_continuation, expected.is_continuation);
+    assert.equal(bodies[index].selected_result_id, expected.selected_result_id);
+  });
+});
+
+test("abstained or error turns leave client UI state clean and selectable", () => {
+  const failedTurn = turnSchema.parse({
+    ...turn,
+    state: "failed",
+    error: "temporary_failure",
+    answer: null,
+  });
+
+  // Failed turn produces no published selection
+  assert.equal(publishedResult(failedTurn), undefined);
+
+  // Fresh question submission after failure succeeds without stuck state
+  const retryReq = draftRequest("Konut kredilerini göster");
+  assert.equal(retryReq.question, "Konut kredilerini göster");
+  assert.equal(retryReq.selected_result_id, undefined);
 });

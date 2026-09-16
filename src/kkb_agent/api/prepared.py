@@ -19,6 +19,7 @@ from pydantic import Field
 
 from kkb_agent.agent import Session, ToolRegistry, Workspace
 from kkb_agent.agent.selection import SelectedTable, SelectionError
+from kkb_agent.agent.verifier import AnswerStatus
 from kkb_agent.agent.workspace import WorkspaceError
 from kkb_agent.api.contracts import MAX_SESSIONS, MAX_TURNS, Answer
 from kkb_agent.api.projection import project_answer, safe_text
@@ -59,6 +60,55 @@ class _Publication:
     selection: SelectedResult
     name: str
     artifact_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class PendingClarification:
+    original_question: str
+    clarifications: tuple[str, ...] = ()
+    selection: SelectedResult | None = None
+
+
+_CANCELLATION_KEYWORDS = {"iptal", "vazgeç", "vazgeçtim", "cancel", "iptal et"}
+_CANCELLATION_PREFIXES = ("iptal:", "vazgeç:", "cancel:")
+
+_NEW_QUESTION_PREFIXES = (
+    "yeni soru:",
+    "yeni istek:",
+    "bağımsız soru:",
+    "farklı soru:",
+    "yeni:",
+    "new question:",
+    "vazgeçip başka",
+    "başka bir soru",
+)
+
+
+def _is_cancellation(question: str) -> bool:
+    q = question.strip().lower()
+    if q in _CANCELLATION_KEYWORDS:
+        return True
+    return any(q.startswith(prefix) for prefix in _CANCELLATION_PREFIXES)
+
+
+def _is_new_question(
+    question: str,
+    selection: SelectedResult | None,
+    pending: PendingClarification,
+) -> bool:
+    q = question.strip().lower()
+    if any(q.startswith(prefix) for prefix in _NEW_QUESTION_PREFIXES):
+        return True
+    if selection is not None and pending.selection is not None and selection != pending.selection:
+        return True
+    return False
+
+
+def _format_clarification_prompt(original: str, clarifications: tuple[str, ...]) -> str:
+    lines = [f"Orijinal istek: {original}"]
+    for c in clarifications:
+        lines.append(f"Açıklama: {c}")
+    return "\n".join(lines)
 
 
 @dataclass(frozen=True, slots=True)
@@ -278,17 +328,37 @@ class PreparedRunner:
         self._manifest = expected
         self._turns: dict[str, int] = {}
         self._publications: dict[tuple[str, str], _Publication] = {}
+        self._pending_clarifications: dict[str, PendingClarification] = {}
         self._lock = threading.Lock()
 
-    def __call__(self, session_id: str, turn_id: str, question: str) -> Answer:
-        return self._run(session_id, turn_id, question)
+    def __call__(
+        self,
+        session_id: str,
+        turn_id: str,
+        question: str,
+        *,
+        is_continuation: bool | None = None,
+    ) -> Answer:
+        return self._run(session_id, turn_id, question, is_continuation=is_continuation)
 
     def selected(
-        self, session_id: str, turn_id: str, question: str, selection: SelectedResult
+        self,
+        session_id: str,
+        turn_id: str,
+        question: str,
+        selection: SelectedResult,
+        *,
+        is_continuation: bool | None = None,
     ) -> Answer:
         """Service worker entry; resolve and execute under the same runner lock."""
         try:
-            return self._run(session_id, turn_id, question, selection)
+            return self._run(
+                session_id,
+                turn_id,
+                question,
+                selection,
+                is_continuation=is_continuation,
+            )
         except (SelectionError, WorkspaceError):
             raise ServiceError("invalid_result", 422) from None
 
@@ -298,13 +368,41 @@ class PreparedRunner:
         turn_id: str,
         question: str,
         selection: SelectedResult | None = None,
+        is_continuation: bool | None = None,
     ) -> Answer:
         if not _IDENTIFIER.fullmatch(session_id) or not _IDENTIFIER.fullmatch(turn_id):
             raise PreparedError("invalid_runtime_identity")
         if not self._lock.acquire(blocking=False):
             raise PreparedError("concurrent_runtime_refused")
         try:
-            if selection is not None and (session_id, selection.turn_id) not in self._publications:
+            pending = self._pending_clarifications.get(session_id)
+            effective_question = question
+            effective_selection = selection
+            is_cancel = False
+            is_new_q = False
+            if pending is not None:
+                if is_continuation is False or _is_cancellation(question):
+                    is_cancel = True
+                    self._pending_clarifications.pop(session_id, None)
+                    effective_question = question
+                    effective_selection = selection
+                elif _is_new_question(question, selection, pending):
+                    is_new_q = True
+                    self._pending_clarifications.pop(session_id, None)
+                    effective_question = question
+                    effective_selection = selection
+                else:
+                    if effective_selection is None and pending.selection is not None:
+                        if (session_id, pending.selection.turn_id) in self._publications:
+                            effective_selection = pending.selection
+                    effective_question = _format_clarification_prompt(
+                        pending.original_question, pending.clarifications + (question,)
+                    )
+
+            if (
+                effective_selection is not None
+                and (session_id, effective_selection.turn_id) not in self._publications
+            ):
                 raise ServiceError("invalid_result", 422)
             if (session_id, turn_id) in self._publications:
                 raise PreparedError("duplicate_publication_turn")
@@ -324,16 +422,16 @@ class PreparedRunner:
             with open_lakehouse(target) as lake:
                 workspace = Workspace.open(lake.connection, session_id)
                 selected_table = None
-                if selection is not None:
+                if effective_selection is not None:
                     try:
-                        resolved = self._resolve_selection(workspace, selection)
+                        resolved = self._resolve_selection(workspace, effective_selection)
                     except (ValueError, duckdb.Error):
                         raise ServiceError("invalid_result", 422) from None
                     selected_table = SelectedTable(
                         workspace,
                         resolved.name,
                         resolved.artifact_id,
-                        selection.version,
+                        effective_selection.version,
                     )
                 registry = self._registry(lake.connection, workspace, lake.lineage)
                 answered = Session(
@@ -344,7 +442,7 @@ class PreparedRunner:
                     require_series_discovery=self._dense is not None,
                     repair_period_wording=True,
                     repair_unmatched_numbers=True,
-                ).answer(question, lake.connection, workspace=workspace, remember=name)
+                ).answer(effective_question, lake.connection, workspace=workspace, remember=name)
                 published = workspace.value_of(name) if name in workspace.names() else None
                 answer = project_answer(
                     answered,
@@ -366,7 +464,29 @@ class PreparedRunner:
                         name,
                         workspace.resolve(name).artifact_id,
                     )
+                clarification_reason = answered.planned.plan.clarification
+                if answer.status == AnswerStatus.ACCEPTED:
+                    self._pending_clarifications.pop(session_id, None)
+                elif clarification_reason in (
+                    "ambiguous_series",
+                    "missing_series",
+                    "unresolved_semantics",
+                ):
+                    if pending is not None and not is_cancel and not is_new_q:
+                        orig_q = pending.original_question
+                        accumulated = pending.clarifications + (question,)
+                        sel = effective_selection
+                    else:
+                        orig_q = question
+                        accumulated = ()
+                        sel = selection
+                    self._pending_clarifications[session_id] = PendingClarification(
+                        original_question=orig_q,
+                        clarifications=accumulated,
+                        selection=sel,
+                    )
                 return answer
+
         finally:
             self._lock.release()
 

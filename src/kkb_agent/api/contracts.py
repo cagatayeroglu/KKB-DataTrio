@@ -44,6 +44,7 @@ class Question(ContractModel):
     question: Annotated[str, StringConstraints(strict=True, min_length=1, max_length=4096)]
     # Public result_ref from a completed turn in this session, never a workspace name.
     selected_result_id: Reference | None = None
+    is_continuation: bool | None = None
 
     @model_validator(mode="after")
     def bounded_question(self) -> Self:

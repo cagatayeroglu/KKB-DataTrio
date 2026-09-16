@@ -108,6 +108,9 @@ export async function admit(saved: Saved, index: number) {
         request_id: entry.request_id,
         question: entry.question,
         selected_result_id: entry.selected_result_id,
+        ...(entry.is_continuation !== undefined
+          ? { is_continuation: entry.is_continuation }
+          : {}),
       }),
     },
     saved.session.token,
@@ -131,6 +134,7 @@ export function restoredSelection(saved: Saved, turns: (Turn | undefined)[]) {
 export function draftRequest(
   question: string,
   source?: Turn,
+  isContinuation?: boolean,
 ): Saved["turns"][number] {
   if (!validQuestion(question)) throw new ApiError("invalid_request");
   const result = publishedResult(source);
@@ -139,7 +143,25 @@ export function draftRequest(
     request_id: crypto.randomUUID().replaceAll("-", ""),
     question: question.trim(),
     ...(result ? { selected_result_id: result.result_ref } : {}),
+    ...(isContinuation !== undefined
+      ? { is_continuation: isContinuation }
+      : {}),
   };
+}
+export function draftWorkspaceRequest(
+  question: string,
+  followSelected: boolean,
+  source?: Turn,
+): Saved["turns"][number] {
+  const selected =
+    followSelected && publishedResult(source) ? source : undefined;
+  const clarifying =
+    source?.state === "completed" && source.answer?.status === "abstained";
+  return draftRequest(
+    question,
+    selected,
+    followSelected && (Boolean(selected) || Boolean(clarifying)),
+  );
 }
 export function admissionRejection(
   error: unknown,

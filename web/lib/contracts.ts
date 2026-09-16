@@ -247,6 +247,7 @@ export const savedSchema = z
             question: z.string().min(1).max(4096),
             turn_id: ref.optional(),
             selected_result_id: ref.optional(),
+            is_continuation: z.boolean().optional(),
             admission_error: z
               .enum([
                 "invalid_result",
