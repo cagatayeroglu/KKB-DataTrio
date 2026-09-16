@@ -1061,6 +1061,59 @@ record does not alter runtime code. No live provider, source, embedding or
 search call was made. A bounded live rerun remains separate and requires
 explicit authorization.
 
+<a id="m11-07-three-turn-with-kfe-2026-09-16"></a>
+### M11-07 / M13-05 three-turn acceptance with KFE in the analysis — 2026-09-16 (PR #210)
+
+Owner-authorized by Eray on merged `dev` `785677a`, carrying the count-identity writer
+contract (#209), the co-movement count phrases (#207), the second bounded rewrite (#205),
+the nominal-versus-real note (#203) and the weekly window boundary (#202). Same bounded
+plan; prerequisites re-verified offline with no provider call. Usage: **11 chat and 4
+query embeddings** of the 15/15 ceiling.
+
+**All three organizer turns were ACCEPTED and published, each on its first draft with
+zero omissions and no rewrite.** This is the first run in which no synthesis rewrite was
+needed at all.
+
+| Turn | Result |
+| --- | --- |
+| 1 | **ACCEPTED**, 126 s, zero omissions; published 242 values, `by_end`. All 238 independent comparisons match; metrics 59/32/28/4 with non-rise months February and May 2021, December 2023 and January 2024. |
+| 2 | **ACCEPTED**, 135 s, zero omissions, **no rewrite**; published 302 values. All 242 Turn-1 identities preserved with zero value change, and all 60 real values match December 2025 CPI arithmetic (2021-01 1,894,772.1; 2021-02 1,874,183.9; 2023-12 828,155.2; 2024-01 773,412.0; 2025-12 678,970.0). |
+| 3 | **ACCEPTED**, zero omissions; published 368 values. All 302 Turn-2 identities preserved with zero value change; all 60 KFE values equal the stored series with December 2025 KFE 204.36. |
+
+**Turn 3 now uses KFE in the analysis.** Read from the recorded transformation parameters
+rather than the prose: condition `EVDS:TP.KTF12 monthly average (by_end)` down, driver
+`EVDS:TP.KFE.TR` up, target the BDDK balance non-increasing. The published counts
+59 / 0 / 32 / 32 / 4 / 4 and the four joint months match an independent recomputation
+exactly. In earlier runs the KFE column sat in the table without entering the comparison.
+
+**#203 is confirmed live for the first time.** The published result carries the
+nominal-versus-real limitation naming the BDDK column and its
+`real, 2025-12 prices` counterpart, because the comparison used the nominal target.
+
+**The remaining gap is the target column, and only that.** The oracle's 22 joint months
+use the *real* balance; comparing the nominal balance under the same condition and driver
+is 4, which is what was published and is arithmetically correct for those columns. The
+three-way structure the question implies is now there; the deflated column Turn 2 built is
+still not the one compared.
+
+**A provider timeout interrupted the first Turn 3 send.** Its planner call ended
+`provider_error` after 600006 ms with `KLOUDEKS_MAX_ATTEMPTS=1`, so the turn failed
+(`provider_failed`). The client then locked the composer and offered its recovery control,
+which re-read the same request without dispatching new work; the composer unlocked and a
+fresh Turn 3 was sent and accepted. This is the first transport failure across these runs
+and it is a latency/reliability observation, not a correctness one.
+
+Confirmation status after this run: **#203 confirmed**; **#209 and #207 exercised** — every
+turn bound its counts on the first draft, which is what those two changes were for, though
+no single draft can prove which of them carried it; **#205 still unexercised** because no
+turn needed even one rewrite; **#202 still unexercised** because the planner chose `by_end`
+again.
+
+Latency: planner 39.75 + 30.91 s and writer 41.01 s for Turn 1; 4.80 + 18.96 s and 70.94 s
+for Turn 2; 8.94 s then the 600 s timeout, then 8.30 + 51.10 s and 47.36 s for Turn 3.
+Embeddings 130 / 66 / 129 / 188 ms. Prepared pool byte-identical before and after; services
+stopped; no BDDK/EVDS, search, OCR or index-build call.
+
 <a id="m11-07-count-identity-wording-2026-09-16"></a>
 ### M11-07 / M13-05 rerun after the count phrases — 2026-09-16 (PR #208)
 
