@@ -1061,6 +1061,40 @@ record does not alter runtime code. No live provider, source, embedding or
 search call was made. A bounded live rerun remains separate and requires
 explicit authorization.
 
+<a id="m11-07-provider-latency-abort-2026-09-16"></a>
+### M11-07 / M13-05 attempt abandoned to provider latency — 2026-09-16 (PR #214)
+
+Owner-authorized by Eray on merged `dev` `4c1eabd`, carrying the removal of the nominal
+opt-out (#213). Prerequisites re-verified offline with no provider call: pool digest
+`dd4700df…c87fb` unchanged, readiness hybrid with 29 identities and 4,124 rows, oracle 22
+joint months and December 2025 KFE 204.36.
+
+**No turn completed. Both attempts were abandoned to provider latency, not to any gate,
+wording or analysis failure.** Eray cancelled the second attempt.
+
+| Attempt | Calls | Outcome |
+| --- | --- | --- |
+| A (`m11-07-rerun7`) | planner 1 ok, 2 query embeddings, planner 2 ok **171930 ms**, writer **`provider_error` after 600007 ms** | Turn 1 failed; ledger records 3 chat and 2 query embeddings used |
+| B (`m11-07-rerun7b`) | planner 1 ok **110898 ms**, 2 query embeddings, planner 2 ok **138246 ms**, writer dispatched | Cancelled while the writer was in flight; its ledger line is a `started` with no outcome, which is the record of an interrupted process and never a free retry |
+
+For comparison, the planner calls in the three preceding runs took 4.8–60 s and the writer
+calls 41–95 s. This run's planner calls took 111–172 s and its writer exceeded the 600 s
+ceiling, with `KLOUDEKS_MAX_ATTEMPTS=1` so nothing was retried.
+
+**The client's polling window expired while the server was still working.** During attempt A
+the composer locked and offered its recovery control about twelve minutes in, before the
+writer had returned. The control behaves correctly — it re-reads the same request without
+dispatching new work — but a turn slower than the window cannot be followed live without it.
+This repeats the latency finding first recorded for the 2026-09-15 rehearsal.
+
+`KLOUDEKS_REQUEST_TIMEOUT` stayed at the authorized 600 s. The launcher accepts up to 900 s,
+which is the obvious lever if the provider stays this slow, but raising it changes an
+approved plan parameter and was not done unilaterally.
+
+Nothing here changes the code's status: **#213 is still unconfirmed live**, as are #202 and
+#205. Prepared pool byte-identical before and after; services stopped; no BDDK/EVDS, search,
+OCR or index-build call.
+
 <a id="m11-07-planner-opted-out-2026-09-16"></a>
 ### M11-07 / M13-05 rerun after the real-column default — 2026-09-16 (PR #212)
 
