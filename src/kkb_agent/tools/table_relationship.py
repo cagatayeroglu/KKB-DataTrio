@@ -58,15 +58,6 @@ class TableRelationshipArguments(BaseModel):
         description="Optional column defining a direction condition, e.g. the monthly rate column",
     )
     when_direction: Direction | None = None
-    use_nominal: bool = Field(
-        default=False,
-        description=(
-            "Compare the nominal column even though the table carries its "
-            "'<column> real, <month> prices (<index>)' counterpart. Set this only when the "
-            "question asks for nominal terms; by default the deflated column is compared, "
-            "because it only exists after an earlier turn was asked to remove inflation"
-        ),
-    )
 
     @model_validator(mode="after")
     def references_and_condition(self) -> Self:
@@ -90,16 +81,19 @@ def _deflated_columns(source: AnalyticalResult, arguments: TableRelationshipArgu
     """Move each selected column to its deflated counterpart when one exists.
 
     A real column is only in the table because an earlier turn was asked to
-    remove inflation, so a later question about change means that column unless
-    it says otherwise. `use_nominal` keeps the nominal reading, and a
-    substitution that would collide with another selected column is skipped, so
-    a plan comparing a column against its own real counterpart still works.
+    remove inflation, so a later question about change means that column. This
+    is not a preference the plan can decline: a planner-facing opt-out was tried
+    and the planner set it on a question that never asked for nominal terms, so
+    the substitution is unconditional here. A nominal reading stays reachable by
+    comparing a table that carries no real counterpart, such as the one from
+    before the deflation turn.
+
+    A substitution that would collide with another selected column is skipped,
+    so a plan comparing a column against its own real counterpart still works.
     """
     driver, target = arguments.driver_column, arguments.target_column
     when: str | None = arguments.when_column
     moved: dict[str, str] = {}
-    if arguments.use_nominal:
-        return _Columns(driver, target, when, moved)
     counterpart = real_counterpart(source, driver)
     if counterpart is not None and counterpart not in {target, when}:
         moved["driver_column"], driver = driver, counterpart

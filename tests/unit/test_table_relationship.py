@@ -779,8 +779,23 @@ class TestTheDeflatedColumnIsWhatAChangeQuestionCompares:
         assert columns.moved == {"target_column": "credit"}
         assert columns.driver == "price"
 
-    def test_use_nominal_keeps_the_nominal_column(self):
-        source = table_with_real()
+    def test_the_plan_cannot_decline_the_deflated_column(self):
+        # A planner-facing opt-out was tried and the planner set it on a question
+        # that never asked for nominal terms, so the schema no longer offers one.
+        with pytest.raises(ValidationError):
+            TableRelationshipArguments(
+                operation="table_co_movement",
+                input_step="earlier",
+                driver_column="price",
+                target_column="credit",
+                driver_direction="up",
+                target_direction="non_increasing",
+                use_nominal=True,
+            )
+
+    def test_a_nominal_reading_is_reached_by_comparing_a_table_without_one(self):
+        # The table from before the deflation turn carries no real counterpart,
+        # so comparing it is how a nominal question is answered.
         arguments = TableRelationshipArguments(
             operation="table_co_movement",
             input_step="earlier",
@@ -788,9 +803,8 @@ class TestTheDeflatedColumnIsWhatAChangeQuestionCompares:
             target_column="credit",
             driver_direction="up",
             target_direction="non_increasing",
-            use_nominal=True,
         )
-        columns = _deflated_columns(source, arguments)
+        columns = _deflated_columns(table(), arguments)
 
         assert (columns.target, columns.moved) == ("credit", {})
 
