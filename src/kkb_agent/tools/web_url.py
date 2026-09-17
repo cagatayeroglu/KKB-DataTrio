@@ -60,6 +60,8 @@ from kkb_agent.ingest.fetched import (
     load_fetched,
     source_id_for,
 )
+from kkb_agent.ingest.json_table import MEDIA_TYPE as JSON_MEDIA_TYPE
+from kkb_agent.ingest.json_table import JsonRejected, RecordTable, load_records
 from kkb_agent.ingest.page_links import LinkRefused, choose_link, page_links
 from kkb_agent.ingest.safe_fetch import (
     FetchFailure,
@@ -76,6 +78,8 @@ from kkb_agent.pdf_ocr import OcrProvider
 from kkb_agent.tools._document_column import ColumnRefused
 from kkb_agent.tools._document_table import (
     MAX_VALUE_COLUMNS,
+    daily_rule_in_question,
+    read_daily_table,
     read_table,
     table_result,
     table_snapshot,
@@ -95,6 +99,9 @@ from kkb_agent.tools._document_value import (
 from kkb_agent.xlsx_loader import XlsxLoadResult, XlsxTable
 
 type Fetcher = Callable[[FetchRequest], FetchOutcome]
+
+#: A data endpoint as named in a page outline (see ingest.address_outline).
+ENDPOINT_NAME = re.compile(r"endpoint_[0-9]{1,2}")
 
 #: An address as someone types it into a sentence. Quotes and apostrophes end
 #: it, so a Turkish suffix ("...xlsx'teki") is not part of the address.
@@ -223,6 +230,13 @@ class WebUrlArguments(BaseModel):
         )
     )
 
+    daily_to_monthly: Literal["last", "mean", "sum"] | None = Field(
+        default=None,
+        description=(
+            "With period_column when the rows are days: how each complete month is formed, only "
+            "as the user asked ('ay sonu' -> last, 'ortalama' -> mean, 'aylık toplam' -> sum)"
+        ),
+    )
     column_units: (
         dict[
             Annotated[str, StringConstraints(min_length=1, max_length=256)],
@@ -321,7 +335,7 @@ class WebUrlOutput:
     source: SourceRef | None = field(default=None, repr=False)
     media_type: str | None = None
     sheets: tuple[str, ...] = field(default=(), repr=False)
-    table: CsvTable | XlsxTable | None = field(default=None, repr=False)
+    table: CsvTable | XlsxTable | RecordTable | None = field(default=None, repr=False)
     document: PdfDocument | HtmlDocument | None = field(default=None, repr=False)
     #: The selected cell as a result, when the planner named one (M7-18).
     result: AnalyticalResult | None = field(default=None, repr=False)
@@ -372,6 +386,7 @@ def read_document(
     ocr: OcrProvider | None = None,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     follow: str | None = None,
+    endpoints: Mapping[str, str] | None = None,
 ) -> DocumentRead:
     """The prompt-address boundary every document reader shares (M7-17, M7-14).
 
@@ -384,6 +399,31 @@ def read_document(
     """
     if url not in addresses_in(question):
         return DocumentRead(WebUrlOutput("rejected", "URL_NOT_IN_QUESTION"), "url_not_in_question")
+    if follow is not None and ENDPOINT_NAME.fullmatch(follow):
+        # A data endpoint named in this turn's page outline; the address came from the
+        # page's own scripts, never from the planner.
+        address = (endpoints or {}).get(follow)
+        if address is None:
+            return DocumentRead(WebUrlOutput("needs_input", "ENDPOINT_UNKNOWN"), "needs_input")
+        data = fetch(
+            FetchRequest(
+                source_ref=source_id_for(address),
+                url=SecretStr(address),
+                accepted_media_types=(JSON_MEDIA_TYPE,),
+            )
+        )
+        if isinstance(data, FetchFailure):
+            return DocumentRead(WebUrlOutput("rejected", data.code.value), "fetch_failed")
+        if not isinstance(data, FetchSuccess):  # pragma: no cover - FetchOutcome is closed
+            raise TypeError("fetch returned neither a success nor a failure")
+        source = fetched_source(address, data.content, retrieved_at=clock())
+        try:
+            records = load_records(data.content)
+        except JsonRejected as error:
+            return DocumentRead(
+                WebUrlOutput("rejected", error.code, source, JSON_MEDIA_TYPE), "not_admitted"
+            )
+        return DocumentRead(WebUrlOutput("loaded", None, source, JSON_MEDIA_TYPE, table=records))
     if follow is not None:
         page = fetch(
             FetchRequest(
@@ -467,6 +507,7 @@ def make_web_url_tool(
     ocr: OcrProvider | None = None,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     library: Mapping[str, Attachment] | None = None,
+    endpoints: Mapping[str, str] | None = None,
 ) -> ToolSpec:
     """Bind the tool to a fetch boundary: the real `safe_fetch` unless a test substitutes it.
 
@@ -503,6 +544,7 @@ def make_web_url_tool(
                 ocr=ocr,
                 clock=clock,
                 follow=arguments.follow,
+                endpoints=endpoints,
             )
         if read.failure is not None:
             return _failed(read.failure, read.output, extra=read.reasons)
@@ -520,20 +562,43 @@ def make_web_url_tool(
             units = declared_units(arguments.column_units, context.question)
             if isinstance(units, str):
                 return _failed("needs_input", replace(output, status="needs_input", code=units))
+            rule = arguments.daily_to_monthly
+            if rule is not None and not daily_rule_in_question(rule, context.question):
+                # Like a unit or a year, how days become months is the user's word.
+                return _failed(
+                    "needs_input",
+                    replace(output, status="needs_input", code="AGGREGATION_NOT_IN_QUESTION"),
+                )
+
+            def is_series(label: str) -> bool:
+                return (
+                    connection.execute(
+                        "SELECT 1 FROM silver_series WHERE series_id = ? LIMIT 1", [label]
+                    ).fetchone()
+                    is not None
+                )
+
             try:
-                table = read_table(
-                    grids(output.table, output.document),
-                    arguments.period_column,
-                    arguments.value_columns,
-                    is_series=lambda label: (
-                        connection.execute(
-                            "SELECT 1 FROM silver_series WHERE series_id = ? LIMIT 1", [label]
-                        ).fetchone()
-                        is not None
-                    ),
-                    year=arguments.year,
-                    as_of=as_of(source),
-                    declared_units=units,
+                table = (
+                    read_daily_table(
+                        grids(output.table, output.document),
+                        arguments.period_column,
+                        arguments.value_columns,
+                        rule=rule,
+                        as_of=as_of(source),
+                        is_series=is_series,
+                        declared_units=units,
+                    )
+                    if rule is not None
+                    else read_table(
+                        grids(output.table, output.document),
+                        arguments.period_column,
+                        arguments.value_columns,
+                        is_series=is_series,
+                        year=arguments.year,
+                        as_of=as_of(source),
+                        declared_units=units,
+                    )
                 )
             except ColumnRefused as error:
                 return _failed(

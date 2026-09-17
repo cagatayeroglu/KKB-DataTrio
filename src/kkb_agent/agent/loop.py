@@ -463,6 +463,8 @@ class Session:
     deterministic_presentation: bool = True
     #: Outline of the conversation's uploaded documents: untrusted data, a user message.
     documents_note: str | None = None
+    #: Outline of the web addresses in the question: untrusted data, a user message.
+    address_note: str | None = None
     #: Earlier (question, shown answer) pairs of this conversation, oldest first.
     history: tuple[tuple[str, str], ...] = ()
     #: The message names a web address or carries a document: a reply cannot answer it.
@@ -510,6 +512,8 @@ class Session:
             messages.append(Message(Role.SYSTEM, published))
         if self.documents_note is not None:
             messages.append(Message(Role.USER, self.documents_note))
+        if self.address_note is not None and discovery is None:
+            messages.append(Message(Role.USER, self.address_note))
         if discovery is None:
             messages.append(Message(Role.SYSTEM, REPLY_INSTRUCTIONS))
             if (earlier := history_prompt(self.history)) is not None:

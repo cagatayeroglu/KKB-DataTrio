@@ -24,6 +24,7 @@ from kkb_agent.catalog import embedding
 from kkb_agent.catalog.hybrid import CatalogDenseStage
 from kkb_agent.catalog.lance_index import LocalCatalogIndex
 from kkb_agent.catalog.mappings import load_reviewed_snapshot
+from kkb_agent.ingest.fetched import source_id_for
 from kkb_agent.ingest.safe_fetch import FetchCode, safe_fetch
 from kkb_agent.lakehouse import open_lakehouse
 from kkb_agent.llm import scripted
@@ -216,7 +217,10 @@ def test_refused_documents_publish_nothing(pool, tmp_path, fetch, planned):
     serialized = json.dumps(turn, ensure_ascii=False)
     assert not [item for item in PRIVATE if item in serialized]
     if "other.csv" in planned:
-        assert not fetch.requests
+        # Only the address the user wrote may be read (for its outline); the planned
+        # address that is not in the question is never requested.
+        other = source_id_for("https://data.example.test/other.csv")
+        assert not [request for request in fetch.requests if request.source_ref == other]
 
 
 def test_instructions_inside_a_cell_grant_no_second_request(pool, tmp_path):

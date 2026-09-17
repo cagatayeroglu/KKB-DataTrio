@@ -38,6 +38,7 @@ from kkb_agent.catalog.inspection import PreparedSeriesInspector
 from kkb_agent.catalog.mappings import MAX_SNAPSHOT_BYTES, ReviewedSnapshot, load_reviewed_snapshot
 from kkb_agent.core import AnalyticalResult, SourceRef
 from kkb_agent.core.models import ContractModel
+from kkb_agent.ingest.address_outline import TurnFetchCache, address_outline
 from kkb_agent.ingest.attached import SOURCE_TYPE as UPLOAD
 from kkb_agent.ingest.attached import Attachment
 from kkb_agent.ingest.prepared_series import prepared_series_names
@@ -583,8 +584,18 @@ class PreparedRunner:
                 current = next(
                     (name for name, (ref, _) in named.items() if ref == effective_document), None
                 )
+                # One page read per written address; tools reuse exactly these bytes.
+                turn_fetch = (
+                    TurnFetchCache(self._web_url_fetch) if self._web_url_fetch is not None else None
+                )
+                addresses = addresses_in(question)
+                address_note = (
+                    address_outline(addresses, turn_fetch)
+                    if turn_fetch is not None and addresses
+                    else None
+                )
                 registry = self._registry(
-                    lake.connection, workspace, lake.lineage, attachment, library
+                    lake.connection, workspace, lake.lineage, attachment, library, turn_fetch
                 )
                 answered = Session(
                     self._provider,
@@ -595,6 +606,7 @@ class PreparedRunner:
                     repair_period_wording=True,
                     repair_unmatched_numbers=True,
                     documents_note=document_outline(library, current),
+                    address_note=address_note,
                     # A clarification merge already restates the original request.
                     history=(
                         tuple(self._history.get(session_id, ()))
@@ -697,7 +709,9 @@ class PreparedRunner:
         lineage: Lineage,
         attachment: Attachment | None = None,
         library: dict[str, Attachment] | None = None,
+        turn_fetch: TurnFetchCache | None = None,
     ) -> ToolRegistry:
+        fetch = turn_fetch if turn_fetch is not None else self._web_url_fetch
         inspector = PreparedSeriesInspector(self._catalog)
         # Existing code-reviewed names only. Free catalog/source metadata belongs
         # in catalog continuation's USER data, never a SYSTEM tool description.
@@ -723,7 +737,7 @@ class PreparedRunner:
                 lineage=lineage,
                 series_names=names,
                 inspector=inspector,
-                document_fetch=self._web_url_fetch,
+                document_fetch=fetch,
                 attachment=attachment,
                 document_ocr=self._document_ocr,
                 library=library,
@@ -736,11 +750,12 @@ class PreparedRunner:
             # and the proof builder re-read it; the document itself is not kept.
             registry.register(
                 make_web_url_tool(
-                    fetch=self._web_url_fetch,
+                    fetch=fetch,
                     attachment=attachment,
                     lineage=lineage,
                     ocr=self._document_ocr,
                     library=library,
+                    endpoints=turn_fetch.endpoints if turn_fetch is not None else None,
                 )
             )
         return registry

@@ -62,6 +62,7 @@ from kkb_agent.core import (
 )
 from kkb_agent.csv_loader import CsvTable
 from kkb_agent.html_loader import HtmlDocument
+from kkb_agent.ingest.json_table import RecordTable
 from kkb_agent.lakehouse.lineage import EdgeKind, Lineage, NodeKind
 from kkb_agent.xlsx_loader import XlsxTable
 
@@ -211,9 +212,12 @@ class Reading:
 
 
 def grids(
-    table: CsvTable | XlsxTable | None, document: PdfDocument | HtmlDocument | None
+    table: CsvTable | XlsxTable | RecordTable | None,
+    document: PdfDocument | HtmlDocument | None,
 ) -> list[Grid]:
     """Every table the loaded content offers; a PDF table's first row is its header."""
+    if isinstance(table, RecordTable):
+        return [Grid({"records": "/".join(table.path) or "root"}, table.headers, table.rows)]
     if table is not None:
         location: dict[str, str | int] = {"table": 1}
         if isinstance(table, XlsxTable):
@@ -262,7 +266,7 @@ def grids(
     return found
 
 
-def csv_parsing(table: CsvTable | XlsxTable | None) -> dict[str, str] | None:
+def csv_parsing(table: CsvTable | XlsxTable | RecordTable | None) -> dict[str, str] | None:
     """How a CSV table was split (DEC-147): its separator, declared or detected."""
     if not isinstance(table, CsvTable):
         return None

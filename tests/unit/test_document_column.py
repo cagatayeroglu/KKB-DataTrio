@@ -32,10 +32,12 @@ from kkb_agent.core import (
     Scale,
     StockFlow,
 )
+from kkb_agent.ingest.fetched import source_id_for
 from kkb_agent.lakehouse import open_lakehouse
 from kkb_agent.llm import scripted
 from kkb_agent.tools._document_column import ColumnRefused, month_end, read_column
 from kkb_agent.tools._document_value import Grid
+from kkb_agent.tools.web_url import addresses_in
 
 URL = "https://data.example.test/PRIVATE-PATH/bist.csv?token=SECRET-QUERY"
 ASK = f"{URL} adresindeki tablodan Kapanış sütununu önceki tabloya ekle. PRIVATE-QUESTION"
@@ -398,7 +400,11 @@ def test_refused_columns_publish_nothing(tmp_path, fetch, plan, question):
     with open_lakehouse(runner.run_root / sid / "lake") as lake:
         assert Workspace.open(lake.connection, sid).names() == ["analiz_1"]
     if "other.csv" in plan or question.startswith("Kapanış"):
-        assert not fetch.requests
+        # At most the address the user wrote is read, once, for the planner's outline;
+        # an address the planner proposes on its own is never requested.
+        written = {source_id_for(url) for url in addresses_in(question)}
+        assert {request.source_ref for request in fetch.requests} <= written
+        assert len(fetch.requests) <= len(written)
 
 
 def test_hybrid_second_turn_adds_a_column_without_discovery(tmp_path):
