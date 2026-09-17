@@ -20,15 +20,19 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
+from math import isfinite
 from typing import Final
 
 from kkb_agent.core import CumulativeKind, Frequency, ResultValue, StockFlow, TransformationRecord
 from kkb_agent.lakehouse.cumulative import CumulativeError, to_flow
 from kkb_agent.lakehouse.records import Observation
-from kkb_agent.lakehouse.semantics import SeriesSemantics
+from kkb_agent.lakehouse.semantics import SemanticsError, SeriesSemantics, period_bounds
 
 METHOD: Final = "to-flow-v1"
-FORMULA: Final = "flow[period] = cumulative[period] - cumulative[previous period]"
+FORMULA: Final = (
+    "flow[period] = cumulative[period] - cumulative[previous period]; "
+    "yearly_reset January uses the current value; unusable predecessors stay empty"
+)
 CONVERTIBLE: Final = (CumulativeKind.YEARLY_RESET, CumulativeKind.SINCE_INCEPTION)
 
 
@@ -62,10 +66,26 @@ def to_flow_column(
         )
     if semantics.frequency is not Frequency.MONTHLY:
         raise AccumulationRefused(f"{column_label} is not monthly; no other frequency is converted")
+    if baseline is not None and not isfinite(baseline):
+        raise AccumulationRefused("The explicit baseline must be finite")
     dated: dict[date, ResultValue] = {}
     for value in column:
         if value.period is None or value.period.frequency is not Frequency.MONTHLY:
             raise AccumulationRefused(f"{column_label} is not a monthly column")
+        try:
+            valid = (value.period.start, value.period.end) == period_bounds(
+                Frequency.MONTHLY, value.period.end
+            )
+        except SemanticsError:
+            valid = False
+        if not valid or not isfinite(value.value):
+            raise AccumulationRefused(f"{column_label} has invalid periods or values")
+        if value.label != column_label or (value.unit, value.scale, value.measure) != (
+            semantics.unit,
+            semantics.scale,
+            semantics.observation,
+        ):
+            raise AccumulationRefused(f"{column_label} disagrees with its stored semantics")
         if value.period.end in dated:
             raise AccumulationRefused(f"{column_label} has duplicate periods")
         dated[value.period.end] = value

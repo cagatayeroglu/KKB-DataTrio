@@ -565,7 +565,8 @@ def make_table_transform_tool(
             "filling them, and does not calculate a relationship or establish a cause. "
             "to_flow adds a per-period flow copy of a column the store records as cumulative "
             "(yearly_reset or since_inception), which is what comparison, breakpoint and "
-            "co-movement need when they refuse a cumulative series; a column the store does "
+            "table direction comparison can use; series-based tools still read original series. "
+            "A column the store does "
             "not declare cumulative is refused rather than differenced. "
             "rebase adds an explicitly based copy of an existing index column. align selects "
             "existing exact periods using inner or explicitly anchored-left policy. join_table "
@@ -926,6 +927,10 @@ def _flowed(
     column = [value for value in source.values if value.label == arguments.column]
     try:
         flowed = to_flow_column(column, semantics, column_label=arguments.column)
+        if any(value.label == flowed.label for value in source.values):
+            raise AccumulationRefused("This table already contains the converted flow column")
+        if not flowed.values:
+            raise AccumulationRefused("No period has a usable predecessor or yearly reset")
     except AccumulationRefused as error:
         return AnalyticalResult(
             result_id=result_id,

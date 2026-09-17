@@ -84,7 +84,22 @@ def _column(source: AnalyticalResult, label: str, notes: list[str]) -> dict[date
             f"{label!r} has no stated unit or scale; only its own month-over-month "
             "directions were used, never its level"
         )
-    if first.measure not in LEVEL_MEASURES:
+    # The caller verifies the complete source execution before this analytical
+    # helper runs. A recorded transformation, never a display-label suffix or
+    # the shape of values, states that this column is now a period flow.
+    converted_flow = (
+        first.measure is StockFlow.FLOW
+        and source.evidence is not None
+        and any(
+            item.operation == "to_flow"
+            and item.output_ref == label
+            and item.parameters.get("declared_cumulative") in ("yearly_reset", "since_inception")
+            for item in source.evidence.transformations
+        )
+    )
+    if converted_flow:
+        notes.append(f"{label!r} is a period flow from the recorded to_flow transformation")
+    if first.measure not in LEVEL_MEASURES and not converted_flow:
         verdict = detect_cumulative(
             [
                 Observation(date(end.year, end.month, 1), end, level)
