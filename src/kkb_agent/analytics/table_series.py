@@ -166,15 +166,18 @@ def add_document_column(
     scale: Scale,
     document_rows: int,
     content_hash: str,
+    measure: StockFlow = StockFlow.UNKNOWN,
 ) -> AddedSeries:
     """Join one fetched document column, keyed by month end, onto the table's months.
 
     `levels` comes from a strict reader: one explicit month per row, a number
-    read without guessing, and a unit the column header stated. The document
-    does not state stock/flow meaning, so the cells say it is unknown.
+    read without guessing, and a unit the column header stated. `measure` is
+    unknown unless the reader's header-unit rule (DEC-145) named an index level.
     """
     if not label.strip() or not unit or scale is Scale.UNKNOWN:
         raise SeriesAdditionRefused("A document column needs a label and a stated unit and scale")
+    if measure not in (StockFlow.UNKNOWN, StockFlow.INDEX):
+        raise SeriesAdditionRefused("A document column states no stock, flow or rate meaning")
     periods = table_months(source, label)
     for end, level in levels.items():
         if not _monthly(date(end.year, end.month, 1), end):
@@ -194,7 +197,7 @@ def add_document_column(
                 value=level,
                 unit=unit,
                 scale=scale,
-                measure=StockFlow.UNKNOWN,
+                measure=measure,
                 period=period,
             )
         )
@@ -209,7 +212,8 @@ def add_document_column(
             "unit": unit,
             "unit_source": "column header",
             "scale": scale.value,
-            "measure": StockFlow.UNKNOWN.value,
+            "measure": measure.value,
+            "measure_source": "column header unit" if measure is StockFlow.INDEX else None,
             "document_rows": document_rows,
             "source_rows": len(periods),
             "matched_rows": len(added),

@@ -12,8 +12,10 @@ Strict by decision (2026-09-17). Nothing the document does not state is decided:
 - **What number.** The cell number reader of M7-18: stored numbers as they are,
   text only with one reading. An empty cell stays missing and is never filled.
 - **Unit and scale.** Only from the value header's trailing parentheses; a
-  header without a recognised unit refuses the column. Stock/flow meaning is
-  not stated by a document and stays unknown.
+  header without a recognised unit refuses the column.
+- **Measure.** A document does not state stock/flow meaning. The one exception
+  (DEC-145) is a header whose unit is points or index at scale one, which
+  names an index level; every other column stays unknown.
 
 Refusal codes are fixed and never carry document text.
 """
@@ -27,7 +29,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 
 from kkb_agent.catalog.normalization import normalize_search_text
-from kkb_agent.core import Scale, SourceRef
+from kkb_agent.core import Scale, SourceRef, StockFlow
 from kkb_agent.lakehouse.result_evidence import canonical
 from kkb_agent.tools._document_value import (
     Grid,
@@ -39,6 +41,8 @@ from kkb_agent.tools._document_value import (
 )
 
 SNAPSHOT_KIND = "document_column_v1"
+#: DEC-145: header units that name an index level by themselves.
+INDEX_UNITS = frozenset({"points", "index"})
 _MONTHS = {
     name: number
     for number, names in enumerate(
@@ -82,6 +86,7 @@ class DocumentColumn:
     value_header: str
     unit: str
     scale: Scale
+    measure: StockFlow
     #: (month end, value or None for an empty cell, digest of the cell text)
     rows: tuple[tuple[date, float | None, str], ...]
 
@@ -166,6 +171,9 @@ def read_column(tables: list[Grid], period_column: str, value_column: str) -> Do
         value_header=header,
         unit=unit,
         scale=scale,
+        measure=(
+            StockFlow.INDEX if unit in INDEX_UNITS and scale is Scale.ONE else StockFlow.UNKNOWN
+        ),
         rows=tuple((end, value, digest) for end, (value, digest) in sorted(rows.items())),
     )
 
@@ -189,6 +197,7 @@ def column_snapshot(column: DocumentColumn, source: SourceRef, media_type: str) 
             "value_header": column.value_header,
             "unit": column.unit,
             "scale": column.scale.value,
+            "measure": column.measure.value,
             "rows": [[end, value, digest] for end, value, digest in column.rows],
         }
     )
