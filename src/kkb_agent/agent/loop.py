@@ -15,9 +15,10 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, Literal
 
 from kkb_agent.agent.claim_qualifiers import controlled_count_label
+from kkb_agent.agent.diagnostics import PlanAttempt
 from kkb_agent.agent.discovery import (
     CLARIFICATION_TEXT,
     CONTINUATION_INSTRUCTIONS,
@@ -170,6 +171,7 @@ class Planned:
     rejections: tuple[str, ...] = ()
     discovery_rounds: int = 0
     discovery_plan: ValidatedPlan | None = None
+    attempts_log: tuple[PlanAttempt, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -422,6 +424,7 @@ class Session:
     budget: Budget = DEFAULT_BUDGET
     model: str | None = None
     rejections: list[str] = field(default_factory=list, repr=False)
+    plan_attempts: list[PlanAttempt] = field(default_factory=list, repr=False)
     catalog_continuation: bool = False
     selection: SelectedTable | None = None
     require_series_discovery: bool = False
@@ -446,6 +449,7 @@ class Session:
         budget: Budget,
         discovery: str | None = None,
         used_ids: frozenset[str] = frozenset(),
+        phase: Literal["initial", "continuation"] = "initial",
     ) -> Planned:
         if self.selection is not None:
             if workspace is not self.selection.workspace:
@@ -488,6 +492,7 @@ class Session:
         if discovery is not None:
             messages.append(Message(Role.USER, discovery))
         rejections: list[str] = []
+        attempts_log: list[PlanAttempt] = []
         seen: set[str] = set()
         for attempt in range(1, budget.max_plan_repairs + 2):
             try:
@@ -495,6 +500,14 @@ class Session:
                     messages, model=self.model, schema=AnalyticalPlan
                 )
             except SchemaViolation as error:
+                record = PlanAttempt(
+                    phase=phase,
+                    attempt=attempt,
+                    outcome="provider_schema_error",
+                    category=None,
+                )
+                attempts_log.append(record)
+                self.plan_attempts.append(record)
                 raise PlanningFailed(f"Planner produced no valid plan: {error}") from error
             proposal = completion.parsed
             if not isinstance(proposal, AnalyticalPlan):  # pragma: no cover - schema guarantees it
@@ -518,15 +531,39 @@ class Session:
                 self.rejections.append(reason)
                 if fingerprint in seen:
                     # Repeating an identical rejected plan will not converge.
+                    record = PlanAttempt(
+                        phase=phase,
+                        attempt=attempt,
+                        outcome="repeated_plan",
+                        category=error.category,
+                    )
+                    attempts_log.append(record)
+                    self.plan_attempts.append(record)
                     raise PlanningFailed(f"Planner repeated an invalid plan: {reason}") from error
                 seen.add(fingerprint)
+                record = PlanAttempt(
+                    phase=phase,
+                    attempt=attempt,
+                    outcome="rejected",
+                    category=error.category,
+                )
+                attempts_log.append(record)
+                self.plan_attempts.append(record)
                 messages = [
                     *messages,
                     Message(Role.ASSISTANT, fingerprint),
                     Message(Role.USER, f"That plan was rejected: {reason}. Propose a valid plan."),
                 ]
                 continue
-            return Planned(validated, attempt, tuple(rejections))
+            record = PlanAttempt(
+                phase=phase,
+                attempt=attempt,
+                outcome="accepted",
+                category=None,
+            )
+            attempts_log.append(record)
+            self.plan_attempts.append(record)
+            return Planned(validated, attempt, tuple(rejections), attempts_log=tuple(attempts_log))
         raise PlanningFailed(
             f"No runnable plan after {budget.max_plan_repairs + 1} attempt(s): "
             + "; ".join(rejections)
@@ -567,6 +604,7 @@ class Session:
                 ),
                 discovery=feedback,
                 used_ids=frozenset(v.step.step_id for v in planned.plan.steps),
+                phase="continuation",
             )
             following = execute(
                 continuation.plan,
@@ -582,6 +620,7 @@ class Session:
                 (*planned.rejections, *continuation.rejections),
                 discovery_rounds=1,
                 discovery_plan=planned.plan,
+                attempts_log=(*planned.attempts_log, *continuation.attempts_log),
             )
             outcome = ExecutionOutcome((*outcome.results, *following.results), following.completed)
         return planned, outcome

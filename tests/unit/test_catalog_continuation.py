@@ -13,7 +13,9 @@ from kkb_agent.agent import (
     AnalyticalPlan,
     AnswerStatus,
     Budget,
+    PlanAttempt,
     PlanningFailed,
+    RejectionCategory,
     Session,
     ToolRegistry,
     ToolResult,
@@ -598,3 +600,133 @@ def test_retried_failure_identity_comes_from_validated_step(rig):
     assert not outcome.completed and len(attempts) == 2
     result = outcome.by_step("real_step")
     assert result.tool == "change_detection" and result.evidence == "trace"
+
+
+def test_continuation_rejection_then_valid_repair_records_attempts_log(rig):
+    reg, calls = rig
+    provider = scripted(
+        proposal(discover()),
+        proposal(discover("again")),
+        proposal(calculate()),
+    )
+    planned, outcome = enabled(provider, reg).run(QUESTION)
+    assert planned.attempts == 3
+    assert len(planned.attempts_log) == 3
+    assert planned.attempts_log == (
+        PlanAttempt(phase="initial", attempt=1, outcome="accepted", category=None),
+        PlanAttempt(
+            phase="continuation",
+            attempt=1,
+            outcome="rejected",
+            category=RejectionCategory.DISCOVERY_RULE,
+        ),
+        PlanAttempt(phase="continuation", attempt=2, outcome="accepted", category=None),
+    )
+
+
+def test_shared_repair_budget_exhaustion_across_phases_gives_one_attempt(rig):
+    reg, calls = rig
+    provider = scripted(
+        proposal(discover(), calculate()),
+        proposal(discover()),
+        proposal(discover("again")),
+    )
+    session = enabled(provider, reg, budget=Budget(max_plan_repairs=1))
+    with pytest.raises(PlanningFailed):
+        session.run(QUESTION)
+    assert len(provider.seen) == 3 and not calls
+    assert session.plan_attempts == [
+        PlanAttempt(
+            phase="initial",
+            attempt=1,
+            outcome="rejected",
+            category=RejectionCategory.DISCOVERY_RULE,
+        ),
+        PlanAttempt(phase="initial", attempt=2, outcome="accepted", category=None),
+        PlanAttempt(
+            phase="continuation",
+            attempt=1,
+            outcome="rejected",
+            category=RejectionCategory.DISCOVERY_RULE,
+        ),
+    ]
+
+
+def test_repeating_identical_invalid_plan_stops_with_repeated_plan_outcome(rig):
+    reg, calls = rig
+    provider = scripted(
+        proposal(discover()),
+        proposal(discover("again")),
+        proposal(discover("again")),
+    )
+    session = enabled(provider, reg, budget=Budget(max_plan_repairs=10))
+    with pytest.raises(PlanningFailed, match="repeated"):
+        session.run(QUESTION)
+    assert len(provider.seen) == 3 and not calls
+    assert session.plan_attempts == [
+        PlanAttempt(
+            phase="initial",
+            attempt=1,
+            outcome="accepted",
+            category=None,
+        ),
+        PlanAttempt(
+            phase="continuation",
+            attempt=1,
+            outcome="rejected",
+            category=RejectionCategory.DISCOVERY_RULE,
+        ),
+        PlanAttempt(
+            phase="continuation",
+            attempt=2,
+            outcome="repeated_plan",
+            category=RejectionCategory.DISCOVERY_RULE,
+        ),
+    ]
+
+
+def test_planning_failure_preserves_previously_selected_table_and_publishes_nothing():
+    import duckdb
+
+    from kkb_agent.agent.selection import SelectedTable
+    from kkb_agent.agent.workspace import ArtifactKind, Workspace
+    from kkb_agent.core import (
+        AnalyticalResult,
+        ResultEvidence,
+        ResultKind,
+        ResultStatus,
+        ResultValue,
+        Scale,
+    )
+
+    with duckdb.connect(":memory:") as connection:
+        ws = Workspace.open(connection, "owned")
+        result = AnalyticalResult(
+            result_id="prior_result",
+            kind=ResultKind.LEVEL,
+            status=ResultStatus.COMPUTED,
+            tool="lakehouse",
+            values=[ResultValue(label="amount", value=999.0, unit="TRY", scale=Scale.ONE)],
+            evidence=ResultEvidence(input_refs=["silver_observations"]),
+        )
+        artifact = ws.record("source_table", ArtifactKind.VALUE, result)
+        assert ws.names() == ["source_table"]
+
+        selected = SelectedTable(
+            workspace=ws,
+            name="source_table",
+            artifact_id=artifact.artifact_id,
+            version=artifact.value_ref,
+        )
+        reg = ToolRegistry()
+        provider = scripted(
+            proposal({"step_id": "bad", "tool": "unregistered", "arguments": {}}),
+            proposal({"step_id": "bad2", "tool": "unregistered", "arguments": {}}),
+        )
+        session = Session(provider, reg, budget=Budget(max_plan_repairs=0), selection=selected)
+        with pytest.raises(PlanningFailed):
+            session.run("Any question?", ws)
+
+        # Assert previously selected table is preserved in workspace and nothing new was published
+        assert ws.names() == ["source_table"]
+        assert selected.check() is not None
