@@ -427,8 +427,8 @@ test("document uploads refuse other types, sizes, methods and missing tokens", a
 
 test("conversation routes pass only with their key, method and bounded query", async () => {
   const seen: { url: string; headers: Headers }[] = [];
-  const transport = async (url: string, init?: RequestInit) => {
-    seen.push({ url, headers: new Headers(init?.headers) });
+  const transport: typeof fetch = async (url, init) => {
+    seen.push({ url: String(url), headers: new Headers(init?.headers) });
     return Response.json({ ok: true });
   };
   const owner = "o".repeat(43);
