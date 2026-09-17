@@ -7,7 +7,9 @@ rules (M7-14, DEC-145/146), with one decision of their own (Eray, 2026-09-17):
 
 - **Table-level problems refuse the table.** The period column must be found
   once in exactly one table that also holds a requested value column; every
-  non-empty period cell must be an explicit month, once per month.
+  non-empty period cell must be an explicit month, once per month. Under
+  DEC-148 total rows and months ending after retrieval are skipped with a
+  warning instead, and a month name without a year takes the year context.
 - **Column-level problems leave that column out.** A value column that is not
   found once, states no recognised unit, holds a number with more than one
   reading, names a prepared series or has fewer than two values is skipped with
@@ -44,10 +46,10 @@ from kkb_agent.core import (
 from kkb_agent.lakehouse.result_evidence import canonical
 from kkb_agent.tools._document_column import (
     ColumnRefused,
+    RowRules,
     _empty,
     document_measure,
     measure_limitation,
-    month_end,
 )
 from kkb_agent.tools._document_value import (
     Grid,
@@ -55,7 +57,6 @@ from kkb_agent.tools._document_value import (
     _text,
     header_matches,
     header_semantics,
-    read_number,
 )
 
 SNAPSHOT_KIND = "document_table_v1"
@@ -83,6 +84,7 @@ class DocumentTable:
     columns: tuple[TableColumn, ...]
     #: (label as the user named it, fixed refusal code)
     skipped: tuple[tuple[str, str], ...]
+    rules: RowRules | None = None
 
 
 def read_table(
@@ -91,8 +93,13 @@ def read_table(
     value_columns: Sequence[str],
     *,
     is_series: Callable[[str], bool] = lambda label: False,
+    year: int | None = None,
+    as_of: date | None = None,
 ) -> DocumentTable:
-    """The one table holding the period column, read as explicit months per column."""
+    """The one table holding the period column, read as explicit months per column.
+
+    `year` is a year from the user's question, `as_of` the document's retrieval date.
+    """
     found: list[tuple[Grid, int]] = []
     for grid in tables:
         periods = [
@@ -123,6 +130,7 @@ def read_table(
         else:
             targets.append((label, matches[0]))
 
+    rules = RowRules.for_grid(grid, year=year, as_of=as_of)
     rows: list[tuple[date, tuple[object, ...]]] = []
     seen: set[date] = set()
     for cells in grid.rows:
@@ -132,9 +140,9 @@ def read_table(
             if all(_empty(value) for value in requested):
                 continue  # A blank spacer row carries nothing requested.
             raise ColumnRefused("PERIOD_NOT_RECOGNISED")
-        end = month_end(raw_period)
+        end = rules.month(raw_period)
         if end is None:
-            raise ColumnRefused("PERIOD_NOT_RECOGNISED")
+            continue
         if end in seen:
             raise ColumnRefused("DUPLICATE_PERIOD")
         seen.add(end)
@@ -154,7 +162,7 @@ def read_table(
         try:
             for end, cells in rows:
                 raw = cells[index] if index < len(cells) else None
-                value = None if _empty(raw) else read_number(raw)
+                value = None if _empty(raw) else rules.number(raw)
                 read.append((end, value, hashlib.sha256(_text(raw).encode()).hexdigest()))
         except ValueNotSelected as error:
             skipped.append((label, error.code))
@@ -175,6 +183,7 @@ def read_table(
         months=tuple(end for end, _ in rows),
         columns=tuple(columns),
         skipped=tuple(skipped),
+        rules=rules,
     )
 
 
@@ -216,6 +225,7 @@ def table_snapshot(
             ],
             "skipped": [[label, code] for label, code in table.skipped],
             **({"csv": csv} if csv is not None else {}),
+            **(table.rules.evidence() if table.rules is not None else {}),
         }
     )
 
@@ -252,6 +262,9 @@ def table_result(
         f"Column {label!r} has {count} empty month(s); those cells are empty, never filled"
         for label, count in missing.items()
     )
+    rules = table.rules
+    if rules is not None:
+        warnings.extend(rules.warnings())
     location = canonical(table.location)
     return AnalyticalResult(
         result_id=f"web_url:table:{source.source_id}:{location}",
@@ -296,6 +309,7 @@ def table_result(
                         "content_hash": source.content_hash or "",
                         "fill": "none",
                         **({"csv": dict[str, JsonValue](csv)} if csv is not None else {}),
+                        **(rules.evidence() if rules is not None else {}),
                     },
                     input_refs=[source.source_id],
                     output_ref=f"web_url:table:{source.source_id}",
@@ -308,6 +322,7 @@ def table_result(
             "Read from one document table as published on explicit months only; no resampling, "
             "filling, currency conversion, inflation adjustment or rebasing was applied",
             *(f"{column.label}: {measure_limitation(column.measure)}" for column in table.columns),
+            *(rules.limitations() if rules is not None else ()),
         ],
     )
 

@@ -413,6 +413,8 @@ class TestTheAnswerPath:
 
 
 PRICES = b'Tarih,Tutar (Milyon TL),Adet\n2026-01-31,"1.234,56",4\n2026-02-28,"1.100,00",1.234\n'
+#: No other cell settles a convention (DEC-148), so 1.234 keeps two readings.
+UNDECIDED = b"Tarih,Adet\n2026-01-31,4\n2026-02-28,1.234\n"
 
 
 class TestOneFigureFromADocument:
@@ -468,18 +470,18 @@ class TestOneFigureFromADocument:
         assert value_result.parameters["sheet"] == "Observations"
 
     @pytest.mark.parametrize(
-        ("column", "row", "code"),
+        ("content", "column", "row", "code"),
         [
-            ("Faiz", "2026-01-31", "VALUE_NOT_FOUND"),
-            ("Adet", "2026-02-28", "AMBIGUOUS_NUMBER"),
-            ("Tarih", "4", "NOT_A_NUMBER"),
+            (PRICES, "Faiz", "2026-01-31", "VALUE_NOT_FOUND"),
+            (UNDECIDED, "Adet", "2026-02-28", "AMBIGUOUS_NUMBER"),
+            (PRICES, "Tarih", "4", "NOT_A_NUMBER"),
         ],
     )
     def test_a_cell_that_cannot_be_read_gives_a_code_and_records_nothing(
-        self, tmp_path, column, row, code
+        self, tmp_path, content, column, row, code
     ):
         with open_lakehouse(tmp_path / "lake") as lake:
-            result = run(FakeFetch(PRICES), lineage=lake.lineage, column=column, row=row)
+            result = run(FakeFetch(content), lineage=lake.lineage, column=column, row=row)
 
             assert result.status is ToolStatus.FAILURE
             assert (result.error_category, result.warnings) == ("needs_input", (code,))

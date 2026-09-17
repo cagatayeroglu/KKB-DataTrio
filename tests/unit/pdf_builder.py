@@ -12,6 +12,8 @@ from __future__ import annotations
 import zlib
 from dataclasses import dataclass, field
 
+from pdfminer.fontmetrics import FONT_METRICS
+
 WIDTH, HEIGHT = 612, 792
 HELVETICA = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"
 # A composite font with no ToUnicode map: pdfminer can place its glyphs but
@@ -27,15 +29,29 @@ UNMAPPED_FONT = (
 class Page:
     texts: list[tuple[float, float, str]] = field(default_factory=list)
     lines: list[tuple[float, float, float, float]] = field(default_factory=list)
+    #: Filled rectangles (x, y, width, height), as report generators draw cell shading.
+    rects: list[tuple[float, float, float, float]] = field(default_factory=list)
     unmapped: list[tuple[float, float, str]] = field(default_factory=list)
     raw: bytes = b""
     compress: bool = False
 
     def content(self) -> bytes:
-        ops = [f"{x1} {y1} m {x2} {y2} l S" for x1, y1, x2, y2 in self.lines]
+        ops = [f"{x} {y} {w} {h} re f" for x, y, w, h in self.rects]
+        ops += [f"{x1} {y1} m {x2} {y2} l S" for x1, y1, x2, y2 in self.lines]
         ops += [f"BT /F1 10 Tf {x} {y} Td ({_escape(text)}) Tj ET" for x, y, text in self.texts]
         ops += [f"BT /F2 10 Tf {x} {y} Td <{hexed}> Tj ET" for x, y, hexed in self.unmapped]
         return "\n".join(ops).encode("latin-1") + self.raw
+
+
+def text_width(text: str, size: float = 10) -> float:
+    """Helvetica advance width, as pdfminer measures it for these pages."""
+    widths = FONT_METRICS["Helvetica"][1]
+    return sum(widths[char] for char in text) * size / 1000
+
+
+def right_aligned(x1: float, y: float, text: str) -> tuple[float, float, str]:
+    """A text placement whose right edge is `x1`, as a report right-aligns numbers."""
+    return (x1 - text_width(text), y, text)
 
 
 def ruled_table(
