@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import json
 
-from kkb_agent.agent.executor import ExecutionOutcome, PlanRejected, ToolStatus, ValidatedPlan
+from kkb_agent.agent.executor import (
+    ExecutionOutcome,
+    PlanRejected,
+    RejectionCategory,
+    ToolStatus,
+    ValidatedPlan,
+)
 from kkb_agent.catalog.search import CatalogCandidate, CatalogSearchOutput
 
 MAX_DISCOVERY_QUERIES = 4
@@ -91,21 +97,37 @@ def validate_discovery_phase(
 ) -> None:
     names = {v.step.tool for v in plan.steps}
     if any(v.step.step_id in used_ids for v in plan.steps):
-        raise PlanRejected("Continuation step IDs must be new")
+        raise PlanRejected(
+            "Continuation step IDs must be new",
+            category=RejectionCategory.DISCOVERY_RULE,
+        )
     if continuation:
         if names - CONTINUATION_TOOLS:
             raise PlanRejected(
-                "Continuation permits analysis or clarification, not discovery or web"
+                "Continuation permits analysis or clarification, not discovery or web",
+                category=RejectionCategory.DISCOVERY_RULE,
             )
     elif "catalog_search" in names:
         if names != {"catalog_search"}:
-            raise PlanRejected("Catalog discovery must be a separate plan before analysis")
+            raise PlanRejected(
+                "Catalog discovery must be a separate plan before analysis",
+                category=RejectionCategory.DISCOVERY_RULE,
+            )
         if len(plan.steps) > MAX_DISCOVERY_QUERIES:
-            raise PlanRejected("Catalog discovery permits at most four queries")
+            raise PlanRejected(
+                "Catalog discovery permits at most four queries",
+                category=RejectionCategory.DISCOVERY_RULE,
+            )
         if any(v.step.depends_on for v in plan.steps):
-            raise PlanRejected("Catalog queries must be independent")
+            raise PlanRejected(
+                "Catalog queries must be independent",
+                category=RejectionCategory.DISCOVERY_RULE,
+            )
     elif require_series_discovery and needs_series_discovery(plan):
-        raise PlanRejected("New series require a catalog_search phase before analysis")
+        raise PlanRejected(
+            "New series require a catalog_search phase before analysis",
+            category=RejectionCategory.DISCOVERY_RULE,
+        )
 
 
 def catalog_feedback(outcome: ExecutionOutcome) -> str:

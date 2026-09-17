@@ -35,7 +35,7 @@ from urllib.parse import urlsplit
 import uvicorn
 from pydantic import BaseModel
 
-from kkb_agent.agent import OmittedSentence, omission_code
+from kkb_agent.agent import OmittedSentence, PlanAttempt, omission_code
 from kkb_agent.api.__main__ import literal_config
 from kkb_agent.api.app import create_app
 from kkb_agent.api.prepared import PreparedRunner, read_catalog
@@ -132,6 +132,57 @@ def record_gate_outcomes(ledger: Path) -> Iterator[None]:
         yield
     finally:
         loop.gate_answer = gate  # type: ignore[attr-defined]
+
+
+def safe_plan_attempt(item: PlanAttempt) -> dict[str, object]:
+    """One plan attempt as content-free diagnosis only.
+
+    Records phase, attempt index, outcome, and rejection category only.
+    Never logs prompts, plans, messages, or values.
+    """
+    return {
+        "phase": item.phase,
+        "attempt": item.attempt,
+        "outcome": item.outcome,
+        "category": item.category.value if item.category is not None else None,
+    }
+
+
+@contextmanager
+def record_plan_attempts(ledger: Path) -> Iterator[None]:
+    """Observe Session._plan: phase, attempt index and rejection category only."""
+    from kkb_agent.agent import loop
+
+    plan_method = loop.Session._plan
+
+    def observed(self: loop.Session, *args: Any, **kwargs: Any) -> loop.Planned:
+        start_count = len(getattr(self, "plan_attempts", []))
+        try:
+            planned = plan_method(self, *args, **kwargs)
+            attempts = planned.attempts_log
+            record(
+                ledger,
+                {
+                    "plan_attempts": [safe_plan_attempt(item) for item in attempts],
+                },
+            )
+            return planned
+        except Exception:
+            attempts = getattr(self, "plan_attempts", [])[start_count:]
+            if attempts:
+                record(
+                    ledger,
+                    {
+                        "plan_attempts": [safe_plan_attempt(item) for item in attempts],
+                    },
+                )
+            raise
+
+    loop.Session._plan = observed  # type: ignore[method-assign]
+    try:
+        yield
+    finally:
+        loop.Session._plan = plan_method  # type: ignore[method-assign]
 
 
 class RequestBudget:
@@ -451,7 +502,11 @@ def serve(args: argparse.Namespace) -> int:
             )
             + "\n"
         )
-    with KloudeksProvider(config) as provider, record_gate_outcomes(ledger):
+    with (
+        KloudeksProvider(config) as provider,
+        record_gate_outcomes(ledger),
+        record_plan_attempts(ledger),
+    ):
         budget = RequestBudget(
             provider, args.max_model_requests, ledger, embedding_limit=args.max_embedding_requests
         )

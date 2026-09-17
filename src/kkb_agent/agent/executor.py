@@ -26,8 +26,24 @@ if TYPE_CHECKING:
     from kkb_agent.agent.selection import SelectedTable
 
 
+class RejectionCategory(StrEnum):
+    STRUCTURE = "structure"
+    TOOL_ARGUMENTS = "tool_arguments"
+    DEPENDENCIES = "dependencies"
+    SELECTED_TABLE = "selected_table"
+    DISCOVERY_RULE = "discovery_rule"
+    STEP_BUDGET = "step_budget"
+    UNKNOWN = "unknown"
+
+
 class PlanRejected(ValueError):
     """The plan may not run. The message is fed back to the planner verbatim."""
+
+    def __init__(
+        self, message: str, category: RejectionCategory = RejectionCategory.UNKNOWN
+    ) -> None:
+        self.category = category
+        super().__init__(message)
 
 
 class ToolStatus(StrEnum):
@@ -110,13 +126,17 @@ def validate_plan(
     """Decide whether a proposed plan may run, and in what order."""
     if len(plan.steps) > budget.max_steps:
         raise PlanRejected(
-            f"Plan has {len(plan.steps)} steps; the budget allows {budget.max_steps}"
+            f"Plan has {len(plan.steps)} steps; the budget allows {budget.max_steps}",
+            category=RejectionCategory.STEP_BUDGET,
         )
 
     seen: set[str] = set()
     for step in plan.steps:
         if step.step_id in seen:
-            raise PlanRejected(f"Duplicate step id {step.step_id!r}")
+            raise PlanRejected(
+                f"Duplicate step id {step.step_id!r}",
+                category=RejectionCategory.STRUCTURE,
+            )
         seen.add(step.step_id)
 
     validated: dict[str, ValidatedStep] = {}
@@ -125,22 +145,35 @@ def validate_plan(
             spec = registry.get(step.tool)
         except RegistryError as error:
             # An unregistered name is the shape a prompt injection takes.
-            raise PlanRejected(str(error)) from error
+            raise PlanRejected(
+                str(error),
+                category=RejectionCategory.STRUCTURE,
+            ) from error
         try:
             arguments = spec.parse(step.arguments)
         except ArgumentsRejected as error:
-            raise PlanRejected(str(error)) from error
+            raise PlanRejected(
+                str(error),
+                category=RejectionCategory.TOOL_ARGUMENTS,
+            ) from error
         required = spec.required_steps(arguments) if spec.required_steps is not None else ()
         for reference in required:
             if reference not in step.depends_on:
                 raise PlanRejected(
-                    f"Step {step.step_id!r} must declare input step {reference!r} in depends_on"
+                    f"Step {step.step_id!r} must declare input step {reference!r} in depends_on",
+                    category=RejectionCategory.DEPENDENCIES,
                 )
         for dependency in step.depends_on:
             if dependency not in seen:
-                raise PlanRejected(f"Step {step.step_id!r} depends on unknown step {dependency!r}")
+                raise PlanRejected(
+                    f"Step {step.step_id!r} depends on unknown step {dependency!r}",
+                    category=RejectionCategory.DEPENDENCIES,
+                )
             if dependency == step.step_id:
-                raise PlanRejected(f"Step {step.step_id!r} depends on itself")
+                raise PlanRejected(
+                    f"Step {step.step_id!r} depends on itself",
+                    category=RejectionCategory.DEPENDENCIES,
+                )
         validated[step.step_id] = ValidatedStep(step, arguments)
 
     # Only the last computed result is answered and published. A second
@@ -157,7 +190,8 @@ def validate_plan(
             f"Plan has {len(final)} final calculation steps ({', '.join(final)}); only one "
             "final result is answered and published. Express every condition in one "
             "operation (for example table_co_movement when_column/when_direction) or make "
-            "each later step depend on the earlier one"
+            "each later step depend on the earlier one",
+            category=RejectionCategory.STRUCTURE,
         )
 
     return ValidatedPlan(plan.question, tuple(_ordered(plan, validated)), plan.clarification)
@@ -170,7 +204,10 @@ def _ordered(plan: AnalyticalPlan, validated: dict[str, ValidatedStep]) -> list[
     while pending:
         ready = sorted(name for name, needs in pending.items() if not needs)
         if not ready:
-            raise PlanRejected("Plan dependencies form a cycle")
+            raise PlanRejected(
+                "Plan dependencies form a cycle",
+                category=RejectionCategory.DEPENDENCIES,
+            )
         for name in ready:
             order.append(validated[name])
             del pending[name]
@@ -236,5 +273,8 @@ def _run_step(
             return replace(last, step_id=validated.step.step_id, tool=validated.step.tool)
     # Budget exhausted on a recoverable failure: report it as terminal.
     if last is None:  # pragma: no cover - attempts is always at least one
-        raise PlanRejected("Tool retry budget must allow at least one attempt")
+        raise PlanRejected(
+            "Tool retry budget must allow at least one attempt",
+            category=RejectionCategory.STEP_BUDGET,
+        )
     return replace(last, step_id=validated.step.step_id, tool=validated.step.tool)

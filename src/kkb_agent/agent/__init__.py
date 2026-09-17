@@ -1,11 +1,13 @@
 """The bounded planner, registry and executor (DEC-113)."""
 
+from kkb_agent.agent.diagnostics import PlanAttempt
 from kkb_agent.agent.executor import (
     DEFAULT_BUDGET,
     Budget,
     ExecutionContext,
     ExecutionOutcome,
     PlanRejected,
+    RejectionCategory,
     ToolResult,
     ToolStatus,
     ValidatedPlan,
@@ -91,12 +93,14 @@ __all__ = [
     "OmissionCode",
     "OmittedNumber",
     "OmittedSentence",
+    "PlanAttempt",
     "PlanRejected",
     "PlanStep",
     "Planned",
     "PlanningFailed",
     "Recomputer",
     "RegistryError",
+    "RejectionCategory",
     "Session",
     "ToolRegistry",
     "ToolResult",
