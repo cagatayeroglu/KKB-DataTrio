@@ -17,8 +17,10 @@ What comes out is what the page shows, not what it means:
   Nothing is guessed from whitespace: a number that fits no column or two, a
   column edge fewer than two numbers share, or a text cell among the numbers
   leaves the block in the page text. A group label (TL/USD/EUR) belongs to
-  columns only through a drawn header cell around it. A one-column ruled
-  fragment inside a layout table is dropped.
+  columns only through a drawn header cell around it. A "ruled" table that no
+  stroked line draws is cell shading: it hides no words from layout reading,
+  and it is dropped where it overlaps a layout table, as is a one-column
+  fragment of one.
 - For every table, the distinct years the page text above it states.
 - Cells as literal text. "1.234,56" is not converted, and no unit, date,
   period or scale is inferred.
@@ -168,23 +170,29 @@ def _parse(content: bytes, limits: AdmissionLimits, ocr_enabled: bool = False) -
         for page in pdf.pages:
             text = page.extract_text() or ""
             limits.check_field(text)
+            strokes = [
+                [float(item["x0"]), float(item["top"]), float(item["x1"]), float(item["bottom"])]
+                for item in [*page.lines, *(rect for rect in page.rects if rect.get("stroke"))]
+            ]
             ruled: list[dict[str, Any]] = []
             for drawn in page.find_tables():
                 x0, top, x1, bottom = drawn.bbox
-                ruled.append(
-                    {
-                        "bbox": [float(x0), float(top), float(x1), float(bottom)],
-                        "rows": drawn.extract(),
-                    }
-                )
+                box = [float(x0), float(top), float(x1), float(bottom)]
+                stroked = any(_inside(stroke, box) for stroke in strokes)
+                ruled.append({"bbox": box, "rows": drawn.extract(), "stroked": stroked})
             words = page.extract_words(keep_blank_chars=False, use_text_flow=False)
             layout = _layout_tables(words, list(page.rects), ruled)
-            tables = [
-                table
-                for table in ruled
-                if _width(table["rows"]) > 1
-                or not any(_mostly_inside(table["bbox"], other["bbox"]) for other in layout)
-            ] + layout
+            tables: list[dict[str, Any]] = []
+            for table in ruled:
+                drawn_grid = table.pop("stroked") and _width(table["rows"]) > 1
+                overlaps = any(
+                    _mostly_inside(table["bbox"], other["bbox"])
+                    or _mostly_inside(other["bbox"], table["bbox"])
+                    for other in layout
+                )
+                if drawn_grid or not overlaps:
+                    tables.append(table)
+            tables += layout
             for table in tables:
                 rows = table["rows"]
                 width = _width(rows)
@@ -305,8 +313,8 @@ def _row_like(line: list[_Word]) -> bool:
 def _layout_tables(
     words: list[_Word], rects: list[_Word], ruled: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    """DEC-148 numeric tables from word positions, outside multi-column ruled tables."""
-    covered = [table["bbox"] for table in ruled if _width(table["rows"]) > 1]
+    """DEC-148 numeric tables from word positions, outside stroked multi-column tables."""
+    covered = [table["bbox"] for table in ruled if table["stroked"] and _width(table["rows"]) > 1]
     free = [
         word
         for word in words

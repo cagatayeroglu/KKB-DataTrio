@@ -133,9 +133,10 @@ class TestALayoutTableIsReconstructed:
             select_cell(grids(None, load(gold_page(group_cells=False))), "Miktar", "Ocak 2026")
 
     def test_a_shaded_area_around_column_headers_is_no_group_cell(self):
+        # The shading also forms an unstroked "ruled" grid; it hides nothing.
         (table,) = load(gold_page(group_cells=False, background=True)).tables
 
-        assert table.groups is None
+        assert table.kind == "layout" and table.groups is None
 
     def test_a_misaligned_number_leaves_the_block_as_text(self):
         page = gold_page()
