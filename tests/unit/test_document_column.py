@@ -103,7 +103,7 @@ def test_column_reads_months_numbers_and_header_unit():
         "ay",
         "KAPANIŞ",
     )
-    assert (column.unit, column.scale) == ("points", Scale.ONE)
+    assert (column.unit, column.scale, column.measure) == ("points", Scale.ONE, StockFlow.INDEX)
     assert column.location == {"table": 1, "column_index": 2}
     assert column.levels == {
         date(2026, 4, 30): 9100.5,
@@ -135,6 +135,23 @@ def test_column_refuses_what_it_would_have_to_decide(tables, code):
     with pytest.raises(ColumnRefused) as refused:
         read_column(tables, "Ay", "Kapanış")
     assert refused.value.code == code
+
+
+@pytest.mark.parametrize(
+    ("header", "unit", "measure"),
+    [
+        ("Kapanış (Puan)", "points", StockFlow.INDEX),
+        ("Kapanış (Endeks)", "index", StockFlow.INDEX),
+        ("Kapanış (Milyon TL)", "TRY", StockFlow.UNKNOWN),
+        ("Kapanış (%)", "percent", StockFlow.UNKNOWN),
+        ("Kapanış (Milyon Puan)", "points", StockFlow.UNKNOWN),
+    ],
+)
+def test_only_a_points_or_index_unit_names_an_index_level(header, unit, measure):
+    column = read_column(
+        [grid(("2026-04", "1"), ("2026-05", "2"), headers=("Ay", header))], "Ay", "Kapanış"
+    )
+    assert (column.unit, column.measure) == (unit, measure)
 
 
 def monthly_table(label="BDDK:total", unit="TRY"):
@@ -188,12 +205,14 @@ def test_join_keeps_every_cell_and_fills_nothing():
     assert parameters["measure"] == "unknown" and parameters["unit_source"] == "column header"
 
 
-@pytest.mark.parametrize("problem", ["label_exists", "one_match", "no_unit"])
+@pytest.mark.parametrize("problem", ["label_exists", "one_match", "no_unit", "stated_stock"])
 def test_join_refuses_collisions_thin_columns_and_unknown_units(problem):
     source = monthly_table()
     levels = {date(2026, 4, 30): 1.0, date(2026, 5, 31): 2.0}
-    label, unit = "Kapanış", "points"
-    if problem == "label_exists":
+    label, unit, measure = "Kapanış", "points", StockFlow.UNKNOWN
+    if problem == "stated_stock":
+        measure = StockFlow.STOCK
+    elif problem == "label_exists":
         label = "BDDK:total"
     elif problem == "one_match":
         levels = {date(2026, 4, 30): 1.0}
@@ -208,6 +227,7 @@ def test_join_refuses_collisions_thin_columns_and_unknown_units(problem):
             scale=Scale.ONE,
             document_rows=2,
             content_hash="h",
+            measure=measure,
         )
 
 
@@ -261,8 +281,8 @@ def test_selected_table_takes_a_document_column_with_its_proof(tmp_path):
     cells = second.result.cells
     assert [c.value for c in cells[:3]] == [c.value for c in first.result.cells]
     assert [(c.label, c.value, c.unit, c.scale.value, c.measure.value) for c in cells[3:]] == [
-        ("Kapanış", 9100.5, "points", "one", "unknown"),
-        ("Kapanış", 9200.0, "points", "one", "unknown"),
+        ("Kapanış", 9100.5, "points", "one", "index"),
+        ("Kapanış", 9200.0, "points", "one", "index"),
     ]
     proof = second.result.proof
     # The synthetic seed has no raw-source lineage; the document part is complete.
@@ -300,7 +320,10 @@ def test_selected_table_takes_a_document_column_with_its_proof(tmp_path):
         assert build_proof(lake.connection, tampered).availability == "unavailable"
 
 
-def test_a_comparison_refuses_a_column_whose_measure_the_document_does_not_state(tmp_path):
+@pytest.mark.parametrize(
+    ("unit", "comparable"), [("Puan", True), ("Endeks", True), ("Milyon TL", False)]
+)
+def test_only_an_index_level_column_enters_a_table_comparison(tmp_path, unit, comparable):
     relationship = proposal(
         {
             "step_id": "c",
@@ -315,17 +338,29 @@ def test_a_comparison_refuses_a_column_whose_measure_the_document_does_not_state
             },
         }
     )
-    csv = b"Ay;Kapan\xc4\xb1\xc5\x9f (Puan)\n2026-04;9000\n2026-05;9100\n2026-06;9200\n"
-    provider = scripted(*table_turn(), add_plan(), "Eklendi.", relationship)
+    csv = f"Ay;Kapanış ({unit})\n2026-04;9000\n2026-05;9100\n2026-06;9200\n".encode()
+    provider = scripted(
+        *table_turn(), add_plan(), "Eklendi.", relationship, "Karşılaştırma tamamlandı."
+    )
     runner = served(tmp_path, provider, FakeFetch(csv))
     sid, _, selection = first_table(runner)
     second = runner.selected(sid, (tid := uuid4().hex), ASK, selection)
     assert second.status.value == "accepted" and second.result is not None, second
     follow = SelectedResult(tid, second.result.result_ref, second.result.version)
     third = runner.selected(sid, uuid4().hex, "Kapanış ile kredi aynı yönde mi?", follow)
-    # Stock/flow meaning is not stated by a document, and the harness does not guess it.
-    assert third.status.value == "abstained" and third.result is None
-    assert len(provider.seen) == 5  # no writer call for a refused comparison
+    if not comparable:
+        # DEC-145: a currency column's stock/flow meaning is not stated; nothing is guessed.
+        assert third.status.value == "abstained" and third.result is None
+        return
+    assert third.status.value == "accepted" and third.result is not None, third
+    counts = {
+        cell.label.split(": ", 1)[1]: cell.value
+        for cell in third.result.cells
+        if cell.label.startswith("table comparison ")
+    }
+    # Both columns rise in both transitions (9000→9100→9200 and 100→120→150).
+    assert counts["eligible transitions matching both directions"] == 2.0, counts
+    assert [d.values_read for d in third.result.proof.documents] == [3]
 
 
 def test_without_the_switch_the_operation_does_not_exist(tmp_path):

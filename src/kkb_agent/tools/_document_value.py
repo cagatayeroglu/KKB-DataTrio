@@ -89,6 +89,8 @@ _UNITS = {
     "ons": "troy_ounce",
     "puan": "points",
     "points": "points",
+    "endeks": "index",
+    "index": "index",
 }
 _ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _DOTTED_DATE = re.compile(r"(\d{2})\.(\d{2})\.(\d{4})")
