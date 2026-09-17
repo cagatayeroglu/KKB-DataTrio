@@ -284,6 +284,7 @@ def test_planner_schema_exposes_separate_closed_operation_objects(pool):
         "rebase",
         "align",
         "filter",
+        "to_flow",
     }
     definitions = schema["$defs"]
     assert set(definitions["AddSeriesArguments"]["required"]) == {
