@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import re
 import threading
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 from uuid import uuid4
@@ -21,15 +22,25 @@ from kkb_agent.agent import Session, ToolRegistry, Workspace
 from kkb_agent.agent.selection import SelectedTable, SelectionError
 from kkb_agent.agent.verifier import AnswerStatus
 from kkb_agent.agent.workspace import WorkspaceError
-from kkb_agent.api.contracts import MAX_SESSIONS, MAX_TURNS, Answer
+from kkb_agent.api.contracts import (
+    MAX_DOCUMENT_BYTES,
+    MAX_DOCUMENTS,
+    MAX_SESSIONS,
+    MAX_TURNS,
+    Answer,
+    DocumentAdmitted,
+)
 from kkb_agent.api.projection import project_answer, safe_text
 from kkb_agent.api.proof import build_proof
 from kkb_agent.api.service import SelectedResult, ServiceError
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
 from kkb_agent.catalog.mappings import MAX_SNAPSHOT_BYTES, ReviewedSnapshot, load_reviewed_snapshot
-from kkb_agent.core import AnalyticalResult
+from kkb_agent.core import AnalyticalResult, SourceRef
 from kkb_agent.core.models import ContractModel
+from kkb_agent.ingest.attached import SOURCE_TYPE as UPLOAD
+from kkb_agent.ingest.attached import Attachment
 from kkb_agent.ingest.prepared_series import prepared_series_names
+from kkb_agent.ingestion_policy import MIME_TYPES, AdmissionError, admit_upload
 from kkb_agent.lakehouse import open_lakehouse
 from kkb_agent.lakehouse.lineage import Lineage
 from kkb_agent.lakehouse.store import DATABASE_NAME, SANDBOX
@@ -69,6 +80,22 @@ class PendingClarification:
     original_question: str
     clarifications: tuple[str, ...] = ()
     selection: SelectedResult | None = None
+    document_ref: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _Document:
+    """An admitted upload: where its bytes are and what they must hash to."""
+
+    kind: str
+    media_type: str
+    sha256: str
+    size: int
+    path: Path
+    admitted_at: datetime
+
+
+_UPLOAD_KINDS = {media_type: kind for kind, media_type in MIME_TYPES.items()}
 
 
 _CANCELLATION_KEYWORDS = {"iptal", "vazgeç", "vazgeçtim", "cancel", "iptal et"}
@@ -304,6 +331,7 @@ class PreparedRunner:
         redactions: tuple[str, ...] = (),
         catalog_dense: CatalogDenseStage | None = None,
         web_url_fetch: Fetcher | None = None,
+        document_uploads: bool = False,
     ):
         self._catalog = load_reviewed_snapshot(catalog_bytes)
         self._catalog_bytes = catalog_bytes
@@ -315,6 +343,10 @@ class PreparedRunner:
         self._dense = catalog_dense
         # Operator switch for prompt addresses (DEC-131); absent while Q-NET-02 is open.
         self._web_url_fetch = web_url_fetch
+        # Operator switch for uploads (M10-04); documents live under this process's state.
+        self._document_uploads = document_uploads
+        self._documents: dict[tuple[str, str], _Document] = {}
+        self._documents_lock = threading.Lock()
         self._provider = provider
         self._redactions = redactions
         root, state_root = _local(root), _local(state_root, exists=False)
@@ -343,8 +375,86 @@ class PreparedRunner:
         question: str,
         *,
         is_continuation: bool | None = None,
+        document_ref: str | None = None,
     ) -> Answer:
-        return self._run(session_id, turn_id, question, is_continuation=is_continuation)
+        return self._run(
+            session_id,
+            turn_id,
+            question,
+            is_continuation=is_continuation,
+            document_ref=document_ref,
+        )
+
+    def admit_document(self, session_id: str, media_type: str, content: bytes) -> DocumentAdmitted:
+        """Admit through the upload checks and store by opaque reference; no filename is kept."""
+        if not self._document_uploads:
+            raise ServiceError("unavailable", 503)
+        if not _IDENTIFIER.fullmatch(session_id):
+            raise ServiceError("not_found", 404)
+        kind = _UPLOAD_KINDS.get(media_type)
+        if kind is None or not content or len(content) > MAX_DOCUMENT_BYTES:
+            raise ServiceError("document_rejected", 422)
+        try:
+            admitted = admit_upload(
+                io.BytesIO(content), filename=f"upload.{kind.value}", content_type=media_type
+            )
+        except AdmissionError:
+            raise ServiceError("document_rejected", 422) from None
+        digest = hashlib.sha256(admitted.content).hexdigest()
+        with self._documents_lock:
+            if sum(1 for owner, _ in self._documents if owner == session_id) >= MAX_DOCUMENTS:
+                raise ServiceError("capacity", 429)
+            reference = uuid4().hex
+            directory = self.run_root / session_id / "documents"
+            try:
+                directory.mkdir(parents=True, exist_ok=True)
+                if directory.is_symlink() or not directory.resolve().is_relative_to(self.run_root):
+                    raise OSError("document directory escaped the runtime root")
+                path = directory / f"{reference}.{kind.value}"
+                descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(descriptor, "wb") as stream:
+                    stream.write(admitted.content)
+            except OSError:
+                raise ServiceError("unavailable", 503) from None
+            self._documents[session_id, reference] = _Document(
+                kind.value,
+                media_type,
+                digest,
+                len(admitted.content),
+                path,
+                datetime.now(UTC),
+            )
+        return DocumentAdmitted(
+            document_ref=reference,
+            document_format=kind.value,
+            bytes=len(admitted.content),
+            sha256=digest,
+        )
+
+    def _attachment(self, session_id: str, reference: str) -> Attachment:
+        """Re-read a stored upload and require its admitted hash before any tool sees it."""
+        with self._documents_lock:
+            stored = self._documents.get((session_id, reference))
+        if stored is None:
+            raise ServiceError("invalid_document", 422)
+        try:
+            with stored.path.open("rb") as stream:
+                content = stream.read(stored.size + 1)
+        except OSError:
+            raise ServiceError("invalid_document", 422) from None
+        if len(content) != stored.size or hashlib.sha256(content).hexdigest() != stored.sha256:
+            raise ServiceError("invalid_document", 422)
+        return Attachment(
+            content,
+            stored.media_type,
+            SourceRef(
+                source_id=f"upload:{stored.sha256[:32]}",
+                source_type=UPLOAD,
+                locator=f"upload:{reference}",
+                retrieved_at=stored.admitted_at,
+                content_hash=f"sha256:{stored.sha256}",
+            ),
+        )
 
     def selected(
         self,
@@ -354,6 +464,7 @@ class PreparedRunner:
         selection: SelectedResult,
         *,
         is_continuation: bool | None = None,
+        document_ref: str | None = None,
     ) -> Answer:
         """Service worker entry; resolve and execute under the same runner lock."""
         try:
@@ -363,6 +474,7 @@ class PreparedRunner:
                 question,
                 selection,
                 is_continuation=is_continuation,
+                document_ref=document_ref,
             )
         except (SelectionError, WorkspaceError):
             raise ServiceError("invalid_result", 422) from None
@@ -374,6 +486,7 @@ class PreparedRunner:
         question: str,
         selection: SelectedResult | None = None,
         is_continuation: bool | None = None,
+        document_ref: str | None = None,
     ) -> Answer:
         if not _IDENTIFIER.fullmatch(session_id) or not _IDENTIFIER.fullmatch(turn_id):
             raise PreparedError("invalid_runtime_identity")
@@ -383,6 +496,7 @@ class PreparedRunner:
             pending = self._pending_clarifications.get(session_id)
             effective_question = question
             effective_selection = selection
+            effective_document = document_ref
             is_cancel = False
             is_new_q = False
             if pending is not None:
@@ -400,6 +514,8 @@ class PreparedRunner:
                     if effective_selection is None and pending.selection is not None:
                         if (session_id, pending.selection.turn_id) in self._publications:
                             effective_selection = pending.selection
+                    if effective_document is None:
+                        effective_document = pending.document_ref
                     effective_question = _format_clarification_prompt(
                         pending.original_question, pending.clarifications + (question,)
                     )
@@ -422,6 +538,11 @@ class PreparedRunner:
                 _copy(self.seed, target, self._manifest)
             if not (target / DATABASE_NAME).is_file():
                 raise PreparedError("session_pool_missing")
+            attachment = (
+                None
+                if effective_document is None
+                else self._attachment(session_id, effective_document)
+            )
             self._turns[session_id] = previous + 1
             name = f"analiz_{previous + 1}"
             with open_lakehouse(target) as lake:
@@ -438,7 +559,7 @@ class PreparedRunner:
                         resolved.artifact_id,
                         effective_selection.version,
                     )
-                registry = self._registry(lake.connection, workspace, lake.lineage)
+                registry = self._registry(lake.connection, workspace, lake.lineage, attachment)
                 answered = Session(
                     self._provider,
                     registry,
@@ -489,6 +610,7 @@ class PreparedRunner:
                         original_question=orig_q,
                         clarifications=accumulated,
                         selection=sel,
+                        document_ref=effective_document,
                     )
                 return answer
 
@@ -532,7 +654,11 @@ class PreparedRunner:
         return ResolvedSelection(publication.name, publication.artifact_id, value)
 
     def _registry(
-        self, connection: duckdb.DuckDBPyConnection, workspace: Workspace, lineage: Lineage
+        self,
+        connection: duckdb.DuckDBPyConnection,
+        workspace: Workspace,
+        lineage: Lineage,
+        attachment: Attachment | None = None,
     ) -> ToolRegistry:
         inspector = PreparedSeriesInspector(self._catalog)
         # Existing code-reviewed names only. Free catalog/source metadata belongs
@@ -560,12 +686,15 @@ class PreparedRunner:
                 series_names=names,
                 inspector=inspector,
                 document_fetch=self._web_url_fetch,
+                attachment=attachment,
             )
         )
         for make in (make_anomaly_tool, make_causality_tool):
             registry.register(make(connection, lineage=lineage, inspector=inspector))
-        if self._web_url_fetch is not None:
+        if self._web_url_fetch is not None or attachment is not None:
             # The cell proof lives in this session's own lineage, where the gate
             # and the proof builder re-read it; the document itself is not kept.
-            registry.register(make_web_url_tool(fetch=self._web_url_fetch, lineage=lineage))
+            registry.register(
+                make_web_url_tool(fetch=self._web_url_fetch, attachment=attachment, lineage=lineage)
+            )
         return registry

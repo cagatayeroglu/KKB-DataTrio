@@ -49,11 +49,13 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
 from kkb_agent.agent.registry import ToolSpec
 from kkb_agent.core import AnalyticalResult, SourceRef
-from kkb_agent.csv_loader import CsvTable
+from kkb_agent.csv_loader import CsvLoadResult, CsvTable
 from kkb_agent.html_loader import HtmlDocument, HtmlLoadResult
+from kkb_agent.ingest.attached import Attachment
 from kkb_agent.ingest.fetched import (
     DOCUMENT_MEDIA_TYPES,
     fetched_source,
+    load_document,
     load_fetched,
     source_id_for,
 )
@@ -115,11 +117,16 @@ class WebUrlArguments(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    url: str = Field(
+    url: str | None = Field(
+        default=None,
         min_length=1,
         max_length=4096,
         pattern=r"^https?://\S+$",
         description="The address exactly as the user wrote it in the question",
+    )
+    attached: bool = Field(
+        default=False,
+        description="true to read the document the user uploaded with this question instead",
     )
     delimiter: Literal[",", ";", "\t", "|"] | None = Field(
         default=None,
@@ -152,6 +159,8 @@ class WebUrlArguments(BaseModel):
 
     @model_validator(mode="after")
     def _column_and_row_together(self) -> WebUrlArguments:
+        if (self.url is None) == (not self.attached):
+            raise ValueError("give either url or attached=true, not both or neither")
         if (self.column is None) != (self.row is None):
             raise ValueError("column and row name one cell together; give both or neither")
         return self
@@ -186,6 +195,32 @@ class DocumentRead:
     output: WebUrlOutput
     failure: str | None = None
     reasons: tuple[str, ...] = ()
+
+
+def read_attachment(
+    attachment: Attachment,
+    *,
+    delimiter: str | None = None,
+    sheet: str | None = None,
+    ocr: OcrProvider | None = None,
+) -> DocumentRead:
+    """An uploaded document through the same loaders; it was admitted when stored (M10-04)."""
+    source = attachment.source
+    try:
+        loaded = load_document(
+            attachment.content,
+            attachment.media_type,
+            source=source,
+            delimiter=delimiter,
+            sheet=sheet,
+            ocr=ocr,
+        )
+    except AdmissionError as error:
+        return DocumentRead(
+            WebUrlOutput("rejected", error.code.value, source, attachment.media_type),
+            "not_admitted",
+        )
+    return _loaded(loaded, source, attachment.media_type)
 
 
 def read_document(
@@ -232,16 +267,24 @@ def read_document(
             WebUrlOutput("rejected", error.code.value, source, outcome.media_type), "not_admitted"
         )
 
+    return _loaded(loaded, source, outcome.media_type)
+
+
+def _loaded(
+    loaded: CsvLoadResult | XlsxLoadResult | PdfLoadResult | HtmlLoadResult,
+    source: SourceRef,
+    media_type: str,
+) -> DocumentRead:
     if isinstance(loaded, (PdfLoadResult, HtmlLoadResult)):
         output = WebUrlOutput(
-            loaded.status, loaded.code, source, outcome.media_type, document=loaded.document
+            loaded.status, loaded.code, source, media_type, document=loaded.document
         )
     else:
         output = WebUrlOutput(
             loaded.status,
             loaded.code,
             source,
-            outcome.media_type,
+            media_type,
             loaded.sheets if isinstance(loaded, XlsxLoadResult) else (),
             loaded.table,
         )
@@ -254,27 +297,41 @@ def read_document(
 
 def make_web_url_tool(
     *,
-    fetch: Fetcher = safe_fetch,
+    fetch: Fetcher | None = safe_fetch,
+    attachment: Attachment | None = None,
     lineage: Lineage | None = None,
     ocr: OcrProvider | None = None,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> ToolSpec:
-    """Bind the tool to a fetch boundary: the real `safe_fetch` unless a test substitutes it."""
+    """Bind the tool to a fetch boundary: the real `safe_fetch` unless a test substitutes it.
+
+    `fetch=None` reads no address at all; `attachment` is the one document the
+    user uploaded with this question (M10-04), if any.
+    """
 
     def run(arguments: BaseModel, context: ExecutionContext) -> ToolResult:
         # The registry parses arguments before dispatch, so this is a contract
         # check rather than validation. Not an assert: asserts vanish under -O.
         if not isinstance(arguments, WebUrlArguments):  # pragma: no cover
             raise TypeError("web_url received arguments it did not declare")
-        read = read_document(
-            arguments.url,
-            context.question,
-            fetch=fetch,
-            delimiter=arguments.delimiter,
-            sheet=arguments.sheet,
-            ocr=ocr,
-            clock=clock,
-        )
+        if arguments.attached:
+            if attachment is None:
+                return _failed("no_attachment", WebUrlOutput("rejected", "NO_ATTACHMENT"))
+            read = read_attachment(
+                attachment, delimiter=arguments.delimiter, sheet=arguments.sheet, ocr=ocr
+            )
+        elif fetch is None or arguments.url is None:
+            return _failed("fetch_failed", WebUrlOutput("rejected", "NETWORK_DISABLED"))
+        else:
+            read = read_document(
+                arguments.url,
+                context.question,
+                fetch=fetch,
+                delimiter=arguments.delimiter,
+                sheet=arguments.sheet,
+                ocr=ocr,
+                clock=clock,
+            )
         if read.failure is not None:
             return _failed(read.failure, read.output, extra=read.reasons)
         output = read.output
@@ -338,6 +395,12 @@ def make_web_url_tool(
             "text only and cannot answer a numeric question. HTML requires explicit "
             "rectangular tables; no JavaScript, CSS rendering or linked-resource "
             "fetching. Image addresses are not supported."
+            + (
+                " The user uploaded a document with this question: read it with attached=true "
+                "and no url."
+                if attachment is not None
+                else ""
+            )
         ),
         arguments=WebUrlArguments,
         run=run,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -16,6 +17,8 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from kkb_agent.api.contracts import (
     MAX_BODY_BYTES,
+    MAX_DOCUMENT_BYTES,
+    DocumentAdmitted,
     Error,
     ErrorCode,
     Health,
@@ -27,8 +30,11 @@ from kkb_agent.api.contracts import (
 from kkb_agent.api.prepared import PreparedStatus
 from kkb_agent.api.service import AnalysisService, ServiceError
 from kkb_agent.core.models import ContractModel
+from kkb_agent.ingest.fetched import DOCUMENT_MEDIA_TYPES
 
 Token = Annotated[str, Header(alias="X-KKB-Session-Token", min_length=43, max_length=43)]
+#: The only route whose body is not JSON (M10-04); every other POST stays JSON-only.
+DOCUMENT_ROUTE = re.compile(r"/v1/sessions/[a-f0-9]{32}/documents\Z")
 
 
 class Empty(ContractModel):
@@ -103,14 +109,19 @@ class LocalBoundary:
             ):
                 await reject("invalid_request", 400)
                 return
+            document = scope["method"] == "POST" and bool(DOCUMENT_ROUTE.fullmatch(scope["path"]))
+            limit = MAX_DOCUMENT_BYTES if document else MAX_BODY_BYTES
             declared = int(headers.get(b"content-length", [b"0"])[0])
-            if declared < 0 or declared > MAX_BODY_BYTES:
+            if declared < 0 or declared > limit:
                 await reject("body_too_large", 413)
                 return
-            if (
-                scope["method"] == "POST"
-                and headers.get(b"content-type", [b""])[0].split(b";", 1)[0].strip().lower()
-                != b"application/json"
+            media_type = (
+                headers.get(b"content-type", [b""])[0].split(b";", 1)[0].strip().lower().decode()
+            )
+            if scope["method"] == "POST" and (
+                media_type not in DOCUMENT_MEDIA_TYPES
+                if document
+                else media_type != "application/json"
             ):
                 await reject("invalid_request", 415)
                 return
@@ -119,13 +130,13 @@ class LocalBoundary:
             return
         body = bytearray()
         try:
-            async with asyncio.timeout(5):
+            async with asyncio.timeout(30 if document else 5):
                 while True:
                     message = await receive()
                     if message["type"] == "http.disconnect":
                         return
                     chunk = message.get("body", b"")
-                    if len(body) + len(chunk) > MAX_BODY_BYTES:
+                    if len(body) + len(chunk) > limit:
                         await reject("body_too_large", 413)
                         return
                     body.extend(chunk)
@@ -221,6 +232,17 @@ def create_app(
     @app.post("/v1/sessions/{session_id}/turns", response_model=Turn, status_code=202)
     def submit(session_id: Reference, body: Question, token: Token) -> Turn:
         return service.submit(session_id, token, body)
+
+    @app.post(
+        "/v1/sessions/{session_id}/documents", response_model=DocumentAdmitted, status_code=201
+    )
+    async def document(session_id: Reference, request: Request, token: Token) -> DocumentAdmitted:
+        # The boundary already bounded the body and allowed only document media types.
+        media_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        content = await request.body()
+        return await asyncio.to_thread(
+            service.admit_document, session_id, token, media_type, content
+        )
 
     @app.get("/v1/sessions/{session_id}/turns/{turn_id}", response_model=Turn)
     def turn(session_id: Reference, turn_id: Reference, token: Token) -> Turn:

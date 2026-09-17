@@ -78,6 +78,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--enable-model-requests", action="store_true")
     parser.add_argument(
+        "--enable-uploads",
+        action="store_true",
+        help="Accept CSV/XLSX/PDF/HTML uploads attached to one question; off by default",
+    )
+    parser.add_argument(
         "--enable-web-url",
         action="store_true",
         help="Let questions read a web address they contain, through safe fetch; off by default",
@@ -127,6 +132,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "provider_configured": True,
                         "catalog_retrieval": retrieval,
                         "web_url": args.enable_web_url,
+                        "uploads": args.enable_uploads,
                         "prepared": status.model_dump(mode="json"),
                     },
                     ensure_ascii=False,
@@ -150,8 +156,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 redactions=(config.credential.get_secret_value(),),
                 catalog_dense=dense,
                 web_url_fetch=safe_fetch if args.enable_web_url else None,
+                document_uploads=args.enable_uploads,
             )
-            service = AnalysisService(runner, mode="kloudeks", selected_runner=runner.selected)
+            service = AnalysisService(
+                runner,
+                mode="kloudeks",
+                selected_runner=runner.selected,
+                document_store=runner.admit_document if args.enable_uploads else None,
+            )
             app = create_app(service, port=args.port, prepared=runner.status)
             print(
                 json.dumps(
@@ -162,6 +174,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "model_checked": False,
                         "catalog_retrieval": retrieval,
                         "web_url": args.enable_web_url,
+                        "uploads": args.enable_uploads,
                         "prepared_identities": runner.status.prepared_identities,
                     }
                 )

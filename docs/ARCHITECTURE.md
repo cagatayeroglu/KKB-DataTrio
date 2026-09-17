@@ -970,8 +970,27 @@ when the operator starts the service with `--enable-web-url` (M7-14/M10-04 slice
 only an address written in the question, and records its cell proof in the
 session's own lineage. In hybrid mode a `web_url` step needs no catalog
 discovery, while any prepared-series step still does and a discovery
-continuation still cannot read an address. This prepared mode exposes no
-`web_search`/upload tools or provider/gate settings to the caller.
+continuation still cannot read an address.
+
+With `--enable-uploads` (M10-04 slice 1) the API adds
+`POST /v1/sessions/{id}/documents`. It is the only route whose body is not
+JSON: the ASGI boundary allows exactly the CSV/XLSX/PDF/HTML media types and
+10 MiB there (30 s body deadline), while every other route keeps the 16 KiB
+JSON rule. The runner admits the bytes with `admit_upload` (filename fixed by
+media type), stores them `0600` under `<run>/<session>/documents/<ref>.<kind>`
+with at most four per session, and returns only the reference, format, size and
+SHA-256; the original filename is never received or kept. A question may carry
+one `document_ref` owned by its session. Before planning, the runner re-reads
+the stored bytes and requires the admitted size and hash, then gives the
+`Attachment` (source type `upload`, locator `upload:<ref>`) to the registry:
+`web_url` and `table_transform add_document_column` accept `attached=true`
+instead of `url` (exactly one), load through the same `load_document` routing
+and strict readers, and record the same cell/column proofs. An attachment never
+enables address reading; `web_url` is registered for it with no fetch boundary
+unless `--enable-web-url` is also on. The proof's document entry shows source
+type `upload` and no host. A clarification continuation keeps the pending
+question's attachment. This prepared mode exposes no `web_search` tool or
+provider/gate settings to the caller.
 Free catalog metadata remains continuation data, not SYSTEM instructions;
 existing code-reviewed display constants are the only names added to tool
 descriptions. Dense live retrieval is not silently enabled by this launcher.

@@ -17,6 +17,9 @@ MAX_RESPONSE_BYTES = 1024 * 1024
 MAX_VALUES = 2048
 MAX_SESSIONS = 8
 MAX_TURNS = 24
+# M10-04: the one route with a non-JSON body, and its per-session budget.
+MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
+MAX_DOCUMENTS = 4
 
 Reference = Annotated[str, StringConstraints(strict=True, pattern=r"^[a-f0-9]{32}$")]
 Text = Annotated[str, StringConstraints(strict=True, max_length=8192)]
@@ -35,6 +38,8 @@ ErrorCode = Literal[
     "output_limit",
     "forbidden",
     "body_too_large",
+    "document_rejected",
+    "invalid_document",
 ]
 TurnState = Literal["queued", "running", "completed", "failed"]
 
@@ -45,6 +50,8 @@ class Question(ContractModel):
     # Public result_ref from a completed turn in this session, never a workspace name.
     selected_result_id: Reference | None = None
     is_continuation: bool | None = None
+    # A document this session uploaded, attached to this one question.
+    document_ref: Reference | None = None
 
     @model_validator(mode="after")
     def bounded_question(self) -> Self:
@@ -141,6 +148,16 @@ class ProofSource(ContractModel):
     last_retrieved: AwareDatetime | None
 
 
+class DocumentAdmitted(ContractModel):
+    """What an admitted upload returns; never its filename or content."""
+
+    api_version: Literal[1] = 1
+    document_ref: Reference
+    document_format: Literal["csv", "xlsx", "pdf", "html"]
+    bytes: Annotated[int, Field(strict=True, ge=1, le=MAX_DOCUMENT_BYTES)]
+    sha256: Digest
+
+
 class ProofDocument(ContractModel):
     """A fetched document a literal cell (DEC-132) or an added column (M7-14) was read from.
 
@@ -148,7 +165,7 @@ class ProofDocument(ContractModel):
     query, a sheet name, header, row label or cell text, which are document data.
     """
 
-    source_type: Literal["web_url"]
+    source_type: Literal["web_url", "upload"]
     document_format: Literal["csv", "xlsx", "pdf", "html"]
     host: Label | None
     content_sha256: Digest

@@ -1,8 +1,10 @@
 import { z } from "zod";
 import {
+  documentAdmittedSchema,
   sessionSchema,
   turnSchema,
   savedSchema,
+  type DocumentAdmitted,
   type Saved,
   type Session,
   type Turn,
@@ -23,7 +25,7 @@ export async function api<T>(
   token?: string,
 ): Promise<T> {
   const headers = new Headers(options.headers);
-  if (options.method === "POST")
+  if (options.method === "POST" && !headers.has("Content-Type"))
     headers.set("Content-Type", "application/json");
   if (token) headers.set("X-KKB-Session-Token", token);
   let response: Response;
@@ -111,6 +113,7 @@ export async function admit(saved: Saved, index: number) {
         ...(entry.is_continuation !== undefined
           ? { is_continuation: entry.is_continuation }
           : {}),
+        ...(entry.document_ref ? { document_ref: entry.document_ref } : {}),
       }),
     },
     saved.session.token,
@@ -118,6 +121,35 @@ export async function admit(saved: Saved, index: number) {
   if (turn.request_id !== entry.request_id)
     throw new ApiError("invalid_response");
   return turn;
+}
+const documentTypes: Record<string, string> = {
+  csv: "text/csv",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  pdf: "application/pdf",
+  html: "text/html",
+  htm: "text/html",
+};
+export const DOCUMENT_ACCEPT = ".csv,.xlsx,.pdf,.html,.htm";
+
+/** The upload media type follows the file extension only; the server checks the content. */
+export function documentMediaType(name: string) {
+  const extension = name.toLowerCase().match(/\.([a-z]+)$/)?.[1];
+  return extension ? documentTypes[extension] : undefined;
+}
+export async function uploadDocument(
+  session: Session,
+  file: File,
+): Promise<DocumentAdmitted> {
+  const type = documentMediaType(file.name);
+  if (!type) throw new ApiError("document_rejected", 415);
+  if (file.size < 1 || file.size > 10 * 1024 * 1024)
+    throw new ApiError("body_too_large", 413);
+  return api(
+    `sessions/${session.session_id}/documents`,
+    documentAdmittedSchema,
+    { method: "POST", body: file, headers: { "Content-Type": type } },
+    session.token,
+  );
 }
 export function publishedResult(turn?: Turn) {
   return turn?.state === "completed" && turn.answer?.status === "accepted"
@@ -135,6 +167,7 @@ export function draftRequest(
   question: string,
   source?: Turn,
   isContinuation?: boolean,
+  document?: DocumentAdmitted,
 ): Saved["turns"][number] {
   if (!validQuestion(question)) throw new ApiError("invalid_request");
   const result = publishedResult(source);
@@ -146,12 +179,19 @@ export function draftRequest(
     ...(isContinuation !== undefined
       ? { is_continuation: isContinuation }
       : {}),
+    ...(document
+      ? {
+          document_ref: document.document_ref,
+          document_format: document.document_format,
+        }
+      : {}),
   };
 }
 export function draftWorkspaceRequest(
   question: string,
   followSelected: boolean,
   source?: Turn,
+  document?: DocumentAdmitted,
 ): Saved["turns"][number] {
   const selected =
     followSelected && publishedResult(source) ? source : undefined;
@@ -161,6 +201,7 @@ export function draftWorkspaceRequest(
     question,
     selected,
     followSelected && (Boolean(selected) || Boolean(clarifying)),
+    document,
   );
 }
 export function admissionRejection(
@@ -178,6 +219,7 @@ export function admissionRejection(
     case "invalid_request":
     case "request_conflict":
     case "capacity":
+    case "invalid_document":
       return error.code;
     default:
       return undefined;
@@ -192,6 +234,12 @@ export function validQuestion(value: string) {
   );
 }
 export const errorText: Record<string, string> = {
+  document_rejected:
+    "Belge kabul edilmedi. CSV, Excel (.xlsx), PDF veya HTML olmalı ve içerik kontrollerinden geçmeli.",
+  invalid_document:
+    "Ekli belge bu oturumda bulunamadı ya da değişmiş. Belgeyi yeniden yükle.",
+  body_too_large:
+    "İstek veya belge boyut sınırını aşıyor (belgeler için 10 MiB).",
   connection:
     "Bağlantı kesildi. İstek korunuyor; aynı işlemin durumunu yeniden alabilirsin.",
   unavailable:
