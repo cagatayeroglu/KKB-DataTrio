@@ -60,6 +60,7 @@ from kkb_agent.core import (
     StockFlow,
     TransformationRecord,
 )
+from kkb_agent.ingest.attached import Attachment
 from kkb_agent.ingest.fetched import source_id_for
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.lakehouse.records import Observation
@@ -73,7 +74,7 @@ from kkb_agent.tools._document_column import (
 )
 from kkb_agent.tools._document_value import grids
 from kkb_agent.tools.change_detection import SeriesUnknown, read_series
-from kkb_agent.tools.web_url import Fetcher, read_document
+from kkb_agent.tools.web_url import Fetcher, read_attachment, read_document
 
 if TYPE_CHECKING:  # pragma: no cover
     from duckdb import DuckDBPyConnection
@@ -145,11 +146,16 @@ class AddDocumentColumnArguments(BaseModel):
         pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
         description="Name of a published result from an earlier turn; its rows stay unchanged",
     )
-    url: str = Field(
+    url: str | None = Field(
+        default=None,
         min_length=1,
         max_length=4096,
         pattern=r"^https?://\S+$",
         description="The address exactly as the user wrote it in the question",
+    )
+    attached: bool = Field(
+        default=False,
+        description="true to read the document the user uploaded with this question instead",
     )
     delimiter: Literal[",", ";", "\t", "|"] | None = Field(
         default=None, description="Column separator of a CSV file; required for CSV"
@@ -170,6 +176,12 @@ class AddDocumentColumnArguments(BaseModel):
         max_length=256,
         description="Header of the column to add, as the user named it; also its label",
     )
+
+    @model_validator(mode="after")
+    def one_document(self) -> Self:
+        if (self.url is None) == (not self.attached):
+            raise ValueError("give either url or attached=true, not both or neither")
+        return self
 
 
 class RebaseArguments(BaseModel):
@@ -274,6 +286,7 @@ def make_table_transform_tool(
     series_names: Mapping[str, str] | None = None,
     inspector: PreparedSeriesInspector | None = None,
     document_fetch: Fetcher | None = None,
+    attachment: Attachment | None = None,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> ToolSpec:
     """Bind the tool to one database and one workspace.
@@ -329,16 +342,23 @@ def make_table_transform_tool(
                 else _deflated(selected, source, series.observations, series.semantics, names)
             )
         elif isinstance(selected, AddDocumentColumnArguments):
-            if document_fetch is None:  # pragma: no cover - the schema omits the operation
+            if selected.attached:
+                if attachment is None:
+                    return failure("no_attachment", "No document is attached to this question")
+                read = read_attachment(
+                    attachment, delimiter=selected.delimiter, sheet=selected.sheet
+                )
+            elif document_fetch is None or selected.url is None:
                 return failure("document_disabled", "Reading a web address is not enabled")
-            read = read_document(
-                selected.url,
-                context.question,
-                fetch=document_fetch,
-                delimiter=selected.delimiter,
-                sheet=selected.sheet,
-                clock=clock,
-            )
+            else:
+                read = read_document(
+                    selected.url,
+                    context.question,
+                    fetch=document_fetch,
+                    delimiter=selected.delimiter,
+                    sheet=selected.sheet,
+                    clock=clock,
+                )
             document, media_type = read.output.source, read.output.media_type
             if read.failure is not None or document is None or media_type is None:
                 return failure(read.failure or "not_admitted", read.output.code or "NOT_LOADED")
@@ -426,18 +446,28 @@ def make_table_transform_tool(
             "selects an inclusive period-end range. These unary operations never fill cells, "
             "convert frequency, or accept SQL."
             + (
-                " add_document_column adds one column from a CSV, Excel, PDF or HTML table at "
-                "a web address written in the question: give the address exactly, the header "
-                "of its month column and of the value column. Months must be explicit, one "
-                "row per month; the value header must state its unit in parentheses. It "
-                "needs no catalog_search and does not convert frequency."
-                if document_fetch is not None
+                " add_document_column adds one column from a CSV, Excel, PDF or HTML table "
+                + (
+                    "at a web address written in the question (give the address exactly as url)"
+                    if document_fetch is not None
+                    else ""
+                )
+                + (" or " if document_fetch is not None and attachment is not None else "")
+                + (
+                    "in the document uploaded with this question (attached=true)"
+                    if attachment is not None
+                    else ""
+                )
+                + ", with the header of its month column and of the value column. Months must "
+                "be explicit, one row per month; the value header must state its unit in "
+                "parentheses. It needs no catalog_search and does not convert frequency."
+                if document_fetch is not None or attachment is not None
                 else ""
             )
         ),
         arguments=(
             DocumentTableTransformArguments
-            if document_fetch is not None
+            if document_fetch is not None or attachment is not None
             else TableTransformArguments
         ),
         run=run,
@@ -761,7 +791,8 @@ def _recorded_arguments(selected: BaseModel) -> dict[str, Any]:
     recorded: dict[str, Any] = selected.model_dump(mode="json")
     if isinstance(selected, AddDocumentColumnArguments):
         recorded.pop("url")
-        recorded["document_source_id"] = source_id_for(selected.url)
+        if selected.url is not None:
+            recorded["document_source_id"] = source_id_for(selected.url)
     return recorded
 
 

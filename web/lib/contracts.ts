@@ -84,7 +84,7 @@ const proofSourceSchema = z
 /** A fetched document a literal cell or an added column was read from; no path or cell text. */
 const proofDocumentSchema = z
   .object({
-    source_type: z.literal("web_url"),
+    source_type: z.enum(["web_url", "upload"]),
     document_format: z.enum(["csv", "xlsx", "pdf", "html"]),
     host: label.nullable(),
     content_sha256: digest,

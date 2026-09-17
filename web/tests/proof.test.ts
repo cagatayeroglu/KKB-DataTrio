@@ -226,6 +226,16 @@ test("a literal cell proof names its document without the address path", () => {
     }),
     "tablo 1 · sütun 2 · 3 değer okundu",
   );
+  const uploaded = {
+    ...parsed.documents[0],
+    source_type: "upload" as const,
+    host: null,
+  };
+  assert.equal(documentName(uploaded), "Yüklenen PDF belgesi");
+  assert.equal(
+    documentOrigin(uploaded),
+    "Bu soruya eklenen yükleme, 2026-09-17 tarihinde kabul edildi",
+  );
 });
 
 test("document proof schema refuses dangling, leaking or foreign documents", () => {

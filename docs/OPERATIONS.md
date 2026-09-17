@@ -153,6 +153,16 @@ fetches a public address is a live network action and needs its own approval;
 offline evidence is `tests/unit/test_prepared_web_url.py` and
 `tests/unit/test_document_column.py`.
 
+Add `--enable-uploads` to let the local client attach an uploaded CSV, Excel
+(`.xlsx`), PDF or static HTML document (up to 10 MiB, four per session) to the
+next question; readiness JSON reports `"uploads"` and `/v1/health` lists the
+`document_upload` capability, which shows the client's attach button. Uploads
+are stored only under the process's `--state-root` session directory, without
+filenames, and are not deleted automatically; treat that root as holding the
+uploaded data. An attached document supports the same one-cell answer and
+selected-table column addition as a prompt address; offline evidence is
+`tests/unit/test_document_upload.py`.
+
 <a id="prepared_api-optional-dense-catalog-retrieval"></a>
 
 ### Optional dense catalog retrieval (DEC-142)

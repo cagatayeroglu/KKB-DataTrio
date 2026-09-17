@@ -103,12 +103,17 @@ const formats: Record<ProofDocument["document_format"], string> = {
 /** The document by format and https host only; the address path is never recorded. */
 export function documentName(document: ProofDocument) {
   const format = formats[document.document_format];
+  if (document.source_type === "upload") return `Yüklenen ${format} belgesi`;
   return document.host
     ? `${format} belgesi (${document.host})`
     : `${format} belgesi`;
 }
 
 export function documentOrigin(document: ProofDocument) {
+  if (document.source_type === "upload")
+    return document.retrieved_at
+      ? `Bu soruya eklenen yükleme, ${day(document.retrieved_at)} tarihinde kabul edildi`
+      : "Bu soruya eklenen yükleme";
   const when = document.retrieved_at
     ? `${day(document.retrieved_at)} tarihinde okundu`
     : "okunma zamanı kayıtlı değil";

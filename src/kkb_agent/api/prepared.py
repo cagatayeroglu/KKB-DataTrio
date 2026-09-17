@@ -686,12 +686,15 @@ class PreparedRunner:
                 series_names=names,
                 inspector=inspector,
                 document_fetch=self._web_url_fetch,
+                attachment=attachment,
             )
         )
         for make in (make_anomaly_tool, make_causality_tool):
             registry.register(make(connection, lineage=lineage, inspector=inspector))
-        if self._web_url_fetch is not None:
+        if self._web_url_fetch is not None or attachment is not None:
             # The cell proof lives in this session's own lineage, where the gate
             # and the proof builder re-read it; the document itself is not kept.
-            registry.register(make_web_url_tool(fetch=self._web_url_fetch, lineage=lineage))
+            registry.register(
+                make_web_url_tool(fetch=self._web_url_fetch, attachment=attachment, lineage=lineage)
+            )
         return registry

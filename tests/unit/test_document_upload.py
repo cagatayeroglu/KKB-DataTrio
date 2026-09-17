@@ -238,3 +238,133 @@ def test_launcher_wires_the_store_only_when_enabled(tmp_path, monkeypatch, capsy
     assert cli.main([*arguments, "--enable-uploads"] if flag else arguments) == 0
     assert (seen["store"] is not None) is flag
     assert json.loads(capsys.readouterr().out.splitlines()[0])["uploads"] is flag
+
+
+def ask(client, sid, headers, question, **extra):
+    path = f"/v1/sessions/{sid}/turns"
+    body = {"request_id": uuid4().hex, "question": question, **extra}
+    admitted = client.post(path, json=body, headers=headers)
+    assert admitted.status_code == 202, admitted.text
+    return wait_http(client, f"{path}/{admitted.json()['turn_id']}", headers)
+
+
+def table_plan():
+    from test_catalog_continuation import proposal
+    from test_series_inspection import SQL
+
+    return proposal({"step_id": "a", "tool": "lakehouse", "arguments": {"sql": SQL}})
+
+
+def add_attached(**overrides):
+    from test_catalog_continuation import proposal
+
+    arguments = {
+        "operation": "add_document_column",
+        "source": "analiz_1",
+        "attached": True,
+        "delimiter": ";",
+        "period_column": "Ay",
+        "value_column": "Kapanış",
+        **overrides,
+    }
+    return proposal({"step_id": "b", "tool": "table_transform", "arguments": arguments})
+
+
+def test_an_uploaded_column_joins_the_selected_table_with_an_upload_proof(tmp_path):
+    provider = scripted(table_plan(), "Tablo hazır.", add_attached(), "Kapanış eklendi.")
+    _, client = runtime(tmp_path, provider)
+    with client:
+        sid, headers = session(client)
+        first = ask(client, sid, headers, "Konut kredisi tablosunu getir.")
+        assert first["answer"]["status"] == "accepted", first
+        admitted = upload(client, sid, headers).json()
+        second = ask(
+            client,
+            sid,
+            headers,
+            "Ekli belgedeki Kapanış sütununu tabloya ekle.",
+            selected_result_id=first["answer"]["result"]["result_ref"],
+            document_ref=admitted["document_ref"],
+        )
+    assert second["answer"]["status"] == "accepted", second
+    cells = second["answer"]["result"]["cells"]
+    assert [c["value"] for c in cells if c["label"] == "Kapanış"] == [9000.0, 9100.0, 9200.0]
+    assert {c["measure"] for c in cells if c["label"] == "Kapanış"} == {"index"}
+    (document,) = second["answer"]["result"]["proof"]["documents"]
+    assert document["source_type"] == "upload" and document["host"] is None
+    assert document["content_sha256"] == admitted["sha256"] and document["values_read"] == 3
+    assert admitted["document_ref"] not in json.dumps(second)
+
+
+def test_an_uploaded_cell_is_quoted_with_its_proof(tmp_path):
+    from test_document_check import CSV as TABLE
+    from test_document_check import DRAFT
+
+    read = json.dumps(
+        {
+            "question": "q",
+            "steps": [
+                {
+                    "step_id": "s1",
+                    "tool": "web_url",
+                    "arguments": {
+                        "attached": True,
+                        "delimiter": ",",
+                        "column": "Tutar",
+                        "row": "2026-01-31",
+                    },
+                }
+            ],
+        }
+    )
+    _, client = runtime(tmp_path, scripted(read, DRAFT))
+    with client:
+        sid, headers = session(client)
+        admitted = upload(client, sid, headers, TABLE).json()
+        done = ask(
+            client,
+            sid,
+            headers,
+            "Ekli belgede 2026-01-31 Tutar nedir?",
+            document_ref=admitted["document_ref"],
+        )
+    assert done["answer"]["status"] == "accepted", done
+    (document,) = done["answer"]["result"]["proof"]["documents"]
+    assert (document["source_type"], document["row"], document["column"]) == ("upload", 1, 2)
+    assert "RAW-CONTENT" not in json.dumps(done)
+
+
+def test_without_an_attachment_or_fetch_no_document_tool_exists(tmp_path):
+    provider = scripted(add_attached(source="analiz_1"), add_attached(source="analiz_1"))
+    _, client = runtime(tmp_path, provider)
+    with client:
+        sid, headers = session(client)
+        done = ask(client, sid, headers, "Ekli belgedeki Kapanış sütununu ekle.")
+    assert (done["state"], done["error"]) == ("failed", "planning_failed")
+    prompt = json.dumps([m.content for m in provider.seen[0]], ensure_ascii=False)
+    assert "attached=true" not in prompt and '"web_url"' not in prompt
+
+
+@pytest.mark.parametrize("arguments", [{"url": "https://data.example.test/x.csv"}, {}])
+def test_an_attachment_never_enables_reading_an_address(tmp_path, arguments):
+    from test_catalog_continuation import proposal
+
+    step = {"step_id": "s1", "tool": "web_url", "arguments": {"delimiter": ";", **arguments}}
+    if not arguments:
+        step["arguments"].update(url="https://data.example.test/x.csv", attached=True)
+    provider = scripted(proposal(step), proposal(step), "Okundu.")
+    _, client = runtime(tmp_path, provider)
+    with client:
+        sid, headers = session(client)
+        admitted = upload(client, sid, headers).json()
+        done = ask(
+            client,
+            sid,
+            headers,
+            "https://data.example.test/x.csv adresini oku.",
+            document_ref=admitted["document_ref"],
+        )
+    if arguments:
+        assert done["answer"]["status"] == "abstained" and done["answer"]["result"] is None
+    else:
+        assert (done["state"], done["error"]) == ("failed", "planning_failed")
