@@ -13,9 +13,9 @@ Strict by decision (2026-09-17). Nothing the document does not state is decided:
   text only with one reading. An empty cell stays missing and is never filled.
 - **Unit and scale.** Only from the value header's trailing parentheses; a
   header without a recognised unit refuses the column.
-- **Measure.** A document does not state stock/flow meaning. The one exception
-  (DEC-145) is a header whose unit is points or index at scale one, which
-  names an index level; every other column stays unknown.
+- **Measure.** A document does not state stock/flow meaning. At scale one a
+  header unit of points or index names an index level (DEC-145) and a percent
+  unit names a rate (DEC-146); every other column stays unknown.
 
 Refusal codes are fixed and never carry document text.
 """
@@ -41,8 +41,17 @@ from kkb_agent.tools._document_value import (
 )
 
 SNAPSHOT_KIND = "document_column_v1"
-#: DEC-145: header units that name an index level by themselves.
-INDEX_UNITS = frozenset({"points", "index"})
+#: DEC-145/146: header units that name a measurement kind by themselves at scale one.
+UNIT_MEASURES = {"points": StockFlow.INDEX, "index": StockFlow.INDEX, "percent": StockFlow.RATE}
+
+
+def document_measure(unit: str | None, scale: Scale) -> StockFlow:
+    """The measurement kind a header unit states by itself; unknown otherwise."""
+    if unit is None or scale is not Scale.ONE:
+        return StockFlow.UNKNOWN
+    return UNIT_MEASURES.get(unit, StockFlow.UNKNOWN)
+
+
 _MONTHS = {
     name: number
     for number, names in enumerate(
@@ -93,6 +102,21 @@ class DocumentColumn:
     @property
     def levels(self) -> dict[date, float | None]:
         return {end: value for end, value, _ in self.rows}
+
+
+def measure_limitation(measure: StockFlow) -> str:
+    """The fixed statement of how a document column's measurement kind was decided."""
+    if measure is StockFlow.INDEX:
+        return (
+            "The values are treated as index levels only because the column header states "
+            "points or index as their unit; no other stock/flow meaning was inferred"
+        )
+    if measure is StockFlow.RATE:
+        return (
+            "The values are treated as rates only because the column header states percent "
+            "as their unit; a share or percentage change would read the same way"
+        )
+    return "The document does not state whether the values are stocks, flows, rates or index levels"
 
 
 def month_end(raw: object) -> date | None:
@@ -171,9 +195,7 @@ def read_column(tables: list[Grid], period_column: str, value_column: str) -> Do
         value_header=header,
         unit=unit,
         scale=scale,
-        measure=(
-            StockFlow.INDEX if unit in INDEX_UNITS and scale is Scale.ONE else StockFlow.UNKNOWN
-        ),
+        measure=document_measure(unit, scale),
         rows=tuple((end, value, digest) for end, (value, digest) in sorted(rows.items())),
     )
 

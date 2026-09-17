@@ -42,9 +42,9 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, StringConstraints, model_validator
 
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
 from kkb_agent.agent.registry import ToolSpec
@@ -68,8 +68,16 @@ from kkb_agent.ingest.safe_fetch import (
 )
 from kkb_agent.ingestion_policy import AdmissionError
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
+from kkb_agent.lakehouse.result_evidence import _record_execution, canonical
 from kkb_agent.pdf_loader import PdfDocument, PdfLoadResult
 from kkb_agent.pdf_ocr import OcrProvider
+from kkb_agent.tools._document_column import ColumnRefused
+from kkb_agent.tools._document_table import (
+    MAX_VALUE_COLUMNS,
+    read_table,
+    table_result,
+    table_snapshot,
+)
 from kkb_agent.tools._document_value import (
     ValueNotSelected,
     document_value,
@@ -157,10 +165,39 @@ class WebUrlArguments(BaseModel):
         ),
     )
 
+    period_column: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=256,
+        description=(
+            "To build a monthly table: the header of the column holding the months, as the "
+            "user named it. Needs value_columns."
+        ),
+    )
+    value_columns: list[Annotated[str, StringConstraints(min_length=1, max_length=256)]] | None = (
+        Field(
+            default=None,
+            min_length=1,
+            max_length=MAX_VALUE_COLUMNS,
+            description=(
+                "With period_column: the headers of up to six value columns, as the user named "
+                "them; each becomes a table column labelled by that name"
+            ),
+        )
+    )
+
     @model_validator(mode="after")
     def _column_and_row_together(self) -> WebUrlArguments:
         if (self.url is None) == (not self.attached):
             raise ValueError("give either url or attached=true, not both or neither")
+        if (self.period_column is None) != (self.value_columns is None):
+            raise ValueError("period_column and value_columns build a table together")
+        if self.period_column is not None and self.column is not None:
+            raise ValueError("read one cell (column, row) or build a table, not both")
+        if self.value_columns is not None and len(set(self.value_columns)) != len(
+            self.value_columns
+        ):
+            raise ValueError("value_columns must name each column once")
         if (self.column is None) != (self.row is None):
             raise ValueError("column and row name one cell together; give both or neither")
         return self
@@ -339,6 +376,46 @@ def make_web_url_tool(
         if source is None or media_type is None:  # pragma: no cover - loaded reads carry both
             raise TypeError("a loaded document has no recorded source")
         warnings = output.document.warnings if output.document is not None else ()
+        if arguments.period_column is not None and arguments.value_columns is not None:
+            if lineage is None:
+                return _failed(
+                    "needs_input", replace(output, status="needs_input", code="NO_LINEAGE")
+                )
+            connection = lineage.connection
+            try:
+                table = read_table(
+                    grids(output.table, output.document),
+                    arguments.period_column,
+                    arguments.value_columns,
+                    is_series=lambda label: (
+                        connection.execute(
+                            "SELECT 1 FROM silver_series WHERE series_id = ? LIMIT 1", [label]
+                        ).fetchone()
+                        is not None
+                    ),
+                )
+            except ColumnRefused as error:
+                return _failed(
+                    "needs_input", replace(output, status="needs_input", code=error.code)
+                )
+            source_node = _record(lineage, source, media_type)
+            recorded = arguments.model_dump(mode="json", exclude={"url"})
+            recorded["document_source_id"] = source.source_id
+            result = _record_execution(
+                connection,
+                producer="web_url",
+                arguments=canonical(recorded),
+                inputs=[table_snapshot(table, source, media_type)],
+                result=table_result(table, source, source_node=source_node),
+            )
+            return ToolResult(
+                ToolStatus.SUCCESS,
+                step_id="",
+                tool="web_url",
+                output=replace(output, result=result),
+                warnings=(*warnings, *result.warnings),
+                evidence=source_node,
+            )
         if arguments.column is None or arguments.row is None:
             return ToolResult(
                 ToolStatus.SUCCESS,
@@ -394,7 +471,10 @@ def make_web_url_tool(
             "nothing. OCR, when explicitly enabled by the operator, returns unverified "
             "text only and cannot answer a numeric question. HTML requires explicit "
             "rectangular tables; no JavaScript, CSS rendering or linked-resource "
-            "fetching. Image addresses are not supported."
+            "fetching. Image addresses are not supported. To build a monthly table that later "
+            "turns can use, give period_column and up to six value_columns instead of column and "
+            "row: months must be explicit, one row per month, and each value header must state "
+            "its unit in parentheses; a column that fails is left out with a warning."
             + (
                 " The user uploaded a document with this question: read it with attached=true "
                 "and no url."

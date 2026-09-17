@@ -44,6 +44,7 @@ from kkb_agent.ingestion_policy import MIME_TYPES
 from kkb_agent.lakehouse.lineage import Lineage, LineageError, NodeKind
 from kkb_agent.lakehouse.result_evidence import PREFIX, execution_proof
 from kkb_agent.tools._document_column import SNAPSHOT_KIND as DOCUMENT_COLUMN
+from kkb_agent.tools._document_table import SNAPSHOT_KIND as DOCUMENT_TABLE
 
 MAX_RAW_RESPONSES = 512
 MAX_SOURCE_DEPTH = 3
@@ -190,7 +191,7 @@ class _Builder:
             return self._nested(snapshot)
         if snapshot.get("kind") == PROJECTION:
             return self._projection(snapshot.get("rows"))
-        if snapshot.get("kind") == DOCUMENT_COLUMN:
+        if snapshot.get("kind") in (DOCUMENT_COLUMN, DOCUMENT_TABLE):
             return self._document_column(snapshot)
         series_id = snapshot.get("series_id")
         if isinstance(series_id, str) and 1 <= len(series_id) <= 200:
@@ -211,8 +212,13 @@ class _Builder:
         return [ProofInput(kind="document", index=len(self.documents) - 1)]
 
     def _document_column(self, snapshot: dict[str, Any]) -> list[ProofInput]:
-        """A column an execution read from a fetched document; fixed facts only."""
-        location, rows = snapshot.get("location"), snapshot.get("rows")
+        """A column or table an execution read from a document; fixed facts only."""
+        table = snapshot.get("kind") == DOCUMENT_TABLE
+        columns = snapshot.get("columns")
+        rows: object = snapshot.get("rows")
+        if table and isinstance(columns, list) and all(isinstance(c, dict) for c in columns):
+            rows = [cell for column in columns for cell in column.get("cells") or ()]
+        location = snapshot.get("location")
         content_hash, media_type = snapshot.get("content_hash"), snapshot.get("media_type")
         if not (
             isinstance(location, dict)
@@ -235,7 +241,7 @@ class _Builder:
                     "page": location.get("page"),
                     "table": location.get("table"),
                     "row": None,
-                    "column": location.get("column_index"),
+                    "column": None if table else location.get("column_index"),
                     "sheet_selected": "sheet" in location,
                     "values_read": sum(1 for row in rows if row[1] is not None),
                 }

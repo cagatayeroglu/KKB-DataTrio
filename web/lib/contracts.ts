@@ -92,7 +92,7 @@ const proofDocumentSchema = z
     page: z.number().int().min(1).nullable(),
     table: z.number().int().min(1).nullable(),
     row: z.number().int().min(1).nullable(),
-    column: z.number().int().min(1),
+    column: z.number().int().min(1).nullable(),
     sheet_selected: z.boolean(),
     values_read: z.number().int().nonnegative().nullable().default(null),
   })

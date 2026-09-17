@@ -315,7 +315,7 @@ CURRENTLY IMPLEMENTED: [ToolSpec / ToolRegistry](../src/kkb_agent/agent/registry
 | --- | --- | --- |
 | `lakehouse` | IMPLEMENTED, bounded scope | Restricted read-only SQL and typed result/provenance output; not full replay/proof |
 | `web_search` | IMPLEMENTED, offline only | Bounded provider-neutral discovery; injected backend required; no production adapter or live acceptance |
-| `web_url` | IMPLEMENTED, bounded scope | Guarded CSV/XLSX/PDF/static HTML and exact-cell evidence; bounded offline OCR fallback; no browser/JS or general image-address extraction |
+| `web_url` | IMPLEMENTED, bounded scope | Guarded CSV/XLSX/PDF/static HTML and exact-cell evidence; table mode builds a published monthly table from one document table (M10-04); bounded offline OCR fallback; no browser/JS or general image-address extraction |
 | `anomaly` | IMPLEMENTED, bounded scope | Existing deterministic method subset; not every anomaly technique |
 | `causality` | IMPLEMENTED, bounded scope | Association, lag and Granger precedence with stated limits; not causal identification |
 | `change_detection` | PARTIAL | Period `compare`, monthly `co_movement` over series, and `table_co_movement` over verified table columns (M6-25); breakpoint/trend-break methods remain absent |
@@ -562,7 +562,30 @@ header without one refuses. Stock/flow meaning is recorded as unknown, so
 analytics that require a stock, rate or index column (for example
 `table_co_movement`) refuse the added column rather than guess — except under
 [DEC-145](DECISIONS.md#dec-145--a-points-or-index-header-unit-names-an-index-level-for-document-columns),
-where a points or index header unit at scale one makes it an index level. The join is the
+where a points or index header unit at scale one makes it an index level, and
+[DEC-146](DECISIONS.md#dec-146--a-percent-header-unit-names-a-rate-for-document-columns),
+where a percent unit at scale one makes it a rate.
+
+M10-04 `web_url` table mode takes `period_column` and one to six
+`value_columns` (instead of `column`/`row`) from the prompt address or the
+attached upload and returns a SERIES `AnalyticalResult` that the session
+publishes as `analiz_N`. The period column must be found once in exactly one
+table that also holds a requested value column, and every non-empty period
+cell must be an explicit month once per month; otherwise the whole table is
+refused with a fixed code. Each value column is then read on its own: one not
+found once, without a recognised header unit, with a number that has more than
+one reading, labelled like a prepared series, duplicated or with fewer than two
+values is left out with a fixed-code warning while the rest publish; no usable
+column refuses the table. Labels are the user's names; headers, sheet names and
+cell text stay in the snapshot. `web_url` is a verified producer only in this
+mode: its execution record binds a `document_table_v1` snapshot (content hash,
+sanitized locator, retrieval time, location, months, per-column cells and
+skipped columns) and the arguments without the address; the single-cell mode
+remains a DEC-132 literal. The proof shows one document entry with `column`
+null and the values read. The table is a free question — under a selected table
+the plan has no declared table input and is refused — and later turns select it
+for `add_series`, `add_document_column`, `rebase`/`align`/`filter` or
+`table_co_movement`; deflation refuses document columns. The join is the
 same exact monthly left join as `add_series` (`table_months`), keeps every
 existing cell, refuses a label that already exists or names a prepared series,
 and needs no catalog discovery in hybrid mode. The execution record binds the

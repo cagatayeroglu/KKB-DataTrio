@@ -226,6 +226,16 @@ test("a literal cell proof names its document without the address path", () => {
     }),
     "tablo 1 · sütun 2 · 3 değer okundu",
   );
+  assert.equal(
+    documentLocation({
+      ...parsed.documents[0],
+      page: null,
+      row: null,
+      column: null,
+      values_read: 18,
+    }),
+    "tablo 1 · 18 değer okundu",
+  );
   const uploaded = {
     ...parsed.documents[0],
     source_type: "upload" as const,

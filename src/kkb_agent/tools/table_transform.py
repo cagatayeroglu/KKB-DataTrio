@@ -57,7 +57,6 @@ from kkb_agent.core import (
     ResultStatus,
     ResultValue,
     SourceRef,
-    StockFlow,
     TransformationRecord,
 )
 from kkb_agent.ingest.attached import Attachment
@@ -70,6 +69,7 @@ from kkb_agent.tools._document_column import (
     ColumnRefused,
     DocumentColumn,
     column_snapshot,
+    measure_limitation,
     read_column,
 )
 from kkb_agent.tools._document_value import grids
@@ -875,13 +875,7 @@ def _documented(
             "The added column was read from a fetched document on explicit months only; no "
             "resampling, filling, currency conversion, inflation adjustment or rebasing was "
             "applied to it",
-            (
-                "The added values are treated as index levels only because the column header "
-                "states points or index as their unit; no other stock/flow meaning was inferred"
-                if column.measure is StockFlow.INDEX
-                else "The document does not state whether the added values are stocks, flows, "
-                "rates or index levels"
-            ),
+            measure_limitation(column.measure),
             "Existing comparison metrics still concern their original columns; adding a "
             "column does not compute a relationship with it",
         ],

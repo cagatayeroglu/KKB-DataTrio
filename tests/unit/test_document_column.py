@@ -143,13 +143,16 @@ def test_column_refuses_what_it_would_have_to_decide(tables, code):
         ("Kapanış (Puan)", "points", StockFlow.INDEX),
         ("Kapanış (Endeks)", "index", StockFlow.INDEX),
         ("Kapanış (Milyon TL)", "TRY", StockFlow.UNKNOWN),
-        ("Kapanış (%)", "percent", StockFlow.UNKNOWN),
+        ("Faiz (%)", "percent", StockFlow.RATE),
+        ("Faiz (Milyon %)", "percent", StockFlow.UNKNOWN),
         ("Kapanış (Milyon Puan)", "points", StockFlow.UNKNOWN),
     ],
 )
-def test_only_a_points_or_index_unit_names_an_index_level(header, unit, measure):
+def test_only_points_index_or_percent_units_name_a_measure(header, unit, measure):
     column = read_column(
-        [grid(("2026-04", "1"), ("2026-05", "2"), headers=("Ay", header))], "Ay", "Kapanış"
+        [grid(("2026-04", "1"), ("2026-05", "2"), headers=("Ay", header))],
+        "Ay",
+        header.split(" (")[0],
     )
     assert (column.unit, column.measure) == (unit, measure)
 

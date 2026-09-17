@@ -163,6 +163,14 @@ uploaded data. An attached document supports the same one-cell answer and
 selected-table column addition as a prompt address; offline evidence is
 `tests/unit/test_document_upload.py`.
 
+Either document source can also start a new analysis: ask for a monthly table
+from named columns ("Ekli belgeden Ay, Kapanış ve Faiz sütunlarıyla aylık tablo
+oluştur") as a free question, with "Seçili tabloyla devam et" unticked. Columns
+without a unit in their header, with ambiguous numbers or not found are left out
+and named in the proof warnings; period problems refuse the table. The published
+table can then be selected for adding prepared series or comparisons. Offline
+evidence is `tests/unit/test_document_table.py`.
+
 <a id="prepared_api-optional-dense-catalog-retrieval"></a>
 
 ### Optional dense catalog retrieval (DEC-142)

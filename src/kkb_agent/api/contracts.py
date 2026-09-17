@@ -172,9 +172,9 @@ class ProofDocument(ContractModel):
     retrieved_at: AwareDatetime | None
     page: Annotated[int, Field(strict=True, ge=1)] | None
     table: Annotated[int, Field(strict=True, ge=1)] | None
-    # None when a whole column was read rather than one cell.
+    # None when a whole column (row) or a whole table (row and column) was read.
     row: Annotated[int, Field(strict=True, ge=1)] | None
-    column: Annotated[int, Field(strict=True, ge=1)]
+    column: Annotated[int, Field(strict=True, ge=1)] | None
     values_read: Count | None = None
     # A worksheet was named; its name is document text and is not shown.
     sheet_selected: bool

@@ -81,8 +81,12 @@ export function ProofChain({
                 <h4>{documentName(document)}</h4>
                 <p>{documentOrigin(document)}</p>
                 <p>
-                  {document.row === null ? "Okunan sütun" : "Okunan hücre"}:{" "}
-                  {documentLocation(document)}
+                  {document.column === null
+                    ? "Okunan tablo"
+                    : document.row === null
+                      ? "Okunan sütun"
+                      : "Okunan hücre"}
+                  : {documentLocation(document)}
                 </p>
                 <p
                   className="mono"
