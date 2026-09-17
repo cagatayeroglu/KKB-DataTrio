@@ -249,3 +249,109 @@ def test_a_unit_written_in_the_question_is_recorded_as_the_users(served):
     cell = next(c for c in first["answer"]["result"]["cells"] if c["label"] == "Başvuru Sayısı")
     assert (cell["unit"], cell["scale"]) == ("TRY", "thousand")
     assert any("as the user stated" in n for n in first["answer"]["result"]["proof"]["limitations"])
+
+
+def test_an_earlier_upload_is_read_again_in_a_later_turn_without_reattaching(served):
+    runner, client, sid, headers = served(
+        step("a", "lakehouse", sql="SELECT 1 AS x"),
+        "İlk tur.",
+        table_step(document="belge_1"),
+        "Tablo hazır.",
+    )
+    document = upload(client, sid, headers, csv())
+    ask(client, sid, headers, "Önce başka bir şey soralım.")
+    later = ask(client, sid, headers, "Az önce yüklediğim dosyadan aylık tablo yap.")
+    assert later["answer"]["status"] == "accepted", later
+    assert document  # admitted once, never re-sent with the second question
+    outline = [
+        message.content
+        for conversation in runner._provider.seen
+        for message in conversation
+        if message.content.startswith("Documents uploaded in this conversation")
+    ]
+    assert outline and all(
+        item.role.value == "user"
+        for item in [
+            message
+            for conversation in runner._provider.seen
+            for message in conversation
+            if message.content.startswith("Documents uploaded in this conversation")
+        ]
+    )
+    outline = outline[-1:]
+    assert len(outline) == 1 and "Başvuru Sayısı" in outline[0]
+    # Headers only: no cell value of the document reaches the planner.
+    assert not any(str(value) in outline[0] for value in ADMISSIONS)
+
+
+def test_several_documents_and_no_name_is_not_a_guess(served):
+    _, client, sid, headers = served(table_step(), "Tablo hazır.")
+    upload(client, sid, headers, csv())
+    upload(client, sid, headers, csv(header="Hasta"))
+    answer = ask(client, sid, headers, "Yüklediğim dosyadan tablo yap.")
+    assert answer["answer"]["status"] == "abstained", answer
+
+
+def test_two_uploaded_tables_join_on_the_selected_tables_months(served):
+    beds = [70, 72, 69, 75, 80, 78, 85, 83, 81, 84, 88, 86]
+    runner, client, sid, headers = served(
+        table_step(document="belge_1"),
+        "Başvuru tablosu hazır.",
+        step(
+            "u",
+            "web_url",
+            attached=True,
+            document="belge_2",
+            period_column="Ay",
+            value_columns=["Yatış"],
+        ),
+        "Yatış tablosu hazır.",
+        step("j", "table_transform", operation="join_table", source="analiz_2", other="analiz_1"),
+        "Tablolar birleştirildi.",
+    )
+    upload(client, sid, headers, csv())
+    upload(client, sid, headers, csv(beds[:10] + [88, 86], header="Yatış"))
+    first = ask(client, sid, headers, "İlk belgeden tablo yap.")
+    second = ask(client, sid, headers, "İkinci belgeden tablo yap.")
+    assert first["answer"]["status"] == second["answer"]["status"] == "accepted"
+    joined = ask(
+        client,
+        sid,
+        headers,
+        "Başvuru tablosunu bu tabloyla birleştir.",
+        selected_result_id=second["answer"]["result"]["result_ref"],
+    )
+    assert joined["answer"]["status"] == "accepted", joined
+    cells = joined["answer"]["result"]["cells"]
+    labels = {c["label"] for c in cells}
+    assert {"Yatış", "Başvuru Sayısı"} <= labels
+    assert len([c for c in cells if c["label"] == "Başvuru Sayısı"]) == 12
+    # The selected table's own cells are untouched by the join.
+    before = {
+        (c["label"], c["period"]["end"], c["value"]) for c in second["answer"]["result"]["cells"]
+    }
+    after = {(c["label"], c["period"]["end"], c["value"]) for c in cells}
+    assert before <= after
+
+
+def test_a_join_never_shadows_an_existing_column(served):
+    _, client, sid, headers = served(
+        table_step(document="belge_1"),
+        "Bir.",
+        table_step(document="belge_2"),
+        "İki.",
+        step("j", "table_transform", operation="join_table", source="analiz_2", other="analiz_1"),
+        "Birleşti.",
+    )
+    upload(client, sid, headers, csv())
+    upload(client, sid, headers, csv())
+    ask(client, sid, headers, "Bir.")
+    second = ask(client, sid, headers, "İki.")
+    joined = ask(
+        client,
+        sid,
+        headers,
+        "Birleştir.",
+        selected_result_id=second["answer"]["result"]["result_ref"],
+    )
+    assert joined["answer"]["status"] == "abstained", joined

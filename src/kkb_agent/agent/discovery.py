@@ -33,7 +33,8 @@ CONTINUATION_INSTRUCTIONS = (
 REQUIRED_DISCOVERY_INSTRUCTIONS = (
     "Before reading any new series, you MUST first plan catalog_search only, even if "
     "a reviewed series identity is already visible. Search separately for each needed "
-    "measure. Direct analysis is permitted only for table_transform rebase/align/filter "
+    "measure. Direct analysis is permitted only for table_transform rebase/align/filter/"
+    "join_table "
     "or change_detection table_co_movement over existing workspace columns. Adding a "
     "series or deflating needs discovery of the added series or price index first. "
     "Clarification without tools is still permitted."
@@ -55,7 +56,7 @@ def needs_series_discovery(plan: ValidatedPlan) -> bool:
     wrote, so the catalog cannot and need not authorize it.
     """
     workspace_operations = {
-        "table_transform": {"rebase", "align", "filter", "add_document_column"},
+        "table_transform": {"rebase", "align", "filter", "add_document_column", "join_table"},
         "change_detection": {"table_co_movement"},
     }
     return any(

@@ -428,6 +428,8 @@ class Session:
     repair_period_wording: bool = False
     repair_unmatched_numbers: bool = False
     deterministic_presentation: bool = True
+    #: Outline of the conversation's uploaded documents: untrusted data, a user message.
+    documents_note: str | None = None
 
     def plan(self, question: str, workspace: Workspace | None = None) -> Planned:
         """Obtain a plan the registry will accept, or fail with the reasons why.
@@ -469,6 +471,8 @@ class Session:
         published = workspace_prompt(workspace) if workspace is not None else None
         if published is not None:
             messages.append(Message(Role.SYSTEM, published))
+        if self.documents_note is not None:
+            messages.append(Message(Role.USER, self.documents_note))
         if self.selection is not None:
             messages.extend(
                 [

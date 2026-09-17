@@ -33,9 +33,11 @@ from kkb_agent.agent.workspace import Workspace, WorkspaceError
 from kkb_agent.analytics.deflation import FORMULA, METHOD, DeflationRefused, deflate
 from kkb_agent.analytics.table_series import (
     DOCUMENT_METHOD,
+    JOIN_METHOD,
     SeriesAdditionRefused,
     add_document_column,
     add_monthly_series,
+    join_monthly_table,
 )
 from kkb_agent.analytics.table_series import METHOD as ADD_SERIES_METHOD
 from kkb_agent.analytics.table_shape import (
@@ -75,7 +77,7 @@ from kkb_agent.tools._document_column import (
 )
 from kkb_agent.tools._document_value import as_of, csv_parsing, grids, year_in_question
 from kkb_agent.tools.change_detection import SeriesUnknown, read_series
-from kkb_agent.tools.web_url import Fetcher, read_attachment, read_document
+from kkb_agent.tools.web_url import Fetcher, choose_document, read_attachment, read_document
 
 if TYPE_CHECKING:  # pragma: no cover
     from duckdb import DuckDBPyConnection
@@ -156,7 +158,12 @@ class AddDocumentColumnArguments(BaseModel):
     )
     attached: bool = Field(
         default=False,
-        description="true to read the document the user uploaded with this question instead",
+        description="true to read a document uploaded in this conversation instead of a url",
+    )
+    document: str | None = Field(
+        default=None,
+        pattern=r"^belge_[0-9]{1,2}$",
+        description="With attached=true: which uploaded document (belge_1, belge_2, ...)",
     )
     delimiter: Literal[",", ";", "\t", "|"] | None = Field(
         default=None,
@@ -195,6 +202,36 @@ class AddDocumentColumnArguments(BaseModel):
     def one_document(self) -> Self:
         if (self.url is None) == (not self.attached):
             raise ValueError("give either url or attached=true, not both or neither")
+        if self.document is not None and not self.attached:
+            raise ValueError("document names an upload; it needs attached=true")
+        return self
+
+
+class JoinTableArguments(BaseModel):
+    """Join monthly columns of another published result onto the source's months."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation: Literal["join_table"]
+    source: str = Field(
+        pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
+        description="Published result whose rows stay unchanged (the selected table)",
+    )
+    other: str = Field(
+        pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
+        description="Another published result from an earlier turn, such as an uploaded table",
+    )
+    columns: tuple[Annotated[str, Field(min_length=1, max_length=400)], ...] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=12,
+        description="Exact column labels of the other result; omit to join all its monthly columns",
+    )
+
+    @model_validator(mode="after")
+    def two_tables(self) -> Self:
+        if self.source == self.other:
+            raise ValueError("join two different published results")
         return self
 
 
@@ -260,6 +297,7 @@ class TableTransformArguments(
         Annotated[
             DeflateArguments
             | AddSeriesArguments
+            | JoinTableArguments
             | RebaseArguments
             | AlignArguments
             | FilterArguments,
@@ -276,6 +314,7 @@ class DocumentTableTransformArguments(
             DeflateArguments
             | AddSeriesArguments
             | AddDocumentColumnArguments
+            | JoinTableArguments
             | RebaseArguments
             | AlignArguments
             | FilterArguments,
@@ -303,6 +342,7 @@ def make_table_transform_tool(
     attachment: Attachment | None = None,
     document_ocr: OcrProvider | None = None,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+    library: Mapping[str, Attachment] | None = None,
 ) -> ToolSpec:
     """Bind the tool to one database and one workspace.
 
@@ -311,6 +351,8 @@ def make_table_transform_tool(
     `document_ocr` reads PDF pages without text (DEC-149 column-total check).
     """
     names = dict(series_names or {})
+    documents = dict(library or {})
+    readable = attachment is not None or bool(documents)
 
     def failure(category: str, message: str) -> ToolResult:
         return ToolResult(
@@ -357,14 +399,33 @@ def make_table_transform_tool(
                 if isinstance(selected, AddSeriesArguments)
                 else _deflated(selected, source, series.observations, series.semantics, names)
             )
+        elif isinstance(selected, JoinTableArguments):
+            try:
+                other = workspace.value_of(selected.other)
+            except WorkspaceError:
+                return failure(
+                    "workspace_reference",
+                    f"No current published result is named {selected.other!r}",
+                )
+            if other.status is not ResultStatus.COMPUTED:
+                return failure(
+                    "workspace_reference", f"{selected.other!r} holds no computed values"
+                )
+            if result_faults({selected.other: other}, connection):
+                return failure("workspace_evidence", "The other table cannot be verified")
+            inputs.append(
+                canonical({"workspace": selected.other, "result": other.model_dump(mode="json")})
+            )
+            result = _joined(selected, source, other)
         elif isinstance(selected, AddDocumentColumnArguments):
             if selected.year is not None and not year_in_question(selected.year, context.question):
                 return failure("needs_input", "YEAR_NOT_IN_QUESTION")
             if selected.attached:
-                if attachment is None:
-                    return failure("no_attachment", "No document is attached to this question")
+                chosen = choose_document(selected.document, attachment, documents)
+                if isinstance(chosen, str):
+                    return failure("no_attachment", chosen)
                 read = read_attachment(
-                    attachment,
+                    chosen,
                     delimiter=selected.delimiter,
                     sheet=selected.sheet,
                     ocr=document_ocr,
@@ -467,7 +528,10 @@ def make_table_transform_tool(
             "for add_series. It preserves every old column, records missing months without "
             "filling them, and does not calculate a relationship or establish a cause. "
             "rebase adds an explicitly based copy of an existing index column. align selects "
-            "existing exact periods using inner or explicitly anchored-left policy. filter "
+            "existing exact periods using inner or explicitly anchored-left policy. join_table "
+            "adds the monthly columns of another published result (for example a table built "
+            "from an uploaded document, or an official-series table) onto the source table's "
+            "exact months, keeping each column's own unit. filter "
             "selects an inclusive period-end range. These unary operations never fill cells, "
             "convert frequency, or accept SQL."
             + (
@@ -477,22 +541,23 @@ def make_table_transform_tool(
                     if document_fetch is not None
                     else ""
                 )
-                + (" or " if document_fetch is not None and attachment is not None else "")
+                + (" or " if document_fetch is not None and readable else "")
                 + (
-                    "in the document uploaded with this question (attached=true)"
-                    if attachment is not None
+                    "in a document uploaded in this conversation (attached=true, and "
+                    "document=<name> when there are several)"
+                    if readable
                     else ""
                 )
                 + ", with the header of its month column and of the value column. Months must "
                 "be explicit, one row per month; the value header must state its unit in "
                 "parentheses. It needs no catalog_search and does not convert frequency."
-                if document_fetch is not None or attachment is not None
+                if document_fetch is not None or readable
                 else ""
             )
         ),
         arguments=(
             DocumentTableTransformArguments
-            if document_fetch is not None or attachment is not None
+            if document_fetch is not None or readable
             else TableTransformArguments
         ),
         run=run,
@@ -808,6 +873,92 @@ def _augmented(
             "column does not compute a relationship with it",
         ],
         unresolved_semantics=list(source.unresolved_semantics),
+    )
+
+
+def _joined(
+    arguments: JoinTableArguments, source: AnalyticalResult, other: AnalyticalResult
+) -> AnalyticalResult:
+    result_id = f"table_transform:join_table:{arguments.source}:{arguments.other}"
+    try:
+        joined = join_monthly_table(
+            source, other, other_name=arguments.other, columns=arguments.columns
+        )
+    except SeriesAdditionRefused as error:
+        return AnalyticalResult(
+            result_id=result_id,
+            kind=ResultKind.SERIES,
+            status=ResultStatus.ABSTAINED,
+            tool="table_transform",
+            method=JOIN_METHOD,
+            reason=str(error),
+        )
+    series_names: dict[str, JsonValue] = {}
+    for table in (source, other):
+        known = table.parameters.get("series_names")
+        if isinstance(known, dict):
+            series_names.update(known)
+    parameters = dict(source.parameters)
+    parameters.update(
+        {
+            "series_names": series_names,
+            "source": arguments.source,
+            "joined_table": joined.transformation.parameters,
+        }
+    )
+    refs: list[str] = []
+    for table in (source, other):
+        if table.evidence is not None:
+            refs.extend(
+                [table.evidence.lineage_node]
+                if table.evidence.lineage_node is not None
+                else table.evidence.input_refs
+            )
+    sources = [
+        *(source.evidence.sources if source.evidence is not None else []),
+        *(other.evidence.sources if other.evidence is not None else []),
+    ]
+    carried = [
+        note
+        for note in other.unresolved_semantics
+        if ":" not in note or any(note.startswith(f"{label}:") for label in joined.columns)
+    ]
+    missing = joined.transformation.parameters["missing_periods"]
+    gaps = (
+        sum(len(ends) for ends in missing.values() if isinstance(ends, list))
+        if isinstance(missing, dict)
+        else 0
+    )
+    previous = source.evidence.transformations if source.evidence is not None else []
+    gap_warning = f"{gaps} joined cell(s) have no value in {arguments.other!r}; never filled"
+    return AnalyticalResult(
+        result_id=result_id,
+        kind=source.kind,
+        status=ResultStatus.COMPUTED,
+        tool="table_transform",
+        method=JOIN_METHOD,
+        values=[*source.values, *joined.values],
+        coverage=source.coverage,
+        parameters=parameters,
+        samples=source.samples,
+        evidence=ResultEvidence(
+            input_refs=list(dict.fromkeys(refs)) or [source.result_id],
+            transformations=[*previous, joined.transformation],
+            sources=list({ref.source_id: ref for ref in sources}.values()),
+        ),
+        warnings=[*source.warnings, *([gap_warning] if gaps else [])],
+        limitations=list(
+            dict.fromkeys(
+                [
+                    *source.limitations,
+                    *other.limitations,
+                    "Joined columns are aligned by exact monthly periods only; the source "
+                    "table's rows define the months and nothing was resampled, filled or "
+                    "converted",
+                ]
+            )
+        ),
+        unresolved_semantics=list(dict.fromkeys([*source.unresolved_semantics, *carried])),
     )
 
 

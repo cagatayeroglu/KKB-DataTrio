@@ -39,7 +39,7 @@ default while the organizer's URL policy (Q-NET-02) is unanswered.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Annotated, Literal
@@ -60,6 +60,7 @@ from kkb_agent.ingest.fetched import (
     load_fetched,
     source_id_for,
 )
+from kkb_agent.ingest.page_links import LinkRefused, choose_link, page_links
 from kkb_agent.ingest.safe_fetch import (
     FetchFailure,
     FetchOutcome,
@@ -67,7 +68,7 @@ from kkb_agent.ingest.safe_fetch import (
     FetchSuccess,
     safe_fetch,
 )
-from kkb_agent.ingestion_policy import AdmissionError
+from kkb_agent.ingestion_policy import MIME_TYPES, AdmissionError, FileKind
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.lakehouse.result_evidence import _record_execution, canonical
 from kkb_agent.pdf_loader import PdfDocument, PdfLoadResult
@@ -139,7 +140,25 @@ class WebUrlArguments(BaseModel):
     )
     attached: bool = Field(
         default=False,
-        description="true to read the document the user uploaded with this question instead",
+        description="true to read a document uploaded in this conversation instead of a url",
+    )
+    follow: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=200,
+        description=(
+            "With url: the visible text or file name of a link on that page to read instead, "
+            "such as 'Altın İşlemleri' or 'kmp_au.pdf'. Only a link on the same site is "
+            "followed, one hop; the address itself always comes from the page"
+        ),
+    )
+    document: str | None = Field(
+        default=None,
+        pattern=r"^belge_[0-9]{1,2}$",
+        description=(
+            "With attached=true: which uploaded document (belge_1, belge_2, ...). May be left "
+            "out for the document attached to this question or the conversation's only one"
+        ),
     )
     delimiter: Literal[",", ";", "\t", "|"] | None = Field(
         default=None,
@@ -224,6 +243,10 @@ class WebUrlArguments(BaseModel):
     def _column_and_row_together(self) -> WebUrlArguments:
         if (self.url is None) == (not self.attached):
             raise ValueError("give either url or attached=true, not both or neither")
+        if self.document is not None and not self.attached:
+            raise ValueError("document names an upload; it needs attached=true")
+        if self.follow is not None and self.url is None:
+            raise ValueError("follow names a link on the page at url")
         if (self.period_column is None) != (self.value_columns is None):
             raise ValueError("period_column and value_columns build a table together")
         if self.period_column is not None and self.column is not None:
@@ -239,6 +262,26 @@ class WebUrlArguments(BaseModel):
         ):
             raise ValueError("column_units names only value_columns")
         return self
+
+
+def choose_document(
+    document: str | None,
+    current: Attachment | None,
+    library: Mapping[str, Attachment],
+) -> Attachment | str:
+    """The uploaded document a step reads, or a fixed code; never a guess.
+
+    A named document must exist. Without a name, the document attached to this
+    question is read; failing that, the conversation's only document. Several
+    documents and no name is ambiguous.
+    """
+    if document is not None:
+        return library.get(document) or "DOCUMENT_UNKNOWN"
+    if current is not None:
+        return current
+    if len(library) == 1:
+        return next(iter(library.values()))
+    return "DOCUMENT_NOT_NAMED" if library else "NO_ATTACHMENT"
 
 
 def declared_units(
@@ -328,15 +371,40 @@ def read_document(
     sheet: str | None = None,
     ocr: OcrProvider | None = None,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+    follow: str | None = None,
 ) -> DocumentRead:
     """The prompt-address boundary every document reader shares (M7-17, M7-14).
 
     `question` must be the user's own words: only an address written there is
     requested, through `fetch`, and the bytes meet the upload admission rules.
+    With `follow`, that page is read for its links and the one same-site link
+    matching the name is requested instead (see `ingest.page_links`); the
+    address always comes from the page bytes, never from the planner.
     A loaded result always carries its source; nothing is recorded here.
     """
     if url not in addresses_in(question):
         return DocumentRead(WebUrlOutput("rejected", "URL_NOT_IN_QUESTION"), "url_not_in_question")
+    if follow is not None:
+        page = fetch(
+            FetchRequest(
+                source_ref=source_id_for(url),
+                url=SecretStr(url),
+                accepted_media_types=(MIME_TYPES[FileKind.HTML],),
+            )
+        )
+        if isinstance(page, FetchFailure):
+            reason = () if page.target_reason is None else (page.target_reason.value,)
+            return DocumentRead(WebUrlOutput("rejected", page.code.value), "fetch_failed", reason)
+        if not isinstance(page, FetchSuccess):  # pragma: no cover - FetchOutcome is closed
+            raise TypeError("fetch returned neither a success nor a failure")
+        base = (
+            page.effective_locator.get_secret_value() if page.effective_locator is not None else url
+        )
+        try:
+            link = choose_link(page_links(page.content, base), follow)
+        except LinkRefused as error:
+            return DocumentRead(WebUrlOutput("needs_input", error.code), "needs_input")
+        url = link.url
 
     outcome = fetch(
         FetchRequest(
@@ -398,12 +466,15 @@ def make_web_url_tool(
     lineage: Lineage | None = None,
     ocr: OcrProvider | None = None,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+    library: Mapping[str, Attachment] | None = None,
 ) -> ToolSpec:
     """Bind the tool to a fetch boundary: the real `safe_fetch` unless a test substitutes it.
 
     `fetch=None` reads no address at all; `attachment` is the one document the
-    user uploaded with this question (M10-04), if any.
+    user uploaded with this question (M10-04), if any; `library` holds every
+    document admitted in the conversation by server-owned name.
     """
+    documents = dict(library or {})
 
     def run(arguments: BaseModel, context: ExecutionContext) -> ToolResult:
         # The registry parses arguments before dispatch, so this is a contract
@@ -414,10 +485,11 @@ def make_web_url_tool(
             # Like the address, a year is the user's word, never the model's (DEC-148).
             return _failed("needs_input", WebUrlOutput("needs_input", "YEAR_NOT_IN_QUESTION"))
         if arguments.attached:
-            if attachment is None:
-                return _failed("no_attachment", WebUrlOutput("rejected", "NO_ATTACHMENT"))
+            chosen = choose_document(arguments.document, attachment, documents)
+            if isinstance(chosen, str):
+                return _failed("no_attachment", WebUrlOutput("rejected", chosen))
             read = read_attachment(
-                attachment, delimiter=arguments.delimiter, sheet=arguments.sheet, ocr=ocr
+                chosen, delimiter=arguments.delimiter, sheet=arguments.sheet, ocr=ocr
             )
         elif fetch is None or arguments.url is None:
             return _failed("fetch_failed", WebUrlOutput("rejected", "NETWORK_DISABLED"))
@@ -430,6 +502,7 @@ def make_web_url_tool(
                 sheet=arguments.sheet,
                 ocr=ocr,
                 clock=clock,
+                follow=arguments.follow,
             )
         if read.failure is not None:
             return _failed(read.failure, read.output, extra=read.reasons)
@@ -548,8 +621,10 @@ def make_web_url_tool(
             "text layer; its figures count only from a table whose columns add up to its "
             "total row, and other OCR text cannot answer a numeric question. HTML requires "
             "explicit "
-            "rectangular tables; no JavaScript, CSS rendering or linked-resource "
-            "fetching. Image addresses are not supported. To build a monthly table that later "
+            "rectangular tables; no JavaScript or CSS rendering. When the data sits behind a "
+            "link on the page the user gave (a PDF or spreadsheet), give follow with that "
+            "link's visible text or file name; only same-site links are followed. Image "
+            "addresses are not supported. To build a monthly table that later "
             "turns can use, give period_column and up to six value_columns instead of column and "
             "row: months must be explicit, one row per month. A value header should state its unit "
             "in parentheses; a column without one is kept with its unit unresolved (its figures "
@@ -559,6 +634,12 @@ def make_web_url_tool(
                 " The user uploaded a document with this question: read it with attached=true "
                 "and no url."
                 if attachment is not None
+                else ""
+            )
+            + (
+                " Documents uploaded earlier in this conversation stay readable with "
+                "attached=true and document=<name>; their outline is provided as data."
+                if documents
                 else ""
             )
         ),

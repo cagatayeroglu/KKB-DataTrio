@@ -526,6 +526,26 @@ svg {
 .composer:focus-within {
   border-color: #78ad94;
 }
+.composer {
+  position: relative;
+}
+.composer.dragging {
+  border-color: #3f8a66;
+  border-style: dashed;
+}
+.composer-drop {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-size: 12px;
+  color: #2f6b4f;
+  background: #f1f8f4e6;
+  pointer-events: none;
+}
 .composer textarea {
   width: 100%;
   resize: vertical;

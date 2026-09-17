@@ -55,6 +55,7 @@ from kkb_agent.tools import (
     make_table_transform_tool,
     make_web_url_tool,
 )
+from kkb_agent.tools._document_library import document_name, document_outline
 from kkb_agent.tools.web_url import Fetcher
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -460,6 +461,15 @@ class PreparedRunner:
             ),
         )
 
+    def _library(self, session_id: str) -> dict[str, tuple[str, Attachment]]:
+        """This conversation's documents by server-owned name, each rehashed on read."""
+        with self._documents_lock:
+            references = [ref for owner, ref in self._documents if owner == session_id]
+        return {
+            document_name(position): (reference, self._attachment(session_id, reference))
+            for position, reference in enumerate(references, 1)
+        }
+
     def selected(
         self,
         session_id: str,
@@ -563,7 +573,14 @@ class PreparedRunner:
                         resolved.artifact_id,
                         effective_selection.version,
                     )
-                registry = self._registry(lake.connection, workspace, lake.lineage, attachment)
+                named = self._library(session_id)
+                library = {name: item for name, (_, item) in named.items()}
+                current = next(
+                    (name for name, (ref, _) in named.items() if ref == effective_document), None
+                )
+                registry = self._registry(
+                    lake.connection, workspace, lake.lineage, attachment, library
+                )
                 answered = Session(
                     self._provider,
                     registry,
@@ -572,6 +589,7 @@ class PreparedRunner:
                     require_series_discovery=self._dense is not None,
                     repair_period_wording=True,
                     repair_unmatched_numbers=True,
+                    documents_note=document_outline(library, current),
                 ).answer(effective_question, lake.connection, workspace=workspace, remember=name)
                 published = workspace.value_of(name) if name in workspace.names() else None
                 answer = project_answer(
@@ -663,6 +681,7 @@ class PreparedRunner:
         workspace: Workspace,
         lineage: Lineage,
         attachment: Attachment | None = None,
+        library: dict[str, Attachment] | None = None,
     ) -> ToolRegistry:
         inspector = PreparedSeriesInspector(self._catalog)
         # Existing code-reviewed names only. Free catalog/source metadata belongs
@@ -692,11 +711,12 @@ class PreparedRunner:
                 document_fetch=self._web_url_fetch,
                 attachment=attachment,
                 document_ocr=self._document_ocr,
+                library=library,
             )
         )
         for make in (make_anomaly_tool, make_causality_tool):
             registry.register(make(connection, lineage=lineage, inspector=inspector))
-        if self._web_url_fetch is not None or attachment is not None:
+        if self._web_url_fetch is not None or attachment is not None or library:
             # The cell proof lives in this session's own lineage, where the gate
             # and the proof builder re-read it; the document itself is not kept.
             registry.register(
@@ -705,6 +725,7 @@ class PreparedRunner:
                     attachment=attachment,
                     lineage=lineage,
                     ocr=self._document_ocr,
+                    library=library,
                 )
             )
         return registry

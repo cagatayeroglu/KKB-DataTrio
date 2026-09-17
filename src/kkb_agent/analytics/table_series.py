@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from datetime import date
 from math import isfinite
 
+from pydantic import JsonValue
+
 from kkb_agent.core import (
     DIMENSIONLESS,
     AnalyticalResult,
@@ -228,3 +230,90 @@ def add_document_column(
         output_ref=label,
     )
     return AddedSeries(tuple(added), tuple(missing), transformation)
+
+
+JOIN_METHOD = "join-monthly-table-v1"
+
+
+@dataclass(frozen=True, slots=True)
+class JoinedTable:
+    values: tuple[ResultValue, ...]
+    columns: tuple[str, ...]
+    transformation: TransformationRecord
+
+
+def join_monthly_table(
+    source: AnalyticalResult,
+    other: AnalyticalResult,
+    *,
+    other_name: str,
+    columns: Sequence[str] | None = None,
+) -> JoinedTable:
+    """Left-join another published table's monthly columns onto the source's months.
+
+    The source owns the row set: its values are untouched, a month only the
+    other table has is not added, and a month the other table lacks stays empty.
+    Each joined column keeps its own unit, scale and measure exactly as the other
+    table recorded them. A label already in the source is refused rather than
+    renamed, so no existing column can be shadowed.
+    """
+    if other.status is not ResultStatus.COMPUTED:
+        raise SeriesAdditionRefused("The other table is not computed")
+    periods = table_months(source, "")
+    source_labels = {value.label for value in source.values}
+    grouped: dict[str, list[ResultValue]] = {}
+    for value in other.values:
+        if value.period is None or value.unit == DIMENSIONLESS:
+            continue  # Summary metrics describe the other table's rows, not months.
+        grouped.setdefault(value.label, []).append(value)
+    available = {label: cells for label, cells in grouped.items() if len(cells) >= 2}
+    wanted = list(columns) if columns is not None else sorted(available)
+    if not wanted:
+        raise SeriesAdditionRefused("The other table has no monthly column to join")
+    if len(set(wanted)) != len(wanted):
+        raise SeriesAdditionRefused("Name each joined column once")
+    added: list[ResultValue] = []
+    matched: dict[str, int] = {}
+    missing: dict[str, JsonValue] = {}
+    for label in wanted:
+        cells = available.get(label)
+        if cells is None:
+            raise SeriesAdditionRefused(f"{label!r} is not a monthly column of {other_name!r}")
+        if label in source_labels:
+            raise SeriesAdditionRefused(f"{label!r} is already a column in the source table")
+        by_end: dict[date, ResultValue] = {}
+        for cell in cells:
+            period = cell.period
+            if period is None or not _monthly(period.start, period.end):
+                raise SeriesAdditionRefused(f"{label!r} does not use exact monthly periods")
+            if period.end in by_end or not isfinite(cell.value):
+                raise SeriesAdditionRefused(f"{label!r} has duplicate or non-finite months")
+            by_end[period.end] = cell
+        joined = [
+            by_end[end].model_copy(update={"period": periods[end]})
+            for end in sorted(periods)
+            if end in by_end
+        ]
+        if len(joined) < 2:
+            raise SeriesAdditionRefused(
+                f"{label!r} shares fewer than two months with the source table"
+            )
+        added.extend(joined)
+        matched[label] = len(joined)
+        missing[label] = [end.isoformat() for end in sorted(periods) if end not in by_end]
+    transformation = TransformationRecord(
+        operation="join_table",
+        parameters={
+            "join": "left_exact_monthly_period",
+            "other": other_name,
+            "other_result": other.result_id,
+            "columns": list(wanted),
+            "source_rows": len(periods),
+            "matched_rows": dict(matched),
+            "missing_periods": missing,
+            "fill": "none",
+        },
+        input_refs=[source.result_id, other.result_id],
+        output_ref=",".join(wanted),
+    )
+    return JoinedTable(tuple(added), tuple(wanted), transformation)

@@ -92,6 +92,7 @@ export function Workspace() {
     [followSelected, setFollowSelected] = useState(true),
     [pendingIndex, setPendingIndex] = useState<number | null>(null),
     [attachment, setAttachment] = useState<DocumentAdmitted | null>(null),
+    [dragging, setDragging] = useState(false),
     [uploading, setUploading] = useState(false);
   const pending = pendingIndex !== null;
   const uploads = health?.capabilities.includes("document_upload") ?? false;
@@ -741,12 +742,41 @@ export function Workspace() {
               </div>
             )}
             <form
-              className="composer"
+              className={dragging ? "composer dragging" : "composer"}
               onSubmit={(e) => {
                 e.preventDefault();
                 void submit();
               }}
+              onDragEnter={(e) => {
+                if (!uploads || !e.dataTransfer.types.includes("Files")) return;
+                e.preventDefault();
+                setDragging(true);
+              }}
+              onDragOver={(e) => {
+                if (!uploads || !e.dataTransfer.types.includes("Files")) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect =
+                  !ready || busy || pending || uploading ? "none" : "copy";
+              }}
+              onDragLeave={(e) => {
+                // Leaving for a child element is not leaving the drop zone.
+                if (!e.currentTarget.contains(e.relatedTarget as Node | null))
+                  setDragging(false);
+              }}
+              onDrop={(e) => {
+                if (!uploads || !e.dataTransfer.types.includes("Files")) return;
+                e.preventDefault();
+                setDragging(false);
+                // One document per question; the same admission checks as the picker.
+                void attach(e.dataTransfer.files[0]);
+              }}
             >
+              {dragging && (
+                <div className="composer-drop" aria-hidden="true">
+                  <FileText size={16} /> Belgeyi buraya bırak · CSV, Excel, PDF,
+                  HTML
+                </div>
+              )}
               <div className="selection-context" aria-live="polite">
                 <label>
                   <input
@@ -797,9 +827,9 @@ export function Workspace() {
               />
               {attachment && (
                 <div className="composer-attachment" aria-live="polite">
-                  <FileText size={13} /> Bu soruya ekli belge:{" "}
-                  {attachment.document_format.toUpperCase()} ·{" "}
-                  {Math.max(1, Math.round(attachment.bytes / 1024))} KB
+                  <FileText size={13} /> Ekli belge (sohbette sonraki sorularda
+                  da kullanılabilir): {attachment.document_format.toUpperCase()}{" "}
+                  · {Math.max(1, Math.round(attachment.bytes / 1024))} KB
                   <button
                     type="button"
                     aria-label="Ekli belgeyi kaldır"
@@ -837,7 +867,7 @@ export function Workspace() {
                         size="icon"
                         variant="ghost"
                         aria-label="Soruya belge ekle"
-                        title="CSV, Excel, PDF veya HTML belge ekle (en fazla 10 MiB)"
+                        title="CSV, Excel, PDF veya HTML belge ekle ya da sürükleyip bırak (en fazla 10 MiB)"
                         disabled={!ready || busy || pending || uploading}
                         onClick={() => picker.current?.click()}
                       >
