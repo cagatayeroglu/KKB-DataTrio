@@ -914,6 +914,31 @@ quality measurement, or an out-of-scope classifier. No live embedding, Kloudeks,
 BDDK, EVDS or production-search call was made. Archive-intent ordering, broad
 multi-series ranking, N07/N09/N18 and full catalog coverage remain separate limits.
 
+<a id="release-checkpoint-2026-09-17"></a>
+## Release checkpoint — 2026-09-17 (PR #229, merged)
+
+Candidate `dev` `7536309` (merged #228), promoting #197–#228; Eray merged PR #229
+into `main` at `bdc05ac` as a merge commit. The five `main`-only commits before the
+merge were earlier promotion merge commits with no content, and `main` and `dev`
+trees are identical after it. Gate run locally on macOS, Python 3.12.5, with the
+repository `.venv`:
+
+| Gate | Result |
+| --- | --- |
+| `make full` | Exit 0: Ruff format (224 files) and check, strict `mypy src` (112 files), full `pytest` 3,757 passed in 143.4 s, Bandit, secret scan, `pip-audit` with only PYSEC-2026-113 / PYSEC-2026-1845 ignored — no known vulnerabilities; 153.8 s wall |
+| EVAL-SMOKE | `python -m kkb_agent.evaluation`: 5/5 PASS (`m9-05-eval-smoke-v1`, case set `b8e2e37f…421eec`), offline and deterministic |
+| API readiness | Read-only `--check` with the v3 catalog and `qwen3-instruct-query-v1-e0bbaac8` index: ready, `model_checked: false`, hybrid, 29 prepared identities, 4,124 observations, 37 catalog identities, 124 files |
+| Web client | `npm run check` (Prettier, `tsc --noEmit`, 39 tests) and `npm run build` exit 0 |
+
+No live model, source, URL or upload request was made for the gate. This is a
+full application/static/security gate plus EVAL-SMOKE, not EVAL-FULL or a demo
+rehearsal. Known limitations carried into `main`: the latest bounded live rerun
+([rerun 8](#m11-07-live-rerun-8-2026-09-17)) accepted Turns 1–2 but Turn 3 hit the
+600 s provider timeout, so served three-turn acceptance and live confirmation of
+#213/#215 remain open; document inputs are operator opt-in with no live
+URL/upload acceptance on this revision (Q-NET-02, Q-DATA-03 open); document tables
+are monthly only.
+
 <a id="handoff-checkpoint-2026-09-15"></a>
 ## Authorized handoff checkpoint — 2026-09-15
 
