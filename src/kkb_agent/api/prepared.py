@@ -19,6 +19,7 @@ import duckdb
 from pydantic import Field
 
 from kkb_agent.agent import Session, ToolRegistry, Workspace
+from kkb_agent.agent.loop import MAX_HISTORY_TURNS
 from kkb_agent.agent.selection import SelectedTable, SelectionError
 from kkb_agent.agent.verifier import AnswerStatus
 from kkb_agent.agent.workspace import WorkspaceError
@@ -33,10 +34,12 @@ from kkb_agent.api.contracts import (
 from kkb_agent.api.projection import project_answer, safe_text
 from kkb_agent.api.proof import build_proof
 from kkb_agent.api.service import SelectedResult, ServiceError
+from kkb_agent.api.store import DEFAULT_TITLE, ConversationStore
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
 from kkb_agent.catalog.mappings import MAX_SNAPSHOT_BYTES, ReviewedSnapshot, load_reviewed_snapshot
 from kkb_agent.core import AnalyticalResult, SourceRef
 from kkb_agent.core.models import ContractModel
+from kkb_agent.ingest.address_outline import TurnFetchCache, address_outline
 from kkb_agent.ingest.attached import SOURCE_TYPE as UPLOAD
 from kkb_agent.ingest.attached import Attachment
 from kkb_agent.ingest.prepared_series import prepared_series_names
@@ -55,7 +58,8 @@ from kkb_agent.tools import (
     make_table_transform_tool,
     make_web_url_tool,
 )
-from kkb_agent.tools.web_url import Fetcher
+from kkb_agent.tools._document_library import document_name, document_outline
+from kkb_agent.tools.web_url import Fetcher, addresses_in
 
 if TYPE_CHECKING:  # pragma: no cover
     from kkb_agent.catalog.hybrid import CatalogDenseStage
@@ -334,6 +338,7 @@ class PreparedRunner:
         web_url_fetch: Fetcher | None = None,
         document_uploads: bool = False,
         document_ocr: OcrProvider | None = None,
+        store: ConversationStore | None = None,
     ):
         self._catalog = load_reviewed_snapshot(catalog_bytes)
         self._catalog_bytes = catalog_bytes
@@ -363,13 +368,25 @@ class PreparedRunner:
             != self.status.snapshot_id
         ):
             raise PreparedError("prepared_pool_changed")
-        self.run_root = state_root / uuid4().hex
+        # A fixed root, so a conversation's lakehouse is where it was before the
+        # restart. The seed is copied once and verified afterwards: a prepared
+        # pool that changed underneath must not be reused silently.
+        self.run_root = state_root
         self.seed = self.run_root / "seed"
-        _copy(root, self.seed, expected)
+        if (self.seed / DATABASE_NAME).is_file():
+            if manifest(self.seed) != expected:
+                raise PreparedError("prepared_pool_changed")
+        else:
+            _copy(root, self.seed, expected)
+        self._store = store
         self._manifest = expected
         self._turns: dict[str, int] = {}
         self._publications: dict[tuple[str, str], _Publication] = {}
         self._pending_clarifications: dict[str, PendingClarification] = {}
+        # Bounded (question, shown answer) pairs so a planner can resolve "bu",
+        # "önceki cevap" after an unrelated message; analytical state stays in
+        # the workspace, never here.
+        self._history: dict[str, list[tuple[str, str]]] = {}
         self._lock = threading.Lock()
 
     def __call__(
@@ -389,12 +406,36 @@ class PreparedRunner:
             document_ref=document_ref,
         )
 
+    def _restore(self, session_id: str) -> None:
+        """Bring one conversation's persisted references back into this process."""
+        if self._store is None or session_id in self._turns:
+            return
+        self._turns[session_id] = self._store.turn_count(session_id)
+        for item in self._store.publications(session_id):
+            self._publications[session_id, item.turn_id] = _Publication(
+                SelectedResult(item.turn_id, item.result_ref, item.result_version),
+                item.name,
+                item.artifact_id,
+            )
+        with self._documents_lock:
+            for document in self._store.documents(session_id):
+                self._documents[session_id, document.document_ref] = _Document(
+                    document.document_format,
+                    document.media_type,
+                    document.sha256,
+                    document.byte_count,
+                    document.path,
+                    document.admitted_at,
+                )
+        self._history[session_id] = list(self._store.history(session_id, MAX_HISTORY_TURNS))
+
     def admit_document(self, session_id: str, media_type: str, content: bytes) -> DocumentAdmitted:
         """Admit through the upload checks and store by opaque reference; no filename is kept."""
         if not self._document_uploads:
             raise ServiceError("unavailable", 503)
         if not _IDENTIFIER.fullmatch(session_id):
             raise ServiceError("not_found", 404)
+        self._restore(session_id)
         kind = _UPLOAD_KINDS.get(media_type)
         if kind is None or not content or len(content) > MAX_DOCUMENT_BYTES:
             raise ServiceError("document_rejected", 422)
@@ -420,13 +461,27 @@ class PreparedRunner:
                     stream.write(admitted.content)
             except OSError:
                 raise ServiceError("unavailable", 503) from None
+            admitted_at = datetime.now(UTC)
             self._documents[session_id, reference] = _Document(
                 kind.value,
                 media_type,
                 digest,
                 len(admitted.content),
                 path,
-                datetime.now(UTC),
+                admitted_at,
+            )
+            position = sum(1 for owner, _ in self._documents if owner == session_id)
+        if self._store is not None:
+            self._store.add_document(
+                session_id,
+                document_ref=reference,
+                name=document_name(position),
+                document_format=kind.value,
+                media_type=media_type,
+                sha256=digest,
+                byte_count=len(admitted.content),
+                path=path,
+                admitted_at=admitted_at,
             )
         return DocumentAdmitted(
             document_ref=reference,
@@ -459,6 +514,15 @@ class PreparedRunner:
                 content_hash=f"sha256:{stored.sha256}",
             ),
         )
+
+    def _library(self, session_id: str) -> dict[str, tuple[str, Attachment]]:
+        """This conversation's documents by server-owned name, each rehashed on read."""
+        with self._documents_lock:
+            references = [ref for owner, ref in self._documents if owner == session_id]
+        return {
+            document_name(position): (reference, self._attachment(session_id, reference))
+            for position, reference in enumerate(references, 1)
+        }
 
     def selected(
         self,
@@ -497,6 +561,7 @@ class PreparedRunner:
         if not self._lock.acquire(blocking=False):
             raise PreparedError("concurrent_runtime_refused")
         try:
+            self._restore(session_id)
             pending = self._pending_clarifications.get(session_id)
             effective_question = question
             effective_selection = selection
@@ -538,7 +603,8 @@ class PreparedRunner:
                 raise PreparedError("runtime_turn_limit")
             self._turns.setdefault(session_id, 0)
             target = self.run_root / session_id / "lake"
-            if previous == 0:
+            if not (target / DATABASE_NAME).is_file():
+                # First turn of this conversation, in this process or an earlier one.
                 _copy(self.seed, target, self._manifest)
             if not (target / DATABASE_NAME).is_file():
                 raise PreparedError("session_pool_missing")
@@ -563,7 +629,24 @@ class PreparedRunner:
                         resolved.artifact_id,
                         effective_selection.version,
                     )
-                registry = self._registry(lake.connection, workspace, lake.lineage, attachment)
+                named = self._library(session_id)
+                library = {name: item for name, (_, item) in named.items()}
+                current = next(
+                    (name for name, (ref, _) in named.items() if ref == effective_document), None
+                )
+                # One page read per written address; tools reuse exactly these bytes.
+                turn_fetch = (
+                    TurnFetchCache(self._web_url_fetch) if self._web_url_fetch is not None else None
+                )
+                addresses = addresses_in(question)
+                address_note = (
+                    address_outline(addresses, turn_fetch)
+                    if turn_fetch is not None and addresses
+                    else None
+                )
+                registry = self._registry(
+                    lake.connection, workspace, lake.lineage, attachment, library, turn_fetch
+                )
                 answered = Session(
                     self._provider,
                     registry,
@@ -572,6 +655,15 @@ class PreparedRunner:
                     require_series_discovery=self._dense is not None,
                     repair_period_wording=True,
                     repair_unmatched_numbers=True,
+                    documents_note=document_outline(library, current),
+                    address_note=address_note,
+                    # A clarification merge already restates the original request.
+                    history=(
+                        tuple(self._history.get(session_id, ()))
+                        if pending is None or is_cancel or is_new_q
+                        else ()
+                    ),
+                    tools_required=bool(addresses_in(question)) or document_ref is not None,
                 ).answer(effective_question, lake.connection, workspace=workspace, remember=name)
                 published = workspace.value_of(name) if name in workspace.names() else None
                 answer = project_answer(
@@ -589,11 +681,21 @@ class PreparedRunner:
                 # Bounded by the existing session/turn limits; never rebuild this
                 # ownership map by scanning arbitrary stored result digests.
                 if answer.result is not None:
+                    artifact = workspace.resolve(name).artifact_id
                     self._publications[session_id, turn_id] = _Publication(
                         SelectedResult(turn_id, answer.result.result_ref, answer.result.version),
                         name,
-                        workspace.resolve(name).artifact_id,
+                        artifact,
                     )
+                    if self._store is not None:
+                        self._store.add_publication(
+                            session_id,
+                            turn_id=turn_id,
+                            name=name,
+                            artifact_id=artifact,
+                            result_ref=answer.result.result_ref,
+                            result_version=answer.result.version,
+                        )
                 clarification_reason = answered.planned.plan.clarification
                 if answer.status == AnswerStatus.ACCEPTED:
                     self._pending_clarifications.pop(session_id, None)
@@ -616,10 +718,42 @@ class PreparedRunner:
                         selection=sel,
                         document_ref=effective_document,
                     )
+                turns = self._history.setdefault(session_id, [])
+                turns.append((question, answer.text))
+                del turns[:-MAX_HISTORY_TURNS]
+                self._remember(session_id, turn_id, question, answer, effective_document)
                 return answer
 
         finally:
             self._lock.release()
+
+    def _remember(
+        self,
+        session_id: str,
+        turn_id: str,
+        question: str,
+        answer: Answer,
+        document_ref: str | None,
+    ) -> None:
+        """Persist the turn's two messages, so reopening shows the conversation."""
+        if self._store is None:
+            return
+        self._store.append_message(
+            session_id, turn_id=turn_id, role="user", text=question, document_ref=document_ref
+        )
+        self._store.append_message(
+            session_id,
+            turn_id=turn_id,
+            role="assistant",
+            text=answer.text,
+            status=answer.status.value,
+            result_ref=answer.result.result_ref if answer.result is not None else None,
+            result_version=answer.result.version if answer.result is not None else None,
+        )
+        found = self._store.conversation(session_id)
+        if found is not None and found.title == DEFAULT_TITLE:
+            # The first question names the conversation until the user renames it.
+            self._store.update_conversation(session_id, title=" ".join(question.split())[:60])
 
     def resolve_selection(self, session_id: str, selection: SelectedResult) -> ResolvedSelection:
         """Worker-side resolution only; never an HTTP endpoint or selected runner.
@@ -663,7 +797,10 @@ class PreparedRunner:
         workspace: Workspace,
         lineage: Lineage,
         attachment: Attachment | None = None,
+        library: dict[str, Attachment] | None = None,
+        turn_fetch: TurnFetchCache | None = None,
     ) -> ToolRegistry:
+        fetch = turn_fetch if turn_fetch is not None else self._web_url_fetch
         inspector = PreparedSeriesInspector(self._catalog)
         # Existing code-reviewed names only. Free catalog/source metadata belongs
         # in catalog continuation's USER data, never a SYSTEM tool description.
@@ -689,22 +826,25 @@ class PreparedRunner:
                 lineage=lineage,
                 series_names=names,
                 inspector=inspector,
-                document_fetch=self._web_url_fetch,
+                document_fetch=fetch,
                 attachment=attachment,
                 document_ocr=self._document_ocr,
+                library=library,
             )
         )
         for make in (make_anomaly_tool, make_causality_tool):
             registry.register(make(connection, lineage=lineage, inspector=inspector))
-        if self._web_url_fetch is not None or attachment is not None:
+        if self._web_url_fetch is not None or attachment is not None or library:
             # The cell proof lives in this session's own lineage, where the gate
             # and the proof builder re-read it; the document itself is not kept.
             registry.register(
                 make_web_url_tool(
-                    fetch=self._web_url_fetch,
+                    fetch=fetch,
                     attachment=attachment,
                     lineage=lineage,
                     ocr=self._document_ocr,
+                    library=library,
+                    endpoints=turn_fetch.endpoints if turn_fetch is not None else None,
                 )
             )
         return registry

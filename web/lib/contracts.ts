@@ -7,7 +7,7 @@ export const sessionSchema = z
     api_version: z.literal(1),
     session_id: ref,
     token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
-    survives_restart: z.literal(false),
+    survives_restart: z.boolean(),
   })
   .strict();
 const periodSchema = z
@@ -304,3 +304,62 @@ export const savedSchema = z
   })
   .strict();
 export type Saved = z.infer<typeof savedSchema>;
+
+const key = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
+export const ownerSchema = z
+  .object({ api_version: z.literal(1), owner_token: key })
+  .strict();
+export const conversationSummarySchema = z
+  .object({
+    conversation_id: ref,
+    title: label,
+    archived: z.boolean(),
+    created_at: z.iso.datetime({ offset: true }),
+    updated_at: z.iso.datetime({ offset: true }),
+    turns: z.number().int().nonnegative(),
+  })
+  .strict();
+export const conversationListSchema = z
+  .object({
+    api_version: z.literal(1),
+    conversations: z.array(conversationSummarySchema).max(200),
+  })
+  .strict();
+export const storedMessageSchema = z
+  .object({
+    sequence: z.number().int().min(1),
+    turn_id: ref,
+    role: z.enum(["user", "assistant"]),
+    text: bounded,
+    status: z.enum(["accepted", "qualified", "abstained"]).nullable(),
+    result_ref: ref.nullable(),
+    result_version: digest.nullable(),
+    document_ref: ref.nullable(),
+    created_at: z.iso.datetime({ offset: true }),
+  })
+  .strict();
+export const conversationDetailSchema = z
+  .object({
+    api_version: z.literal(1),
+    conversation: conversationSummarySchema,
+    token: key.nullable(),
+    messages: z.array(storedMessageSchema).max(512),
+    documents: z
+      .array(
+        z
+          .object({
+            document_ref: ref,
+            name: z.string().regex(/^belge_[0-9]{1,2}$/),
+            document_format: z.enum(["csv", "xlsx", "pdf", "html"]),
+            bytes: z.number().int().positive(),
+            sha256: digest,
+            admitted_at: z.iso.datetime({ offset: true }),
+          })
+          .strict(),
+      )
+      .max(4),
+  })
+  .strict();
+export type ConversationSummary = z.infer<typeof conversationSummarySchema>;
+export type ConversationDetail = z.infer<typeof conversationDetailSchema>;
+export type StoredMessage = z.infer<typeof storedMessageSchema>;

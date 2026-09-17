@@ -30,6 +30,7 @@ from kkb_agent.agent import (
     execute,
     validate_plan,
 )
+from kkb_agent.agent.loop import REPLY_INSTRUCTIONS
 from kkb_agent.llm import ScriptedProvider, scripted
 from kkb_agent.llm.provider import Role
 from kkb_agent.llm.structured import schema_instructions
@@ -312,7 +313,14 @@ class TestThePlannerLoop:
         Session(provider, reg).plan("konut kredisi")
         initial = provider.seen[0]
         contract = schema_instructions(AnalyticalPlan)
-        assert [message.role for message in initial] == [Role.SYSTEM, Role.SYSTEM, Role.USER]
+        assert [message.role for message in initial] == [
+            Role.SYSTEM,
+            Role.SYSTEM,
+            Role.SYSTEM,
+            Role.USER,
+        ]
+        # The conversational-reply decision is offered once, to the initial call only.
+        assert initial[2].content == REPLY_INSTRUCTIONS
         assert initial[0].content.endswith(contract)
         emitted_schema = json.loads(contract.split("\n", 1)[1])
         assert emitted_schema == AnalyticalPlan.model_json_schema()

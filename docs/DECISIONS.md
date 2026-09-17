@@ -635,6 +635,31 @@ Confirmed team priority refinement, explicitly requested by Çağatay after M3-0
 - Rejected: exact equality (the organizer page's own kilogram totals differ by one from their rounded parts), and quoting unchecked OCR cells with a warning.
 - Consequences: DEC-104/132 guards and the literal cell proof are unchanged; OCR text outside a checked table never becomes a number. Scanned tables without a total row still abstain; native text layers are always read first.
 
+### DEC-150 — Prompt-address authority: same-site link follow and script endpoint datasets
+
+- Status: CONFIRMED team decision, 2026-09-17, by Arda (implemented with Claude Code on branch `feature/generic-acquisition-chat-reply`).
+- Context: `web_url` previously accepted only the literal user-written address. Real-world financial pages (e.g. Borsa İstanbul gold trading, XTUMY) link to PDFs and expose data through same-site JSON endpoints filled from the page path. The planner cannot supply addresses (DEC-132); extending authority must stay within the user's explicit page scope.
+- Decision: a user-written address also authorizes (a) one hop to a same-registrable-domain link whose text or filename appears in the page bytes (`follow="<link text or file>"`), and (b) same-site JSON endpoints declared in the page's own same-site scripts, filled only with the page path's last segment (`follow="endpoint_N"`). Every request still goes through `safe_fetch`; the planner never supplies an address. Authority is scoped to exactly one hop and one registrable domain.
+- Evidence: `test_page_links.py` (same-site link extraction and negative cases), `test_address_outline.py` (page outline and endpoint discovery), `test_script_page_dataset.py` (script endpoint dataset reading).
+- Rejected: allowing the planner to supply arbitrary URLs; multi-hop link following; cross-domain link following.
+- Consequences: DEC-132 safe_fetch boundary unchanged. SECURITY.md URL/file section updated. The planner's address_outline tool provides link/endpoint headers without values.
+
+### DEC-151 — Operation-scoped semantic checks replace table-level refusal
+
+- Status: CONFIRMED team decision, 2026-09-17, by Arda (implemented with Claude Code on branch `feature/generic-acquisition-chat-reply`).
+- Context: previously, any unresolved semantic field (e.g. unit not stated on a document column) caused the entire table to be refused. This prevented legitimate operations on other columns with fully resolved semantics.
+- Decision: semantic checks are scoped to the columns an operation actually uses (`add_series`, `align`, `filter`, `rebase`, `table_co_movement`). A column with unresolved unit can coexist in a table; operations that touch it declare the unresolved status. The answer gate is unchanged: unresolved figures are never quoted in final answers. For cumulative behavior on undeclared columns, `detect_cumulative` with NONE/HIGH outcome is used and the result is labeled `inferred`.
+- Rejected: removing semantic checks entirely; allowing unresolved figures in answers.
+- Consequences: document columns without a stated unit are kept (`column_units` from the user's question records provenance). DEC-104 answer gate unchanged.
+
+### DEC-152 — Plan contract: conversational reply and budget increase
+
+- Status: CONFIRMED team decision, 2026-09-17, by Arda (implemented with Claude Code on branch `feature/generic-acquisition-chat-reply`).
+- Context: conversational messages ("Merhaba", "bu sonuç ne demek") forced the planner into plan/clarification, producing awkward abstentions. The system needed a lightweight response path without tool execution.
+- Decision: `AnalyticalPlan.reply` added to the plan contract; exactly one of `steps`, `clarification`, or `reply` is set. `REPLY_INSTRUCTIONS` and the last 6 turns of conversation history are included in the initial planning call only (not continuation), so the #237 continuation budget test still holds. A reply cannot be issued when the message contains a URL or document attachment (guarded by `PlanRejected`). `Budget.max_steps` raised from 8 to 12 to accommodate multi-step acquisition workflows.
+- Rejected: adding a separate router tool or pre-classifier; sending history to continuation calls; unlimited step budget.
+- Consequences: no tool execution or publication occurs on a reply. Selected table is preserved across conversational turns. The continuation prompt budget (#237) is unaffected.
+
 ## Proposed decisions
 
 Candidates below are not approved selections. Compare options in a bounded task; do not silently promote a proposal to CONFIRMED.

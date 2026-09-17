@@ -526,6 +526,26 @@ svg {
 .composer:focus-within {
   border-color: #78ad94;
 }
+.composer {
+  position: relative;
+}
+.composer.dragging {
+  border-color: #3f8a66;
+  border-style: dashed;
+}
+.composer-drop {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-size: 12px;
+  color: #2f6b4f;
+  background: #f1f8f4e6;
+  pointer-events: none;
+}
 .composer textarea {
   width: 100%;
   resize: vertical;
@@ -1835,4 +1855,113 @@ dialog.panel-backdrop::backdrop {
 }
 .result-link:disabled {
   cursor: default;
+}
+.chat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 6px 0 14px;
+  min-height: 0;
+}
+.chat-list .new-chat {
+  justify-content: flex-start;
+  gap: 7px;
+  background: #ffffff14;
+  border-color: #ffffff2e;
+  color: #eaf5ef;
+}
+.chat-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  background: #ffffff10;
+  color: #9db3ad;
+}
+.chat-search input {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: #e7f2ec;
+  font-size: 12px;
+  outline: none;
+}
+.chat-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  background: transparent;
+  color: #9db3ad;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0 3px;
+}
+.chat-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  max-height: 34vh;
+}
+.chat-empty {
+  font-size: 11px;
+  color: #8ea49e;
+  padding: 4px 6px;
+}
+.chat-item {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 7px;
+  padding: 1px 4px 1px 0;
+}
+.chat-item.active,
+.chat-item:hover {
+  background: #ffffff14;
+}
+.chat-item > button:not(.chat-open) {
+  border: 0;
+  background: transparent;
+  color: #9db3ad;
+  cursor: pointer;
+  padding: 4px 2px;
+}
+.chat-item input {
+  width: 100%;
+  border: 1px solid #ffffff33;
+  border-radius: 6px;
+  background: #ffffff10;
+  color: #eaf5ef;
+  font-size: 12px;
+  padding: 5px 7px;
+}
+.chat-open {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: #d6e6df;
+  font-size: 12px;
+  text-align: left;
+  padding: 7px 6px;
+  cursor: pointer;
+}
+.chat-open span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-open small {
+  display: block;
+  font-size: 10px;
+  color: #93a8a2;
+}
+.chat-row.stored .bubble {
+  opacity: 0.85;
 }

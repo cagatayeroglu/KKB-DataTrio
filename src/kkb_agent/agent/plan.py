@@ -31,19 +31,33 @@ class PlanStep(BaseModel):
     depends_on: list[Identifier] = Field(default_factory=list)
 
 
+#: A conversational reply is short prose, never a place to carry a data table.
+MAX_REPLY_CHARS = 1500
+
+
 class AnalyticalPlan(BaseModel):
-    """What the planner proposes. Its steps are candidates, not commitments."""
+    """What the planner proposes. Its steps are candidates, not commitments.
+
+    Exactly one of three decisions, in one planner call (no separate router):
+    `steps` to run tools, `clarification` to ask, or `reply` to answer a message
+    that needs no data or calculation. A reply publishes nothing and is gated
+    like any draft: a figure in it must bind to an already published result.
+    """
 
     model_config = ConfigDict(extra="forbid", strict=False)
 
     question: str = Field(min_length=1)
     steps: list[PlanStep]
     clarification: ClarificationReason | None = None
+    reply: str | None = Field(default=None, min_length=1, max_length=MAX_REPLY_CHARS)
 
     @model_validator(mode="after")
     def executable_or_clarification(self) -> Self:
-        if bool(self.steps) == (self.clarification is not None):
-            raise ValueError("Provide executable steps or a clarification reason, never both")
+        decisions = sum((bool(self.steps), self.clarification is not None, self.reply is not None))
+        if decisions != 1:
+            raise ValueError(
+                "Provide exactly one of: executable steps, a clarification reason, or a reply"
+            )
         return self
 
     def fingerprint(self) -> str:

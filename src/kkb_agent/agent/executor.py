@@ -57,7 +57,9 @@ class ToolStatus(StrEnum):
 class Budget:
     """Every loop in this package is bounded by one of these."""
 
-    max_steps: int = 8
+    # A document chain (read -> join -> align -> compare) plus discovery needs
+    # more than the eight steps a prepared-only question used.
+    max_steps: int = 12
     max_plan_repairs: int = 2
     max_tool_retries: int = 1
 
@@ -106,6 +108,7 @@ class ValidatedPlan:
     question: str
     steps: tuple[ValidatedStep, ...]
     clarification: ClarificationReason | None = None
+    reply: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,7 +197,9 @@ def validate_plan(
             category=RejectionCategory.STRUCTURE,
         )
 
-    return ValidatedPlan(plan.question, tuple(_ordered(plan, validated)), plan.clarification)
+    return ValidatedPlan(
+        plan.question, tuple(_ordered(plan, validated)), plan.clarification, plan.reply
+    )
 
 
 def _ordered(plan: AnalyticalPlan, validated: dict[str, ValidatedStep]) -> list[ValidatedStep]:

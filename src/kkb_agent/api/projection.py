@@ -126,7 +126,8 @@ def project_answer(
             ),
             proof=_owned_proof(proof, version),
         )
-    elif gate.status is not AnswerStatus.ABSTAINED:
+    elif gate.status is not AnswerStatus.ABSTAINED and answered.planned.plan.reply is None:
+        # A conversational reply never publishes, so saying so would be noise.
         notices.append("Bu turda yeni bir doğrulanmış tablo çalışma alanına yayımlanmadı.")
     answer = Answer(
         status=gate.status,

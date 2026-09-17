@@ -72,7 +72,8 @@ class SessionCreated(ContractModel):
     session_id: Reference
     # Capability returned once; supplied as a header, never in a URL or log.
     token: Annotated[str, StringConstraints(strict=True, min_length=43, max_length=43)]
-    survives_restart: Literal[False] = False
+    # True when the operator gave the service a conversation store (M14-01).
+    survives_restart: bool = False
 
 
 class Cell(ContractModel):
@@ -289,3 +290,70 @@ class Health(ContractModel):
     max_turns_per_session: int = MAX_TURNS
     max_running_turns: Literal[1] = 1
     capabilities: tuple[str, ...] = ("sessions", "questions", "published_values", "turn_events")
+
+
+#: The browser-held keys: an owner key and a conversation token share this shape.
+Key = Annotated[str, StringConstraints(strict=True, min_length=43, max_length=43)]
+
+
+class OwnerCreated(ContractModel):
+    """The browser's own key for its conversations; only its digest is stored."""
+
+    api_version: Literal[1] = 1
+    owner_token: Key
+
+
+class ConversationSummary(ContractModel):
+    conversation_id: Reference
+    title: Label
+    archived: bool
+    created_at: AwareDatetime
+    updated_at: AwareDatetime
+    turns: Annotated[int, Field(strict=True, ge=0)]
+
+
+class ConversationList(ContractModel):
+    api_version: Literal[1] = 1
+    conversations: Annotated[tuple[ConversationSummary, ...], Field(max_length=200)] = ()
+
+
+class StoredMessage(ContractModel):
+    sequence: Annotated[int, Field(strict=True, ge=1)]
+    turn_id: Reference
+    role: Literal["user", "assistant"]
+    text: Text
+    status: AnswerStatus | None = None
+    result_ref: Reference | None = None
+    result_version: Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{64}$")] | None = None
+    document_ref: Reference | None = None
+    created_at: AwareDatetime
+
+
+class ConversationDocument(ContractModel):
+    document_ref: Reference
+    # Server-owned name (belge_1, ...); an uploaded filename is never kept.
+    name: Annotated[str, StringConstraints(strict=True, pattern=r"^belge_[0-9]{1,2}$")]
+    document_format: Literal["csv", "xlsx", "pdf", "html"]
+    bytes: Annotated[int, Field(strict=True, ge=1, le=MAX_DOCUMENT_BYTES)]
+    sha256: Digest
+    admitted_at: AwareDatetime
+
+
+class ConversationDetail(ContractModel):
+    api_version: Literal[1] = 1
+    conversation: ConversationSummary
+    # Returned so an owner can continue this conversation's turn endpoints.
+    token: Key | None = None
+    messages: Annotated[tuple[StoredMessage, ...], Field(max_length=512)] = ()
+    documents: Annotated[tuple[ConversationDocument, ...], Field(max_length=MAX_DOCUMENTS)] = ()
+
+
+class ConversationUpdate(ContractModel):
+    title: Label | None = None
+    archived: bool | None = None
+
+    @model_validator(mode="after")
+    def one_change(self) -> Self:
+        if self.title is None and self.archived is None:
+            raise ValueError("Give a title or an archived flag")
+        return self

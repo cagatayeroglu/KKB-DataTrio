@@ -652,6 +652,31 @@ def test_shared_repair_budget_exhaustion_across_phases_gives_one_attempt(rig):
     ]
 
 
+def test_a_reply_refused_for_a_source_message_is_a_categorised_rejection(rig):
+    """The reply guard is a plan-shape refusal, not an uncategorised one.
+
+    A message carrying an address or a document may not be answered by a reply.
+    That refusal reaches the ledger as a structure rejection, so a live run can
+    tell it apart from a discovery or selection failure.
+    """
+    reg, _ = rig
+    reply = json.dumps(
+        {"question": QUESTION, "steps": [], "clarification": None, "reply": "Merhaba!"}
+    )
+    session = Session(scripted(reply, proposal(calculate())), reg, tools_required=True)
+    planned, _ = session.run(QUESTION)
+    assert planned.attempts == 2
+    assert session.plan_attempts == [
+        PlanAttempt(
+            phase="initial",
+            attempt=1,
+            outcome="rejected",
+            category=RejectionCategory.STRUCTURE,
+        ),
+        PlanAttempt(phase="initial", attempt=2, outcome="accepted", category=None),
+    ]
+
+
 def test_repeating_identical_invalid_plan_stops_with_repeated_plan_outcome(rig):
     reg, calls = rig
     provider = scripted(

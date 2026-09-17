@@ -20,6 +20,7 @@ from test_document_table import runtime
 from kkb_agent.agent import Session, ToolRegistry, Workspace
 from kkb_agent.agent.verifier import AnswerStatus
 from kkb_agent.core import Frequency, Period, SourceRef
+from kkb_agent.ingest.fetched import source_id_for
 from kkb_agent.lakehouse import open_lakehouse
 from kkb_agent.llm import scripted
 from kkb_agent.pdf_loader import load_pdf
@@ -459,4 +460,5 @@ def test_add_document_column_refuses_a_year_the_user_did_not_write(tmp_path):
     second = runner.selected(sid, uuid4().hex, f"{URL} dosyasındaki TL hacmini ekle.", selection)
 
     assert second.status.value != "accepted"
-    assert fetch.requests == []
+    # Only the page outline read the written address; the refused step fetched nothing more.
+    assert [request.source_ref for request in fetch.requests] in ([], [source_id_for(URL)])

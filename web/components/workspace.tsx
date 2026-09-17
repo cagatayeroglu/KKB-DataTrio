@@ -12,8 +12,13 @@ import {
   Layers3,
   LoaderCircle,
   MessageSquare,
+  Archive,
+  ArchiveRestore,
+  MessagesSquare,
   Paperclip,
+  Pencil,
   Plus,
+  Search,
   RefreshCw,
   Send,
   Settings2,
@@ -38,8 +43,13 @@ import {
   admit,
   clearSession,
   describeError,
+  ensureOwner,
+  listConversations,
+  loadOwner,
   loadSession,
   newSession,
+  openConversation,
+  updateConversation,
   readTurn,
   saveSession,
   uploadDocument,
@@ -49,10 +59,12 @@ import {
 import {
   datasetSchema,
   healthSchema,
+  type ConversationSummary,
   type Dataset,
   type DocumentAdmitted,
   type Health,
   type Saved,
+  type StoredMessage,
   type Turn,
 } from "@/lib/contracts";
 
@@ -92,7 +104,19 @@ export function Workspace() {
     [followSelected, setFollowSelected] = useState(true),
     [pendingIndex, setPendingIndex] = useState<number | null>(null),
     [attachment, setAttachment] = useState<DocumentAdmitted | null>(null),
+    [dragging, setDragging] = useState(false),
     [uploading, setUploading] = useState(false);
+  // Conversations that outlive this tab: the browser's own key lists and reopens them.
+  const [ownerToken, setOwnerToken] = useState<string | null>(null),
+    [conversations, setConversations] = useState<ConversationSummary[]>([]),
+    [conversationId, setConversationId] = useState<string | null>(null),
+    [transcript, setTranscript] = useState<StoredMessage[]>([]),
+    [restoredResult, setRestoredResult] = useState<string | null>(null),
+    [chatSearch, setChatSearch] = useState(""),
+    [showArchived, setShowArchived] = useState(false),
+    [renaming, setRenaming] = useState<string | null>(null);
+  const history =
+    health?.capabilities.includes("conversation_history") ?? false;
   const pending = pendingIndex !== null;
   const uploads = health?.capabilities.includes("document_upload") ?? false;
   const saved = useRef<Saved | null>(null),
@@ -126,6 +150,110 @@ export function Workspace() {
   function record(value: Saved) {
     saveSession(sessionStorage, value);
     saved.current = value;
+  }
+  async function refreshConversations(token = ownerToken) {
+    if (!token) return;
+    try {
+      const listed = await listConversations(token, {
+        archived: showArchived,
+        search: chatSearch.trim() || undefined,
+      });
+      if (mounted.current) setConversations(listed.conversations);
+    } catch (error) {
+      if (mounted.current) setIssue(describeError(error));
+    }
+  }
+  async function session(token = ownerToken) {
+    // One conversation per chat; its id is also the session the turn routes use.
+    const state = saved.current;
+    if (state) return state;
+    const created = await newSession(token ?? undefined);
+    const next: Saved = {
+      session: created,
+      turns: [],
+      follow_selected: followSelected,
+    };
+    record(next);
+    setConversationId(created.session_id);
+    void refreshConversations(token);
+    return next;
+  }
+  function startChat() {
+    if (busyRef.current || pending || !ready) return;
+    try {
+      clearSession(sessionStorage);
+    } catch (error) {
+      setIssue(describeError(error));
+      return;
+    }
+    generation.current++;
+    saved.current = null;
+    recoveries.current = [];
+    setItems([]);
+    setTranscript([]);
+    setRestoredResult(null);
+    setConversationId(null);
+    setPendingIndex(null);
+    setSelected(-1);
+    setAttachment(null);
+    setQuestion("");
+    setIssue("");
+  }
+  async function openChat(id: string) {
+    if (busyRef.current || pending || !ready || !ownerToken) return;
+    setIssue("");
+    try {
+      const detail = await openConversation(id, ownerToken);
+      if (!mounted.current) return;
+      generation.current++;
+      recoveries.current = [];
+      // The owner key opens this conversation's turn routes too; no second secret.
+      record({
+        session: {
+          api_version: 1,
+          session_id: id,
+          token: ownerToken,
+          survives_restart: true,
+        },
+        turns: [],
+        follow_selected: followSelected,
+      });
+      setConversationId(id);
+      setTranscript(detail.messages);
+      const answered = [...detail.messages]
+        .reverse()
+        .find((message) => message.result_ref);
+      setRestoredResult(answered?.result_ref ?? null);
+      setItems([]);
+      setSelected(-1);
+      setPendingIndex(null);
+      setAttachment(null);
+      setQuestion("");
+    } catch (error) {
+      if (mounted.current) setIssue(describeError(error));
+    }
+  }
+  async function renameChat(id: string, title: string) {
+    if (!ownerToken || !title.trim()) return setRenaming(null);
+    try {
+      await updateConversation(id, ownerToken, {
+        title: title.trim().slice(0, 120),
+      });
+      await refreshConversations();
+    } catch (error) {
+      setIssue(describeError(error));
+    }
+    setRenaming(null);
+  }
+  async function archiveChat(id: string, archived: boolean) {
+    if (!ownerToken) return;
+    try {
+      await updateConversation(id, ownerToken, { archived });
+      if (id === conversationId && archived) startChat();
+      await refreshConversations();
+    } catch (error) {
+      setIssue(describeError(error));
+    }
   }
   function chooseResult(index: number) {
     const result = publishedResult(items[index]?.turn);
@@ -294,6 +422,25 @@ export function Workspace() {
     };
   }, []);
   useEffect(() => {
+    if (!history) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const token =
+          loadOwner(localStorage) ?? (await ensureOwner(localStorage));
+        if (cancelled || !mounted.current) return;
+        setOwnerToken(token);
+        await refreshConversations(token);
+      } catch (error) {
+        if (!cancelled && mounted.current) setIssue(describeError(error));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [history, showArchived, chatSearch]);
+  useEffect(() => {
     if (items.length) {
       const body = chatEnd.current?.parentElement;
       if (body) body.scrollTop = body.scrollHeight;
@@ -305,12 +452,7 @@ export function Workspace() {
     setUploading(true);
     setIssue("");
     try {
-      let state = saved.current;
-      if (!state) {
-        const session = await newSession();
-        state = { session, turns: [], follow_selected: followSelected };
-        record(state);
-      }
+      const state = await session();
       setAttachment(await uploadDocument(state.session, file));
     } catch (error) {
       setIssue(describeError(error));
@@ -336,13 +478,8 @@ export function Workspace() {
     setBusy(true);
     setIssue("");
     try {
-      let state = saved.current;
-      if (!state) {
-        const session = await newSession();
-        if (!active()) return;
-        state = { session, turns: [], follow_selected: followSelected };
-        record(state);
-      }
+      const state = await session();
+      if (!active()) return;
       if (state.turns.length >= 24) {
         setIssue(
           "Bu oturum 24 soruluk sınırına ulaştı. Yeni çalışma açabilirsin.",
@@ -352,12 +489,22 @@ export function Workspace() {
       const source = items[selected]?.turn;
       if (followSelected && state.view_result_id && !publishedResult(source))
         throw new ApiError("selection_unavailable");
-      const entry = draftWorkspaceRequest(
+      const drafted = draftWorkspaceRequest(
         question,
         followSelected,
         source ?? items.at(-1)?.turn,
         attachment ?? undefined,
       );
+      // A reopened conversation has no live turn to point at: its last published
+      // table comes from the stored transcript, so the follow-up keeps that table.
+      const entry =
+        followSelected && !drafted.selected_result_id && restoredResult
+          ? {
+              ...drafted,
+              selected_result_id: restoredResult,
+              is_continuation: true,
+            }
+          : drafted;
       const next = { ...state, turns: [...state.turns, entry] };
       record(next);
       setItems((old) => [...old, entry]);
@@ -430,6 +577,118 @@ export function Workspace() {
           </span>
         </a>
         <div className="workspace-label">ÇALIŞMA ALANI</div>
+        {history && (
+          <section className="chat-list" aria-label="Sohbetler">
+            <Button
+              variant="outline"
+              className="new-chat"
+              onClick={startChat}
+              disabled={!ready || busy || pending}
+            >
+              <Plus size={15} /> Yeni sohbet
+            </Button>
+            <label className="chat-search">
+              <Search size={13} />
+              <input
+                value={chatSearch}
+                onChange={(event) => setChatSearch(event.target.value)}
+                placeholder="Sohbetlerde ara"
+                maxLength={120}
+                aria-label="Sohbetlerde ara"
+              />
+            </label>
+            <button
+              type="button"
+              className="chat-toggle"
+              onClick={() => setShowArchived((value) => !value)}
+            >
+              {showArchived ? (
+                <ArchiveRestore size={13} />
+              ) : (
+                <Archive size={13} />
+              )}
+              {showArchived ? "Arşivdekiler" : "Arşivi göster"}
+            </button>
+            <div className="chat-items">
+              {conversations.length === 0 && (
+                <p className="chat-empty">
+                  {showArchived ? "Arşivde sohbet yok." : "Henüz sohbet yok."}
+                </p>
+              )}
+              {conversations.map((item) => (
+                <div
+                  key={item.conversation_id}
+                  className={`chat-item ${item.conversation_id === conversationId ? "active" : ""}`}
+                >
+                  {renaming === item.conversation_id ? (
+                    <input
+                      autoFocus
+                      defaultValue={item.title}
+                      maxLength={120}
+                      aria-label="Sohbet adı"
+                      onBlur={(event) =>
+                        void renameChat(
+                          item.conversation_id,
+                          event.target.value,
+                        )
+                      }
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter")
+                          void renameChat(
+                            item.conversation_id,
+                            event.currentTarget.value,
+                          );
+                        if (event.key === "Escape") setRenaming(null);
+                      }}
+                    />
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="chat-open"
+                        onClick={() => void openChat(item.conversation_id)}
+                        disabled={busy || pending}
+                      >
+                        <MessagesSquare size={14} />
+                        <span>
+                          {item.title}
+                          <small>
+                            {new Date(item.updated_at).toLocaleDateString(
+                              "tr-TR",
+                            )}{" "}
+                            · {item.turns} tur
+                          </small>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Sohbeti yeniden adlandır"
+                        onClick={() => setRenaming(item.conversation_id)}
+                      >
+                        <Pencil size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={
+                          item.archived ? "Arşivden çıkar" : "Sohbeti arşivle"
+                        }
+                        onClick={() =>
+                          void archiveChat(item.conversation_id, !item.archived)
+                        }
+                      >
+                        {item.archived ? (
+                          <ArchiveRestore size={12} />
+                        ) : (
+                          <Archive size={12} />
+                        )}
+                      </button>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
         <button className="nav-item active" onClick={() => setPanel(null)}>
           <MessageSquare size={18} /> Analiz stüdyosu{" "}
           <span className="nav-dot" />
@@ -609,6 +868,51 @@ export function Workspace() {
                 </div>
               ) : (
                 <div className="messages">
+                  {transcript.map((message) => (
+                    <div
+                      key={`stored-${message.sequence}`}
+                      className={`chat-row ${message.role === "user" ? "user" : "agent"} stored`}
+                    >
+                      <div className="bubble">
+                        {message.role === "assistant" && (
+                          <div className="answer-label">
+                            <span className="small-brand">
+                              <Layers3 size={13} />
+                            </span>{" "}
+                            DATATRIO{" "}
+                            {message.status && (
+                              <span className={`verdict ${message.status}`}>
+                                {message.status === "accepted" &&
+                                !message.result_ref
+                                  ? "Yanıt"
+                                  : {
+                                      accepted: "Kontrolden geçti",
+                                      qualified: "Sınırlı yanıt",
+                                      abstained: "Netleştirme gerekli",
+                                    }[message.status]}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        <p
+                          className={
+                            message.role === "user" ? "" : "answer-text"
+                          }
+                        >
+                          {message.text}
+                        </p>
+                        {message.result_ref && (
+                          <p className="notice">
+                            Bu turda yayımlanan tablo
+                            {message.result_ref === restoredResult
+                              ? " (devam bu tablodan sürer)"
+                              : ""}
+                            .
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                   {items.map((item, index) => (
                     <article className="turn" key={item.request_id}>
                       <div className="question-label">
@@ -633,13 +937,14 @@ export function Workspace() {
                           <span
                             className={`verdict ${item.turn.answer.status}`}
                           >
-                            {
-                              {
-                                accepted: "Kontrolden geçti",
-                                qualified: "Sınırlı yanıt",
-                                abstained: "Netleştirme gerekli",
-                              }[item.turn.answer.status]
-                            }
+                            {item.turn.answer.status === "accepted" &&
+                            !item.turn.answer.result
+                              ? "Yanıt"
+                              : {
+                                  accepted: "Kontrolden geçti",
+                                  qualified: "Sınırlı yanıt",
+                                  abstained: "Netleştirme gerekli",
+                                }[item.turn.answer.status]}
                           </span>
                         )}
                       </div>
@@ -741,12 +1046,41 @@ export function Workspace() {
               </div>
             )}
             <form
-              className="composer"
+              className={dragging ? "composer dragging" : "composer"}
               onSubmit={(e) => {
                 e.preventDefault();
                 void submit();
               }}
+              onDragEnter={(e) => {
+                if (!uploads || !e.dataTransfer.types.includes("Files")) return;
+                e.preventDefault();
+                setDragging(true);
+              }}
+              onDragOver={(e) => {
+                if (!uploads || !e.dataTransfer.types.includes("Files")) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect =
+                  !ready || busy || pending || uploading ? "none" : "copy";
+              }}
+              onDragLeave={(e) => {
+                // Leaving for a child element is not leaving the drop zone.
+                if (!e.currentTarget.contains(e.relatedTarget as Node | null))
+                  setDragging(false);
+              }}
+              onDrop={(e) => {
+                if (!uploads || !e.dataTransfer.types.includes("Files")) return;
+                e.preventDefault();
+                setDragging(false);
+                // One document per question; the same admission checks as the picker.
+                void attach(e.dataTransfer.files[0]);
+              }}
             >
+              {dragging && (
+                <div className="composer-drop" aria-hidden="true">
+                  <FileText size={16} /> Belgeyi buraya bırak · CSV, Excel, PDF,
+                  HTML
+                </div>
+              )}
               <div className="selection-context" aria-live="polite">
                 <label>
                   <input
@@ -797,9 +1131,9 @@ export function Workspace() {
               />
               {attachment && (
                 <div className="composer-attachment" aria-live="polite">
-                  <FileText size={13} /> Bu soruya ekli belge:{" "}
-                  {attachment.document_format.toUpperCase()} ·{" "}
-                  {Math.max(1, Math.round(attachment.bytes / 1024))} KB
+                  <FileText size={13} /> Ekli belge (sohbette sonraki sorularda
+                  da kullanılabilir): {attachment.document_format.toUpperCase()}{" "}
+                  · {Math.max(1, Math.round(attachment.bytes / 1024))} KB
                   <button
                     type="button"
                     aria-label="Ekli belgeyi kaldır"
@@ -837,7 +1171,7 @@ export function Workspace() {
                         size="icon"
                         variant="ghost"
                         aria-label="Soruya belge ekle"
-                        title="CSV, Excel, PDF veya HTML belge ekle (en fazla 10 MiB)"
+                        title="CSV, Excel, PDF veya HTML belge ekle ya da sürükleyip bırak (en fazla 10 MiB)"
                         disabled={!ready || busy || pending || uploading}
                         onClick={() => picker.current?.click()}
                       >

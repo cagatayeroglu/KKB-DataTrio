@@ -16,6 +16,8 @@ import uvicorn
 from kkb_agent.api.app import create_app
 from kkb_agent.api.prepared import PreparedRunner, _local, inspect_pool, read_catalog
 from kkb_agent.api.service import AnalysisService
+from kkb_agent.api.store import DATABASE_NAME as STORE_NAME
+from kkb_agent.api.store import ConversationStore
 from kkb_agent.catalog.mappings import load_reviewed_snapshot
 from kkb_agent.ingest.safe_fetch import safe_fetch
 from kkb_agent.llm import KloudeksProvider, ProviderConfig, approved_base_url
@@ -159,6 +161,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 dense = CatalogDenseStage(
                     index, query_embedder(provider, RUNTIME_QUERY_POLICY, origin="kloudeks")
                 )
+            # Conversations, their messages and uploads outlive this process.
+            store = ConversationStore(args.state_root.absolute() / STORE_NAME)
             runner = PreparedRunner(
                 provider,
                 root,
@@ -169,12 +173,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 web_url_fetch=safe_fetch if args.enable_web_url else None,
                 document_uploads=args.enable_uploads,
                 document_ocr=provider if args.enable_ocr else None,
+                store=store,
             )
             service = AnalysisService(
                 runner,
                 mode="kloudeks",
                 selected_runner=runner.selected,
                 document_store=runner.admit_document if args.enable_uploads else None,
+                store=store,
             )
             app = create_app(service, port=args.port, prepared=runner.status)
             print(
@@ -188,6 +194,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "web_url": args.enable_web_url,
                         "uploads": args.enable_uploads,
                         "ocr": args.enable_ocr,
+                        "conversations": "persistent",
                         "prepared_identities": runner.status.prepared_identities,
                     }
                 )

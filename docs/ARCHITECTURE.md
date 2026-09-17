@@ -258,6 +258,14 @@ reruns the full gate, and publishes only an ACCEPTED answer. It never reruns
 calculations or bypasses verification; provider failure preserves the first gated
 answer. This extra call counts against the launcher's total chat ceiling.
 
+Under [DEC-152](DECISIONS.md#dec-152--plan-contract-conversational-reply-and-budget-increase), `AnalyticalPlan.reply` handles conversational messages ("Merhaba", "bu sonuç ne demek") without tool execution or publication. Exactly one of `steps`, `clarification`, or `reply` is set. `REPLY_INSTRUCTIONS` and the last 6 turns of conversation history are included only in the initial planning call; continuation calls omit them, preserving the #237 budget. A reply cannot be issued when the message contains a URL or document attachment. `Budget.max_steps` is 12.
+
+**Conversation document library**: Admitted uploads are stored as `belge_1..N` in a per-session library. The planner receives a header outline (column names, types, row count — no values) so it can reference documents by name in later turns without re-uploading. `choose_document` resolves a library reference; `add_document_column` accepts `document=` to select from the library.
+
+**Address outline and TurnFetchCache**: `web_url` produces an `address_outline` containing the page title, same-site links and script endpoint headers. Under [DEC-150](DECISIONS.md#dec-150--prompt-address-authority-same-site-link-follow-and-script-endpoint-datasets), `follow="<link text>"` follows one same-registrable-domain link; `follow="endpoint_N"` reads a script-declared JSON endpoint. `TurnFetchCache` ensures each URL is fetched at most once per turn, and cached responses are reused across follow operations within the same turn.
+
+**join_table**: `table_transform` gained `join_table`, which performs a left exact-month join of another published result into the current workspace table. The join key is the period column; no interpolation or fill is applied. This enables combining an uploaded document table with an official series table.
+
 ### 2. LLMProvider / Kloudeks boundary — CONFIRMED interface direction
 
 - Responsibility: Isolate model-specific structured generation, plan generation, and concise synthesis.

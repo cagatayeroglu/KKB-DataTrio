@@ -39,7 +39,7 @@ default while the organizer's URL policy (Q-NET-02) is unanswered.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Annotated, Literal
@@ -48,7 +48,8 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, StringConstraints,
 
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
 from kkb_agent.agent.registry import ToolSpec
-from kkb_agent.core import AnalyticalResult, SourceRef
+from kkb_agent.catalog.normalization import normalize_search_text
+from kkb_agent.core import AnalyticalResult, Scale, SourceRef
 from kkb_agent.csv_loader import CsvLoadResult, CsvTable
 from kkb_agent.html_loader import HtmlDocument, HtmlLoadResult
 from kkb_agent.ingest.attached import Attachment
@@ -59,6 +60,9 @@ from kkb_agent.ingest.fetched import (
     load_fetched,
     source_id_for,
 )
+from kkb_agent.ingest.json_table import MEDIA_TYPE as JSON_MEDIA_TYPE
+from kkb_agent.ingest.json_table import JsonRejected, RecordTable, load_records
+from kkb_agent.ingest.page_links import LinkRefused, choose_link, page_links
 from kkb_agent.ingest.safe_fetch import (
     FetchFailure,
     FetchOutcome,
@@ -66,7 +70,7 @@ from kkb_agent.ingest.safe_fetch import (
     FetchSuccess,
     safe_fetch,
 )
-from kkb_agent.ingestion_policy import AdmissionError
+from kkb_agent.ingestion_policy import MIME_TYPES, AdmissionError, FileKind
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.lakehouse.result_evidence import _record_execution, canonical
 from kkb_agent.pdf_loader import PdfDocument, PdfLoadResult
@@ -74,6 +78,8 @@ from kkb_agent.pdf_ocr import OcrProvider
 from kkb_agent.tools._document_column import ColumnRefused
 from kkb_agent.tools._document_table import (
     MAX_VALUE_COLUMNS,
+    daily_rule_in_question,
+    read_daily_table,
     read_table,
     table_result,
     table_snapshot,
@@ -84,6 +90,7 @@ from kkb_agent.tools._document_value import (
     csv_parsing,
     document_value,
     grids,
+    header_semantics,
     read_cell,
     record_cell,
     select_cell,
@@ -92,6 +99,9 @@ from kkb_agent.tools._document_value import (
 from kkb_agent.xlsx_loader import XlsxLoadResult, XlsxTable
 
 type Fetcher = Callable[[FetchRequest], FetchOutcome]
+
+#: A data endpoint as named in a page outline (see ingest.address_outline).
+ENDPOINT_NAME = re.compile(r"endpoint_[0-9]{1,2}")
 
 #: An address as someone types it into a sentence. Quotes and apostrophes end
 #: it, so a Turkish suffix ("...xlsx'teki") is not part of the address.
@@ -137,7 +147,25 @@ class WebUrlArguments(BaseModel):
     )
     attached: bool = Field(
         default=False,
-        description="true to read the document the user uploaded with this question instead",
+        description="true to read a document uploaded in this conversation instead of a url",
+    )
+    follow: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=200,
+        description=(
+            "With url: the visible text or file name of a link on that page to read instead, "
+            "such as 'Altın İşlemleri' or 'kmp_au.pdf'. Only a link on the same site is "
+            "followed, one hop; the address itself always comes from the page"
+        ),
+    )
+    document: str | None = Field(
+        default=None,
+        pattern=r"^belge_[0-9]{1,2}$",
+        description=(
+            "With attached=true: which uploaded document (belge_1, belge_2, ...). May be left "
+            "out for the document attached to this question or the conversation's only one"
+        ),
     )
     delimiter: Literal[",", ";", "\t", "|"] | None = Field(
         default=None,
@@ -202,10 +230,37 @@ class WebUrlArguments(BaseModel):
         )
     )
 
+    daily_to_monthly: Literal["last", "mean", "sum"] | None = Field(
+        default=None,
+        description=(
+            "With period_column when the rows are days: how each complete month is formed, only "
+            "as the user asked ('ay sonu' -> last, 'ortalama' -> mean, 'aylık toplam' -> sum)"
+        ),
+    )
+    column_units: (
+        dict[
+            Annotated[str, StringConstraints(min_length=1, max_length=256)],
+            Annotated[str, StringConstraints(min_length=1, max_length=64)],
+        ]
+        | None
+    ) = Field(
+        default=None,
+        max_length=MAX_VALUE_COLUMNS,
+        description=(
+            "Only when the user wrote a column's unit in the question and its header states "
+            "none: value column name -> the unit exactly as the user wrote it, such as "
+            "'bin TL' or 'adet'. A unit the header states always wins"
+        ),
+    )
+
     @model_validator(mode="after")
     def _column_and_row_together(self) -> WebUrlArguments:
         if (self.url is None) == (not self.attached):
             raise ValueError("give either url or attached=true, not both or neither")
+        if self.document is not None and not self.attached:
+            raise ValueError("document names an upload; it needs attached=true")
+        if self.follow is not None and self.url is None:
+            raise ValueError("follow names a link on the page at url")
         if (self.period_column is None) != (self.value_columns is None):
             raise ValueError("period_column and value_columns build a table together")
         if self.period_column is not None and self.column is not None:
@@ -216,7 +271,52 @@ class WebUrlArguments(BaseModel):
             raise ValueError("value_columns must name each column once")
         if (self.column is None) != (self.row is None):
             raise ValueError("column and row name one cell together; give both or neither")
+        if self.column_units is not None and not set(self.column_units) <= set(
+            self.value_columns or ()
+        ):
+            raise ValueError("column_units names only value_columns")
         return self
+
+
+def choose_document(
+    document: str | None,
+    current: Attachment | None,
+    library: Mapping[str, Attachment],
+) -> Attachment | str:
+    """The uploaded document a step reads, or a fixed code; never a guess.
+
+    A named document must exist. Without a name, the document attached to this
+    question is read; failing that, the conversation's only document. Several
+    documents and no name is ambiguous.
+    """
+    if document is not None:
+        return library.get(document) or "DOCUMENT_UNKNOWN"
+    if current is not None:
+        return current
+    if len(library) == 1:
+        return next(iter(library.values()))
+    return "DOCUMENT_NOT_NAMED" if library else "NO_ATTACHMENT"
+
+
+def declared_units(
+    column_units: dict[str, str] | None, question: str
+) -> dict[str, tuple[str, Scale]] | str:
+    """Units the user wrote for columns, or a fixed code; never the model's own words.
+
+    Like an address or a year, a declared unit counts only when the question
+    contains it, and only in the vocabulary a header unit uses.
+    """
+    found: dict[str, tuple[str, Scale]] = {}
+    folded_question = f" {normalize_search_text(question)} "
+    for label, text in (column_units or {}).items():
+        folded = normalize_search_text(text)
+        if not folded or f" {folded} " not in folded_question:
+            return "UNIT_NOT_IN_QUESTION"
+        unit, scale = header_semantics(f"({text})")
+        if unit is None or scale is Scale.UNKNOWN:
+            return "UNIT_NOT_RECOGNISED"
+        found[label] = (unit, scale)
+    return found
 
 
 @dataclass(frozen=True)
@@ -235,7 +335,7 @@ class WebUrlOutput:
     source: SourceRef | None = field(default=None, repr=False)
     media_type: str | None = None
     sheets: tuple[str, ...] = field(default=(), repr=False)
-    table: CsvTable | XlsxTable | None = field(default=None, repr=False)
+    table: CsvTable | XlsxTable | RecordTable | None = field(default=None, repr=False)
     document: PdfDocument | HtmlDocument | None = field(default=None, repr=False)
     #: The selected cell as a result, when the planner named one (M7-18).
     result: AnalyticalResult | None = field(default=None, repr=False)
@@ -285,15 +385,66 @@ def read_document(
     sheet: str | None = None,
     ocr: OcrProvider | None = None,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+    follow: str | None = None,
+    endpoints: Mapping[str, str] | None = None,
 ) -> DocumentRead:
     """The prompt-address boundary every document reader shares (M7-17, M7-14).
 
     `question` must be the user's own words: only an address written there is
     requested, through `fetch`, and the bytes meet the upload admission rules.
+    With `follow`, that page is read for its links and the one same-site link
+    matching the name is requested instead (see `ingest.page_links`); the
+    address always comes from the page bytes, never from the planner.
     A loaded result always carries its source; nothing is recorded here.
     """
     if url not in addresses_in(question):
         return DocumentRead(WebUrlOutput("rejected", "URL_NOT_IN_QUESTION"), "url_not_in_question")
+    if follow is not None and ENDPOINT_NAME.fullmatch(follow):
+        # A data endpoint named in this turn's page outline; the address came from the
+        # page's own scripts, never from the planner.
+        address = (endpoints or {}).get(follow)
+        if address is None:
+            return DocumentRead(WebUrlOutput("needs_input", "ENDPOINT_UNKNOWN"), "needs_input")
+        data = fetch(
+            FetchRequest(
+                source_ref=source_id_for(address),
+                url=SecretStr(address),
+                accepted_media_types=(JSON_MEDIA_TYPE,),
+            )
+        )
+        if isinstance(data, FetchFailure):
+            return DocumentRead(WebUrlOutput("rejected", data.code.value), "fetch_failed")
+        if not isinstance(data, FetchSuccess):  # pragma: no cover - FetchOutcome is closed
+            raise TypeError("fetch returned neither a success nor a failure")
+        source = fetched_source(address, data.content, retrieved_at=clock())
+        try:
+            records = load_records(data.content)
+        except JsonRejected as error:
+            return DocumentRead(
+                WebUrlOutput("rejected", error.code, source, JSON_MEDIA_TYPE), "not_admitted"
+            )
+        return DocumentRead(WebUrlOutput("loaded", None, source, JSON_MEDIA_TYPE, table=records))
+    if follow is not None:
+        page = fetch(
+            FetchRequest(
+                source_ref=source_id_for(url),
+                url=SecretStr(url),
+                accepted_media_types=(MIME_TYPES[FileKind.HTML],),
+            )
+        )
+        if isinstance(page, FetchFailure):
+            reason = () if page.target_reason is None else (page.target_reason.value,)
+            return DocumentRead(WebUrlOutput("rejected", page.code.value), "fetch_failed", reason)
+        if not isinstance(page, FetchSuccess):  # pragma: no cover - FetchOutcome is closed
+            raise TypeError("fetch returned neither a success nor a failure")
+        base = (
+            page.effective_locator.get_secret_value() if page.effective_locator is not None else url
+        )
+        try:
+            link = choose_link(page_links(page.content, base), follow)
+        except LinkRefused as error:
+            return DocumentRead(WebUrlOutput("needs_input", error.code), "needs_input")
+        url = link.url
 
     outcome = fetch(
         FetchRequest(
@@ -355,12 +506,16 @@ def make_web_url_tool(
     lineage: Lineage | None = None,
     ocr: OcrProvider | None = None,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+    library: Mapping[str, Attachment] | None = None,
+    endpoints: Mapping[str, str] | None = None,
 ) -> ToolSpec:
     """Bind the tool to a fetch boundary: the real `safe_fetch` unless a test substitutes it.
 
     `fetch=None` reads no address at all; `attachment` is the one document the
-    user uploaded with this question (M10-04), if any.
+    user uploaded with this question (M10-04), if any; `library` holds every
+    document admitted in the conversation by server-owned name.
     """
+    documents = dict(library or {})
 
     def run(arguments: BaseModel, context: ExecutionContext) -> ToolResult:
         # The registry parses arguments before dispatch, so this is a contract
@@ -371,10 +526,11 @@ def make_web_url_tool(
             # Like the address, a year is the user's word, never the model's (DEC-148).
             return _failed("needs_input", WebUrlOutput("needs_input", "YEAR_NOT_IN_QUESTION"))
         if arguments.attached:
-            if attachment is None:
-                return _failed("no_attachment", WebUrlOutput("rejected", "NO_ATTACHMENT"))
+            chosen = choose_document(arguments.document, attachment, documents)
+            if isinstance(chosen, str):
+                return _failed("no_attachment", WebUrlOutput("rejected", chosen))
             read = read_attachment(
-                attachment, delimiter=arguments.delimiter, sheet=arguments.sheet, ocr=ocr
+                chosen, delimiter=arguments.delimiter, sheet=arguments.sheet, ocr=ocr
             )
         elif fetch is None or arguments.url is None:
             return _failed("fetch_failed", WebUrlOutput("rejected", "NETWORK_DISABLED"))
@@ -387,6 +543,8 @@ def make_web_url_tool(
                 sheet=arguments.sheet,
                 ocr=ocr,
                 clock=clock,
+                follow=arguments.follow,
+                endpoints=endpoints,
             )
         if read.failure is not None:
             return _failed(read.failure, read.output, extra=read.reasons)
@@ -401,19 +559,46 @@ def make_web_url_tool(
                     "needs_input", replace(output, status="needs_input", code="NO_LINEAGE")
                 )
             connection = lineage.connection
+            units = declared_units(arguments.column_units, context.question)
+            if isinstance(units, str):
+                return _failed("needs_input", replace(output, status="needs_input", code=units))
+            rule = arguments.daily_to_monthly
+            if rule is not None and not daily_rule_in_question(rule, context.question):
+                # Like a unit or a year, how days become months is the user's word.
+                return _failed(
+                    "needs_input",
+                    replace(output, status="needs_input", code="AGGREGATION_NOT_IN_QUESTION"),
+                )
+
+            def is_series(label: str) -> bool:
+                return (
+                    connection.execute(
+                        "SELECT 1 FROM silver_series WHERE series_id = ? LIMIT 1", [label]
+                    ).fetchone()
+                    is not None
+                )
+
             try:
-                table = read_table(
-                    grids(output.table, output.document),
-                    arguments.period_column,
-                    arguments.value_columns,
-                    is_series=lambda label: (
-                        connection.execute(
-                            "SELECT 1 FROM silver_series WHERE series_id = ? LIMIT 1", [label]
-                        ).fetchone()
-                        is not None
-                    ),
-                    year=arguments.year,
-                    as_of=as_of(source),
+                table = (
+                    read_daily_table(
+                        grids(output.table, output.document),
+                        arguments.period_column,
+                        arguments.value_columns,
+                        rule=rule,
+                        as_of=as_of(source),
+                        is_series=is_series,
+                        declared_units=units,
+                    )
+                    if rule is not None
+                    else read_table(
+                        grids(output.table, output.document),
+                        arguments.period_column,
+                        arguments.value_columns,
+                        is_series=is_series,
+                        year=arguments.year,
+                        as_of=as_of(source),
+                        declared_units=units,
+                    )
                 )
             except ColumnRefused as error:
                 return _failed(
@@ -501,15 +686,25 @@ def make_web_url_tool(
             "text layer; its figures count only from a table whose columns add up to its "
             "total row, and other OCR text cannot answer a numeric question. HTML requires "
             "explicit "
-            "rectangular tables; no JavaScript, CSS rendering or linked-resource "
-            "fetching. Image addresses are not supported. To build a monthly table that later "
+            "rectangular tables; no JavaScript or CSS rendering. When the data sits behind a "
+            "link on the page the user gave (a PDF or spreadsheet), give follow with that "
+            "link's visible text or file name; only same-site links are followed. Image "
+            "addresses are not supported. To build a monthly table that later "
             "turns can use, give period_column and up to six value_columns instead of column and "
-            "row: months must be explicit, one row per month, and each value header must state "
-            "its unit in parentheses; a column that fails is left out with a warning."
+            "row: months must be explicit, one row per month. A value header should state its unit "
+            "in parentheses; a column without one is kept with its unit unresolved (its figures "
+            "are never quoted) unless the user wrote the unit in the question (column_units). A "
+            "column that fails is left out with a warning."
             + (
                 " The user uploaded a document with this question: read it with attached=true "
                 "and no url."
                 if attachment is not None
+                else ""
+            )
+            + (
+                " Documents uploaded earlier in this conversation stay readable with "
+                "attached=true and document=<name>; their outline is provided as data."
+                if documents
                 else ""
             )
         ),

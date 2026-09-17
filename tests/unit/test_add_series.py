@@ -101,7 +101,6 @@ def test_missing_zero_and_outside_observations_are_distinguished(pool):
         "unknown_semantics",
         "weekly",
         "cumulative",
-        "source_unknown",
     ],
 )
 def test_refuses_ambiguous_or_incompatible_joins(pool, case):
@@ -138,14 +137,24 @@ def test_refuses_ambiguous_or_incompatible_joins(pool, case):
         semantics = replace(semantics, cumulative=CumulativeKind.UNKNOWN)
     elif case == "weekly":
         semantics = replace(semantics, frequency=Frequency.WEEKLY, anchor=WeeklyAnchor.FRIDAY)
-    elif case == "cumulative":
+    else:
         semantics = replace(
             semantics, observation=StockFlow.FLOW, cumulative=CumulativeKind.YEARLY_RESET
         )
-    else:
-        source = source.model_copy(update={"unresolved_semantics": ["source unit unconfirmed"]})
     with pytest.raises(SeriesAdditionRefused):
         add(source, observations, semantics, identity)
+
+
+def test_an_unresolved_source_column_does_not_block_a_resolved_addition(pool):
+    # Operation-scoped semantics: the join reads months only. The new column must
+    # be resolved; what the source left unresolved is not this join's decision.
+    source = source_of(pool).model_copy(
+        update={"unresolved_semantics": ["source unit unconfirmed"]}
+    )
+    joined = add(source)
+    assert [v.period.end for v in joined.values] == MONTHS
+    with pytest.raises(SeriesAdditionRefused):
+        add(source, semantics=replace(CPI_SEMANTICS, cumulative=CumulativeKind.UNKNOWN))
 
 
 @pytest.mark.parametrize(
@@ -271,6 +280,7 @@ def test_planner_schema_exposes_separate_closed_operation_objects(pool):
     assert set(schema["discriminator"]["mapping"]) == {
         "deflate",
         "add_series",
+        "join_table",
         "rebase",
         "align",
         "filter",

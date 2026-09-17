@@ -1,6 +1,10 @@
 import { z } from "zod";
 import {
+  conversationDetailSchema,
+  conversationListSchema,
+  conversationSummarySchema,
   documentAdmittedSchema,
+  ownerSchema,
   sessionSchema,
   turnSchema,
   savedSchema,
@@ -10,6 +14,8 @@ import {
   type Turn,
 } from "./contracts";
 const KEY = "kkb.workspace.v1";
+/** The browser's own key for its conversations; without it, earlier chats stay closed. */
+const OWNER_KEY = "kkb.owner.v1";
 export class ApiError extends Error {
   constructor(
     public code: string,
@@ -23,11 +29,16 @@ export async function api<T>(
   schema: z.ZodType<T>,
   options: RequestInit = {},
   token?: string,
+  ownerToken?: string,
 ): Promise<T> {
   const headers = new Headers(options.headers);
-  if (options.method === "POST" && !headers.has("Content-Type"))
+  if (
+    (options.method === "POST" || options.method === "PATCH") &&
+    !headers.has("Content-Type")
+  )
     headers.set("Content-Type", "application/json");
   if (token) headers.set("X-KKB-Session-Token", token);
+  if (ownerToken) headers.set("X-KKB-Owner-Token", ownerToken);
   let response: Response;
   try {
     response = await fetch(`/api/kkb/v1/${path}`, {
@@ -78,8 +89,72 @@ export function saveSession(storage: Storage, value: Saved) {
 export function clearSession(storage: Storage) {
   storage.removeItem(KEY);
 }
-export function newSession() {
-  return api("sessions", sessionSchema, { method: "POST", body: "{}" });
+export function loadOwner(storage: Storage) {
+  try {
+    const value = storage.getItem(OWNER_KEY);
+    return value && /^[A-Za-z0-9_-]{43}$/.test(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+export async function ensureOwner(storage: Storage) {
+  const existing = loadOwner(storage);
+  if (existing) return existing;
+  const created = await api("owner", ownerSchema, {
+    method: "POST",
+    body: "{}",
+  });
+  try {
+    storage.setItem(OWNER_KEY, created.owner_token);
+  } catch {
+    // A browser without storage still works for this session; history will not follow it.
+  }
+  return created.owner_token;
+}
+export function newSession(ownerToken?: string) {
+  return api(
+    "sessions",
+    sessionSchema,
+    { method: "POST", body: "{}" },
+    undefined,
+    ownerToken,
+  );
+}
+export function listConversations(
+  ownerToken: string,
+  options: { archived?: boolean; search?: string } = {},
+) {
+  const query = new URLSearchParams();
+  if (options.archived) query.set("archived", "true");
+  if (options.search) query.set("search", options.search.slice(0, 120));
+  const suffix = query.toString();
+  return api(
+    `conversations${suffix ? `?${suffix}` : ""}`,
+    conversationListSchema,
+    {},
+    undefined,
+    ownerToken,
+  );
+}
+export function openConversation(conversationId: string, token: string) {
+  return api(
+    `conversations/${conversationId}`,
+    conversationDetailSchema,
+    {},
+    token,
+  );
+}
+export function updateConversation(
+  conversationId: string,
+  token: string,
+  change: { title?: string; archived?: boolean },
+) {
+  return api(
+    `conversations/${conversationId}`,
+    conversationSummarySchema,
+    { method: "PATCH", body: JSON.stringify(change) },
+    token,
+  );
 }
 export async function readTurn(
   session: Session,
