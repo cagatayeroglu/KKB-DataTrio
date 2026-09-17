@@ -604,6 +604,16 @@ Confirmed team priority refinement, explicitly requested by Çağatay after M3-0
 - Consequence: document percent columns (interest, inflation-like rates) can enter `table_co_movement`, which accepts stock, rate and index columns; deflation still requires a currency stock or flow and never accepts a document column. The reviewer should read a percent column's limitation before interpreting a comparison.
 - Rejected: leaving percent columns unknown (the recommended default), and letting the planner declare a measure.
 
+### DEC-147 — Document CSV separators are detected, and month row labels give a cell its month
+
+- Status: CONFIRMED team decision, 2026-09-17, by Eray (three options approved while scoping the M10-04 reader gaps measured in the [bounded live document run](EVALUATION.md#m10-04-live-documents-2026-09-17)). Changes M1-06's explicit-declaration rule on the document path only; grants no live fetch or organizer permission.
+- Context: the planner never sees a document's bytes, so an uploaded or prompt-address `;` CSV was refused unless the question named its separator (U1/U2), and a `2025-12` row label set no period, so an answer naming December 2025 was withheld (U2b).
+- Decision (separator): `load_document` (web_url, `add_document_column`, uploads) detects an undeclared CSV separator inside the bounded parser worker. On a leading prefix, each of `,` `;` tab `|` is a candidate when the strict structure check passes on the complete records with one width of at least two; exactly one candidate is used and must still parse the whole file. None or several keep `PARSING_DECLARATION_REQUIRED`. A declared separator that contradicts the single candidate is refused as `DELIMITER_CONFLICT`; with no single candidate a declaration is used as before. Document table/column evidence records the separator and whether it was declared or detected. `load_csv` keeps the strict M1-06 default for any other caller.
+- Why it cannot choose a wrong reading silently: the checked prefix records are exactly the first records of the whole text under each separator, so a separator refused there is refused on the whole file; one candidate that parses the whole file is its only reading. Too few complete records leaves the choice undecided.
+- Decision (month cells): in cell mode a month-form row label (`YYYY-MM`, `MM.YYYY`, Turkish/English month name with year) sets that calendar month, with a limitation that the document does not say whether the value is a month-end level, an average or a total. Full-date labels keep their single-day period; year labels set none. Row matching equates one month written in different forms, never a day with a month and never a cell that reads as a number (`12.2025`).
+- Rejected: declared separators always winning (a planner guess could split a table wrongly); detection on the strict loader default; first/last-day dates becoming months in cell mode (a daily row cannot be told from a monthly one there).
+- Consequences: DEC-104/132 guards, the literal cell proof (which now also re-checks the recorded month) and table-mode month rules are unchanged. Text-layout PDF tables and year-less month labels (`kmp_au.pdf`) remain a separate reader decision.
+
 ## Proposed decisions
 
 Candidates below are not approved selections. Compare options in a bounded task; do not silently promote a proposal to CONFIRMED.

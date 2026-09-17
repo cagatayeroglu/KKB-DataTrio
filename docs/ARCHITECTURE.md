@@ -451,7 +451,7 @@ Exposed to the planner as the brief-named [`change_detection`](../src/kkb_agent/
 
 CURRENTLY IMPLEMENTED: [core/results.py](../src/kkb_agent/core/results.py) defines what a tool returns — `AnalyticalResult` with typed `ResultValue`s, explicit `Period`s, `SampleCounts`, warnings, limitations, `unresolved_semantics` and `ResultEvidence` references, under `ResultKind`/`ResultStatus`. Three refusals are structural: a value states its unit or the result declares what is unresolved (`DIMENSIONLESS` is not the same as unknown); a non-COMPUTED result carries no values and names what stopped it, keeping INSUFFICIENT, UNDEFINED and ABSTAINED distinct; and an association, lag or causality result must state limitations, which puts DEC-120 in the type system. `digest()` hashes content excluding the caller's `result_id`, which is the identity M5 needs to reject a stale read and M8 needs to detect an altered result. `lakehouse` is the first producer (M6-21). [tools/_projection.py](../src/kkb_agent/tools/_projection.py) maps a validated query onto that contract by **reading the semantics the lakehouse already stores** — `silver_series` records unit, scale, frequency, anchor and observation kind as exact enum values — and declaring every semantic the query did not select rather than inferring one. Two refusals live here rather than in the SQL gates, which were never meant to catch them: a query reading **no lakehouse table** abstains, so `SELECT 42 AS value` cannot mint a figure; and a query with no `value` column abstains as a listing. Since M6-23, reading an allowed table is not provenance on its own: [_projection_provenance.py](../src/kkb_agent/tools/_projection_provenance.py) admits only direct `silver_observations`/`silver_series` columns joined on `series_id`, then rechecks every returned row against its stored identity, value and semantics through fixed SQL, so literal, computed, aggregated or otherwise derived measurements abstain instead of becoming COMPUTED. The tool returns [LakehouseOutput](../src/kkb_agent/tools/lakehouse.py), keeping the verifiable `result` and the presentation `table` apart so a rendering convenience cannot become an analytical claim.
 
-The four analytical tools emit typed analytical results, consumed by the result verifier and answer gate. `web_url` returns a loaded table or document, and a result only for one named cell: its unit and scale are what the column header states in parentheses, its period is a full date written as the row label, and anything unstated stays unresolved. Under DEC-132, exact source quotation may pass with a resolved literal cell proof; analytical interpretation still cannot (M7-18); `web_search` produces discovery metadata only and never an AnalyticalResult. The verifier resolves preserved table/lineage references on this path; complete source/run/transformation resolution remains M8-04. A matching digest is not a proof of correctness.
+The four analytical tools emit typed analytical results, consumed by the result verifier and answer gate. `web_url` returns a loaded table or document, and a result only for one named cell: its unit and scale are what the column header states in parentheses, its period is a full date written as the row label (a single day) or a month-form row label (that calendar month, [DEC-147](DECISIONS.md#dec-147--document-csv-separators-are-detected-and-month-row-labels-give-a-cell-its-month)), and anything unstated stays unresolved. Under DEC-132, exact source quotation may pass with a resolved literal cell proof; analytical interpretation still cannot (M7-18); `web_search` produces discovery metadata only and never an AnalyticalResult. The verifier resolves preserved table/lineage references on this path; complete source/run/transformation resolution remains M8-04. A matching digest is not a proof of correctness.
 
 ### 10. Evidence ledger and verifier — CONFIRMED direction
 
@@ -549,7 +549,7 @@ M5-20 `add_series` adds a registered monthly series to a published table through
 
 M7-14 `add_document_column` exists in the schema only when the runtime has a
 prompt-address fetch boundary (`--enable-web-url`). Its arguments are the source
-name, the address as written, an optional CSV delimiter or sheet, and the period
+name, the address as written, an optional CSV delimiter (detected when absent) or sheet, and the period
 and value headers as the user named them. The document is read through
 `web_url`'s shared `read_document` (address written in the question,
 `safe_fetch`, upload admission). The reader is strict: exactly one table holds
@@ -593,6 +593,18 @@ source table and a `document_column_v1` snapshot (content hash, sanitized
 locator, retrieval time, cell location, month/value/digest rows); lineage and the
 execution arguments keep the address only as its opaque source ID. Refusal
 reasons are fixed codes without document text.
+
+Under [DEC-147](DECISIONS.md#dec-147--document-csv-separators-are-detected-and-month-row-labels-give-a-cell-its-month)
+every document reader (`web_url` cell and table modes, `add_document_column`,
+uploads) goes through `load_document`, which asks the CSV loader to detect a
+separator the plan did not declare. Inside the terminated parser worker, the
+strict structure check runs for `,` `;` tab `|` on the complete records of a
+65,536-character prefix; one separator giving a consistent width of at least two
+is used and must still parse the whole file, none or several return
+`PARSING_DECLARATION_REQUIRED`, and a declaration contradicting that single
+separator returns `DELIMITER_CONFLICT`. The table and column snapshots and
+transformations record `csv: {delimiter, delimiter_source}`. `load_csv` called
+directly keeps the explicit M1-06 declaration.
 
 The M2-14/M5-20 unary table-shaping slice extends that same verified published-result boundary without adding source I/O. `rebase` requires an existing column explicitly typed as an unscaled period INDEX, a present positive reference-period value, and a positive new base; it adds `old / reference × new_base` as a new column and states that this is index scaling, not deflation. `align` takes at least two exact labels and either intersects their complete period identities or uses a named left anchor; `filter` keeps cells whose period end lies in an explicit inclusive range. Align/filter retain other table columns on the selected period spine, preserve input cell order and missing cells, and remove periodless or singleton summary values whose old aggregate would no longer describe the new row set. All three reject unresolved/mixed/duplicate/incompatible inputs, record parameters and source snapshots, and mint a new result without mutating the prior workspace result. They do not resample, aggregate, interpolate, convert frequency, join another table, or accept SQL/free-form predicates. Existing `lakehouse.alignment.to_monthly` remains the separate declared weekly-to-monthly reduction path; `add_series` remains the exact monthly left join for a registered series.
 
