@@ -914,6 +914,42 @@ quality measurement, or an out-of-scope classifier. No live embedding, Kloudeks,
 BDDK, EVDS or production-search call was made. Archive-intent ordering, broad
 multi-series ranking, N07/N09/N18 and full catalog coverage remain separate limits.
 
+<a id="m10-04-live-documents-2026-09-17"></a>
+### M7-14 / M10-04 bounded live document inputs — 2026-09-17
+
+Owner-authorized by Eray on `dev` `568bd4e` (launcher preparation #231 merged).
+Plan: `tests/manual/live_client.py` with 12 chat, 0 embedding, 600 s, one attempt,
+`--enable-web-url --max-fetches 4`, `--enable-uploads`, lexical retrieval, fresh
+state root and content-free ledger
+(`artifacts/m10-04-live-documents-20260917-ledger.jsonl`, ignored); cases driven
+by `tests/manual/live_turns.py`, one session each. The uploaded CSV was exported
+by the operator from the prepared pool (60 months, `Ay;Konut Kredisi (Milyon
+TL);Faiz (%)`, Turkish decimal commas, semicolon separator) and is operator-local.
+
+| Case | Result |
+| --- | --- |
+| U1 upload → monthly table | **ABSTAINED**, 85 s, one planner call (81.7 s), no result. Offline replay of the same tool on the same bytes: no delimiter → `PARSING_DECLARATION_REQUIRED`, `,` → `MALFORMED_TABLE`, `;` → table produced. The question did not state the separator and the planner cannot see the file. |
+| U2 upload → one cell | **ABSTAINED**, 35 s, one planner call, same cause. |
+| W1 DataHub VIX CSV → one cell | **ACCEPTED**, 40 s: one fetch (`datahub.io`, HTTP 200, `text/csv`, 719 bytes, redirected, 1,974 ms), planner 12.2 s, writer 23.0 s; literal quote `Kaynak hücredeki değer: 18,22. Kaynak birim veya ölçek belirtmiyor.` bound to `VIXClose | 2004-01-02` = 18.22 (same value as the 2026-09-12 acceptance); proof `available`, document host `r2.datahub.io` after the redirect, row 1, column 5. |
+| U1b upload → monthly table, separator named in the question | **ACCEPTED**, 120 s (planner 19.6 s, writer 95.0 s): 120 cells, proof `available` with one `upload` document (no host, 120 values read); all 120 values equal the uploaded CSV (**zero mismatches**); `Konut Kredisi` TRY/million with measure unknown, `Faiz` percent/one as **rate** (DEC-146 live). |
+| U2b upload → one cell, separator named | **ABSTAINED**, 120 s (planner 58.7 s, writer 56.1 s): the draft's 37.29 bound to the correct cell result, but the sentence was withheld for `period` — a `2025-12` row label sets no period in cell mode, so a month in the answer cannot bind. |
+| W2 Borsa İstanbul gold PDF | **Not run.** One approved inspection fetch of `/dosyalar/kmtp/veriler/kmp_au.pdf` returned HTTP 200, `application/pdf`, 142,691 bytes, but the operator's inspection script failed before parsing. Eray's saved copy of the same size (SHA-256 `b1b5dbce…2f5831`) was then parsed offline with the product PDF loader: the text layer holds months (`Ocak / January` … `Ağustos / August`) with TL/USD/EUR amount, volume and trade-count columns under a `(2026)` title, but ruled-table extraction yields a single headerless 13-row column (the total kilograms). No cell or month is addressable, so a live question could only abstain. |
+
+Usage: 8 chat dispatches, all ok on one attempt; 1 fetch; 0 embeddings; the
+launcher was stopped by the operator. Prepared pool aggregate digest over 124
+files `a88b9786…314dae9` unchanged. No model call inspected document content;
+the ledger holds no URL path, query, question or cell text.
+
+Verdict: the served upload and prompt-address paths work live end to end when
+the question can name what the reader needs — prompt-address cell quote (W1)
+and uploaded monthly table with an oracle-equal 120-value check (U1b) — but three
+demo-relevant gaps were measured: (1) an undeclared semicolon CSV is refused,
+because the separator must be declared and the planner cannot infer it; (2) a
+month-labelled cell (`2025-12`) carries no period, so an answer naming the month
+is withheld; (3) the organizer's own example PDF has a text-layout table that the
+ruled-table extractor does not read, and its month labels carry no year. None
+of these is a verifier defect; each needs a scoped reader decision.
+
 <a id="release-checkpoint-2026-09-17"></a>
 ## Release checkpoint — 2026-09-17 (PR #229, merged)
 
