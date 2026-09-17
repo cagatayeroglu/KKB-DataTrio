@@ -728,13 +728,13 @@ Fully answered Q-DEV-01 and Q-TEAM-01..06 are preserved in [HISTORY](ROADMAP.md#
 - [x] Record the official endpoint, MIA-key authentication and compatible-client contract in [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy).
 - [x] Obtain the team's MIA API key. Delivered over Slack on 2026-09-10 and stored **only** in the operator-local, git-ignored `.env`. The key value is not recorded here, in DECISIONS, or anywhere in Git.
 - [x] Exercise one authorized live request to prove the key actually authenticates against the confirmed endpoints; never record the key itself. Done for chat and embedding on 2026-09-11 (M4-12, DEC-129); OCR not called.
-- Remaining question: Is the OCR model (`kkbhackathon2026/Unlimited-OCR`) reachable on this account? Chat and embedding authenticated in the 2026-09-11 smoke.
+- Remaining question: none. The OCR model (`kkbhackathon2026/Unlimited-OCR`) is reachable on this account: the owner-authorized probe on 2026-09-17 returned three complete OCR responses ([evidence](EVALUATION.md#q-k-01-ocr-probe-2026-09-17)). Chat and embedding authenticated in the 2026-09-11 smoke.
 - Why it matters: Possessing a key is not proof of access. Per DEC-129 a `401`/`403` would mean an invalid key, a model this account cannot reach, or a mis-cased model identifier — three different failures that only a live call distinguishes.
 - Blocks which milestone? M4-12 live smoke and M11 live demo access; no longer the endpoint/auth design of M4-07.
 - Can we proceed before answer? YES for bounded transport implementation and fake-transport tests; NO for claiming live authentication passed.
 - Temporary assumption: Use only the confirmed Kloudeks destination and the operator-supplied secret; no hosted fallback under any error, including `429`.
 - Owner: Unassigned; the live smoke is M4-12 work and needs explicit authorization, not a side effect of another task.
-- Status: OPEN only for OCR access; endpoint/auth/SDK, key provisioning and live chat/embedding authentication are ANSWERED.
+- Status: ANSWERED — endpoint/auth/SDK, key provisioning, live chat/embedding authentication (2026-09-11) and OCR access (2026-09-17). OCR text still becomes no cell without DEC-119 validation.
 - Answer / evidence: Official guidance relayed by Çağatay 2026-09-09, verified against the primary MIA guide 2026-09-10; DEC-129. Key provisioned 2026-09-10. Live smoke 2026-09-11 11:35 +0300 (M4-12, explicitly authorized): chat and embedding succeeded through the M4-07 transport; no key or model text recorded.
 
 <a id="open_questions-q-k-02--available-models-and-context-capacity"></a>
