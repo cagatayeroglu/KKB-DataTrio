@@ -42,6 +42,7 @@ from kkb_agent.agent.executor import (
     validate_plan,
 )
 from kkb_agent.agent.literal import literal_text
+from kkb_agent.agent.observer import Tracer, prompt_outline
 from kkb_agent.agent.plan import AnalyticalPlan
 from kkb_agent.agent.presentation import (
     PeriodTable,
@@ -61,7 +62,14 @@ from kkb_agent.agent.verifier import (
 )
 from kkb_agent.agent.workspace import Workspace
 from kkb_agent.core import DIMENSIONLESS, AnalyticalResult, ResultStatus, ResultValue, Scale
-from kkb_agent.llm.provider import LLMProvider, Message, ProviderError, Role, SchemaViolation
+from kkb_agent.llm.provider import (
+    Completion,
+    LLMProvider,
+    Message,
+    ProviderError,
+    Role,
+    SchemaViolation,
+)
 from kkb_agent.llm.structured import schema_instructions
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -473,6 +481,8 @@ class Session:
     history: tuple[tuple[str, str], ...] = ()
     #: The message names a web address or carries a document: a reply cannot answer it.
     tools_required: bool = False
+    #: Records what actually ran: prompts, model output, tool calls, timings.
+    tracer: Tracer | None = None
 
     def plan(self, question: str, workspace: Workspace | None = None) -> Planned:
         """Obtain a plan the registry will accept, or fail with the reasons why.
@@ -545,11 +555,10 @@ class Session:
         rejections: list[str] = []
         attempts_log: list[PlanAttempt] = []
         seen: set[str] = set()
+        phase = "continuation" if discovery is not None else "initial"
         for attempt in range(1, budget.max_plan_repairs + 2):
             try:
-                completion = self.provider.complete(
-                    messages, model=self.model, schema=AnalyticalPlan
-                )
+                completion = self._planner_call(messages, phase, attempt)
             except SchemaViolation as error:
                 record = PlanAttempt(
                     phase=phase,
@@ -586,6 +595,15 @@ class Session:
                 reason = str(error)
                 rejections.append(reason)
                 self.rejections.append(reason)
+                if self.tracer is not None:
+                    self.tracer.event(
+                        "planning",
+                        "plan.rejected",
+                        status="rejected",
+                        phase=phase,
+                        attempt=attempt,
+                        reason=reason,
+                    )
                 if fingerprint in seen:
                     # Repeating an identical rejected plan will not converge.
                     record = PlanAttempt(
@@ -626,6 +644,61 @@ class Session:
             + "; ".join(rejections)
         )
 
+    def _planner_call(self, messages: list[Message], phase: str, attempt: int) -> Completion:
+        """One planning request, recorded with the exact context and what came back."""
+        if self.tracer is None:
+            return self.provider.complete(messages, model=self.model, schema=AnalyticalPlan)
+        with self.tracer.span("planning", f"planner.{phase}") as span:
+            span.set(
+                phase=phase,
+                attempt=attempt,
+                messages=len(messages),
+                prompt_bytes=sum(len(item.content.encode()) for item in messages),
+            )
+            span.describe(prompt_outline(messages))
+            completion = self.provider.complete(messages, model=self.model, schema=AnalyticalPlan)
+            span.set(model=completion.model, provider_attempts=completion.attempts)
+            if completion.usage is not None:
+                span.set(
+                    prompt_tokens=completion.usage.prompt_tokens,
+                    completion_tokens=completion.usage.completion_tokens,
+                )
+            parent = span.sequence
+        # Every message that went to the model, in order, each openable on its own:
+        # one long detail would truncate exactly the part a reader came for.
+        for index, item in enumerate(messages, 1):
+            self.tracer.event(
+                "context",
+                f"prompt.{item.role.value}",
+                parent=parent,
+                position=index,
+                bytes=len(item.content.encode()),
+                detail=item.content,
+            )
+        plan = completion.parsed
+        self.tracer.event(
+            "planning",
+            "planner.output",
+            parent=parent,
+            phase=phase,
+            attempt=attempt,
+            decision=(
+                "reply"
+                if isinstance(plan, AnalyticalPlan) and plan.reply is not None
+                else "clarify"
+                if isinstance(plan, AnalyticalPlan) and plan.clarification is not None
+                else "plan"
+            ),
+            steps=len(plan.steps) if isinstance(plan, AnalyticalPlan) else 0,
+            tools=(
+                ", ".join(sorted({step.tool for step in plan.steps}))
+                if isinstance(plan, AnalyticalPlan)
+                else ""
+            ),
+            detail=completion.text,
+        )
+        return completion
+
     def run(
         self, question: str, workspace: Workspace | None = None
     ) -> tuple[Planned, ExecutionOutcome]:
@@ -636,6 +709,7 @@ class Session:
             context=ExecutionContext(question=question),
             selection=self.selection,
             budget=self.budget,
+            tracer=self.tracer,
         )
         if (
             self.catalog_continuation
@@ -663,6 +737,13 @@ class Session:
                 used_ids=frozenset(v.step.step_id for v in planned.plan.steps),
                 phase="continuation",
             )
+            if self.tracer is not None:
+                self.tracer.event(
+                    "discovery",
+                    "catalog.feedback",
+                    queries=len(planned.plan.steps),
+                    detail=feedback,
+                )
             following = execute(
                 continuation.plan,
                 self.registry,
@@ -670,6 +751,7 @@ class Session:
                 context=ExecutionContext(question=question),
                 selection=self.selection,
                 budget=self.budget,
+                tracer=self.tracer,
             )
             planned = Planned(
                 continuation.plan,
@@ -780,8 +862,12 @@ class Session:
             available = {key: value for key, value in available.items() if key != source}
             source = ancestor.parameters.get("source")
         fast_draft = deterministic_draft(result) if self.deterministic_presentation else None
+        if self.tracer is not None and fast_draft is not None:
+            self.tracer.event("answer", "draft.deterministic", source="harness", detail=fast_draft)
         draft = fast_draft if fast_draft is not None else self.draft(question, available)
-        answer = gate_answer(draft, available, connection, **gate)  # type: ignore[arg-type]
+        if self.tracer is not None and fast_draft is None:
+            self.tracer.event("answer", "draft.model", source="model", detail=draft)
+        answer = self._gated(draft, available, connection, gate)
         faults = result_faults(
             {name: available[name]},
             connection,
@@ -823,7 +909,14 @@ class Session:
                 )
             except ProviderError:
                 break
-            answer = gate_answer(rewritten, available, connection, **gate)  # type: ignore[arg-type]
+            if self.tracer is not None:
+                self.tracer.event(
+                    "answer",
+                    "draft.repaired",
+                    category="period" if period_repair else "numeric",
+                    detail=rewritten,
+                )
+            answer = self._gated(rewritten, available, connection, gate)
             repaired.add("period" if period_repair else "numeric")
         if (
             preview is not None
@@ -836,6 +929,24 @@ class Session:
             if self.selection is not None:
                 self.selection.check()
             workspace.publish(preview)
+            if self.tracer is not None:
+                self.tracer.event(
+                    "publication",
+                    "workspace.published",
+                    workspace_name=remember,
+                    result_id=result.result_id,
+                    version=result.digest(),
+                    values=len(result.values),
+                )
+        elif self.tracer is not None:
+            self.tracer.event(
+                "publication",
+                "workspace.not_published",
+                status="skipped",
+                answer_status=answer.status.value,
+                faults=len(faults),
+                completed=outcome.completed,
+            )
         table = period_table(available[name])
         tables = (
             (table,)
@@ -843,6 +954,34 @@ class Session:
             else ()
         )
         return Answered(planned, outcome, results, answer, tables)
+
+    def _gated(
+        self,
+        draft: str,
+        available: Mapping[str, AnalyticalResult],
+        connection: DuckDBPyConnection | None,
+        gate: Mapping[str, object],
+    ) -> GatedAnswer:
+        """Run the answer gate, recording what it withheld and why."""
+        if self.tracer is None:
+            return gate_answer(draft, available, connection, **gate)  # type: ignore[arg-type]
+        with self.tracer.span("verification", "answer.gate") as span:
+            answer = gate_answer(draft, available, connection, **gate)  # type: ignore[arg-type]
+            span.set(
+                status=answer.status.value,
+                results=len(available),
+                numbers=len(answer.verdict.numbers),
+                omitted_sentences=len(answer.omitted),
+                limitations=len(answer.limitations),
+            )
+            if answer.omitted:
+                span.describe(
+                    "\n\n".join(
+                        item.text + "\n  withheld: " + "; ".join(item.reasons)
+                        for item in answer.omitted
+                    )
+                )
+        return answer
 
     def _reply(
         self,
@@ -863,6 +1002,20 @@ class Session:
         available = workspace.values() if workspace is not None else {}
         if self.selection is not None:
             available = {k: v for k, v in available.items() if k == self.selection.name}
+        if self.tracer is not None:
+            self.tracer.event(
+                "answer",
+                "reply.model",
+                source="model",
+                results_in_reach=len(available),
+                detail=text,
+            )
+            self.tracer.event(
+                "publication",
+                "workspace.not_published",
+                status="skipped",
+                reason="a conversational reply publishes nothing",
+            )
         answer = gate_answer(text, available, connection, **gate)  # type: ignore[arg-type]
         if not answer.verdict.numbers and not answer.omitted:
             # Binding limitations describe figures; a reply without any states none.

@@ -25,10 +25,15 @@ from kkb_agent.api.contracts import (
     DocumentAdmitted,
     Error,
     ErrorCode,
+    Feedback,
+    FeedbackList,
+    FeedbackRequest,
     Health,
     OwnerCreated,
     Question,
     Reference,
+    RunDetail,
+    RunList,
     SessionCreated,
     Turn,
 )
@@ -262,6 +267,23 @@ def create_app(
     @app.get("/v1/conversations/{session_id}", response_model=ConversationDetail)
     def conversation(session_id: Reference, token: Token) -> ConversationDetail:
         return service.conversation(session_id, token)
+
+    @app.get("/v1/conversations/{session_id}/runs", response_model=RunList)
+    def runs(session_id: Reference, token: Token) -> RunList:
+        return service.runs(session_id, token)
+
+    @app.get("/v1/conversations/{session_id}/runs/{run_id}", response_model=RunDetail)
+    def run(session_id: Reference, run_id: Reference, token: Token) -> RunDetail:
+        # Reading a trace never starts work: it is a stored record, not a replay.
+        return service.run(session_id, run_id, token)
+
+    @app.post("/v1/conversations/{session_id}/feedback", response_model=Feedback, status_code=201)
+    def rate(session_id: Reference, token: Token, body: FeedbackRequest) -> Feedback:
+        return service.rate(session_id, token, body)
+
+    @app.get("/v1/conversations/{session_id}/feedback", response_model=FeedbackList)
+    def ratings(session_id: Reference, token: Token) -> FeedbackList:
+        return service.ratings(session_id, token)
 
     @app.patch("/v1/conversations/{session_id}", response_model=ConversationSummary)
     def rename_or_archive(

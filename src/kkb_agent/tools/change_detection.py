@@ -33,6 +33,7 @@ from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
 from kkb_agent.agent.registry import TableInput, ToolSpec
 from kkb_agent.agent.workspace import Workspace
 from kkb_agent.analytics import compare_periods
+from kkb_agent.analytics.breakpoint import detect_breakpoints
 from kkb_agent.analytics.comovement import co_movement
 from kkb_agent.catalog.inspection import InspectionRefused, PreparedSeriesInspector
 from kkb_agent.core import (
@@ -69,19 +70,22 @@ class SeriesChangeArguments(BaseModel):
     """What the planner may ask for.
 
     `operation` names what the tool does rather than letting its name imply
-    more. Breakpoint detection joins here once it has a method (M6-05/06).
-    `co_movement` (M6-25) compares month-over-month directions of two series;
-    reducing a weekly series onto months is a policy the planner states.
+    more. `co_movement` (M6-25) compares month-over-month directions of two
+    series; reducing a weekly series onto months is a policy the planner states.
+    `breakpoint` (M6-05/06) searches for regime changes; its threshold and
+    minimum segment are harness constants, never planner arguments.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    operation: Literal["compare", "co_movement"] = Field(
+    operation: Literal["compare", "co_movement", "breakpoint"] = Field(
         description=(
             "compare: the level change of series_id between two published periods. "
             "co_movement: monthly levels and month-over-month changes of series_id (target) "
             "and driver_series_id over the window, and the months in which the driver fell "
-            "while the target did not rise"
+            "while the target did not rise. "
+            "breakpoint: the months after which series_id kept moving differently, over the "
+            "window"
         )
     )
     series_id: str = Field(min_length=1, max_length=200, description="compare series or target")
@@ -113,12 +117,14 @@ class SeriesChangeArguments(BaseModel):
 
     @model_validator(mode="after")
     def operation_fields(self) -> Self:
-        if self.operation == "compare" and (
+        if self.operation in ("compare", "breakpoint") and (
             self.driver_series_id is not None or self.week_assignment is not None
         ):
-            raise ValueError("compare takes no driver_series_id or week_assignment")
+            raise ValueError(f"{self.operation} takes no driver_series_id or week_assignment")
         if self.operation == "co_movement" and self.driver_series_id is None:
             raise ValueError("co_movement needs driver_series_id")
+        if self.operation == "breakpoint" and self.start > self.end:
+            raise ValueError("breakpoint needs a window whose start is on or before its end")
         return self
 
 
@@ -280,7 +286,17 @@ def make_change_detection_tool(
         except SeriesUnknown as error:
             return failure(error)
 
-        if driver is None:
+        if arguments.operation == "breakpoint":
+            result = detect_breakpoints(
+                series.observations,
+                series.semantics,
+                series_id=arguments.series_id,
+                start=arguments.start,
+                end=arguments.end,
+                input_refs=INPUTS,
+            )
+            inputs = [series.snapshot]
+        elif driver is None:
             result = compare_periods(
                 series.observations,
                 series.semantics,
@@ -328,8 +344,11 @@ def make_change_detection_tool(
         "window, monthly levels and month-over-month changes of a target and a driver series "
         "(a weekly series is reduced onto months with its declared aggregation and the stated "
         "week_assignment), plus the months in which the driver fell while the target did not "
-        "rise; values are nominal and co-movement is not causation. Breakpoint and trend-break "
-        "detection are not available yet. table_co_movement compares monthly directions of "
+        "rise; values are nominal and co-movement is not causation. breakpoint: over a window, "
+        "the months after which the average period-over-period change shifts, with how many "
+        "were found, the shift at each one and the observations behind it; it names no event "
+        "and establishes no cause, and its threshold is fixed by the harness. "
+        "table_co_movement compares monthly directions of "
         "two stock/rate/index columns already in a table, optionally only in months when a "
         "third column moves in the selected direction. It keeps all table values and adds "
         "explicit counts, without identifying a causal effect. Use exact column labels and "

@@ -660,6 +660,14 @@ Confirmed team priority refinement, explicitly requested by Çağatay after M3-0
 - Rejected: adding a separate router tool or pre-classifier; sending history to continuation calls; unlimited step budget.
 - Consequences: no tool execution or publication occurs on a reply. Selected table is preserved across conversational turns. The continuation prompt budget (#237) is unaffected.
 
+### DEC-153 — Capabilities follow their configuration, and the agent reads continuation itself
+
+- Status: CONFIRMED team decision, 2026-09-18, by Arda (implemented with Claude Code).
+- Context: two switches asked the operator and the analyst to state what the system already knows. `--enable-ocr` had to be remembered next to `KLOUDEKS_OCR_MODEL`, `--enable-uploads` next to a product requirement, and the client's "continue with the selected table" checkbox made the person declare, before every message, whether it continued the previous request. A control whose answer is derivable is a control that will be set wrongly.
+- Decision: on the served API, OCR is on exactly when the DEC-129 OCR model is configured (`--no-ocr` refuses it), and uploads are admitted by default (`--no-uploads` refuses them); readiness JSON keeps reporting both. Network egress stays opt-in under `--enable-web-url`: it is a boundary decision, not a configuration fact. The client no longer pins a table or states `is_continuation`: the planner is shown every table the conversation published (names, producer, coverage, column labels; never values), so it chooses. With a clarification pending and no stated `is_continuation`, a short message is read as its answer and a message that asks something of its own at request length (ends with `?`, at least six words) replaces it; the reading and who made it are recorded in the turn's trace (`clarification`, `clarification_decided_by`). `Question.selected_result_id` and `is_continuation` stay in the API for callers that want to pin explicitly.
+- Rejected: defaulting network egress on with the same argument; a model call to classify continuation (cost and non-determinism on every turn); keeping the checkbox as an "advanced" control.
+- Consequences: DEC-149's `--enable-ocr` and M10-04's `--enable-uploads` are superseded as switches, not as rules — the OCR column-total check and the upload admission checks are unchanged. The rehearsal launcher (`tests/manual/live_client.py`) keeps `--enable-ocr --max-ocr-requests N`, because there the flag reserves a live request ceiling rather than declaring a capability.
+
 ## Proposed decisions
 
 Candidates below are not approved selections. Compare options in a bounded task; do not silently promote a proposal to CONFIRMED.

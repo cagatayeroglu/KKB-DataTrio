@@ -42,6 +42,14 @@ class Message:
 
 
 @dataclass(frozen=True, slots=True)
+class Usage:
+    """What a request cost, as the platform reported it; never estimated here."""
+
+    prompt_tokens: int
+    completion_tokens: int
+
+
+@dataclass(frozen=True, slots=True)
 class Completion:
     """What a model returned, plus what it cost to get there.
 
@@ -55,6 +63,8 @@ class Completion:
     attempts: int = 1
     parsed: BaseModel | None = field(default=None, repr=False)
     finish_reason: str | None = None
+    #: Present only when the platform returned usage counts.
+    usage: Usage | None = None
 
 
 class ProviderError(RuntimeError):

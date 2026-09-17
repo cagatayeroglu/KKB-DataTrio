@@ -13,12 +13,14 @@ downstream is reported as not run, rather than being skipped silently.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
+from kkb_agent.agent.observer import Tracer
 from kkb_agent.agent.plan import AnalyticalPlan, ClarificationReason, PlanStep
 from kkb_agent.agent.registry import ArgumentsRejected, RegistryError, ToolRegistry
 
@@ -228,6 +230,7 @@ def execute(
     context: ExecutionContext | None = None,
     budget: Budget = DEFAULT_BUDGET,
     selection: SelectedTable | None = None,
+    tracer: Tracer | None = None,
 ) -> ExecutionOutcome:
     """Run a validated plan in order, stopping at the first terminal failure."""
     context = context or ExecutionContext(question=plan.question)
@@ -241,8 +244,16 @@ def execute(
             results.append(
                 ToolResult(ToolStatus.NOT_RUN, validated.step.step_id, validated.step.tool)
             )
+            if tracer is not None:
+                tracer.event(
+                    "tool",
+                    validated.step.tool,
+                    status="not_run",
+                    step_id=validated.step.step_id,
+                    reason="an earlier step failed",
+                )
             continue
-        result = _run_step(validated, registry, context, budget, selection)
+        result = _traced_step(validated, registry, context, budget, selection, tracer)
         results.append(result)
         if result.status is ToolStatus.SUCCESS:
             context.outputs[validated.step.step_id] = result.output
@@ -250,6 +261,75 @@ def execute(
             stopped = True
 
     return ExecutionOutcome(tuple(results), completed=not stopped)
+
+
+def _traced_step(
+    validated: ValidatedStep,
+    registry: ToolRegistry,
+    context: ExecutionContext,
+    budget: Budget,
+    selection: SelectedTable | None,
+    tracer: Tracer | None,
+) -> ToolResult:
+    """Run one step and record what it was asked for and what it returned."""
+    if tracer is None:
+        return _run_step(validated, registry, context, budget, selection)
+    with tracer.span("tool", validated.step.tool) as span:
+        arguments = validated.arguments.model_dump(mode="json")
+        span.set(
+            step_id=validated.step.step_id,
+            tool=validated.step.tool,
+            operation=arguments.get("operation") if isinstance(arguments, dict) else None,
+            depends_on=list(validated.step.depends_on),
+        )
+        result = _run_step(validated, registry, context, budget, selection)
+        span.set(
+            status=result.status.value,
+            warnings=len(result.warnings),
+            evidence=result.evidence,
+            recoverable=result.recoverable,
+        )
+        if result.status is ToolStatus.FAILURE:
+            span.failed(result.error_category or "unknown")
+        span.describe(
+            "Arguments:\n"
+            + json.dumps(arguments, ensure_ascii=False, sort_keys=True, default=str)
+            + "\n\nReturned:\n"
+            + tool_output_preview(result)
+        )
+    return result
+
+
+def tool_output_preview(result: ToolResult) -> str:
+    """What a step produced, in facts a reader can check, never the whole table."""
+    lines = [f"status: {result.status.value}"]
+    if result.error_category:
+        lines.append(f"error_category: {result.error_category}")
+    for warning in result.warnings[:6]:
+        lines.append(f"warning: {warning}")
+    output = getattr(result.output, "result", None) or result.output
+    values = getattr(output, "values", None)
+    if values is not None:
+        labels = list(dict.fromkeys(str(getattr(value, "label", "")) for value in values))
+        coverage = getattr(output, "coverage", None)
+        lines += [
+            f"result_id: {getattr(output, 'result_id', '')}",
+            f"kind: {getattr(getattr(output, 'kind', None), 'value', '')}",
+            f"method: {getattr(output, 'method', None)}",
+            f"values: {len(values)}",
+            f"columns: {', '.join(labels[:12])}",
+        ]
+        if coverage is not None:
+            lines.append(f"coverage: {coverage.start}..{coverage.end} ({coverage.frequency.value})")
+        for note in list(getattr(output, "unresolved_semantics", []))[:4]:
+            lines.append(f"unresolved: {note}")
+    elif output is not None:
+        lines.append(f"output: {type(output).__name__}")
+        for field_name in ("status", "code", "media_type"):
+            value = getattr(output, field_name, None)
+            if value is not None:
+                lines.append(f"{field_name}: {value}")
+    return "\n".join(lines)
 
 
 def _run_step(

@@ -235,10 +235,11 @@ def test_without_the_ocr_switch_a_scan_is_not_read(tmp_path):
     assert answer.status.value == "abstained" and answer.result is None
 
 
-@pytest.mark.parametrize("configured", [True, False])
-def test_api_check_reports_ocr_only_with_the_model_configured(
-    tmp_path, monkeypatch, capsys, configured
+@pytest.mark.parametrize(("configured", "refused"), [(True, False), (True, True), (False, False)])
+def test_api_ocr_follows_its_configuration_and_the_one_refusal(
+    tmp_path, monkeypatch, capsys, configured, refused
 ):
+    """No switch to remember: the OCR model being configured is what turns OCR on."""
     from test_catalog_continuation import seed_prepared
 
     set_config(monkeypatch)
@@ -246,15 +247,15 @@ def test_api_check_reports_ocr_only_with_the_model_configured(
         monkeypatch.setenv("KLOUDEKS_OCR_MODEL", MODEL)
     root = tmp_path.resolve() / "prepared"
     seed_prepared(root)
-    command = ["--check", "--prepared-root", str(root), "--catalog", str(CATALOG), "--enable-ocr"]
+    command = ["--check", "--prepared-root", str(root), "--catalog", str(CATALOG)]
+    if refused:
+        command.append("--no-ocr")
 
     code = api_cli.main(command)
 
     output = capsys.readouterr().out
-    if configured:
-        assert code == 0 and json.loads(output)["ocr"] is True
-    else:
-        assert code != 0 and '"ready": true' not in output
+    assert code == 0
+    assert json.loads(output)["ocr"] is (configured and not refused)
 
 
 def test_launcher_ocr_budget_reserves_before_dispatch_and_ledgers_no_text(tmp_path):

@@ -80,9 +80,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--enable-model-requests", action="store_true")
     parser.add_argument(
-        "--enable-uploads",
+        "--no-uploads",
         action="store_true",
-        help="Accept CSV/XLSX/PDF/HTML uploads attached to one question; off by default",
+        help=(
+            "Refuse CSV/XLSX/PDF/HTML uploads attached to a question. They are admitted "
+            "by default: each one passes the same admission checks and is stored by "
+            "reference, never by its name"
+        ),
     )
     parser.add_argument(
         "--enable-web-url",
@@ -90,11 +94,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Let questions read a web address they contain, through safe fetch; off by default",
     )
     parser.add_argument(
-        "--enable-ocr",
+        "--no-ocr",
         action="store_true",
         help=(
-            "OCR PDF pages without a text layer through the DEC-129 OCR model; tables count "
-            "only when their columns add up (DEC-149); off by default"
+            "Refuse to OCR PDF pages without a text layer. OCR follows its configuration: "
+            "on when the DEC-129 OCR model is configured, off when it is not, so there is "
+            "no second switch to forget. Read tables still count only when their columns "
+            "add up (DEC-149)"
         ),
     )
     args = parser.parse_args(argv)
@@ -118,8 +124,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             or not 1 <= config.max_attempts <= 3
         ):
             raise ValueError("Local service provider budget refused")
-        if args.enable_ocr and config.ocr_model is None:
-            raise ValueError("OCR needs the DEC-129 OCR model configured")
+        # A capability follows its configuration: OCR is on because a model for it is
+        # configured, not because a second flag was remembered. --no-ocr still refuses it.
+        ocr_enabled = config.ocr_model is not None and not args.no_ocr
+        uploads_enabled = not args.no_uploads
         snapshot = load_reviewed_snapshot(catalog_bytes)
         index = None
         if args.catalog_index is not None:
@@ -144,8 +152,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "provider_configured": True,
                         "catalog_retrieval": retrieval,
                         "web_url": args.enable_web_url,
-                        "uploads": args.enable_uploads,
-                        "ocr": args.enable_ocr,
+                        "uploads": uploads_enabled,
+                        "ocr": ocr_enabled,
                         "prepared": status.model_dump(mode="json"),
                     },
                     ensure_ascii=False,
@@ -171,16 +179,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                 redactions=(config.credential.get_secret_value(),),
                 catalog_dense=dense,
                 web_url_fetch=safe_fetch if args.enable_web_url else None,
-                document_uploads=args.enable_uploads,
-                document_ocr=provider if args.enable_ocr else None,
+                document_uploads=uploads_enabled,
+                document_ocr=provider if ocr_enabled else None,
                 store=store,
             )
             service = AnalysisService(
                 runner,
                 mode="kloudeks",
                 selected_runner=runner.selected,
-                document_store=runner.admit_document if args.enable_uploads else None,
+                document_store=runner.admit_document if uploads_enabled else None,
                 store=store,
+                ocr=ocr_enabled,
             )
             app = create_app(service, port=args.port, prepared=runner.status)
             print(
@@ -192,8 +201,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "model_checked": False,
                         "catalog_retrieval": retrieval,
                         "web_url": args.enable_web_url,
-                        "uploads": args.enable_uploads,
-                        "ocr": args.enable_ocr,
+                        "uploads": uploads_enabled,
+                        "ocr": ocr_enabled,
                         "conversations": "persistent",
                         "prepared_identities": runner.status.prepared_identities,
                     }

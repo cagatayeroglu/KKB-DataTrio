@@ -30,14 +30,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { ResultTable } from "@/components/result-table";
 import { Panel } from "@/components/panel";
+import { TracePanel } from "@/components/trace-panel";
+import { AnswerFeedback } from "@/components/answer-feedback";
 import { preparedTitle } from "@/lib/table";
 import { noticeText } from "@/lib/language";
 import {
   api,
-  ApiError,
   DOCUMENT_ACCEPT,
   admissionRejection,
-  draftWorkspaceRequest,
+  draftRequest,
   publishedResult,
   restoredSelection,
   admit,
@@ -45,6 +46,7 @@ import {
   describeError,
   ensureOwner,
   listConversations,
+  listFeedback,
   loadOwner,
   loadSession,
   newSession,
@@ -61,6 +63,7 @@ import {
   healthSchema,
   type ConversationSummary,
   type Dataset,
+  type Feedback,
   type DocumentAdmitted,
   type Health,
   type Saved,
@@ -101,7 +104,6 @@ export function Workspace() {
     [issue, setIssue] = useState("");
   const [selected, setSelected] = useState<number>(-1),
     [panel, setPanel] = useState<"data" | "settings" | null>(null),
-    [followSelected, setFollowSelected] = useState(true),
     [pendingIndex, setPendingIndex] = useState<number | null>(null),
     [attachment, setAttachment] = useState<DocumentAdmitted | null>(null),
     [dragging, setDragging] = useState(false),
@@ -114,11 +116,14 @@ export function Workspace() {
     [restoredResult, setRestoredResult] = useState<string | null>(null),
     [chatSearch, setChatSearch] = useState(""),
     [showArchived, setShowArchived] = useState(false),
-    [renaming, setRenaming] = useState<string | null>(null);
+    [renaming, setRenaming] = useState<string | null>(null),
+    [tracing, setTracing] = useState<{ runId?: string } | null>(null),
+    [ratings, setRatings] = useState<Record<string, Feedback>>({});
   const history =
     health?.capabilities.includes("conversation_history") ?? false;
   const pending = pendingIndex !== null;
   const uploads = health?.capabilities.includes("document_upload") ?? false;
+  const ocr = health?.capabilities.includes("document_ocr") ?? false;
   const saved = useRef<Saved | null>(null),
     busyRef = useRef(false),
     mounted = useRef(false),
@@ -171,7 +176,6 @@ export function Workspace() {
     const next: Saved = {
       session: created,
       turns: [],
-      follow_selected: followSelected,
     };
     record(next);
     setConversationId(created.session_id);
@@ -193,6 +197,7 @@ export function Workspace() {
     setTranscript([]);
     setRestoredResult(null);
     setConversationId(null);
+    setRatings({});
     setPendingIndex(null);
     setSelected(-1);
     setAttachment(null);
@@ -216,10 +221,20 @@ export function Workspace() {
           survives_restart: true,
         },
         turns: [],
-        follow_selected: followSelected,
       });
       setConversationId(id);
       setTranscript(detail.messages);
+      try {
+        const rated = await listFeedback(id, ownerToken);
+        if (mounted.current)
+          setRatings(
+            Object.fromEntries(
+              rated.feedback.map((item) => [item.turn_id, item]),
+            ),
+          );
+      } catch {
+        // Ratings are supporting information; a chat still opens without them.
+      }
       const answered = [...detail.messages]
         .reverse()
         .find((message) => message.result_ref);
@@ -262,16 +277,6 @@ export function Workspace() {
     try {
       record({ ...saved.current, view_result_id: result.result_ref });
       setSelected(index);
-      setIssue("");
-    } catch (error) {
-      setIssue(describeError(error));
-    }
-  }
-  function chooseMode(follow: boolean) {
-    if (!ready || busyRef.current || pending) return;
-    try {
-      if (saved.current) record({ ...saved.current, follow_selected: follow });
-      setFollowSelected(follow);
       setIssue("");
     } catch (error) {
       setIssue(describeError(error));
@@ -369,7 +374,6 @@ export function Workspace() {
     const stored = loadSession(sessionStorage);
     saved.current = stored;
     if (stored) {
-      setFollowSelected(stored.follow_selected ?? true);
       setItems(stored.turns.map((entry) => ({ ...entry })));
       void (async () => {
         const resume: number[] = [];
@@ -486,25 +490,15 @@ export function Workspace() {
         );
         return;
       }
-      const source = items[selected]?.turn;
-      if (followSelected && state.view_result_id && !publishedResult(source))
-        throw new ApiError("selection_unavailable");
-      const drafted = draftWorkspaceRequest(
+      // No table is pinned from here: the planner is shown every table this
+      // conversation published, and whether a message continues the previous
+      // request is the agent's reading, not a control the person operates.
+      const entry = draftRequest(
         question,
-        followSelected,
-        source ?? items.at(-1)?.turn,
+        undefined,
+        undefined,
         attachment ?? undefined,
       );
-      // A reopened conversation has no live turn to point at: its last published
-      // table comes from the stored transcript, so the follow-up keeps that table.
-      const entry =
-        followSelected && !drafted.selected_result_id && restoredResult
-          ? {
-              ...drafted,
-              selected_result_id: restoredResult,
-              is_continuation: true,
-            }
-          : drafted;
       const next = { ...state, turns: [...state.turns, entry] };
       record(next);
       setItems((old) => [...old, entry]);
@@ -544,7 +538,6 @@ export function Workspace() {
     setItems([]);
     setPendingIndex(null);
     setSelected(-1);
-    setFollowSelected(true);
     setIssue("");
     setQuestion("");
   }
@@ -552,6 +545,10 @@ export function Workspace() {
     publishedResult(item.turn) ? [{ index, item }] : [],
   );
   const result = publishedResult(items[selected]?.turn);
+  // Tables this conversation published, this tab's turns and the reopened ones:
+  // what the agent may reach for without being pointed at it.
+  const contextTables =
+    versions.length + transcript.filter((message) => message.result_ref).length;
   function sourceLabel(reference?: string) {
     if (!reference) return "Serbest soru";
     const index = items.findIndex(
@@ -905,7 +902,7 @@ export function Workspace() {
                           <p className="notice">
                             Bu turda yayımlanan tablo
                             {message.result_ref === restoredResult
-                              ? " (devam bu tablodan sürer)"
+                              ? " (sohbetin son tablosu)"
                               : ""}
                             .
                           </p>
@@ -925,9 +922,11 @@ export function Workspace() {
                           {item.document_format.toUpperCase()}
                         </p>
                       )}
-                      <p className="request-source">
-                        {sourceLabel(item.selected_result_id)}
-                      </p>
+                      {item.selected_result_id && (
+                        <p className="request-source">
+                          {sourceLabel(item.selected_result_id)}
+                        </p>
+                      )}
                       <div className="answer-label">
                         <span className="small-brand">
                           <Layers3 size={13} />
@@ -972,6 +971,34 @@ export function Workspace() {
                               {item.turn.answer.omitted_claims} desteklenmeyen
                               ifade yanıta alınmadı.
                             </p>
+                          )}
+                          {history &&
+                            conversationId &&
+                            ownerToken &&
+                            item.turn.turn_id &&
+                            item.turn.state === "completed" && (
+                              <AnswerFeedback
+                                conversationId={conversationId}
+                                token={ownerToken}
+                                turnId={item.turn.turn_id}
+                                saved={ratings[item.turn.turn_id]}
+                                onSaved={(stored) =>
+                                  setRatings((current) => ({
+                                    ...current,
+                                    [stored.turn_id]: stored,
+                                  }))
+                                }
+                                onOpenTrace={(runId) => setTracing({ runId })}
+                              />
+                            )}
+                          {history && conversationId && item.turn.turn_id && (
+                            <button
+                              type="button"
+                              className="trace-link"
+                              onClick={() => setTracing({ runId: undefined })}
+                            >
+                              <Activity size={14} /> İşlem ayrıntıları
+                            </button>
                           )}
                           {item.turn.answer.result && (
                             <button
@@ -1081,29 +1108,17 @@ export function Workspace() {
                   HTML
                 </div>
               )}
+              {/* What this turn carries, stated rather than switched: the agent
+                  reads the chat and its tables on its own. */}
               <div className="selection-context" aria-live="polite">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={followSelected}
-                    disabled={!ready || busy || pending}
-                    onChange={(e) => chooseMode(e.target.checked)}
-                  />
-                  {items.at(-1)?.turn?.answer?.status === "abstained" && !result
-                    ? "Önceki isteği netleştir"
-                    : "Seçili tabloyla devam et"}
-                </label>
                 <span>
                   {pending
-                    ? sourceLabel(items[pendingIndex!]?.selected_result_id)
-                    : followSelected && result
-                      ? `Kaynak tablo: Analiz ${selected + 1}`
-                      : followSelected && saved.current?.view_result_id
-                        ? "Devam etmek için kaynak tabloyu seç"
-                        : followSelected &&
-                            items.at(-1)?.turn?.answer?.status === "abstained"
-                          ? "Önceki isteğin bağlamıyla devam eder"
-                          : "Serbest soru · belirli bir tabloya sabitlenmez"}
+                    ? "Bekleyen istek sürüyor."
+                    : items.at(-1)?.turn?.answer?.status === "abstained"
+                      ? "Son cevap netleştirme istedi: kısa bir yanıt yazarsan o isteğe eklenir, kendi başına bir soru yazarsan yeni soru sayılır."
+                      : contextTables > 0
+                        ? `Bu sohbetteki ${contextTables} tablo ve önceki sorular bağlamda; hangisini kullanacağını ajan seçer.`
+                        : "Sorunu yaz; gereken veriyi ve tabloyu ajan kendisi seçer."}
                 </span>
               </div>
               <textarea
@@ -1157,6 +1172,20 @@ export function Workspace() {
                   )}
                 </span>
                 <div className="composer-buttons">
+                  {!uploads && (
+                    // The capability is off in this deployment: say so rather than
+                    // quietly dropping the control.
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      aria-label="Belge ekleme kapalı"
+                      title="Belge yükleme bu sunucuda kapalı. Açmak için servisi --enable-uploads ile başlat (taranmış PDF için ayrıca --enable-ocr)."
+                      disabled
+                    >
+                      <Paperclip size={17} />
+                    </Button>
+                  )}
                   {uploads && (
                     <>
                       <input
@@ -1171,7 +1200,11 @@ export function Workspace() {
                         size="icon"
                         variant="ghost"
                         aria-label="Soruya belge ekle"
-                        title="CSV, Excel, PDF veya HTML belge ekle ya da sürükleyip bırak (en fazla 10 MiB)"
+                        title={
+                          "CSV, Excel, PDF veya HTML belge ekle ya da sürükleyip bırak " +
+                          "(en fazla 10 MiB). Metin katmanlı PDF okunur; taranmış PDF " +
+                          (ocr ? "OCR ile okunur." : "için OCR kapalı.")
+                        }
                         disabled={!ready || busy || pending || uploading}
                         onClick={() => picker.current?.click()}
                       >
@@ -1201,6 +1234,14 @@ export function Workspace() {
                 </div>
               </div>
             </form>
+            {tracing && conversationId && ownerToken && (
+              <TracePanel
+                conversationId={conversationId}
+                token={ownerToken}
+                runId={tracing.runId}
+                onClose={() => setTracing(null)}
+              />
+            )}
             <div className="composer-footnote">
               <ShieldCheck size={12} /> Hesaplar araçlarla yapılır, cevaplar
               kontrol edilir.
@@ -1424,8 +1465,20 @@ export function Workspace() {
                     <dd>{health?.max_turns_per_session ?? "—"}</dd>
                   </div>
                   <div>
-                    <dt>Tarayıcı oturumu</dt>
-                    <dd>Bu sekmeye özel</dd>
+                    <dt>Sohbet geçmişi</dt>
+                    <dd>
+                      {history
+                        ? "Kalıcı; bu tarayıcının anahtarına bağlı"
+                        : "Bu sekmeye özel"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>İşlem kayıtları</dt>
+                    <dd>
+                      {history
+                        ? "Her tur kaydedilir; açmak yeni analiz başlatmaz"
+                        : "Bu sürümde tutulmuyor"}
+                    </dd>
                   </div>
                   <div>
                     <dt>Kayıtlı veri kopyası</dt>
@@ -1440,9 +1493,11 @@ export function Workspace() {
                   </p>
                 </div>
                 <p className="helper">
-                  API yeniden başlatılınca tarayıcı oturumu geçersiz olur. Yeni
-                  çalışma açmak önceki hesap dosyalarını silmez. Gelişmiş agent
-                  davranışı ayarları sonraki geliştirmedir.
+                  {history
+                    ? "Sohbetler, mesajlar, yüklenen belgeler, yayımlanan tablolar ve işlem kayıtları yeniden başlatmadan sonra da açılır. Bu tarayıcının anahtarı silinirse eski sohbetlere ulaşılamaz. Arşivlemek veri silmez."
+                    : "API yeniden başlatılınca tarayıcı oturumu geçersiz olur."}{" "}
+                  Yeni sohbet açmak önceki hesap dosyalarını silmez. Gelişmiş
+                  agent davranışı ayarları sonraki geliştirmedir.
                 </p>
               </>
             )}

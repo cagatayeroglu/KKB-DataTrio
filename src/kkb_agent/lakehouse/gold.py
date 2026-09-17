@@ -14,7 +14,13 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 
-from kkb_agent.core import Frequency, WeeklyAnchor
+from kkb_agent.core import (
+    DIMENSIONLESS,
+    AnalyticalResult,
+    Frequency,
+    ResultStatus,
+    WeeklyAnchor,
+)
 from kkb_agent.lakehouse.lineage import EdgeKind, Lineage, NodeKind
 from kkb_agent.lakehouse.periods import spine
 from kkb_agent.lakehouse.records import Observation
@@ -143,3 +149,50 @@ def persist_gold(connection: object, table: GoldTable) -> int:
         "INSERT OR REPLACE INTO gold_cells VALUES (?, ?, ?, ?, ?, ?)", rows
     )
     return len(rows)
+
+
+def gold_from_result(
+    result: AnalyticalResult,
+    *,
+    table_id: str,
+    lineage: Lineage,
+) -> GoldTable | None:
+    """The gold table a published period result stands for, or None.
+
+    A published table is what later turns and the verifier read by identity, so
+    it belongs in the store and not only in the workspace. None is returned
+    rather than a partial table when the result is not period-shaped, mixes
+    frequencies, or carries no lineage node: a column written without provenance
+    would look traceable and lead nowhere, which DEC-118 forbids.
+    """
+    if result.status is not ResultStatus.COMPUTED:
+        return None
+    node = result.evidence.lineage_node if result.evidence is not None else None
+    if not node:
+        return None
+    columns: dict[str, list[Observation]] = {}
+    frequencies: set[Frequency] = set()
+    anchors: set[WeeklyAnchor | None] = set()
+    for value in result.values:
+        if value.period is None or value.unit == DIMENSIONLESS:
+            continue
+        frequencies.add(value.period.frequency)
+        anchors.add(value.period.weekly_anchor)
+        observations = columns.setdefault(value.label, [])
+        if any(item.period_end == value.period.end for item in observations):
+            return None  # Two values for one period: the table's shape is ambiguous.
+        observations.append(Observation(value.period.start, value.period.end, value.value))
+    columns = {label: items for label, items in columns.items() if len(items) >= 2}
+    if not columns or len(frequencies) != 1 or len(anchors) != 1:
+        return None
+    ends = [item.period_end for items in columns.values() for item in items]
+    return build_gold(
+        table_id,
+        columns,
+        frequency=frequencies.pop(),
+        first_end=min(ends),
+        last_end=max(ends),
+        anchor=anchors.pop(),
+        lineage=lineage,
+        upstream={label: [(node, EdgeKind.DERIVES_FROM)] for label in columns},
+    )

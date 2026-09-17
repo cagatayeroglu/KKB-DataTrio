@@ -4,7 +4,6 @@ import {
   admit,
   admissionRejection,
   draftRequest,
-  draftWorkspaceRequest,
   publishedResult,
   restoredSelection,
   readTurn,
@@ -380,46 +379,12 @@ test("only explicit admission rejection ends recovery; transport and server erro
   }
 });
 
-test("workspace continuation intent reaches the browser request body", async () => {
-  const abstainedTurn = turnSchema.parse({
-    ...turn,
-    state: "completed",
-    answer: {
-      status: "abstained",
-      text: "Seri seçimi net değil.",
-      omitted_claims: 0,
-      notices: [],
-      result: null,
-    },
-  });
-
-  assert.equal(publishedResult(abstainedTurn), undefined);
-  const cases = [
-    {
-      entry: draftWorkspaceRequest("BDDK verisini kullan", true, abstainedTurn),
-      expected: { is_continuation: true, selected_result_id: undefined },
-    },
-    {
-      entry: draftWorkspaceRequest(
-        "Yeni soru: 2026 yılı enflasyonu",
-        false,
-        abstainedTurn,
-      ),
-      expected: { is_continuation: false, selected_result_id: undefined },
-    },
-    {
-      entry: draftWorkspaceRequest("Bu tabloya TÜFE ekle", true, completed()),
-      expected: { is_continuation: true, selected_result_id: "a".repeat(32) },
-    },
-    {
-      entry: draftWorkspaceRequest("Bağımsız soru", false, completed()),
-      expected: { is_continuation: false, selected_result_id: undefined },
-    },
-    {
-      entry: draftWorkspaceRequest("İlk bağımsız soru", true),
-      expected: { is_continuation: false, selected_result_id: undefined },
-    },
-  ];
+test("a workspace question pins no table and states no continuation", async () => {
+  // The composer sends the question alone: which earlier table serves it, and
+  // whether it continues a pending clarification, is the agent's reading.
+  const entry = draftRequest("Bu tabloya TÜFE ekle", undefined, undefined);
+  assert.equal(entry.selected_result_id, undefined);
+  assert.equal(entry.is_continuation, undefined);
   const old = globalThis.fetch;
   const bodies: Record<string, unknown>[] = [];
   globalThis.fetch = async (_url, init) => {
@@ -427,14 +392,18 @@ test("workspace continuation intent reaches the browser request body", async () 
     return Response.json({ ...turn, request_id: bodies.at(-1)?.request_id });
   };
   try {
-    for (const { entry } of cases) await admit({ ...saved, turns: [entry] }, 0);
+    await admit({ ...saved, turns: [entry] }, 0);
   } finally {
     globalThis.fetch = old;
   }
-  cases.forEach(({ expected }, index) => {
-    assert.equal(bodies[index].is_continuation, expected.is_continuation);
-    assert.equal(bodies[index].selected_result_id, expected.selected_result_id);
+  assert.deepEqual(bodies[0], {
+    request_id: entry.request_id,
+    question: entry.question,
   });
+  // An API caller may still pin one explicitly; the contract keeps that field.
+  const pinned = draftRequest("Bu tabloya TÜFE ekle", completed(), true);
+  assert.equal(pinned.selected_result_id, "a".repeat(32));
+  assert.equal(pinned.is_continuation, true);
 });
 
 test("abstained or error turns leave client UI state clean and selectable", () => {
