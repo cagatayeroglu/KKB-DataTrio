@@ -127,7 +127,7 @@ export function documentLocation(document: ProofDocument) {
     document.sheet_selected ? "seçilen çalışma sayfası" : null,
     document.table === null ? null : `tablo ${document.table}`,
     document.row === null ? null : `satır ${document.row}`,
-    `sütun ${document.column}`,
+    document.column === null ? null : `sütun ${document.column}`,
     document.values_read === null
       ? null
       : `${document.values_read} değer okundu`,

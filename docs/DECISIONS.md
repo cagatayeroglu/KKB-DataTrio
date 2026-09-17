@@ -597,6 +597,13 @@ Confirmed team priority refinement, explicitly requested by Çağatay after M3-0
 - Rejected: a planner-supplied measure argument (a correctness choice in model discretion; the #212 opt-out lesson), and leaving document columns display-only.
 - Consequences: `_document_value` also reads `(Endeks)`/`(Index)` as a unit for literal cells; DEC-104/132 guards and the unknown-unit refusal are unchanged. Revisit when reviewed metadata for a document source can state its measure directly.
 
+### DEC-146 — A percent header unit names a rate for document columns
+
+- Status: CONFIRMED team decision, 2026-09-17, by Eray (chosen while approving the M10-04 document-table design). Extends DEC-145; grants no live fetch or organizer permission.
+- Decision: when a document column's value header states `(%)` at scale one, the column is a **rate**; the transformation records `measure_source: column header unit` and the limitation says a share or percentage change would read the same way. DEC-145's points/index → index rule is unchanged; a scaled percent (`(Milyon %)`) and every other unit keep stock/flow unknown.
+- Consequence: document percent columns (interest, inflation-like rates) can enter `table_co_movement`, which accepts stock, rate and index columns; deflation still requires a currency stock or flow and never accepts a document column. The reviewer should read a percent column's limitation before interpreting a comparison.
+- Rejected: leaving percent columns unknown (the recommended default), and letting the planner declare a measure.
+
 ## Proposed decisions
 
 Candidates below are not approved selections. Compare options in a bounded task; do not silently promote a proposal to CONFIRMED.

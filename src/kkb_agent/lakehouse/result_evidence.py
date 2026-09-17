@@ -30,7 +30,11 @@ if TYPE_CHECKING:
 PREFIX = "execution:"
 EXECUTION_LABEL = "analytical_execution_v1"
 INPUT_LABEL = "analytical_input_v1"
-PRODUCERS = frozenset({"lakehouse", "change_detection", "anomaly", "causality", "table_transform"})
+# web_url produces a trusted value only in its table mode (M10-04); its single
+# cell stays a DEC-132 literal with its own proof.
+PRODUCERS = frozenset(
+    {"lakehouse", "change_detection", "anomaly", "causality", "table_transform", "web_url"}
+)
 
 
 def _json_default(value: object) -> str:
