@@ -148,9 +148,16 @@ def test_prepared_turn_embeds_the_instructed_query_and_still_publishes(pool, tmp
         ("query", [f"Instruct: {embedding.TASK}\nQuery:toplam konut kredisi"])
     ]
     found = discovery(provider)
-    assert found["retrieval_mode"] == "hybrid" and found["dense_status"] == "success"
-    assert found["combination_policy"] == "reviewed-match-order-v1"
-    assert found["input_policy_id"] == POLICY and found["clarification_required"]
+    assert found["candidates"] and found["clarification_required"]
+    assert (
+        not {
+            "retrieval_mode",
+            "dense_status",
+            "combination_policy",
+            "input_policy_id",
+        }
+        & found.keys()
+    )
 
 
 def test_prepared_hybrid_refuses_planner_bypass_before_discovery(pool, tmp_path, index):
@@ -172,8 +179,8 @@ def test_embedding_failure_degrades_to_lexical_without_leaking(pool, tmp_path, i
     assert answer.status.value == "accepted" and len(provider.embedded) == 1
     assert "private endpoint detail" not in answer.model_dump_json()
     found = discovery(provider)
-    assert found["retrieval_mode"] == "lexical_degraded"
-    assert found["dense_failure"] == "embedding_failed"
+    assert found["candidates"]
+    assert not {"retrieval_mode", "dense_status", "dense_failure"} & found.keys()
     assert "private endpoint detail" not in json.dumps(found)
 
 
