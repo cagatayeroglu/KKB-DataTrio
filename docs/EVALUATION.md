@@ -1123,6 +1123,34 @@ all three turns in a new session within the remaining budget (the driver had
 not retained the session token needed to resend Turn 3 alone) or restart with a
 900 s timeout.
 
+<a id="m11-07-live-pr237-2026-09-17"></a>
+### M11-07-CTX operator-reported live hybrid three-turn run — 2026-09-17 (PR #237)
+
+The following run details were supplied by Çağatay via Arda's handoff following
+the merge of PR #237. The review did not rerun the scenario or locate its
+original ledger within this workspace; these results are recorded as
+**operator-reported** with unverified-artifact limitations (no verified git revision,
+exact budget ceilings, before/after immutability check, browser acceptance, or independent rerun).
+
+- **Reported run ID**: `cagatay-pr237-live-20260917-143332`
+- **Reported ledger**: `artifacts/cagatay-pr237-live-20260917-143332-ledger.jsonl` (unverified; absent from workspace)
+- **Reported state root**: `data/processed/api-runs/cagatay-pr237-live-20260917-143332`
+- **Configuration**: hybrid catalog, per-request timeout 900 s, `KLOUDEKS_MAX_ATTEMPTS=1`, bounded chat/embedding budgets, web URL/uploads/OCR disabled.
+- **Continuation context impact**: PR #237 reduces representative staged continuation context from 15,124 to 12,300 UTF-8 bytes (18.7% smaller prompt); this is a prompt budget reduction, not a measured 18.7% latency improvement.
+
+| Turn | Reported accepted result | Structured call times, ms | Query embedding times, ms |
+| --- | --- | --- | --- |
+| 1 | 60 rows; 242 published values; 59 transitions; 32 rate-down; 28 credit-up under rate-down; 4 non-rise | 149837, 279241 | 114, 93 |
+| 2 | Preserve Analiz 1; deflate only housing-credit balance at 2025-12 prices; 302 published values | 33454, 100453 | 157 |
+| 3 | Preserve Analiz 2; add KFE; compare real credit with inherited rate-down predicate; joint result 22; 368 published values | 32771, 233765, 114108 | 215 |
+
+- **Turn 1 details**: Four non-rise months match the independent oracle: 2021-02, 2021-05, 2023-12, 2024-01.
+- **Turn 3 metrics**: The operator reports the joint 22 metric (rate-down ∧ KFE-up ∧ real-credit-nonrise), distinct from the broader real-credit non-rise count (46). This review did not independently verify the live result. All reported publication gates accepted with zero omitted sentences.
+- **Call count & observation**: Reported totals: 7 structured chat calls and 4 query embeddings across the three turns. Turn 1 used 2 structured calls + 2 embeddings; Turn 2 used 2 structured calls + 1 embedding; Turn 3 used 3 structured calls + 1 embedding. The extra Turn-3 structured call (3 calls: 32,771 ms, 233,765 ms, 114,108 ms) is consistent with planning repair; the handoff reports that the ledger does not retain its exact rejection reason. Current source inspection confirms that the rehearsal ledger does not record local `PlanRejected` reasons.
+- **Latency & timing**: Sum of reported structured-call durations is approximately 15 minutes 44 seconds across all turns (this is sum of call durations, not separately measured total wall time). Provider load varied and prior 600/900 s timeouts remain relevant.
+- **Distinction from historical runs**: Historical PR #176 previously recorded a complete three-turn API/client run; this reported run represents the current hybrid / real-credit / inherited-condition scenario producing the joint 22 metric. Formal verified live served acceptance and repeat reliability remain open under item A.
+
+
 <a id="m11-served-hybrid-rehearsal-2026-09-15"></a>
 
 ## M11-07 / M13-05 served rehearsal and hybrid isolation — 2026-09-15
