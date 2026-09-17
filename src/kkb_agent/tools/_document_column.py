@@ -8,9 +8,13 @@ Strict by decision (2026-09-17). Nothing the document does not state is decided:
   `01.2026`, a Turkish or English month name with its year, or a full date on
   the first or last day of its month (text or spreadsheet date). Any other
   non-empty label refuses the column. Two rows in one month refuse it too:
-  choosing one of them, or averaging, would be a frequency conversion.
+  choosing one of them, or averaging, would be a frequency conversion. Under
+  DEC-148 a month name without a year takes the table's year context, a total
+  row (`Toplam / Total`) is skipped and a month ending after the document was
+  retrieved is not an observation; both skips are reported.
 - **What number.** The cell number reader of M7-18: stored numbers as they are,
-  text only with one reading. An empty cell stays missing and is never filled.
+  text only with one reading, where the table's own digit convention decides
+  `1.234` (DEC-148). An empty cell stays missing and is never filled.
 - **Unit and scale.** Only from the value header's trailing parentheses; a
   header without a recognised unit refuses the column.
 - **Measure.** A document does not state stock/flow meaning. At scale one a
@@ -24,20 +28,29 @@ from __future__ import annotations
 
 import hashlib
 import re
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import dataclass, field
 from datetime import date, datetime
+
+from pydantic import JsonValue
 
 from kkb_agent.catalog.normalization import normalize_search_text
 from kkb_agent.core import Scale, SourceRef, StockFlow
 from kkb_agent.lakehouse.result_evidence import canonical
 from kkb_agent.tools._document_value import (
+    Convention,
     Grid,
     ValueNotSelected,
+    YearContext,
+    _ambiguous,
     _text,
+    context_year,
     header_matches,
     header_semantics,
+    is_total_label,
     last_day,
     month_label,
+    number_convention,
     read_number,
 )
 
@@ -65,6 +78,88 @@ class ColumnRefused(ValueError):
         super().__init__(code)
 
 
+@dataclass
+class RowRules:
+    """How a table's rows are read under DEC-148, and what those rules decided."""
+
+    year: YearContext | None
+    as_of: date | None
+    convention: Convention | None
+    skipped: Counter[str] = field(default_factory=Counter)
+    year_used: bool = False
+    convention_used: bool = False
+
+    @classmethod
+    def for_grid(cls, grid: Grid, *, year: int | None, as_of: date | None) -> RowRules:
+        try:
+            context = context_year(grid, year)
+        except ValueNotSelected as error:
+            raise ColumnRefused(error.code) from None
+        return cls(context, as_of, number_convention(grid.rows))
+
+    def month(self, label: object) -> date | None:
+        """The row's month end, or None when the row is skipped (and counted)."""
+        if is_total_label(label):
+            self.skipped["TOTAL_ROW"] += 1
+            return None
+        known = self.year.year if self.year is not None else None
+        end = month_end(label, known)
+        if end is None:
+            raise ColumnRefused("PERIOD_NOT_RECOGNISED")
+        if known is not None and month_end(label) is None:
+            self.year_used = True
+        if self.as_of is not None and end > self.as_of:
+            self.skipped["FUTURE_PERIOD"] += 1
+            return None
+        return end
+
+    def number(self, raw: object) -> float:
+        value = read_number(raw, self.convention)
+        if self.convention is not None and _ambiguous(raw):
+            self.convention_used = True
+        return value
+
+    def evidence(self) -> dict[str, JsonValue]:
+        """The decisions to record; empty when none of these rules applied."""
+        recorded: dict[str, JsonValue] = {}
+        if self.year_used and self.year is not None:
+            recorded["year"] = {"value": self.year.year, "source": self.year.source}
+        if self.convention_used:
+            recorded["number_convention"] = self.convention
+        if self.skipped:
+            recorded["skipped_rows"] = {code: count for code, count in sorted(self.skipped.items())}
+        return recorded
+
+    def warnings(self) -> list[str]:
+        notes = []
+        if count := self.skipped.get("TOTAL_ROW"):
+            notes.append(f"{count} total row(s) were left out of the monthly rows (TOTAL_ROW)")
+        if count := self.skipped.get("FUTURE_PERIOD"):
+            notes.append(
+                f"{count} month(s) ending after the document was retrieved were left out "
+                "(FUTURE_PERIOD)"
+            )
+        return notes
+
+    def limitations(self) -> list[str]:
+        notes = []
+        if self.year_used and self.year is not None:
+            notes.append(
+                "Month labels carry no year; the year was taken from "
+                + (
+                    "the page text above the table"
+                    if self.year.source == "document"
+                    else "the question"
+                )
+            )
+        if self.convention_used:
+            notes.append(
+                "Numbers such as 1.234 were read with the digit grouping the rest of the table "
+                "uses (" + ("Turkish" if self.convention == "tr" else "English") + " convention)"
+            )
+        return notes
+
+
 @dataclass(frozen=True)
 class DocumentColumn:
     location: dict[str, str | int]
@@ -75,6 +170,7 @@ class DocumentColumn:
     measure: StockFlow
     #: (month end, value or None for an empty cell, digest of the cell text)
     rows: tuple[tuple[date, float | None, str], ...]
+    rules: RowRules | None = None
 
     @property
     def levels(self) -> dict[date, float | None]:
@@ -96,8 +192,11 @@ def measure_limitation(measure: StockFlow) -> str:
     return "The document does not state whether the values are stocks, flows, rates or index levels"
 
 
-def month_end(raw: object) -> date | None:
-    """The month a period cell names explicitly, as its last day; None otherwise."""
+def month_end(raw: object, year: int | None = None) -> date | None:
+    """The month a period cell names explicitly, as its last day; None otherwise.
+
+    `year` is a table's year context for month names written without one.
+    """
     if isinstance(raw, datetime):
         if raw.time() != datetime.min.time():
             return None
@@ -106,7 +205,7 @@ def month_end(raw: object) -> date | None:
         return _edge_day(raw.year, raw.month, raw.day)
     if not isinstance(raw, str):
         return None
-    if (end := month_label(raw)) is not None:
+    if (end := month_label(raw, year)) is not None:
         return end
     text = normalize_search_text(raw)
     if match := _ISO_DAY.fullmatch(text):
@@ -116,8 +215,18 @@ def month_end(raw: object) -> date | None:
     return None
 
 
-def read_column(tables: list[Grid], period_column: str, value_column: str) -> DocumentColumn:
-    """The value column keyed by explicit months, from the one table holding both headers."""
+def read_column(
+    tables: list[Grid],
+    period_column: str,
+    value_column: str,
+    *,
+    year: int | None = None,
+    as_of: date | None = None,
+) -> DocumentColumn:
+    """The value column keyed by explicit months, from the one table holding both headers.
+
+    `year` is a year from the user's question, `as_of` the document's retrieval date.
+    """
     found: list[tuple[Grid, int, int]] = []
     for grid in tables:
         periods = [
@@ -142,6 +251,7 @@ def read_column(tables: list[Grid], period_column: str, value_column: str) -> Do
     if unit is None or scale is Scale.UNKNOWN:
         raise ColumnRefused("UNIT_NOT_STATED")
 
+    rules = RowRules.for_grid(grid, year=year, as_of=as_of)
     rows: dict[date, tuple[float | None, str]] = {}
     for cells in grid.rows:
         label = cells[period_index] if period_index < len(cells) else None
@@ -150,13 +260,13 @@ def read_column(tables: list[Grid], period_column: str, value_column: str) -> Do
             if _empty(raw):
                 continue  # A blank spacer row carries nothing.
             raise ColumnRefused("PERIOD_NOT_RECOGNISED")
-        end = month_end(label)
+        end = rules.month(label)
         if end is None:
-            raise ColumnRefused("PERIOD_NOT_RECOGNISED")
+            continue
         if end in rows:
             raise ColumnRefused("DUPLICATE_PERIOD")
         try:
-            value = None if _empty(raw) else read_number(raw)
+            value = None if _empty(raw) else rules.number(raw)
         except ValueNotSelected as error:
             raise ColumnRefused(error.code) from None
         rows[end] = (value, hashlib.sha256(_text(raw).encode()).hexdigest())
@@ -170,6 +280,7 @@ def read_column(tables: list[Grid], period_column: str, value_column: str) -> Do
         scale=scale,
         measure=document_measure(unit, scale),
         rows=tuple((end, value, digest) for end, (value, digest) in sorted(rows.items())),
+        rules=rules,
     )
 
 
@@ -202,6 +313,7 @@ def column_snapshot(
             "measure": column.measure.value,
             "rows": [[end, value, digest] for end, value, digest in column.rows],
             **({"csv": csv} if csv is not None else {}),
+            **(column.rules.evidence() if column.rules is not None else {}),
         }
     )
 

@@ -80,12 +80,14 @@ from kkb_agent.tools._document_table import (
 )
 from kkb_agent.tools._document_value import (
     ValueNotSelected,
+    as_of,
     csv_parsing,
     document_value,
     grids,
     read_cell,
     record_cell,
     select_cell,
+    year_in_question,
 )
 from kkb_agent.xlsx_loader import XlsxLoadResult, XlsxTable
 
@@ -169,6 +171,16 @@ class WebUrlArguments(BaseModel):
         ),
     )
 
+    year: int | None = Field(
+        default=None,
+        ge=1900,
+        le=2100,
+        description=(
+            "Only when the user wrote a year and the document's month labels may carry none "
+            "(such as 'Ocak'): that year. A year the document states itself takes precedence "
+            "and a different one is refused"
+        ),
+    )
     period_column: str | None = Field(
         default=None,
         min_length=1,
@@ -355,6 +367,9 @@ def make_web_url_tool(
         # check rather than validation. Not an assert: asserts vanish under -O.
         if not isinstance(arguments, WebUrlArguments):  # pragma: no cover
             raise TypeError("web_url received arguments it did not declare")
+        if arguments.year is not None and not year_in_question(arguments.year, context.question):
+            # Like the address, a year is the user's word, never the model's (DEC-148).
+            return _failed("needs_input", WebUrlOutput("needs_input", "YEAR_NOT_IN_QUESTION"))
         if arguments.attached:
             if attachment is None:
                 return _failed("no_attachment", WebUrlOutput("rejected", "NO_ATTACHMENT"))
@@ -397,6 +412,8 @@ def make_web_url_tool(
                         ).fetchone()
                         is not None
                     ),
+                    year=arguments.year,
+                    as_of=as_of(source),
                 )
             except ColumnRefused as error:
                 return _failed(
@@ -435,9 +452,12 @@ def make_web_url_tool(
         # Everything that can refuse runs before anything is recorded.
         try:
             cell = select_cell(
-                grids(output.table, output.document), arguments.column, arguments.row
+                grids(output.table, output.document),
+                arguments.column,
+                arguments.row,
+                year=arguments.year,
             )
-            reading = read_cell(cell)
+            reading = read_cell(cell, as_of=as_of(source))
         except ValueNotSelected as error:
             return _failed("needs_input", replace(output, status="needs_input", code=error.code))
         source_node = _record(lineage, source, media_type)
@@ -468,7 +488,8 @@ def make_web_url_tool(
         description=(
             "Read CSV/XLSX tables, PDF text/ruled tables, or static HTML text/tables from a "
             "web address the user wrote in the question. Pass the address exactly as "
-            "written; any other address is refused. A CSV's column separator is detected "
+            "written; any other address is refused. PDF tables may be ruled or set out with "
+            "text alone. A CSV's column separator is detected "
             "from the file: give delimiter only when the user states one, and a CSV whose "
             "separator cannot be detected needs it stated; a workbook with several sheets "
             "needs the sheet named. On its "

@@ -72,7 +72,7 @@ from kkb_agent.tools._document_column import (
     measure_limitation,
     read_column,
 )
-from kkb_agent.tools._document_value import csv_parsing, grids
+from kkb_agent.tools._document_value import as_of, csv_parsing, grids, year_in_question
 from kkb_agent.tools.change_detection import SeriesUnknown, read_series
 from kkb_agent.tools.web_url import Fetcher, read_attachment, read_document
 
@@ -169,6 +169,15 @@ class AddDocumentColumnArguments(BaseModel):
         min_length=1,
         max_length=256,
         description="Worksheet to read when a workbook has several",
+    )
+    year: int | None = Field(
+        default=None,
+        ge=1900,
+        le=2100,
+        description=(
+            "Only when the user wrote a year and the document's month labels may carry none: "
+            "that year; a year the document states takes precedence"
+        ),
     )
     period_column: str = Field(
         min_length=1,
@@ -346,6 +355,8 @@ def make_table_transform_tool(
                 else _deflated(selected, source, series.observations, series.semantics, names)
             )
         elif isinstance(selected, AddDocumentColumnArguments):
+            if selected.year is not None and not year_in_question(selected.year, context.question):
+                return failure("needs_input", "YEAR_NOT_IN_QUESTION")
             if selected.attached:
                 if attachment is None:
                     return failure("no_attachment", "No document is attached to this question")
@@ -371,6 +382,8 @@ def make_table_transform_tool(
                     grids(read.output.table, read.output.document),
                     selected.period_column,
                     selected.value_column,
+                    year=selected.year,
+                    as_of=as_of(document),
                 )
                 if connection.execute(
                     "SELECT 1 FROM silver_series WHERE series_id = ? LIMIT 1",
@@ -845,15 +858,24 @@ def _documented(
             reason=str(error),
         )
     transformation = added.transformation
-    if csv is not None:
+    decided = column.rules.evidence() if column.rules is not None else {}
+    if csv is not None or decided:
         transformation = transformation.model_copy(
-            update={"parameters": {**transformation.parameters, "csv": csv}}
+            update={
+                "parameters": {
+                    **transformation.parameters,
+                    **({"csv": csv} if csv is not None else {}),
+                    **decided,
+                }
+            }
         )
     parameters = dict(source.parameters)
     parameters.update(
         {"source": arguments.source, "added_document_column": transformation.parameters}
     )
     warnings = list(source.warnings)
+    if column.rules is not None:
+        warnings.extend(column.rules.warnings())
     if added.missing_periods:
         warnings.append(
             f"{len(added.missing_periods)} table period(s) have no value in the document "
@@ -887,6 +909,7 @@ def _documented(
             "resampling, filling, currency conversion, inflation adjustment or rebasing was "
             "applied to it",
             measure_limitation(column.measure),
+            *(column.rules.limitations() if column.rules is not None else ()),
             "Existing comparison metrics still concern their original columns; adding a "
             "column does not compute a relationship with it",
         ],

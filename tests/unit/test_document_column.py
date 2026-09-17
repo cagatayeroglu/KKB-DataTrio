@@ -123,7 +123,7 @@ def test_column_reads_months_numbers_and_header_unit():
         ),
         ([grid(("2026-04", "1"), headers=("Ay", "Kapanış"))], "UNIT_NOT_STATED"),
         ([grid(("2026-04-15", "1"))], "PERIOD_NOT_RECOGNISED"),
-        ([grid(("2026-04", "1"), ("Toplam", "9"))], "PERIOD_NOT_RECOGNISED"),
+        ([grid(("2026-04", "1"), ("Ortalama", "9"))], "PERIOD_NOT_RECOGNISED"),
         ([grid(("", "1"))], "PERIOD_NOT_RECOGNISED"),
         ([grid(("2026-01", "1"), ("31.01.2026", "2"))], "DUPLICATE_PERIOD"),
         ([grid(("2026-04", "1.234"))], "AMBIGUOUS_NUMBER"),
