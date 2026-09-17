@@ -14,10 +14,12 @@ from uuid import uuid4
 from kkb_agent.agent.loop import PlanningFailed
 from kkb_agent.agent.verifier import AnswerStatus
 from kkb_agent.api.contracts import (
+    MAX_DOCUMENTS,
     MAX_RESPONSE_BYTES,
     MAX_SESSIONS,
     MAX_TURNS,
     Answer,
+    DocumentAdmitted,
     ErrorCode,
     Event,
     Health,
@@ -34,8 +36,19 @@ from kkb_agent.llm.provider import ProviderError
 # there and retain session state under the server-issued session_id.
 class Runner(Protocol):
     def __call__(
-        self, session_id: str, turn_id: str, question: str, *, is_continuation: bool | None
+        self,
+        session_id: str,
+        turn_id: str,
+        question: str,
+        *,
+        is_continuation: bool | None,
+        document_ref: str | None = None,
     ) -> Answer: ...
+
+
+# M10-04: admits and stores one upload for a session; never on the analysis worker.
+class DocumentStore(Protocol):
+    def __call__(self, session_id: str, media_type: str, content: bytes) -> DocumentAdmitted: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +69,7 @@ class SelectedRunner(Protocol):
         selection: SelectedResult,
         *,
         is_continuation: bool | None,
+        document_ref: str | None = None,
     ) -> Answer: ...
 
 
@@ -71,6 +85,7 @@ class _Session:
     token_digest: bytes
     turns: dict[str, Turn] = field(default_factory=dict)
     requests: dict[str, tuple[str, str]] = field(default_factory=dict)
+    documents: set[str] = field(default_factory=set)
 
 
 class AnalysisService:
@@ -87,6 +102,7 @@ class AnalysisService:
         *,
         mode: Literal["kloudeks", "scripted"],
         selected_runner: SelectedRunner | None = None,
+        document_store: DocumentStore | None = None,
     ):
         if mode not in ("kloudeks", "scripted"):
             raise ValueError("An explicit execution mode is required")
@@ -94,6 +110,8 @@ class AnalysisService:
         # Until the prepared workspace integration is supplied, explicit selection
         # fails closed. Never hand it to the old runner that cannot respect it.
         self._selected_runner = selected_runner
+        # Uploads exist only when the operator supplied a store (--enable-uploads).
+        self._document_store = document_store
         self._mode = mode
         self._sessions: dict[str, _Session] = {}
         self._lock = threading.RLock()
@@ -105,7 +123,10 @@ class AnalysisService:
         with self._lock:
             if self._closed:
                 raise ServiceError("unavailable", 503)
-            return Health(execution_mode=self._mode)
+            if self._document_store is None:
+                return Health(execution_mode=self._mode)
+            capabilities = (*Health.model_fields["capabilities"].default, "document_upload")
+            return Health(execution_mode=self._mode, capabilities=capabilities)
 
     def create_session(self) -> SessionCreated:
         with self._lock:
@@ -128,6 +149,24 @@ class AnalysisService:
             raise ServiceError("not_found", 404)
         return session
 
+    def admit_document(
+        self, session_id: str, token: str, media_type: str, content: bytes
+    ) -> DocumentAdmitted:
+        """Authenticate, then admit outside the lock; the store owns bytes and limits."""
+        with self._lock:
+            session = self._owned(session_id, token)
+            if self._document_store is None:
+                raise ServiceError("unavailable", 503)
+            if len(session.documents) >= MAX_DOCUMENTS:
+                raise ServiceError("capacity", 429)
+        admitted = DocumentAdmitted.model_validate(
+            self._document_store(session_id, media_type, content).model_dump()
+        )
+        with self._lock:
+            session = self._owned(session_id, token)
+            session.documents.add(admitted.document_ref)
+        return admitted
+
     def submit(self, session_id: str, token: str, question: Question) -> Turn:
         question = Question.model_validate(question.model_dump())
         digest = hashlib.sha256(
@@ -145,6 +184,9 @@ class AnalysisService:
                 selected = self._selected(session, question.selected_result_id)
                 if self._selected_runner is None:
                     raise ServiceError("unavailable", 503)
+            if question.document_ref is not None and question.document_ref not in session.documents:
+                # Unknown, foreign and never-admitted references are indistinguishable.
+                raise ServiceError("invalid_document", 422)
             if len(session.turns) >= MAX_TURNS:
                 raise ServiceError("capacity", 429)
             if self._busy:
@@ -167,6 +209,7 @@ class AnalysisService:
                     question.question,
                     selected,
                     question.is_continuation,
+                    question.document_ref,
                 )
             except RuntimeError:
                 self._busy = False
@@ -236,6 +279,7 @@ class AnalysisService:
         question: str,
         selected: SelectedResult | None,
         is_continuation: bool | None = None,
+        document_ref: str | None = None,
     ) -> None:
         start = time.monotonic()
         answer = None
@@ -243,14 +287,33 @@ class AnalysisService:
         try:
             self._transition(session_id, turn_id, "running", start)
             if selected is None:
-                output = self._runner(
-                    session_id, turn_id, question, is_continuation=is_continuation
+                output = (
+                    self._runner(session_id, turn_id, question, is_continuation=is_continuation)
+                    if document_ref is None
+                    else self._runner(
+                        session_id,
+                        turn_id,
+                        question,
+                        is_continuation=is_continuation,
+                        document_ref=document_ref,
+                    )
                 )
             else:
                 if self._selected_runner is None:  # Defensive: never fall back to latest.
                     raise ServiceError("unavailable", 503)
-                output = self._selected_runner(
-                    session_id, turn_id, question, selected, is_continuation=is_continuation
+                output = (
+                    self._selected_runner(
+                        session_id, turn_id, question, selected, is_continuation=is_continuation
+                    )
+                    if document_ref is None
+                    else self._selected_runner(
+                        session_id,
+                        turn_id,
+                        question,
+                        selected,
+                        is_continuation=is_continuation,
+                        document_ref=document_ref,
+                    )
                 )
             answer = Answer.model_validate(output.model_dump())
             if len(answer.model_dump_json().encode()) > MAX_RESPONSE_BYTES - 4096:
