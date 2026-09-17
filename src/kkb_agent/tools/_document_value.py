@@ -44,6 +44,7 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING, Literal
 
 from kkb_agent.catalog.normalization import normalize_search_text
@@ -136,6 +137,10 @@ _NAMED_MONTH = re.compile(r"([a-z]+) (\d{4})")
 type Convention = Literal["tr", "en"]
 _TURKISH = re.compile(r"[+\-−]?(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d+)?")
 _ENGLISH = re.compile(r"[+\-−]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?")
+OCR_LIMITATION = (
+    "The values were read by OCR from a page without a text layer; they were accepted only "
+    "because each column's rows add up to the table's total row within rounding"
+)
 #: Folded row labels that name a table's total rather than a period (DEC-148).
 TOTAL_LABELS = frozenset({"toplam", "total", "genel toplam", "grand total"})
 _MINUS = "-−"  # ASCII hyphen-minus and U+2212
@@ -169,6 +174,8 @@ class Grid:
     rows: tuple[tuple[object, ...], ...]
     #: Distinct years the page states above the table (PDF only, DEC-148).
     years: tuple[int, ...] = ()
+    #: OCR tables only (DEC-149): per column, whether it adds up to the total row.
+    checked: tuple[bool, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -189,6 +196,8 @@ class Cell:
     raw: object
     year: YearContext | None = None
     convention: Convention | None = None
+    #: Read by OCR from a page without text, from a column that adds up (DEC-149).
+    ocr: bool = False
 
 
 @dataclass(frozen=True)
@@ -219,7 +228,26 @@ def grids(
     if document is not None:
         for page in document.pages:
             if page.ocr_text is not None:
-                continue  # DEC-119: OCR text is not a validated table/cell.
+                # DEC-119/149: OCR text is no cell; its tables are candidates
+                # whose columns count only once they add up to the total row.
+                for index, ocr_table in enumerate(page.ocr_tables, 1):
+                    header, *rows = ocr_table.rows
+                    ocr_headers: tuple[object, ...] = tuple(
+                        HeaderPath(group, leaf or "") if group else leaf
+                        for group, leaf in zip(
+                            ocr_table.groups or (None,) * len(header), header, strict=True
+                        )
+                    )
+                    found.append(
+                        Grid(
+                            {"page": page.number, "table": index},
+                            ocr_headers,
+                            tuple(rows),
+                            ocr_table.years,
+                            total_checked(rows),
+                        )
+                    )
+                continue
             for index, pdf_table in enumerate(page.tables, 1):
                 if pdf_table.rows:
                     header, *rows = pdf_table.rows
@@ -324,6 +352,42 @@ def as_of(source: SourceRef) -> date | None:
     return source.retrieved_at.date() if source.retrieved_at is not None else None
 
 
+def total_checked(rows: Iterable[Iterable[object]]) -> tuple[bool, ...]:
+    """DEC-149: which columns of an OCR table add up to its one total row.
+
+    The table must hold exactly one total row; a value column then counts when
+    its other readable cells (at least two) sum to that row's value within
+    rounding — at most one half of the last printed digit per summed cell. An
+    unreadable cell in the column, or no total row at all, checks nothing.
+    """
+    table = [tuple(row) for row in rows]
+    width = max((len(row) for row in table), default=0)
+    totals = [row for row in table if row and is_total_label(row[0])]
+    if len(totals) != 1:
+        return (False,) * width
+    convention = number_convention(table)
+    checked = [False]
+    for column in range(1, width):
+        try:
+            total_cell = totals[0][column] if column < len(totals[0]) else None
+            if _empty_text(total_cell):
+                raise ValueNotSelected("NOT_A_NUMBER")
+            total = Decimal(str(read_number(total_cell, convention)))
+            parts = [
+                row[column]
+                for row in table
+                if row is not totals[0] and column < len(row) and not _empty_text(row[column])
+            ]
+            values = [Decimal(str(read_number(cell, convention))) for cell in parts]
+        except ValueNotSelected:
+            checked.append(False)
+            continue
+        places = max(_printed_decimals(cell, convention) for cell in [*parts, total_cell])
+        tolerance = Decimal(len(values)) * Decimal(5) * Decimal(10) ** -(places + 1)
+        checked.append(len(values) >= 2 and abs(sum(values, Decimal(0)) - total) <= tolerance)
+    return tuple(checked)
+
+
 def is_total_label(label: object) -> bool:
     """A row label naming the table's total (`Toplam`, `TOPLAM / TOTAL`)."""
     if not isinstance(label, str):
@@ -347,6 +411,8 @@ def select_cell(tables: list[Grid], column: str, row: str, *, year: int | None =
         if not columns:
             continue
         target = columns[0]
+        if grid.checked is not None and not grid.checked[target]:
+            raise ValueNotSelected("OCR_NOT_VALIDATED")
         context = context_year(grid, year)
         known = context.year if context is not None else None
         convention = number_convention(grid.rows)
@@ -367,6 +433,7 @@ def select_cell(tables: list[Grid], column: str, row: str, *, year: int | None =
                         cells[target],
                         used,
                         convention,
+                        grid.checked is not None,
                     )
                 )
     if not matches:
@@ -506,6 +573,7 @@ def record_cell(lineage: Lineage, source_node: str, cell: Cell) -> str:
         NodeKind.TRANSFORM,
         "web_url_cell",
         attributes={
+            **({"extraction": "ocr"} if cell.ocr else {}),
             "location": json.dumps(cell.location, ensure_ascii=False, sort_keys=True),
             "header": cell.header,
             "row_label": cell.row_label,
@@ -565,6 +633,8 @@ def document_value(
             "The period is the date written in the selected row; the document does not "
             "say what span the value covers"
         )
+    if cell.ocr:
+        limitations.append(OCR_LIMITATION)
     if cell.convention is not None and _ambiguous(cell.raw):
         limitations.append(
             "The figure's digit grouping was read from the other figures in its table ("
@@ -629,6 +699,23 @@ def _text(value: object) -> str:
 def _bare(header: str) -> str:
     """The header without its trailing parenthesised unit."""
     return _TRAILING_UNIT.sub("", header).strip()
+
+
+def _empty_text(value: object) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
+def _printed_decimals(cell: object, convention: Convention | None) -> int:
+    """How many decimal digits a figure was printed with, under the table's convention."""
+    if not isinstance(cell, str):
+        return 0
+    text = cell.strip()
+    separator = {"tr": ",", "en": "."}.get(convention or "")
+    if separator is None:
+        marks = [char for char in text if char in ".,"]
+        tail = re.split(r"[.,]", text)[-1] if marks else ""
+        return len(tail) if len(marks) == 1 and len(tail) != 3 else 0
+    return len(text.rsplit(separator, 1)[1]) if separator in text else 0
 
 
 def _alternatives(text: str) -> set[str]:

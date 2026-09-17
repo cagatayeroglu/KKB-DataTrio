@@ -914,6 +914,40 @@ quality measurement, or an out-of-scope classifier. No live embedding, Kloudeks,
 BDDK, EVDS or production-search call was made. Archive-intent ordering, broad
 multi-series ranking, N07/N09/N18 and full catalog coverage remain separate limits.
 
+<a id="q-k-01-ocr-probe-2026-09-17"></a>
+### Q-K-01 / M7-11 bounded live OCR probe — 2026-09-17
+
+Owner-authorized by Eray ("more requests are fine; accuracy matters") after the
+M10-04 reader gap (c) work, with the unchanged M7-11 OCR transport
+(`KloudeksProvider.ocr`, DEC-129 request contract). Plan: at most three OCR
+requests, 300 s each, `KLOUDEKS_MAX_ATTEMPTS=1`, the DEC-129 OCR model identifier
+supplied through the environment, stop at the first access failure; content-free
+ledger `artifacts/q-k-01-ocr-probe-20260917-ledger.jsonl` (ignored); an
+operator-local probe script outside the repository. Input: page 1 of the
+organizer's public Borsa İstanbul `kmp_au.pdf` (142,691 bytes, SHA-256
+`b1b5dbce…2f5831`), rendered with pypdfium2 as `pdf_ocr` renders pages.
+
+| Request | Image | Result |
+| --- | --- | --- |
+| 1 | scale 2.0, 2,005,644 px, 199,445-byte PNG | ok, `stop`, 1,664 ms, 2,960 characters |
+| 2 | the same PNG again | ok, `stop`, 1,510 ms, byte-identical text |
+| 3 | scale 2.82, 3,985,946 px, 318,149-byte PNG | ok, `stop`, 1,598 ms; differs only in one title glyph |
+
+Output shape: layout-tagged blocks (`<|det|>kind [x0, y0, x1, y1]<|/det|>`) with
+the title lines as text and the data as one HTML `<table>` using `colspan` for
+the TL/USD/EUR groups and `rowspan` for `AY/MONTH` and the total column; the
+total header merged as `TOPLAM / TOTALMiktar/Amount(KG)` and `Mayıs` read as
+`Mayis`. Offline comparison against the PDF's own text layer: all **94 numeric
+cells equal, zero mismatches**, at both scales. Nine of ten columns sum exactly to
+the `TOPLAM / TOTAL` row; the USD kilogram column sums to 165,806 against a
+published 165,807, a rounding difference present in the document itself.
+
+Verdict: Q-K-01 OCR access is answered — the model is reachable, fast and
+deterministic on this page. This does not make OCR text analytical data: under
+DEC-119 it still needs the schema and consistency validation claimed as M7-11
+slice 2. No chat, embedding, fetch or upload call was made; the organizer file
+and the OCR text stay operator-local.
+
 <a id="m10-04-live-documents-2026-09-17"></a>
 ### M7-14 / M10-04 bounded live document inputs — 2026-09-17
 

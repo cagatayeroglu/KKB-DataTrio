@@ -131,6 +131,9 @@ def read_table(
             targets.append((label, matches[0]))
 
     rules = RowRules.for_grid(grid, year=year, as_of=as_of)
+    unchecked = [target for target in targets if not rules.column_checked(target[1])]
+    skipped.extend((label, "OCR_NOT_VALIDATED") for label, _ in unchecked)
+    targets = [target for target in targets if target not in unchecked]
     rows: list[tuple[date, tuple[object, ...]]] = []
     seen: set[date] = set()
     for cells in grid.rows:

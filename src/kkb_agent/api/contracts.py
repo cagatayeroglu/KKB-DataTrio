@@ -178,6 +178,9 @@ class ProofDocument(ContractModel):
     values_read: Count | None = None
     # A worksheet was named; its name is document text and is not shown.
     sheet_selected: bool
+    # "ocr" when the values came from OCR of a page without text and passed the
+    # DEC-149 column-total check.
+    extraction: Literal["text", "ocr"] = "text"
 
 
 class ProofInput(ContractModel):

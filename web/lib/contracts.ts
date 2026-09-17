@@ -95,6 +95,7 @@ const proofDocumentSchema = z
     column: z.number().int().min(1).nullable(),
     sheet_selected: z.boolean(),
     values_read: z.number().int().nonnegative().nullable().default(null),
+    extraction: z.enum(["text", "ocr"]).default("text"),
   })
   .strict();
 const proofStepSchema = z

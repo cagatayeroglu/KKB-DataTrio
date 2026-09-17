@@ -131,6 +131,9 @@ export function documentLocation(document: ProofDocument) {
     document.values_read === null
       ? null
       : `${document.values_read} değer okundu`,
+    document.extraction === "ocr"
+      ? "OCR ile okundu, sütun toplamıyla doğrulandı"
+      : null,
   ]
     .filter(Boolean)
     .join(" · ");

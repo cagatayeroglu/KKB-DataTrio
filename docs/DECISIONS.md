@@ -626,6 +626,15 @@ Confirmed team priority refinement, explicitly requested by Çağatay after M3-0
 - Rejected: geometric group assignment (on the organizer file itself it binds EUR trade counts to TOPLAM), parenthesised-title-only years, keeping ambiguous figures refused, and keeping not-yet-published zeros as observations.
 - Consequences: DEC-104/132 guards and the literal cell proof are unchanged. Tables with left-aligned numbers, centred headers without drawn cells, text columns among the numbers or year column headers still stay unread; OCR text still never becomes a cell.
 
+### DEC-149 — OCR tables count only through a column-total check
+
+- Status: CONFIRMED team decision, 2026-09-17, by Eray (two options chosen after the [Q-K-01 OCR probe](EVALUATION.md#q-k-01-ocr-probe-2026-09-17)). Applies DEC-119's schema and total/consistency requirement to OCR; grants no live call by itself.
+- Context: the DEC-129 OCR model is reachable and returned the organizer's gold trading page as an HTML table with row/column spans, all 94 numeric cells equal to the text layer. Under DEC-119 OCR text was never usable, so serving OCR alone would change no answer.
+- Decision: `--enable-ocr` (served API and rehearsal launcher, the latter with its own reserved, content-free OCR ceiling) passes the OCR model to `web_url` and `add_document_column` for PDF pages without a text layer; M7-11 page/pixel/byte bounds are unchanged. A bounded parser reads OCR `<table>` blocks — spans expanded into a rectangle, ragged/nested/over-budget tables skipped, leading rows without numbers as up to four header rows giving DEC-148 group + leaf names, years from the OCR text before the table. An OCR column counts only when the table holds exactly one closed-list total row and the column's other readable cells (at least two) sum to that row within rounding: at most one half of the last printed digit per summed cell. Other columns are left out in table mode and refused in cell mode (`OCR_NOT_VALIDATED`); a table without a total row yields no OCR value.
+- Recording: table/column evidence carries `extraction: ocr` and `validation: column total`, the cell lineage an `extraction` attribute, the proof document `extraction: "ocr"`, and results a limitation naming OCR and the check.
+- Rejected: exact equality (the organizer page's own kilogram totals differ by one from their rounded parts), and quoting unchecked OCR cells with a warning.
+- Consequences: DEC-104/132 guards and the literal cell proof are unchanged; OCR text outside a checked table never becomes a number. Scanned tables without a total row still abstain; native text layers are always read first.
+
 ## Proposed decisions
 
 Candidates below are not approved selections. Compare options in a bounded task; do not silently promote a proposal to CONFIRMED.
@@ -728,13 +737,13 @@ Fully answered Q-DEV-01 and Q-TEAM-01..06 are preserved in [HISTORY](ROADMAP.md#
 - [x] Record the official endpoint, MIA-key authentication and compatible-client contract in [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy).
 - [x] Obtain the team's MIA API key. Delivered over Slack on 2026-09-10 and stored **only** in the operator-local, git-ignored `.env`. The key value is not recorded here, in DECISIONS, or anywhere in Git.
 - [x] Exercise one authorized live request to prove the key actually authenticates against the confirmed endpoints; never record the key itself. Done for chat and embedding on 2026-09-11 (M4-12, DEC-129); OCR not called.
-- Remaining question: Is the OCR model (`kkbhackathon2026/Unlimited-OCR`) reachable on this account? Chat and embedding authenticated in the 2026-09-11 smoke.
+- Remaining question: none. The OCR model (`kkbhackathon2026/Unlimited-OCR`) is reachable on this account: the owner-authorized probe on 2026-09-17 returned three complete OCR responses ([evidence](EVALUATION.md#q-k-01-ocr-probe-2026-09-17)). Chat and embedding authenticated in the 2026-09-11 smoke.
 - Why it matters: Possessing a key is not proof of access. Per DEC-129 a `401`/`403` would mean an invalid key, a model this account cannot reach, or a mis-cased model identifier — three different failures that only a live call distinguishes.
 - Blocks which milestone? M4-12 live smoke and M11 live demo access; no longer the endpoint/auth design of M4-07.
 - Can we proceed before answer? YES for bounded transport implementation and fake-transport tests; NO for claiming live authentication passed.
 - Temporary assumption: Use only the confirmed Kloudeks destination and the operator-supplied secret; no hosted fallback under any error, including `429`.
 - Owner: Unassigned; the live smoke is M4-12 work and needs explicit authorization, not a side effect of another task.
-- Status: OPEN only for OCR access; endpoint/auth/SDK, key provisioning and live chat/embedding authentication are ANSWERED.
+- Status: ANSWERED — endpoint/auth/SDK, key provisioning, live chat/embedding authentication (2026-09-11) and OCR access (2026-09-17). OCR text still becomes no cell without DEC-119 validation.
 - Answer / evidence: Official guidance relayed by Çağatay 2026-09-09, verified against the primary MIA guide 2026-09-10; DEC-129. Key provisioned 2026-09-10. Live smoke 2026-09-11 11:35 +0300 (M4-12, explicitly authorized): chat and embedding succeeded through the M4-07 transport; no key or model text recorded.
 
 <a id="open_questions-q-k-02--available-models-and-context-capacity"></a>

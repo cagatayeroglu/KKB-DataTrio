@@ -153,6 +153,11 @@ fetches a public address is a live network action and needs its own approval;
 offline evidence is `tests/unit/test_prepared_web_url.py` and
 `tests/unit/test_document_column.py`.
 
+Add `--enable-ocr` (with `KLOUDEKS_OCR_MODEL` set to the DEC-129 OCR model) to
+read PDF pages without a text layer through OCR; readiness JSON reports `"ocr"`,
+and OCR figures count only from table columns that add up to the table's total
+row (DEC-149). Every OCR request is a live model call inside an approved plan.
+
 Add `--enable-uploads` to let the local client attach an uploaded CSV, Excel
 (`.xlsx`), PDF or static HTML document (up to 10 MiB, four per session) to the
 next question; readiness JSON reports `"uploads"` and `/v1/health` lists the
@@ -455,7 +460,11 @@ For document inputs, `--enable-uploads` accepts attached uploads, and
 contain through the real `safe_fetch`; each request is reserved before dispatch
 and ledgered as host, outcome code, media type, bytes and time only, never path
 or query. Every fetch of a public address is a live network action inside the
-same separately approved plan.
+same separately approved plan. `--enable-ocr --max-ocr-requests N` (1–10) OCRs
+PDF pages without a text layer (set `KLOUDEKS_OCR_MODEL` to the DEC-129 OCR model
+in the environment); each OCR request is reserved before dispatch and ledgered
+as outcome, character count and time only. OCR figures count only from table
+columns that add up to the table's total row (DEC-149).
 
 `python tests/manual/live_turns.py --port 8128 --plan plan.json --out <dir>` drives
 such a launcher over the HTTP turn contract: plan steps upload a document or ask

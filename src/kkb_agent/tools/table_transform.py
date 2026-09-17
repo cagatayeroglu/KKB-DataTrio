@@ -65,6 +65,7 @@ from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.lakehouse.records import Observation
 from kkb_agent.lakehouse.result_evidence import _record_execution, canonical
 from kkb_agent.lakehouse.semantics import SeriesSemantics
+from kkb_agent.pdf_ocr import OcrProvider
 from kkb_agent.tools._document_column import (
     ColumnRefused,
     DocumentColumn,
@@ -300,12 +301,14 @@ def make_table_transform_tool(
     inspector: PreparedSeriesInspector | None = None,
     document_fetch: Fetcher | None = None,
     attachment: Attachment | None = None,
+    document_ocr: OcrProvider | None = None,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> ToolSpec:
     """Bind the tool to one database and one workspace.
 
     `document_fetch` is the operator's prompt-address switch: without it the
     `add_document_column` operation is not part of the schema at all.
+    `document_ocr` reads PDF pages without text (DEC-149 column-total check).
     """
     names = dict(series_names or {})
 
@@ -361,7 +364,10 @@ def make_table_transform_tool(
                 if attachment is None:
                     return failure("no_attachment", "No document is attached to this question")
                 read = read_attachment(
-                    attachment, delimiter=selected.delimiter, sheet=selected.sheet
+                    attachment,
+                    delimiter=selected.delimiter,
+                    sheet=selected.sheet,
+                    ocr=document_ocr,
                 )
             elif document_fetch is None or selected.url is None:
                 return failure("document_disabled", "Reading a web address is not enabled")
@@ -372,6 +378,7 @@ def make_table_transform_tool(
                     fetch=document_fetch,
                     delimiter=selected.delimiter,
                     sheet=selected.sheet,
+                    ocr=document_ocr,
                     clock=clock,
                 )
             document, media_type = read.output.source, read.output.media_type

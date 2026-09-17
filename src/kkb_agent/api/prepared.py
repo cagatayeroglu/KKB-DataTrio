@@ -45,6 +45,7 @@ from kkb_agent.lakehouse import open_lakehouse
 from kkb_agent.lakehouse.lineage import Lineage
 from kkb_agent.lakehouse.store import DATABASE_NAME, SANDBOX
 from kkb_agent.llm.provider import LLMProvider
+from kkb_agent.pdf_ocr import OcrProvider
 from kkb_agent.tools import (
     make_anomaly_tool,
     make_catalog_search_tool,
@@ -332,6 +333,7 @@ class PreparedRunner:
         catalog_dense: CatalogDenseStage | None = None,
         web_url_fetch: Fetcher | None = None,
         document_uploads: bool = False,
+        document_ocr: OcrProvider | None = None,
     ):
         self._catalog = load_reviewed_snapshot(catalog_bytes)
         self._catalog_bytes = catalog_bytes
@@ -345,6 +347,8 @@ class PreparedRunner:
         self._web_url_fetch = web_url_fetch
         # Operator switch for uploads (M10-04); documents live under this process's state.
         self._document_uploads = document_uploads
+        # Operator switch for OCR of PDF pages without text (M7-11, DEC-149).
+        self._document_ocr = document_ocr
         self._documents: dict[tuple[str, str], _Document] = {}
         self._documents_lock = threading.Lock()
         self._provider = provider
@@ -687,6 +691,7 @@ class PreparedRunner:
                 inspector=inspector,
                 document_fetch=self._web_url_fetch,
                 attachment=attachment,
+                document_ocr=self._document_ocr,
             )
         )
         for make in (make_anomaly_tool, make_causality_tool):
@@ -695,6 +700,11 @@ class PreparedRunner:
             # The cell proof lives in this session's own lineage, where the gate
             # and the proof builder re-read it; the document itself is not kept.
             registry.register(
-                make_web_url_tool(fetch=self._web_url_fetch, attachment=attachment, lineage=lineage)
+                make_web_url_tool(
+                    fetch=self._web_url_fetch,
+                    attachment=attachment,
+                    lineage=lineage,
+                    ocr=self._document_ocr,
+                )
             )
         return registry

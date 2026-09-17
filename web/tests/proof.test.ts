@@ -236,6 +236,17 @@ test("a literal cell proof names its document without the address path", () => {
     }),
     "tablo 1 · 18 değer okundu",
   );
+  assert.equal(parsed.documents[0].extraction, "text");
+  assert.equal(
+    documentLocation({
+      ...parsed.documents[0],
+      row: null,
+      column: null,
+      values_read: 24,
+      extraction: "ocr",
+    }),
+    "sayfa 2 · tablo 1 · 24 değer okundu · OCR ile okundu, sütun toplamıyla doğrulandı",
+  );
   const uploaded = {
     ...parsed.documents[0],
     source_type: "upload" as const,
@@ -263,6 +274,7 @@ test("document proof schema refuses dangling, leaking or foreign documents", () 
     },
     { ...documentProof, documents: Array(5).fill(document) },
     { ...documentProof, documents: [{ ...document, values_read: -1 }] },
+    { ...documentProof, documents: [{ ...document, extraction: "guess" }] },
   ];
   for (const item of invalid) {
     assert.equal(
