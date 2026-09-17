@@ -12,6 +12,8 @@ import {
   saveSession,
   validQuestion,
   describeError,
+  documentMediaType,
+  uploadDocument,
   ApiError,
 } from "../lib/client";
 import { cellSchema, turnSchema, type Saved } from "../lib/contracts";
@@ -450,4 +452,68 @@ test("abstained or error turns leave client UI state clean and selectable", () =
   const retryReq = draftRequest("Konut kredilerini göster");
   assert.equal(retryReq.question, "Konut kredilerini göster");
   assert.equal(retryReq.selected_result_id, undefined);
+});
+
+test("an attached document travels with exactly one question", async () => {
+  assert.equal(documentMediaType("veri.CSV"), "text/csv");
+  assert.equal(
+    documentMediaType("tablo.xlsx"),
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  );
+  assert.equal(documentMediaType("rapor.pdf"), "application/pdf");
+  assert.equal(documentMediaType("sayfa.htm"), "text/html");
+  for (const name of ["makro.xlsm", "resim.png", "csv", "arsiv.csv.zip"])
+    assert.equal(documentMediaType(name), undefined);
+
+  const admitted = {
+    api_version: 1 as const,
+    document_ref: "d".repeat(32),
+    document_format: "csv" as const,
+    bytes: 42,
+    sha256: "e".repeat(64),
+  };
+  const old = globalThis.fetch;
+  const seen: { url: string; type: string | null; body: unknown }[] = [];
+  globalThis.fetch = async (url, init) => {
+    seen.push({
+      url: String(url),
+      type: new Headers(init?.headers).get("content-type"),
+      body: init?.body,
+    });
+    if (String(url).endsWith("/documents"))
+      return Response.json(admitted, { status: 201 });
+    const body = JSON.parse(String(init?.body));
+    return Response.json({ ...turn, request_id: body.request_id });
+  };
+  try {
+    const file = new File(["Ay;Kapanış (Puan)\n"], "veri.csv");
+    assert.deepEqual(await uploadDocument(session, file), admitted);
+    await assert.rejects(
+      uploadDocument(session, new File(["x"], "makro.xlsm")),
+      (error: unknown) =>
+        error instanceof ApiError && error.code === "document_rejected",
+    );
+    const attached = draftRequest(
+      "Ekli belgede Kapanış nedir?",
+      undefined,
+      undefined,
+      admitted,
+    );
+    const plain = draftRequest("Belge olmadan soru");
+    await admit({ ...saved, turns: [attached] }, 0);
+    await admit({ ...saved, turns: [plain] }, 0);
+  } finally {
+    globalThis.fetch = old;
+  }
+  assert.equal(seen[0].url, `/api/kkb/v1/sessions/${sid}/documents`);
+  assert.equal(seen[0].type, "text/csv");
+  assert.equal(seen.length, 3); // the refused .xlsm never reached fetch
+  assert.equal(JSON.parse(String(seen[1].body)).document_ref, "d".repeat(32));
+  assert.equal("document_ref" in JSON.parse(String(seen[2].body)), false);
+  assert.equal(
+    describeError(new ApiError("invalid_document", 422)).includes(
+      "yeniden yükle",
+    ),
+    true,
+  );
 });

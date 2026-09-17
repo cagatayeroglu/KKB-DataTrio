@@ -6,6 +6,7 @@ import {
   forward,
   proxyTimeoutMs,
   BODY_LIMIT,
+  DOCUMENT_LIMIT,
   RESPONSE_LIMIT,
 } from "../lib/proxy";
 const sid = "1".repeat(32),
@@ -307,4 +308,119 @@ test("selected source and request identity pass through the bounded local bridge
   );
   assert.equal(response.status, 202);
   assert.equal(calls, 1);
+});
+
+function documentRequest(
+  headers: Record<string, string>,
+  body: BodyInit | null,
+  method = "POST",
+) {
+  return new Request(
+    `http://127.0.0.1:3000/api/kkb/v1/sessions/${sid}/documents`,
+    {
+      method,
+      headers: {
+        host: "127.0.0.1:3000",
+        origin: "http://127.0.0.1:3000",
+        ...headers,
+      },
+      body,
+    },
+  );
+}
+const documentPath = ["v1", "sessions", sid, "documents"];
+
+test("a document upload crosses as exact bytes with only its type and token", async () => {
+  const bytes = new TextEncoder().encode("Ay;Kapanış (Puan)\n2026-04;9000\n");
+  let calls = 0;
+  const transport: typeof fetch = async (url, init) => {
+    calls++;
+    assert.equal(url, `http://127.0.0.1:8000/v1/sessions/${sid}/documents`);
+    const headers = new Headers(init?.headers);
+    assert.equal(headers.get("content-type"), "text/csv");
+    assert.equal(headers.get("x-kkb-session-token"), token);
+    assert.equal(headers.get("cookie"), null);
+    assert.deepEqual(new Uint8Array(init?.body as Uint8Array), bytes);
+    return Response.json({ document_ref: "a".repeat(32) }, { status: 201 });
+  };
+  const result = await forward(
+    documentRequest(
+      {
+        "content-type": "text/csv; charset=utf-8",
+        "x-kkb-session-token": token,
+        cookie: "never-forward",
+      },
+      bytes,
+    ),
+    documentPath,
+    transport,
+  );
+  assert.equal(result.status, 201);
+  assert.equal(calls, 1);
+});
+
+test("document uploads refuse other types, sizes, methods and missing tokens", async () => {
+  let calls = 0;
+  const transport: typeof fetch = async () => {
+    calls++;
+    return Response.json({}, { status: 201 });
+  };
+  const small = new Uint8Array([1, 2, 3]);
+  const cases: [Request, number][] = [
+    [
+      documentRequest(
+        { "content-type": "image/png", "x-kkb-session-token": token },
+        small,
+      ),
+      415,
+    ],
+    [
+      documentRequest(
+        { "content-type": "application/json", "x-kkb-session-token": token },
+        small,
+      ),
+      415,
+    ],
+    [documentRequest({ "content-type": "text/csv" }, small), 404],
+    [
+      documentRequest(
+        {
+          "content-type": "text/csv",
+          "x-kkb-session-token": token,
+          "content-length": String(DOCUMENT_LIMIT + 1),
+        },
+        small,
+      ),
+      413,
+    ],
+    [
+      documentRequest(
+        { "content-type": "text/csv", "x-kkb-session-token": token },
+        new Uint8Array(DOCUMENT_LIMIT + 1),
+      ),
+      413,
+    ],
+    [documentRequest({ "x-kkb-session-token": token }, null, "GET"), 404],
+  ];
+  for (const [item, status] of cases)
+    assert.equal((await forward(item, documentPath, transport)).status, status);
+  // A turn body is still JSON-only and 16 KiB, even with a document type.
+  const turnPath = `v1/sessions/${sid}/turns`;
+  assert.equal(
+    (
+      await forward(
+        request(
+          turnPath,
+          "POST",
+          { "content-type": "text/csv", "x-kkb-session-token": token },
+          "a",
+        ),
+        turnPath.split("/"),
+        transport,
+      )
+    ).status,
+    415,
+  );
+  assert.equal(BODY_LIMIT < DOCUMENT_LIMIT, true);
+  assert.equal(calls, 0);
 });

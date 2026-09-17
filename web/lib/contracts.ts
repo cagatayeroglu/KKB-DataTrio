@@ -256,6 +256,21 @@ export type Session = z.infer<typeof sessionSchema>;
 export type Dataset = z.infer<typeof datasetSchema>;
 export type Health = z.infer<typeof healthSchema>;
 
+export const documentAdmittedSchema = z
+  .object({
+    api_version: z.literal(1),
+    document_ref: ref,
+    document_format: z.enum(["csv", "xlsx", "pdf", "html"]),
+    bytes: z
+      .number()
+      .int()
+      .min(1)
+      .max(10 * 1024 * 1024),
+    sha256: digest,
+  })
+  .strict();
+export type DocumentAdmitted = z.infer<typeof documentAdmittedSchema>;
+
 export const savedSchema = z
   .object({
     session: sessionSchema,
@@ -270,12 +285,15 @@ export const savedSchema = z
             turn_id: ref.optional(),
             selected_result_id: ref.optional(),
             is_continuation: z.boolean().optional(),
+            document_ref: ref.optional(),
+            document_format: z.enum(["csv", "xlsx", "pdf", "html"]).optional(),
             admission_error: z
               .enum([
                 "invalid_result",
                 "invalid_request",
                 "request_conflict",
                 "capacity",
+                "invalid_document",
               ])
               .optional(),
           })
