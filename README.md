@@ -108,3 +108,15 @@ Three fixture explanations remain beside their fixtures. These exceptions are no
 | [.env.example](.env.example), [.gitignore](.gitignore) | Blank local configuration template and ignore rules for credentials, private data and generated output |
 
 Copy `.env.example` to an ignored `.env` for local configuration; never put a real credential in a tracked file. Private and downloaded data belongs under the ignored `data/` and `uploads/` paths, with source access, caching/retention and redistribution permissions still governed by Q-DATA-01/03; DEC-136 is the preparation architecture, not a permission grant.
+
+## Optional capability flags
+
+The backend API accepts optional flags at startup to enable additional data acquisition capabilities:
+
+| Flag | Capability |
+| --- | --- |
+| `--enable-web-url` | Read tables and data from user-supplied URLs, including same-site link follow and script endpoint datasets ([DEC-150](docs/DECISIONS.md#dec-150--prompt-address-authority-same-site-link-follow-and-script-endpoint-datasets)) |
+| `--enable-uploads` | Accept CSV/XLSX/PDF file uploads with the conversation document library (`belge_1..N`) |
+| `--enable-ocr` | OCR extraction for PDF pages without a text layer ([DEC-149](docs/DECISIONS.md#dec-149--ocr-tables-count-only-through-a-column-total-check)) |
+
+Example question with `--enable-web-url`: *"BIST XTUMY sayfasındaki endpoint_1 verisinden ay sonu değerlerini çıkar, toplam konut kredisi bakiyesini ekle ve birlikte hareketini incele"*
