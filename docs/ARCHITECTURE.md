@@ -560,7 +560,9 @@ M7-18 cell number reader and empty cells stay missing; unit and scale come only
 from the value header's trailing parentheses (`(Puan)` reads as points) and a
 header without one refuses. Stock/flow meaning is recorded as unknown, so
 analytics that require a stock, rate or index column (for example
-`table_co_movement`) refuse the added column rather than guess. The join is the
+`table_co_movement`) refuse the added column rather than guess — except under
+[DEC-145](DECISIONS.md#dec-145--a-points-or-index-header-unit-names-an-index-level-for-document-columns),
+where a points or index header unit at scale one makes it an index level. The join is the
 same exact monthly left join as `add_series` (`table_months`), keeps every
 existing cell, refuses a label that already exists or names a prepared series,
 and needs no catalog discovery in hybrid mode. The execution record binds the
