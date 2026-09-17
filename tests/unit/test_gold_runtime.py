@@ -133,6 +133,6 @@ def test_the_trace_says_what_was_written(pool, tmp_path):
     run = store.runs(sid)[0]
     written = [event for event in store.events(run.run_id) if event.name == "gold.materialized"]
     assert len(written) == 1
-    detail = written[0].detail
-    assert detail["table"] == "analiz_1"
-    assert detail["rows"] == 3 and detail["columns"] == 1 and detail["incomplete"] == []
+    recorded = written[0].attributes
+    assert recorded["table"] == "analiz_1"
+    assert recorded["rows"] == 3 and recorded["columns"] == 1 and recorded["incomplete"] == []
