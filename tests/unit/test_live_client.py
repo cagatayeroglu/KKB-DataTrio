@@ -456,3 +456,102 @@ def test_actual_transport_error_is_one_http_attempt(tmp_path, monkeypatch, kind)
                     budget.embed(["PRIVATE query"], kind="query")
     assert len(sent) == 1
     assert "PRIVATE" not in (tmp_path / "ledger").read_text()
+
+
+def fetch_request(url="https://data.example.test/PRIVATE-PATH.csv?token=SECRET"):
+    from pydantic import SecretStr
+
+    from kkb_agent.ingest.fetched import DOCUMENT_MEDIA_TYPES, source_id_for
+    from kkb_agent.ingest.safe_fetch import FetchRequest
+
+    return FetchRequest(
+        source_ref=source_id_for(url),
+        url=SecretStr(url),
+        accepted_media_types=DOCUMENT_MEDIA_TYPES,
+    )
+
+
+def test_fetch_budget_reserves_before_dispatch_and_ledgers_only_the_host(tmp_path):
+    from kkb_agent.ingest.safe_fetch import FetchCode, FetchFailure, FetchSuccess
+
+    ledger = tmp_path / "ledger"
+    calls = []
+
+    def inner(request):
+        calls.append(request)
+        if len(calls) == 2:
+            return FetchFailure(source_ref=request.source_ref, code=FetchCode.TIMEOUT)
+        return FetchSuccess(
+            source_ref=request.source_ref,
+            content=b"a,b\n1,2\n",
+            media_type="text/csv",
+            http_status=200,
+        )
+
+    budget = cli.FetchBudget(inner, 2, ledger)
+    assert isinstance(budget(fetch_request()), FetchSuccess)
+    assert budget(fetch_request()).code is FetchCode.TIMEOUT
+    refused = budget(fetch_request())
+    assert refused.code is FetchCode.NETWORK_DISABLED and len(calls) == 2 and budget.used == 2
+    logged = entries(ledger)
+    assert [e["outcome"] for e in logged] == [
+        "started",
+        "ok",
+        "started",
+        "TIMEOUT",
+        "budget_refused",
+    ]
+    assert logged[1]["bytes"] == 8 and logged[1]["media_type"] == "text/csv"
+    assert {e["host"] for e in logged} == {"data.example.test"}
+    assert "PRIVATE-PATH" not in ledger.read_text() and "SECRET" not in ledger.read_text()
+
+
+@pytest.mark.parametrize("limit", [0, 11, True])
+def test_fetch_budget_limits_are_bounded(tmp_path, limit):
+    with pytest.raises(ValueError):
+        cli.FetchBudget(lambda request: None, limit, tmp_path / "ledger")
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [["--enable-web-url"], ["--max-fetches", "2"], ["--enable-web-url", "--max-fetches", "11"]],
+)
+def test_prompt_address_flags_are_refused_unless_complete(tmp_path, monkeypatch, extra):
+    args = setup_cli(tmp_path, monkeypatch)
+    monkeypatch.setattr(cli, "KloudeksProvider", lambda *a: pytest.fail("no provider"))
+    with pytest.raises(SystemExit) as exc:
+        cli.main(args + extra)
+    assert exc.value.code == 2 and not (tmp_path / "ledger").exists()
+
+
+def test_launcher_wires_fetch_budget_and_uploads_only_when_named(tmp_path, monkeypatch, capsys):
+    args = setup_cli(tmp_path, monkeypatch) + [
+        "--enable-web-url",
+        "--max-fetches",
+        "3",
+        "--enable-uploads",
+    ]
+    monkeypatch.setattr(cli, "KloudeksProvider", lambda *a: nullcontext(scripted()))
+    captured = {}
+    actual_runner, actual_service = cli.PreparedRunner, cli.AnalysisService
+
+    def prepare(*a, **kw):
+        captured["fetch"] = kw.get("web_url_fetch")
+        captured["uploads"] = kw.get("document_uploads")
+        return actual_runner(*a, **kw)
+
+    def service(*a, **kw):
+        captured["store"] = kw.get("document_store")
+        return actual_service(*a, **kw)
+
+    monkeypatch.setattr(cli, "PreparedRunner", prepare)
+    monkeypatch.setattr(cli, "AnalysisService", service)
+    monkeypatch.setattr(cli.uvicorn, "run", lambda app, **kw: None)
+    assert cli.main(args) == 0
+    assert isinstance(captured["fetch"], cli.FetchBudget) and captured["uploads"] is True
+    assert captured["store"] is not None
+    report = json.loads(capsys.readouterr().out)
+    assert report["web_url"] is True and report["uploads"] is True
+    logged = entries(tmp_path / "ledger")
+    assert logged[0]["fetch_limit"] == 3 and logged[0]["uploads"] is True
+    assert logged[-1]["fetch_used"] == 0

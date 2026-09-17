@@ -450,6 +450,20 @@ Once the embedding budget is exhausted, uncached dense searches explicitly degra
 to lexical retrieval under the existing catalog policy; chat can continue within
 its own ceiling. This degraded result does not establish live hybrid acceptance.
 
+For document inputs, `--enable-uploads` accepts attached uploads, and
+`--enable-web-url --max-fetches N` (1–10) lets questions read an address they
+contain through the real `safe_fetch`; each request is reserved before dispatch
+and ledgered as host, outcome code, media type, bytes and time only, never path
+or query. Every fetch of a public address is a live network action inside the
+same separately approved plan.
+
+`python tests/manual/live_turns.py --port 8128 --plan plan.json --out <dir>` drives
+such a launcher over the HTTP turn contract: plan steps upload a document or ask
+a question (optionally selecting the previous publication and attaching the last
+upload). It keeps the session token in memory, resends a `provider_failed` turn
+once in the same session, stops at the first non-accepted turn and writes each
+turn's JSON to `<dir>`, which is operator-local data.
+
 Choose a fresh `--ledger artifacts/<run-name>.jsonl` for each run. The default is
 `artifacts/live-rehearsal-ledger.jsonl`; an existing file refuses startup rather than
 being overwritten. The content-free ledger records configured limits, catalog
