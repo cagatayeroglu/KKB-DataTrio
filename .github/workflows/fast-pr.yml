@@ -18,7 +18,9 @@ jobs:
     # #158: all 3235 tests and secret scan passed, but 41s installation plus
     # 247s tests exceeded the former five-minute whole-job budget at teardown.
     # This changes CI scheduling only, never application/test timeouts.
-    timeout-minutes: 8
+    # 2026-09-16/17: ~3,650 tests ran 7-8 min on hosted runners and the
+    # 8-minute budget cancelled #219 and #222 at ~90% with no failure.
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

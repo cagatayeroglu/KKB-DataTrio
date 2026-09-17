@@ -351,7 +351,7 @@ def test_turn_two_quotes_bind_once_the_transform_supersedes_its_source(pool):
         "Konut kredisi bakiyesi TÜFE ile 2021-06 fiyatlarına çevrildi; faiz sütunları aynı kaldı. "
         "Şubat 2021'de nominal bakiye 990 milyon TL, reel bakiye 1.025 milyon TL oldu."
     )
-    session = Session(scripted(json.dumps(plan), draft), registry)
+    session = Session(scripted(json.dumps(plan), draft), registry, deterministic_presentation=False)
     answered = session.answer(
         TURN_TWO, lake.connection, workspace=workspace, remember="konut_kredisi_ve_faiz_reel"
     )

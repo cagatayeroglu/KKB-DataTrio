@@ -81,6 +81,22 @@ const proofSourceSchema = z
     last_retrieved: z.iso.datetime({ offset: true }).nullable(),
   })
   .strict();
+/** A fetched document a literal cell or an added column was read from; no path or cell text. */
+const proofDocumentSchema = z
+  .object({
+    source_type: z.enum(["web_url", "upload"]),
+    document_format: z.enum(["csv", "xlsx", "pdf", "html"]),
+    host: label.nullable(),
+    content_sha256: digest,
+    retrieved_at: z.iso.datetime({ offset: true }).nullable(),
+    page: z.number().int().min(1).nullable(),
+    table: z.number().int().min(1).nullable(),
+    row: z.number().int().min(1).nullable(),
+    column: z.number().int().min(1).nullable(),
+    sheet_selected: z.boolean(),
+    values_read: z.number().int().nonnegative().nullable().default(null),
+  })
+  .strict();
 const proofStepSchema = z
   .object({
     producer: code,
@@ -96,7 +112,7 @@ const proofStepSchema = z
       .array(
         z
           .object({
-            kind: z.enum(["series", "result"]),
+            kind: z.enum(["series", "result", "document"]),
             index: z.number().int().min(0).max(31),
           })
           .strict(),
@@ -111,6 +127,7 @@ export const proofSchema = z
     gate: z.literal("accepted"),
     steps: z.array(proofStepSchema).max(8),
     sources: z.array(proofSourceSchema).max(32),
+    documents: z.array(proofDocumentSchema).max(4).default([]),
     warnings: z.array(bounded).max(16),
     limitations: z.array(bounded).max(16),
     unresolved_semantics: z.array(bounded).max(16),
@@ -120,16 +137,20 @@ export const proofSchema = z
   .refine(
     (proof) =>
       proof.availability === "unavailable"
-        ? proof.steps.length === 0 && proof.sources.length === 0
+        ? proof.steps.length === 0 &&
+          proof.sources.length === 0 &&
+          proof.documents.length === 0
         : proof.steps[0]?.execution === "verified" &&
           (proof.availability === "partial" || proof.gaps.length === 0) &&
           proof.steps.every((step) =>
             step.inputs.every(
               (item) =>
                 item.index <
-                (item.kind === "series"
-                  ? proof.sources.length
-                  : proof.steps.length),
+                {
+                  series: proof.sources.length,
+                  result: proof.steps.length,
+                  document: proof.documents.length,
+                }[item.kind],
             ),
           ),
     "Proof chain is inconsistent",
@@ -228,11 +249,27 @@ export type Cell = z.infer<typeof cellSchema>;
 export type Result = z.infer<typeof resultSchema>;
 export type Proof = z.infer<typeof proofSchema>;
 export type ProofSource = Proof["sources"][number];
+export type ProofDocument = Proof["documents"][number];
 export type ProofStep = Proof["steps"][number];
 export type Turn = z.infer<typeof turnSchema>;
 export type Session = z.infer<typeof sessionSchema>;
 export type Dataset = z.infer<typeof datasetSchema>;
 export type Health = z.infer<typeof healthSchema>;
+
+export const documentAdmittedSchema = z
+  .object({
+    api_version: z.literal(1),
+    document_ref: ref,
+    document_format: z.enum(["csv", "xlsx", "pdf", "html"]),
+    bytes: z
+      .number()
+      .int()
+      .min(1)
+      .max(10 * 1024 * 1024),
+    sha256: digest,
+  })
+  .strict();
+export type DocumentAdmitted = z.infer<typeof documentAdmittedSchema>;
 
 export const savedSchema = z
   .object({
@@ -247,12 +284,16 @@ export const savedSchema = z
             question: z.string().min(1).max(4096),
             turn_id: ref.optional(),
             selected_result_id: ref.optional(),
+            is_continuation: z.boolean().optional(),
+            document_ref: ref.optional(),
+            document_format: z.enum(["csv", "xlsx", "pdf", "html"]).optional(),
             admission_error: z
               .enum([
                 "invalid_result",
                 "invalid_request",
                 "request_conflict",
                 "capacity",
+                "invalid_document",
               ])
               .optional(),
           })

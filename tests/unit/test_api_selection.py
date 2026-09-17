@@ -21,11 +21,11 @@ def selection_service(verified):
     answered, published = verified
     ordinary, selected = [], []
 
-    def run(sid, tid, text):
+    def run(sid, tid, text, *, is_continuation):
         ordinary.append((sid, tid, text))
         return project_answer(answered, turn_id=tid, published=published)
 
-    def follow(sid, tid, text, selection):
+    def follow(sid, tid, text, selection, *, is_continuation):
         selected.append((sid, tid, text, selection))
         return quiet_answer()
 
@@ -110,7 +110,7 @@ def test_selection_is_part_of_idempotency_and_failed_followup_preserves_history(
             submit(service, session, other, request_id)
     assert len(selected) == 1
 
-    def failed(*args):
+    def failed(sid, tid, text, selection, *, is_continuation):
         raise TransportError("sensitive details")
 
     service._selected_runner = failed

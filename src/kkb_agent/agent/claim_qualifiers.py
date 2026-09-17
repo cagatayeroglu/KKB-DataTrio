@@ -11,7 +11,7 @@ import re
 from collections.abc import Mapping, Sequence
 from datetime import date
 
-from kkb_agent.core import AnalyticalResult, ResultValue, Scale
+from kkb_agent.core import DIMENSIONLESS, AnalyticalResult, ResultValue, Scale
 
 
 def _fold(text: str) -> str:
@@ -244,6 +244,128 @@ def identity_fault(
             r"(?<![\w:])" + re.escape(alias) + r"(?![\w:])", clause
         ):
             return f"Explicit identity {alias!r} conflicts with this result/value identity"
+    return None
+
+
+TABLE_COUNT_LABELS = {
+    "complete monthly transitions": "Tam aylık geçiş sayısı",
+    # "nedeniyle" and "yüzünden" are causal wording the gate withholds, so this
+    # phrase states the exclusion without asserting a cause for it.
+    "transitions excluded for missing observations": "Dışlanan eksik gözlemli geçiş sayısı",
+    "transitions meeting the condition": "Koşulu karşılayan geçiş sayısı",
+    "eligible transitions matching the driver direction": (
+        "Koşul altında sürücü yönünü karşılayan dönem sayısı"
+    ),
+    "eligible transitions matching the target direction": (
+        "Koşul altında hedef yönünü karşılayan dönem sayısı"
+    ),
+    "eligible transitions matching both directions": (
+        "Koşul altında iki yönü birlikte karşılayan dönem sayısı"
+    ),
+}
+
+
+def table_count_display_label(result: AnalyticalResult, value: ResultValue) -> str | None:
+    """Return the controlled prose label for the result's final table comparison."""
+    if result.evidence is None:
+        return None
+    comparison_id = next(
+        (
+            item.parameters.get("comparison_id")
+            for item in reversed(result.evidence.transformations)
+            if item.operation == "table_co_movement"
+        ),
+        None,
+    )
+    if not isinstance(comparison_id, str):
+        return None
+    prefix = f"table comparison {comparison_id}: "
+    if not value.label.startswith(prefix):
+        return None
+    return TABLE_COUNT_LABELS.get(value.label.removeprefix(prefix))
+
+
+#: Controlled prose for the four counts a co-movement result publishes. These are
+#: what a later comparison inherits, and without a phrase of their own they cannot
+#: be named at all once a new comparison contributes an equal count.
+COMOVEMENT_COUNT_LABELS = {
+    "transitions": "Karşılaştırılan ardışık ay geçişi sayısı",
+    "driver_fell": "Sürücü serinin düştüğü geçiş sayısı",
+    "target_rose": "Sürücü düşerken hedefin arttığı geçiş sayısı",
+    "target_did_not_rise": "Sürücü düşerken hedefin artmadığı geçiş sayısı",
+}
+
+
+def comovement_count_meaning(label: str) -> str | None:
+    """Which of the four co-movement counts a value label carries, if any.
+
+    The shape is the marker: only `analytics.comovement` builds these labels,
+    embedding the driver and target labels between fixed words.
+    """
+    if label == "consecutive monthly transitions compared":
+        return "transitions"
+    if not label.startswith("transitions where "):
+        return None
+    if label.endswith(" did not rise"):
+        return "target_did_not_rise"
+    if label.endswith(" rose"):
+        return "target_rose"
+    if label.endswith(" fell"):
+        return "driver_fell"
+    return None
+
+
+def comovement_count_display_label(result: AnalyticalResult, value: ResultValue) -> str | None:
+    """Return the controlled prose label for a co-movement count, inherited or not."""
+    if value.unit != DIMENSIONLESS:
+        return None
+    meaning = comovement_count_meaning(value.label)
+    return COMOVEMENT_COUNT_LABELS.get(meaning) if meaning is not None else None
+
+
+def controlled_count_label(result: AnalyticalResult, value: ResultValue) -> str | None:
+    """The one controlled phrase that names this count, from either family."""
+    return table_count_display_label(result, value) or comovement_count_display_label(result, value)
+
+
+def comovement_count_identity_fault(
+    clause: str, result: AnalyticalResult, value: ResultValue
+) -> str | None:
+    """Narrow a count claim to one controlled co-movement meaning.
+
+    The mirror of the table-comparison rule. A comparison built on an earlier
+    co-movement retains its four counts, and a new comparison can publish an
+    equal number; without this, the inherited count has no wording that binds it
+    and the whole sentence is withheld as ambiguous.
+    """
+    folded = _fold(clause)
+    selected = [label for label in COMOVEMENT_COUNT_LABELS.values() if _fold(label) in folded]
+    if not selected:
+        return None
+    expected = comovement_count_display_label(result, value)
+    if len(selected) != 1 or expected != selected[0]:
+        return "Explicit co-movement count wording conflicts with this value identity"
+    return None
+
+
+def table_count_identity_fault(
+    clause: str, result: AnalyticalResult, value: ResultValue
+) -> str | None:
+    """Narrow a count claim to one controlled table-comparison meaning.
+
+    A final result can retain an earlier comparison count with the same value,
+    unit and coverage. Value-only binding would either reject the supported
+    claim as ambiguous or, worse, select the wrong count. A controlled phrase
+    identifies one of the six final comparison metrics; unrecognised prose
+    continues to receive no semantic privilege.
+    """
+    folded = _fold(clause)
+    selected = [label for label in TABLE_COUNT_LABELS.values() if _fold(label) in folded]
+    if not selected:
+        return None
+    expected = table_count_display_label(result, value)
+    if len(selected) != 1 or expected != selected[0]:
+        return "Explicit table-comparison count wording conflicts with this value identity"
     return None
 
 

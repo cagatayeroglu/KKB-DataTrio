@@ -27,7 +27,13 @@ from kkb_agent.agent import (
     render_result,
 )
 from kkb_agent.agent.presentation import display_value, format_number
-from kkb_agent.agent.verifier import DEFAULT_TOLERANCE, Binding, extract_numbers, parse_written
+from kkb_agent.agent.verifier import (
+    DEFAULT_TOLERANCE,
+    Binding,
+    OmissionCode,
+    extract_numbers,
+    parse_written,
+)
 from kkb_agent.core import (
     Aggregation,
     AnalyticalResult,
@@ -113,6 +119,7 @@ def producer_fixture_for_sentence_tests(request, monkeypatch):
     if request.cls not in {
         TestASupportedAnswerPassesThrough,
         TestAnUnsupportedSentenceIsWithheld,
+        TestTheWithheldSentenceCanBeDiagnosedWithoutItsText,
         TestAbstention,
     }:
         return
@@ -532,6 +539,35 @@ def test_period_repair_does_not_retry_invented_values(house):
     assert len(provider.seen) == 2
 
 
+@pytest.mark.parametrize("repaired", [SUPPORTED, INVENTED])
+def test_unmatched_numeric_repair_is_bounded_and_fully_reverified(house, repaired):
+    from kkb_agent.agent import Workspace
+
+    provider = scripted(plan_json(FULLY_TYPED), INVENTED, repaired)
+    registry = ToolRegistry()
+    registry.register(make_lakehouse_tool(house.connection))
+    workspace = Workspace.open(house.connection)
+    prior = result(result_id="prior")
+    workspace.publish(workspace.preview("prior", prior))
+    prior_digest = workspace.value_of("prior").digest()
+
+    answer = Session(provider, registry, repair_unmatched_numbers=True).answer(
+        "Haziran bakiyesi?", house.connection, workspace=workspace, remember="candidate"
+    )
+
+    assert len(provider.seen) == 3
+    assert provider.seen[1][1].content == provider.seen[2][1].content
+    assert INVENTED not in provider.seen[2][0].content
+    assert "Do not derive a percentage" in provider.seen[2][0].content
+    assert workspace.value_of("prior").digest() == prior_digest
+    if repaired == SUPPORTED:
+        assert answer.answer.status is AnswerStatus.ACCEPTED
+        assert workspace.names() == ["candidate", "prior"]
+    else:
+        assert answer.answer.status is AnswerStatus.ABSTAINED
+        assert workspace.names() == ["prior"]
+
+
 def test_period_repair_provider_failure_preserves_first_gated_answer(house, monkeypatch):
     from kkb_agent.agent import Workspace
     from kkb_agent.llm.provider import ProviderError
@@ -558,3 +594,78 @@ def test_period_repair_provider_failure_preserves_first_gated_answer(house, monk
     assert answer.answer.status is AnswerStatus.QUALIFIED
     assert answer.answer.text == "Seri aylık yayımlanmaktadır."
     assert "private transport detail" not in answer.answer.text
+
+
+class TestTheWithheldSentenceCanBeDiagnosedWithoutItsText:
+    """M11-11: a live omission has to be findable again without another run.
+
+    The reason strings quote the draft, so an operator log cannot keep them.
+    These records carry the diagnosis — which sentence, which categories, which
+    quantity, and what it bound to — and nothing that rebuilds the wording.
+    """
+
+    def test_an_invented_number_is_reported_as_unbound_with_its_parsed_value(self, house):
+        gated = gate_answer(f"{SUPPORTED} {INVENTED}", result(), house.connection)
+
+        (omitted,) = gated.omitted
+        assert omitted.index == 1
+        assert omitted.codes == (OmissionCode.UNMATCHED_NUMBER,)
+        (number,) = omitted.numbers
+        assert number.value == 912000.0
+        assert number.binding is Binding.UNBOUND
+        assert (number.result_id, number.value_label) == (None, None)
+        assert number.codes == (OmissionCode.UNMATCHED_NUMBER,)
+
+    def test_a_real_value_quoted_at_the_wrong_scale_names_what_it_bound_to(self, house):
+        gated = gate_answer(
+            f"{SUPPORTED} Diğer bir deyişle 801.438 bin TL.", result(), house.connection
+        )
+
+        (omitted,) = gated.omitted
+        (number,) = omitted.numbers
+        assert number.value == 801438.0
+        assert number.binding is not Binding.UNBOUND
+        assert number.value_label == "bddk:konut"
+        assert OmissionCode.UNIT_SCALE in number.codes
+
+    def test_the_index_locates_the_sentence_among_the_kept_ones(self, house):
+        draft = f"{SUPPORTED} Seri aylık yayımlanmaktadır. {INVENTED}"
+        gated = gate_answer(draft, result(), house.connection)
+
+        (omitted,) = gated.omitted
+        assert omitted.index == 2
+        assert gated.text == f"{SUPPORTED} Seri aylık yayımlanmaktadır."
+
+    def test_an_accepted_answer_carries_no_diagnostics_at_all(self, house):
+        gated = gate_answer(SUPPORTED, result(), house.connection)
+
+        assert gated.omitted == ()
+
+    def test_the_diagnosis_cannot_rebuild_the_draft(self, house):
+        # The negative control for the operator log: the record is allowed to
+        # carry parsed values and our own identities, never the model's words.
+        draft = f"{SUPPORTED} {INVENTED}"
+        gated = gate_answer(draft, result(), house.connection)
+
+        (omitted,) = gated.omitted
+        exported = json.dumps(
+            {
+                "sentence": omitted.index,
+                "codes": [code.value for code in omitted.codes],
+                "numbers": [
+                    {
+                        "value": number.value,
+                        "binding": number.binding.value,
+                        "result_id": number.result_id,
+                        "value_label": number.value_label,
+                        "codes": [code.value for code in number.codes],
+                    }
+                    for number in omitted.numbers
+                ],
+            },
+            ensure_ascii=False,
+        )
+        assert "912.000" not in exported
+        for word in ("Temmuz", "ulaştı", "milyon", "konut", "kredisi"):
+            assert word not in exported
+        assert not any(reason in exported for reason in omitted.reasons)

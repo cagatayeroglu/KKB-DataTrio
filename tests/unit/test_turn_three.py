@@ -15,6 +15,12 @@ from kkb_agent.ingest.evds_request import EvdsWindow
 from kkb_agent.llm import scripted
 
 
+@pytest.fixture(autouse=True)
+def _legacy_writer_rehearsals(monkeypatch):
+    """Keep these scripted negative/repair rehearsals on the writer fallback."""
+    monkeypatch.setattr("kkb_agent.agent.loop.deterministic_draft", lambda result: None)
+
+
 def proposal(question, steps):
     return json.dumps({"question": question, "steps": steps})
 
@@ -54,8 +60,18 @@ def first_two(second_draft="Tablo hazırlandı."):
     ]
 
 
-@pytest.mark.parametrize("case", ["complete", "only_added", "nominal", "wrong_direction"])
+@pytest.mark.parametrize(
+    "case", ["complete", "inherited_condition", "only_added", "nominal", "wrong_direction"]
+)
 def test_three_turn_acceptance_requires_requested_real_comparison(lake, tmp_path, case):
+    """A plan naming the nominal column still produces the required real comparison.
+
+    The tool resolves a column to its deflated counterpart when the table carries
+    one, so `nominal` and `complete` reach the same published comparison. What
+    still fails acceptance is adding the column without comparing it, or comparing
+    it in the wrong direction.
+    """
+    requested_real = case in {"complete", "inherited_condition", "nominal"}
     prepared(lake)
     third = [
         step(
@@ -69,40 +85,38 @@ def test_three_turn_acceptance_requires_requested_real_comparison(lake, tmp_path
         )
     ]
     if case != "only_added":
-        third.append(
-            step(
-                "change_detection",
-                {
-                    "operation": "table_co_movement",
-                    "input_step": "add",
-                    "driver_column": "EVDS:TP.KFE.TR",
-                    "target_column": TOTAL_ID
-                    if case == "nominal"
-                    else f"{TOTAL_ID} real, 2021-06 prices ({CPI_ID})",
-                    "driver_direction": "up",
-                    "target_direction": "up" if case == "wrong_direction" else "non_increasing",
-                    "when_column": "EVDS:TP.KTF12 monthly average (by_end)",
-                    "when_direction": "down",
-                },
-                "compare",
-                ("add",),
+        comparison = {
+            "operation": "table_co_movement",
+            "input_step": "add",
+            "driver_column": "EVDS:TP.KFE.TR",
+            "target_column": TOTAL_ID
+            if case == "nominal"
+            else f"{TOTAL_ID} real, 2021-06 prices ({CPI_ID})",
+            "driver_direction": "up",
+            "target_direction": "up" if case == "wrong_direction" else "non_increasing",
+        }
+        if case != "inherited_condition":
+            comparison.update(
+                when_column="EVDS:TP.KTF12 monthly average (by_end)", when_direction="down"
             )
-        )
+        third.append(step("change_detection", comparison, "compare", ("add",)))
     provider = scripted(
         *first_two(), proposal(live_check.TURN_THREE_QUESTION, third), "Tablo hazırlandı."
     )
     report = live_check.run_prepared_check(provider, lake.root, tmp_path / "work", turns=3)
-    assert report["passed"] is (case == "complete"), report
+    assert report["passed"] is requested_real, json.dumps(report, ensure_ascii=False)
     assert len(report["turns"]) == 3
     final = report["turns"][-1]
-    assert final["relationship_checked"] is (case == "complete")
+    assert final["relationship_checked"] is requested_real
     assert final["published"] == [
         live_check.TURN_ONE_NAME,
         live_check.TURN_TWO_NAME,
         live_check.TURN_THREE_NAME,
     ]
-    if case == "complete":
+    if requested_real:
         assert list(final["result"]["counts"].values())[-6:] == [5, 0, 4, 4, 4, 4]
+        if case == "inherited_condition":
+            assert final["result"]["transformations"][-1] == "table_co_movement"
         assert final["tables"][0]["rows"] == 6
         assert final["result"]["transformations"] == [
             "align_weekly_to_monthly",

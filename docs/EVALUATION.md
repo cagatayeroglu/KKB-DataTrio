@@ -936,7 +936,100 @@ three-turn live acceptance/latency limitations below remain; this checkpoint is
 not final-demo certification. Ignored local full-gate logs are under
 `work/kkb-hybrid-rehearsal/artifacts/final-full*` in the operator workspace.
 
+<a id="m11-07-syn-bounded-presentation-offline-2026-09-16"></a>
+
+## M11-07-SYN bounded presentation offline — 2026-09-16
+
+The user-supplied ledger for `cagatay-final-3turn-20260916-222703` records Turn 1
+two planner chat calls (298625/277716 ms), two query embeddings (169/67 ms), then
+a 465446 ms writer call. Turn 2 recorded two planner calls (85023/93667 ms), a
+115 ms embedding and a final writer `provider_error` at 600004 ms after the
+calculation had succeeded. These are **pre-fix live observations**, not a measured
+post-fix speedup; the Turn 2 publication gate correctly preserved the previous
+table. The content-free ledger does not establish any missing draft wording.
+
+M11-07-SYN's offline regression uses synthetic prepared data and a scripted
+provider with only the planner response: eligible Turn 1 co-movement, Turn 2
+deflation and Turn 3 table-direction comparison each ACCEPT with **one Session
+planner call and zero synthesis calls**; a configured prepared hybrid discovery
+still needs its separate planner continuation and query embedding. Deflation
+keeps its source digest and explicit reference month; Turn 3's controlled
+two-way and joint count phrases bind distinct typed metrics. The existing full
+`gate_answer`, `result_faults` and workspace preview/publish conditions remain
+in force. An injected evidence fault prevents publication, and wrong/extra
+numbers remain rejected. The focused Session/presentation/relationship and
+three-turn suite has 173 passes, touched Python Ruff is clean, and strict
+`mypy src` passes. The first CI Fast PR run stopped at a legacy selected-runtime
+test that expected a writer call for `add_series`; its follow-up now injects a
+source mutation during deterministic presentation and still proves publication
+fails closed. The full local unit suite then passed 3640 tests; the final-head
+PR gate is pending. This is an offline
+call-count result, not a 60-month
+oracle run, live reliability result or measured wall-clock improvement. A
+separately authorized bounded live hybrid three-turn rerun must still check
+60/59/32/28/4, 302 with the prior 242 preserved, the 22 three-way metric
+with the prior 302 preserved, and end-to-end timing.
+
+<a id="m11-07-live-rerun-8-2026-09-17"></a>
+### M11-07 / M13-05 bounded live hybrid rerun 8 — 2026-09-17 (PR #228)
+
+Owner-authorized by Eray on merged `dev` `f14db95`, which carries the selected
+relationship condition (#215), clarification retention (#217), bounded
+deterministic presentation (#219) and the M7-14/M10-04 document work
+(#222–#227). Bounded plan: Kloudeks only, 15 chat and 15 query-embedding
+ceiling, 600 s per request, `KLOUDEKS_MAX_ATTEMPTS=1`, fresh state root and
+content-free ledger (`artifacts/m11-07-rerun8-20260917-ledger.jsonl`, ignored),
+no passage/index build, BDDK/EVDS, web-search, OCR, URL or upload call; stop at
+the first material blocker.
+
+Prerequisites verified offline with no provider call: readiness `ready: true`,
+`model_checked: false`, `catalog_retrieval: "hybrid"`, 29 prepared identities,
+4,124 observation rows, 37 catalog identities, 124 files, prepared snapshot
+`6fc3afd5…c887f`, catalog `e0bbaac8…69fb11`; independent organizer oracle 60
+months, 59 transitions, 32 rate falls, non-rise months February and May 2021,
+December 2023 and January 2024, real 2021-01 1,894,772.1 / 2023-12 828,155.2 /
+2025-12 678,970.0, and 22 rate-fall ∧ KFE-up ∧ real-credit-nonrise months with
+December 2025 KFE 204.36. A one-call latency smoke answered in 3.3 s (chat) and
+137 ms (embedding).
+
+Path: `tests/manual/live_client.py` on port 8128 → PreparedRunner/AnalysisService
+with the DEC-142 dense stage. The organizer questions (`live_check`
+`TURN_ONE/TWO/THREE_QUESTION`) were submitted verbatim over the same HTTP turn
+contract the client uses, each follow-up with `selected_result_id` of the
+previous publication and `is_continuation: true`. The browser client was not
+used because an operator API and `next dev` already held ports 8000/3000 and the
+client proxy accepts only port 3000; those processes were left untouched.
+
+| Turn | Result |
+| --- | --- |
+| 1 | **ACCEPTED**, 490.9 s, zero omitted sentences, 242 cells, proof `available`. Independent SQL + `Decimal` check: 60 balance levels, 60 `by_end` rate levels, 59 balance and 59 rate month-over-month changes — 238 comparisons, **zero mismatches**; metrics 59 / 32 / 28 / 4 and the four non-rise months equal the oracle. |
+| 2 | **ACCEPTED**, 270.5 s, zero omitted sentences, 302 cells, proof `available`. All 242 Turn 1 cells are present with identical value, unit, scale and measure; the 60 added `real, 2025-12 prices` values equal nominal × CPI(2025-12) / CPI(month) — **zero mismatches** — including 1,894,772.1 / 1,874,183.9 / 828,155.2 / 773,412.0 / 678,970.0. |
+| 3 | **FAILED `provider_failed`**, 706.2 s. The discovery planner call returned in 105.8 s and its query embedding in 69 ms; the analysis planner call ended `provider_error` at 600,008 ms with one attempt. Nothing was published; Analiz 1 and 2 were unchanged. |
+
+Latency per call (ms): Turn 1 planner 269,386 + 219,454, embeddings 130 / 77;
+Turn 2 planner 94,513 + 175,309, embedding 83; Turn 3 planner 105,811 then the
+600,008 timeout, embedding 69. No writer call was made in Turns 1–2: each
+accepted turn used exactly its two planner calls and the gate accepted the
+deterministic presentation — the first live confirmation of #219. Ledger
+totals: 6 chat dispatches (5 ok, 1 provider error), 4 query embeddings (all ok),
+no retry. The launcher was stopped by the operator, so no final-counter line was
+written. Prepared pool aggregate digest over all 124 files
+`a88b9786…314dae9` is identical before and after.
+
+Verdict: **two organizer turns are live-accepted and oracle-equal on the current
+revision; served three-turn acceptance remains incomplete** because Turn 3 hit
+the provider timeout before any plan existed. This is a transport/latency
+observation, not a correctness or gate result: #213 (real-column comparison)
+and #215 (inherited rate-down condition, expected 22) are still unconfirmed
+live, and #217 was not exercised. The short smoke prompt answered in seconds
+while full planner prompts took 95–270 s and one exceeded 600 s, so a smoke is
+not a latency forecast for planner turns. Eray chose to stop rather than rerun
+all three turns in a new session within the remaining budget (the driver had
+not retained the session token needed to resend Turn 3 alone) or restart with a
+900 s timeout.
+
 <a id="m11-served-hybrid-rehearsal-2026-09-15"></a>
+
 ## M11-07 / M13-05 served rehearsal and hybrid isolation — 2026-09-15
 
 Measured on `4083020`, with product code identical to dev `fdd666e`, in
@@ -1025,6 +1118,467 @@ Local ignored evidence: `artifacts/hybrid-rehearsal-r2-ledger.jsonl`,
 `artifacts/r2-analiz_2.json`, `artifacts/r2-turn3-unpublished-candidate.json`, and
 `artifacts/r2-joint-verification.json`. Candidate reconstruction was read-only;
 it was never inserted into the workspace or shown as a published result.
+
+### M11-11 Turn-3 numeric binding reproduction — 2026-09-16 (PR #197)
+
+The rejected live draft was not retained, so this offline follow-up does not
+claim its exact wording or that either live number was the joint count. A safe
+executed table-comparison fixture nevertheless reproduced a matching failure
+class: the independently expected final count was `1`, but the candidate also
+retained an earlier count with the same value, unit and period. Both `1 ay` and
+`1,0 ay` parsed to the correct value and were rejected as ambiguous because
+free prose did not distinguish the two value labels. This is an identity-binding
+failure after correct computation, not numeric parsing or tolerance failure.
+
+The minimal correction gives only the final `table_co_movement` result's six
+count meanings controlled Turkish display phrases and teaches the verifier to
+use those exact phrases as identity qualifiers. It does not prefer a number
+merely because it occurs in the table. Controlled final counts may now remain
+visible to the writer even when an inherited metric has the same numeric value.
+Prepared sessions also permit one fresh numeric-wording attempt when every
+omission is solely unmatched/ambiguous numeric binding. The same immutable
+candidate is used, tools are not rerun, rejected draft text is not supplied,
+and the complete unchanged gate runs again before publication.
+
+Offline regression matrix: the supported final joint count and its safe decimal
+format bind; an uncomputed percentage, inferred table row count, fabricated
+count, correct count attached to the wrong comparison label, and a value
+attached to the wrong month remain rejected. A supported sentence does not
+rescue a fabricated extra sentence. A repaired supported count publishes while
+an unsupported repaired count does not, and the prior trusted table remains
+byte-equivalent. Focused answer/verifier/relationship/three-turn/writer/
+multi-result/selected-runtime/prepared-API tests: **198 passed**. Touched-source
+Ruff and mypy passed. Exact-head Fast PR and Web client gates passed on
+`6c3cc5e4a1fc72d06b93fd99e1e08fc31767b395`; this subsequent evidence-only
+record does not alter runtime code. No live provider, source, embedding or
+search call was made. A bounded live rerun remains separate and requires
+explicit authorization.
+
+<a id="m11-07-selected-condition-forensics-2026-09-16"></a>
+### M11-07 selected-condition forensics — 2026-09-16 (PR #215)
+
+Read-only inspection of the previously completed `cagatay-hybrid-20260916-142827`
+run on merged `dev` `747f04f` found a computation-scope error, not a fabricated
+number. The ignored prepared pool still passes offline `--check` as hybrid
+(snapshot `6fc3afd5…f887f`, 29 identities, 4,124 observations, 124 files), and
+the independent SQL/Decimal oracle gives 60 months, 32 rate falls, 46 real-credit
+non-rises and **22** rate-fall ∧ KFE-up ∧ real-credit-nonrise months. No provider,
+embedding or source request was made for this investigation.
+
+The persisted workspace session `80e1162bf8814eef9ceea1a386a9e79f` published
+`analiz_1`, `analiz_2` and `analiz_3` at version 1. `analiz_3` is bound to the
+`analiz_2` artifact; all 302 earlier result values are identical, and 60 KFE
+values were appended (December 2025: 204.36). The final execution record's
+proposed `table_co_movement` arguments had KFE as driver (`up`), nominal credit
+as target (`non_increasing`), and null `when_column`/`when_direction`. The code-owned
+real-column substitution correctly changed the executed target to the 2025-12-price
+credit column. It did **not** supply the missing rate-down condition. Thus the
+executed criteria were KFE↑ ∧ real credit non-increasing across all complete
+transitions, returning six counts **59 / 0 / 59 / 59 / 46 / 46**; the 22-count
+three-way metric does not exist in this published result. The 46 value has the
+identity `eligible transitions matching both directions` for comparison
+`be9514c36c6a`. Replaying that controlled count phrase against the persisted
+result, read-only, binds the 46 to this exact metric and is ACCEPTED. The actual
+raw writer draft and per-number gate binding were not retained, so this replay
+is not a claim to recover their exact text/identity. The content-free ledger
+records Turn 3's gate as ACCEPTED with zero omissions.
+
+Classification: **A — the structured computation omitted a semantically relevant
+prior predicate**. Selected-table grounding, immutable values and real-column
+substitution worked; the writer could only quote a computed 46, not an absent 22.
+The offline correction records the prior comparison's typed column/direction
+identity and carries its unused down predicate only for an explanatory
+continuation naming the same target and its non-rise phenomenon, even when
+the prior driver is implicit. Independent/new-only requests,
+wrong target/direction, absent prior identity, and explicit conditions do not
+inherit it. The resulting transformation records the effective condition; the
+numeric verifier and publication gate are unchanged. A scripted 60-month
+regression distinguishes 46 unconditional non-rises from 22 joint months, and
+an offline three-turn rehearsal exercises the omitted-condition plan. This is
+not yet a new live acceptance result.
+
+<a id="m11-07-provider-latency-abort-2026-09-16"></a>
+### M11-07 / M13-05 attempt abandoned to provider latency — 2026-09-16 (PR #214)
+
+Owner-authorized by Eray on merged `dev` `4c1eabd`, carrying the removal of the nominal
+opt-out (#213). Prerequisites re-verified offline with no provider call: pool digest
+`dd4700df…c87fb` unchanged, readiness hybrid with 29 identities and 4,124 rows, oracle 22
+joint months and December 2025 KFE 204.36.
+
+**No turn completed. Both attempts were abandoned to provider latency, not to any gate,
+wording or analysis failure.** Eray cancelled the second attempt.
+
+| Attempt | Calls | Outcome |
+| --- | --- | --- |
+| A (`m11-07-rerun7`) | planner 1 ok, 2 query embeddings, planner 2 ok **171930 ms**, writer **`provider_error` after 600007 ms** | Turn 1 failed; ledger records 3 chat and 2 query embeddings used |
+| B (`m11-07-rerun7b`) | planner 1 ok **110898 ms**, 2 query embeddings, planner 2 ok **138246 ms**, writer dispatched | Cancelled while the writer was in flight; its ledger line is a `started` with no outcome, which is the record of an interrupted process and never a free retry |
+
+For comparison, the planner calls in the three preceding runs took 4.8–60 s and the writer
+calls 41–95 s. This run's planner calls took 111–172 s and its writer exceeded the 600 s
+ceiling, with `KLOUDEKS_MAX_ATTEMPTS=1` so nothing was retried.
+
+**The client's polling window expired while the server was still working.** During attempt A
+the composer locked and offered its recovery control about twelve minutes in, before the
+writer had returned. The control behaves correctly — it re-reads the same request without
+dispatching new work — but a turn slower than the window cannot be followed live without it.
+This repeats the latency finding first recorded for the 2026-09-15 rehearsal.
+
+`KLOUDEKS_REQUEST_TIMEOUT` stayed at the authorized 600 s. The launcher accepts up to 900 s,
+which is the obvious lever if the provider stays this slow, but raising it changes an
+approved plan parameter and was not done unilaterally.
+
+Nothing here changes the code's status: **#213 is still unconfirmed live**, as are #202 and
+#205. Prepared pool byte-identical before and after; services stopped; no BDDK/EVDS, search,
+OCR or index-build call.
+
+<a id="m11-07-planner-opted-out-2026-09-16"></a>
+### M11-07 / M13-05 rerun after the real-column default — 2026-09-16 (PR #212)
+
+Owner-authorized by Eray on merged `dev` `46caaff`, carrying the real-column default
+(#211) and everything before it. Same bounded plan; prerequisites re-verified offline
+with no provider call. Usage: **9 chat and 4 query embeddings** of the 15/15 ceiling.
+
+All three turns were **ACCEPTED and published**, each on its first draft with zero
+omissions and no rewrite — the second run in a row with no synthesis rewrite at all.
+
+| Turn | Result |
+| --- | --- |
+| 1 | ACCEPTED, 170 s, 242 values, `by_end`. All 238 independent comparisons match. |
+| 2 | ACCEPTED, 149 s, 302 values, no rewrite. |
+| 3 | ACCEPTED, 368 values. All 302 prior identities preserved with zero value change; all 60 KFE values match the stored series. |
+
+**#211 did not take effect, and the reason is exact: the planner set `use_nominal: True`.**
+The recorded lineage attributes for the `table_co_movement` step show
+`use_nominal: True` with the nominal BDDK target, and the result parameters carry no
+`compared_in_real_terms_instead_of` entry, so no substitution ran. The published
+comparison — condition KFE up (59 eligible), driver rate down (32), target the nominal
+balance non-increasing (8), both 4 — matches an independent recomputation, and its four
+joint months are again February and May 2021, December 2023 and January 2024.
+
+The lesson is a design one, not a bug: **an opt-out the planner controls is not a default
+the planner will follow.** #211 added `use_nominal` so a deliberately nominal question
+stayed expressible, and the planner used it on a question that never asked for nominal
+terms. The argument's description says to set it only when the question asks for nominal
+terms; description text is not a constraint.
+
+Options for the next slice, in the project's own terms — planner-callable actions may
+choose *what* to analyse, but correctness checks belong in the harness outside LLM
+discretion (DEC-135):
+
+1. Remove `use_nominal` from the planner-facing schema. A nominal comparison stays reachable by selecting the Turn 1 table, which carries no real counterpart, so nominal is not lost — it is reached by choosing the source rather than by a flag.
+2. Keep the argument but honour it only when the question actually asks for nominal terms, as a code-owned check on a planner-supplied value.
+
+Option 1 is the smaller and more certain change and removes the escape hatch entirely.
+
+Every rejection and every published value in this run was correct; nothing in the verifier
+may be relaxed. Prepared pool byte-identical before and after; services stopped; no
+BDDK/EVDS, search, OCR or index-build call.
+
+<a id="m11-07-three-turn-with-kfe-2026-09-16"></a>
+### M11-07 / M13-05 three-turn acceptance with KFE in the analysis — 2026-09-16 (PR #210)
+
+Owner-authorized by Eray on merged `dev` `785677a`, carrying the count-identity writer
+contract (#209), the co-movement count phrases (#207), the second bounded rewrite (#205),
+the nominal-versus-real note (#203) and the weekly window boundary (#202). Same bounded
+plan; prerequisites re-verified offline with no provider call. Usage: **11 chat and 4
+query embeddings** of the 15/15 ceiling.
+
+**All three organizer turns were ACCEPTED and published, each on its first draft with
+zero omissions and no rewrite.** This is the first run in which no synthesis rewrite was
+needed at all.
+
+| Turn | Result |
+| --- | --- |
+| 1 | **ACCEPTED**, 126 s, zero omissions; published 242 values, `by_end`. All 238 independent comparisons match; metrics 59/32/28/4 with non-rise months February and May 2021, December 2023 and January 2024. |
+| 2 | **ACCEPTED**, 135 s, zero omissions, **no rewrite**; published 302 values. All 242 Turn-1 identities preserved with zero value change, and all 60 real values match December 2025 CPI arithmetic (2021-01 1,894,772.1; 2021-02 1,874,183.9; 2023-12 828,155.2; 2024-01 773,412.0; 2025-12 678,970.0). |
+| 3 | **ACCEPTED**, zero omissions; published 368 values. All 302 Turn-2 identities preserved with zero value change; all 60 KFE values equal the stored series with December 2025 KFE 204.36. |
+
+**Turn 3 now uses KFE in the analysis.** Read from the recorded transformation parameters
+rather than the prose: condition `EVDS:TP.KTF12 monthly average (by_end)` down, driver
+`EVDS:TP.KFE.TR` up, target the BDDK balance non-increasing. The published counts
+59 / 0 / 32 / 32 / 4 / 4 and the four joint months match an independent recomputation
+exactly. In earlier runs the KFE column sat in the table without entering the comparison.
+
+**#203 is confirmed live for the first time.** The published result carries the
+nominal-versus-real limitation naming the BDDK column and its
+`real, 2025-12 prices` counterpart, because the comparison used the nominal target.
+
+**The remaining gap is the target column, and only that.** The oracle's 22 joint months
+use the *real* balance; comparing the nominal balance under the same condition and driver
+is 4, which is what was published and is arithmetically correct for those columns. The
+three-way structure the question implies is now there; the deflated column Turn 2 built is
+still not the one compared.
+
+**A provider timeout interrupted the first Turn 3 send.** Its planner call ended
+`provider_error` after 600006 ms with `KLOUDEKS_MAX_ATTEMPTS=1`, so the turn failed
+(`provider_failed`). The client then locked the composer and offered its recovery control,
+which re-read the same request without dispatching new work; the composer unlocked and a
+fresh Turn 3 was sent and accepted. This is the first transport failure across these runs
+and it is a latency/reliability observation, not a correctness one.
+
+Confirmation status after this run: **#203 confirmed**; **#209 and #207 exercised** — every
+turn bound its counts on the first draft, which is what those two changes were for, though
+no single draft can prove which of them carried it; **#205 still unexercised** because no
+turn needed even one rewrite; **#202 still unexercised** because the planner chose `by_end`
+again.
+
+Latency: planner 39.75 + 30.91 s and writer 41.01 s for Turn 1; 4.80 + 18.96 s and 70.94 s
+for Turn 2; 8.94 s then the 600 s timeout, then 8.30 + 51.10 s and 47.36 s for Turn 3.
+Embeddings 130 / 66 / 129 / 188 ms. Prepared pool byte-identical before and after; services
+stopped; no BDDK/EVDS, search, OCR or index-build call.
+
+<a id="m11-07-count-identity-wording-2026-09-16"></a>
+### M11-07 / M13-05 rerun after the count phrases — 2026-09-16 (PR #208)
+
+Owner-authorized by Eray on merged `dev` `21a8e02`, carrying the co-movement count
+phrases (#207), the second bounded rewrite (#205), the nominal-versus-real note (#203)
+and the weekly window boundary (#202). Same bounded plan; prerequisites re-verified
+offline with no provider call. Usage: **12 chat and 6 query embeddings** of the 15/15
+ceiling.
+
+| Turn | Result |
+| --- | --- |
+| 1 | **ACCEPTED**, 151 s, zero omissions; published 242 values, `by_end`. All 238 independent comparisons match; metrics 59/32/28/4 and the four non-rise months match. |
+| 2 | **ACCEPTED**, 143 s; published 302 values after one `period` rewrite. All 60 real values match December 2025 CPI arithmetic, verified read-only from the session store (2021-01 1,894,772.1; 2023-12 828,155.2; 2024-01 773,412.0). |
+| 3 | **QUALIFIED**, not published. First draft withheld one sentence with three `ambiguous` reasons on the unbound literals 59, 32 and 4; the numeric rewrite reduced it to one `ambiguous` on 4 — the same category, so no second rewrite. |
+
+**#207 worked and was still not enough.** The inherited co-movement counts now carry
+controlled phrases and reach the writer under them, which offline tests confirm. But the
+writer wrote bare numbers anyway, and a bare count that equals several values cannot
+bind no matter how many phrases exist.
+
+The remaining gap is in the instructions, and it is exact. `SYNTHESIS_PROMPT` says to
+use the listed display phrases "copying each number, unit and scale exactly", and
+`NUMERIC_REPAIR_INSTRUCTIONS` says to "copy every number exactly from a listed display
+phrase, including its unit and period when present. Counts listed as displays may be
+described as counts." **Neither tells the writer to write the phrase that identifies a
+count beside the count.** For a level the unit and period identify the figure; for a
+count the label is the whole identity, so copying the number alone can never bind when
+the table holds several equal counts. The writer is being asked to satisfy a binding
+rule it is never told about.
+
+Confirmation status after this run: #202 is still unexercised because the planner chose
+`by_end` again; #203 is still unobserved because Turn 3 never published; #205 is still
+unexercised because both Turn 3 drafts failed in the same category; #207 is confirmed to
+supply and display the phrases, but its effect on binding is untested live because no
+draft used one.
+
+Every rejection was correct and every candidate value was correct. Classification
+**F — acceptance/reliability failure with an identified cause in the writer contract.**
+Prepared pool byte-identical before and after; services stopped; no BDDK/EVDS, search,
+OCR or index-build call.
+
+<a id="m11-07-inherited-count-ambiguity-2026-09-16"></a>
+### M11-07 / M13-05 rerun after the rewrite fix — 2026-09-16 (PR #206)
+
+Owner-authorized by Eray on merged `dev` `f40e0a8`, carrying the second bounded
+rewrite (#205), the nominal-versus-real note (#203) and the weekly window boundary
+(#202). Same bounded plan; prerequisites re-verified offline with no provider call.
+Eray also authorized repeating a turn within the same budget, so Turn 3 was sent
+twice. Usage: **15 chat (ceiling reached) and 5 query embeddings**.
+
+| Turn | Result |
+| --- | --- |
+| 1 | **ACCEPTED**, 195 s, zero omissions; published 242 values, `by_end` again. All 238 independent comparisons match and the metrics equal 59/32/28/4 with the same four non-rise months. |
+| 2 | **ACCEPTED**, 139 s; published 302 values after one `period` rewrite. All 60 real values match December 2025 CPI arithmetic exactly (2021-01 1,894,772.1; 2023-12 828,155.2; 2024-01 773,412.0; 2025-12 678,970.0), verified read-only from the session store. |
+| 3, first send | **QUALIFIED**, not published. First draft withheld one sentence with three `ambiguous` reasons on the unbound literals 32, 4 and 32; the numeric rewrite reduced it to one `ambiguous` on 4, still the same category. |
+| 3, second send | **QUALIFIED**, not published. `ambiguous` on 4 again, before and after its rewrite. The chat ceiling was then reached and the launcher refused further dispatch. |
+
+**What this run did and did not confirm.** Turn 2 published through the pre-existing
+`period` path, so #205's second rewrite was never exercised: both Turn 3 failures
+repeated the *same* category, which it deliberately does not rewrite twice. #203 could
+not be confirmed because Turn 3 never published, and #202 could not be confirmed
+because the planner chose `by_end`. None of the three fixes is yet confirmed live.
+
+**The blocking defect is now identified precisely.** `TABLE_COUNT_LABELS` gives
+controlled Turkish display phrases to the six `table_co_movement` counts only. The
+`co_movement` metrics inherited from Turn 1 — `"transitions where <driver> fell"`,
+`"... and <target> rose"`, `"... did not rise"` and `"consecutive monthly transitions
+compared"` — have none. In the Turn 3 candidate the inherited
+`"transitions where RATE fell and BALANCE did not rise"` is 4.0 while the new
+`"eligible transitions matching the target direction"` and `"...matching both
+directions"` are also 4.0, and the inherited `"transitions where RATE fell"` is 32.0
+beside the new `"transitions meeting the condition"` and driver count at 32.0. A bare
+`4` or `32` therefore matches several values, and the one inherited value cannot be
+named unambiguously at all, because it has no controlled phrase to name it with. The
+published tables each hold only one 4.0; the collision appears only once the new
+comparison is added.
+
+This is the M11-11 identity-binding class that #197 addressed for table comparisons,
+left open for the co-movement metrics those comparisons are built on. Every rejection
+was correct, the candidate values were correct, and nothing in the verifier may be
+relaxed. Classification **F — acceptance/reliability failure with an identified
+cause**. Prepared pool byte-identical before and after; services stopped; no BDDK/EVDS,
+search, OCR or index-build call.
+
+<a id="m11-07-turn2-repair-exhaustion-2026-09-16"></a>
+### M11-07 / M13-05 confirmation rerun and the single-repair limit — 2026-09-16 (PR #204)
+
+Owner-authorized by Eray on merged `dev` `1193c65`, which carries the weekly
+window-boundary fix (#202) and the nominal-versus-real note (#203). Purpose: confirm
+that Turn 3 reaches the oracle's 22 joint months. Same bounded plan; prerequisites
+re-verified offline with no provider call (pool digest
+`dd4700df3c2b86c08238398812ab6bc31aa3c4649bffc42149b19fd7578c87fb` unchanged,
+readiness hybrid, oracle 60/59/32/46/22 and December 2025 KFE 204.36).
+
+Actual usage: **7 chat and 5 query embeddings**, every call successful on one attempt.
+
+| Turn | Result |
+| --- | --- |
+| 1 | **ACCEPTED**, 166 s, zero omissions; published 242 values. The planner chose `by_end` this time, so the #202 `by_majority` boundary fix was not exercised live in this run. All 238 independent comparisons match and the four metrics equal 59/32/28/4 with the same four non-rise months. |
+| 2 | **QUALIFIED**, 107 s, not published. First draft withheld one sentence on the unbound literal **100** — the CPI index base; the M11-11 numeric retry then produced a draft that withheld one sentence with two `period` reasons on 828,155 and 773,412, each correctly bound to the deflate result and its real-price label. |
+| 3 | **Not reached** — Turn 2 published nothing to continue from, so the nominal-versus-real hypothesis was not tested. |
+
+**The measured cause is structural, not variance.** `Session.answer` selects at most
+one synthesis repair per turn: `period_repair` and `numeric_repair` are decided once,
+before drafting, and the re-gated repaired answer is final. A repaired draft is never
+re-eligible, so a turn gets one repair in total, not one per category.
+
+Across the three bounded runs the pattern is exact:
+
+| Run | First gate | Repair used | Final |
+| --- | --- | --- | --- |
+| 2026-09-16 blocked attempt (#199) | `unmatched_number` | numeric | `period` — not published |
+| 2026-09-16 three-turn rerun (#201) | `period` | period | **accepted and published** |
+| this run | `unmatched_number` (the literal 100) | numeric | `period` — not published |
+
+Turn 2 publishes when its first failure is `period`, because the #194 period repair
+then applies. When the first failure is a numeric binding, the single repair is spent
+on it and the `period` fault its replacement introduces has no repair left. In every
+case the computed candidate was correct: the rejected figures are real deflated values
+bound to the right result and value label, and only their period attribution failed.
+
+The per-omission diagnostics from #200 are what made this visible. They also show a
+recurring trigger worth its own fix: the writer quotes an index base — `100` for the
+2025=100 CPI here, and `100` for the 2023=100 KFE in the previous run's Turn 3 — which
+is legitimate series metadata but matches no value in the results.
+
+Classification **F — acceptance/reliability failure**, with a now-identified code-level
+cause. No verifier weakness: every rejection was correct, and nothing may be relaxed to
+obtain PASS. Prepared pool byte-identical before and after; services stopped; no
+BDDK/EVDS, search, OCR or index-build call. Turn 3 and the #202/#203 fixes remain
+unconfirmed live.
+
+<a id="m11-07-hybrid-three-turn-rerun-2026-09-16"></a>
+### M11-07 / M13-05 served hybrid three-turn rerun — 2026-09-16 (PR #201)
+
+Owner-authorized by Eray on merged `dev` `5f8a02c`, which carries the acceptance
+record (#199) and the per-omission diagnostics (#200). Same bounded plan as the
+earlier attempt: Kloudeks only, 15 chat and 15 query-embedding ceiling, 600 s per
+request, `KLOUDEKS_MAX_ATTEMPTS=1`, no transport retry, fresh workspace state root,
+fresh content-free ledger, no passage/index-build, BDDK/EVDS refresh, web-search or
+OCR call. Production Next.js client over `tests/manual/live_client.py`, fresh browser
+workspace, follow-selection on, the three organizer questions entered verbatim.
+
+Prerequisites re-verified offline with no provider call: prepared-pool aggregate
+digest `dd4700df3c2b86c08238398812ab6bc31aa3c4649bffc42149b19fd7578c87fb` unchanged,
+readiness `ready: true` / `model_checked: false` / `catalog_retrieval: "hybrid"`,
+29 identities, 4,124 rows, 37 catalog identities, 124 files, prepared snapshot
+`6fc3afd5…f887f`, catalog version `e0bbaac8…69f11`; oracle 60 months, 59 transitions,
+32 rate falls, 46 real non-rises, 22 joint months, December 2025 KFE 204.36.
+
+**All three turns were ACCEPTED and published.** Actual usage: **11 chat and 4 query
+embeddings**, every call successful on one attempt.
+
+| Turn | Result |
+| --- | --- |
+| 1 | **ACCEPTED**, 172 s, zero omissions; published 242 values. The planner chose the `by_majority` weekly assignment this time. 236 of 238 independent SQL/`Decimal` comparisons match, and the four published metrics equal the independent counts exactly: 59 transitions, 32 rate falls, 28 rises, 4 non-rises, months February/May 2021, December 2023, January 2024. The two exceptions are the December 2025 rate and its change — see the boundary defect below. |
+| 2 | **ACCEPTED**, 125 s, published 302 values. The first draft was QUALIFIED with one `period` omission; the bounded period-wording repair from #194 then produced an accepted answer. All 242 Turn-1 identities are present with zero value and zero display changes, and all 60 real values equal nominal x CPI(2025-12)/CPI(t) exactly (2021-01 1,894,772.1; 2021-02 1,874,183.9; 2023-12 828,155.2; 2024-01 773,412.0). |
+| 3 | **ACCEPTED**, 160 s, published 368 values. The first draft was QUALIFIED with one `unmatched_number` omission; the M11-11 bounded numeric-wording retry then produced an accepted answer — its first successful live exercise. All 302 Turn-2 identities are present with zero value changes, all 60 KFE values equal the stored series, and December 2025 KFE is 204.36. The published table comparison — 59 complete transitions, 0 excluded, 32 meeting the condition, 32 driver, 4 target, 4 both — equals an independent recomputation exactly. |
+| Diagnostics | Both omissions were localized from the ledger alone, with no extra live call. Turn 2: sentence 2, `period`, on values 1,874,180 and 773,412, each bound to the deflate result and its real-price value label — a correct figure with a rejected period attribution, not a fabricated number. Turn 3: sentence 0, `unmatched_number`, on the unbound literal 100 — the KFE index base, not an invented financial figure. Neither record contains draft text. |
+| Served discovery | Hybrid exercised throughout: four query embeddings at 102 / 77 / 149 / 128 ms, all successful, no lexical degradation. |
+| Latency | Turn 1 planner 40.672 + 16.645 s, writer 94.011 s. Turn 2 planner 7.278 + 11.528 s, writer 28.059 s, repair 63.832 s. Turn 3 planner 10.767 + 21.820 s, writer 43.499 s, retry 67.118 s. Model planning and writing still dominate. |
+| Data integrity | The prepared pool is byte-identical before and after. Services were stopped afterwards. |
+
+Two defects were measured, and neither is a verifier failure:
+
+**B — `by_majority` truncates the window's final month.** The Turn 1 table is
+labelled `EVDS:TP.KTF12 monthly average (by_majority)`, and 59 of its 60 months
+equal an independent majority assignment. December 2025 does not: the published
+37.29 is the average of the four weeks *ending* in December, while the majority
+assignment also owns the week 2025-12-27..2026-01-02, whose midpoint is 30 December,
+giving 37.108. The closed window filters weekly rows on `period_end` before the
+month assignment, so the straddling week is dropped and the last month is computed
+by a different rule than the label states. The published change for that month
+(-0.4725 pp instead of -0.6545 pp) inherits the same error, and Turns 2 and 3 carry
+the value forward unchanged. The counts are unaffected here — the rate falls in
+December under either rule and the balance rose — so no published count or month
+list changes, and the verifier cannot catch it because the figure is a real average
+of real observations. This is an aggregation-definition defect at the window
+boundary, not a hallucination.
+
+**F — Turn 3 delivers the column but not the requested relationship.** The KFE
+column is present and exact, and the answer correctly refuses the causal question
+("Fiyat artışıyla ilgili soru kısmı bu sonuçlarda ele alınmıyor"), so there is no
+causal overclaim. But the comparison it computes is the nominal Turn 1 relationship
+— rate falls against the *nominal* balance, 4 months — rather than the three-way
+relationship the question implies and the oracle defines: rate falls, KFE up, *real*
+balance not rising, which is 22 months. The KFE column therefore sits in the table
+without entering the analysis, and the deflated column built in Turn 2 is not used.
+Every published number is correct; the analysis is incomplete.
+
+Verdict: this is the **first run in which all three organizer turns were accepted
+and published in one workspace**, with every published value independently checked
+and both repair paths exercised live. Served hybrid three-turn acceptance is
+**not yet complete**: Turn 3's substantive relationship is missing and the weekly
+boundary defect puts one wrong cell in the demo table. Both are recorded as the next
+tasks. No further live call was made; no BDDK/EVDS, search, OCR or index-build call
+was made at any point.
+
+<a id="m11-07-hybrid-acceptance-2026-09-16"></a>
+### M11-07 / M13-05 served hybrid acceptance attempt — 2026-09-16 (PR #199)
+
+Owner-authorized by Eray after the ownership transfer from Çağatay. Bounded plan:
+Kloudeks only, 15 chat and 15 query-embedding ceiling, 600 s per request,
+`KLOUDEKS_MAX_ATTEMPTS=1`, no transport retry, fresh workspace state root, fresh
+content-free ledger, and no passage/index-build, BDDK/EVDS refresh, web-search or
+OCR call. Code is `dev` at `b115cb2` (M11-11 numeric binding merged in #197).
+Path: `tests/manual/live_client.py` -> PreparedRunner/AnalysisService with the
+DEC-142 dense stage -> production Next.js client with follow-selection on. The
+three organizer questions were entered verbatim in a fresh browser workspace.
+
+Prerequisites verified offline first, with no provider call: readiness `ready:
+true`, `model_checked: false`, `catalog_retrieval: "hybrid"`, 29 prepared
+identities, 4,124 observation rows, 37 catalog identities, 124 files, prepared
+snapshot `6fc3afd5…f887f`, catalog version `e0bbaac8…69f11`; LanceDB generation
+`qwen3-instruct-query-v1-e0bbaac8` opens with `kkbhackathon2026/Qwen3-Embedding-8B`,
+dimension 4096 and 37 rows; independent oracle 60 months, 59 transitions, 32 rate
+falls, 46 real-credit non-rises, 22 joint months, December 2025 KFE 204.36.
+
+| Check | Observed result |
+| --- | --- |
+| Turn 1 | **ACCEPTED**, 227 s, zero omitted sentences; published Analiz 1, `result_ref 286da187…`, 242 values. |
+| Turn 1 independent comparison | 238 value comparisons against read-only SQL plus `Decimal` arithmetic: 60 balance levels, 60 `by_end` monthly rate levels, 59 balance and 59 rate month-over-month changes. **Zero mismatches.** The four published metrics equal the independent counts exactly: 59 transitions, 32 rate falls, 28 balance rises, 4 non-rises, with non-rise months February/May 2021, December 2023 and January 2024. |
+| Turn 2 | **QUALIFIED**, 145 s, not published. First draft withheld one sentence with one `unmatched_number` reason. The M11-11 bounded numeric-wording retry then fired for the first time in a live run, reused the immutable candidate and reran the full gate; the replacement draft withheld one sentence with two `period` reasons. The turn therefore ended QUALIFIED and no deflated table reached the workspace. |
+| Turn 2 user-facing state | The surviving reply states that the table is preserved and that inflation-adjusted values are shown at December 2025 prices, while the workspace still holds only Analiz 1 and an explicit non-publication notice. This repeats the inconsistency already recorded for the 2026-09-15 rehearsal. |
+| Turn 3 | **Not attempted.** It requires the published Turn 2 table as its selected source; submitting it would have measured neither the KFE column nor the M11-11 binding, and the bounded plan stops at the first material blocker. |
+| Served discovery | Hybrid was configured and exercised: four query embeddings (two in Turn 1, two in Turn 2), provider times 138 / 77 / 125 / 70 ms, all successful, no degradation to lexical. |
+| Latency | Turn 1: planner 24.627 s + 104.411 s, writer 89.636 s. Turn 2: planner 16.723 s + 16.659 s, writer 62.887 s, retry writer 48.097 s. Model planning and writing dominate; embeddings are immaterial. |
+| Budget | Ledger final counters `chat_used: 7`, `embedding_used: 4` of the 15/15 ceiling. Every call succeeded on its single attempt; no transport retry, and no passage, BDDK, EVDS, search or OCR request. |
+| Data integrity | The prepared pool is byte-identical before and after the run (aggregate digest `dd4700df3c2b86c08238398812ab6bc31aa3c4649bffc42149b19fd7578c87fb` over all 124 files). Services were stopped afterwards. |
+
+Verdict: **served hybrid three-turn acceptance remains incomplete.** Turn 1 is a
+clean, fully oracle-equal live acceptance with real hybrid discovery. Turn 2
+computed a candidate but never published it, so the chain to Turn 3 never formed.
+
+Classification **F — acceptance/reliability failure**. It is not recorded as a
+regression: Turn 2 has flapped between QUALIFIED and ACCEPTED across earlier
+rehearsals with the same `period` and unmatched-number reason families, so one
+QUALIFIED run on the current revision does not establish that #197 caused it.
+The M11-11 retry behaved exactly as specified — same immutable candidate, no tool
+rerun, unchanged full gate — and correctly refused to publish a draft it could not
+bind; it is a publication-rate limit, not a verifier defect, and the verifier must
+not be weakened to obtain PASS.
+
+Diagnosis is bounded by the evidence. The content-free ledger retains no draft
+text and the API exposes only `omitted_claims` and sanitized notices, so the exact
+rejected wording is again unknown; do not infer a specific arithmetic or parser
+bug from the reason categories. The unpublished Turn 2 candidate was not persisted
+(`workspace_results` holds only Analiz 1), so its values could not be compared
+this time. Next work belongs to a separate task: retain sanitized per-omission
+diagnostics for operator runs so a withheld sentence can be localized without
+another live call, then reduce the withheld-sentence publication-failure rate
+without relaxing the gate. No further live call was made.
 
 <a id="m13-05-fresh-holdout-2026-09-15"></a>
 ## M13-05 DEC-142 combination on a fresh holdout — 2026-09-15 (PR #179, merged)

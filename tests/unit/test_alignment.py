@@ -17,6 +17,7 @@ import pytest
 from kkb_agent.core import Aggregation, Frequency, WeeklyAnchor
 from kkb_agent.lakehouse import (
     AlignmentError,
+    Coverage,
     Observation,
     WeekAssignment,
     assign_month,
@@ -448,3 +449,96 @@ class TestRequestedWeeklyCoverage:
         assert not wide.coverage[date(2024, 1, 31)].complete
         assert narrow.coverage[date(2024, 1, 31)].complete
         assert wide.method != narrow.method
+
+
+class TestAWholeMonthKeepsTheWeekTheAssignmentGivesIt:
+    """The window selects weeks by end date, but BY_MAJORITY answers in months.
+
+    Measured on 2026-09-16: a 2021-01..2025-12 request published December 2025 as
+    the average of the four weeks *ending* in December while calling it a
+    by-majority average, and reported that month as fully covered. The week
+    2025-12-27..2026-01-02 has four of its days in December and belongs there.
+    """
+
+    #: 2024-01-26 and 2024-02-02 both sit in the requested January by majority;
+    #: 2024-03-01 does not, so it must stay out of a January-only request.
+    JANUARY = date(2024, 1, 31)
+
+    def rows(self):
+        return [
+            (date(2024, 1, 5), 1.0),
+            (date(2024, 1, 12), 2.0),
+            (date(2024, 1, 19), 3.0),
+            (date(2024, 1, 26), 4.0),
+            (date(2024, 2, 2), 10.0),
+        ]
+
+    def test_the_straddling_week_joins_the_month_that_owns_its_days(self):
+        # 2024-01-27..2024-02-02: five days in January, two in February.
+        result = requested(
+            self.rows(), end=date(2024, 1, 31), assignment=WeekAssignment.BY_MAJORITY
+        )
+        assert values(result)[self.JANUARY] == pytest.approx((1 + 2 + 3 + 4 + 10) / 5)
+
+    def test_the_coverage_counts_it_too_instead_of_claiming_completeness(self):
+        result = requested(
+            self.rows(), end=date(2024, 1, 31), assignment=WeekAssignment.BY_MAJORITY
+        )
+        count = result.coverage[self.JANUARY]
+        assert (count.expected, count.observed, count.complete) == (5, 5, True)
+
+    def test_a_missing_straddling_week_is_reported_as_missing(self):
+        result = requested(
+            self.rows()[:-1], end=date(2024, 1, 31), assignment=WeekAssignment.BY_MAJORITY
+        )
+        count = result.coverage[self.JANUARY]
+        assert (count.expected, count.observed, count.complete) == (5, 4, False)
+        assert self.JANUARY in result.incomplete_periods()
+
+    def test_by_end_is_untouched_and_still_stops_at_the_window(self):
+        result = requested(self.rows(), end=date(2024, 1, 31), assignment=WeekAssignment.BY_END)
+        assert values(result)[self.JANUARY] == pytest.approx((1 + 2 + 3 + 4) / 4)
+        assert result.coverage[self.JANUARY] == Coverage(expected=4, observed=4)
+
+    def test_a_partial_month_is_not_completed_from_outside_the_request(self):
+        # The caller asked for three weeks, not for January; pulling in a week it
+        # never requested would answer a different question.
+        result = requested(
+            self.rows(),
+            start=date(2024, 1, 1),
+            end=date(2024, 1, 19),
+            assignment=WeekAssignment.BY_MAJORITY,
+        )
+        assert values(result)[self.JANUARY] == pytest.approx((1 + 2 + 3) / 3)
+        assert result.coverage[self.JANUARY].expected == 3
+
+    def test_a_week_inside_the_window_still_goes_to_the_month_that_owns_it(self):
+        # Unchanged rule: 2024-02-24..2024-03-01 ends inside a March request, and
+        # February owns four of its days, so February is reported rather than the
+        # week being dropped. Drawing weeks in must not start discarding them.
+        result = requested(
+            [(date(2024, 3, 1), 9.0), (date(2024, 3, 8), 1.0)],
+            start=date(2024, 3, 1),
+            end=date(2024, 3, 31),
+            assignment=WeekAssignment.BY_MAJORITY,
+        )
+        assert values(result)[date(2024, 2, 29)] == pytest.approx(9.0)
+        assert values(result)[date(2024, 3, 31)] == pytest.approx(1.0)
+
+    def test_a_week_outside_the_window_is_not_drawn_into_a_month_it_does_not_own(self):
+        # 2024-04-01..2024-04-05 lies wholly in April; a March request must not
+        # acquire it, and no April month may appear from a March request.
+        result = requested(
+            [(date(2024, 3, 8), 1.0), (date(2024, 4, 5), 99.0)],
+            start=date(2024, 3, 1),
+            end=date(2024, 3, 31),
+            assignment=WeekAssignment.BY_MAJORITY,
+        )
+        assert date(2024, 4, 30) not in values(result)
+        assert 99.0 not in values(result).values()
+
+    def test_the_drawn_in_week_does_not_leak_into_a_neighbouring_month(self):
+        result = requested(
+            self.rows(), end=date(2024, 1, 31), assignment=WeekAssignment.BY_MAJORITY
+        )
+        assert set(values(result)) == {self.JANUARY}

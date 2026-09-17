@@ -545,6 +545,26 @@ svg {
 .composer textarea::placeholder {
   color: #929e96;
 }
+.composer-attachment {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 11px;
+  font-size: 11px;
+  color: #5f6f66;
+}
+.composer-buttons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.composer-attachment button {
+  display: inline-flex;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+}
 .composer-actions {
   display: flex;
   justify-content: space-between;

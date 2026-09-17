@@ -141,6 +141,36 @@ production fake provider or third-party-host fallback. The CLI always binds
 forwarded-header handling, and caps concurrent HTTP connections at 32. Keep
 this service local until hosting/authentication is separately implemented.
 
+Add `--enable-web-url` only when reading a web address written in a question is
+authorized. It is off by default (organizer URL policy Q-NET-02 is still open);
+the readiness JSON of `--check` and `--serve` reports `"web_url": true/false`.
+Enabled, a question containing an https CSV/XLSX/PDF/static-HTML address can
+answer one named cell, or add one explicit-month column to a selected table
+(`table_transform` `add_document_column`), through `safe_fetch`, the upload
+admission rules and the unchanged answer gate; the proof shows the document's format, host, content hash
+and cell position, never its path, query or cell text. Each run that actually
+fetches a public address is a live network action and needs its own approval;
+offline evidence is `tests/unit/test_prepared_web_url.py` and
+`tests/unit/test_document_column.py`.
+
+Add `--enable-uploads` to let the local client attach an uploaded CSV, Excel
+(`.xlsx`), PDF or static HTML document (up to 10 MiB, four per session) to the
+next question; readiness JSON reports `"uploads"` and `/v1/health` lists the
+`document_upload` capability, which shows the client's attach button. Uploads
+are stored only under the process's `--state-root` session directory, without
+filenames, and are not deleted automatically; treat that root as holding the
+uploaded data. An attached document supports the same one-cell answer and
+selected-table column addition as a prompt address; offline evidence is
+`tests/unit/test_document_upload.py`.
+
+Either document source can also start a new analysis: ask for a monthly table
+from named columns ("Ekli belgeden Ay, Kapanış ve Faiz sütunlarıyla aylık tablo
+oluştur") as a free question, with "Seçili tabloyla devam et" unticked. Columns
+without a unit in their header, with ambiguous numbers or not found are left out
+and named in the proof warnings; period problems refuse the table. The published
+table can then be selected for adding prepared series or comparisons. Offline
+evidence is `tests/unit/test_document_table.py`.
+
 <a id="prepared_api-optional-dense-catalog-retrieval"></a>
 
 ### Optional dense catalog retrieval (DEC-142)
@@ -424,7 +454,18 @@ Choose a fresh `--ledger artifacts/<run-name>.jsonl` for each run. The default i
 `artifacts/live-rehearsal-ledger.jsonl`; an existing file refuses startup rather than
 being overwritten. The content-free ledger records configured limits, catalog
 digest, dispatch starts and outcomes, timings, final counters and each gate's
-omission categories, never messages, vectors, sentences or credentials. Count
+omission categories, never messages, vectors, sentences or credentials.
+
+Each gate entry also carries an `omissions` list so a withheld sentence can be
+located afterwards without another live run. Per withheld sentence it records its
+`sentence` index among the draft's non-empty sentences (`-1` when the whole draft
+was disqualified at once), its reason `codes`, and for each rejected quantity the
+parsed `value`, its `binding`, the `result_id` and `value_label` it bound to when
+it bound to one, and that number's own `codes`. Reason text quotes the draft, so
+the codes come from the verifier's own classifier and the quoted spans are dropped
+before classification; neither the sentence nor the figure as the model wrote it is
+recorded. A parsed value and our own result/value identities are operator data, not
+answer text, and this list never makes the ledger a copy of the answer. Count
 `started` entries per kind, not all lines: each dispatch has a separate outcome.
 A stopped process may leave a start without an outcome; never interpret that as a
 free retry. A logging failure before dispatch prevents that provider call.

@@ -244,7 +244,7 @@ Each boundary below describes responsibility, inputs, outputs, prohibited behavi
 - Likely failures: Unknown workspace, ambiguous intent, stale references, deadline exhaustion, incompatible follow-up.
 - Validation expectations: Tests for no-work clarification, failed-turn state preservation, cancellation/deadline propagation, and follow-up invalidation.
 
-CURRENTLY IMPLEMENTED: [Session](../src/kkb_agent/agent/loop.py) plans and executes through the registry. `Session.answer` synthesizes computed results and calls the verifier gate; publication requires successful execution, an ACCEPTED answer and verified candidate evidence. It uses current named Workspace values across turns. The opt-in [bounded catalog continuation](CATALOG.md) executes catalog-only discovery and lets one further analysis/clarification plan consume candidate metadata in a data role. Step and repair counts cover both phases; tool retries remain bounded per step. Automatic workspace loading, planner-driven recomputation and total request deadlines/cancellation remain TARGET. A separate cheaper router call remains PROPOSED pending model/latency evidence.
+CURRENTLY IMPLEMENTED: [Session](../src/kkb_agent/agent/loop.py) plans and executes through the registry. For four exact typed table-result contracts (monthly co-movement, deflation, monthly add-series and table-direction comparison), a bounded deterministic draft replaces the final model writer; unknown shapes still use that writer. Both drafts enter the same verifier gate. Publication requires successful execution, an ACCEPTED answer and verified candidate evidence. It uses current named Workspace values across turns. The opt-in [bounded catalog continuation](CATALOG.md) executes catalog-only discovery and lets one further analysis/clarification plan consume candidate metadata in a data role. Step and repair counts cover both phases; tool retries remain bounded per step. Automatic workspace loading, planner-driven recomputation and total request deadlines/cancellation remain TARGET. A separate cheaper router call remains PROPOSED pending model/latency evidence.
 
 The configured prepared hybrid path requires a catalog-only discovery phase before
 new-series reads, including deflation indices and added columns. Enforcement
@@ -315,12 +315,12 @@ CURRENTLY IMPLEMENTED: [ToolSpec / ToolRegistry](../src/kkb_agent/agent/registry
 | --- | --- | --- |
 | `lakehouse` | IMPLEMENTED, bounded scope | Restricted read-only SQL and typed result/provenance output; not full replay/proof |
 | `web_search` | IMPLEMENTED, offline only | Bounded provider-neutral discovery; injected backend required; no production adapter or live acceptance |
-| `web_url` | IMPLEMENTED, bounded scope | Guarded CSV/XLSX/PDF/static HTML and exact-cell evidence; bounded offline OCR fallback; no browser/JS or general image-address extraction |
+| `web_url` | IMPLEMENTED, bounded scope | Guarded CSV/XLSX/PDF/static HTML and exact-cell evidence; table mode builds a published monthly table from one document table (M10-04); bounded offline OCR fallback; no browser/JS or general image-address extraction |
 | `anomaly` | IMPLEMENTED, bounded scope | Existing deterministic method subset; not every anomaly technique |
 | `causality` | IMPLEMENTED, bounded scope | Association, lag and Granger precedence with stated limits; not causal identification |
 | `change_detection` | PARTIAL | Period `compare`, monthly `co_movement` over series, and `table_co_movement` over verified table columns (M6-25); breakpoint/trend-break methods remain absent |
 | `catalog_search` | OFFLINE IMPLEMENTED | Natural-language query to bounded ranked trusted CatalogRecord candidates; M13-04 |
-| `table_transform` | PARTIAL | `deflate` and monthly `add_series` preserve the published source table; bounded unary index `rebase`, exact-period `align`, and period-range `filter` are implemented (M2-14/M5-20); normalize, frequency conversion, table-to-table alignment, and free-form predicates remain absent |
+| `table_transform` | PARTIAL | `deflate` and monthly `add_series` preserve the published source table; bounded unary index `rebase`, exact-period `align`, and period-range `filter` are implemented (M2-14/M5-20); `add_document_column` joins one column of a prompt-address table when `--enable-web-url` is on (M7-14); normalize, frequency conversion, table-to-table alignment, and free-form predicates remain absent |
 
 Every additional tool must define closed typed input and output contracts before registration. Query/filter/candidate limits reuse existing metadata enums; unknown or unavailable fields remain explicit. Candidate IDs, labels, unit/scale, frequency, stock/flow/cumulative kind, archive state and aggregation/coverage declarations come from trusted catalog state. Concept families and observation-kind metadata may be returned only when represented by reviewed source-backed contracts; retrieval must not manufacture them. Multiple plausible candidates remain multiple candidates, not a silently authoritative top-1.
 
@@ -470,7 +470,7 @@ M8-06/07 adds [`verify_result`](../src/kkb_agent/agent/verifier.py) beside the o
 
 M8-10 makes it a gate rather than a report. [`gate_answer`](../src/kkb_agent/agent/verifier.py) withholds any sentence carrying a number the verifier could not support, qualifies what survives with the verdict's limitations, and returns an **abstention** when nothing is left — never a shortened claim, which reads as a complete answer. A result that failed as a whole takes the entire draft with it, prose included, because that prose describes the same broken result. Every omission is recorded with its reasons. [`Session.answer`](../src/kkb_agent/agent/loop.py) composes the slice, and `render_result` gives the writer computed values with their units and periods but **not the rows**, so there is nothing to aggregate and nothing for an injected instruction to travel in.
 
-M8-20 separates that writer context from the trusted value. [`presentation.py`](../src/kkb_agent/agent/presentation.py) supplies a deterministic Turkish `display` phrase: integer-valued floats keep all integer digits with dot grouping; fractions use six significant digits, a decimal comma and fixed notation. A lone comma with exactly three fractional digits retains an extra zero (`1,2340`) to avoid the existing parser's grouping interpretation. No scaling or calculation occurs: `767314.0` at million TRY displays as `767.314 milyon TL`, and `4.447201536789372` percent as `4,4472 yüzde`. Unit labels reuse the verifier's bounded vocabulary; unknown/unsupported unit or scale gets `display UNAVAILABLE`, with canonical metadata retained. The writer sees the display instead of the raw float and is told to copy it verbatim. This prompt is not enforcement: the actual draft still passes through the unchanged result-bound gate, using the original value, identity, period and evidence. Tolerance remains `5e-4` relative plus the existing `1e-9` absolute floor; `4,45` against that rate is withheld. No `ResultValue`, digest or provenance mutation, arbitrary-unit localization or general prose verification is introduced.
+M8-20 separates that writer context from the trusted value. [`presentation.py`](../src/kkb_agent/agent/presentation.py) supplies a deterministic Turkish `display` phrase: integer-valued floats keep all integer digits with dot grouping; fractions use six significant digits, a decimal comma and fixed notation. A lone comma with exactly three fractional digits retains an extra zero (`1,2340`) to avoid the existing parser's grouping interpretation. No scaling or calculation occurs: `767314.0` at million TRY displays as `767.314 milyon TL`, and `4.447201536789372` percent as `4,4472 yüzde`. Unit labels use a bounded vocabulary (the verifier's currency/rate labels, explicit dimensionless and typed `index` level); unknown/unsupported unit or scale gets `display UNAVAILABLE`, with canonical metadata retained. The writer sees the display instead of the raw float and is told to copy it verbatim. This prompt is not enforcement: the actual draft still passes through the unchanged result-bound gate, using the original value, identity, period and evidence. Tolerance remains `5e-4` relative plus the existing `1e-9` absolute floor; `4,45` against that rate is withheld. No `ResultValue`, digest or provenance mutation, arbitrary-unit localization or general prose verification is introduced.
 
 When a code-built period table is shown beside the answer, the writer receives only highlighted periods and summary values. Since M11-11 its context also states, from that table, which columns have a value in every period and which are empty in some periods, and the writer prompt forbids claiming that a listed column, value or result is missing or impossible to compute. Presence lines carry no figures, so they add nothing the gate would have to bind; the gate's absence rule remains the enforcement. Values that share number, unit, scale and period with another value in the writer's results are rendered `display AMBIGUOUS` without the figure, because the gate would find several supported bindings and withhold the sentence (for example Turn 1 counts carried into a Turn 3 table comparison). Values that differ only by an explicit period in the sentence are not marked, so this is a writer aid, not a replacement for the gate.
 
@@ -546,6 +546,53 @@ TARGET adapters must retrieve/catalog series identifiers instead of hard-coding 
 
 
 M5-20 `add_series` adds a registered monthly series to a published table through the same tool. Its closed argument object contains only operation, source and series_id; deflate keeps its existing flat JSON fields in a separate discriminated schema. Before adding values, the tool rechecks the source result's evidence and reads the selected series' declared semantics. The join accepts resolved monthly, non-cumulative series, validates periods and duplicates, and preserves the displayed table's exact row set and all original values. Single-period prose metrics do not define table rows. Missing observations produce empty cells plus explicit warnings/coverage in the transformation record; zero stays zero. No filling, resampling, conversion or rebasing occurs. At least two matching observations are required by the current period-table renderer. The result records units, scale, measurement kind, index base, source/series snapshots and transformation lineage. Prior comparison metrics retain their original meaning; column addition does not calculate a new relationship.
+
+M7-14 `add_document_column` exists in the schema only when the runtime has a
+prompt-address fetch boundary (`--enable-web-url`). Its arguments are the source
+name, the address as written, an optional CSV delimiter or sheet, and the period
+and value headers as the user named them. The document is read through
+`web_url`'s shared `read_document` (address written in the question,
+`safe_fetch`, upload admission). The reader is strict: exactly one table holds
+both headers once; every non-empty period cell is an explicit month (`YYYY-MM`,
+`MM.YYYY`, Turkish/English month name with year, or a text/spreadsheet date on
+the first or last day of the month) and a month may appear once; values use the
+M7-18 cell number reader and empty cells stay missing; unit and scale come only
+from the value header's trailing parentheses (`(Puan)` reads as points) and a
+header without one refuses. Stock/flow meaning is recorded as unknown, so
+analytics that require a stock, rate or index column (for example
+`table_co_movement`) refuse the added column rather than guess — except under
+[DEC-145](DECISIONS.md#dec-145--a-points-or-index-header-unit-names-an-index-level-for-document-columns),
+where a points or index header unit at scale one makes it an index level, and
+[DEC-146](DECISIONS.md#dec-146--a-percent-header-unit-names-a-rate-for-document-columns),
+where a percent unit at scale one makes it a rate.
+
+M10-04 `web_url` table mode takes `period_column` and one to six
+`value_columns` (instead of `column`/`row`) from the prompt address or the
+attached upload and returns a SERIES `AnalyticalResult` that the session
+publishes as `analiz_N`. The period column must be found once in exactly one
+table that also holds a requested value column, and every non-empty period
+cell must be an explicit month once per month; otherwise the whole table is
+refused with a fixed code. Each value column is then read on its own: one not
+found once, without a recognised header unit, with a number that has more than
+one reading, labelled like a prepared series, duplicated or with fewer than two
+values is left out with a fixed-code warning while the rest publish; no usable
+column refuses the table. Labels are the user's names; headers, sheet names and
+cell text stay in the snapshot. `web_url` is a verified producer only in this
+mode: its execution record binds a `document_table_v1` snapshot (content hash,
+sanitized locator, retrieval time, location, months, per-column cells and
+skipped columns) and the arguments without the address; the single-cell mode
+remains a DEC-132 literal. The proof shows one document entry with `column`
+null and the values read. The table is a free question — under a selected table
+the plan has no declared table input and is refused — and later turns select it
+for `add_series`, `add_document_column`, `rebase`/`align`/`filter` or
+`table_co_movement`; deflation refuses document columns. The join is the
+same exact monthly left join as `add_series` (`table_months`), keeps every
+existing cell, refuses a label that already exists or names a prepared series,
+and needs no catalog discovery in hybrid mode. The execution record binds the
+source table and a `document_column_v1` snapshot (content hash, sanitized
+locator, retrieval time, cell location, month/value/digest rows); lineage and the
+execution arguments keep the address only as its opaque source ID. Refusal
+reasons are fixed codes without document text.
 
 The M2-14/M5-20 unary table-shaping slice extends that same verified published-result boundary without adding source I/O. `rebase` requires an existing column explicitly typed as an unscaled period INDEX, a present positive reference-period value, and a positive new base; it adds `old / reference × new_base` as a new column and states that this is index scaling, not deflation. `align` takes at least two exact labels and either intersects their complete period identities or uses a named left anchor; `filter` keeps cells whose period end lies in an explicit inclusive range. Align/filter retain other table columns on the selected period spine, preserve input cell order and missing cells, and remove periodless or singleton summary values whose old aggregate would no longer describe the new row set. All three reject unresolved/mixed/duplicate/incompatible inputs, record parameters and source snapshots, and mint a new result without mutating the prior workspace result. They do not resample, aggregate, interpolate, convert frequency, join another table, or accept SQL/free-form predicates. Existing `lakehouse.alignment.to_monthly` remains the separate declared weekly-to-monthly reduction path; `add_series` remains the exact monthly left join for a registered series.
 
@@ -893,6 +940,17 @@ gaps, not source correctness; the gate outcome is preserved separately. Other
 runners (scripted service tests, custom services) keep `unavailable`. On the
 real local pool a BDDK compare traced 66 raw responses in about 20 ms (1.5 KiB).
 
+A published literal document cell (`LITERAL_SOURCE_VALUE`, DEC-132) has no
+producer execution record. Its chain starts only when the gate's own
+`literal_proof` re-reads the exact cell snapshot, its single source edge and
+content hash; otherwise it is `unavailable` (`execution_not_verified`). The
+proof then carries one `web_url` step with a `document` input and one
+`documents` entry (a `document_column_v1` execution input produces the same
+entry with `row` null and `values_read`, up to four documents per proof): format (csv/xlsx/pdf/html), https host, content SHA-256, the
+retrieval time recorded in the published result, and page/table/row/column
+positions with only a flag that a worksheet was named. The address path/query,
+sheet name, header, row label and cell text are document data and are excluded.
+
 
 ## Prepared runtime
 
@@ -929,8 +987,33 @@ the expanded 29-series pool is about 8.13 MiB; the earlier seven-series pool was
 The service's single worker opens/closes a session's connection for each turn.
 The runner also refuses accidental concurrent entry. It registers inspected
 `lakehouse`, `change_detection`, `anomaly`, `causality`, `table_transform`, plus
-`catalog_search` and bounded catalog continuation. This prepared mode exposes
-no generic web/search/upload tools or provider/gate settings to the caller.
+`catalog_search` and bounded catalog continuation. `web_url` is registered only
+when the operator starts the service with `--enable-web-url` (M7-14/M10-04 slice
+1; default off while Q-NET-02 is open); it uses the real `safe_fetch`, reads
+only an address written in the question, and records its cell proof in the
+session's own lineage. In hybrid mode a `web_url` step needs no catalog
+discovery, while any prepared-series step still does and a discovery
+continuation still cannot read an address.
+
+With `--enable-uploads` (M10-04 slice 1) the API adds
+`POST /v1/sessions/{id}/documents`. It is the only route whose body is not
+JSON: the ASGI boundary allows exactly the CSV/XLSX/PDF/HTML media types and
+10 MiB there (30 s body deadline), while every other route keeps the 16 KiB
+JSON rule. The runner admits the bytes with `admit_upload` (filename fixed by
+media type), stores them `0600` under `<run>/<session>/documents/<ref>.<kind>`
+with at most four per session, and returns only the reference, format, size and
+SHA-256; the original filename is never received or kept. A question may carry
+one `document_ref` owned by its session. Before planning, the runner re-reads
+the stored bytes and requires the admitted size and hash, then gives the
+`Attachment` (source type `upload`, locator `upload:<ref>`) to the registry:
+`web_url` and `table_transform add_document_column` accept `attached=true`
+instead of `url` (exactly one), load through the same `load_document` routing
+and strict readers, and record the same cell/column proofs. An attachment never
+enables address reading; `web_url` is registered for it with no fetch boundary
+unless `--enable-web-url` is also on. The proof's document entry shows source
+type `upload` and no host. A clarification continuation keeps the pending
+question's attachment. This prepared mode exposes no `web_search` tool or
+provider/gate settings to the caller.
 Free catalog metadata remains continuation data, not SYSTEM instructions;
 existing code-reviewed display constants are the only names added to tool
 descriptions. Dense live retrieval is not silently enabled by this launcher.

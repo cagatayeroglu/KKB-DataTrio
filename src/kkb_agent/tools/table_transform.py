@@ -13,13 +13,16 @@ registered monthly price index. `add_series` adds a registered monthly series
 on the source table's exact periods. `rebase`, `align`, and `filter` are bounded
 unary changes over cells already present in the published result; they do not
 load another table, reduce a frequency, fill a gap, or accept arbitrary SQL.
+`add_document_column` (M7-14) exists only when the operator enabled prompt
+addresses: it reads one column of a table at an address the user wrote, through
+the same boundary as `web_url`, and joins it on explicit months.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from datetime import date
-from typing import TYPE_CHECKING, Annotated, Literal, Self
+from collections.abc import Callable, Mapping, Sequence
+from datetime import UTC, date, datetime
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, RootModel, model_validator
 
@@ -28,8 +31,13 @@ from kkb_agent.agent.registry import TableInput, ToolSpec
 from kkb_agent.agent.verifier import result_faults
 from kkb_agent.agent.workspace import Workspace, WorkspaceError
 from kkb_agent.analytics.deflation import FORMULA, METHOD, DeflationRefused, deflate
+from kkb_agent.analytics.table_series import (
+    DOCUMENT_METHOD,
+    SeriesAdditionRefused,
+    add_document_column,
+    add_monthly_series,
+)
 from kkb_agent.analytics.table_series import METHOD as ADD_SERIES_METHOD
-from kkb_agent.analytics.table_series import SeriesAdditionRefused, add_monthly_series
 from kkb_agent.analytics.table_shape import (
     ALIGN_METHOD,
     FILTER_METHOD,
@@ -48,13 +56,25 @@ from kkb_agent.core import (
     ResultKind,
     ResultStatus,
     ResultValue,
+    SourceRef,
     TransformationRecord,
 )
+from kkb_agent.ingest.attached import Attachment
+from kkb_agent.ingest.fetched import source_id_for
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.lakehouse.records import Observation
 from kkb_agent.lakehouse.result_evidence import _record_execution, canonical
 from kkb_agent.lakehouse.semantics import SeriesSemantics
+from kkb_agent.tools._document_column import (
+    ColumnRefused,
+    DocumentColumn,
+    column_snapshot,
+    measure_limitation,
+    read_column,
+)
+from kkb_agent.tools._document_value import grids
 from kkb_agent.tools.change_detection import SeriesUnknown, read_series
+from kkb_agent.tools.web_url import Fetcher, read_attachment, read_document
 
 if TYPE_CHECKING:  # pragma: no cover
     from duckdb import DuckDBPyConnection
@@ -114,6 +134,54 @@ class AddSeriesArguments(BaseModel):
     series_id: str = Field(
         min_length=1, max_length=200, description="Registered monthly series to add as a column"
     )
+
+
+class AddDocumentColumnArguments(BaseModel):
+    """One column of a table at a web address the user wrote; no values from the model."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation: Literal["add_document_column"]
+    source: str = Field(
+        pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
+        description="Name of a published result from an earlier turn; its rows stay unchanged",
+    )
+    url: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=4096,
+        pattern=r"^https?://\S+$",
+        description="The address exactly as the user wrote it in the question",
+    )
+    attached: bool = Field(
+        default=False,
+        description="true to read the document the user uploaded with this question instead",
+    )
+    delimiter: Literal[",", ";", "\t", "|"] | None = Field(
+        default=None, description="Column separator of a CSV file; required for CSV"
+    )
+    sheet: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=256,
+        description="Worksheet to read when a workbook has several",
+    )
+    period_column: str = Field(
+        min_length=1,
+        max_length=256,
+        description="Header of the column holding the months, as the user named it",
+    )
+    value_column: str = Field(
+        min_length=1,
+        max_length=256,
+        description="Header of the column to add, as the user named it; also its label",
+    )
+
+    @model_validator(mode="after")
+    def one_document(self) -> Self:
+        if (self.url is None) == (not self.attached):
+            raise ValueError("give either url or attached=true, not both or neither")
+        return self
 
 
 class RebaseArguments(BaseModel):
@@ -188,8 +256,24 @@ class TableTransformArguments(
     """One tool with closed, operation-specific flat JSON argument objects."""
 
 
+class DocumentTableTransformArguments(
+    RootModel[
+        Annotated[
+            DeflateArguments
+            | AddSeriesArguments
+            | AddDocumentColumnArguments
+            | RebaseArguments
+            | AlignArguments
+            | FilterArguments,
+            Field(discriminator="operation"),
+        ]
+    ]
+):
+    """The same operations plus `add_document_column`, offered only with a fetch boundary."""
+
+
 def _table_input(arguments: BaseModel) -> TableInput | None:
-    if isinstance(arguments, TableTransformArguments):
+    if isinstance(arguments, (TableTransformArguments, DocumentTableTransformArguments)):
         return TableInput(source=arguments.root.source)
     return None
 
@@ -201,8 +285,15 @@ def make_table_transform_tool(
     lineage: Lineage | None = None,
     series_names: Mapping[str, str] | None = None,
     inspector: PreparedSeriesInspector | None = None,
+    document_fetch: Fetcher | None = None,
+    attachment: Attachment | None = None,
+    clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> ToolSpec:
-    """Bind the tool to one database and one workspace."""
+    """Bind the tool to one database and one workspace.
+
+    `document_fetch` is the operator's prompt-address switch: without it the
+    `add_document_column` operation is not part of the schema at all.
+    """
     names = dict(series_names or {})
 
     def failure(category: str, message: str) -> ToolResult:
@@ -215,7 +306,9 @@ def make_table_transform_tool(
         )
 
     def run(arguments: BaseModel, context: ExecutionContext) -> ToolResult:
-        if not isinstance(arguments, TableTransformArguments):  # pragma: no cover
+        if not isinstance(
+            arguments, (TableTransformArguments, DocumentTableTransformArguments)
+        ):  # pragma: no cover
             raise TypeError("table_transform received arguments it did not declare")
         selected = arguments.root
         try:
@@ -248,14 +341,66 @@ def make_table_transform_tool(
                 if isinstance(selected, AddSeriesArguments)
                 else _deflated(selected, source, series.observations, series.semantics, names)
             )
+        elif isinstance(selected, AddDocumentColumnArguments):
+            if selected.attached:
+                if attachment is None:
+                    return failure("no_attachment", "No document is attached to this question")
+                read = read_attachment(
+                    attachment, delimiter=selected.delimiter, sheet=selected.sheet
+                )
+            elif document_fetch is None or selected.url is None:
+                return failure("document_disabled", "Reading a web address is not enabled")
+            else:
+                read = read_document(
+                    selected.url,
+                    context.question,
+                    fetch=document_fetch,
+                    delimiter=selected.delimiter,
+                    sheet=selected.sheet,
+                    clock=clock,
+                )
+            document, media_type = read.output.source, read.output.media_type
+            if read.failure is not None or document is None or media_type is None:
+                return failure(read.failure or "not_admitted", read.output.code or "NOT_LOADED")
+            try:
+                column = read_column(
+                    grids(read.output.table, read.output.document),
+                    selected.period_column,
+                    selected.value_column,
+                )
+                if connection.execute(
+                    "SELECT 1 FROM silver_series WHERE series_id = ? LIMIT 1",
+                    [selected.value_column],
+                ).fetchone():
+                    raise ColumnRefused("LABEL_IS_A_SERIES")
+            except ColumnRefused as error:
+                result = _document_refused(selected, error.code)
+            else:
+                inputs.append(column_snapshot(column, document, media_type))
+                source_node = (
+                    lineage.record(
+                        NodeKind.SOURCE_FILE,
+                        document.source_id,
+                        attributes={
+                            "source_type": document.source_type,
+                            "locator": document.locator,
+                            "content_hash": document.content_hash or "",
+                            "media_type": media_type,
+                        },
+                    )
+                    if lineage is not None
+                    else None
+                )
+                result = _documented(selected, source, column, document, source_node)
         else:
             result = _closed_transform(selected, source)
+        recorded = _recorded_arguments(selected)
         node = None
         if lineage is not None and result.status is ResultStatus.COMPUTED:
             node = lineage.record(
                 NodeKind.TRANSFORM,
                 f"table_transform_{selected.operation}",
-                attributes=selected.model_dump(mode="json"),
+                attributes=recorded,
             )
             if result.evidence is not None:
                 result = result.model_copy(
@@ -264,7 +409,11 @@ def make_table_transform_tool(
         result = _record_execution(
             connection,
             producer="table_transform",
-            arguments=arguments.model_dump_json(),
+            arguments=(
+                canonical(recorded)
+                if isinstance(selected, AddDocumentColumnArguments)
+                else arguments.model_dump_json()
+            ),
             inputs=inputs,
             result=result,
         )
@@ -296,8 +445,31 @@ def make_table_transform_tool(
             "existing exact periods using inner or explicitly anchored-left policy. filter "
             "selects an inclusive period-end range. These unary operations never fill cells, "
             "convert frequency, or accept SQL."
+            + (
+                " add_document_column adds one column from a CSV, Excel, PDF or HTML table "
+                + (
+                    "at a web address written in the question (give the address exactly as url)"
+                    if document_fetch is not None
+                    else ""
+                )
+                + (" or " if document_fetch is not None and attachment is not None else "")
+                + (
+                    "in the document uploaded with this question (attached=true)"
+                    if attachment is not None
+                    else ""
+                )
+                + ", with the header of its month column and of the value column. Months must "
+                "be explicit, one row per month; the value header must state its unit in "
+                "parentheses. It needs no catalog_search and does not convert frequency."
+                if document_fetch is not None or attachment is not None
+                else ""
+            )
         ),
-        arguments=TableTransformArguments,
+        arguments=(
+            DocumentTableTransformArguments
+            if document_fetch is not None or attachment is not None
+            else TableTransformArguments
+        ),
         run=run,
         table_input=_table_input,
     )
@@ -607,6 +779,103 @@ def _augmented(
             *source.limitations,
             "The added column is aligned by exact monthly periods only; no resampling, "
             "filling, currency conversion, inflation adjustment or rebasing was applied to it",
+            "Existing comparison metrics still concern their original columns; adding a "
+            "column does not compute a relationship with it",
+        ],
+        unresolved_semantics=list(source.unresolved_semantics),
+    )
+
+
+def _recorded_arguments(selected: BaseModel) -> dict[str, Any]:
+    """Arguments as lineage keeps them; an address is kept only as its opaque identity."""
+    recorded: dict[str, Any] = selected.model_dump(mode="json")
+    if isinstance(selected, AddDocumentColumnArguments):
+        recorded.pop("url")
+        if selected.url is not None:
+            recorded["document_source_id"] = source_id_for(selected.url)
+    return recorded
+
+
+def _document_refused(arguments: AddDocumentColumnArguments, code: str) -> AnalyticalResult:
+    return AnalyticalResult(
+        result_id=f"table_transform:add_document_column:{arguments.source}",
+        kind=ResultKind.SERIES,
+        status=ResultStatus.ABSTAINED,
+        tool="table_transform",
+        method=DOCUMENT_METHOD,
+        reason=f"The document column cannot be added ({code})",
+    )
+
+
+def _documented(
+    arguments: AddDocumentColumnArguments,
+    source: AnalyticalResult,
+    column: DocumentColumn,
+    document: SourceRef,
+    source_node: str | None,
+) -> AnalyticalResult:
+    result_id = (
+        f"table_transform:add_document_column:{arguments.source}:{document.source_id}:"
+        f"{column.location['column_index']}"
+    )
+    try:
+        added = add_document_column(
+            source,
+            column.levels,
+            label=arguments.value_column,
+            unit=column.unit,
+            scale=column.scale,
+            document_rows=len(column.rows),
+            content_hash=document.content_hash or "",
+            measure=column.measure,
+        )
+    except SeriesAdditionRefused as error:
+        return AnalyticalResult(
+            result_id=result_id,
+            kind=ResultKind.SERIES,
+            status=ResultStatus.ABSTAINED,
+            tool="table_transform",
+            method=DOCUMENT_METHOD,
+            reason=str(error),
+        )
+    parameters = dict(source.parameters)
+    parameters.update(
+        {"source": arguments.source, "added_document_column": added.transformation.parameters}
+    )
+    warnings = list(source.warnings)
+    if added.missing_periods:
+        warnings.append(
+            f"{len(added.missing_periods)} table period(s) have no value in the document "
+            "column; those cells are empty, never filled"
+        )
+    previous = source.evidence.transformations if source.evidence is not None else []
+    prior = (
+        [source.evidence.lineage_node]
+        if source.evidence is not None and source.evidence.lineage_node
+        else []
+    )
+    return AnalyticalResult(
+        result_id=result_id,
+        kind=source.kind,
+        status=ResultStatus.COMPUTED,
+        tool="table_transform",
+        method=DOCUMENT_METHOD,
+        values=[*source.values, *added.values],
+        coverage=source.coverage,
+        parameters=parameters,
+        samples=source.samples,
+        evidence=ResultEvidence(
+            input_refs=[*prior, source_node or document.source_id],
+            transformations=[*previous, added.transformation],
+            sources=[document],
+        ),
+        warnings=warnings,
+        limitations=[
+            *source.limitations,
+            "The added column was read from a fetched document on explicit months only; no "
+            "resampling, filling, currency conversion, inflation adjustment or rebasing was "
+            "applied to it",
+            measure_limitation(column.measure),
             "Existing comparison metrics still concern their original columns; adding a "
             "column does not compute a relationship with it",
         ],

@@ -589,6 +589,21 @@ Confirmed team priority refinement, explicitly requested by Çağatay after M3-0
 - **Evidence:** The 22-case holdout was committed at `b2f2098` before its first run. Offline lexical hit@1/MRR improved 0.7368/0.8333 to 1.0/1.0, Recall@5/10 improved 0.9474/0.9474 to 1.0/1.0, no-answer status acceptance stayed 1.0 and archive leaks stayed zero. Previously seen N07 and N09 moved rank 2→1. N18 stayed `PARTIAL` with no BDDK balance candidate because post-ordering does not expand lexical generation. See [EVALUATION](EVALUATION.md#m13-15-catalog-quality-hardening-2026-09-15).
 - Consequences: DEC-142 still owns initial lexical/dense interleaving and DEC-143 owns resolution status. A live dense measurement is still required before claiming real-embedding gains; no embedding/source/search request was made for this decision.
 
+### DEC-145 — A points or index header unit names an index level for document columns
+
+- Status: CONFIRMED team decision, 2026-09-17, by Eray (option 1 of three offered after PR #224). Grants no live fetch or organizer permission.
+- Context: M7-14 `add_document_column` reads a fetched table column with strict rules; a document never states stock/flow meaning, so the column was recorded as unknown and `table_co_movement` (stock, rate or index columns only) refused it. That blocked the organizer-style follow-up of comparing a URL index such as BIST 100 with a prepared series.
+- Decision: when the value header's trailing parentheses state points or index (`(Puan)`, `(Points)`, `(Endeks)`, `(Index)`) at scale one, the added column is an **index level**; the transformation records `measure_source: column header unit` and the limitation says nothing else was inferred. Every other column — currency, percent, counts, scaled points — keeps stock/flow unknown and stays out of comparisons that need a measure.
+- Rejected: a planner-supplied measure argument (a correctness choice in model discretion; the #212 opt-out lesson), and leaving document columns display-only.
+- Consequences: `_document_value` also reads `(Endeks)`/`(Index)` as a unit for literal cells; DEC-104/132 guards and the unknown-unit refusal are unchanged. Revisit when reviewed metadata for a document source can state its measure directly.
+
+### DEC-146 — A percent header unit names a rate for document columns
+
+- Status: CONFIRMED team decision, 2026-09-17, by Eray (chosen while approving the M10-04 document-table design). Extends DEC-145; grants no live fetch or organizer permission.
+- Decision: when a document column's value header states `(%)` at scale one, the column is a **rate**; the transformation records `measure_source: column header unit` and the limitation says a share or percentage change would read the same way. DEC-145's points/index → index rule is unchanged; a scaled percent (`(Milyon %)`) and every other unit keep stock/flow unknown.
+- Consequence: document percent columns (interest, inflation-like rates) can enter `table_co_movement`, which accepts stock, rate and index columns; deflation still requires a currency stock or flow and never accepts a document column. The reviewer should read a percent column's limitation before interpreting a comparison.
+- Rejected: leaving percent columns unknown (the recommended default), and letting the planner declare a measure.
+
 ## Proposed decisions
 
 Candidates below are not approved selections. Compare options in a bounded task; do not silently promote a proposal to CONFIRMED.

@@ -13,9 +13,11 @@ import pytest
 from kkb_agent.agent import (
     ExecutionContext,
     NumberBinding,
+    OmissionCode,
     ToolRegistry,
     ToolStatus,
     extract_numbers,
+    omission_code,
     parse_written,
     verify,
 )
@@ -292,3 +294,63 @@ class TestTheChainEndToEnd:
         sources = house.lineage.sources_of(node)
         payload = house.read_artifact(sources[0].attributes["artifact_id"])
         assert payload == b'{"konut": 801438}'
+
+
+class TestOmissionCategories:
+    """M11-11: the category has to come from our code, not from the draft.
+
+    Reasons quote the figure or qualifier they reject, so an answer that spoke
+    about causes or absences could otherwise label its own omission.
+    """
+
+    @pytest.mark.parametrize(
+        ("reason", "expected"),
+        [
+            ("'912.000' does not match any value in these results", OmissionCode.UNMATCHED_NUMBER),
+            (
+                "'801.438' is written as 'bin' while the value is recorded as million",
+                OmissionCode.UNIT_SCALE,
+            ),
+            (
+                "'801.438' is written as 'bin', but the result never established a scale for it",
+                OmissionCode.UNIT_SCALE,
+            ),
+            (
+                "Explicit unit/currency 'TL' conflicts with recorded unit 'TRY'",
+                OmissionCode.UNIT_SCALE,
+            ),
+            (
+                "Explicit period cannot be supported: the result never established a period",
+                OmissionCode.PERIOD,
+            ),
+            (
+                "Explicit identity 'Konut' does not identify this result/value",
+                OmissionCode.IDENTITY_HEADER,
+            ),
+            (
+                "Ambiguous result/value identity: multiple values match the explicit qualifiers",
+                OmissionCode.AMBIGUOUS,
+            ),
+            (
+                "Unsupported causal assertion: numeric/association results do not establish cause",
+                OmissionCode.CAUSAL,
+            ),
+            ("Internal document proof identifiers are not answer text", OmissionCode.IDENTITY),
+            (
+                "Numeric analytical result lacks matching trusted producer execution evidence",
+                OmissionCode.OTHER,
+            ),
+        ],
+    )
+    def test_each_code_owned_reason_keeps_its_category(self, reason, expected):
+        assert omission_code(reason) is expected
+
+    def test_a_draft_cannot_choose_its_own_category(self):
+        # period_fault quotes the clause; those words must not classify it.
+        reason = (
+            "Claim is attributed to 'causal absence scale' but its period is 2026-06-01..2026-06-30"
+        )
+        assert omission_code(reason) is OmissionCode.PERIOD
+
+    def test_an_unrecognised_reason_is_other_rather_than_a_guess(self):
+        assert omission_code("something new the classifier has never seen") is OmissionCode.OTHER

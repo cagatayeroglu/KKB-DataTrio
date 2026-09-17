@@ -186,7 +186,8 @@ def test_one_worker_duplicate_request_and_cross_session_ownership():
     entered, release = threading.Event(), threading.Event()
     calls = []
 
-    def run(session_id, turn_id, text):
+    def run(session_id, turn_id, text, *, is_continuation):
+        assert is_continuation is None
         calls.append((session_id, turn_id, text, threading.current_thread().name))
         entered.set()
         assert release.wait(5)
@@ -238,7 +239,7 @@ def test_one_worker_duplicate_request_and_cross_session_ownership():
     ],
 )
 def test_failures_are_safe_terminal_states_and_release_admission(exception, code):
-    def run(*args):
+    def run(session_id, turn_id, text, *, is_continuation):
         raise exception
 
     service = AnalysisService(run, mode="scripted")
@@ -255,7 +256,9 @@ def test_failures_are_safe_terminal_states_and_release_admission(exception, code
 
 
 def test_session_turn_capacity_and_shutdown_without_silent_eviction():
-    service = AnalysisService(lambda *args: quiet_answer(), mode="scripted")
+    service = AnalysisService(
+        lambda sid, tid, text, *, is_continuation: quiet_answer(), mode="scripted"
+    )
     sessions = [service.create_session() for _ in range(MAX_SESSIONS)]
     try:
         with pytest.raises(ServiceError, match="capacity"):
@@ -278,8 +281,8 @@ def test_session_turn_capacity_and_shutdown_without_silent_eviction():
 def http_api():
     calls = []
 
-    def run(*args):
-        calls.append(args)
+    def run(session_id, turn_id, text, *, is_continuation):
+        calls.append((session_id, turn_id, text, is_continuation))
         return quiet_answer()
 
     service = AnalysisService(run, mode="scripted")
@@ -383,7 +386,10 @@ def test_missing_wrong_and_unowned_http_tokens(http_api):
 
 
 def test_chunked_body_cannot_bypass_declared_length():
-    service = AnalysisService(lambda *args: pytest.fail("must not run"), mode="scripted")
+    service = AnalysisService(
+        lambda sid, tid, text, *, is_continuation: pytest.fail("must not run"),
+        mode="scripted",
+    )
 
     async def scenario():
         async def chunks():
@@ -409,7 +415,9 @@ def test_chunked_body_cannot_bypass_declared_length():
 def test_real_verified_result_passes_http_json_without_model_reshaping(verified):
     answered, published = verified
     service = AnalysisService(
-        lambda sid, tid, q: project_answer(answered, turn_id=tid, published=published),
+        lambda sid, tid, q, *, is_continuation: project_answer(
+            answered, turn_id=tid, published=published
+        ),
         mode="scripted",
     )
     with TestClient(create_app(service), base_url=BASE) as client:
@@ -431,7 +439,9 @@ def test_real_verified_result_passes_http_json_without_model_reshaping(verified)
 
 
 def test_unexpected_route_exception_is_redacted_without_bubbling_to_server(caplog):
-    service = AnalysisService(lambda *args: quiet_answer(), mode="scripted")
+    service = AnalysisService(
+        lambda sid, tid, text, *, is_continuation: quiet_answer(), mode="scripted"
+    )
     app = create_app(service)
 
     @app.get("/test-fault")
@@ -450,8 +460,8 @@ def test_shutdown_waits_for_existing_work_and_does_not_retry_it():
     entered, release, closed = threading.Event(), threading.Event(), threading.Event()
     calls = []
 
-    def run(*args):
-        calls.append(args)
+    def run(session_id, turn_id, text, *, is_continuation):
+        calls.append((session_id, turn_id, text, is_continuation))
         entered.set()
         assert release.wait(5)
         return quiet_answer()

@@ -38,20 +38,28 @@ REQUIRED_DISCOVERY_INSTRUCTIONS = (
     "series or deflating needs discovery of the added series or price index first. "
     "Clarification without tools is still permitted."
 )
+WEB_ADDRESS_INSTRUCTIONS = (
+    "A web address written in the question is read with web_url, or its table column is "
+    "added to a published table with table_transform add_document_column, directly and "
+    "without catalog_search. Series from the prepared pool still need discovery first; a "
+    "discovery continuation cannot read a web address."
+)
 
 
 def needs_series_discovery(plan: ValidatedPlan) -> bool:
-    """Only existing-column operations may bypass discovery in hybrid mode.
+    """Only existing-column operations and prompt addresses may bypass discovery in hybrid mode.
 
     This is an execution admission rule, not a keyword guess about the question.
-    Unknown/new tool operations conservatively require discovery.
+    Unknown/new tool operations conservatively require discovery. `web_url` reads
+    a document, not a catalog series; its own rule admits only an address the user
+    wrote, so the catalog cannot and need not authorize it.
     """
     workspace_operations = {
-        "table_transform": {"rebase", "align", "filter"},
+        "table_transform": {"rebase", "align", "filter", "add_document_column"},
         "change_detection": {"table_co_movement"},
     }
     return any(
-        step.step.tool != "catalog_search"
+        step.step.tool not in ("catalog_search", "web_url")
         and step.arguments.model_dump().get("operation")
         not in workspace_operations.get(step.step.tool, set())
         for step in plan.steps

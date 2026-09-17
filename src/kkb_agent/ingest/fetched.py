@@ -100,20 +100,42 @@ def load_fetched(
     no loader reads, before any byte is parsed.
     """
     fetched = FetchSuccess.model_validate(fetched)
-    kind = _KINDS.get(fetched.media_type)
+    return load_document(
+        fetched.content,
+        fetched.media_type,
+        source=source,
+        delimiter=delimiter,
+        sheet=sheet,
+        limits=limits,
+        ocr=ocr,
+    )
+
+
+def load_document(
+    content: bytes,
+    media_type: str,
+    *,
+    source: SourceRef,
+    delimiter: str | None = None,
+    sheet: str | None = None,
+    limits: AdmissionLimits = DEFAULT_LIMITS,
+    ocr: OcrProvider | None = None,
+) -> CsvLoadResult | XlsxLoadResult | PdfLoadResult | HtmlLoadResult:
+    """Route document bytes to their loader by media type; fetched and uploaded bytes alike."""
+    kind = _KINDS.get(media_type)
     if kind is None:
         raise AdmissionError(RejectionCode.UNSUPPORTED_FORMAT)
-    stream = io.BytesIO(fetched.content)
+    stream = io.BytesIO(content)
     filename = f"download.{kind.value}"
     if kind is FileKind.HTML:
         return load_html(
-            stream, filename=filename, content_type=fetched.media_type, source=source, limits=limits
+            stream, filename=filename, content_type=media_type, source=source, limits=limits
         )
     if kind is FileKind.PDF:
         return load_pdf(
             stream,
             filename=filename,
-            content_type=fetched.media_type,
+            content_type=media_type,
             source=source,
             limits=limits,
             ocr=ocr,
@@ -122,7 +144,7 @@ def load_fetched(
         return load_csv(
             stream,
             filename=filename,
-            content_type=fetched.media_type,
+            content_type=media_type,
             source=source,
             delimiter=delimiter,
             limits=limits,
@@ -130,7 +152,7 @@ def load_fetched(
     return load_xlsx(
         stream,
         filename=filename,
-        content_type=fetched.media_type,
+        content_type=media_type,
         source=source,
         selection=sheet,
         limits=limits,

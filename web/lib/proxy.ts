@@ -1,8 +1,17 @@
 /** Fixed loopback bridge. Browser input never chooses a destination or capability. */
 export const BODY_LIMIT = 16 * 1024;
+/** M10-04: the one non-JSON body, a document upload, has its own byte and type limits. */
+export const DOCUMENT_LIMIT = 10 * 1024 * 1024;
+export const DOCUMENT_TYPES = new Set([
+  "text/csv",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/pdf",
+  "text/html",
+]);
 export const RESPONSE_LIMIT = 1024 * 1024;
 const REF = "[a-f0-9]{32}";
 const route = new RegExp(`^v1/sessions/${REF}/turns(?:/${REF})?$`);
+const documentRoute = new RegExp(`^v1/sessions/${REF}/documents$`);
 const hosts = new Set(["127.0.0.1:3000", "localhost:3000"]);
 const tokenPattern = /^[A-Za-z0-9_-]{43}$/;
 const responseHeaders = {
@@ -25,6 +34,14 @@ export function backendOrigin(value = "http://127.0.0.1:8000") {
   )
     throw new Error("invalid_backend");
   return url.origin;
+}
+export function proxyTimeoutMs(value: string | undefined) {
+  if (value === undefined) return 30000;
+  if (!/^[1-9]\d*$/.test(value)) throw new Error("invalid_proxy_timeout");
+  const timeout = Number(value);
+  if (!Number.isSafeInteger(timeout) || timeout > 900000)
+    throw new Error("invalid_proxy_timeout");
+  return timeout;
 }
 export async function boundedRead(
   stream: ReadableStream<Uint8Array> | null,
@@ -85,27 +102,62 @@ export async function forward(
   const publicGet = ["v1/health", "v1/dataset"].includes(name);
   const creation = name === "v1/sessions";
   const turns = route.test(name);
+  const documents = documentRoute.test(name);
   const getTurn = turns && path.length === 5;
   if (
     !(request.method === "GET" && (publicGet || getTurn)) &&
-    !(request.method === "POST" && (creation || (turns && path.length === 4)))
+    !(
+      request.method === "POST" &&
+      (creation || documents || (turns && path.length === 4))
+    )
   )
     return error("not_found", 404);
   const headers = new Headers({ Accept: "application/json" });
-  if (turns) {
+  if (turns || documents) {
     const token = request.headers.get("x-kkb-session-token");
     if (!token || !tokenPattern.test(token)) return error("not_found", 404);
     headers.set("X-KKB-Session-Token", token);
   }
+  let timeoutMs: number;
+  try {
+    timeoutMs = proxyTimeoutMs(process.env.KKB_PROXY_TIMEOUT_MS);
+  } catch {
+    return error("unavailable", 503);
+  }
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   const disconnect = () => controller.abort();
   request.signal.addEventListener("abort", disconnect, { once: true });
   try {
     const backend = backendOrigin(target ?? process.env.KKB_LOCAL_API_URL);
     headers.set("Origin", backend);
-    let body: string | undefined;
-    if (request.method === "POST") {
+    let body: string | Uint8Array<ArrayBuffer> | undefined;
+    if (request.method === "POST" && documents) {
+      const type = (request.headers.get("content-type") ?? "")
+        .split(";")[0]
+        .trim()
+        .toLowerCase();
+      if (!DOCUMENT_TYPES.has(type)) return error("invalid_request", 415);
+      const declared = request.headers.get("content-length");
+      if (
+        declared &&
+        (!/^\d+$/.test(declared) || Number(declared) > DOCUMENT_LIMIT)
+      )
+        return error("body_too_large", 413);
+      try {
+        body = await boundedRead(
+          request.body,
+          DOCUMENT_LIMIT,
+          controller.signal,
+        );
+      } catch {
+        return error(
+          controller.signal.aborted ? "unavailable" : "body_too_large",
+          controller.signal.aborted ? 503 : 413,
+        );
+      }
+      headers.set("Content-Type", type);
+    } else if (request.method === "POST") {
       if (
         !/^application\/json(?:;\s*charset=utf-8)?$/i.test(
           request.headers.get("content-type") ?? "",

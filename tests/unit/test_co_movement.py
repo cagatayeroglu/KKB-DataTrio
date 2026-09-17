@@ -351,7 +351,8 @@ def turn_one(lake, draft):
         ],
     }
     workspace = Workspace.open(lake.connection)
-    session = Session(scripted(json.dumps(plan), draft), registry)
+    # These legacy cases exercise the model-writer/gate path explicitly.
+    session = Session(scripted(json.dumps(plan), draft), registry, deterministic_presentation=False)
     answered = session.answer(
         QUESTION, lake.connection, workspace=workspace, remember="konut_kredisi_ve_faiz"
     )
@@ -504,7 +505,7 @@ def test_no_table_accompanies_an_abstained_answer(lake):
     assert answered.answer.status is AnswerStatus.ABSTAINED and answered.tables == ()
 
 
-def test_prepared_report_lists_tables_and_withheld_text(lake, tmp_path):
+def test_prepared_report_uses_bounded_presentation_and_lists_tables(lake, tmp_path):
     from kkb_agent import live_check
 
     lake.connection.close()
@@ -522,8 +523,8 @@ def test_prepared_report_lists_tables_and_withheld_text(lake, tmp_path):
     report = live_check.run_prepared_check(
         scripted(json.dumps(plan), draft), lake.root, tmp_path / "work", question=QUESTION
     )
-    assert report["answer"]["status"] == "qualified"
-    assert report["answer"]["withheld_text"] == ["Bakiye Şubat 2021'de 987 milyon TL oldu."]
+    assert report["answer"]["status"] == "accepted"
+    assert report["answer"]["withheld_text"] == []
     (table,) = report["tables"]
     assert table["rows"] == 6 and table["first"] == "2021-01-01..2021-01-31"
 
@@ -545,6 +546,10 @@ def test_writer_reads_summaries_and_highlighted_periods_but_the_gate_sees_everyt
     assert "shown to the reader separately for:" in writer_prompt
     assert "period 2021-02-01..2021-02-28" in writer_prompt  # highlighted
     assert "period 2021-03-01..2021-03-31" not in writer_prompt  # tabled only
-    assert "transitions where" in writer_prompt
+    # The direction counts reach the writer under their controlled phrases, which
+    # is what lets a later turn name an inherited count instead of a bare number.
+    assert "Sürücü serinin düştüğü geçiş sayısı" in writer_prompt
+    assert "Sürücü düşerken hedefin artmadığı geçiş sayısı" in writer_prompt
+    assert "transitions where" not in writer_prompt
     # Narrowing the writer's view does not narrow verification.
     assert answered.answer.status is AnswerStatus.ACCEPTED

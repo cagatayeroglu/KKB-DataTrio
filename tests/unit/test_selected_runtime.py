@@ -10,6 +10,7 @@ from test_prepared_api import BASE, wait_http
 from test_series_inspection import CPI, SQL
 
 from kkb_agent.agent import Session, Workspace
+from kkb_agent.agent import loop as agent_loop
 from kkb_agent.agent.loop import PlanningFailed
 from kkb_agent.api.app import create_app
 from kkb_agent.api.prepared import PreparedRunner
@@ -173,21 +174,25 @@ def test_stale_selection_fails_before_model_and_failed_transform_preserves_sourc
     assert failure.value.code == "invalid_result" and len(provider.seen) == calls
 
 
-def test_source_change_during_writer_cannot_publish(tmp_path, monkeypatch):
-    runner, _ = runtime(
-        tmp_path, proposal(table()), "Tablo hazır.", proposal(add()), "Endeks eklendi."
-    )
+def test_source_change_during_fast_presentation_cannot_publish(tmp_path, monkeypatch):
+    runner, _ = runtime(tmp_path, proposal(table()), "Tablo hazır.", proposal(add()))
     sid, selected, _ = first_turn(runner)
-    original = Session.draft
+    original_answer = Session.answer
+    original_present = agent_loop.deterministic_draft
 
-    def changed(self, question, available):
-        source = self.selection.workspace.resolve(self.selection.name)
-        self.selection.workspace.define(
-            source.name, source.kind, parameters={"changed": "yes"}, value_ref=source.value_ref
-        )
-        return original(self, question, available)
+    def changed_answer(self, *args, **kwargs):
+        def changed(result):
+            source = self.selection.workspace.resolve(self.selection.name)
+            self.selection.workspace.define(
+                source.name, source.kind, parameters={"changed": "yes"}, value_ref=source.value_ref
+            )
+            return original_present(result)
 
-    monkeypatch.setattr(Session, "draft", changed)
+        with monkeypatch.context() as patch:
+            patch.setattr(agent_loop, "deterministic_draft", changed)
+            return original_answer(self, *args, **kwargs)
+
+    monkeypatch.setattr(Session, "answer", changed_answer)
     with pytest.raises(ServiceError) as failure:
         runner.selected(sid, uuid4().hex, "Seçili tabloya TÜFE ekle.", selected)
     assert failure.value.code == "invalid_result"
@@ -196,9 +201,7 @@ def test_source_change_during_writer_cannot_publish(tmp_path, monkeypatch):
 
 
 def test_http_selected_followup_and_retry_use_actual_prepared_runner(tmp_path):
-    runner, provider = runtime(
-        tmp_path, proposal(table()), "Tablo hazır.", proposal(add()), "Endeks eklendi."
-    )
+    runner, provider = runtime(tmp_path, proposal(table()), "Tablo hazır.", proposal(add()))
     service = AnalysisService(runner, mode="scripted", selected_runner=runner.selected)
     with TestClient(create_app(service), base_url=BASE) as client:
         session = client.post("/v1/sessions", json={}).json()
@@ -220,7 +223,7 @@ def test_http_selected_followup_and_retry_use_actual_prepared_runner(tmp_path):
         assert (
             client.post(path, headers=headers, json=payload).json()["turn_id"] == follow["turn_id"]
         )
-        assert len(provider.seen) == 4
+        assert len(provider.seen) == 3
 
 
 def test_selected_add_then_relationship_binds_step_output_and_publishes_counts(tmp_path):

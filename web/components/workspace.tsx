@@ -12,6 +12,7 @@ import {
   Layers3,
   LoaderCircle,
   MessageSquare,
+  Paperclip,
   Plus,
   RefreshCw,
   Send,
@@ -29,8 +30,9 @@ import { noticeText } from "@/lib/language";
 import {
   api,
   ApiError,
+  DOCUMENT_ACCEPT,
   admissionRejection,
-  draftRequest,
+  draftWorkspaceRequest,
   publishedResult,
   restoredSelection,
   admit,
@@ -40,6 +42,7 @@ import {
   newSession,
   readTurn,
   saveSession,
+  uploadDocument,
   validQuestion,
   errorText,
 } from "@/lib/client";
@@ -47,6 +50,7 @@ import {
   datasetSchema,
   healthSchema,
   type Dataset,
+  type DocumentAdmitted,
   type Health,
   type Saved,
   type Turn,
@@ -86,15 +90,19 @@ export function Workspace() {
   const [selected, setSelected] = useState<number>(-1),
     [panel, setPanel] = useState<"data" | "settings" | null>(null),
     [followSelected, setFollowSelected] = useState(true),
-    [pendingIndex, setPendingIndex] = useState<number | null>(null);
+    [pendingIndex, setPendingIndex] = useState<number | null>(null),
+    [attachment, setAttachment] = useState<DocumentAdmitted | null>(null),
+    [uploading, setUploading] = useState(false);
   const pending = pendingIndex !== null;
+  const uploads = health?.capabilities.includes("document_upload") ?? false;
   const saved = useRef<Saved | null>(null),
     busyRef = useRef(false),
     mounted = useRef(false),
     generation = useRef(0),
     recoveries = useRef<number[]>([]),
     chatEnd = useRef<HTMLDivElement>(null),
-    input = useRef<HTMLTextAreaElement>(null);
+    input = useRef<HTMLTextAreaElement>(null),
+    picker = useRef<HTMLInputElement>(null);
   async function refresh() {
     setLoading(true);
     setConnectionError("");
@@ -291,6 +299,27 @@ export function Workspace() {
       if (body) body.scrollTop = body.scrollHeight;
     }
   }, [items, busy]);
+  async function attach(file: File | undefined) {
+    if (!file || !uploads || busyRef.current || pending || !ready) return;
+    busyRef.current = true;
+    setUploading(true);
+    setIssue("");
+    try {
+      let state = saved.current;
+      if (!state) {
+        const session = await newSession();
+        state = { session, turns: [], follow_selected: followSelected };
+        record(state);
+      }
+      setAttachment(await uploadDocument(state.session, file));
+    } catch (error) {
+      setIssue(describeError(error));
+    } finally {
+      busyRef.current = false;
+      if (mounted.current) setUploading(false);
+      if (picker.current) picker.current.value = "";
+    }
+  }
   async function submit() {
     if (
       busyRef.current ||
@@ -323,11 +352,17 @@ export function Workspace() {
       const source = items[selected]?.turn;
       if (followSelected && state.view_result_id && !publishedResult(source))
         throw new ApiError("selection_unavailable");
-      const entry = draftRequest(question, followSelected ? source : undefined);
+      const entry = draftWorkspaceRequest(
+        question,
+        followSelected,
+        source ?? items.at(-1)?.turn,
+        attachment ?? undefined,
+      );
       const next = { ...state, turns: [...state.turns, entry] };
       record(next);
       setItems((old) => [...old, entry]);
       setQuestion("");
+      setAttachment(null);
       recoveries.current = [next.turns.length - 1];
       setPendingIndex(next.turns.length - 1);
       busyRef.current = false;
@@ -580,6 +615,12 @@ export function Workspace() {
                         SEN <span>{String(index + 1).padStart(2, "0")}</span>
                       </div>
                       <p className="user-question">{item.question}</p>
+                      {item.document_format && (
+                        <p className="request-source">
+                          <FileText size={12} /> Ekli belge:{" "}
+                          {item.document_format.toUpperCase()}
+                        </p>
+                      )}
                       <p className="request-source">
                         {sourceLabel(item.selected_result_id)}
                       </p>
@@ -714,7 +755,9 @@ export function Workspace() {
                     disabled={!ready || busy || pending}
                     onChange={(e) => chooseMode(e.target.checked)}
                   />
-                  Seçili tabloyla devam et
+                  {items.at(-1)?.turn?.answer?.status === "abstained" && !result
+                    ? "Önceki isteği netleştir"
+                    : "Seçili tabloyla devam et"}
                 </label>
                 <span>
                   {pending
@@ -723,7 +766,10 @@ export function Workspace() {
                       ? `Kaynak tablo: Analiz ${selected + 1}`
                       : followSelected && saved.current?.view_result_id
                         ? "Devam etmek için kaynak tabloyu seç"
-                        : "Serbest soru · belirli bir tabloya sabitlenmez"}
+                        : followSelected &&
+                            items.at(-1)?.turn?.answer?.status === "abstained"
+                          ? "Önceki isteğin bağlamıyla devam eder"
+                          : "Serbest soru · belirli bir tabloya sabitlenmez"}
                 </span>
               </div>
               <textarea
@@ -749,6 +795,21 @@ export function Workspace() {
                   }
                 }}
               />
+              {attachment && (
+                <div className="composer-attachment" aria-live="polite">
+                  <FileText size={13} /> Bu soruya ekli belge:{" "}
+                  {attachment.document_format.toUpperCase()} ·{" "}
+                  {Math.max(1, Math.round(attachment.bytes / 1024))} KB
+                  <button
+                    type="button"
+                    aria-label="Ekli belgeyi kaldır"
+                    disabled={busy || pending}
+                    onClick={() => setAttachment(null)}
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              )}
               <div className="composer-actions">
                 <span>
                   {busy ? (
@@ -761,21 +822,49 @@ export function Workspace() {
                     </>
                   )}
                 </span>
-                <Button
-                  type="submit"
-                  size="icon"
-                  aria-label="Soruyu gönder"
-                  disabled={
-                    !ready ||
-                    !health ||
-                    !dataset ||
-                    busy ||
-                    pending ||
-                    !validQuestion(question)
-                  }
-                >
-                  <Send size={17} />
-                </Button>
+                <div className="composer-buttons">
+                  {uploads && (
+                    <>
+                      <input
+                        ref={picker}
+                        type="file"
+                        accept={DOCUMENT_ACCEPT}
+                        hidden
+                        onChange={(e) => void attach(e.target.files?.[0])}
+                      />
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        aria-label="Soruya belge ekle"
+                        title="CSV, Excel, PDF veya HTML belge ekle (en fazla 10 MiB)"
+                        disabled={!ready || busy || pending || uploading}
+                        onClick={() => picker.current?.click()}
+                      >
+                        {uploading ? (
+                          <LoaderCircle size={17} className="spin" />
+                        ) : (
+                          <Paperclip size={17} />
+                        )}
+                      </Button>
+                    </>
+                  )}
+                  <Button
+                    type="submit"
+                    size="icon"
+                    aria-label="Soruyu gönder"
+                    disabled={
+                      !ready ||
+                      !health ||
+                      !dataset ||
+                      busy ||
+                      pending ||
+                      !validQuestion(question)
+                    }
+                  >
+                    <Send size={17} />
+                  </Button>
+                </div>
               </div>
             </form>
             <div className="composer-footnote">

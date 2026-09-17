@@ -2,6 +2,7 @@
 import {
   Calculator,
   Database,
+  FileText,
   Server,
   ShieldAlert,
   ShieldCheck,
@@ -10,6 +11,9 @@ import {
 import type { Dataset, Proof } from "@/lib/contracts";
 import { noticeText } from "@/lib/language";
 import {
+  documentLocation,
+  documentName,
+  documentOrigin,
   gapText,
   orderedSteps,
   proofHeadline,
@@ -17,6 +21,7 @@ import {
   sourceOrigin,
   sourceName,
   sourceSemantics,
+  stepCheck,
   stepInputs,
   stepTitle,
 } from "@/lib/proof";
@@ -67,6 +72,31 @@ export function ProofChain({
               </div>
             </li>
           ))}
+          {proof.documents.map((document, index) => (
+            <li key={`document-${index}`} className="proof-layer">
+              <span className="proof-icon">
+                <FileText size={14} />
+              </span>
+              <div>
+                <h4>{documentName(document)}</h4>
+                <p>{documentOrigin(document)}</p>
+                <p>
+                  {document.column === null
+                    ? "Okunan tablo"
+                    : document.row === null
+                      ? "Okunan sütun"
+                      : "Okunan hücre"}
+                  : {documentLocation(document)}
+                </p>
+                <p
+                  className="mono"
+                  title="İçerik kimliği; doğruluk kanıtı değildir"
+                >
+                  <Database size={11} /> {document.content_sha256.slice(0, 16)}…
+                </p>
+              </div>
+            </li>
+          ))}
           {orderedSteps(proof).map(({ step, index }) => (
             <li key={`step-${index}`} className="proof-layer">
               <span className="proof-icon">
@@ -89,9 +119,7 @@ export function ProofChain({
                     dışlanan
                   </p>
                 )}
-                <p className="muted">
-                  Yürütme kaydı girdileri ve çıktısıyla yeniden eşleşti
-                </p>
+                <p className="muted">{stepCheck(step)}</p>
               </div>
             </li>
           ))}

@@ -440,7 +440,10 @@ def test_launcher_is_loopback_only_and_closes_before_provider(pool, tmp_path, mo
 
 
 def test_missing_dataset_contract_is_explicit():
-    service = AnalysisService(lambda *args: pytest.fail("not run"), mode="scripted")
+    service = AnalysisService(
+        lambda sid, tid, text, *, is_continuation: pytest.fail("not run"),
+        mode="scripted",
+    )
     with TestClient(create_app(service), base_url=BASE) as client:
         response = client.get("/v1/dataset")
         assert response.status_code == 503 and response.json()["error"] == "unavailable"
