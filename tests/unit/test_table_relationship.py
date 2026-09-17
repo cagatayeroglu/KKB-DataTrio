@@ -130,7 +130,6 @@ def test_missing_month_does_not_bridge_the_gap_or_change_the_denominator_silentl
         "nan",
         "mixed_unit",
         "flow",
-        "unknown_semantics",
         "no_pair",
         "not_computed",
     ],
@@ -146,8 +145,6 @@ def test_invalid_comparisons_refuse_instead_of_guessing(case):
         kwargs["when_direction"] = None
     elif case == "duplicate":
         source = source.model_copy(update={"values": [*source.values, source.values[0]]})
-    elif case == "unknown_semantics":
-        source = source.model_copy(update={"unresolved_semantics": ["unreviewed unit"]})
     elif case == "no_pair":
         source = source.model_copy(
             update={"values": [v for v in source.values if v.period.end.month in (1, 3, 5)]}
@@ -167,6 +164,67 @@ def test_invalid_comparisons_refuse_instead_of_guessing(case):
         )
     with pytest.raises(TableComparisonRefused):
         compare(source, **kwargs)
+
+
+def test_an_unrelated_unresolved_column_does_not_block_the_comparison():
+    source = table()
+    unknown = credit_column([1, 2, 3, 4, 5, 6], label="note", unit=None)
+    source = source.model_copy(
+        update={
+            "values": [
+                *source.values,
+                *[v.model_copy(update={"scale": Scale.UNKNOWN}) for v in unknown],
+            ],
+            "unresolved_semantics": ["note: unit and scale are not stated"],
+        }
+    )
+    result = compare(source)
+    assert counts(result) == [5, 0, 3, 3, 3, 3]
+    assert result.unresolved_semantics == ["note: unit and scale are not stated"]
+
+
+def undeclared(levels, *, unit="TRY", scale=Scale.THOUSAND):
+    """A document column: stated unit (or none), no stated stock/flow meaning."""
+    return [
+        v.model_copy(update={"unit": unit, "scale": scale, "measure": StockFlow.UNKNOWN})
+        for v in credit_column(list(levels), label="sales")
+    ]
+
+
+def with_sales(levels, **kwargs):
+    source = table()
+    column = undeclared(levels, **kwargs)
+    unresolved = (
+        ["sales: unit and scale are not stated"] if kwargs.get("unit", "TRY") is None else []
+    )
+    return source.model_copy(
+        update={"values": [*source.values, *column], "unresolved_semantics": unresolved}
+    )
+
+
+def test_an_undeclared_column_whose_values_fall_in_year_is_compared_as_a_level():
+    result = compare(with_sales([5, 7, 6, 8, 9, 4]), target_column="sales")
+    assert counts(result)[0] == 5
+    assert any("inferred from the values" in note for note in result.limitations)
+
+
+def test_an_undeclared_unitless_column_is_compared_with_both_decisions_recorded():
+    source = with_sales([5, 7, 6, 8, 9, 4], unit=None, scale=Scale.UNKNOWN)
+    result = compare(source, target_column="sales")
+    assert any("no stated unit or scale" in note for note in result.limitations)
+    assert result.unresolved_semantics == ["sales: unit and scale are not stated"]
+
+
+@pytest.mark.parametrize("levels", [[1, 2, 3, 4, 5, 6], [1, 1, 2, 3, 3, 4]])
+def test_an_undeclared_column_that_could_be_cumulative_asks_instead_of_guessing(levels):
+    with pytest.raises(TableComparisonRefused, match="cumulative"):
+        compare_table_directions(
+            with_sales(levels),
+            driver_column="price",
+            target_column="sales",
+            driver_direction="up",
+            target_direction="up",
+        )
 
 
 def test_repeat_comparison_refuses_duplicate_counts_but_new_criteria_are_distinct():

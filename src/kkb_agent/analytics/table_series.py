@@ -55,8 +55,10 @@ def table_months(source: AnalyticalResult, new_label: str) -> dict[date, Period]
     A new column label must not already exist. Summary metrics and single-period
     prose values do not define rows.
     """
-    if source.status is not ResultStatus.COMPUTED or source.unresolved_semantics:
-        raise SeriesAdditionRefused("The source table is not computed with resolved semantics")
+    # The join reads the table's months only. Columns whose semantics a document
+    # left unresolved are copied verbatim and stay declared on the new result.
+    if source.status is not ResultStatus.COMPUTED:
+        raise SeriesAdditionRefused("The source table is not computed")
     periods: dict[date, Period] = {}
     columns: dict[str, list[Period]] = {}
     cells: set[tuple[str, date, date]] = set()

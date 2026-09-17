@@ -41,7 +41,9 @@ class ToolStatus(StrEnum):
 class Budget:
     """Every loop in this package is bounded by one of these."""
 
-    max_steps: int = 8
+    # A document chain (read -> join -> align -> compare) plus discovery needs
+    # more than the eight steps a prepared-only question used.
+    max_steps: int = 12
     max_plan_repairs: int = 2
     max_tool_retries: int = 1
 
