@@ -92,6 +92,7 @@ class ValidatedPlan:
     question: str
     steps: tuple[ValidatedStep, ...]
     clarification: ClarificationReason | None = None
+    reply: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,7 +163,9 @@ def validate_plan(
             "each later step depend on the earlier one"
         )
 
-    return ValidatedPlan(plan.question, tuple(_ordered(plan, validated)), plan.clarification)
+    return ValidatedPlan(
+        plan.question, tuple(_ordered(plan, validated)), plan.clarification, plan.reply
+    )
 
 
 def _ordered(plan: AnalyticalPlan, validated: dict[str, ValidatedStep]) -> list[ValidatedStep]:

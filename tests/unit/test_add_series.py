@@ -280,6 +280,7 @@ def test_planner_schema_exposes_separate_closed_operation_objects(pool):
     assert set(schema["discriminator"]["mapping"]) == {
         "deflate",
         "add_series",
+        "join_table",
         "rebase",
         "align",
         "filter",

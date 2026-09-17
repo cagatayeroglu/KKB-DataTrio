@@ -634,13 +634,14 @@ export function Workspace() {
                           <span
                             className={`verdict ${item.turn.answer.status}`}
                           >
-                            {
-                              {
-                                accepted: "Kontrolden geçti",
-                                qualified: "Sınırlı yanıt",
-                                abstained: "Netleştirme gerekli",
-                              }[item.turn.answer.status]
-                            }
+                            {item.turn.answer.status === "accepted" &&
+                            !item.turn.answer.result
+                              ? "Yanıt"
+                              : {
+                                  accepted: "Kontrolden geçti",
+                                  qualified: "Sınırlı yanıt",
+                                  abstained: "Netleştirme gerekli",
+                                }[item.turn.answer.status]}
                           </span>
                         )}
                       </div>

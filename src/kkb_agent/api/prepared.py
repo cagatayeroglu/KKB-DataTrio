@@ -19,6 +19,7 @@ import duckdb
 from pydantic import Field
 
 from kkb_agent.agent import Session, ToolRegistry, Workspace
+from kkb_agent.agent.loop import MAX_HISTORY_TURNS
 from kkb_agent.agent.selection import SelectedTable, SelectionError
 from kkb_agent.agent.verifier import AnswerStatus
 from kkb_agent.agent.workspace import WorkspaceError
@@ -56,7 +57,7 @@ from kkb_agent.tools import (
     make_web_url_tool,
 )
 from kkb_agent.tools._document_library import document_name, document_outline
-from kkb_agent.tools.web_url import Fetcher
+from kkb_agent.tools.web_url import Fetcher, addresses_in
 
 if TYPE_CHECKING:  # pragma: no cover
     from kkb_agent.catalog.hybrid import CatalogDenseStage
@@ -371,6 +372,10 @@ class PreparedRunner:
         self._turns: dict[str, int] = {}
         self._publications: dict[tuple[str, str], _Publication] = {}
         self._pending_clarifications: dict[str, PendingClarification] = {}
+        # Bounded (question, shown answer) pairs so a planner can resolve "bu",
+        # "önceki cevap" after an unrelated message; analytical state stays in
+        # the workspace, never here.
+        self._history: dict[str, list[tuple[str, str]]] = {}
         self._lock = threading.Lock()
 
     def __call__(
@@ -590,6 +595,13 @@ class PreparedRunner:
                     repair_period_wording=True,
                     repair_unmatched_numbers=True,
                     documents_note=document_outline(library, current),
+                    # A clarification merge already restates the original request.
+                    history=(
+                        tuple(self._history.get(session_id, ()))
+                        if pending is None or is_cancel or is_new_q
+                        else ()
+                    ),
+                    tools_required=bool(addresses_in(question)) or document_ref is not None,
                 ).answer(effective_question, lake.connection, workspace=workspace, remember=name)
                 published = workspace.value_of(name) if name in workspace.names() else None
                 answer = project_answer(
@@ -634,6 +646,9 @@ class PreparedRunner:
                         selection=sel,
                         document_ref=effective_document,
                     )
+                turns = self._history.setdefault(session_id, [])
+                turns.append((question, answer.text))
+                del turns[:-MAX_HISTORY_TURNS]
                 return answer
 
         finally:
