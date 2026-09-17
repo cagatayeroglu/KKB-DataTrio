@@ -11,10 +11,15 @@ rules (M7-14, DEC-145/146), with one decision of their own (Eray, 2026-09-17):
   DEC-148 total rows and months ending after retrieval are skipped with a
   warning instead, and a month name without a year takes the year context.
 - **Column-level problems leave that column out.** A value column that is not
-  found once, states no recognised unit, holds a number with more than one
-  reading, names a prepared series or has fewer than two values is skipped with
-  a fixed code in a visible warning; the other columns still publish. No usable
-  column refuses the table.
+  found once, holds a number with more than one reading, names a prepared
+  series or has fewer than two values is skipped with a fixed code in a visible
+  warning; the other columns still publish. No usable column refuses the table.
+- **A missing unit is declared, not a refusal.** A header without a recognised
+  unit keeps its values with an unknown unit and scale, recorded in
+  `unresolved_semantics`; the answer gate never quotes such a number and each
+  operation decides whether it needs the unit. A unit the user wrote in the
+  question (`declared_units`) fills it, recorded as coming from the question. A
+  header unit always wins; a different declared unit refuses that column.
 
 Labels are the names the user gave (from the question); matched headers, sheet
 names and cell text stay in the lineage snapshot and never reach the answer.
@@ -24,7 +29,7 @@ from __future__ import annotations
 
 import calendar
 import hashlib
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 
@@ -64,16 +69,23 @@ METHOD = "document-table-v1"
 MAX_VALUE_COLUMNS = 6
 
 
+#: Where a column's unit and scale came from.
+UNIT_FROM_HEADER = "column header"
+UNIT_FROM_QUESTION = "question"
+
+
 @dataclass(frozen=True)
 class TableColumn:
     label: str
     header: str
     column_index: int
-    unit: str
+    #: None when neither the header nor the user stated it (scale then UNKNOWN).
+    unit: str | None
     scale: Scale
     measure: StockFlow
     #: (month end, value or None for an empty cell, digest of the cell text)
     cells: tuple[tuple[date, float | None, str], ...]
+    unit_source: str | None = UNIT_FROM_HEADER
 
 
 @dataclass(frozen=True)
@@ -95,11 +107,15 @@ def read_table(
     is_series: Callable[[str], bool] = lambda label: False,
     year: int | None = None,
     as_of: date | None = None,
+    declared_units: Mapping[str, tuple[str, Scale]] | None = None,
 ) -> DocumentTable:
     """The one table holding the period column, read as explicit months per column.
 
-    `year` is a year from the user's question, `as_of` the document's retrieval date.
+    `year` is a year from the user's question, `as_of` the document's retrieval date,
+    `declared_units` the unit and scale the user wrote for a column label (the
+    caller checks that the question contains them).
     """
+    declared = dict(declared_units or {})
     found: list[tuple[Grid, int]] = []
     for grid in tables:
         periods = [
@@ -158,8 +174,13 @@ def read_table(
     for label, index in targets:
         header = _text(grid.headers[index])
         unit, scale = header_semantics(header)
+        source: str | None = UNIT_FROM_HEADER
         if unit is None or scale is Scale.UNKNOWN:
-            skipped.append((label, "UNIT_NOT_STATED"))
+            unit, scale, source = None, Scale.UNKNOWN, None
+            if label in declared:
+                (unit, scale), source = declared[label], UNIT_FROM_QUESTION
+        elif label in declared and declared[label] != (unit, scale):
+            skipped.append((label, "UNIT_CONFLICT"))
             continue
         read: list[tuple[date, float | None, str]] = []
         try:
@@ -175,7 +196,14 @@ def read_table(
             continue
         columns.append(
             TableColumn(
-                label, header, index + 1, unit, scale, document_measure(unit, scale), tuple(read)
+                label,
+                header,
+                index + 1,
+                unit,
+                scale,
+                document_measure(unit, scale),
+                tuple(read),
+                source,
             )
         )
     if not columns:
@@ -220,6 +248,7 @@ def table_snapshot(
                     "header": column.header,
                     "column_index": column.column_index,
                     "unit": column.unit,
+                    "unit_source": column.unit_source,
                     "scale": column.scale.value,
                     "measure": column.measure.value,
                     "cells": [[end, value, digest] for end, value, digest in column.cells],
@@ -268,6 +297,11 @@ def table_result(
     rules = table.rules
     if rules is not None:
         warnings.extend(rules.warnings())
+    unresolved = [
+        f"{column.label}: the document states no unit or scale"
+        for column in table.columns
+        if column.unit is None
+    ]
     location = canonical(table.location)
     return AnalyticalResult(
         result_id=f"web_url:table:{source.source_id}:{location}",
@@ -294,11 +328,12 @@ def table_result(
                     parameters={
                         "period_rule": "explicit month label, first or last day of a month",
                         "value_rule": "strict cell number; empty cells stay missing",
-                        "unit_source": "column header",
+                        "unit_source": "per column",
                         "columns": [
                             {
                                 "label": column.label,
                                 "unit": column.unit,
+                                "unit_source": column.unit_source,
                                 "scale": column.scale.value,
                                 "measure": column.measure.value,
                                 "values": sum(
@@ -326,7 +361,14 @@ def table_result(
             "filling, currency conversion, inflation adjustment or rebasing was applied",
             *(f"{column.label}: {measure_limitation(column.measure)}" for column in table.columns),
             *(rules.limitations() if rules is not None else ()),
+            *(
+                f"{column.label}: unit and scale are as the user stated them in the question, "
+                "not as the document states them"
+                for column in table.columns
+                if column.unit_source == UNIT_FROM_QUESTION
+            ),
         ],
+        unresolved_semantics=unresolved,
     )
 
 

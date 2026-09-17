@@ -48,7 +48,8 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, StringConstraints,
 
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
 from kkb_agent.agent.registry import ToolSpec
-from kkb_agent.core import AnalyticalResult, SourceRef
+from kkb_agent.catalog.normalization import normalize_search_text
+from kkb_agent.core import AnalyticalResult, Scale, SourceRef
 from kkb_agent.csv_loader import CsvLoadResult, CsvTable
 from kkb_agent.html_loader import HtmlDocument, HtmlLoadResult
 from kkb_agent.ingest.attached import Attachment
@@ -84,6 +85,7 @@ from kkb_agent.tools._document_value import (
     csv_parsing,
     document_value,
     grids,
+    header_semantics,
     read_cell,
     record_cell,
     select_cell,
@@ -202,6 +204,22 @@ class WebUrlArguments(BaseModel):
         )
     )
 
+    column_units: (
+        dict[
+            Annotated[str, StringConstraints(min_length=1, max_length=256)],
+            Annotated[str, StringConstraints(min_length=1, max_length=64)],
+        ]
+        | None
+    ) = Field(
+        default=None,
+        max_length=MAX_VALUE_COLUMNS,
+        description=(
+            "Only when the user wrote a column's unit in the question and its header states "
+            "none: value column name -> the unit exactly as the user wrote it, such as "
+            "'bin TL' or 'adet'. A unit the header states always wins"
+        ),
+    )
+
     @model_validator(mode="after")
     def _column_and_row_together(self) -> WebUrlArguments:
         if (self.url is None) == (not self.attached):
@@ -216,7 +234,32 @@ class WebUrlArguments(BaseModel):
             raise ValueError("value_columns must name each column once")
         if (self.column is None) != (self.row is None):
             raise ValueError("column and row name one cell together; give both or neither")
+        if self.column_units is not None and not set(self.column_units) <= set(
+            self.value_columns or ()
+        ):
+            raise ValueError("column_units names only value_columns")
         return self
+
+
+def declared_units(
+    column_units: dict[str, str] | None, question: str
+) -> dict[str, tuple[str, Scale]] | str:
+    """Units the user wrote for columns, or a fixed code; never the model's own words.
+
+    Like an address or a year, a declared unit counts only when the question
+    contains it, and only in the vocabulary a header unit uses.
+    """
+    found: dict[str, tuple[str, Scale]] = {}
+    folded_question = f" {normalize_search_text(question)} "
+    for label, text in (column_units or {}).items():
+        folded = normalize_search_text(text)
+        if not folded or f" {folded} " not in folded_question:
+            return "UNIT_NOT_IN_QUESTION"
+        unit, scale = header_semantics(f"({text})")
+        if unit is None or scale is Scale.UNKNOWN:
+            return "UNIT_NOT_RECOGNISED"
+        found[label] = (unit, scale)
+    return found
 
 
 @dataclass(frozen=True)
@@ -401,6 +444,9 @@ def make_web_url_tool(
                     "needs_input", replace(output, status="needs_input", code="NO_LINEAGE")
                 )
             connection = lineage.connection
+            units = declared_units(arguments.column_units, context.question)
+            if isinstance(units, str):
+                return _failed("needs_input", replace(output, status="needs_input", code=units))
             try:
                 table = read_table(
                     grids(output.table, output.document),
@@ -414,6 +460,7 @@ def make_web_url_tool(
                     ),
                     year=arguments.year,
                     as_of=as_of(source),
+                    declared_units=units,
                 )
             except ColumnRefused as error:
                 return _failed(
@@ -504,8 +551,10 @@ def make_web_url_tool(
             "rectangular tables; no JavaScript, CSS rendering or linked-resource "
             "fetching. Image addresses are not supported. To build a monthly table that later "
             "turns can use, give period_column and up to six value_columns instead of column and "
-            "row: months must be explicit, one row per month, and each value header must state "
-            "its unit in parentheses; a column that fails is left out with a warning."
+            "row: months must be explicit, one row per month. A value header should state its unit "
+            "in parentheses; a column without one is kept with its unit unresolved (its figures "
+            "are never quoted) unless the user wrote the unit in the question (column_units). A "
+            "column that fails is left out with a warning."
             + (
                 " The user uploaded a document with this question: read it with attached=true "
                 "and no url."
