@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 
 from kkb_agent.agent.executor import ExecutionOutcome, PlanRejected, ToolStatus, ValidatedPlan
-from kkb_agent.catalog.search import CatalogSearchOutput
+from kkb_agent.catalog.search import CatalogCandidate, CatalogSearchOutput
 
 MAX_DISCOVERY_QUERIES = 4
 MAX_DISCOVERY_BYTES = 32 * 1024
@@ -127,15 +127,8 @@ def catalog_feedback(outcome: ExecutionOutcome) -> str:
             raise ValueError("invalid discovery output")
         # Revalidate mutated typed objects rather than trusting their class alone.
         output = CatalogSearchOutput.model_validate(item.output.model_dump(mode="json"))
-        data = output.model_dump(mode="json", exclude={"candidates"})
+        data = _catalog_planning_context(output)
         data["step_id"] = item.step_id
-        data["candidates"] = [
-            c.model_dump(
-                mode="json",
-                exclude={"series": {"evidence_ids": True, "record": {"source", "sample_values"}}},
-            )
-            for c in output.candidates
-        ]
         observations.append(data)
     payload = json.dumps(
         {"kind": "untrusted_catalog_discovery", "results": observations},
@@ -147,3 +140,68 @@ def catalog_feedback(outcome: ExecutionOutcome) -> str:
     if len(payload.encode("utf-8")) > MAX_DISCOVERY_BYTES:
         raise ValueError("discovery feedback exceeds its byte limit")
     return payload
+
+
+def _catalog_planning_context(output: CatalogSearchOutput) -> dict[str, object]:
+    """Project catalog output to fields that can constrain an analytical plan.
+
+    The continuation already says retrieval rank and similarity are not
+    semantic authority. Sending their score/profiling/provenance mechanics is
+    therefore duplicate prompt weight, not information the planner can safely
+    use. Keep declared identity, semantics, ambiguity and archive facts intact.
+    """
+    return {
+        "status": output.status,
+        "candidates": [_candidate_planning_context(candidate) for candidate in output.candidates],
+        "concepts": [
+            {
+                "concept_id": concept.concept_id,
+                "family_ids": concept.family_ids,
+                "resolution": concept.resolution,
+                "unresolved": concept.unresolved,
+                "conditions": concept.conditions,
+            }
+            for concept in output.concepts
+        ],
+        "total_candidates": output.total_candidates,
+        "truncated": output.truncated,
+        "clarification_required": output.clarification_required,
+        "excluded_archived_count": output.excluded_archived_count,
+        "untrusted_metadata": True,
+        "observation_fetch_authorized": False,
+        "analytical_evidence": False,
+    }
+
+
+def _candidate_planning_context(candidate: CatalogCandidate) -> dict[str, object]:
+    """Keep every declared series semantic while omitting retrieval-only fields."""
+    reviewed = candidate.series
+    record = reviewed.record
+    return {
+        "series": {
+            "record": {
+                "series_id": record.series_id,
+                "provider": record.provider,
+                "source_series_id": record.source_series_id,
+                "title": record.title,
+                "description": record.description,
+                "labels": record.labels,
+                "status": record.status,
+                "unit": record.unit,
+                "scale": record.scale,
+                "frequency": record.frequency,
+                "weekly_anchor": record.weekly_anchor,
+                "stock_flow": record.stock_flow,
+                "cumulative": record.cumulative,
+                "aggregation": record.aggregation.model_dump(mode="json"),
+                "base_year": record.base_year,
+                "coverage": record.coverage.model_dump(mode="json"),
+            },
+            "title_basis": reviewed.title_basis,
+            "rate_basis": reviewed.rate_basis,
+            "geography": reviewed.geography,
+            "note": reviewed.note,
+        },
+        "concept_ids": candidate.concept_ids,
+        "family_ids": candidate.family_ids,
+    }

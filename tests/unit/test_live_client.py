@@ -432,7 +432,9 @@ def test_launcher_runs_real_prepared_turn_and_restores_gate(tmp_path, monkeypatc
     assert logged[-1] == {"run": "stopped", "chat_used": 3, "embedding_used": int(hybrid)}
     assert any("gate" in e for e in logged)
     if hybrid:
-        assert discovery(provider)["retrieval_mode"] == "hybrid"
+        context = discovery(provider)
+        assert context["candidates"]
+        assert "retrieval_mode" not in context
 
 
 @pytest.mark.parametrize("kind", ["chat", "embedding"])
