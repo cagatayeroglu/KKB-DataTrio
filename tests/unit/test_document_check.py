@@ -456,7 +456,9 @@ def test_document_rejection_code_and_user_isolation(tmp_path, content, expected)
 def test_missing_csv_declaration_is_distinct_from_rejection(tmp_path):
     planned = json.loads(plan())
     del planned["steps"][0]["arguments"]["delimiter"]
-    report = run(tmp_path, planned=json.dumps(planned))
+    # Comma and semicolon both split every row evenly, so DEC-147 cannot detect one.
+    ambiguous = FakeFetch(b"Tarih,Tutar;Not\n2026-01-31,1;x\n")
+    report = run(tmp_path, planned=json.dumps(planned), fetch=ambiguous)
     assert report["stages"][0]["failure"] == "needs_input"
     assert report["stages"][0]["document_code"] == "PARSING_DECLARATION_REQUIRED"
 
