@@ -1,0 +1,152 @@
+"""A script-driven page: its data endpoint is found from its own scripts; no network."""
+
+import json
+from datetime import date
+
+import pytest
+
+from kkb_agent.ingest.address_outline import TurnFetchCache, address_outline
+from kkb_agent.ingest.json_table import JsonRejected, load_records
+from kkb_agent.ingest.safe_fetch import FetchFailure, FetchSuccess
+from kkb_agent.tools._document_column import ColumnRefused
+from kkb_agent.tools._document_table import daily_rule_in_question, read_daily_table
+from kkb_agent.tools._document_value import Grid
+
+PAGE_URL = "https://www.borsa.example.tr/endeks/xtumy"
+PAGE = b"""<html><head><script src="/file/js/app.js?v=1"></script>
+<script src="https://cdn.other.example/evil.js"></script></head>
+<body><h1>BIST TUM-100</h1></body></html>"""
+SCRIPT = (
+    b"var a='/graphic.php?veriTuru=endeks-graphic&indexCode='+id;"
+    b"var b='/graphic.php?veriTuru=current-before&indexCode='+id;"
+)
+
+
+def daily(start=date(2026, 5, 27), days=110, level=100.0):
+    rows = []
+    for offset in range(days):
+        day = date.fromordinal(start.toordinal() + offset)
+        rows.append({"indexName": "XTUMY", "clval": level + offset, "hisTs": day.isoformat()})
+    return json.dumps({"status": "success", "data": rows}).encode()
+
+
+class Site:
+    def __init__(self, pages):
+        self.pages, self.requests = pages, []
+
+    def __call__(self, request):
+        url = request.url.get_secret_value()
+        self.requests.append(url)
+        if url not in self.pages:
+            return FetchFailure(source_ref=request.source_ref, code="HTTP_FAILURE")
+        content, media_type = self.pages[url]
+        if media_type not in request.accepted_media_types:
+            return FetchFailure(source_ref=request.source_ref, code="CONTENT_TYPE")
+        return FetchSuccess(
+            source_ref=request.source_ref, content=content, media_type=media_type, http_status=200
+        )
+
+
+@pytest.fixture(autouse=True)
+def no_network(monkeypatch):
+    def forbidden(*args, **kwargs):
+        raise AssertionError("No live request in these tests")
+
+    monkeypatch.setattr("socket.socket.connect", forbidden)
+
+
+def site():
+    base = "https://www.borsa.example.tr"
+    return Site(
+        {
+            PAGE_URL: (PAGE, "text/html"),
+            f"{base}/file/js/app.js?v=1": (SCRIPT, "application/javascript"),
+            f"{base}/graphic.php?veriTuru=endeks-graphic&indexCode=XTUMY": (
+                daily(),
+                "application/json",
+            ),
+            f"{base}/graphic.php?veriTuru=current-before&indexCode=XTUMY": (
+                b'{"data": {"value": "1"}}',
+                "application/json",
+            ),
+        }
+    )
+
+
+def test_a_script_endpoint_is_outlined_with_keys_and_dates_but_no_values():
+    served = site()
+    cache = TurnFetchCache(served)
+    note = address_outline((PAGE_URL,), cache)
+    payload = json.loads(note[note.index("{") :])
+    (endpoint,) = payload["pages"][0]["data_endpoints"]
+    assert endpoint["name"] == "endpoint_1" and endpoint["keys"] == ["indexName", "clval", "hisTs"]
+    assert endpoint["date_key"] == {"key": "hisTs", "first": "2026-05-27", "last": "2026-09-13"}
+    assert "100.0" not in note and "evil" not in " ".join(served.requests)
+    assert cache.endpoints == {
+        "endpoint_1": "https://www.borsa.example.tr/graphic.php?veriTuru=endeks-graphic&indexCode=XTUMY"
+    }
+    # The same bytes are reused within the turn: a second outline makes no request.
+    before = len(served.requests)
+    address_outline((PAGE_URL,), cache)
+    assert len(served.requests) == before
+
+
+@pytest.mark.parametrize(
+    ("content", "code"),
+    [
+        (b"not json", "MALFORMED_DOCUMENT"),
+        (b'{"a": [{"x": 1}, {"x": 2}], "b": [{"y": 1}, {"y": 2}]}', "AMBIGUOUS_TABLE"),
+        (b'[{"x": {"nested": 1}}, {"x": 2}]', "UNSUPPORTED_TABLE"),
+        (b'{"data": {"value": 1}}', "NO_RECORD_TABLE"),
+        (b"[" * 20 + b"]" * 20, "LIMIT_EXCEEDED"),
+    ],
+)
+def test_json_that_is_not_one_flat_record_table_is_refused(content, code):
+    with pytest.raises(JsonRejected) as refused:
+        load_records(content)
+    assert refused.value.code == code
+
+
+def grid(payload):
+    table = load_records(payload)
+    return Grid({"endpoint": 1}, table.headers, table.rows)
+
+
+def test_daily_rows_become_complete_months_by_the_rule_the_user_asked_for():
+    rows = grid(daily())
+    table = read_daily_table([rows], "hisTs", ["clval"], rule="last", as_of=date(2026, 9, 14))
+    # May 27 .. Sep 13: May is incomplete at its start but ended; September has not ended.
+    assert table.months == (
+        date(2026, 5, 31),
+        date(2026, 6, 30),
+        date(2026, 7, 31),
+        date(2026, 8, 31),
+    )
+    values = [value for _, value, _ in table.columns[0].cells]
+    assert values == [104.0, 134.0, 165.0, 196.0]  # last day of each month
+    assert table.aggregation["incomplete_months_left_out"] == ["2026-09-30"]
+    assert table.aggregation["days_per_month"]["2026-06-30"] == 30
+    mean = read_daily_table([rows], "hisTs", ["clval"], rule="mean", as_of=date(2026, 9, 14))
+    assert [value for _, value, _ in mean.columns[0].cells][1] == pytest.approx(119.5)
+
+
+@pytest.mark.parametrize(
+    ("rule", "question", "asked"),
+    [
+        ("last", "XTUMY ay sonu değerlerini al", True),
+        ("mean", "aylık ortalamasını hesapla", True),
+        ("sum", "toplam konut kredisi ile karşılaştır", False),
+        ("sum", "aylık toplamını al", True),
+        ("last", "aylık değerleri al", False),
+    ],
+)
+def test_the_monthly_rule_must_be_written_in_the_question(rule, question, asked):
+    assert daily_rule_in_question(rule, question) is asked
+
+
+def test_duplicate_or_unreadable_days_refuse_the_table():
+    doubled = json.dumps(
+        {"data": [{"d": "2026-06-01", "v": 1}, {"d": "2026-06-01", "v": 2}, {"d": "x", "v": 3}]}
+    ).encode()
+    with pytest.raises(ColumnRefused):
+        read_daily_table([grid(doubled)], "d", ["v"], rule="last", as_of=date(2026, 9, 1))
