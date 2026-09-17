@@ -12,6 +12,10 @@ export const RESPONSE_LIMIT = 1024 * 1024;
 const REF = "[a-f0-9]{32}";
 const route = new RegExp(`^v1/sessions/${REF}/turns(?:/${REF})?$`);
 const documentRoute = new RegExp(`^v1/sessions/${REF}/documents$`);
+const conversationRoute = new RegExp(`^v1/conversations/${REF}$`);
+/** Only the conversation list carries a query, and only these bounded filters. */
+export const LIST_QUERY =
+  /^(?:archived=(?:true|false)|search=[^&]{0,120})(?:&(?:archived=(?:true|false)|search=[^&]{0,120}))?$/;
 const hosts = new Set(["127.0.0.1:3000", "localhost:3000"]);
 const tokenPattern = /^[A-Za-z0-9_-]{43}$/;
 const responseHeaders = {
@@ -92,8 +96,7 @@ export async function forward(
     !host ||
     !hosts.has(host) ||
     (origin !== null && origin !== `http://${host}`) ||
-    (site !== null && !["same-origin", "none"].includes(site)) ||
-    new URL(request.url).search
+    (site !== null && !["same-origin", "none"].includes(site))
   )
     return error("forbidden", 403);
   if (request.method === "POST" && origin !== `http://${host}`)
@@ -101,22 +104,39 @@ export async function forward(
   const name = path.join("/");
   const publicGet = ["v1/health", "v1/dataset"].includes(name);
   const creation = name === "v1/sessions";
+  const owner = name === "v1/owner";
+  const list = name === "v1/conversations";
+  const conversation = conversationRoute.test(name);
   const turns = route.test(name);
   const documents = documentRoute.test(name);
   const getTurn = turns && path.length === 5;
+  const search = new URL(request.url).search.replace(/^\?/, "");
+  if (search && !(list && LIST_QUERY.test(search)))
+    return error("forbidden", 403);
   if (
-    !(request.method === "GET" && (publicGet || getTurn)) &&
+    !(
+      request.method === "GET" &&
+      (publicGet || getTurn || list || conversation)
+    ) &&
     !(
       request.method === "POST" &&
-      (creation || documents || (turns && path.length === 4))
-    )
+      (creation || owner || documents || (turns && path.length === 4))
+    ) &&
+    !(request.method === "PATCH" && conversation)
   )
     return error("not_found", 404);
   const headers = new Headers({ Accept: "application/json" });
-  if (turns || documents) {
+  if (turns || documents || conversation) {
     const token = request.headers.get("x-kkb-session-token");
     if (!token || !tokenPattern.test(token)) return error("not_found", 404);
     headers.set("X-KKB-Session-Token", token);
+  }
+  if (list || creation) {
+    // The browser's own key: required to list, optional only where the backend says so.
+    const key = request.headers.get("x-kkb-owner-token");
+    if (key && !tokenPattern.test(key)) return error("not_found", 404);
+    if (!key && list) return error("not_found", 404);
+    if (key) headers.set("X-KKB-Owner-Token", key);
   }
   let timeoutMs: number;
   try {
@@ -157,7 +177,7 @@ export async function forward(
         );
       }
       headers.set("Content-Type", type);
-    } else if (request.method === "POST") {
+    } else if (request.method === "POST" || request.method === "PATCH") {
       if (
         !/^application\/json(?:;\s*charset=utf-8)?$/i.test(
           request.headers.get("content-type") ?? "",
@@ -182,14 +202,17 @@ export async function forward(
       }
       headers.set("Content-Type", "application/json");
     }
-    const upstream = await transport(`${backend}/${name}`, {
-      method: request.method,
-      headers,
-      body,
-      cache: "no-store",
-      redirect: "error",
-      signal: controller.signal,
-    });
+    const upstream = await transport(
+      `${backend}/${name}${search ? `?${search}` : ""}`,
+      {
+        method: request.method,
+        headers,
+        body,
+        cache: "no-store",
+        redirect: "error",
+        signal: controller.signal,
+      },
+    );
     if (!upstream.headers.get("content-type")?.startsWith("application/json"))
       return error("unavailable", 502);
     const bytes = await boundedRead(

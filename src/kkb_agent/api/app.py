@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import FastAPI, Header, Request
+from fastapi import FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.exceptions import HTTPException
@@ -18,10 +18,15 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from kkb_agent.api.contracts import (
     MAX_BODY_BYTES,
     MAX_DOCUMENT_BYTES,
+    ConversationDetail,
+    ConversationList,
+    ConversationSummary,
+    ConversationUpdate,
     DocumentAdmitted,
     Error,
     ErrorCode,
     Health,
+    OwnerCreated,
     Question,
     Reference,
     SessionCreated,
@@ -33,8 +38,15 @@ from kkb_agent.core.models import ContractModel
 from kkb_agent.ingest.fetched import DOCUMENT_MEDIA_TYPES
 
 Token = Annotated[str, Header(alias="X-KKB-Session-Token", min_length=43, max_length=43)]
+#: The browser's own key: it lists and reopens the conversations it created.
+OwnerToken = Annotated[str, Header(alias="X-KKB-Owner-Token", min_length=43, max_length=43)]
 #: The only route whose body is not JSON (M10-04); every other POST stays JSON-only.
 DOCUMENT_ROUTE = re.compile(r"/v1/sessions/[a-f0-9]{32}/documents\Z")
+#: The one route with a query string: listing a browser's own conversations.
+LIST_ROUTE = re.compile(r"/v1/conversations\Z")
+MAX_QUERY_BYTES = 256
+#: Methods that may carry a body; a body anywhere else is refused.
+BODY_METHODS = ("POST", "PATCH")
 
 
 class Empty(ContractModel):
@@ -98,12 +110,15 @@ class LocalBoundary:
             ):
                 await reject("forbidden", 403)
                 return
-            if scope.get("query_string") or any(
+            query = scope.get("query_string") or b""
+            listing = scope["method"] == "GET" and bool(LIST_ROUTE.fullmatch(scope["path"]))
+            if (query and not (listing and len(query) <= MAX_QUERY_BYTES)) or any(
                 len(headers.get(key, [])) > 1
                 for key in (
                     b"content-length",
                     b"content-type",
                     b"x-kkb-session-token",
+                    b"x-kkb-owner-token",
                     b"last-event-id",
                 )
             ):
@@ -118,7 +133,7 @@ class LocalBoundary:
             media_type = (
                 headers.get(b"content-type", [b""])[0].split(b";", 1)[0].strip().lower().decode()
             )
-            if scope["method"] == "POST" and (
+            if scope["method"] in BODY_METHODS and (
                 media_type not in DOCUMENT_MEDIA_TYPES
                 if document
                 else media_type != "application/json"
@@ -145,7 +160,7 @@ class LocalBoundary:
         except TimeoutError:
             await reject("invalid_request", 408)
             return
-        if scope["method"] != "POST" and body:
+        if scope["method"] not in BODY_METHODS and body:
             await reject("invalid_request", 400)
             return
         sent = False
@@ -225,9 +240,34 @@ def create_app(
             raise ServiceError("unavailable", 503)
         return prepared_snapshot.model_copy(deep=True)
 
+    @app.post("/v1/owner", response_model=OwnerCreated, status_code=201)
+    def create_owner(body: Empty) -> OwnerCreated:
+        return service.create_owner()
+
     @app.post("/v1/sessions", response_model=SessionCreated, status_code=201)
-    def create_session(body: Empty) -> SessionCreated:
-        return service.create_session()
+    def create_session(
+        body: Empty,
+        owner: Annotated[str | None, Header(alias="X-KKB-Owner-Token")] = None,
+    ) -> SessionCreated:
+        return service.create_session(owner)
+
+    @app.get("/v1/conversations", response_model=ConversationList)
+    def conversations(
+        owner: OwnerToken,
+        archived: bool = False,
+        search: Annotated[str | None, Query(max_length=120)] = None,
+    ) -> ConversationList:
+        return service.conversations(owner, archived=archived, search=search)
+
+    @app.get("/v1/conversations/{session_id}", response_model=ConversationDetail)
+    def conversation(session_id: Reference, token: Token) -> ConversationDetail:
+        return service.conversation(session_id, token)
+
+    @app.patch("/v1/conversations/{session_id}", response_model=ConversationSummary)
+    def rename_or_archive(
+        session_id: Reference, token: Token, body: ConversationUpdate
+    ) -> ConversationSummary:
+        return service.update_conversation(session_id, token, body)
 
     @app.post("/v1/sessions/{session_id}/turns", response_model=Turn, status_code=202)
     def submit(session_id: Reference, body: Question, token: Token) -> Turn:

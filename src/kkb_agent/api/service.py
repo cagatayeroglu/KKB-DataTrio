@@ -19,16 +19,24 @@ from kkb_agent.api.contracts import (
     MAX_SESSIONS,
     MAX_TURNS,
     Answer,
+    ConversationDetail,
+    ConversationDocument,
+    ConversationList,
+    ConversationSummary,
+    ConversationUpdate,
     DocumentAdmitted,
     ErrorCode,
     Event,
     Health,
+    OwnerCreated,
     Question,
     SessionCreated,
+    StoredMessage,
     Turn,
     TurnState,
 )
 from kkb_agent.api.projection import OutputRefused
+from kkb_agent.api.store import DEFAULT_TITLE, ConversationStore, StoreError
 from kkb_agent.llm.provider import ProviderError
 
 
@@ -103,6 +111,7 @@ class AnalysisService:
         mode: Literal["kloudeks", "scripted"],
         selected_runner: SelectedRunner | None = None,
         document_store: DocumentStore | None = None,
+        store: ConversationStore | None = None,
     ):
         if mode not in ("kloudeks", "scripted"):
             raise ValueError("An explicit execution mode is required")
@@ -112,6 +121,8 @@ class AnalysisService:
         self._selected_runner = selected_runner
         # Uploads exist only when the operator supplied a store (--enable-uploads).
         self._document_store = document_store
+        # Conversations survive a restart only when the operator supplied one.
+        self._store = store
         self._mode = mode
         self._sessions: dict[str, _Session] = {}
         self._lock = threading.RLock()
@@ -123,20 +134,47 @@ class AnalysisService:
         with self._lock:
             if self._closed:
                 raise ServiceError("unavailable", 503)
-            if self._document_store is None:
-                return Health(execution_mode=self._mode)
-            capabilities = (*Health.model_fields["capabilities"].default, "document_upload")
+            capabilities = Health.model_fields["capabilities"].default
+            if self._document_store is not None:
+                capabilities = (*capabilities, "document_upload")
+            if self._store is not None:
+                capabilities = (*capabilities, "conversation_history")
             return Health(execution_mode=self._mode, capabilities=capabilities)
 
-    def create_session(self) -> SessionCreated:
+    def create_owner(self) -> OwnerCreated:
+        """A key this browser keeps; without it, earlier conversations stay closed."""
+        with self._lock:
+            if self._closed:
+                raise ServiceError("unavailable", 503)
+            if self._store is None:
+                raise ServiceError("unavailable", 503)
+            _, token = self._store.create_owner()
+        return OwnerCreated(owner_token=token)
+
+    def create_session(self, owner_token: str | None = None) -> SessionCreated:
         with self._lock:
             if self._closed:
                 raise ServiceError("unavailable", 503)
             if len(self._sessions) >= MAX_SESSIONS:
                 raise ServiceError("capacity", 429)
             session_id, token = uuid4().hex, secrets.token_urlsafe(32)
+            if self._store is not None:
+                owner = self._store.owner_by_token(owner_token) if owner_token else None
+                if owner is None:
+                    raise ServiceError("forbidden", 403)
+                try:
+                    self._store.create_conversation(
+                        owner_id=owner,
+                        conversation_id=session_id,
+                        token=token,
+                        title=DEFAULT_TITLE,
+                    )
+                except StoreError:
+                    raise ServiceError("unavailable", 503) from None
             self._sessions[session_id] = _Session(hashlib.sha256(token.encode()).digest())
-            return SessionCreated(session_id=session_id, token=token)
+            return SessionCreated(
+                session_id=session_id, token=token, survives_restart=self._store is not None
+            )
 
     def _owned(self, session_id: str, token: str) -> _Session:
         if self._closed:
@@ -145,9 +183,105 @@ class AnalysisService:
         supplied = hashlib.sha256(token.encode()).digest()
         expected = session.token_digest if session else bytes(32)
         valid = secrets.compare_digest(supplied, expected)
-        if session is None or not valid:
+        if session is not None and valid:
+            return session
+        # After a restart the conversation is in the store, not in memory: its own
+        # token or its owner's key reopens it, an id on its own never does.
+        if self._store is not None and self._store.opens(
+            session_id, token=token, owner_token=token
+        ):
+            if session is None:
+                session = _Session(bytes(32))
+                self._sessions[session_id] = session
+            for document in self._store.documents(session_id):
+                session.documents.add(document.document_ref)
+            return session
+        raise ServiceError("not_found", 404)
+
+    def _reading(self, session_id: str, token: str) -> ConversationSummary:
+        """Authorize a conversation read and project its summary."""
+        with self._lock:
+            self._owned(session_id, token)
+        if self._store is None:
+            raise ServiceError("unavailable", 503)
+        found = self._store.conversation(session_id)
+        if found is None:
             raise ServiceError("not_found", 404)
-        return session
+        return ConversationSummary(
+            conversation_id=found.conversation_id,
+            title=found.title,
+            archived=found.archived,
+            created_at=found.created_at,
+            updated_at=found.updated_at,
+            turns=self._store.turn_count(session_id),
+        )
+
+    def conversations(
+        self, owner_token: str, *, archived: bool = False, search: str | None = None
+    ) -> ConversationList:
+        if self._store is None:
+            raise ServiceError("unavailable", 503)
+        owner = self._store.owner_by_token(owner_token)
+        if owner is None:
+            raise ServiceError("forbidden", 403)
+        return ConversationList(
+            conversations=tuple(
+                ConversationSummary(
+                    conversation_id=item.conversation_id,
+                    title=item.title,
+                    archived=item.archived,
+                    created_at=item.created_at,
+                    updated_at=item.updated_at,
+                    turns=self._store.turn_count(item.conversation_id),
+                )
+                for item in self._store.list_conversations(owner, archived=archived, search=search)
+            )
+        )
+
+    def conversation(self, session_id: str, token: str) -> ConversationDetail:
+        summary = self._reading(session_id, token)
+        if self._store is None:  # pragma: no cover - _reading refuses without a store
+            raise ServiceError("unavailable", 503)
+        return ConversationDetail(
+            conversation=summary,
+            messages=tuple(
+                StoredMessage(
+                    sequence=message.sequence,
+                    turn_id=message.turn_id,
+                    role=message.role,
+                    text=message.text,
+                    status=AnswerStatus(message.status) if message.status else None,
+                    result_ref=message.result_ref,
+                    result_version=message.result_version,
+                    document_ref=message.document_ref,
+                    created_at=message.created_at,
+                )
+                for message in self._store.messages(session_id)
+            ),
+            documents=tuple(
+                # The stored format is text; the contract owns its allowed values.
+                ConversationDocument.model_validate(
+                    {
+                        "document_ref": document.document_ref,
+                        "name": document.name,
+                        "document_format": document.document_format,
+                        "bytes": document.byte_count,
+                        "sha256": document.sha256,
+                        "admitted_at": document.admitted_at,
+                    }
+                )
+                for document in self._store.documents(session_id)
+            ),
+        )
+
+    def update_conversation(
+        self, session_id: str, token: str, update: ConversationUpdate
+    ) -> ConversationSummary:
+        self._reading(session_id, token)
+        if self._store is None:  # pragma: no cover - _reading refuses without a store
+            raise ServiceError("unavailable", 503)
+        self._store.update_conversation(session_id, title=update.title, archived=update.archived)
+        return self._reading(session_id, token)
 
     def admit_document(
         self, session_id: str, token: str, media_type: str, content: bytes
@@ -181,7 +315,7 @@ class AnalysisService:
                 return session.turns[previous[1]].model_copy(deep=True)
             selected = None
             if question.selected_result_id is not None:
-                selected = self._selected(session, question.selected_result_id)
+                selected = self._selected(session_id, session, question.selected_result_id)
                 if self._selected_runner is None:
                     raise ServiceError("unavailable", 503)
             if question.document_ref is not None and question.document_ref not in session.documents:
@@ -218,8 +352,7 @@ class AnalysisService:
                 raise ServiceError("unavailable", 503) from None
             return turn.model_copy(deep=True)
 
-    @staticmethod
-    def _selected(session: _Session, result_ref: str) -> SelectedResult:
+    def _selected(self, session_id: str, session: _Session, result_ref: str) -> SelectedResult:
         matches = []
         for turn in session.turns.values():
             answer = turn.answer
@@ -231,6 +364,14 @@ class AnalysisService:
                 and answer.result.result_ref == result_ref
             ):
                 matches.append(SelectedResult(turn.turn_id, result_ref, answer.result.version))
+        if not matches and self._store is not None:
+            # After a restart the turn is no longer in memory; the conversation's
+            # own publications still name which result this reference is.
+            matches = [
+                SelectedResult(item.turn_id, item.result_ref, item.result_version)
+                for item in self._store.publications(session_id)
+                if item.result_ref == result_ref
+            ]
         if len(matches) != 1:
             # Unknown/foreign/unpublished/ambiguous references are indistinguishable.
             raise ServiceError("invalid_result", 422)

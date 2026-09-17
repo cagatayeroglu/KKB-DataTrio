@@ -424,3 +424,86 @@ test("document uploads refuse other types, sizes, methods and missing tokens", a
   assert.equal(BODY_LIMIT < DOCUMENT_LIMIT, true);
   assert.equal(calls, 0);
 });
+
+test("conversation routes pass only with their key, method and bounded query", async () => {
+  const seen: { url: string; headers: Headers }[] = [];
+  const transport = async (url: string, init?: RequestInit) => {
+    seen.push({ url, headers: new Headers(init?.headers) });
+    return Response.json({ ok: true });
+  };
+  const owner = "o".repeat(43);
+
+  // Listing needs the owner key and passes its filters through.
+  const listed = await forward(
+    request("v1/conversations?archived=true&search=konut", "GET", {
+      "x-kkb-owner-token": owner,
+    }),
+    ["v1", "conversations"],
+    transport,
+  );
+  assert.equal(listed.status, 200);
+  assert.match(seen[0].url, /\/v1\/conversations\?archived=true&search=konut$/);
+  assert.equal(seen[0].headers.get("X-KKB-Owner-Token"), owner);
+
+  // Without the key, and with a query nobody offered, nothing is forwarded.
+  assert.equal(
+    (
+      await forward(
+        request("v1/conversations", "GET"),
+        ["v1", "conversations"],
+        transport,
+      )
+    ).status,
+    404,
+  );
+  assert.equal(
+    (
+      await forward(
+        request("v1/conversations?limit=9999", "GET", {
+          "x-kkb-owner-token": owner,
+        }),
+        ["v1", "conversations"],
+        transport,
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await forward(
+        request(`v1/sessions/${sid}/turns?x=1`, "GET", {
+          "x-kkb-session-token": token,
+        }),
+        ["v1", "sessions", sid, "turns"],
+        transport,
+      )
+    ).status,
+    403,
+  );
+
+  // Renaming is a PATCH with a JSON body and the conversation's own credential.
+  const renamed = await forward(
+    request(
+      `v1/conversations/${sid}`,
+      "PATCH",
+      { "x-kkb-session-token": token, "content-type": "application/json" },
+      JSON.stringify({ title: "Konut" }),
+    ),
+    ["v1", "conversations", sid],
+    transport,
+  );
+  assert.equal(renamed.status, 200);
+  assert.equal(seen.at(-1)?.headers.get("X-KKB-Session-Token"), token);
+  assert.equal(
+    (
+      await forward(
+        request(`v1/conversations/${sid}`, "DELETE", {
+          "x-kkb-session-token": token,
+        }),
+        ["v1", "conversations", sid],
+        transport,
+      )
+    ).status,
+    404,
+  );
+});
