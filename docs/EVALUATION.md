@@ -970,6 +970,64 @@ separately authorized bounded live hybrid three-turn rerun must still check
 60/59/32/28/4, 302 with the prior 242 preserved, the 22 three-way metric
 with the prior 302 preserved, and end-to-end timing.
 
+<a id="m11-07-live-rerun-8-2026-09-17"></a>
+### M11-07 / M13-05 bounded live hybrid rerun 8 — 2026-09-17 (PR #228)
+
+Owner-authorized by Eray on merged `dev` `f14db95`, which carries the selected
+relationship condition (#215), clarification retention (#217), bounded
+deterministic presentation (#219) and the M7-14/M10-04 document work
+(#222–#227). Bounded plan: Kloudeks only, 15 chat and 15 query-embedding
+ceiling, 600 s per request, `KLOUDEKS_MAX_ATTEMPTS=1`, fresh state root and
+content-free ledger (`artifacts/m11-07-rerun8-20260917-ledger.jsonl`, ignored),
+no passage/index build, BDDK/EVDS, web-search, OCR, URL or upload call; stop at
+the first material blocker.
+
+Prerequisites verified offline with no provider call: readiness `ready: true`,
+`model_checked: false`, `catalog_retrieval: "hybrid"`, 29 prepared identities,
+4,124 observation rows, 37 catalog identities, 124 files, prepared snapshot
+`6fc3afd5…c887f`, catalog `e0bbaac8…69fb11`; independent organizer oracle 60
+months, 59 transitions, 32 rate falls, non-rise months February and May 2021,
+December 2023 and January 2024, real 2021-01 1,894,772.1 / 2023-12 828,155.2 /
+2025-12 678,970.0, and 22 rate-fall ∧ KFE-up ∧ real-credit-nonrise months with
+December 2025 KFE 204.36. A one-call latency smoke answered in 3.3 s (chat) and
+137 ms (embedding).
+
+Path: `tests/manual/live_client.py` on port 8128 → PreparedRunner/AnalysisService
+with the DEC-142 dense stage. The organizer questions (`live_check`
+`TURN_ONE/TWO/THREE_QUESTION`) were submitted verbatim over the same HTTP turn
+contract the client uses, each follow-up with `selected_result_id` of the
+previous publication and `is_continuation: true`. The browser client was not
+used because an operator API and `next dev` already held ports 8000/3000 and the
+client proxy accepts only port 3000; those processes were left untouched.
+
+| Turn | Result |
+| --- | --- |
+| 1 | **ACCEPTED**, 490.9 s, zero omitted sentences, 242 cells, proof `available`. Independent SQL + `Decimal` check: 60 balance levels, 60 `by_end` rate levels, 59 balance and 59 rate month-over-month changes — 238 comparisons, **zero mismatches**; metrics 59 / 32 / 28 / 4 and the four non-rise months equal the oracle. |
+| 2 | **ACCEPTED**, 270.5 s, zero omitted sentences, 302 cells, proof `available`. All 242 Turn 1 cells are present with identical value, unit, scale and measure; the 60 added `real, 2025-12 prices` values equal nominal × CPI(2025-12) / CPI(month) — **zero mismatches** — including 1,894,772.1 / 1,874,183.9 / 828,155.2 / 773,412.0 / 678,970.0. |
+| 3 | **FAILED `provider_failed`**, 706.2 s. The discovery planner call returned in 105.8 s and its query embedding in 69 ms; the analysis planner call ended `provider_error` at 600,008 ms with one attempt. Nothing was published; Analiz 1 and 2 were unchanged. |
+
+Latency per call (ms): Turn 1 planner 269,386 + 219,454, embeddings 130 / 77;
+Turn 2 planner 94,513 + 175,309, embedding 83; Turn 3 planner 105,811 then the
+600,008 timeout, embedding 69. No writer call was made in Turns 1–2: each
+accepted turn used exactly its two planner calls and the gate accepted the
+deterministic presentation — the first live confirmation of #219. Ledger
+totals: 6 chat dispatches (5 ok, 1 provider error), 4 query embeddings (all ok),
+no retry. The launcher was stopped by the operator, so no final-counter line was
+written. Prepared pool aggregate digest over all 124 files
+`a88b9786…314dae9` is identical before and after.
+
+Verdict: **two organizer turns are live-accepted and oracle-equal on the current
+revision; served three-turn acceptance remains incomplete** because Turn 3 hit
+the provider timeout before any plan existed. This is a transport/latency
+observation, not a correctness or gate result: #213 (real-column comparison)
+and #215 (inherited rate-down condition, expected 22) are still unconfirmed
+live, and #217 was not exercised. The short smoke prompt answered in seconds
+while full planner prompts took 95–270 s and one exceeded 600 s, so a smoke is
+not a latency forecast for planner turns. Eray chose to stop rather than rerun
+all three turns in a new session within the remaining budget (the driver had
+not retained the session token needed to resend Turn 3 alone) or restart with a
+900 s timeout.
+
 <a id="m11-served-hybrid-rehearsal-2026-09-15"></a>
 
 ## M11-07 / M13-05 served rehearsal and hybrid isolation — 2026-09-15
