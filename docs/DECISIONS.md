@@ -626,6 +626,15 @@ Confirmed team priority refinement, explicitly requested by Çağatay after M3-0
 - Rejected: geometric group assignment (on the organizer file itself it binds EUR trade counts to TOPLAM), parenthesised-title-only years, keeping ambiguous figures refused, and keeping not-yet-published zeros as observations.
 - Consequences: DEC-104/132 guards and the literal cell proof are unchanged. Tables with left-aligned numbers, centred headers without drawn cells, text columns among the numbers or year column headers still stay unread; OCR text still never becomes a cell.
 
+### DEC-149 — OCR tables count only through a column-total check
+
+- Status: CONFIRMED team decision, 2026-09-17, by Eray (two options chosen after the [Q-K-01 OCR probe](EVALUATION.md#q-k-01-ocr-probe-2026-09-17)). Applies DEC-119's schema and total/consistency requirement to OCR; grants no live call by itself.
+- Context: the DEC-129 OCR model is reachable and returned the organizer's gold trading page as an HTML table with row/column spans, all 94 numeric cells equal to the text layer. Under DEC-119 OCR text was never usable, so serving OCR alone would change no answer.
+- Decision: `--enable-ocr` (served API and rehearsal launcher, the latter with its own reserved, content-free OCR ceiling) passes the OCR model to `web_url` and `add_document_column` for PDF pages without a text layer; M7-11 page/pixel/byte bounds are unchanged. A bounded parser reads OCR `<table>` blocks — spans expanded into a rectangle, ragged/nested/over-budget tables skipped, leading rows without numbers as up to four header rows giving DEC-148 group + leaf names, years from the OCR text before the table. An OCR column counts only when the table holds exactly one closed-list total row and the column's other readable cells (at least two) sum to that row within rounding: at most one half of the last printed digit per summed cell. Other columns are left out in table mode and refused in cell mode (`OCR_NOT_VALIDATED`); a table without a total row yields no OCR value.
+- Recording: table/column evidence carries `extraction: ocr` and `validation: column total`, the cell lineage an `extraction` attribute, the proof document `extraction: "ocr"`, and results a limitation naming OCR and the check.
+- Rejected: exact equality (the organizer page's own kilogram totals differ by one from their rounded parts), and quoting unchecked OCR cells with a warning.
+- Consequences: DEC-104/132 guards and the literal cell proof are unchanged; OCR text outside a checked table never becomes a number. Scanned tables without a total row still abstain; native text layers are always read first.
+
 ## Proposed decisions
 
 Candidates below are not approved selections. Compare options in a bounded task; do not silently promote a proposal to CONFIRMED.

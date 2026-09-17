@@ -620,6 +620,17 @@ document's `retrieved_at` date are dropped (`FUTURE_PERIOD`, refused in cell
 mode); the year and its source, the deciding convention and skipped-row counts
 are recorded in snapshots and transformations.
 
+Under [DEC-149](DECISIONS.md#dec-149--ocr-tables-count-only-through-a-column-total-check)
+`--enable-ocr` injects the Kloudeks OCR provider into `PreparedRunner`, which
+passes it to `web_url` and `add_document_column`; pages without a text layer
+are rendered and OCRed as in M7-11, and `pdf_ocr.ocr_tables` reads the model's
+HTML tables (spans expanded, header rows as group + leaf) into `PdfPage.ocr_tables`.
+`grids` turns them into grids with a per-column `checked` flag from
+`total_checked`: one total row, and each value column summing to it within
+rounding. Unchecked columns refuse with `OCR_NOT_VALIDATED`; checked ones follow
+the same year, convention and special-row rules, and their evidence, cell lineage
+and proof document record `extraction: ocr`.
+
 The M2-14/M5-20 unary table-shaping slice extends that same verified published-result boundary without adding source I/O. `rebase` requires an existing column explicitly typed as an unscaled period INDEX, a present positive reference-period value, and a positive new base; it adds `old / reference × new_base` as a new column and states that this is index scaling, not deflation. `align` takes at least two exact labels and either intersects their complete period identities or uses a named left anchor; `filter` keeps cells whose period end lies in an explicit inclusive range. Align/filter retain other table columns on the selected period spine, preserve input cell order and missing cells, and remove periodless or singleton summary values whose old aggregate would no longer describe the new row set. All three reject unresolved/mixed/duplicate/incompatible inputs, record parameters and source snapshots, and mint a new result without mutating the prior workspace result. They do not resample, aggregate, interpolate, convert frequency, join another table, or accept SQL/free-form predicates. Existing `lakehouse.alignment.to_monthly` remains the separate declared weekly-to-monthly reduction path; `add_series` remains the exact monthly left join for a registered series.
 
 For successive table transforms, the answer view follows declared source ancestors only while all their values are exactly preserved by the final result. This avoids copied amounts becoming ambiguous on Turn 3. Ancestors stay in the workspace, unrelated analyses stay visible, and the walk terminates on missing/self/cyclic or non-preserved references. This is bounded answer-view narrowing, not completion of general publication dependencies or stale-input invalidation. The M10-18 backend merged in PR #166 (`de11f3e`) adds explicit selected-table grounding: registry-owned table-input declarations constrain every calculation to the pinned workspace source or its derived step, with dispatch/source rechecks and an atomic publication input edge. The selected answer view excludes unrelated results and deduplicates preserved source values even across step-derived results. Rebinding the selected workspace source invalidates dependent selected publications; legacy/non-selected paths and official-data refresh invalidation remain separate. The prepared API and frontend submission/retry/reload are wired in PR #166; synthetic selected-flow browser acceptance passed on 2026-09-15, while live acceptance remains pending. Prepared metadata inspection is separately enforced by the M13-13 slice.
