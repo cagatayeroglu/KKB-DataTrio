@@ -6,6 +6,7 @@ this conversation already published.
 """
 
 import json
+import re
 
 from test_catalog_continuation import TOTAL
 from test_document_dataset import csv, served, table_step, upload
@@ -72,7 +73,11 @@ def test_a_reply_cannot_introduce_a_figure(served):
     _, client, sid, headers = served(reply("Toplam konut kredisi 999 milyon TL oldu."))
     answer = ask(client, sid, headers, "Konut kredisi ne kadar?")
     assert answer["answer"]["status"] == "abstained", answer
-    assert "999" not in json.dumps(answer)
+    # Identifiers are random hex and contain a digit run such as 999 by chance,
+    # which failed this guard in about one run in twenty. Blank them so the
+    # guard keeps covering the whole payload the reader receives.
+    payload = re.sub(r"[0-9a-f]{16,}", "", json.dumps(answer))
+    assert "999" not in payload, payload
 
 
 def test_a_reply_never_makes_an_unresolved_published_figure_quotable(served):
