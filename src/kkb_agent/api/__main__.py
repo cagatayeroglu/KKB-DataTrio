@@ -87,6 +87,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="Let questions read a web address they contain, through safe fetch; off by default",
     )
+    parser.add_argument(
+        "--enable-ocr",
+        action="store_true",
+        help=(
+            "OCR PDF pages without a text layer through the DEC-129 OCR model; tables count "
+            "only when their columns add up (DEC-149); off by default"
+        ),
+    )
     args = parser.parse_args(argv)
     if args.serve and (not args.enable_model_requests or args.state_root is None):
         parser.error("--serve requires --enable-model-requests and --state-root")
@@ -108,6 +116,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             or not 1 <= config.max_attempts <= 3
         ):
             raise ValueError("Local service provider budget refused")
+        if args.enable_ocr and config.ocr_model is None:
+            raise ValueError("OCR needs the DEC-129 OCR model configured")
         snapshot = load_reviewed_snapshot(catalog_bytes)
         index = None
         if args.catalog_index is not None:
@@ -133,6 +143,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "catalog_retrieval": retrieval,
                         "web_url": args.enable_web_url,
                         "uploads": args.enable_uploads,
+                        "ocr": args.enable_ocr,
                         "prepared": status.model_dump(mode="json"),
                     },
                     ensure_ascii=False,
@@ -157,6 +168,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 catalog_dense=dense,
                 web_url_fetch=safe_fetch if args.enable_web_url else None,
                 document_uploads=args.enable_uploads,
+                document_ocr=provider if args.enable_ocr else None,
             )
             service = AnalysisService(
                 runner,
@@ -175,6 +187,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "catalog_retrieval": retrieval,
                         "web_url": args.enable_web_url,
                         "uploads": args.enable_uploads,
+                        "ocr": args.enable_ocr,
                         "prepared_identities": runner.status.prepared_identities,
                     }
                 )

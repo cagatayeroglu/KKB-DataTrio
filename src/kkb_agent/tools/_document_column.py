@@ -38,6 +38,7 @@ from kkb_agent.catalog.normalization import normalize_search_text
 from kkb_agent.core import Scale, SourceRef, StockFlow
 from kkb_agent.lakehouse.result_evidence import canonical
 from kkb_agent.tools._document_value import (
+    OCR_LIMITATION,
     Convention,
     Grid,
     ValueNotSelected,
@@ -88,6 +89,8 @@ class RowRules:
     skipped: Counter[str] = field(default_factory=Counter)
     year_used: bool = False
     convention_used: bool = False
+    #: Per column for an OCR table (DEC-149); None for text the document holds.
+    checked: tuple[bool, ...] | None = None
 
     @classmethod
     def for_grid(cls, grid: Grid, *, year: int | None, as_of: date | None) -> RowRules:
@@ -95,7 +98,11 @@ class RowRules:
             context = context_year(grid, year)
         except ValueNotSelected as error:
             raise ColumnRefused(error.code) from None
-        return cls(context, as_of, number_convention(grid.rows))
+        return cls(context, as_of, number_convention(grid.rows), checked=grid.checked)
+
+    def column_checked(self, index: int) -> bool:
+        """False only for an OCR column that does not add up to its total row."""
+        return self.checked is None or self.checked[index]
 
     def month(self, label: object) -> date | None:
         """The row's month end, or None when the row is skipped (and counted)."""
@@ -122,6 +129,9 @@ class RowRules:
     def evidence(self) -> dict[str, JsonValue]:
         """The decisions to record; empty when none of these rules applied."""
         recorded: dict[str, JsonValue] = {}
+        if self.checked is not None:
+            recorded["extraction"] = "ocr"
+            recorded["validation"] = "column total"
         if self.year_used and self.year is not None:
             recorded["year"] = {"value": self.year.year, "source": self.year.source}
         if self.convention_used:
@@ -142,7 +152,7 @@ class RowRules:
         return notes
 
     def limitations(self) -> list[str]:
-        notes = []
+        notes = [OCR_LIMITATION] if self.checked is not None else []
         if self.year_used and self.year is not None:
             notes.append(
                 "Month labels carry no year; the year was taken from "
@@ -252,6 +262,8 @@ def read_column(
         raise ColumnRefused("UNIT_NOT_STATED")
 
     rules = RowRules.for_grid(grid, year=year, as_of=as_of)
+    if not rules.column_checked(value_index):
+        raise ColumnRefused("OCR_NOT_VALIDATED")
     rows: dict[date, tuple[float | None, str]] = {}
     for cells in grid.rows:
         label = cells[period_index] if period_index < len(cells) else None

@@ -59,7 +59,7 @@ from kkb_agent.ingestion_policy import (
     FileKind,
     admit_upload,
 )
-from kkb_agent.pdf_ocr import OcrError, OcrProvider, extract_text, render_pages
+from kkb_agent.pdf_ocr import OcrError, OcrProvider, extract_text, ocr_tables, render_pages
 
 if TYPE_CHECKING:  # pragma: no cover - the parser is imported in the worker only
     from pdfplumber.pdf import PDF
@@ -84,8 +84,9 @@ class PdfTable:
     page: int
     bbox: tuple[float, float, float, float]
     rows: tuple[tuple[str | None, ...], ...] = field(repr=False)
-    #: "ruled" where lines draw it, "layout" where word positions set it out (DEC-148).
-    kind: Literal["ruled", "layout"] = "ruled"
+    #: "ruled" where lines draw it, "layout" where word positions set it out (DEC-148),
+    #: "ocr" where the OCR model wrote it for a page without text (DEC-149).
+    kind: Literal["ruled", "layout", "ocr"] = "ruled"
     #: Per column, the text of a drawn group header cell above it (layout tables).
     groups: tuple[str | None, ...] | None = field(default=None, repr=False)
     #: Distinct years stated in the page text above the table.
@@ -101,6 +102,8 @@ class PdfPage:
     text: str = field(repr=False)
     tables: tuple[PdfTable, ...] = field(repr=False)
     ocr_text: str | None = field(default=None, repr=False)
+    #: Candidate tables in the OCR text; unchecked until a column adds up (DEC-149).
+    ocr_tables: tuple[PdfTable, ...] = field(default=(), repr=False)
 
 
 @dataclass(frozen=True)
@@ -598,6 +601,7 @@ def load_pdf(
                     )
                     # OCR is never inserted into native text or tables.
                     page["tables"] = []
+                    page["ocr_tables"] = ocr_tables(page["ocr_text"], limits)
             if any(page.get("ocr_text") is not None for page in result["pages"]):
                 result["warnings"].append("OCR_UNVERIFIED")
             if len(json.dumps(result, ensure_ascii=True).encode()) > limits.max_expanded_bytes:
@@ -613,6 +617,17 @@ def load_pdf(
             has_text=page["has_text"],
             text=page["text"],
             ocr_text=page.get("ocr_text"),
+            ocr_tables=tuple(
+                PdfTable(
+                    page=page["number"],
+                    bbox=(0.0, 0.0, page["width"], page["height"]),
+                    rows=tuple(tuple(row) for row in table["rows"]),
+                    kind="ocr",
+                    groups=None if table.get("groups") is None else tuple(table["groups"]),
+                    years=tuple(table.get("years", ())),
+                )
+                for table in page.get("ocr_tables", ())
+            ),
             tables=tuple(
                 PdfTable(
                     page=page["number"],
