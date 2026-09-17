@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import duckdb
 
-from kkb_agent.agent.executor import PlanRejected, ValidatedPlan
+from kkb_agent.agent.executor import PlanRejected, RejectionCategory, ValidatedPlan
 from kkb_agent.agent.registry import ToolRegistry
 from kkb_agent.agent.workspace import Workspace, artifact_id
 from kkb_agent.core import AnalyticalResult
@@ -53,12 +53,21 @@ class SelectedTable:
             spec = registry.get(validated.step.tool)
             source = spec.table_input(validated.arguments) if spec.table_input else None
             if source is None or (source.source is None) == (source.input_step is None):
-                raise PlanRejected("Selected-table calculations need a declared table input")
+                raise PlanRejected(
+                    "Selected-table calculations need a declared table input",
+                    category=RejectionCategory.SELECTED_TABLE,
+                )
             if source.source is not None and source.source != self.name:
-                raise PlanRejected("Use the explicitly selected workspace source")
+                raise PlanRejected(
+                    "Use the explicitly selected workspace source",
+                    category=RejectionCategory.SELECTED_TABLE,
+                )
             if source.input_step is not None and (
                 source.input_step not in rooted
                 or source.input_step not in validated.step.depends_on
             ):
-                raise PlanRejected("Table input must derive from the selected source")
+                raise PlanRejected(
+                    "Table input must derive from the selected source",
+                    category=RejectionCategory.SELECTED_TABLE,
+                )
             rooted.add(validated.step.step_id)
