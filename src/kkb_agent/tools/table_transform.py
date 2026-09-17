@@ -72,7 +72,7 @@ from kkb_agent.tools._document_column import (
     measure_limitation,
     read_column,
 )
-from kkb_agent.tools._document_value import grids
+from kkb_agent.tools._document_value import csv_parsing, grids
 from kkb_agent.tools.change_detection import SeriesUnknown, read_series
 from kkb_agent.tools.web_url import Fetcher, read_attachment, read_document
 
@@ -158,7 +158,11 @@ class AddDocumentColumnArguments(BaseModel):
         description="true to read the document the user uploaded with this question instead",
     )
     delimiter: Literal[",", ";", "\t", "|"] | None = Field(
-        default=None, description="Column separator of a CSV file; required for CSV"
+        default=None,
+        description=(
+            "Column separator of a CSV file, only when the user states it; otherwise it is "
+            "detected from the file"
+        ),
     )
     sheet: str | None = Field(
         default=None,
@@ -376,7 +380,8 @@ def make_table_transform_tool(
             except ColumnRefused as error:
                 result = _document_refused(selected, error.code)
             else:
-                inputs.append(column_snapshot(column, document, media_type))
+                csv = csv_parsing(read.output.table)
+                inputs.append(column_snapshot(column, document, media_type, csv=csv))
                 source_node = (
                     lineage.record(
                         NodeKind.SOURCE_FILE,
@@ -391,7 +396,7 @@ def make_table_transform_tool(
                     if lineage is not None
                     else None
                 )
-                result = _documented(selected, source, column, document, source_node)
+                result = _documented(selected, source, column, document, source_node, csv)
         else:
             result = _closed_transform(selected, source)
         recorded = _recorded_arguments(selected)
@@ -813,6 +818,7 @@ def _documented(
     column: DocumentColumn,
     document: SourceRef,
     source_node: str | None,
+    csv: dict[str, str] | None = None,
 ) -> AnalyticalResult:
     result_id = (
         f"table_transform:add_document_column:{arguments.source}:{document.source_id}:"
@@ -838,9 +844,14 @@ def _documented(
             method=DOCUMENT_METHOD,
             reason=str(error),
         )
+    transformation = added.transformation
+    if csv is not None:
+        transformation = transformation.model_copy(
+            update={"parameters": {**transformation.parameters, "csv": csv}}
+        )
     parameters = dict(source.parameters)
     parameters.update(
-        {"source": arguments.source, "added_document_column": added.transformation.parameters}
+        {"source": arguments.source, "added_document_column": transformation.parameters}
     )
     warnings = list(source.warnings)
     if added.missing_periods:
@@ -866,7 +877,7 @@ def _documented(
         samples=source.samples,
         evidence=ResultEvidence(
             input_refs=[*prior, source_node or document.source_id],
-            transformations=[*previous, added.transformation],
+            transformations=[*previous, transformation],
             sources=[document],
         ),
         warnings=warnings,

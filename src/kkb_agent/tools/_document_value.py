@@ -5,8 +5,10 @@
 
 - **Which cell.** The planner names a column header and a row label. The
   column matches its header with or without a trailing unit in parentheses;
-  the row matches a label in another cell of that row, or the same date
-  written another way. Both compare through the shared Turkish normaliser
+  the row matches a label in another cell of that row, the same date written
+  another way, or the same month written another way (`2025-12`, `12.2025`,
+  `Aralık 2025`; never a day for a month, and never a cell that reads as a
+  number). Both compare through the shared Turkish normaliser
   (DEC-116). Exactly one cell across every table must match, or nothing is
   returned: a guessed cell is a wrong figure with a source attached.
 - **What number.** A spreadsheet number is used as stored. Text is read only
@@ -17,8 +19,10 @@
   trailing parentheses — `(Milyon TL)`, `(%)`, `(TL/kg)`. Anything else stays
   unresolved: analytical claims are withheld (DEC-104); exact literal quotation
   needs the selected-cell proof and bounded presentation in DEC-132.
-- **Period.** Only when the row label is a full date, `2026-06-01` or
-  `01.06.2026`, and then that single day. A month or a year label sets none.
+- **Period.** A full-date row label, `2026-06-01` or `01.06.2026`, sets that
+  single day; a month-form label (DEC-147) sets that calendar month, without
+  saying whether the value is a month-end level, an average or a total. A
+  year or any other label sets none.
 
 The label shown to the answer writer is the planner's column and row, which
 come from the question, never document text; the matched header, row label
@@ -27,6 +31,7 @@ and cell text are kept in the result's parameters and provenance.
 
 from __future__ import annotations
 
+import calendar
 import hashlib
 import json
 import math
@@ -39,6 +44,7 @@ from kkb_agent.catalog.normalization import normalize_search_text
 from kkb_agent.core import (
     AnalyticalResult,
     ClaimKind,
+    Frequency,
     Period,
     ResultEvidence,
     ResultKind,
@@ -94,6 +100,31 @@ _UNITS = {
 }
 _ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _DOTTED_DATE = re.compile(r"(\d{2})\.(\d{2})\.(\d{4})")
+#: Folded Turkish and English month names (DEC-116 normaliser output).
+MONTH_NAMES = {
+    name: number
+    for number, names in enumerate(
+        (
+            ("ocak", "january"),
+            ("subat", "february"),
+            ("mart", "march"),
+            ("nisan", "april"),
+            ("mayis", "may"),
+            ("haziran", "june"),
+            ("temmuz", "july"),
+            ("agustos", "august"),
+            ("eylul", "september"),
+            ("ekim", "october"),
+            ("kasim", "november"),
+            ("aralik", "december"),
+        ),
+        1,
+    )
+    for name in names
+}
+_YEAR_MONTH = re.compile(r"(\d{4})-(\d{2})")
+_MONTH_YEAR = re.compile(r"(\d{2})\.(\d{4})")
+_NAMED_MONTH = re.compile(r"([a-z]+) (\d{4})")
 _MINUS = "-−"  # ASCII hyphen-minus and U+2212
 
 
@@ -158,6 +189,13 @@ def grids(
                     header, *rows = pdf_table.rows
                     found.append(Grid({"page": page.number, "table": index}, header, tuple(rows)))
     return found
+
+
+def csv_parsing(table: CsvTable | XlsxTable | None) -> dict[str, str] | None:
+    """How a CSV table was split (DEC-147): its separator, declared or detected."""
+    if not isinstance(table, CsvTable):
+        return None
+    return {"delimiter": table.delimiter, "delimiter_source": table.delimiter_source}
 
 
 def header_matches(header: object, wanted: str) -> bool:
@@ -267,10 +305,38 @@ def header_semantics(header: str) -> tuple[str | None, Scale]:
     return "/".join(_UNITS[part] for part in parts), scale
 
 
+def last_day(year: int, month: int) -> date | None:
+    """The last day of a month in the supported range; None for an impossible month."""
+    if not (1 <= month <= 12 and 1900 <= year <= 2100):
+        return None
+    return date(year, month, calendar.monthrange(year, month)[1])
+
+
+def month_label(label: str) -> date | None:
+    """The month a label writes in month form, as its last day; None otherwise.
+
+    `2026-01`, `01.2026`, or a Turkish or English month name with its year. A
+    full date is a day rather than a month, and a year alone is not a month.
+    """
+    text = normalize_search_text(label)
+    if match := _YEAR_MONTH.fullmatch(text):
+        return last_day(int(match[1]), int(match[2]))
+    if match := _MONTH_YEAR.fullmatch(text):
+        return last_day(int(match[2]), int(match[1]))
+    if (match := _NAMED_MONTH.fullmatch(text)) and match[1] in MONTH_NAMES:
+        return last_day(int(match[2]), MONTH_NAMES[match[1]])
+    return None
+
+
 def row_period(label: str) -> Period | None:
-    """A single day when the row label is a full date; no period otherwise."""
+    """A single day for a full-date row label, a calendar month for a month-form one."""
     day = _as_date(label)
-    return None if day is None else Period(start=day, end=day)
+    if day is not None:
+        return Period(start=day, end=day)
+    end = month_label(label)
+    if end is None:
+        return None
+    return Period(start=end.replace(day=1), end=end, frequency=Frequency.MONTHLY)
 
 
 def read_cell(cell: Cell) -> Reading:
@@ -326,7 +392,12 @@ def document_value(
         "Read from one cell of a fetched document as published; not recomputed or "
         "compared with any other source"
     ]
-    if reading.period is not None:
+    if reading.period is not None and reading.period.frequency is Frequency.MONTHLY:
+        limitations.append(
+            "The period is the month written in the selected row; the document does not "
+            "say whether the value is a month-end level, a monthly average or a monthly total"
+        )
+    elif reading.period is not None:
         limitations.append(
             "The period is the date written in the selected row; the document does not "
             "say what span the value covers"
@@ -397,7 +468,19 @@ def _same_label(text: str, wanted: str) -> bool:
     if normalize_search_text(text) == normalize_search_text(wanted):
         return True
     day = _as_date(text)
-    return day is not None and day == _as_date(wanted)
+    if day is not None:
+        return day == _as_date(wanted)
+    month = month_label(text)
+    return month is not None and month == month_label(wanted) and not _is_number(text)
+
+
+def _is_number(text: str) -> bool:
+    """Whether a cell reads as a number, as `12.2025` does; such a cell is no month label."""
+    try:
+        read_number(text)
+    except ValueNotSelected:
+        return False
+    return True
 
 
 def _as_date(text: str) -> date | None:

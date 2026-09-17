@@ -26,6 +26,8 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date
 
+from pydantic import JsonValue
+
 from kkb_agent.core import (
     AnalyticalResult,
     Frequency,
@@ -176,8 +178,18 @@ def read_table(
     )
 
 
-def table_snapshot(table: DocumentTable, source: SourceRef, media_type: str) -> str:
-    """The exact cells the execution read, bound to the document's content hash."""
+def table_snapshot(
+    table: DocumentTable,
+    source: SourceRef,
+    media_type: str,
+    *,
+    csv: dict[str, str] | None = None,
+) -> str:
+    """The exact cells the execution read, bound to the document's content hash.
+
+    `csv` is how a CSV was split (`csv_parsing`), recorded so a detected
+    separator is as reproducible as a declared one.
+    """
     return canonical(
         {
             "kind": SNAPSHOT_KIND,
@@ -203,12 +215,17 @@ def table_snapshot(table: DocumentTable, source: SourceRef, media_type: str) -> 
                 for column in table.columns
             ],
             "skipped": [[label, code] for label, code in table.skipped],
+            **({"csv": csv} if csv is not None else {}),
         }
     )
 
 
 def table_result(
-    table: DocumentTable, source: SourceRef, *, source_node: str | None
+    table: DocumentTable,
+    source: SourceRef,
+    *,
+    source_node: str | None,
+    csv: dict[str, str] | None = None,
 ) -> AnalyticalResult:
     """The published table: every read value, periods explicit, gaps never filled."""
     values: list[ResultValue] = []
@@ -278,6 +295,7 @@ def table_result(
                         "months": len(table.months),
                         "content_hash": source.content_hash or "",
                         "fill": "none",
+                        **({"csv": dict[str, JsonValue](csv)} if csv is not None else {}),
                     },
                     input_refs=[source.source_id],
                     output_ref=f"web_url:table:{source.source_id}",

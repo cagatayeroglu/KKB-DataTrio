@@ -80,6 +80,7 @@ from kkb_agent.tools._document_table import (
 )
 from kkb_agent.tools._document_value import (
     ValueNotSelected,
+    csv_parsing,
     document_value,
     grids,
     read_cell,
@@ -138,7 +139,10 @@ class WebUrlArguments(BaseModel):
     )
     delimiter: Literal[",", ";", "\t", "|"] | None = Field(
         default=None,
-        description="Column separator of a CSV file; required for CSV, ignored otherwise",
+        description=(
+            "Column separator of a CSV file, only when the user states it; otherwise it is "
+            "detected from the file. Ignored for other formats"
+        ),
     )
     sheet: str | None = Field(
         default=None,
@@ -405,8 +409,10 @@ def make_web_url_tool(
                 connection,
                 producer="web_url",
                 arguments=canonical(recorded),
-                inputs=[table_snapshot(table, source, media_type)],
-                result=table_result(table, source, source_node=source_node),
+                inputs=[table_snapshot(table, source, media_type, csv=csv_parsing(output.table))],
+                result=table_result(
+                    table, source, source_node=source_node, csv=csv_parsing(output.table)
+                ),
             )
             return ToolResult(
                 ToolStatus.SUCCESS,
@@ -462,8 +468,10 @@ def make_web_url_tool(
         description=(
             "Read CSV/XLSX tables, PDF text/ruled tables, or static HTML text/tables from a "
             "web address the user wrote in the question. Pass the address exactly as "
-            "written; any other address is refused. A CSV needs its column separator "
-            "declared; a workbook with several sheets needs the sheet named. On its "
+            "written; any other address is refused. A CSV's column separator is detected "
+            "from the file: give delimiter only when the user states one, and a CSV whose "
+            "separator cannot be detected needs it stated; a workbook with several sheets "
+            "needs the sheet named. On its "
             "own it returns the content and where it came from, not an answer. To "
             "answer with one figure, also give column (its header) and row (a label "
             "in that row, such as a date); the figure's unit and scale are only what "

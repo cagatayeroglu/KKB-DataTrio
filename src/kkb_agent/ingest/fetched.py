@@ -94,10 +94,11 @@ def load_fetched(
     the URL or a response header names or routes the file. `delimiter` applies
     only to CSV and `sheet` only to a workbook: each is a declaration about one
     format and is not consulted for the others. Everything else — byte, row,
-    column, cell and page budgets, the terminated parser worker, explicit
-    delimiter and sheet selection, formula and macro rejection — is the
-    loaders' own behaviour, unchanged. Raises AdmissionError for a media type
-    no loader reads, before any byte is parsed.
+    column, cell and page budgets, the terminated parser worker, explicit sheet
+    selection, formula and macro rejection — is the loaders' own behaviour,
+    unchanged; a CSV separator nobody declared is detected under DEC-147 (see
+    `load_document`). Raises AdmissionError for a media type no loader reads,
+    before any byte is parsed.
     """
     fetched = FetchSuccess.model_validate(fetched)
     return load_document(
@@ -121,7 +122,14 @@ def load_document(
     limits: AdmissionLimits = DEFAULT_LIMITS,
     ocr: OcrProvider | None = None,
 ) -> CsvLoadResult | XlsxLoadResult | PdfLoadResult | HtmlLoadResult:
-    """Route document bytes to their loader by media type; fetched and uploaded bytes alike."""
+    """Route document bytes to their loader by media type; fetched and uploaded bytes alike.
+
+    Documents are read for a question whose author may not know a CSV's
+    separator, and the planner never sees the bytes, so the CSV loader detects
+    it (DEC-147): one separator the leading records allow is used, several or
+    none still need a declaration, and a declaration contradicting the one
+    detected separator is refused as DELIMITER_CONFLICT.
+    """
     kind = _KINDS.get(media_type)
     if kind is None:
         raise AdmissionError(RejectionCode.UNSUPPORTED_FORMAT)
@@ -147,6 +155,7 @@ def load_document(
             content_type=media_type,
             source=source,
             delimiter=delimiter,
+            detect_delimiter=True,
             limits=limits,
         )
     return load_xlsx(

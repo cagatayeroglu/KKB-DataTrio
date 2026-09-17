@@ -11,7 +11,7 @@ from datetime import UTC, date, datetime
 
 import pytest
 
-from kkb_agent.core import Period, ResultKind, ResultStatus, Scale, SourceRef
+from kkb_agent.core import Frequency, Period, ResultKind, ResultStatus, Scale, SourceRef
 from kkb_agent.tools._document_value import (
     Cell,
     Grid,
@@ -137,14 +137,21 @@ class TestUnitAndScaleComeOnlyFromTheHeader:
         assert header_semantics(header) == (None, Scale.UNKNOWN)
 
 
-class TestAPeriodOnlyFromAFullDate:
+class TestAPeriodOnlyFromAFullDateOrMonth:
     @pytest.mark.parametrize("label", ["2026-06-01", "01.06.2026", " 2026-06-01 "])
     def test_a_full_date_is_that_day(self, label):
         day = date(2026, 6, 1)
         assert row_period(label) == Period(start=day, end=day)
 
+    @pytest.mark.parametrize("label", ["2026-06", "06.2026", "Haziran 2026", "june 2026"])
+    def test_a_month_form_label_is_that_calendar_month(self, label):
+        # DEC-147; covered in depth by test_document_month_cells.py.
+        assert row_period(label) == Period(
+            start=date(2026, 6, 1), end=date(2026, 6, 30), frequency=Frequency.MONTHLY
+        )
+
     @pytest.mark.parametrize(
-        "label", ["2026-06", "Haziran 2026", "2026", "31.02.2026", "06/01/2026", "Toplam"]
+        "label", ["2026", "31.02.2026", "06/01/2026", "Toplam", "2026-13", "Haziran"]
     )
     def test_anything_else_sets_no_period(self, label):
         assert row_period(label) is None

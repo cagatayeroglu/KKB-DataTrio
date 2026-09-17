@@ -22,7 +22,6 @@ Refusal codes are fixed and never carry document text.
 
 from __future__ import annotations
 
-import calendar
 import hashlib
 import re
 from dataclasses import dataclass
@@ -37,6 +36,8 @@ from kkb_agent.tools._document_value import (
     _text,
     header_matches,
     header_semantics,
+    last_day,
+    month_label,
     read_number,
 )
 
@@ -52,32 +53,8 @@ def document_measure(unit: str | None, scale: Scale) -> StockFlow:
     return UNIT_MEASURES.get(unit, StockFlow.UNKNOWN)
 
 
-_MONTHS = {
-    name: number
-    for number, names in enumerate(
-        (
-            ("ocak", "january"),
-            ("subat", "february"),
-            ("mart", "march"),
-            ("nisan", "april"),
-            ("mayis", "may"),
-            ("haziran", "june"),
-            ("temmuz", "july"),
-            ("agustos", "august"),
-            ("eylul", "september"),
-            ("ekim", "october"),
-            ("kasim", "november"),
-            ("aralik", "december"),
-        ),
-        1,
-    )
-    for name in names
-}
-_YEAR_MONTH = re.compile(r"(\d{4})-(\d{2})")
-_MONTH_YEAR = re.compile(r"(\d{2})\.(\d{4})")
 _ISO_DAY = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
 _DOTTED_DAY = re.compile(r"(\d{2})\.(\d{2})\.(\d{4})")
-_NAMED = re.compile(r"([a-z]+) (\d{4})")
 
 
 class ColumnRefused(ValueError):
@@ -129,17 +106,13 @@ def month_end(raw: object) -> date | None:
         return _edge_day(raw.year, raw.month, raw.day)
     if not isinstance(raw, str):
         return None
+    if (end := month_label(raw)) is not None:
+        return end
     text = normalize_search_text(raw)
-    if match := _YEAR_MONTH.fullmatch(text):
-        return _last_day(int(match[1]), int(match[2]))
-    if match := _MONTH_YEAR.fullmatch(text):
-        return _last_day(int(match[2]), int(match[1]))
     if match := _ISO_DAY.fullmatch(text):
         return _edge_day(int(match[1]), int(match[2]), int(match[3]))
     if match := _DOTTED_DAY.fullmatch(text):
         return _edge_day(int(match[3]), int(match[2]), int(match[1]))
-    if (match := _NAMED.fullmatch(text)) and match[1] in _MONTHS:
-        return _last_day(int(match[2]), _MONTHS[match[1]])
     return None
 
 
@@ -200,10 +173,17 @@ def read_column(tables: list[Grid], period_column: str, value_column: str) -> Do
     )
 
 
-def column_snapshot(column: DocumentColumn, source: SourceRef, media_type: str) -> str:
+def column_snapshot(
+    column: DocumentColumn,
+    source: SourceRef,
+    media_type: str,
+    *,
+    csv: dict[str, str] | None = None,
+) -> str:
     """The exact cells an execution read, bound to the fetched bytes' hash.
 
     Kept in the session's own lineage; the proof shows only fixed facts from it.
+    `csv` records how a CSV was split (DEC-147), declared or detected.
     """
     return canonical(
         {
@@ -221,6 +201,7 @@ def column_snapshot(column: DocumentColumn, source: SourceRef, media_type: str) 
             "scale": column.scale.value,
             "measure": column.measure.value,
             "rows": [[end, value, digest] for end, value, digest in column.rows],
+            **({"csv": csv} if csv is not None else {}),
         }
     )
 
@@ -229,14 +210,8 @@ def _empty(value: object) -> bool:
     return value is None or (isinstance(value, str) and not value.strip())
 
 
-def _last_day(year: int, month: int) -> date | None:
-    if not (1 <= month <= 12 and 1900 <= year <= 2100):
-        return None
-    return date(year, month, calendar.monthrange(year, month)[1])
-
-
 def _edge_day(year: int, month: int, day: int) -> date | None:
-    end = _last_day(year, month)
+    end = last_day(year, month)
     if end is None or day not in (1, end.day):
         return None
     return end

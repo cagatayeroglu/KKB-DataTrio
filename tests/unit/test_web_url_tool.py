@@ -381,8 +381,8 @@ class TestTablesComeBackTyped:
         assert named.status is ToolStatus.SUCCESS
         assert named.output.table.headers == ("code", "description")
 
-    def test_a_csv_without_a_declared_separator_needs_one(self):
-        result = run(FakeFetch(), delimiter=None)
+    def test_a_csv_whose_separator_cannot_be_detected_needs_one(self):
+        result = run(FakeFetch(b"a,b;c\n1,2;3\n"), delimiter=None)
 
         assert result.error_category == "needs_input"
         assert result.warnings == ("PARSING_DECLARATION_REQUIRED",)
