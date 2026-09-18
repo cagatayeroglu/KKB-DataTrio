@@ -31,6 +31,160 @@ M5-21 and M8-21 remain delivered correctness protections; only the bounded weekl
 
 Production web-search acceptance stays separate under DEC-134: SearXNG is a compatibility candidate only, including upstream-query privacy/network review. Crawl4AI is optional future extraction work, not current `web_url` acceptance. Search-result URLs remain unauthorized to fetch automatically. Existing command/tier and historical live-acceptance records below are unchanged.
 
+### Live rerun and edge suites (2026-09-18, verified in this repository)
+
+Authorized by Eray on 2026-09-18 and run by Claude against `dev` at `8b3ab30` (the #246 merge),
+through `tests/manual/live_scenarios.py` over a served API on port 8001 with its own scratch state
+root. The prepared pool, the repository state root and port 8000 were untouched. Retrieval reported
+`hybrid`, so `require_series_discovery` was active. Real Kloudeks calls; planner and writer both
+`kkbhackathon2026/Qwen3.8-27B` with thinking enabled.
+
+Unlike the operator-reported section above, every number here comes from the stored trace in this
+repository and can be re-read with `dump_traces.py`.
+
+**Start-up note.** `--serve` first failed with `configuration_or_runtime_unavailable` because the
+state root was given through `/tmp/...`, which is a symlink on macOS; `--check` passed because it
+never touches the state root. The preparation boundary rejects links deliberately
+(`__main__.py`: "absolute() preserves links so the preparation boundary can reject them"). Passing
+the real `/private/tmp/...` path started the service.
+
+#### rerun
+
+| Turn | Outcome | Seconds | Model calls | Note |
+| --- | --- | --- | --- | --- |
+| R1 table | **ACCEPTED**, 24 cells | 387.7 | 3 | discovery, then `lakehouse` SQL, then writer |
+| R2 deflate | **ACCEPTED**, 48 cells | 249.2 | 3 | first plan rejected, repaired, no writer call |
+| R3 co-movement | **ABSTAINED**, clarification | 612.7 | 2 | the planner's own `clarify`, not a harness refusal |
+
+**R2 is the scenario that failed as S5 on 2026-09-18 and now passes live.** Its first plan named
+`EVDS:TP.TUKFIY2025.GENEL` directly and was refused with "New series require a catalog_search phase
+before analysis" — correct, because nothing had proven that identity in this conversation. The
+planner repaired, searched, and deflated. The refused call still cost 70.4 s.
+
+**R3 did not time out, and its abstention is correct.** The catalog returned exactly two candidates:
+`EVDS:TP.BKR.TRY.18` (Konut Kredisi, TL, **Stok**, %) and `EVDS:TP.KTF12` (Konut Kredisi, TL,
+**Akım**, %) — the outstanding-portfolio rate and the new-loan rate. The question names neither, and
+`CatalogRecord.rate_basis` exists precisely because "RATE alone cannot distinguish new-credit from
+outstanding-portfolio rates". Choosing one would have been the semantic guess the hard constraints
+forbid, so the clarification is the honest answer.
+
+#### What actually causes the long continuation
+
+Token counts per model call, from the trace:
+
+| Turn | Call | Seconds | Prompt tokens | Completion | Reasoning |
+| --- | --- | --- | --- | --- | --- |
+| R1 | planner.initial | 56.6 | 8,109 | 729 | 594 |
+| R1 | planner.continuation | 197.8 | 8,761 | 1,547 | 1,262 |
+| R1 | writer.call | 131.6 | 819 | 1,080 | 1,035 |
+| R2 | planner.initial | 70.4 | 8,794 | 695 | 485 |
+| R2 | planner.initial (repair) | 28.6 | 8,996 | 265 | 196 |
+| R2 | planner.continuation | 148.0 | 8,365 | 1,378 | 1,168 |
+| R3 | planner.initial | 79.0 | 9,287 | 1,793 | 1,723 |
+| **R3** | **planner.continuation** | **531.6** | 8,718 | 8,010 | **7,897** |
+| X1 | planner.initial | 8.5 | 8,089 | 287 | 198 |
+
+**This contradicts the hypothesis that the ~26 KB of continuation tool schemas cause the S7 timeout.**
+Prompt tokens are essentially flat across every call, fast and slow alike (8,089–9,287). The slow
+call's prompt was *smaller* than two of the fast ones. Trimming the schemas would not have prevented
+this.
+
+The duration tracks generated tokens alone. R3's continuation produced 7,897 reasoning tokens,
+about six times any other continuation, with `provider_attempts: 1` — no retry, no transport stall.
+At the observed generation rate this fully accounts for 531.6 s. The model deliberated at length over
+the stock-versus-flow choice before deciding to ask. X1 reached the same kind of decision in 198
+reasoning tokens and 8.5 s, because its ambiguity is visible in the question itself rather than in
+two concrete candidates.
+
+So the S7 cost is runaway reasoning on an ambiguous series choice, not prompt weight. The remedies
+that follow from this measurement are a per-call-type `max_tokens` ceiling and a crisper stated rule
+for stock/flow rate ambiguity, so the planner reaches "ask" without deliberating there. Schema
+slimming remains worthwhile for its own sake — the `lakehouse` and `change_detection` argument
+schemas are the bulk of the tool payload — but it is not the fix for this failure.
+
+#### What the #246 admission change did and did not do
+
+[#246](https://github.com/cagatayeroglu/KKB-DataTrio/pull/246) admits a plan whose series were
+already proven by a catalog search in the same conversation. It behaved correctly and **saved
+nothing in these suites**, for two separate reasons, both visible in the traces:
+
+1. **The planner reaches for `lakehouse` SQL.** R1's analysis step put the identity inside
+   `WHERE s.series_id = 'BDDK:selector:v1:fa6e3c79…'`. `lakehouse.sql` is marked
+   `OpaqueSeriesReference`, so such a step can never qualify — by design, since the rule cannot
+   enumerate what SQL reads. For the dominant plan shape the change is inert.
+2. **Every turn in these suites introduces a new series** (housing balance, then CPI, then a rate),
+   so discovery was legitimately required each time.
+
+The change is therefore correct but currently unexercised on the live path. What would make it pay
+is the typed "read series" form for `lakehouse` (`series_id`, start, end) already proposed in the
+handover: it would replace an opaque SQL string with a marked `SeriesId`, letting the admission rule
+apply, shrinking the largest argument schema, and removing the `ORDER BY` / `JOIN` / `period_end`
+questions the reasoning text spends tokens on. That is one change serving three open items.
+
+#### Independent oracles for every accepted answer
+
+Recomputed from the lakehouse, not read back from the answer:
+
+| Turn | Check | Result |
+| --- | --- | --- |
+| R1 | 24 published `gold_cells` against `silver_observations` | 0 mismatches |
+| R2 | 24 deflated cells against nominal x CPI(2025-12) / CPI(t) | worst deviation 1.3e-10 |
+| R2 | the nominal column survives beside the real one | `analiz_2` holds 24 + 24 cells |
+| X2 | 2024-12-31 512,259 -> 2025-12-31 678,970 | difference 166,711 and 32.5443% both exact |
+
+Gold materialization under DEC-154 therefore preserves values exactly, and deflation reproduces an
+independent calculation.
+
+#### edge
+
+| Turn | Outcome | Seconds | Model calls | Verdict |
+| --- | --- | --- | --- | --- |
+| X1 ambiguous | ABSTAINED, clarification | 10.0 | 1 | correct — "Kredi ne kadar arttı?" names no series and no period |
+| X2 clarify answer | **ACCEPTED**, 4 cells | 421.8 | 3 | correct and numerically exact; the clarification loop works |
+| X3 out of scope | ABSTAINED, unsupported | 60.3 | 1 | correct — no forecasting tool exists and none was invented |
+| X4 acquire | ABSTAINED, clarification | 249.1 | 4 | **over-abstention, see below** |
+
+**X1 to X2 is the demo's follow-up criterion working live**: the system asked which measure and which
+period, the next turn supplied them, and the answer bound to real cells with exact figures.
+
+**X4 is over-abstention, and it also failed to test what it was written for.** The catalog returned
+`EVDS:TP.KFE.TR` (Türkiye) together with the İstanbul, İzmir and Ankara variants. The question names
+no city. Unlike R3's stock-versus-flow pair, where neither candidate is the other's default, here the
+country-level series is the obvious reading of an unqualified "konut fiyat endeksi" and the record
+even carries a `geography` field to say so. Asking was the weaker answer.
+
+X4's first plan was again `lakehouse` SQL, rejected for naming an unproven series after a 159.6 s
+call with 3,156 reasoning tokens — the same shape as R2's refused plan and the same reason #246
+cannot help there.
+
+**No official acquisition happened in either suite**: zero acquisition or fetch trace events, and
+`<state-root>/acquired/` is empty. The cause is a defect in the suite rather than in the runtime.
+Eight of the 37 catalog identities are absent from the prepared pool:
+
+```
+EVDS:TP.BKR.TRY.18   EVDS:TP.KBK.TRY.18   EVDS:TP.KFE.TR10   EVDS:TP.KFE.TR31
+EVDS:TP.KFE.TR51     EVDS:TP.KKP.TRY.18   EVDS:TP.TK02       EVDS:TP.VK02
+```
+
+X4 asks for "konut fiyat endeksi", which resolves to the prepared `EVDS:TP.KFE.TR`, so the
+acquisition path is never entered. Naming a city — "İstanbul konut fiyat endeksi" — would force
+`EVDS:TP.KFE.TR10`, which is catalogued but unprepared. **Live EVDS/BDDK acquisition therefore
+remains unverified and stays the first open acceptance item.**
+
+#### Trace review against the required criteria
+
+- **Right tool?** Yes in all four turns. Discovery, then `lakehouse` or `table_transform`; no web or
+  document tool was reached for, and no tool was used where a clarification was the answer.
+- **Right parameters?** Yes. R1's SQL selected the direct columns and joined `silver_series` as the
+  tool description requires; R2's deflate named the correct index and reference period.
+- **Unnecessary steps or model calls?** One: R2's refused first plan, 70.4 s spent on a plan that
+  named the right CPI series but could not prove it. No duplicate searches and no writer call where
+  presentation was deterministic.
+- **Context correct and sufficient?** Yes. The continuation prompt carried both R3 candidates with
+  their stock/flow declarations, which is what made the honest clarification possible.
+- **Final answer correct and honest?** Yes in all four. Two accepted results with cells, two
+  abstentions that asked rather than guessed.
+
 ### Operator-reported live scenarios (2026-09-18)
 
 **Provenance: operator-reported, not independently reproduced in this repository.** Arda ran these
