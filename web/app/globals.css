@@ -2,18 +2,23 @@
 :root {
   /* One dark surface family. Every panel, card and field reads from these, so the
      theme is four values rather than a colour on every rule. */
-  --bg: #121417;
-  /* A card sits above the page, and a panel inside a card sits below it, so the
-     eye reads depth without a border on every edge. */
-  --card: #1e2227;
-  --surface-2: #171a1e;
-  --ink: #f3f6f8;
-  --muted: #a7b1ba;
-  --line: #2a2f34;
-  --accent: #6cc9d6;
-  --accent-light: #16333a;
+  /* A dark rail beside a light working area: the rail is navigation, the page is
+     the work. A card sits on the page in white, and a panel inside a card sits
+     back in grey, so depth needs no border on every edge. */
+  --bg: #f6f7f9;
+  --card: #ffffff;
+  --surface-2: #f1f3f6;
+  --ink: #161a1f;
+  --muted: #5d6874;
+  --line: #e4e8ed;
+  --accent: #0e8ba1;
+  --accent-ink: #0a6a7c;
+  --accent-light: #e6f4f7;
   --sidebar: #0b0d0f;
   --sidebar-ink: #b4bcc4;
+  /* Secondary text on the rail needs its own value: the page's muted grey is
+     meant for white, and on near-black it disappears. */
+  --sidebar-muted: #8b95a1;
   --sidebar-line: #1a1d21;
   --sidebar-hover: #15181b;
   --sidebar-active: #1f242a;
@@ -23,6 +28,10 @@
 }
 * {
   box-sizing: border-box;
+}
+html,
+body {
+  height: 100%;
 }
 body {
   margin: 0;
@@ -84,7 +93,8 @@ svg {
 }
 .app-shell {
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 .sidebar {
   width: var(--rail);
@@ -113,7 +123,7 @@ svg {
   font-size: 9px;
   letter-spacing: 1.6px;
   font-weight: 500;
-  color: #a4b9b4;
+  color: var(--sidebar-muted);
   margin-top: 3px;
 }
 .brand-mark {
@@ -142,7 +152,7 @@ svg {
 .workspace-label {
   font-size: 10px;
   letter-spacing: 1.4px;
-  color: #6d8a83;
+  color: var(--sidebar-muted);
   margin: 0 10px 10px;
 }
 .nav-item {
@@ -169,8 +179,8 @@ svg {
   color: #fff;
 }
 .nav-item.active {
-  background: #2d4a43;
-  color: #e3f5e9;
+  background: var(--accent);
+  color: var(--accent-light);
   font-weight: 600;
 }
 .nav-dot {
@@ -182,24 +192,48 @@ svg {
 }
 .nav-count {
   margin-left: auto;
-  font-size: 12px;
-  background: #263e3a;
-  padding: 2px 6px;
-  border-radius: 4px;
+  font-size: 11px;
+  color: var(--sidebar-ink);
+  background: #ffffff12;
+  padding: 2px 7px;
+  border-radius: 5px;
+  font-variant-numeric: tabular-nums;
 }
 .sidebar-bottom {
   margin-top: auto;
   padding: 18px 12px 0;
-  border-top: 1px solid #2d4540;
+  border-top: 1px solid #3a4149;
   font-size: 10px;
   letter-spacing: 1.2px;
-  color: #6f8c83;
+  color: var(--sidebar-muted);
 }
 .main-shell {
   margin-left: var(--rail);
   width: calc(100% - var(--rail));
   /* Wide screens get air, narrow ones keep their gutter. */
   padding: 0 clamp(18px, 3vw, 44px);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* The studio fills what is left under the heading instead of running past it. */
+.analysis-grid {
+  flex: 1;
+  min-height: 0;
+  padding-bottom: 14px;
+}
+.analysis-grid > section {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.page-view,
+.traces-page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 .topbar {
   height: 60px;
@@ -342,7 +376,7 @@ svg {
   align-items: center;
   gap: 5px;
   font-size: 12px;
-  color: var(--accent);
+  color: var(--accent-ink);
   white-space: nowrap;
 }
 .analysis-grid {
@@ -393,11 +427,11 @@ svg {
   border-color: var(--line);
 }
 .conversation-body {
-  min-height: 420px;
-  max-height: 540px;
+  flex: 1;
+  min-height: 0;
   overflow: auto;
   scrollbar-width: thin;
-  scrollbar-color: #dae4df transparent;
+  scrollbar-color: #e2e7eb transparent;
 }
 .welcome {
   padding: 25px 22px 15px;
@@ -409,7 +443,7 @@ svg {
   place-items: center;
   background: var(--card);
   border: 1px solid var(--line);
-  color: #4c866d;
+  color: var(--accent-ink);
   border-radius: 12px;
   margin-bottom: 16px;
 }
@@ -441,7 +475,7 @@ svg {
   border-color: var(--line);
 }
 .suggestions small {
-  color: #7e9587;
+  color: var(--muted);
   font-size: 9px;
   letter-spacing: 1px;
 }
@@ -453,7 +487,7 @@ svg {
   margin-top: 5px;
 }
 .suggestions svg {
-  color: #95a99c;
+  color: var(--muted);
 }
 .welcome-tip {
   display: flex;
@@ -494,7 +528,7 @@ svg {
   justify-content: center;
   gap: 7px;
   font-size: 12px;
-  color: var(--accent);
+  color: var(--accent-ink);
   background: #f1f8f4e6;
   pointer-events: none;
 }
@@ -515,7 +549,7 @@ svg {
   outline: none;
 }
 .composer textarea::placeholder {
-  color: #929e96;
+  color: var(--muted);
 }
 .composer-attachment {
   display: flex;
@@ -523,7 +557,7 @@ svg {
   gap: 6px;
   padding: 2px 11px;
   font-size: 11px;
-  color: #5f6f66;
+  color: var(--muted);
 }
 .composer-buttons {
   display: flex;
@@ -545,7 +579,7 @@ svg {
 }
 .composer-actions > span {
   font-size: 10px;
-  color: #93a099;
+  color: var(--muted);
   display: flex;
   gap: 5px;
   align-items: center;
@@ -556,7 +590,7 @@ svg {
   align-items: center;
   gap: 5px;
   font-size: 10px;
-  color: #99a69e;
+  color: var(--muted);
   padding: 10px 3px 13px;
 }
 .results-card {
@@ -621,7 +655,7 @@ svg {
   width: 45px;
   height: 45px;
   background: var(--card);
-  color: #53816a;
+  color: var(--muted);
   border: 1px solid var(--line);
   border-radius: 12px;
   transform: rotate(5deg);
@@ -635,7 +669,7 @@ svg {
 }
 .result-empty > p {
   max-width: 310px;
-  color: #8b9891;
+  color: var(--muted);
   font-size: 13px;
   line-height: 1.9;
   margin: 14px 0 26px;
@@ -644,14 +678,14 @@ svg {
   display: flex;
   align-items: center;
   gap: 13px;
-  color: #a5b4aa;
+  color: var(--muted);
 }
 .empty-steps span {
   font-size: 11px;
   display: flex;
   align-items: center;
   gap: 5px;
-  color: #73897c;
+  color: var(--muted);
 }
 .results-bottom {
   margin-top: auto;
@@ -661,7 +695,7 @@ svg {
   align-items: center;
   justify-content: space-between;
   font-size: 10px;
-  color: #9aa79f;
+  color: var(--muted);
   gap: 10px;
 }
 .results-bottom > span:first-child {
@@ -672,13 +706,13 @@ svg {
 .tiny-dot {
   width: 4px;
   height: 4px;
-  background: #89a995;
+  background: #a7b1ba;
 }
 .page-footer {
   display: flex;
   justify-content: space-between;
   padding: 18px 1px 25px;
-  color: #8b9891;
+  color: var(--muted);
   font-size: 10px;
 }
 .connection-alert,
@@ -721,7 +755,7 @@ svg {
   gap: 7px;
   font-size: 10px;
   letter-spacing: 1px;
-  color: #8d9b92;
+  color: var(--muted);
 }
 .question-label span {
   font-size: 9px;
@@ -742,7 +776,7 @@ svg {
   gap: 6px;
   font-size: 10px;
   letter-spacing: 0.6px;
-  color: #658170;
+  color: var(--muted);
   flex-wrap: wrap;
 }
 .small-brand {
@@ -764,7 +798,7 @@ svg {
 }
 .verdict.accepted {
   background: var(--card);
-  color: #4a8f65;
+  color: var(--accent-ink);
 }
 .answer-text {
   font-size: 13px;
@@ -772,7 +806,7 @@ svg {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   margin-top: 9px;
-  color: #536b5e;
+  color: var(--muted);
 }
 .notice {
   font-size: 12px;
@@ -792,10 +826,10 @@ svg {
   padding: 11px 12px;
   width: 100%;
   text-align: left;
-  color: #698774;
+  color: var(--muted);
 }
 .result-link.selected {
-  border-color: #b4d3bf;
+  border-color: var(--accent-light);
   background: var(--card);
 }
 .result-link > span {
@@ -806,7 +840,7 @@ svg {
 .result-link small {
   display: block;
   font-size: 10px;
-  color: #8a9b90;
+  color: var(--muted);
   margin-top: 3px;
 }
 .working {
@@ -814,7 +848,7 @@ svg {
   align-items: center;
   gap: 7px;
   font-size: 12px;
-  color: #799888;
+  color: var(--muted);
   margin-top: 9px;
 }
 .spin {
@@ -846,7 +880,7 @@ svg {
 }
 .result-kicker {
   font-size: 9px;
-  color: #869a8f;
+  color: var(--muted);
   letter-spacing: 1px;
 }
 .result-intro h2 {
@@ -859,7 +893,7 @@ svg {
   display: flex;
   align-items: center;
   gap: 4px;
-  color: #537b60;
+  color: var(--muted);
   background: var(--card);
   border-radius: 20px;
   padding: 5px 8px;
@@ -874,7 +908,7 @@ svg {
   appearance: none;
   font-size: 11px;
   font-weight: 400;
-  color: #718b7c;
+  color: var(--muted);
   border: 1px solid var(--line);
   background: var(--card);
   border-radius: 5px;
@@ -897,7 +931,7 @@ svg {
   align-items: center;
   gap: 6px;
   font-size: 11px;
-  color: #789083;
+  color: var(--muted);
 }
 .table-search {
   display: flex;
@@ -906,7 +940,7 @@ svg {
   border: 1px solid var(--line);
   padding: 6px 8px;
   border-radius: 6px;
-  color: #97a59c;
+  color: var(--muted);
 }
 .table-search input {
   min-width: 0;
@@ -937,7 +971,7 @@ svg {
   -webkit-box-orient: vertical;
   overflow: hidden;
   font-size: 11px;
-  color: #7a9182;
+  color: var(--muted);
   line-height: 1.5;
   min-height: 26px;
 }
@@ -951,14 +985,14 @@ svg {
 }
 .metric-item small {
   font-size: 10px;
-  color: #94a399;
+  color: var(--muted);
 }
 .table-scroll {
   overflow: auto;
   max-height: 570px;
   border-top: 1px solid var(--line);
   scrollbar-width: thin;
-  scrollbar-color: #dce7df transparent;
+  scrollbar-color: #e2e7eb transparent;
 }
 .analysis-table {
   border-collapse: separate;
@@ -973,7 +1007,7 @@ svg {
   padding: 13px 16px;
   font-size: 11px;
   font-weight: 500;
-  color: #6a8072;
+  color: var(--muted);
   position: sticky;
   top: 0;
   z-index: 1;
@@ -997,14 +1031,14 @@ svg {
   display: block;
   font-size: 9px;
   font-weight: 400;
-  color: #96a39a;
+  color: var(--muted);
   margin-top: 5px;
 }
 .analysis-table td {
   padding: 0 10px;
   border-bottom: 1px solid var(--line);
   font-variant-numeric: tabular-nums;
-  color: #4a6252;
+  color: #4d555e;
   height: 40px;
 }
 .analysis-table td:first-child {
@@ -1033,13 +1067,13 @@ svg {
 .value-cell:hover,
 .value-cell.selected {
   background: var(--card);
-  color: #247344;
+  color: var(--accent-ink);
 }
 .missing-cell {
   display: block;
   text-align: right;
   padding-right: 6px;
-  color: #b5c0b8;
+  color: var(--muted);
 }
 .table-footer {
   display: flex;
@@ -1047,7 +1081,7 @@ svg {
   align-items: center;
   padding: 8px 16px;
   font-size: 10px;
-  color: #809689;
+  color: var(--muted);
   gap: 10px;
   border-bottom: 1px solid var(--line);
 }
@@ -1057,12 +1091,12 @@ svg {
   gap: 7px;
 }
 .muted {
-  color: #adb8b1;
+  color: var(--muted);
 }
 .no-match {
   padding: 25px;
   font-size: 13px;
-  color: #8f9e94;
+  color: var(--muted);
   text-align: center;
 }
 .evidence-note {
@@ -1071,7 +1105,7 @@ svg {
   gap: 7px;
   font-size: 11px;
   line-height: 1.8;
-  color: #8b9c91;
+  color: var(--muted);
   padding: 16px 19px;
 }
 .evidence-note svg {
@@ -1089,7 +1123,7 @@ svg {
   justify-content: space-between;
   align-items: center;
   font-size: 12px;
-  color: #587a64;
+  color: var(--muted);
 }
 .detail-heading > span {
   display: flex;
@@ -1115,11 +1149,11 @@ svg {
   line-height: 1.6;
 }
 .cell-detail dt {
-  color: #8ca093;
+  color: var(--muted);
 }
 .cell-detail dd {
   margin: 0;
-  color: #52705d;
+  color: var(--muted);
   overflow-wrap: anywhere;
 }
 .result-chart {
@@ -1136,7 +1170,7 @@ svg {
   justify-content: space-between;
   align-items: center;
   font-size: 12px;
-  color: #587a64;
+  color: var(--muted);
 }
 .chart-heading > span {
   display: flex;
@@ -1153,19 +1187,19 @@ svg {
   padding: 3px 9px;
   border-radius: 999px;
   border: 1px solid var(--line);
-  color: #587a64;
+  color: var(--muted);
   background: var(--card);
 }
 .chart-groups button.active {
   background: var(--card);
-  border-color: #9cc5ab;
-  color: #2f6b45;
+  border-color: var(--accent);
+  color: var(--accent-ink);
 }
 .chart-loading,
 .chart-empty,
 .chart-note {
   font-size: 11px;
-  color: #8b9c91;
+  color: var(--muted);
   margin: 6px 0 0;
 }
 .proof-chain {
@@ -1174,7 +1208,7 @@ svg {
   border-top: 1px solid var(--line);
   font-size: 11px;
   line-height: 1.6;
-  color: #52705d;
+  color: var(--muted);
 }
 .proof-headline {
   display: flex;
@@ -1184,7 +1218,7 @@ svg {
   margin-bottom: 10px;
 }
 .proof-chain.available .proof-headline {
-  color: #2f7a4b;
+  color: var(--accent-ink);
 }
 .proof-chain.partial .proof-headline,
 .proof-chain.unavailable .proof-headline {
@@ -1219,7 +1253,7 @@ svg {
   display: grid;
   place-items: center;
   background: var(--card);
-  color: #3f7657;
+  color: var(--accent-ink);
 }
 .proof-layer h4 {
   margin: 2px 0 2px;
@@ -1236,7 +1270,7 @@ svg {
   display: flex;
   gap: 4px;
   align-items: center;
-  color: #8ca093;
+  color: var(--muted);
 }
 .proof-note {
   display: flex;
@@ -1266,7 +1300,7 @@ svg {
 .panel-description {
   font-size: 12px;
   line-height: 1.9;
-  color: #7b9082;
+  color: var(--muted);
   margin: 12px 0 22px;
 }
 .panel-stat {
@@ -1286,12 +1320,12 @@ svg {
 .panel-stat span,
 .panel-stat small {
   font-size: 12px;
-  color: #8a9d90;
+  color: var(--muted);
 }
 .helper {
   font-size: 12px;
   line-height: 1.9;
-  color: #9ba99f;
+  color: var(--muted);
   margin: 10px 0 18px;
 }
 .series-list article {
@@ -1301,7 +1335,7 @@ svg {
 .series-source {
   font-size: 10px;
   letter-spacing: 1px;
-  color: #5d9774;
+  color: var(--accent-ink);
 }
 .series-list h3 {
   font-size: 12px;
@@ -1314,16 +1348,16 @@ svg {
   align-items: center;
   gap: 7px;
   font-size: 12px;
-  color: #82998a;
+  color: var(--muted);
   margin-bottom: 5px;
 }
 .series-list small {
   font-size: 11px;
-  color: #a1afa5;
+  color: var(--muted);
 }
 .series-list details {
   font-size: 11px;
-  color: #9dad9f;
+  color: var(--muted);
   margin-top: 9px;
 }
 .series-list summary {
@@ -1349,19 +1383,19 @@ svg {
   font-size: 13px;
 }
 .settings-list dt {
-  color: #8a9e90;
+  color: var(--muted);
 }
 .settings-list dd {
   margin: 0;
   text-align: right;
-  color: #4b6e57;
+  color: var(--muted);
 }
 .panel-callout {
   padding: 18px;
   background: var(--card);
   display: flex;
   gap: 12px;
-  color: #679276;
+  color: var(--muted);
   border-radius: 10px;
   margin-top: 25px;
 }
@@ -1764,7 +1798,7 @@ svg {
   width: 100%;
   border: 0;
   background: transparent;
-  color: #e7f2ec;
+  color: var(--accent-light);
   font-size: 12px;
   outline: none;
 }
@@ -1781,7 +1815,7 @@ svg {
   padding: 5px 8px;
 }
 .chat-toggle:hover {
-  color: #d9e7df;
+  color: var(--accent-light);
   background: #ffffff10;
 }
 .chat-toggle.on {
@@ -1845,7 +1879,7 @@ svg {
   min-width: 0;
   border: 0;
   background: transparent;
-  color: #d6e6df;
+  color: var(--accent-light);
   font-size: 12px;
   text-align: left;
   padding: 7px 6px;
@@ -1860,7 +1894,7 @@ svg {
 .chat-open small {
   display: block;
   font-size: 10px;
-  color: #93a8a2;
+  color: var(--sidebar-muted);
 }
 .chat-row.stored .bubble {
   opacity: 0.85;
@@ -1873,7 +1907,7 @@ svg {
   border: 1px solid var(--line);
   border-radius: 7px;
   background: var(--card);
-  color: #3d6b56;
+  color: var(--accent-ink);
   font-size: 11px;
   padding: 4px 9px;
   cursor: pointer;
@@ -2035,12 +2069,12 @@ svg {
 .answer-feedback > button.chosen {
   border-color: var(--accent);
   background: var(--card);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .answer-feedback button.link {
   border: 0;
   background: transparent;
-  color: #3d6b56;
+  color: var(--accent-ink);
   text-decoration: underline;
   padding: 3px 2px;
 }
@@ -2048,7 +2082,7 @@ svg {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  color: #3d6b56;
+  color: var(--accent-ink);
 }
 .feedback-form {
   flex-basis: 100%;
@@ -2078,7 +2112,7 @@ svg {
 .feedback-reasons button.chosen {
   border-color: var(--accent);
   background: var(--card);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .feedback-form textarea {
   min-height: 56px;
@@ -2143,7 +2177,7 @@ svg {
 .feedback-score button.chosen {
   border-color: var(--accent);
   background: var(--card);
-  color: var(--accent);
+  color: var(--accent-ink);
   font-weight: 600;
 }
 
@@ -2175,7 +2209,7 @@ svg {
 .knowledge-filters button.chosen {
   border-color: var(--accent);
   background: var(--card);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .knowledge-filters button:disabled {
   opacity: 0.5;
@@ -2198,7 +2232,7 @@ svg {
   margin: 0;
 }
 .knowledge-head small {
-  color: #6b7a72;
+  color: var(--muted);
 }
 .series-source.user {
   color: var(--muted);
@@ -2269,7 +2303,7 @@ svg {
 .evidence-graph-toggle > summary {
   cursor: pointer;
   font-size: 11.5px;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .evidence-graph {
   margin: 8px 0 0;
@@ -2281,12 +2315,12 @@ svg {
 }
 .evidence-graph figcaption {
   font-size: 10.5px;
-  color: #6b7a72;
+  color: var(--muted);
   margin-top: 4px;
 }
 .evidence-node rect {
   fill: #fff;
-  stroke: #cfdcd4;
+  stroke: #c3ccd4;
   stroke-width: 1;
 }
 .evidence-node.step rect {
@@ -2304,19 +2338,19 @@ svg {
 .evidence-label {
   font-size: 11px;
   font-weight: 600;
-  fill: #26352d;
+  fill: #2a2f34;
 }
 .evidence-detail {
   font-size: 9.5px;
-  fill: #6b7a72;
+  fill: #626b75;
 }
 .evidence-edge {
   fill: none;
-  stroke: #9fb8aa;
+  stroke: #a7b1ba;
   stroke-width: 1.3;
 }
 .evidence-arrow {
-  fill: #9fb8aa;
+  fill: #a7b1ba;
 }
 
 /* Full trace reader: every conversation's runs, every step whole. */
@@ -2430,7 +2464,7 @@ svg {
 }
 .trace-seq {
   min-width: 26px;
-  color: #9aa8a1;
+  color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 .trace-size {
