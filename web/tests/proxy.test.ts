@@ -507,3 +507,45 @@ test("conversation routes pass only with their key, method and bounded query", a
     404,
   );
 });
+
+test("a turn's cancel passes only as a keyed POST to that exact turn", async () => {
+  const seen: { url: string; method: string; headers: Headers }[] = [];
+  const transport: typeof fetch = async (url, init) => {
+    seen.push({
+      url: String(url),
+      method: init?.method ?? "GET",
+      headers: new Headers(init?.headers),
+    });
+    return Response.json({ ok: true }, { status: 202 });
+  };
+  const path = `v1/sessions/${sid}/turns/${"c".repeat(32)}/cancel`;
+  const keyed = {
+    "x-kkb-session-token": token,
+    "content-type": "application/json",
+  };
+
+  const sent = await forward(
+    request(path, "POST", keyed, "{}"),
+    path.split("/"),
+    transport,
+  );
+  assert.equal(sent.status, 202);
+  assert.match(seen[0].url, new RegExp(`/${path}$`));
+  assert.equal(seen[0].headers.get("X-KKB-Session-Token"), token);
+
+  // Without the key, with another method, or under another name: nothing is forwarded.
+  for (const [target, method, headers] of [
+    [path, "POST", { "content-type": "application/json" }],
+    [path, "GET", keyed],
+    [`v1/sessions/${sid}/turns/${"c".repeat(32)}/stop`, "POST", keyed],
+    [`v1/sessions/${sid}/turns/cancel`, "POST", keyed],
+  ] as const) {
+    const refused = await forward(
+      request(target, method, headers, method === "POST" ? "{}" : undefined),
+      target.split("/"),
+      transport,
+    );
+    assert.equal(refused.status, 404, `${method} ${target}`);
+  }
+  assert.equal(seen.length, 1);
+});

@@ -40,6 +40,8 @@ ErrorCode = Literal[
     "body_too_large",
     "document_rejected",
     "invalid_document",
+    "cancelled",
+    "knowledge_rejected",
 ]
 TurnState = Literal["queued", "running", "completed", "failed"]
 
@@ -365,7 +367,7 @@ class RunSummary(ContractModel):
     run_id: Reference
     turn_id: Reference
     question: Text
-    status: Literal["running", "completed", "failed"]
+    status: Literal["running", "completed", "failed", "cancelled"]
     answer_status: AnswerStatus | None = None
     error: ErrorCode | Code | None = None
     result_ref: Reference | None = None
@@ -421,6 +423,8 @@ class FeedbackRequest(ContractModel):
     rating: Literal["up", "down"]
     comment: Annotated[str, StringConstraints(strict=True, max_length=2000)] | None = None
     reasons: Annotated[tuple[FeedbackReason, ...], Field(max_length=8)] = ()
+    #: How useful the answer was, 1 (not at all) to 5 (fully); optional.
+    score: Annotated[int, Field(strict=True, ge=1, le=5)] | None = None
 
 
 class Feedback(ContractModel):
@@ -432,6 +436,8 @@ class Feedback(ContractModel):
     rating: Literal["up", "down"]
     comment: Annotated[str, StringConstraints(strict=True, max_length=2000)] | None = None
     reasons: Annotated[tuple[FeedbackReason, ...], Field(max_length=8)] = ()
+    #: How useful the answer was, 1 (not at all) to 5 (fully); optional.
+    score: Annotated[int, Field(strict=True, ge=1, le=5)] | None = None
     created_at: AwareDatetime
     updated_at: AwareDatetime
 
@@ -439,3 +445,161 @@ class Feedback(ContractModel):
 class FeedbackList(ContractModel):
     api_version: Literal[1] = 1
     feedback: Annotated[tuple[Feedback, ...], Field(max_length=200)] = ()
+
+
+# -- Knowledge base (DEC-157) --------------------------------------------------
+
+#: A catalog identity as the API shows it: reviewed ids and USER:<slug>.v<N>.
+SeriesIdentity = Annotated[
+    str, StringConstraints(strict=True, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}$")
+]
+Slug = Annotated[str, StringConstraints(strict=True, pattern=r"^[a-z][a-z0-9_]{2,39}$")]
+ShortText = Annotated[str, StringConstraints(strict=True, min_length=1, max_length=200)]
+LongText = Annotated[str, StringConstraints(strict=True, max_length=1000)]
+AliasText = Annotated[str, StringConstraints(strict=True, min_length=1, max_length=120)]
+MAX_KNOWLEDGE_OBSERVATIONS = 5000
+
+
+class KnowledgeSeries(ContractModel):
+    """One entry the agent can know about, and where its meaning comes from."""
+
+    series_id: SeriesIdentity
+    title: str
+    provider: str
+    #: reviewed: from the reviewed catalog; user: declared by a person here.
+    origin: Literal["reviewed", "user"]
+    status: Literal["active", "archived", "unknown"]
+    #: Stored in the prepared pool every conversation starts from.
+    prepared: bool
+    #: Not stored yet, but fetched from its reviewed source on first use (DEC-155).
+    fetchable: bool
+    unit: str | None
+    scale: str
+    frequency: str
+    stock_flow: str
+    cumulative: str
+    base_year: int | None = None
+    coverage_start: date | None = None
+    coverage_end: date | None = None
+    observations: int | None = None
+    aliases: tuple[str, ...] = ()
+    note: str | None = None
+    version: int | None = None
+    slug: str | None = None
+    updated_at: AwareDatetime | None = None
+    #: When the series was last fetched from its reviewed source (DEC-159).
+    acquired_at: AwareDatetime | None = None
+
+
+class KnowledgeList(ContractModel):
+    api_version: Literal[1] = 1
+    #: Digest of the catalog a turn searches now; equals the reviewed one when nothing is added.
+    catalog_digest: str
+    reviewed_digest: str
+    series: Annotated[tuple[KnowledgeSeries, ...], Field(max_length=80)] = ()
+
+
+class ObservationIn(ContractModel):
+    period_end: date
+    value: float | None
+
+
+class DocumentColumnRef(ContractModel):
+    """Read a dataset's numbers from a table already uploaded to one of your conversations."""
+
+    session_id: Reference
+    document_ref: Reference
+    period_column: ShortText
+    value_column: ShortText
+    sheet: ShortText | None = None
+    year: Annotated[int, Field(ge=1900, le=2100)] | None = None
+
+
+class DatasetRequest(ContractModel):
+    """A dataset and the meaning its author declares; every save is a new version."""
+
+    slug: Slug
+    title: ShortText
+    description: LongText | None = None
+    unit: ShortText
+    scale: Literal["one", "thousand", "million", "billion"]
+    frequency: Literal["weekly", "monthly", "quarterly", "annual"]
+    #: Required for weekly data: the weekday each period ends on.
+    weekly_anchor: (
+        Literal["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] | None
+    ) = None
+    stock_flow: Literal["stock", "flow", "rate", "index"]
+    cumulative: Literal["none", "yearly_reset", "since_inception"] = "none"
+    aggregation: Literal["sum", "average", "first", "last", "min", "max"]
+    base_year: Annotated[int, Field(ge=1900, le=2100)] | None = None
+    aliases: Annotated[tuple[AliasText, ...], Field(max_length=10)] = ()
+    observations: Annotated[
+        tuple[ObservationIn, ...], Field(max_length=MAX_KNOWLEDGE_OBSERVATIONS)
+    ] = ()
+    document: DocumentColumnRef | None = None
+
+    @model_validator(mode="after")
+    def one_source(self) -> Self:
+        if bool(self.observations) == (self.document is not None):
+            raise ValueError("give either observations or a document column, not both")
+        if self.document is not None and self.frequency != "monthly":
+            raise ValueError("a document column is read by month")
+        if (self.frequency == "weekly") != (self.weekly_anchor is not None):
+            raise ValueError("weekly data needs its anchor weekday, and only weekly data has one")
+        return self
+
+
+class DatasetVersionSummary(ContractModel):
+    version: int
+    status: Literal["active", "archived"]
+    observations: int
+    content_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+    created_at: AwareDatetime
+
+
+class StoredObservation(ContractModel):
+    period_start: date
+    period_end: date
+    value: float | None
+
+
+class DatasetDetail(ContractModel):
+    api_version: Literal[1] = 1
+    series: KnowledgeSeries
+    source_kind: Literal["upload", "manual"]
+    description: str | None = None
+    aggregation: str
+    observations: Annotated[
+        tuple[StoredObservation, ...], Field(max_length=MAX_KNOWLEDGE_OBSERVATIONS)
+    ] = ()
+    history: Annotated[tuple[DatasetVersionSummary, ...], Field(max_length=500)] = ()
+
+
+class SeriesNoteRequest(ContractModel):
+    archived: bool
+    aliases: Annotated[tuple[AliasText, ...], Field(max_length=10)] = ()
+    note: LongText | None = None
+
+
+class SeriesNoteVersion(ContractModel):
+    version: int
+    archived: bool
+    aliases: tuple[str, ...]
+    note: str | None
+    created_at: AwareDatetime
+
+
+class SeriesNoteHistory(ContractModel):
+    api_version: Literal[1] = 1
+    series_id: SeriesIdentity
+    history: Annotated[tuple[SeriesNoteVersion, ...], Field(max_length=500)] = ()
+
+
+class SeriesValues(ContractModel):
+    """A prepared series' stored observations, as the seed holds them."""
+
+    api_version: Literal[1] = 1
+    series_id: SeriesIdentity
+    observations: Annotated[
+        tuple[StoredObservation, ...], Field(max_length=MAX_KNOWLEDGE_OBSERVATIONS)
+    ] = ()

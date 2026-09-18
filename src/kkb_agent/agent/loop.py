@@ -17,6 +17,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Final, Literal
 
+from kkb_agent.agent.cancellation import checkpoint
 from kkb_agent.agent.claim_qualifiers import controlled_count_label
 from kkb_agent.agent.diagnostics import PlanAttempt
 from kkb_agent.agent.discovery import (
@@ -187,6 +188,8 @@ HISTORY_HEADER = (
     "'önceki cevap' or 'o tablo'; figures in them are not new evidence:"
 )
 MAX_HISTORY_TURNS = 6
+#: Characters the earlier-results block may take; older tables collapse to one line.
+MAX_WORKSPACE_PROMPT_CHARS = 6000
 MAX_HISTORY_CHARS = 700
 
 
@@ -245,6 +248,38 @@ def collect_results(outcome: ExecutionOutcome) -> tuple[AnalyticalResult, ...]:
         elif isinstance(item.output, AnalyticalResult):
             found.append(item.output)
     return tuple(found)
+
+
+SEARCH_HEADER: Final = (
+    "Web aramasında bulunan kaynak adayları (doğrulanmamış keşif bilgisi; sayfalar okunmadı):"
+)
+SEARCH_FOOTER: Final = "Bir sayfadaki tabloyu okumamı istersen adresini sorunda yaz."
+SEARCH_LIMITATION: Final = (
+    "Search results are untrusted discovery metadata: titles and addresses as the "
+    "search service returned them, not facts, and no page was fetched"
+)
+
+
+def search_listing(outcome: ExecutionOutcome) -> str | None:
+    """A fixed-format list of what `web_search` found, one candidate per line.
+
+    Deterministic, not model prose: nothing is summarized or interpreted, and
+    each candidate sits on its own line so the gate can withhold a single line
+    whose title carries a figure nothing verified.
+    """
+    lines: list[str] = []
+    for item in outcome.results:
+        if item.tool != "web_search" or item.status not in (
+            ToolStatus.SUCCESS,
+            ToolStatus.PARTIAL,
+        ):
+            continue
+        for candidate in getattr(item.output, "candidates", ()):
+            title = " ".join(str(candidate.title).split())[:160]
+            lines.append(f"- {title} — {candidate.domain}: {candidate.url}")
+    if not lines:
+        return None
+    return "\n".join([SEARCH_HEADER, *lines[:10], SEARCH_FOOTER])
 
 
 def render_results(named: Mapping[str, AnalyticalResult]) -> str:
@@ -423,8 +458,14 @@ def workspace_prompt(workspace: Workspace) -> str | None:
 
     Labels and reviewed series names are system-produced metadata. Values stay
     out: the planner chooses operations, it never reads or restates figures.
+
+    The block has a budget (`MAX_WORKSPACE_PROMPT_CHARS`). The newest tables are
+    described in full; when a long conversation outgrows the budget, older ones
+    keep a one-line entry — name, producer, coverage — so every table stays
+    reachable by name, and the prompt says that their column labels were left
+    out rather than silently losing them.
     """
-    lines: list[str] = []
+    entries: list[tuple[str, list[str]]] = []
     for name in workspace.names():
         if workspace.is_stale(name) or workspace.resolve(name).value_ref is None:
             continue
@@ -440,20 +481,35 @@ def workspace_prompt(workspace: Workspace) -> str | None:
             if result.coverage is not None
             else "unknown"
         )
-        lines.append(
-            f"- {name}: produced by {result.tool} ({result.method}), coverage {coverage}; "
-            "column labels: " + " | ".join(labels)
-        )
+        head = f"- {name}: produced by {result.tool} ({result.method}), coverage {coverage}"
+        full = [f"{head}; column labels: " + " | ".join(labels)]
         names = result.parameters.get("series_names")
         if isinstance(names, dict):
             for series_id, meaning in names.items():
                 if isinstance(meaning, str):
-                    lines.append(f"  {series_id} means: {meaning}")
-    if not lines:
+                    full.append(f"  {series_id} means: {meaning}")
+        entries.append((head, full))
+    if not entries:
         return None
+    lines: list[str] = []
+    used = 0
+    compacted = 0
+    # Newest first while budgeting, then restored to publication order.
+    for head, full in reversed(entries):
+        size = sum(len(line) + 1 for line in full)
+        short = f"{head}; labels omitted"
+        # Compact only what is over budget and only when that actually saves space.
+        if used + size <= MAX_WORKSPACE_PROMPT_CHARS or len(short) + 1 >= size:
+            lines[:0] = full
+            used += size
+        else:
+            lines[:0] = [short]
+            used += len(short) + 1
+            compacted += 1
+    note = " Older tables marked 'labels omitted' are still usable by name." if compacted else ""
     return (
         "Results published in earlier turns of this conversation (values omitted). "
-        "Refer to them by name:\n" + "\n".join(lines)
+        "Refer to them by name:" + note + "\n" + "\n".join(lines)
     )
 
 
@@ -646,6 +702,7 @@ class Session:
 
     def _planner_call(self, messages: list[Message], phase: str, attempt: int) -> Completion:
         """One planning request, recorded with the exact context and what came back."""
+        checkpoint(f"planner.{phase}")
         if self.tracer is None:
             return self.provider.complete(messages, model=self.model, schema=AnalyticalPlan)
         with self.tracer.span("planning", f"planner.{phase}") as span:
@@ -789,6 +846,8 @@ class Session:
         if planned.plan.reply is not None:
             return self._reply(planned, outcome, planned.plan.reply, connection, workspace, gate)
         results = collect_results(outcome)
+        if not results and (listing := search_listing(outcome)) is not None:
+            return self._search_answer(planned, outcome, listing, connection, workspace, gate)
         if not results:
             return Answered(
                 planned,
@@ -983,6 +1042,33 @@ class Session:
                 )
         return answer
 
+    def _search_answer(
+        self,
+        planned: Planned,
+        outcome: ExecutionOutcome,
+        listing: str,
+        connection: DuckDBPyConnection | None,
+        workspace: Workspace | None,
+        gate: Mapping[str, object],
+    ) -> Answered:
+        """Discovery results shown as found: gated like a reply, never published."""
+        available = workspace.values() if workspace is not None else {}
+        if self.tracer is not None:
+            self.tracer.event("answer", "search.listing", source="web_search", detail=listing)
+            self.tracer.event(
+                "publication",
+                "workspace.not_published",
+                status="skipped",
+                reason="search results are discovery metadata, not a result",
+            )
+        answer = gate_answer(listing, available, connection, **gate)  # type: ignore[arg-type]
+        return Answered(
+            planned,
+            outcome,
+            (),
+            replace(answer, limitations=(*answer.limitations, SEARCH_LIMITATION)),
+        )
+
     def _reply(
         self,
         planned: Planned,
@@ -1043,6 +1129,7 @@ class Session:
             if repair_numeric
             else ""
         )
+        checkpoint("writer")
         completion = self.provider.complete(
             [
                 Message(

@@ -15,8 +15,10 @@ import {
   Fingerprint,
   Table2,
   CircleHelp,
+  Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { EvidenceGraph } from "@/components/evidence-graph";
 import { ProofChain } from "@/components/proof-chain";
 import { ResultChart } from "@/components/result-chart";
 import {
@@ -28,13 +30,16 @@ import {
   type TableRow,
 } from "@/lib/table";
 import type { Cell, Dataset, Result } from "@/lib/contracts";
+import { download, evidencePackage, exportName, tableCsv } from "@/lib/export";
 
 export function ResultTable({
   result,
   dataset,
+  context,
 }: {
   result: Result;
   dataset: Dataset | null;
+  context?: { question?: string; answer?: string };
 }) {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Cell | null>(null);
@@ -117,6 +122,53 @@ export function ResultTable({
           <Table2 size={15} />
           {result.cells.length} kayıtlı değer
         </span>
+        <div className="table-export" aria-label="Tabloyu dışa aktar">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            title="Excel'de doğrudan açılır: noktalı virgül ayraç, virgül ondalık"
+            onClick={() =>
+              download(
+                tableCsv(result, dataset, "excel-tr"),
+                exportName(result, "csv", "-excel"),
+                "text/csv;charset=utf-8",
+              )
+            }
+          >
+            <Download size={14} /> Excel
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            title="Standart CSV: virgül ayraç, nokta ondalık, tam hassasiyet"
+            onClick={() =>
+              download(
+                tableCsv(result, dataset, "standard"),
+                exportName(result, "csv"),
+                "text/csv;charset=utf-8",
+              )
+            }
+          >
+            <Download size={14} /> CSV
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            title="Soru, cevap, sürüm, her hücre ve kanıt zinciri tek dosyada"
+            onClick={() =>
+              download(
+                evidencePackage(result, context),
+                exportName(result, "json", "-kanit"),
+                "application/json",
+              )
+            }
+          >
+            <Fingerprint size={14} /> Kanıt paketi
+          </Button>
+        </div>
         <label className="table-search">
           <Search size={15} />
           <input
@@ -300,6 +352,12 @@ export function ResultTable({
             </div>
           </dl>
           <ProofChain proof={result.proof} dataset={dataset} />
+          {result.proof.steps.length > 0 && (
+            <details className="evidence-graph-toggle">
+              <summary>Kanıt grafiği</summary>
+              <EvidenceGraph proof={result.proof} dataset={dataset} />
+            </details>
+          )}
         </section>
       )}
     </>

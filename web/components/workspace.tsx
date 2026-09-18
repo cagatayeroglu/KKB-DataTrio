@@ -14,6 +14,7 @@ import {
   MessageSquare,
   Archive,
   ArchiveRestore,
+  BookOpen,
   MessagesSquare,
   Paperclip,
   Pencil,
@@ -24,6 +25,7 @@ import {
   Settings2,
   ShieldCheck,
   Sparkles,
+  Square,
   Table2,
   X,
 } from "lucide-react";
@@ -32,22 +34,27 @@ import { ResultTable } from "@/components/result-table";
 import { Panel } from "@/components/panel";
 import { TracePanel } from "@/components/trace-panel";
 import { AnswerFeedback } from "@/components/answer-feedback";
+import {
+  KnowledgePanel,
+  type ChatDocument,
+} from "@/components/knowledge-panel";
 import { preparedTitle } from "@/lib/table";
 import { noticeText } from "@/lib/language";
 import {
   api,
+  ApiError,
   DOCUMENT_ACCEPT,
   admissionRejection,
+  cancelTurn,
   draftRequest,
   publishedResult,
   restoredSelection,
   admit,
   clearSession,
   describeError,
-  ensureOwner,
+  usableOwner,
   listConversations,
   listFeedback,
-  loadOwner,
   loadSession,
   newSession,
   openConversation,
@@ -103,11 +110,14 @@ export function Workspace() {
     [busy, setBusy] = useState(false),
     [issue, setIssue] = useState("");
   const [selected, setSelected] = useState<number>(-1),
-    [panel, setPanel] = useState<"data" | "settings" | null>(null),
+    [panel, setPanel] = useState<"data" | "knowledge" | "settings" | null>(
+      null,
+    ),
     [pendingIndex, setPendingIndex] = useState<number | null>(null),
     [attachment, setAttachment] = useState<DocumentAdmitted | null>(null),
     [dragging, setDragging] = useState(false),
-    [uploading, setUploading] = useState(false);
+    [uploading, setUploading] = useState(false),
+    [stopping, setStopping] = useState(false);
   // Conversations that outlive this tab: the browser's own key lists and reopens them.
   const [ownerToken, setOwnerToken] = useState<string | null>(null),
     [conversations, setConversations] = useState<ConversationSummary[]>([]),
@@ -117,13 +127,21 @@ export function Workspace() {
     [chatSearch, setChatSearch] = useState(""),
     [showArchived, setShowArchived] = useState(false),
     [renaming, setRenaming] = useState<string | null>(null),
-    [tracing, setTracing] = useState<{ runId?: string } | null>(null),
+    [tracing, setTracing] = useState<{
+      runId?: string;
+      turnId?: string;
+    } | null>(null),
     [ratings, setRatings] = useState<Record<string, Feedback>>({});
   const history =
     health?.capabilities.includes("conversation_history") ?? false;
   const pending = pendingIndex !== null;
   const uploads = health?.capabilities.includes("document_upload") ?? false;
   const ocr = health?.capabilities.includes("document_ocr") ?? false;
+  const acquisition =
+    health?.capabilities.includes("official_acquisition") ?? false;
+  const webSearch = health?.capabilities.includes("web_search") ?? false;
+  const knowledgeBase =
+    health?.capabilities.includes("knowledge_base") ?? false;
   const saved = useRef<Saved | null>(null),
     busyRef = useRef(false),
     mounted = useRef(false),
@@ -397,6 +415,22 @@ export function Workspace() {
             if (!["completed", "failed"].includes(turn.state)) resume.push(i);
           } catch (error) {
             if (!active()) return;
+            if (error instanceof ApiError && error.status === 404) {
+              // The server no longer has this tab's session (restarted, or a new
+              // state root). Broken turns would only mislead: start clean and say so.
+              try {
+                clearSession(sessionStorage);
+              } catch {
+                // Nothing stored to clear.
+              }
+              saved.current = null;
+              setItems([]);
+              setPendingIndex(null);
+              setSelected(-1);
+              setIssue(errorText.session_gone);
+              setReady(true);
+              return;
+            }
             setIssue(describeError(error));
             resume.push(i);
           }
@@ -430,8 +464,8 @@ export function Workspace() {
     let cancelled = false;
     void (async () => {
       try {
-        const token =
-          loadOwner(localStorage) ?? (await ensureOwner(localStorage));
+        // A key this server does not know (another state root) is replaced, not shown as an error.
+        const token = await usableOwner(localStorage);
         if (cancelled || !mounted.current) return;
         setOwnerToken(token);
         await refreshConversations(token);
@@ -517,6 +551,21 @@ export function Workspace() {
       }
     }
   }
+  async function stop() {
+    const state = saved.current;
+    const turnId =
+      pendingIndex === null ? undefined : items[pendingIndex]?.turn?.turn_id;
+    if (!state || !turnId) return;
+    setStopping(true);
+    try {
+      // Accepted, not immediate: the running turn is polled until it stops.
+      await cancelTurn(state.session.session_id, state.session.token, turnId);
+    } catch (error) {
+      setIssue(describeError(error));
+    } finally {
+      setStopping(false);
+    }
+  }
   function resetView() {
     if (busyRef.current || !ready) return;
     if (
@@ -547,6 +596,20 @@ export function Workspace() {
   const result = publishedResult(items[selected]?.turn);
   // Tables this conversation published, this tab's turns and the reopened ones:
   // what the agent may reach for without being pointed at it.
+  // Documents this conversation uploaded, offered to the knowledge-base form.
+  const chatDocuments: ChatDocument[] = saved.current
+    ? [
+        ...new Set(
+          items.flatMap((item) =>
+            item.document_ref ? [item.document_ref] : [],
+          ),
+        ),
+      ].map((ref, index) => ({
+        sessionId: saved.current!.session.session_id,
+        ref,
+        label: `Belge ${index + 1}`,
+      }))
+    : [];
   const contextTables =
     versions.length + transcript.filter((message) => message.result_ref).length;
   function sourceLabel(reference?: string) {
@@ -699,6 +762,14 @@ export function Workspace() {
             {dataset?.prepared_identities ?? "—"}
           </span>
         </button>
+        {knowledgeBase && ownerToken && (
+          <button
+            className={`nav-item ${panel === "knowledge" ? "chosen" : ""}`}
+            onClick={() => setPanel("knowledge")}
+          >
+            <BookOpen size={18} /> Bilgi tabanı
+          </button>
+        )}
         <button
           className={`nav-item ${panel === "settings" ? "chosen" : ""}`}
           onClick={() => setPanel("settings")}
@@ -995,7 +1066,9 @@ export function Workspace() {
                             <button
                               type="button"
                               className="trace-link"
-                              onClick={() => setTracing({ runId: undefined })}
+                              onClick={() =>
+                                setTracing({ turnId: item.turn?.turn_id })
+                              }
                             >
                               <Activity size={14} /> İşlem ayrıntıları
                             </button>
@@ -1038,6 +1111,19 @@ export function Workspace() {
                               ? "Analiz çalışıyor…"
                               : "İstek iletiliyor…"
                             : "Durum yeniden alınabilir."}
+                          {history &&
+                            conversationId &&
+                            item.turn?.state === "running" && (
+                              <button
+                                type="button"
+                                className="trace-link"
+                                onClick={() =>
+                                  setTracing({ turnId: item.turn?.turn_id })
+                                }
+                              >
+                                <Activity size={14} /> Canlı izle
+                              </button>
+                            )}
                         </p>
                       )}
                     </article>
@@ -1180,7 +1266,7 @@ export function Workspace() {
                       size="icon"
                       variant="ghost"
                       aria-label="Belge ekleme kapalı"
-                      title="Belge yükleme bu sunucuda kapalı. Açmak için servisi --enable-uploads ile başlat (taranmış PDF için ayrıca --enable-ocr)."
+                      title="Belge yükleme bu sunucuda kapatılmış (servis --no-uploads ile başlatılmış)."
                       disabled
                     >
                       <Paperclip size={17} />
@@ -1216,6 +1302,23 @@ export function Workspace() {
                       </Button>
                     </>
                   )}
+                  {pending && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={stopping}
+                      title="Çalışan model isteği bitince, bir sonraki adımdan önce durur."
+                      onClick={() => void stop()}
+                    >
+                      {stopping ? (
+                        <LoaderCircle size={14} className="spin" />
+                      ) : (
+                        <Square size={12} />
+                      )}{" "}
+                      Durdur
+                    </Button>
+                  )}
                   <Button
                     type="submit"
                     size="icon"
@@ -1236,9 +1339,11 @@ export function Workspace() {
             </form>
             {tracing && conversationId && ownerToken && (
               <TracePanel
+                key={tracing.turnId ?? tracing.runId ?? "latest"}
                 conversationId={conversationId}
                 token={ownerToken}
                 runId={tracing.runId}
+                turnId={tracing.turnId}
                 onClose={() => setTracing(null)}
               />
             )}
@@ -1291,6 +1396,10 @@ export function Workspace() {
                   key={result.result_ref}
                   result={result}
                   dataset={dataset}
+                  context={{
+                    question: items[selected]?.question,
+                    answer: items[selected]?.turn?.answer?.text,
+                  }}
                 />
               </>
             ) : (
@@ -1376,9 +1485,15 @@ export function Workspace() {
               </Button>
             </div>
             <h2 id="panel-title">
-              {panel === "data" ? "Veri havuzu" : "Çalışma ayarları"}
+              {panel === "data"
+                ? "Veri havuzu"
+                : panel === "knowledge"
+                  ? "Bilgi tabanı"
+                  : "Çalışma ayarları"}
             </h2>
-            {panel === "data" ? (
+            {panel === "knowledge" && ownerToken ? (
+              <KnowledgePanel owner={ownerToken} documents={chatDocuments} />
+            ) : panel === "data" ? (
               <>
                 <p className="panel-description">
                   Bu oturumun başlangıçta hazırlanan veri kopyası. Katalogda
@@ -1406,6 +1521,8 @@ export function Workspace() {
                 </Button>
                 <p className="helper">
                   Bu düğme BDDK / EVDS’den yeni veri çekmez.
+                  {acquisition &&
+                    " Bir soru havuzda olmayan incelenmiş bir EVDS/BDDK serisine ihtiyaç duyarsa seri kaynaktan çekilir, saklanır ve işlem kaydında görünür; sonraki sohbetler yeniden çekmez."}
                 </p>
                 <div className="series-list">
                   {dataset?.series.map((series) => (
@@ -1483,6 +1600,36 @@ export function Workspace() {
                   <div>
                     <dt>Kayıtlı veri kopyası</dt>
                     <dd>Oturumlar arasında ayrılır</dd>
+                  </div>
+                  <div>
+                    <dt>Belge yükleme</dt>
+                    <dd>
+                      {uploads ? "Açık · CSV, Excel, PDF, HTML" : "Kapalı"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Taranmış PDF (OCR)</dt>
+                    <dd>
+                      {ocr
+                        ? "Açık · tablolar sütun toplamıyla doğrulanır"
+                        : "Kapalı · OCR modeli tanımlı değil"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Web araması</dt>
+                    <dd>
+                      {webSearch
+                        ? "Açık · sonuçlar doğrulanmamış aday listesi olarak gösterilir"
+                        : "Kapalı · arama servisi tanımlı değil"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Resmî kaynaktan veri edinme</dt>
+                    <dd>
+                      {acquisition
+                        ? "Açık · incelenmiş EVDS/BDDK serileri gerektiğinde çekilir ve saklanır"
+                        : "Kapalı · yalnız hazır havuz kullanılır"}
+                    </dd>
                   </div>
                 </dl>
                 <div className="panel-callout">

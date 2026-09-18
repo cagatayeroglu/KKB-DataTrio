@@ -225,18 +225,8 @@ def month_end(raw: object, year: int | None = None) -> date | None:
     return None
 
 
-def read_column(
-    tables: list[Grid],
-    period_column: str,
-    value_column: str,
-    *,
-    year: int | None = None,
-    as_of: date | None = None,
-) -> DocumentColumn:
-    """The value column keyed by explicit months, from the one table holding both headers.
-
-    `year` is a year from the user's question, `as_of` the document's retrieval date.
-    """
+def _locate(tables: list[Grid], period_column: str, value_column: str) -> tuple[Grid, int, int]:
+    """The one table holding both headers, and their positions in it."""
     found: list[tuple[Grid, int, int]] = []
     for grid in tables:
         periods = [
@@ -256,12 +246,13 @@ def read_column(
     grid, period_index, value_index = found[0]
     if period_index == value_index:
         raise ColumnRefused("AMBIGUOUS_COLUMN")
-    header = _text(grid.headers[value_index])
-    unit, scale = header_semantics(header)
-    if unit is None or scale is Scale.UNKNOWN:
-        raise ColumnRefused("UNIT_NOT_STATED")
+    return grid, period_index, value_index
 
-    rules = RowRules.for_grid(grid, year=year, as_of=as_of)
+
+def _month_rows(
+    grid: Grid, period_index: int, value_index: int, rules: RowRules
+) -> tuple[tuple[date, float | None, str], ...]:
+    """Every explicit month and its value, refusing what would need a guess."""
     if not rules.column_checked(value_index):
         raise ColumnRefused("OCR_NOT_VALIDATED")
     rows: dict[date, tuple[float | None, str]] = {}
@@ -284,6 +275,27 @@ def read_column(
         rows[end] = (value, hashlib.sha256(_text(raw).encode()).hexdigest())
     if not rows:
         raise ColumnRefused("COLUMN_EMPTY")
+    return tuple((end, value, digest) for end, (value, digest) in sorted(rows.items()))
+
+
+def read_column(
+    tables: list[Grid],
+    period_column: str,
+    value_column: str,
+    *,
+    year: int | None = None,
+    as_of: date | None = None,
+) -> DocumentColumn:
+    """The value column keyed by explicit months, from the one table holding both headers.
+
+    `year` is a year from the user's question, `as_of` the document's retrieval date.
+    """
+    grid, period_index, value_index = _locate(tables, period_column, value_column)
+    header = _text(grid.headers[value_index])
+    unit, scale = header_semantics(header)
+    if unit is None or scale is Scale.UNKNOWN:
+        raise ColumnRefused("UNIT_NOT_STATED")
+    rules = RowRules.for_grid(grid, year=year, as_of=as_of)
     return DocumentColumn(
         location={**grid.location, "column_index": value_index + 1},
         period_header=_text(grid.headers[period_index]),
@@ -291,9 +303,29 @@ def read_column(
         unit=unit,
         scale=scale,
         measure=document_measure(unit, scale),
-        rows=tuple((end, value, digest) for end, (value, digest) in sorted(rows.items())),
+        rows=_month_rows(grid, period_index, value_index, rules),
         rules=rules,
     )
+
+
+def read_month_values(
+    tables: list[Grid],
+    period_column: str,
+    value_column: str,
+    *,
+    year: int | None = None,
+    as_of: date | None = None,
+) -> tuple[tuple[date, float | None, str], ...]:
+    """The same months and values as `read_column`, for a caller that declares the unit.
+
+    Every refusal but one is kept: an ambiguous or missing column, an unchecked
+    OCR column, an unrecognised or duplicated period, a cell that is not a single
+    number. Only the header's unit is not required, because the knowledge base
+    asks the person to state it (DEC-157) instead of reading it from a caption.
+    """
+    grid, period_index, value_index = _locate(tables, period_column, value_column)
+    rules = RowRules.for_grid(grid, year=year, as_of=as_of)
+    return _month_rows(grid, period_index, value_index, rules)
 
 
 def column_snapshot(

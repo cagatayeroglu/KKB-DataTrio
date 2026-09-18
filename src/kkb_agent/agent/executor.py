@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
+from kkb_agent.agent.cancellation import checkpoint
 from kkb_agent.agent.observer import Tracer
 from kkb_agent.agent.plan import AnalyticalPlan, ClarificationReason, PlanStep
 from kkb_agent.agent.registry import ArgumentsRejected, RegistryError, ToolRegistry
@@ -253,6 +254,7 @@ def execute(
                     reason="an earlier step failed",
                 )
             continue
+        checkpoint(f"tool.{validated.step.tool}")
         result = _traced_step(validated, registry, context, budget, selection, tracer)
         results.append(result)
         if result.status is ToolStatus.SUCCESS:

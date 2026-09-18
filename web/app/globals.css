@@ -2203,3 +2203,218 @@ dialog.panel-backdrop::backdrop {
   padding: 4px 9px;
   cursor: pointer;
 }
+
+.table-tools {
+  flex-wrap: wrap;
+}
+.table-tools > span {
+  white-space: nowrap;
+}
+/* Exports take their own row, so the count and the search never squeeze. */
+.table-export {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  order: 3;
+  width: 100%;
+}
+
+.feedback-score {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.feedback-score span {
+  margin-right: 4px;
+  font-size: 10.5px;
+  color: #4a5a52;
+}
+.feedback-score button {
+  min-width: 24px;
+  height: 22px;
+  border: 1px solid #dfe7e2;
+  border-radius: 6px;
+  background: #fff;
+  color: #4a5a52;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.feedback-score button.chosen {
+  border-color: #78ad94;
+  background: #eef7f2;
+  color: #2f6b4f;
+  font-weight: 600;
+}
+
+/* Knowledge base panel (DEC-157) */
+.knowledge-tools {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 10px 0 6px;
+}
+.knowledge-tools .table-search {
+  flex: 1;
+}
+.knowledge-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 6px 0 10px;
+}
+.knowledge-filters button {
+  border: 1px solid #dfe7e2;
+  border-radius: 999px;
+  background: #fff;
+  color: #4a5a52;
+  font-size: 11px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+.knowledge-filters button.chosen {
+  border-color: #78ad94;
+  background: #eef7f2;
+  color: #2f6b4f;
+}
+.knowledge-filters button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.knowledge-item {
+  padding: 0;
+}
+.knowledge-head {
+  display: grid;
+  width: 100%;
+  gap: 2px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+.knowledge-head h3 {
+  margin: 0;
+}
+.knowledge-head small {
+  color: #6b7a72;
+}
+.series-source.user {
+  color: #8a5a00;
+}
+.knowledge-detail {
+  display: grid;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+.knowledge-form {
+  display: grid;
+  gap: 6px;
+  font-size: 11.5px;
+  color: #4a5a52;
+}
+.knowledge-form.grid {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+.knowledge-form label {
+  display: grid;
+  gap: 3px;
+}
+.knowledge-form input,
+.knowledge-form select,
+.knowledge-form textarea {
+  border: 1px solid #dfe7e2;
+  border-radius: 7px;
+  padding: 5px 8px;
+  font: inherit;
+  background: #fff;
+}
+.knowledge-editor {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #dfe7e2;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  background: #fbfdfc;
+}
+.knowledge-editor header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.knowledge-values table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+}
+.knowledge-values td,
+.knowledge-values th {
+  border-bottom: 1px solid #eef2ef;
+  padding: 3px 6px;
+  text-align: left;
+}
+.knowledge-history {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 11px;
+  color: #4a5a52;
+}
+
+/* Evidence graph (proof drawn as a DAG) */
+.evidence-graph-toggle {
+  margin-top: 10px;
+}
+.evidence-graph-toggle > summary {
+  cursor: pointer;
+  font-size: 11.5px;
+  color: #2f6b4f;
+}
+.evidence-graph {
+  margin: 8px 0 0;
+  overflow-x: auto;
+}
+.evidence-graph svg {
+  min-width: 360px;
+  max-height: 420px;
+}
+.evidence-graph figcaption {
+  font-size: 10.5px;
+  color: #6b7a72;
+  margin-top: 4px;
+}
+.evidence-node rect {
+  fill: #fff;
+  stroke: #cfdcd4;
+  stroke-width: 1;
+}
+.evidence-node.step rect {
+  fill: #eef7f2;
+  stroke: #78ad94;
+}
+.evidence-node.document rect {
+  fill: #fbf8ef;
+  stroke: #d8c79a;
+}
+.evidence-node.unverified rect {
+  stroke: #c98a2b;
+  stroke-dasharray: 4 3;
+}
+.evidence-label {
+  font-size: 11px;
+  font-weight: 600;
+  fill: #26352d;
+}
+.evidence-detail {
+  font-size: 9.5px;
+  fill: #6b7a72;
+}
+.evidence-edge {
+  fill: none;
+  stroke: #9fb8aa;
+  stroke-width: 1.3;
+}
+.evidence-arrow {
+  fill: #9fb8aa;
+}

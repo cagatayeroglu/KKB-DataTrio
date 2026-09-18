@@ -105,3 +105,52 @@ def test_an_unanswered_turn_and_a_stranger_cannot_be_rated(launch):
         == 404
     )
     assert rate(client, sid, headers, answer["turn_id"], "maybe").status_code == 422
+
+
+def test_a_score_from_one_to_five_is_kept_and_out_of_range_is_refused(launch):
+    _, client = launch(reply("Merhaba."))
+    owner_token = owner(client)
+    sid, headers, _ = open_conversation(client, owner_token)
+    turn_id = ask(client, sid, headers, "Merhaba")["turn_id"]
+
+    scored = rate(client, sid, headers, turn_id, "up", score=4)
+    assert scored.status_code == 201 and scored.json()["score"] == 4
+    # Leaving it out is allowed and does not invent one.
+    unscored = rate(client, sid, headers, turn_id, "down").json()
+    assert unscored["score"] is None
+    for bad in (0, 6, "5", 4.5):
+        assert rate(client, sid, headers, turn_id, "up", score=bad).status_code == 422
+
+
+def test_a_store_from_before_scores_opens_and_keeps_its_ratings(tmp_path):
+    """The column is added in place; earlier ratings keep no score rather than a made-up one."""
+    import sqlite3
+
+    from kkb_agent.api.store import SCHEMA, ConversationStore
+
+    path = tmp_path / "old.sqlite"
+    legacy = SCHEMA.replace(
+        "    score           INTEGER CHECK (score IS NULL OR score BETWEEN 1 AND 5),\n", ""
+    )
+    assert "score" not in legacy.split("CREATE TABLE IF NOT EXISTS feedback")[1].split(");")[0]
+    with sqlite3.connect(path) as connection:
+        connection.executescript(legacy)
+        connection.execute("INSERT INTO owners VALUES ('o', 'd', '2026-09-18T00:00:00+00:00')")
+        connection.execute(
+            "INSERT INTO conversations (conversation_id, owner_id, token_digest, title, archived,"
+            " created_at, updated_at) VALUES ('c', 'o', 'd', 't', 0,"
+            " '2026-09-18T00:00:00+00:00', '2026-09-18T00:00:00+00:00')"
+        )
+        connection.execute(
+            "INSERT INTO feedback VALUES ('c', 't', 'a', NULL, NULL, 'up', NULL, '[]',"
+            " '2026-09-18T00:00:00+00:00', '2026-09-18T00:00:00+00:00')"
+        )
+
+    store = ConversationStore(path)
+    try:
+        (kept,) = store.ratings("c")
+        assert kept.rating == "up" and kept.score is None
+        rescored = store.rate("c", turn_id="t", answer_digest="a", rating="up", score=5)
+        assert rescored.score == 5
+    finally:
+        store.close()

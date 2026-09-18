@@ -9,12 +9,24 @@ export const DOCUMENT_TYPES = new Set([
   "text/html",
 ]);
 export const RESPONSE_LIMIT = 1024 * 1024;
+/** DEC-157: the one JSON body allowed past 16 KiB, a knowledge-base dataset. */
+export const KNOWLEDGE_LIMIT = 1024 * 1024;
 const REF = "[a-f0-9]{32}";
 const route = new RegExp(`^v1/sessions/${REF}/turns(?:/${REF})?$`);
 const documentRoute = new RegExp(`^v1/sessions/${REF}/documents$`);
 const conversationRoute = new RegExp(`^v1/conversations/${REF}$`);
 const runRoute = new RegExp(`^v1/conversations/${REF}/runs(?:/${REF})?$`);
 const feedbackRoute = new RegExp(`^v1/conversations/${REF}/feedback$`);
+const cancelRoute = new RegExp(`^v1/sessions/${REF}/turns/${REF}/cancel$`);
+const SLUG = "[a-z][a-z0-9_]{2,39}";
+const datasetRoute = new RegExp(`^v1/knowledge/datasets/${SLUG}$`);
+const datasetStatusRoute = new RegExp(
+  `^v1/knowledge/datasets/${SLUG}/(?:archive|restore)$`,
+);
+const notesRoute =
+  /^v1\/knowledge\/series\/[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}\/notes$/;
+const valuesRoute =
+  /^v1\/knowledge\/series\/[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}\/values$/;
 /** Only the conversation list carries a query, and only these bounded filters. */
 export const LIST_QUERY =
   /^(?:archived=(?:true|false)|search=[^&]{0,120})(?:&(?:archived=(?:true|false)|search=[^&]{0,120}))?$/;
@@ -113,6 +125,15 @@ export async function forward(
   const feedback = feedbackRoute.test(name);
   const turns = route.test(name);
   const documents = documentRoute.test(name);
+  const cancel = cancelRoute.test(name);
+  const knowledgeList = name === "v1/knowledge";
+  const datasetSave = name === "v1/knowledge/datasets";
+  const dataset = datasetRoute.test(name);
+  const datasetStatus = datasetStatusRoute.test(name);
+  const notes = notesRoute.test(name);
+  const values = valuesRoute.test(name);
+  const knowledge =
+    knowledgeList || datasetSave || dataset || datasetStatus || notes || values;
   const getTurn = turns && path.length === 5;
   const search = new URL(request.url).search.replace(/^\?/, "");
   if (search && !(list && LIST_QUERY.test(search)))
@@ -120,7 +141,16 @@ export async function forward(
   if (
     !(
       request.method === "GET" &&
-      (publicGet || getTurn || list || conversation || runs || feedback)
+      (publicGet ||
+        getTurn ||
+        list ||
+        conversation ||
+        runs ||
+        feedback ||
+        knowledgeList ||
+        dataset ||
+        notes ||
+        values)
     ) &&
     !(
       request.method === "POST" &&
@@ -128,16 +158,26 @@ export async function forward(
         owner ||
         documents ||
         feedback ||
+        cancel ||
+        datasetSave ||
+        datasetStatus ||
+        notes ||
         (turns && path.length === 4))
     ) &&
     !(request.method === "PATCH" && conversation)
   )
     return error("not_found", 404);
   const headers = new Headers({ Accept: "application/json" });
-  if (turns || documents || conversation || runs || feedback) {
+  if (turns || documents || conversation || runs || feedback || cancel) {
     const token = request.headers.get("x-kkb-session-token");
     if (!token || !tokenPattern.test(token)) return error("not_found", 404);
     headers.set("X-KKB-Session-Token", token);
+  }
+  if (knowledge) {
+    // The knowledge base is the browser key's: every read and edit names its owner.
+    const key = request.headers.get("x-kkb-owner-token");
+    if (!key || !tokenPattern.test(key)) return error("not_found", 404);
+    headers.set("X-KKB-Owner-Token", key);
   }
   if (list || creation) {
     // The browser's own key: required to list, optional only where the backend says so.
@@ -192,15 +232,13 @@ export async function forward(
         )
       )
         return error("invalid_request", 415);
+      const limit = datasetSave ? KNOWLEDGE_LIMIT : BODY_LIMIT;
       const declared = request.headers.get("content-length");
-      if (
-        declared &&
-        (!/^\d+$/.test(declared) || Number(declared) > BODY_LIMIT)
-      )
+      if (declared && (!/^\d+$/.test(declared) || Number(declared) > limit))
         return error("body_too_large", 413);
       try {
         body = new TextDecoder("utf-8", { fatal: true }).decode(
-          await boundedRead(request.body, BODY_LIMIT, controller.signal),
+          await boundedRead(request.body, limit, controller.signal),
         );
       } catch {
         return error(

@@ -7,10 +7,17 @@ import secrets
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
 from uuid import uuid4
 
+from kkb_agent.agent.cancellation import (
+    CancelToken,
+    TurnCancelled,
+    cancellable,
+    checkpoint,
+)
 from kkb_agent.agent.loop import PlanningFailed
 from kkb_agent.agent.verifier import AnswerStatus
 from kkb_agent.api.contracts import (
@@ -107,6 +114,8 @@ class _Session:
     turns: dict[str, Turn] = field(default_factory=dict)
     requests: dict[str, tuple[str, str]] = field(default_factory=dict)
     documents: set[str] = field(default_factory=set)
+    #: One cancel flag per admitted turn, read at the turn's checkpoints.
+    cancels: dict[str, CancelToken] = field(default_factory=dict)
 
 
 def answer_digest(text: str) -> str:
@@ -115,7 +124,10 @@ def answer_digest(text: str) -> str:
 
 
 class AnalysisService:
-    """No implicit expiration/deletion/restart recovery, cancellation or retries.
+    """No implicit expiration/deletion/restart recovery or retries.
+
+    Cancellation is explicit and cooperative (DEC-156): `cancel` raises a turn's
+    flag and the turn stops at its next checkpoint, never mid-request.
 
     Eight sessions, twenty-four turns each, one active turn globally. Admission
     is atomic; capacity is checked before submitting to the executor, so its
@@ -131,6 +143,9 @@ class AnalysisService:
         document_store: DocumentStore | None = None,
         store: ConversationStore | None = None,
         ocr: bool = False,
+        official_acquisition: bool = False,
+        knowledge: bool = False,
+        web_search: bool = False,
     ):
         if mode not in ("kloudeks", "scripted"):
             raise ValueError("An explicit execution mode is required")
@@ -144,6 +159,11 @@ class AnalysisService:
         self._store = store
         # Scanned pages are read only when the operator enabled OCR (DEC-149).
         self._ocr = ocr
+        # Reviewed official series are fetched on first use only when enabled (DEC-155).
+        self._official_acquisition = official_acquisition
+        # The knowledge base routes exist only when the operator supplied its store.
+        self._knowledge = knowledge
+        self._web_search = web_search
         self._mode = mode
         self._sessions: dict[str, _Session] = {}
         self._lock = threading.RLock()
@@ -162,6 +182,12 @@ class AnalysisService:
                 capabilities = (*capabilities, "conversation_history")
             if self._ocr:
                 capabilities = (*capabilities, "document_ocr")
+            if self._official_acquisition:
+                capabilities = (*capabilities, "official_acquisition")
+            if self._knowledge:
+                capabilities = (*capabilities, "knowledge_base")
+            if self._web_search:
+                capabilities = (*capabilities, "web_search")
             return Health(execution_mode=self._mode, capabilities=capabilities)
 
     def create_owner(self) -> OwnerCreated:
@@ -375,6 +401,7 @@ class AnalysisService:
             reasons=request.reasons,
             run_id=run.run_id if run is not None else None,
             result_version=answered.result_version,
+            score=request.score,
         )
         return self._feedback(stored)
 
@@ -399,6 +426,7 @@ class AnalysisService:
                 "reasons": item.reasons,
                 "created_at": item.created_at,
                 "updated_at": item.updated_at,
+                "score": item.score,
             }
         )
 
@@ -462,6 +490,7 @@ class AnalysisService:
             )
             session.turns[turn_id] = turn
             session.requests[question.request_id] = (digest, turn_id)
+            cancel = session.cancels[turn_id] = CancelToken()
             self._busy = True
             try:
                 self._executor.submit(
@@ -472,11 +501,13 @@ class AnalysisService:
                     selected,
                     question.is_continuation,
                     question.document_ref,
+                    cancel,
                 )
             except RuntimeError:
                 self._busy = False
                 del session.turns[turn_id]
                 del session.requests[question.request_id]
+                del session.cancels[turn_id]
                 raise ServiceError("unavailable", 503) from None
             return turn.model_copy(deep=True)
 
@@ -504,6 +535,23 @@ class AnalysisService:
             # Unknown/foreign/unpublished/ambiguous references are indistinguishable.
             raise ServiceError("invalid_result", 422)
         return matches[0]
+
+    def cancel(self, session_id: str, token: str, turn_id: str) -> Turn:
+        """Ask a queued or running turn to stop at its next checkpoint.
+
+        Cooperative, never forced: a model request already in flight finishes,
+        then the turn stops before the next planner call, tool step or answer.
+        Cancelling a finished turn changes nothing and returns it as it is.
+        """
+        with self._lock:
+            session = self._owned(session_id, token)
+            turn = session.turns.get(turn_id)
+            if turn is None:
+                raise ServiceError("not_found", 404)
+            flag = session.cancels.get(turn_id)
+            if flag is not None and turn.state in ("queued", "running"):
+                flag.cancel()
+            return turn.model_copy(deep=True)
 
     def get_turn(self, session_id: str, token: str, turn_id: str) -> Turn:
         with self._lock:
@@ -549,12 +597,27 @@ class AnalysisService:
         selected: SelectedResult | None,
         is_continuation: bool | None = None,
         document_ref: str | None = None,
+        cancel: CancelToken | None = None,
+    ) -> None:
+        # Every checkpoint inside this turn reads this turn's own flag.
+        with cancellable(cancel) if cancel is not None else nullcontext():
+            self._run_turn(session_id, turn_id, question, selected, is_continuation, document_ref)
+
+    def _run_turn(
+        self,
+        session_id: str,
+        turn_id: str,
+        question: str,
+        selected: SelectedResult | None,
+        is_continuation: bool | None,
+        document_ref: str | None,
     ) -> None:
         start = time.monotonic()
         answer = None
         error: ErrorCode | None = None
         try:
             self._transition(session_id, turn_id, "running", start)
+            checkpoint("start")
             if selected is None:
                 output = (
                     self._runner(session_id, turn_id, question, is_continuation=is_continuation)
@@ -587,6 +650,8 @@ class AnalysisService:
             answer = Answer.model_validate(output.model_dump())
             if len(answer.model_dump_json().encode()) > MAX_RESPONSE_BYTES - 4096:
                 raise OutputRefused("output_limit")
+        except TurnCancelled:
+            error = "cancelled"
         except PlanningFailed:
             error = "planning_failed"
         except ProviderError:
@@ -609,6 +674,7 @@ class AnalysisService:
                     error=error,
                 )
                 self._busy = False
+                self._sessions[session_id].cancels.pop(turn_id, None)
 
     def close(self) -> None:
         with self._lock:

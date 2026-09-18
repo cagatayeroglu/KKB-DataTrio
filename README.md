@@ -116,6 +116,8 @@ The backend API accepts optional flags at startup to enable additional data acqu
 | Flag | Capability |
 | --- | --- |
 | `--enable-web-url` | Read tables and data from user-supplied URLs, including same-site link follow and script endpoint datasets ([DEC-150](docs/DECISIONS.md#dec-150--prompt-address-authority-same-site-link-follow-and-script-endpoint-datasets)) |
+| `--searxng-url URL` | Register `web_search` over a SearXNG instance; results are an unverified candidate list ([DEC-158](docs/DECISIONS.md#dec-158--searxng-as-the-web_search-backend-and-search-results-shown-as-a-fixed-list)) |
+| `--no-official-acquisition` | Refuse fetching reviewed EVDS series and BDDK housing selectors the prepared pool lacks. Acquisition is on by default and fetched responses are kept under the state root ([DEC-155](docs/DECISIONS.md#dec-155--a-reviewed-evds-series-outside-the-prepared-pool-is-fetched-on-first-use), DEC-159) |
 | `--no-uploads` | Refuse CSV/XLSX/PDF uploads. They are admitted by default, with the conversation document library (`belge_1..N`) |
 | `--no-ocr` | Refuse OCR. It is on whenever `KLOUDEKS_OCR_MODEL` names the DEC-129 OCR model ([DEC-149](docs/DECISIONS.md#dec-149--ocr-tables-count-only-through-a-column-total-check), [DEC-153](docs/DECISIONS.md#dec-153--capabilities-follow-their-configuration-and-the-agent-reads-continuation-itself)) |
 
