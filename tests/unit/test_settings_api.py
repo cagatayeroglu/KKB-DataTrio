@@ -171,3 +171,23 @@ def test_a_turn_carries_the_owners_choices_only_when_they_made_one(api):
 
     assert seen[0] is None
     assert seen[1] is not None and seen[1].disabled == frozenset({"web_search"})
+
+
+def test_the_prompt_parts_are_readable_with_their_digests_and_nothing_is_editable(api):
+    """The sources model calls are assembled from; reading is the whole contract."""
+    import hashlib
+
+    client, _ = api
+    key = {"X-KKB-Owner-Token": owner(client)}
+
+    body = client.get("/v1/prompts", headers=key).json()
+    assert len(body["parts"]) >= 8
+    by_id = {part["part_id"]: part for part in body["parts"]}
+    assert "planner.system" in by_id and "writer.synthesis" in by_id
+    for part in body["parts"]:
+        assert part["content"].strip() and part["title"].strip()
+        assert hashlib.sha256(part["content"].encode()).hexdigest() == part["content_sha256"]
+
+    # No editor exists: a write to the surface is not a route.
+    assert client.post("/v1/prompts", json={}, headers=key).status_code in (404, 405)
+    assert client.get("/v1/prompts").status_code == 422  # the owner key is required

@@ -22,6 +22,7 @@ import {
   turnSchema,
   vectorIndexSchema,
   seriesUsesSchema,
+  promptPartsSchema,
   savedSchema,
   type DocumentAdmitted,
   type Saved,
@@ -217,6 +218,10 @@ export function saveSettings(
 }
 
 // -- Knowledge base (DEC-157): every read and edit carries the browser's key.
+export function readPrompts(owner: string) {
+  // The prompt parts as the deployment holds them; there is nothing to write.
+  return api("prompts", promptPartsSchema, {}, undefined, owner);
+}
 export function listKnowledge(owner: string) {
   return api("knowledge", knowledgeListSchema, {}, undefined, owner);
 }

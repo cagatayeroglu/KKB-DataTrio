@@ -76,6 +76,7 @@ model call. Do not overwrite older evidence to hide a conflicting source revisio
 | POST `/v1/sessions/{session_id}/documents` | Raw CSV/XLSX/PDF/HTML body with its content type; token header | Admitted document reference; HTTP 201 |
 | POST `/v1/owner` | JSON `{}` | The browser's owner key, which lists and reopens its own conversations |
 | GET / PATCH `/v1/settings` | Owner key header; PATCH body `disabled`, `history_turns` | The owner's restrict-only runtime choices ([DEC-162](DECISIONS.md#dec-162--a-browser-narrows-its-own-runtime-only-the-operator-widens-it)) |
+| GET `/v1/prompts` | Owner key header | The prompt parts model calls are assembled from, each with its content digest; read-only by design |
 | GET `/v1/conversations` (+ `q`, `archived` filters) | Owner key header | This browser's conversations, newest first |
 | GET / PATCH `/v1/conversations/{id}` | Owner key or conversation token | Messages and documents; PATCH renames or archives |
 | GET `/v1/conversations/{id}/runs`, `/runs/{run_id}`, `/runs/{run_id}/steps/{seq}` | Owner key or conversation token | Recorded runs, their trace steps, and one step's full detail |

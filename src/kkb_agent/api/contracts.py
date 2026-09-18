@@ -584,6 +584,23 @@ class SearchTrial(ContractModel):
     input_policy_id: str | None = None
 
 
+class PromptPart(ContractModel):
+    """One source a model call's messages are assembled from, as the code holds it."""
+
+    part_id: Code
+    title: str
+    sent_when: str
+    content: str
+    content_sha256: Digest
+
+
+class PromptParts(ContractModel):
+    """The deployment's prompt parts; reading is the whole contract (no editor)."""
+
+    api_version: Literal[1] = 1
+    parts: Annotated[tuple[PromptPart, ...], Field(max_length=64)] = ()
+
+
 class SeriesUse(ContractModel):
     """One answer whose proof read the series: where it lives and what was asked."""
 

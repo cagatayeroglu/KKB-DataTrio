@@ -54,6 +54,7 @@ import {
   usableOwner,
   listConversations,
   readSettings,
+  readPrompts,
   saveSettings,
   listFeedback,
   loadSession,
@@ -78,6 +79,7 @@ import {
   type StoredMessage,
   type Turn,
   type RuntimeSettings,
+  type PromptParts,
 } from "@/lib/contracts";
 
 const examples = [
@@ -155,6 +157,8 @@ export function Workspace() {
     [uploading, setUploading] = useState(false),
     [stopping, setStopping] = useState(false);
   // Conversations that outlive this tab: the browser's own key lists and reopens them.
+  const [prompts, setPrompts] = useState<PromptParts | null>(null),
+    [openPrompt, setOpenPrompt] = useState<string | null>(null);
   const [ownerToken, setOwnerToken] = useState<string | null>(null),
     [conversations, setConversations] = useState<ConversationSummary[]>([]),
     [conversationId, setConversationId] = useState<string | null>(null),
@@ -220,6 +224,12 @@ export function Workspace() {
       setSettings(await readSettings(token));
     } catch (error) {
       setIssue(describeError(error));
+    }
+    try {
+      setPrompts(await readPrompts(token));
+    } catch {
+      // An older server has no prompts route; the section says so itself.
+      setPrompts(null);
     }
   }
   async function changeSetting(change: {
@@ -1778,6 +1788,45 @@ export function Workspace() {
                         değildir.
                       </p>
                     </div>
+                    <h3 className="settings-group">Sistem istemi</h3>
+                    <p className="helper">
+                      Modele giden mesajların kaynak parçaları, içerik
+                      özetleriyle. Her model çağrısının gönderilmiş tam istemi
+                      işlem kayıtlarında; buradaki parçalar koddan okunur ve
+                      tarayıcıdan değiştirilemez — bir oturum kendini denetleyen
+                      kuralları yumuşatamaz.
+                    </p>
+                    {prompts === null ? (
+                      <p className="helper">
+                        Bu sunucu istem parçalarını sunmuyor (eski sürüm).
+                      </p>
+                    ) : (
+                      <ul className="prompt-parts">
+                        {prompts.parts.map((part) => (
+                          <li key={part.part_id}>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setOpenPrompt(
+                                  openPrompt === part.part_id
+                                    ? null
+                                    : part.part_id,
+                                )
+                              }
+                            >
+                              <span>
+                                {part.title}
+                                <small>{part.sent_when}</small>
+                              </span>
+                              <code>{part.content_sha256.slice(0, 8)}</code>
+                            </button>
+                            {openPrompt === part.part_id && (
+                              <pre>{part.content}</pre>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                     <p className="helper">
                       {history
                         ? "Sohbetler, mesajlar, yüklenen belgeler, yayımlanan tablolar ve işlem kayıtları yeniden başlatmadan sonra da açılır. Bu tarayıcının anahtarı silinirse eski sohbetlere ulaşılamaz. Arşivlemek veri silmez."

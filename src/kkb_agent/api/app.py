@@ -33,6 +33,7 @@ from kkb_agent.api.contracts import (
     Health,
     KnowledgeList,
     OwnerCreated,
+    PromptParts,
     Question,
     Reference,
     RunDetail,
@@ -53,6 +54,7 @@ from kkb_agent.api.contracts import (
 )
 from kkb_agent.api.knowledge_service import KnowledgeService
 from kkb_agent.api.prepared import PreparedStatus
+from kkb_agent.api.prompts import prompt_parts
 from kkb_agent.api.service import AnalysisService, ServiceError
 from kkb_agent.core.models import ContractModel
 from kkb_agent.ingest.fetched import DOCUMENT_MEDIA_TYPES
@@ -370,6 +372,12 @@ def create_app(
     def update_settings(owner: OwnerToken, body: SettingsUpdate) -> RuntimeSettings:
         # A browser may narrow its own runtime; widening is not expressible here.
         return service.update_settings(owner, body)
+
+    @app.get("/v1/prompts", response_model=PromptParts)
+    def prompts(owner: OwnerToken) -> PromptParts:
+        # The parts model calls are assembled from, with digests; never an editor.
+        service.health()
+        return prompt_parts()
 
     @app.get("/v1/knowledge", response_model=KnowledgeList)
     def knowledge_list(owner: OwnerToken) -> KnowledgeList:
