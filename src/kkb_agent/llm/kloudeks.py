@@ -161,6 +161,10 @@ class KloudeksProvider:
                 "messages": _wire_messages(conversation),
                 # Plans and summaries should not change between identical runs.
                 "temperature": 0.0,
+                # A memory/safety ceiling on runaway generation, not a latency
+                # knob: set well above any real plan or answer, so a legitimate
+                # call is never truncated (DEC-161 follow-up).
+                "max_tokens": self._config.max_output_tokens,
             }
             if json_mode:
                 # Opt-in only: Q-K-03 has not confirmed guaranteed JSON output,

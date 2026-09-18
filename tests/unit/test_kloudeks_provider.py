@@ -135,6 +135,8 @@ class TestTheKeyGoesToOneDestination:
         ]
         assert body["temperature"] == 0.0
         assert "response_format" not in body
+        # A memory/safety ceiling, generous enough never to truncate a real call.
+        assert body["max_tokens"] == 16384
 
     def test_leading_system_turns_travel_as_one(self):
         # M4-15's live run: the served model answers 400 to two system
@@ -538,3 +540,14 @@ class TestWhatACallCost:
         planned, written = server.bodies()
         assert "chat_template_kwargs" not in planned
         assert written["chat_template_kwargs"] == {"enable_thinking": False}
+
+
+def test_a_completion_ceiling_below_a_real_call_is_refused_but_a_generous_one_is_used():
+    """The ceiling guards runaway generation; it may not be set low enough to truncate."""
+    with pytest.raises(ConfigurationError):
+        config(max_output_tokens=1024)
+
+    server = Server(chat("ok"))
+    provider(server, max_output_tokens=20000).complete([Message(Role.USER, PROMPT)])
+    (body,) = server.bodies()
+    assert body["max_tokens"] == 20000
