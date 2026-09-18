@@ -426,6 +426,12 @@ class PreparedRunner:
         # "önceki cevap" after an unrelated message; analytical state stays in
         # the workspace, never here.
         self._history: dict[str, list[tuple[str, str]]] = {}
+        # Series identities the catalog returned earlier in each conversation. A plan
+        # naming only these may skip the discovery phase, which otherwise costs a
+        # planner round trip per turn for an identity already proven. Bounded by the
+        # catalog itself. Held in memory: after a restart it starts empty, so the turn
+        # simply searches again, which is the previous behaviour and never less safe.
+        self._proven: dict[str, set[str]] = {}
         self._lock = threading.Lock()
 
     def __call__(
@@ -858,6 +864,7 @@ class PreparedRunner:
                     catalog_continuation=True,
                     selection=selected_table,
                     require_series_discovery=self._dense is not None,
+                    proven_series=frozenset(self._proven.get(session_id, ())),
                     repair_period_wording=True,
                     repair_unmatched_numbers=True,
                     documents_note=document_note,
@@ -878,6 +885,9 @@ class PreparedRunner:
                         effective_question, lake.connection, workspace=workspace, remember=name
                     )
                 except Exception as failure:
+                    # The catalog vouched for whatever it returned, even if the turn
+                    # failed afterwards, so the next turn need not ask again.
+                    self._proven.setdefault(session_id, set()).update(session.newly_proven)
                     # A failed or cancelled turn is still a run someone can open and read.
                     cancelled = isinstance(failure, TurnCancelled)
                     if cancelled:
@@ -891,6 +901,7 @@ class PreparedRunner:
                             events=tracer.events,
                         )
                     raise
+                self._proven.setdefault(session_id, set()).update(session.newly_proven)
                 published = workspace.value_of(name) if name in workspace.names() else None
                 answer = project_answer(
                     answered,

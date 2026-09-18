@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 
 from kkb_agent.agent.executor import (
     ExecutionOutcome,
@@ -10,8 +11,10 @@ from kkb_agent.agent.executor import (
     RejectionCategory,
     ToolStatus,
     ValidatedPlan,
+    ValidatedStep,
 )
 from kkb_agent.catalog.search import CatalogCandidate, CatalogSearchOutput
+from kkb_agent.core import declared_series_identities
 
 MAX_DISCOVERY_QUERIES = 4
 MAX_DISCOVERY_BYTES = 32 * 1024
@@ -55,6 +58,36 @@ REQUIRED_DISCOVERY_INSTRUCTIONS = (
     "series or deflating needs discovery of the added series or price index first. "
     "Clarification without tools is still permitted."
 )
+
+
+def required_discovery_instructions(
+    proven: frozenset[str], names: Mapping[str, str] | None = None
+) -> str:
+    """The required-discovery rule, naming identities this conversation already proved.
+
+    Without this, the rule ("always search first") contradicts what the harness
+    now admits (a plan naming only proven identities), and the planner spends its
+    reasoning reconciling the two. Listing the identities also removes the second
+    search outright: the planner can see it already has what it needs.
+    """
+    if not proven:
+        return REQUIRED_DISCOVERY_INSTRUCTIONS
+    listed = "; ".join(
+        f"{identity} ({names[identity]})" if names and identity in names else identity
+        for identity in sorted(proven)
+    )
+    return (
+        "Catalog search has already established these series identities in this "
+        f"conversation: {listed}. Use them directly in analysis steps; do not search "
+        "for them again. "
+        "Before reading any series NOT listed above, you MUST first plan catalog_search "
+        "only, searching separately for each needed measure. Direct analysis is also "
+        "permitted for table_transform rebase/align/filter/join_table/to_flow/resample "
+        "or change_detection table_co_movement over existing workspace columns. "
+        "Clarification without tools is still permitted."
+    )
+
+
 WEB_ADDRESS_INSTRUCTIONS = (
     "A web address written in the question is read with web_url, or its table column is "
     "added to a published table with table_transform add_document_column, directly and "
@@ -63,13 +96,38 @@ WEB_ADDRESS_INSTRUCTIONS = (
 )
 
 
-def needs_series_discovery(plan: ValidatedPlan) -> bool:
+def proven_identities(outcome: ExecutionOutcome) -> frozenset[str]:
+    """Series identities this conversation's catalog searches actually returned.
+
+    Only the catalog vouches for an identity. A value the planner wrote, or one
+    that appears in a question or a document, is never proven by being seen.
+    """
+    found: set[str] = set()
+    for item in outcome.results:
+        if (
+            item.tool != "catalog_search"
+            or item.status is not ToolStatus.SUCCESS
+            or not isinstance(item.output, CatalogSearchOutput)
+        ):
+            continue
+        for candidate in item.output.candidates:
+            found.add(candidate.series.record.series_id)
+    return frozenset(found)
+
+
+def needs_series_discovery(plan: ValidatedPlan, proven: frozenset[str] = frozenset()) -> bool:
     """Only existing-column operations and prompt addresses may bypass discovery in hybrid mode.
 
     This is an execution admission rule, not a keyword guess about the question.
     Unknown/new tool operations conservatively require discovery. `web_url` reads
     a document, not a catalog series; its own rule admits only an address the user
     wrote, so the catalog cannot and need not authorize it.
+
+    A step also passes when every catalog identity it names is already `proven` —
+    the catalog returned it earlier in this same conversation, so searching for it
+    again buys no authority and costs a planning round trip. The identities come
+    from the argument contract (`SeriesId`), not from field names, and a step whose
+    arguments can hide one (`OpaqueSeriesReference`, such as SQL) never qualifies.
     """
     workspace_operations = {
         "table_transform": {
@@ -87,8 +145,20 @@ def needs_series_discovery(plan: ValidatedPlan) -> bool:
         step.step.tool not in ("catalog_search", "web_url")
         and step.arguments.model_dump().get("operation")
         not in workspace_operations.get(step.step.tool, set())
+        and not _already_proven(step, proven)
         for step in plan.steps
     )
+
+
+def _already_proven(step: ValidatedStep, proven: frozenset[str]) -> bool:
+    """True when the catalog already returned every identity this step names.
+
+    An empty identity set does not qualify: a step that reads a series without
+    naming one, or names it somewhere the contract does not mark, must still go
+    through discovery rather than pass on an absence of evidence.
+    """
+    named = declared_series_identities(step.arguments)
+    return named is not None and bool(named) and named <= proven
 
 
 CLARIFICATION_TEXT = {
@@ -113,6 +183,7 @@ def validate_discovery_phase(
     continuation: bool,
     used_ids: frozenset[str] = frozenset(),
     require_series_discovery: bool = False,
+    proven_series: frozenset[str] = frozenset(),
 ) -> None:
     names = {v.step.tool for v in plan.steps}
     if any(v.step.step_id in used_ids for v in plan.steps):
@@ -142,7 +213,7 @@ def validate_discovery_phase(
                 "Catalog queries must be independent",
                 category=RejectionCategory.DISCOVERY_RULE,
             )
-    elif require_series_discovery and needs_series_discovery(plan):
+    elif require_series_discovery and needs_series_discovery(plan, proven_series):
         raise PlanRejected(
             "New series require a catalog_search phase before analysis",
             category=RejectionCategory.DISCOVERY_RULE,

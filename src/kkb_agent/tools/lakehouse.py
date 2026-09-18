@@ -35,7 +35,7 @@ import hashlib
 import json
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 import duckdb
 from pydantic import BaseModel, ConfigDict, Field
@@ -43,7 +43,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
 from kkb_agent.agent.registry import ToolSpec
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
-from kkb_agent.core import AnalyticalResult, ResultStatus
+from kkb_agent.core import AnalyticalResult, OpaqueSeriesReference, ResultStatus
 from kkb_agent.database import all_tables
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.lakehouse.result_evidence import _record_execution, canonical
@@ -70,7 +70,8 @@ class LakehouseArguments(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    sql: str = Field(min_length=1, max_length=8000)
+    # SQL can name any series; the admission rule cannot enumerate them from text.
+    sql: Annotated[str, OpaqueSeriesReference()] = Field(min_length=1, max_length=8000)
     purpose: str = Field(default="", max_length=500)
 
 

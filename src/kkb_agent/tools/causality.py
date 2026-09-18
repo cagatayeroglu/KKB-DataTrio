@@ -39,7 +39,7 @@ from kkb_agent.analytics import (
     lagged_association,
 )
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
-from kkb_agent.core import AnalyticalResult, ResultStatus
+from kkb_agent.core import AnalyticalResult, ResultStatus, SeriesId
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.lakehouse.result_evidence import _record_execution
 from kkb_agent.tools.change_detection import SeriesUnknown, read_series
@@ -67,8 +67,8 @@ class CausalityArguments(BaseModel):
             "at every order up to max_lag, in both directions."
         )
     )
-    left_series_id: str = Field(min_length=1, max_length=200)
-    right_series_id: str = Field(min_length=1, max_length=200)
+    left_series_id: SeriesId = Field(min_length=1, max_length=200)
+    right_series_id: SeriesId = Field(min_length=1, max_length=200)
     max_lag: int = Field(
         default=DEFAULT_MAX_LAG,
         ge=0,
