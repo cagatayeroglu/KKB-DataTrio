@@ -7,7 +7,6 @@ import {
   Search,
   ThumbsDown,
   ThumbsUp,
-  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -360,11 +359,9 @@ function RunView({
 export function TracesPage({
   owner,
   initialConversation,
-  onClose,
 }: {
   owner: string;
   initialConversation?: string | null;
-  onClose: () => void;
 }) {
   const [archived, setArchived] = useState(false);
   const [search, setSearch] = useState("");
@@ -446,23 +443,11 @@ export function TracesPage({
       onClick={(e) => e.stopPropagation()}
     >
       <header className="traces-head">
-        <div>
-          <span className="eyebrow">HATA AYIKLAMA</span>
-          <h2 id="panel-title">İşlem kayıtları</h2>
-        </div>
+        <h2 id="panel-title">İşlem kayıtları</h2>
         <p>
           Her turda modele giden istemler, araç çağrıları ve dönen çıktıların
           tamamı. Açmak yeni analiz başlatmaz.
         </p>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Kapat"
-          autoFocus
-          onClick={onClose}
-        >
-          <X size={19} />
-        </Button>
       </header>
       {issue && <p className="notice">{issue}</p>}
       <div className="traces-body">

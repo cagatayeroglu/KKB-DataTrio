@@ -31,7 +31,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ResultTable } from "@/components/result-table";
-import { Panel } from "@/components/panel";
 import { TracePanel } from "@/components/trace-panel";
 import { TracesPage } from "@/components/traces-page";
 import { AnswerFeedback } from "@/components/answer-feedback";
@@ -621,7 +620,6 @@ export function Workspace() {
       : "Kaynak tablo yüklenemedi";
   }
   const current = items.at(-1)?.turn;
-  const number = (value: number) => value.toLocaleString("tr-TR");
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -658,15 +656,12 @@ export function Workspace() {
             </label>
             <button
               type="button"
-              className="chat-toggle"
+              className={`chat-toggle ${showArchived ? "on" : ""}`}
+              aria-pressed={showArchived}
               onClick={() => setShowArchived((value) => !value)}
             >
-              {showArchived ? (
-                <ArchiveRestore size={13} />
-              ) : (
-                <Archive size={13} />
-              )}
-              {showArchived ? "Arşivdekiler" : "Arşivi göster"}
+              <Archive size={13} />
+              {showArchived ? "Arşiv · açık" : "Arşiv"}
             </button>
             <div className="chat-items">
               {conversations.length === 0 && (
@@ -748,9 +743,11 @@ export function Workspace() {
             </div>
           </section>
         )}
-        <button className="nav-item active" onClick={() => setPanel(null)}>
-          <MessageSquare size={18} /> Analiz stüdyosu{" "}
-          <span className="nav-dot" />
+        <button
+          className={`nav-item ${panel === null ? "chosen" : ""}`}
+          onClick={() => setPanel(null)}
+        >
+          <MessageSquare size={18} /> Analiz stüdyosu
         </button>
         <button
           className={`nav-item ${panel === "data" ? "chosen" : ""}`}
@@ -776,18 +773,7 @@ export function Workspace() {
           <Settings2 size={18} /> Çalışma ayarları
         </button>
         <div className="sidebar-bottom">
-          <div className="trust-icon">
-            <ShieldCheck size={20} />
-          </div>
-          <strong>Her sayının bir izi var.</strong>
-          <p>
-            Kontrollü araçlar.
-            <br />
-            İzlenebilir hesaplamalar.
-          </p>
-          <div className="sidebar-event">
-            KKB HACKATHON <span>2026</span>
-          </div>
+          <span>KKB Hackathon 2026</span>
         </div>
       </aside>
       <main className="main-shell">
@@ -795,7 +781,15 @@ export function Workspace() {
           <div>
             <span className="breadcrumb">Çalışma alanı</span>
             <span className="slash">/</span>
-            <strong>Analiz stüdyosu</strong>
+            <strong>
+              {panel === "data"
+                ? "Veri ve bilgi tabanı"
+                : panel === "traces"
+                  ? "İşlem kayıtları"
+                  : panel === "settings"
+                    ? "Çalışma ayarları"
+                    : "Analiz stüdyosu"}
+            </strong>
           </div>
           <div className="topbar-right">
             <span className={`connection ${health ? "online" : "offline"}`}>
@@ -806,7 +800,6 @@ export function Workspace() {
                   ? "Yerel servis hazır"
                   : "Servis kapalı"}
             </span>
-            <span className="avatar">A</span>
           </div>
         </header>
         {health?.execution_mode === "scripted" && (
@@ -818,851 +811,810 @@ export function Workspace() {
             </span>
           </div>
         )}
-        <section className="page-heading">
-          <div>
-            <div className="eyebrow">
-              <span /> FİNANSAL ANALİZ ÇALIŞMA ALANI
-            </div>
-            <h1>
-              İyi sorular. <span>İzlenebilir cevaplar.</span>
-            </h1>
-            <p>
-              Hazır verileri keşfet, karşılaştır ve aynı tablo üzerinde analizi
-              derinleştir.
-            </p>
-          </div>
-          <Button
-            variant="outline"
-            onClick={resetView}
-            disabled={busy || !ready}
-          >
-            <Plus size={16} /> Yeni çalışma
-          </Button>
-        </section>
-        <section className="data-bar" aria-label="Hazır veri durumu">
-          <div className="data-bar-title">
-            <span className="data-icon">
-              <Database size={20} />
-            </span>
-            <span>
-              <strong>Hazır veri havuzu</strong>
-              <small>
-                {dataset
-                  ? "BDDK & TCMB EVDS · Yerel kopya"
-                  : "Bağlantı bekleniyor"}
-              </small>
-            </span>
-          </div>
-          <div className="data-stat">
-            <strong>
-              {dataset ? number(dataset.prepared_identities) : "—"}
-            </strong>
-            <span>hazır seri</span>
-          </div>
-          <div className="data-stat">
-            <strong>{dataset ? number(dataset.observation_rows) : "—"}</strong>
-            <span>gözlem</span>
-          </div>
-          <div className="data-stat">
-            <strong>
-              {dataset ? number(dataset.catalog_identities) : "—"}
-            </strong>
-            <span>katalog kaydı</span>
-          </div>
-          <button className="text-action" onClick={() => setPanel("data")}>
-            Kapsamı incele <ArrowUpRight size={16} />
-          </button>
-        </section>
-        {connectionError && (
-          <div className="connection-alert" role="status">
-            <span>{connectionError}</span>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={loading}
-              onClick={() => void refresh()}
-            >
-              <RefreshCw size={14} /> Yeniden bağlan
-            </Button>
-          </div>
-        )}
-        <div className="analysis-grid">
-          <section className="conversation-card">
-            <div className="card-heading">
-              <span>
-                <Sparkles size={17} /> Analist
-              </span>
-              <span className="mini-tag">
-                {health?.execution_mode === "scripted" ? "PROVA" : "KLOUDEKS"}
-              </span>
-            </div>
-            <div className="conversation-body">
-              {!items.length ? (
-                <div className="welcome">
-                  <div className="welcome-symbol">
-                    <Layers3 size={27} />
-                  </div>
-                  <h2>Neyi inceleyelim?</h2>
-                  <p>
-                    Bir dönem, bir ölçü, bir soru.
-                    <br />
-                    Analizin buradan başlasın.
-                  </p>
-                  <div className="suggestions">
-                    {examples.map((example) => (
-                      <button
-                        key={example.tag}
-                        onClick={() => {
-                          setQuestion(example.question);
-                          input.current?.focus();
-                        }}
-                      >
-                        <small>{example.tag}</small>
-                        <span>
-                          {example.title}
-                          <ArrowRight size={15} />
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                  <div className="welcome-tip">
-                    <CircleHelp size={15} />
-                    <span>
-                      Sorunda dönemi ve ölçüyü belirtmen doğru veriyi seçmeye
-                      yardımcı olur.
-                    </span>
-                  </div>
+        {panel === null ? (
+          <>
+            <section className="page-heading">
+              <div>
+                <h1>Analiz stüdyosu</h1>
+              </div>
+              <Button
+                variant="outline"
+                onClick={resetView}
+                disabled={busy || !ready}
+              >
+                <Plus size={16} /> Yeni çalışma
+              </Button>
+            </section>
+            {connectionError && (
+              <div className="connection-alert" role="status">
+                <span>{connectionError}</span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={loading}
+                  onClick={() => void refresh()}
+                >
+                  <RefreshCw size={14} /> Yeniden bağlan
+                </Button>
+              </div>
+            )}
+            <div className="analysis-grid">
+              <section className="conversation-card">
+                <div className="card-heading">
+                  <span>
+                    <Sparkles size={17} /> Analist
+                  </span>
+                  <span className="mini-tag">
+                    {health?.execution_mode === "scripted"
+                      ? "PROVA"
+                      : "KLOUDEKS"}
+                  </span>
                 </div>
-              ) : (
-                <div className="messages">
-                  {transcript.map((message) => (
-                    <div
-                      key={`stored-${message.sequence}`}
-                      className={`chat-row ${message.role === "user" ? "user" : "agent"} stored`}
-                    >
-                      <div className="bubble">
-                        {message.role === "assistant" && (
+                <div className="conversation-body">
+                  {!items.length ? (
+                    <div className="welcome">
+                      <div className="welcome-symbol">
+                        <Layers3 size={27} />
+                      </div>
+                      <h2>Neyi inceleyelim?</h2>
+                      <p>
+                        Bir dönem, bir ölçü, bir soru.
+                        <br />
+                        Analizin buradan başlasın.
+                      </p>
+                      <div className="suggestions">
+                        {examples.map((example) => (
+                          <button
+                            key={example.tag}
+                            onClick={() => {
+                              setQuestion(example.question);
+                              input.current?.focus();
+                            }}
+                          >
+                            <small>{example.tag}</small>
+                            <span>
+                              {example.title}
+                              <ArrowRight size={15} />
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                      <div className="welcome-tip">
+                        <CircleHelp size={15} />
+                        <span>
+                          Sorunda dönemi ve ölçüyü belirtmen doğru veriyi
+                          seçmeye yardımcı olur.
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="messages">
+                      {transcript.map((message) => (
+                        <div
+                          key={`stored-${message.sequence}`}
+                          className={`chat-row ${message.role === "user" ? "user" : "agent"} stored`}
+                        >
+                          <div className="bubble">
+                            {message.role === "assistant" && (
+                              <div className="answer-label">
+                                <span className="small-brand">
+                                  <Layers3 size={13} />
+                                </span>{" "}
+                                DATATRIO{" "}
+                                {message.status && (
+                                  <span className={`verdict ${message.status}`}>
+                                    {message.status === "accepted" &&
+                                    !message.result_ref
+                                      ? "Yanıt"
+                                      : {
+                                          accepted: "Kontrolden geçti",
+                                          qualified: "Sınırlı yanıt",
+                                          abstained: "Netleştirme gerekli",
+                                        }[message.status]}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                            <p
+                              className={
+                                message.role === "user" ? "" : "answer-text"
+                              }
+                            >
+                              {message.text}
+                            </p>
+                            {message.result_ref && (
+                              <p className="notice">
+                                Bu turda yayımlanan tablo
+                                {message.result_ref === restoredResult
+                                  ? " (sohbetin son tablosu)"
+                                  : ""}
+                                .
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                      {items.map((item, index) => (
+                        <article className="turn" key={item.request_id}>
+                          <div className="question-label">
+                            SEN{" "}
+                            <span>{String(index + 1).padStart(2, "0")}</span>
+                          </div>
+                          <p className="user-question">{item.question}</p>
+                          {item.document_format && (
+                            <p className="request-source">
+                              <FileText size={12} /> Ekli belge:{" "}
+                              {item.document_format.toUpperCase()}
+                            </p>
+                          )}
+                          {item.selected_result_id && (
+                            <p className="request-source">
+                              {sourceLabel(item.selected_result_id)}
+                            </p>
+                          )}
                           <div className="answer-label">
                             <span className="small-brand">
                               <Layers3 size={13} />
                             </span>{" "}
                             DATATRIO{" "}
-                            {message.status && (
-                              <span className={`verdict ${message.status}`}>
-                                {message.status === "accepted" &&
-                                !message.result_ref
+                            {item.turn?.answer && (
+                              <span
+                                className={`verdict ${item.turn.answer.status}`}
+                              >
+                                {item.turn.answer.status === "accepted" &&
+                                !item.turn.answer.result
                                   ? "Yanıt"
                                   : {
                                       accepted: "Kontrolden geçti",
                                       qualified: "Sınırlı yanıt",
                                       abstained: "Netleştirme gerekli",
-                                    }[message.status]}
+                                    }[item.turn.answer.status]}
                               </span>
                             )}
                           </div>
-                        )}
-                        <p
-                          className={
-                            message.role === "user" ? "" : "answer-text"
-                          }
-                        >
-                          {message.text}
-                        </p>
-                        {message.result_ref && (
-                          <p className="notice">
-                            Bu turda yayımlanan tablo
-                            {message.result_ref === restoredResult
-                              ? " (sohbetin son tablosu)"
-                              : ""}
-                            .
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                  {items.map((item, index) => (
-                    <article className="turn" key={item.request_id}>
-                      <div className="question-label">
-                        SEN <span>{String(index + 1).padStart(2, "0")}</span>
-                      </div>
-                      <p className="user-question">{item.question}</p>
-                      {item.document_format && (
-                        <p className="request-source">
-                          <FileText size={12} /> Ekli belge:{" "}
-                          {item.document_format.toUpperCase()}
-                        </p>
-                      )}
-                      {item.selected_result_id && (
-                        <p className="request-source">
-                          {sourceLabel(item.selected_result_id)}
-                        </p>
-                      )}
-                      <div className="answer-label">
-                        <span className="small-brand">
-                          <Layers3 size={13} />
-                        </span>{" "}
-                        DATATRIO{" "}
-                        {item.turn?.answer && (
-                          <span
-                            className={`verdict ${item.turn.answer.status}`}
-                          >
-                            {item.turn.answer.status === "accepted" &&
-                            !item.turn.answer.result
-                              ? "Yanıt"
-                              : {
-                                  accepted: "Kontrolden geçti",
-                                  qualified: "Sınırlı yanıt",
-                                  abstained: "Netleştirme gerekli",
-                                }[item.turn.answer.status]}
-                          </span>
-                        )}
-                      </div>
-                      {item.turn?.answer ? (
-                        <>
-                          <p className="answer-text">{item.turn.answer.text}</p>
-                          {item.turn.answer.notices.length > 0 && (
-                            <details
-                              className="notice-details"
-                              open={item.turn.answer.status !== "accepted"}
-                            >
-                              <summary>
-                                Kapsam ve kontrol notları (
-                                {item.turn.answer.notices.length})
-                              </summary>
-                              {item.turn.answer.notices.map((notice, i) => (
-                                <p key={i} className="notice">
-                                  {noticeText(notice)}
+                          {item.turn?.answer ? (
+                            <>
+                              <p className="answer-text">
+                                {item.turn.answer.text}
+                              </p>
+                              {item.turn.answer.notices.length > 0 && (
+                                <details
+                                  className="notice-details"
+                                  open={item.turn.answer.status !== "accepted"}
+                                >
+                                  <summary>
+                                    Kapsam ve kontrol notları (
+                                    {item.turn.answer.notices.length})
+                                  </summary>
+                                  {item.turn.answer.notices.map((notice, i) => (
+                                    <p key={i} className="notice">
+                                      {noticeText(notice)}
+                                    </p>
+                                  ))}
+                                </details>
+                              )}
+                              {item.turn.answer.omitted_claims > 0 && (
+                                <p className="notice">
+                                  {item.turn.answer.omitted_claims}{" "}
+                                  desteklenmeyen ifade yanıta alınmadı.
                                 </p>
-                              ))}
-                            </details>
-                          )}
-                          {item.turn.answer.omitted_claims > 0 && (
+                              )}
+                              {history &&
+                                conversationId &&
+                                ownerToken &&
+                                item.turn.turn_id &&
+                                item.turn.state === "completed" && (
+                                  <AnswerFeedback
+                                    conversationId={conversationId}
+                                    token={ownerToken}
+                                    turnId={item.turn.turn_id}
+                                    saved={ratings[item.turn.turn_id]}
+                                    onSaved={(stored) =>
+                                      setRatings((current) => ({
+                                        ...current,
+                                        [stored.turn_id]: stored,
+                                      }))
+                                    }
+                                    onOpenTrace={(runId) =>
+                                      setTracing({ runId })
+                                    }
+                                  />
+                                )}
+                              {history &&
+                                conversationId &&
+                                item.turn.turn_id && (
+                                  <button
+                                    type="button"
+                                    className="trace-link"
+                                    onClick={() =>
+                                      setTracing({ turnId: item.turn?.turn_id })
+                                    }
+                                  >
+                                    <Activity size={14} /> İşlem ayrıntıları
+                                  </button>
+                                )}
+                              {item.turn.answer.result && (
+                                <button
+                                  className={`result-link ${selected === index ? "selected" : ""}`}
+                                  onClick={() => chooseResult(index)}
+                                  disabled={!ready || busy || pending}
+                                >
+                                  <Table2 size={17} />
+                                  <span>
+                                    Analiz {index + 1}
+                                    <small>
+                                      {item.turn.answer.result.cells.length}{" "}
+                                      kayıtlı değer
+                                    </small>
+                                  </span>
+                                  <ArrowUpRight size={16} />
+                                </button>
+                              )}
+                            </>
+                          ) : item.turn?.state === "failed" ||
+                            item.admission_error ? (
                             <p className="notice">
-                              {item.turn.answer.omitted_claims} desteklenmeyen
-                              ifade yanıta alınmadı.
+                              {errorText[
+                                item.admission_error ??
+                                  item.turn?.error ??
+                                  "internal_error"
+                              ] ?? errorText.internal_error}
+                            </p>
+                          ) : (
+                            <p className="working">
+                              <LoaderCircle
+                                size={15}
+                                className={busy ? "spin" : ""}
+                              />
+                              {busy
+                                ? item.turn?.state === "running"
+                                  ? "Analiz çalışıyor…"
+                                  : "İstek iletiliyor…"
+                                : "Durum yeniden alınabilir."}
+                              {history &&
+                                conversationId &&
+                                item.turn?.state === "running" && (
+                                  <button
+                                    type="button"
+                                    className="trace-link"
+                                    onClick={() =>
+                                      setTracing({ turnId: item.turn?.turn_id })
+                                    }
+                                  >
+                                    <Activity size={14} /> Canlı izle
+                                  </button>
+                                )}
                             </p>
                           )}
-                          {history &&
-                            conversationId &&
-                            ownerToken &&
-                            item.turn.turn_id &&
-                            item.turn.state === "completed" && (
-                              <AnswerFeedback
-                                conversationId={conversationId}
-                                token={ownerToken}
-                                turnId={item.turn.turn_id}
-                                saved={ratings[item.turn.turn_id]}
-                                onSaved={(stored) =>
-                                  setRatings((current) => ({
-                                    ...current,
-                                    [stored.turn_id]: stored,
-                                  }))
-                                }
-                                onOpenTrace={(runId) => setTracing({ runId })}
-                              />
-                            )}
-                          {history && conversationId && item.turn.turn_id && (
-                            <button
-                              type="button"
-                              className="trace-link"
-                              onClick={() =>
-                                setTracing({ turnId: item.turn?.turn_id })
-                              }
-                            >
-                              <Activity size={14} /> İşlem ayrıntıları
-                            </button>
-                          )}
-                          {item.turn.answer.result && (
-                            <button
-                              className={`result-link ${selected === index ? "selected" : ""}`}
-                              onClick={() => chooseResult(index)}
-                              disabled={!ready || busy || pending}
-                            >
-                              <Table2 size={17} />
-                              <span>
-                                Analiz {index + 1}
-                                <small>
-                                  {item.turn.answer.result.cells.length} kayıtlı
-                                  değer
-                                </small>
-                              </span>
-                              <ArrowUpRight size={16} />
-                            </button>
-                          )}
-                        </>
-                      ) : item.turn?.state === "failed" ||
-                        item.admission_error ? (
-                        <p className="notice">
-                          {errorText[
-                            item.admission_error ??
-                              item.turn?.error ??
-                              "internal_error"
-                          ] ?? errorText.internal_error}
-                        </p>
-                      ) : (
-                        <p className="working">
-                          <LoaderCircle
-                            size={15}
-                            className={busy ? "spin" : ""}
-                          />
-                          {busy
-                            ? item.turn?.state === "running"
-                              ? "Analiz çalışıyor…"
-                              : "İstek iletiliyor…"
-                            : "Durum yeniden alınabilir."}
-                          {history &&
-                            conversationId &&
-                            item.turn?.state === "running" && (
-                              <button
-                                type="button"
-                                className="trace-link"
-                                onClick={() =>
-                                  setTracing({ turnId: item.turn?.turn_id })
-                                }
-                              >
-                                <Activity size={14} /> Canlı izle
-                              </button>
-                            )}
-                        </p>
-                      )}
-                    </article>
-                  ))}
-                </div>
-              )}
-              <div ref={chatEnd} />
-            </div>
-            {issue && (
-              <div className="request-issue" role="alert">
-                <p>{issue}</p>
-                {pending && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={busy}
-                    onClick={() => void watch(pendingIndex ?? 0, true)}
-                  >
-                    <RefreshCw size={14} /> Aynı isteğin durumunu al
-                  </Button>
-                )}
-              </div>
-            )}
-            {pending && !busy && !issue && (
-              <div className="request-issue">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void watch(pendingIndex ?? 0, true)}
-                >
-                  Bekleyen isteğe devam et
-                </Button>
-              </div>
-            )}
-            <form
-              className={dragging ? "composer dragging" : "composer"}
-              onSubmit={(e) => {
-                e.preventDefault();
-                void submit();
-              }}
-              onDragEnter={(e) => {
-                if (!uploads || !e.dataTransfer.types.includes("Files")) return;
-                e.preventDefault();
-                setDragging(true);
-              }}
-              onDragOver={(e) => {
-                if (!uploads || !e.dataTransfer.types.includes("Files")) return;
-                e.preventDefault();
-                e.dataTransfer.dropEffect =
-                  !ready || busy || pending || uploading ? "none" : "copy";
-              }}
-              onDragLeave={(e) => {
-                // Leaving for a child element is not leaving the drop zone.
-                if (!e.currentTarget.contains(e.relatedTarget as Node | null))
-                  setDragging(false);
-              }}
-              onDrop={(e) => {
-                if (!uploads || !e.dataTransfer.types.includes("Files")) return;
-                e.preventDefault();
-                setDragging(false);
-                // One document per question; the same admission checks as the picker.
-                void attach(e.dataTransfer.files[0]);
-              }}
-            >
-              {dragging && (
-                <div className="composer-drop" aria-hidden="true">
-                  <FileText size={16} /> Belgeyi buraya bırak · CSV, Excel, PDF,
-                  HTML
-                </div>
-              )}
-              {/* What this turn carries, stated rather than switched: the agent
-                  reads the chat and its tables on its own. */}
-              <div className="selection-context" aria-live="polite">
-                <span>
-                  {pending
-                    ? "Bekleyen istek sürüyor."
-                    : items.at(-1)?.turn?.answer?.status === "abstained"
-                      ? "Son cevap netleştirme istedi: kısa bir yanıt yazarsan o isteğe eklenir, kendi başına bir soru yazarsan yeni soru sayılır."
-                      : contextTables > 0
-                        ? `Bu sohbetteki ${contextTables} tablo ve önceki sorular bağlamda; hangisini kullanacağını ajan seçer.`
-                        : "Sorunu yaz; gereken veriyi ve tabloyu ajan kendisi seçer."}
-                </span>
-              </div>
-              <textarea
-                ref={input}
-                aria-label="Finansal sorunuz"
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                placeholder={
-                  items.length
-                    ? "Bu analizi nasıl derinleştirelim?"
-                    : "Finansal sorunu yaz…"
-                }
-                maxLength={4096}
-                disabled={busy || pending}
-                onKeyDown={(e) => {
-                  if (
-                    e.key === "Enter" &&
-                    !e.shiftKey &&
-                    !e.nativeEvent.isComposing
-                  ) {
-                    e.preventDefault();
-                    void submit();
-                  }
-                }}
-              />
-              {attachment && (
-                <div className="composer-attachment" aria-live="polite">
-                  <FileText size={13} /> Ekli belge (sohbette sonraki sorularda
-                  da kullanılabilir): {attachment.document_format.toUpperCase()}{" "}
-                  · {Math.max(1, Math.round(attachment.bytes / 1024))} KB
-                  <button
-                    type="button"
-                    aria-label="Ekli belgeyi kaldır"
-                    disabled={busy || pending}
-                    onClick={() => setAttachment(null)}
-                  >
-                    <X size={12} />
-                  </button>
-                </div>
-              )}
-              <div className="composer-actions">
-                <span>
-                  {busy ? (
-                    <>
-                      <LoaderCircle size={13} className="spin" /> Çalışıyor
-                    </>
-                  ) : (
-                    <>
-                      Enter gönderir <span>·</span> Shift + Enter yeni satır
-                    </>
-                  )}
-                </span>
-                <div className="composer-buttons">
-                  {!uploads && (
-                    // The capability is off in this deployment: say so rather than
-                    // quietly dropping the control.
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      aria-label="Belge ekleme kapalı"
-                      title="Belge yükleme bu sunucuda kapatılmış (servis --no-uploads ile başlatılmış)."
-                      disabled
-                    >
-                      <Paperclip size={17} />
-                    </Button>
-                  )}
-                  {uploads && (
-                    <>
-                      <input
-                        ref={picker}
-                        type="file"
-                        accept={DOCUMENT_ACCEPT}
-                        hidden
-                        onChange={(e) => void attach(e.target.files?.[0])}
-                      />
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        aria-label="Soruya belge ekle"
-                        title={
-                          "CSV, Excel, PDF veya HTML belge ekle ya da sürükleyip bırak " +
-                          "(en fazla 10 MiB). Metin katmanlı PDF okunur; taranmış PDF " +
-                          (ocr ? "OCR ile okunur." : "için OCR kapalı.")
-                        }
-                        disabled={!ready || busy || pending || uploading}
-                        onClick={() => picker.current?.click()}
-                      >
-                        {uploading ? (
-                          <LoaderCircle size={17} className="spin" />
-                        ) : (
-                          <Paperclip size={17} />
-                        )}
-                      </Button>
-                    </>
-                  )}
-                  {pending && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={stopping}
-                      title="Çalışan model isteği bitince, bir sonraki adımdan önce durur."
-                      onClick={() => void stop()}
-                    >
-                      {stopping ? (
-                        <LoaderCircle size={14} className="spin" />
-                      ) : (
-                        <Square size={12} />
-                      )}{" "}
-                      Durdur
-                    </Button>
-                  )}
-                  <Button
-                    type="submit"
-                    size="icon"
-                    aria-label="Soruyu gönder"
-                    disabled={
-                      !ready ||
-                      !health ||
-                      !dataset ||
-                      busy ||
-                      pending ||
-                      !validQuestion(question)
-                    }
-                  >
-                    <Send size={17} />
-                  </Button>
-                </div>
-              </div>
-            </form>
-            {tracing && conversationId && ownerToken && (
-              <TracePanel
-                key={tracing.turnId ?? tracing.runId ?? "latest"}
-                conversationId={conversationId}
-                token={ownerToken}
-                runId={tracing.runId}
-                turnId={tracing.turnId}
-                onClose={() => setTracing(null)}
-              />
-            )}
-            <div className="composer-footnote">
-              <ShieldCheck size={12} /> Hesaplar araçlarla yapılır, cevaplar
-              kontrol edilir.
-            </div>
-          </section>
-          <section className="results-card">
-            <div className="card-heading">
-              <span>
-                <Table2 size={17} /> Analiz sonuçları
-              </span>
-              {versions.length > 0 ? (
-                <label className="version-select">
-                  <select
-                    aria-label="Sonuç sürümü"
-                    value={selected}
-                    onChange={(e) => chooseResult(Number(e.target.value))}
-                    disabled={!ready || busy || pending}
-                  >
-                    {selected < 0 && <option value={-1}>Sonuç seç</option>}
-                    {versions.map(({ index }) => (
-                      <option key={index} value={index}>
-                        Analiz {index + 1}
-                        {index === versions.at(-1)?.index
-                          ? " · son sonuç"
-                          : " · önceki sonuç"}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown size={14} />
-                </label>
-              ) : (
-                <span className="mini-tag subtle">ÇALIŞMA TABLOSU</span>
-              )}
-            </div>
-            {result ? (
-              <>
-                <div className="result-intro">
-                  <div>
-                    <span className="result-kicker">YAYIMLANAN SONUÇ</span>
-                    <h2>Analiz {selected + 1}</h2>
-                  </div>
-                  <span className="verified-pill">
-                    <Check size={14} /> Kayıtlı tablo
-                  </span>
-                </div>
-                <ResultTable
-                  key={result.result_ref}
-                  result={result}
-                  dataset={dataset}
-                  context={{
-                    question: items[selected]?.question,
-                    answer: items[selected]?.turn?.answer?.text,
-                  }}
-                />
-              </>
-            ) : (
-              <div className="result-empty">
-                <div className="empty-visual">
-                  <div className="visual-top">
-                    <span />
-                    <span />
-                    <span />
-                  </div>
-                  <div className="visual-grid">
-                    {Array.from({ length: 15 }, (_, i) => (
-                      <i key={i} />
-                    ))}
-                  </div>
-                  <div className="visual-badge">
-                    <ShieldCheck size={23} />
-                  </div>
-                </div>
-                <h2>
-                  Sorudan tabloya,
-                  <br />
-                  her adım izlenebilir.
-                </h2>
-                <p>
-                  Analizin tamamlandığında kayıtlı değerler burada görünür.
-                  Sonraki sorularınla aynı tabloyu geliştirebilirsin.
-                </p>
-                <div className="empty-steps">
-                  <span>
-                    <Database size={16} /> Veriyi bul
-                  </span>
-                  <ArrowRight size={12} />
-                  <span>
-                    <Activity size={16} /> Hesapla
-                  </span>
-                  <ArrowRight size={12} />
-                  <span>
-                    <ShieldCheck size={16} /> Kontrol et
-                  </span>
-                </div>
-              </div>
-            )}
-            <div className="results-bottom">
-              <span>
-                <span className="tiny-dot" />{" "}
-                {result
-                  ? "Değerler yayımlanmış sonuçtan gösteriliyor"
-                  : "Henüz yayımlanmış sonuç yok"}
-              </span>
-              <span>DataTrio / 2026</span>
-            </div>
-          </section>
-        </div>
-        <footer className="page-footer">
-          <span>Model yorumlar. Araçlar hesaplar. Harness kontrol eder.</span>
-          <span>
-            {current?.events.length
-              ? `Son işlem: ${(current.events.at(-1)!.elapsed_ms / 1000).toLocaleString("tr-TR")} sn`
-              : "Yerel çalışma alanı"}
-          </span>
-        </footer>
-      </main>
-      {panel === "traces" && ownerToken && (
-        <Panel onClose={() => setPanel(null)}>
-          <TracesPage
-            owner={ownerToken}
-            initialConversation={conversationId}
-            onClose={() => setPanel(null)}
-          />
-        </Panel>
-      )}
-      {panel && panel !== "traces" && (
-        <Panel onClose={() => setPanel(null)}>
-          <section
-            className="info-panel"
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") setPanel(null);
-            }}
-          >
-            <div className="panel-header">
-              <span className="eyebrow">ÇALIŞMA ALANI</span>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Paneli kapat"
-                autoFocus
-                onClick={() => setPanel(null)}
-              >
-                <X size={19} />
-              </Button>
-            </div>
-            <h2 id="panel-title">
-              {panel === "data" ? "Veri ve bilgi tabanı" : "Çalışma ayarları"}
-            </h2>
-            {panel === "data" ? (
-              <>
-                <p className="panel-description">
-                  Agentin bildiği her şey burada: hazır havuzdaki seriler,
-                  kaynaktan çekilebilen incelenmiş seriler ve sizin eklediğiniz
-                  veri setleri. Agent aynı listeyi kullanır.
-                </p>
-                <div className="panel-stat">
-                  <strong>
-                    {dataset?.prepared_identities ?? "—"} /{" "}
-                    {dataset?.catalog_identities ?? "—"}
-                  </strong>
-                  <span>hazır seri / katalog kaydı</span>
-                  <small>
-                    {dataset
-                      ? `${(dataset.pool_bytes / 1024 / 1024).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} MiB · ${dataset.files} dosya`
-                      : "Veri bilgisi alınamadı"}
-                  </small>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={loading}
-                  onClick={() => void refresh()}
-                >
-                  <RefreshCw size={14} /> Durumu yeniden al
-                </Button>
-                <p className="helper">
-                  Bu düğme BDDK / EVDS’den yeni veri çekmez.
-                  {acquisition &&
-                    " Bir soru havuzda olmayan incelenmiş bir EVDS/BDDK serisine ihtiyaç duyarsa seri kaynaktan çekilir, saklanır ve işlem kaydında görünür; sonraki sohbetler yeniden çekmez."}
-                </p>
-                {knowledgeBase && ownerToken ? (
-                  <KnowledgePanel
-                    owner={ownerToken}
-                    documents={chatDocuments}
-                  />
-                ) : (
-                  <>
-                    <div className="series-list">
-                      {dataset?.series.map((series) => (
-                        <article key={series.series_id}>
-                          <span className="series-source">
-                            {series.series_id.startsWith("EVDS:")
-                              ? "TCMB EVDS"
-                              : "BDDK"}
-                          </span>
-                          <h3>{preparedTitle(series.title)}</h3>
-                          <p>
-                            {series.first_period ?? "?"}{" "}
-                            <ArrowRight size={12} /> {series.last_period ?? "?"}
-                          </p>
-                          <small>
-                            {series.nonnull_observations} dolu gözlem /{" "}
-                            {series.observations} kayıt
-                          </small>
-                          <details>
-                            <summary>Seri kimliği</summary>
-                            <code>{series.series_id}</code>
-                          </details>
                         </article>
                       ))}
                     </div>
+                  )}
+                  <div ref={chatEnd} />
+                </div>
+                {issue && (
+                  <div className="request-issue" role="alert">
+                    <p>{issue}</p>
+                    {pending && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy}
+                        onClick={() => void watch(pendingIndex ?? 0, true)}
+                      >
+                        <RefreshCw size={14} /> Aynı isteğin durumunu al
+                      </Button>
+                    )}
+                  </div>
+                )}
+                {pending && !busy && !issue && (
+                  <div className="request-issue">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void watch(pendingIndex ?? 0, true)}
+                    >
+                      Bekleyen isteğe devam et
+                    </Button>
+                  </div>
+                )}
+                <form
+                  className={dragging ? "composer dragging" : "composer"}
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void submit();
+                  }}
+                  onDragEnter={(e) => {
+                    if (!uploads || !e.dataTransfer.types.includes("Files"))
+                      return;
+                    e.preventDefault();
+                    setDragging(true);
+                  }}
+                  onDragOver={(e) => {
+                    if (!uploads || !e.dataTransfer.types.includes("Files"))
+                      return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect =
+                      !ready || busy || pending || uploading ? "none" : "copy";
+                  }}
+                  onDragLeave={(e) => {
+                    // Leaving for a child element is not leaving the drop zone.
+                    if (
+                      !e.currentTarget.contains(e.relatedTarget as Node | null)
+                    )
+                      setDragging(false);
+                  }}
+                  onDrop={(e) => {
+                    if (!uploads || !e.dataTransfer.types.includes("Files"))
+                      return;
+                    e.preventDefault();
+                    setDragging(false);
+                    // One document per question; the same admission checks as the picker.
+                    void attach(e.dataTransfer.files[0]);
+                  }}
+                >
+                  {dragging && (
+                    <div className="composer-drop" aria-hidden="true">
+                      <FileText size={16} /> Belgeyi buraya bırak · CSV, Excel,
+                      PDF, HTML
+                    </div>
+                  )}
+                  {/* What this turn carries, stated rather than switched: the agent
+                    reads the chat and its tables on its own. */}
+                  <div className="selection-context" aria-live="polite">
+                    <span>
+                      {pending
+                        ? "Bekleyen istek sürüyor."
+                        : items.at(-1)?.turn?.answer?.status === "abstained"
+                          ? "Son cevap netleştirme istedi: kısa bir yanıt yazarsan o isteğe eklenir, kendi başına bir soru yazarsan yeni soru sayılır."
+                          : contextTables > 0
+                            ? `Bu sohbetteki ${contextTables} tablo ve önceki sorular bağlamda; hangisini kullanacağını ajan seçer.`
+                            : "Sorunuzu yazın."}
+                    </span>
+                  </div>
+                  <textarea
+                    ref={input}
+                    aria-label="Finansal sorunuz"
+                    value={question}
+                    onChange={(e) => setQuestion(e.target.value)}
+                    placeholder={
+                      items.length
+                        ? "Bu analizi nasıl derinleştirelim?"
+                        : "Finansal sorunu yaz…"
+                    }
+                    maxLength={4096}
+                    disabled={busy || pending}
+                    onKeyDown={(e) => {
+                      if (
+                        e.key === "Enter" &&
+                        !e.shiftKey &&
+                        !e.nativeEvent.isComposing
+                      ) {
+                        e.preventDefault();
+                        void submit();
+                      }
+                    }}
+                  />
+                  {attachment && (
+                    <div className="composer-attachment" aria-live="polite">
+                      <FileText size={13} /> Ekli belge (sohbette sonraki
+                      sorularda da kullanılabilir):{" "}
+                      {attachment.document_format.toUpperCase()} ·{" "}
+                      {Math.max(1, Math.round(attachment.bytes / 1024))} KB
+                      <button
+                        type="button"
+                        aria-label="Ekli belgeyi kaldır"
+                        disabled={busy || pending}
+                        onClick={() => setAttachment(null)}
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  )}
+                  <div className="composer-actions">
+                    <span>
+                      {busy ? (
+                        <>
+                          <LoaderCircle size={13} className="spin" /> Çalışıyor
+                        </>
+                      ) : (
+                        <>
+                          Enter gönderir <span>·</span> Shift + Enter yeni satır
+                        </>
+                      )}
+                    </span>
+                    <div className="composer-buttons">
+                      {!uploads && (
+                        // The capability is off in this deployment: say so rather than
+                        // quietly dropping the control.
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          aria-label="Belge ekleme kapalı"
+                          title="Belge yükleme bu sunucuda kapatılmış (servis --no-uploads ile başlatılmış)."
+                          disabled
+                        >
+                          <Paperclip size={17} />
+                        </Button>
+                      )}
+                      {uploads && (
+                        <>
+                          <input
+                            ref={picker}
+                            type="file"
+                            accept={DOCUMENT_ACCEPT}
+                            hidden
+                            onChange={(e) => void attach(e.target.files?.[0])}
+                          />
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            aria-label="Soruya belge ekle"
+                            title={
+                              "CSV, Excel, PDF veya HTML belge ekle ya da sürükleyip bırak " +
+                              "(en fazla 10 MiB). Metin katmanlı PDF okunur; taranmış PDF " +
+                              (ocr ? "OCR ile okunur." : "için OCR kapalı.")
+                            }
+                            disabled={!ready || busy || pending || uploading}
+                            onClick={() => picker.current?.click()}
+                          >
+                            {uploading ? (
+                              <LoaderCircle size={17} className="spin" />
+                            ) : (
+                              <Paperclip size={17} />
+                            )}
+                          </Button>
+                        </>
+                      )}
+                      {pending && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={stopping}
+                          title="Çalışan model isteği bitince, bir sonraki adımdan önce durur."
+                          onClick={() => void stop()}
+                        >
+                          {stopping ? (
+                            <LoaderCircle size={14} className="spin" />
+                          ) : (
+                            <Square size={12} />
+                          )}{" "}
+                          Durdur
+                        </Button>
+                      )}
+                      <Button
+                        type="submit"
+                        size="icon"
+                        aria-label="Soruyu gönder"
+                        disabled={
+                          !ready ||
+                          !health ||
+                          !dataset ||
+                          busy ||
+                          pending ||
+                          !validQuestion(question)
+                        }
+                      >
+                        <Send size={17} />
+                      </Button>
+                    </div>
+                  </div>
+                </form>
+                {tracing && conversationId && ownerToken && (
+                  <TracePanel
+                    key={tracing.turnId ?? tracing.runId ?? "latest"}
+                    conversationId={conversationId}
+                    token={ownerToken}
+                    runId={tracing.runId}
+                    turnId={tracing.turnId}
+                    onClose={() => setTracing(null)}
+                  />
+                )}
+                <div className="composer-footnote">
+                  <ShieldCheck size={12} /> Hesaplar araçlarla yapılır, cevaplar
+                  kontrol edilir.
+                </div>
+              </section>
+              <section className="results-card">
+                <div className="card-heading">
+                  <span>
+                    <Table2 size={17} /> Analiz sonuçları
+                  </span>
+                  {versions.length > 0 ? (
+                    <label className="version-select">
+                      <select
+                        aria-label="Sonuç sürümü"
+                        value={selected}
+                        onChange={(e) => chooseResult(Number(e.target.value))}
+                        disabled={!ready || busy || pending}
+                      >
+                        {selected < 0 && <option value={-1}>Sonuç seç</option>}
+                        {versions.map(({ index }) => (
+                          <option key={index} value={index}>
+                            Analiz {index + 1}
+                            {index === versions.at(-1)?.index
+                              ? " · son sonuç"
+                              : " · önceki sonuç"}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown size={14} />
+                    </label>
+                  ) : (
+                    <span className="mini-tag subtle">ÇALIŞMA TABLOSU</span>
+                  )}
+                </div>
+                {result ? (
+                  <>
+                    <div className="result-intro">
+                      <div>
+                        <span className="result-kicker">YAYIMLANAN SONUÇ</span>
+                        <h2>Analiz {selected + 1}</h2>
+                      </div>
+                      <span className="verified-pill">
+                        <Check size={14} /> Kayıtlı tablo
+                      </span>
+                    </div>
+                    <ResultTable
+                      key={result.result_ref}
+                      result={result}
+                      dataset={dataset}
+                      context={{
+                        question: items[selected]?.question,
+                        answer: items[selected]?.turn?.answer?.text,
+                      }}
+                    />
+                  </>
+                ) : (
+                  <div className="result-empty">
+                    <div className="empty-visual">
+                      <div className="visual-top">
+                        <span />
+                        <span />
+                        <span />
+                      </div>
+                      <div className="visual-grid">
+                        {Array.from({ length: 15 }, (_, i) => (
+                          <i key={i} />
+                        ))}
+                      </div>
+                      <div className="visual-badge">
+                        <ShieldCheck size={23} />
+                      </div>
+                    </div>
+                    <h2>
+                      Sorudan tabloya,
+                      <br />
+                      her adım izlenebilir.
+                    </h2>
+                    <p>
+                      Analizin tamamlandığında kayıtlı değerler burada görünür.
+                      Sonraki sorularınla aynı tabloyu geliştirebilirsin.
+                    </p>
+                    <div className="empty-steps">
+                      <span>
+                        <Database size={16} /> Veriyi bul
+                      </span>
+                      <ArrowRight size={12} />
+                      <span>
+                        <Activity size={16} /> Hesapla
+                      </span>
+                      <ArrowRight size={12} />
+                      <span>
+                        <ShieldCheck size={16} /> Kontrol et
+                      </span>
+                    </div>
+                  </div>
+                )}
+                <div className="results-bottom">
+                  <span>
+                    <span className="tiny-dot" />{" "}
+                    {result
+                      ? "Değerler yayımlanmış sonuçtan gösteriliyor"
+                      : "Henüz yayımlanmış sonuç yok"}
+                  </span>
+                  <span>DataTrio / 2026</span>
+                </div>
+              </section>
+            </div>
+            <footer className="page-footer">
+              <span>
+                {current?.events.length
+                  ? `Son işlem: ${(current.events.at(-1)!.elapsed_ms / 1000).toLocaleString("tr-TR")} sn`
+                  : "Yerel çalışma alanı"}
+              </span>
+            </footer>
+          </>
+        ) : (
+          <>
+            {panel === "traces" && ownerToken && (
+              <TracesPage
+                owner={ownerToken}
+                initialConversation={conversationId}
+              />
+            )}
+            {panel && panel !== "traces" && (
+              <section className="page-view">
+                <h2 id="panel-title">
+                  {panel === "data"
+                    ? "Veri ve bilgi tabanı"
+                    : "Çalışma ayarları"}
+                </h2>
+                {panel === "data" ? (
+                  <>
+                    <div className="page-stats">
+                      <span>
+                        <strong>{dataset?.prepared_identities ?? "—"}</strong>{" "}
+                        hazır seri
+                      </span>
+                      <span>
+                        <strong>{dataset?.catalog_identities ?? "—"}</strong>{" "}
+                        katalog kaydı
+                      </span>
+                      {dataset && (
+                        <span>
+                          {(dataset.pool_bytes / 1024 / 1024).toLocaleString(
+                            "tr-TR",
+                            { maximumFractionDigits: 1 },
+                          )}{" "}
+                          MiB · {dataset.files} dosya
+                        </span>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={loading}
+                        onClick={() => void refresh()}
+                      >
+                        <RefreshCw size={14} /> Yenile
+                      </Button>
+                    </div>
+                    {knowledgeBase && ownerToken ? (
+                      <KnowledgePanel
+                        owner={ownerToken}
+                        documents={chatDocuments}
+                      />
+                    ) : (
+                      <>
+                        <div className="series-list">
+                          {dataset?.series.map((series) => (
+                            <article key={series.series_id}>
+                              <span className="series-source">
+                                {series.series_id.startsWith("EVDS:")
+                                  ? "TCMB EVDS"
+                                  : "BDDK"}
+                              </span>
+                              <h3>{preparedTitle(series.title)}</h3>
+                              <p>
+                                {series.first_period ?? "?"}{" "}
+                                <ArrowRight size={12} />{" "}
+                                {series.last_period ?? "?"}
+                              </p>
+                              <small>
+                                {series.nonnull_observations} dolu gözlem /{" "}
+                                {series.observations} kayıt
+                              </small>
+                              <details>
+                                <summary>Seri kimliği</summary>
+                                <code>{series.series_id}</code>
+                              </details>
+                            </article>
+                          ))}
+                        </div>
+                        <p className="helper">
+                          Başlangıç ve bitiş tarihi, aradaki tüm dönemlerin
+                          eksiksiz olduğu anlamına gelmez. Uygunluk analiz
+                          sırasında ayrıca kontrol edilir.
+                        </p>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <p className="panel-description">
+                      Yetenekleri operatör servisi başlatırken açar; bu sayfa
+                      neyin açık olduğunu gösterir. Doğrulama ve güvenlik
+                      kontrolleri hiçbir ayara bağlı değildir.
+                    </p>
+                    <h3 className="settings-group">Yetenekler</h3>
+                    <dl className="settings-list">
+                      <div>
+                        <dt>Belge yükleme</dt>
+                        <dd>
+                          {uploads ? "Açık · CSV, Excel, PDF, HTML" : "Kapalı"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Taranmış PDF (OCR)</dt>
+                        <dd>
+                          {ocr
+                            ? "Açık · tablolar sütun toplamıyla doğrulanır"
+                            : "Kapalı · OCR modeli tanımlı değil"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Web araması</dt>
+                        <dd>
+                          {webSearch
+                            ? "Açık · sonuçlar doğrulanmamış aday listesi olarak gösterilir"
+                            : "Kapalı · arama servisi tanımlı değil"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Resmî kaynaktan veri edinme</dt>
+                        <dd>
+                          {acquisition
+                            ? "Açık · incelenmiş EVDS/BDDK serileri gerektiğinde çekilir ve saklanır"
+                            : "Kapalı · yalnız hazır havuz kullanılır"}
+                        </dd>
+                      </div>
+                    </dl>
+                    <h3 className="settings-group">Bu tarayıcı</h3>
+                    <dl className="settings-list">
+                      <div>
+                        <dt>Sohbet geçmişi</dt>
+                        <dd>
+                          {history
+                            ? "Kalıcı; bu tarayıcının anahtarına bağlı"
+                            : "Bu sekmeye özel"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>İşlem kayıtları</dt>
+                        <dd>
+                          {history
+                            ? "Her tur kaydedilir; açmak yeni analiz başlatmaz"
+                            : "Bu sürümde tutulmuyor"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Kayıtlı veri kopyası</dt>
+                        <dd>Her sohbet kendi kopyasında çalışır</dd>
+                      </div>
+                    </dl>
+                    <h3 className="settings-group">Model ve sınırlar</h3>
+                    <dl className="settings-list">
+                      <div>
+                        <dt>Model yolu</dt>
+                        <dd>
+                          {health?.execution_mode === "scripted"
+                            ? "Çevrimdışı test senaryosu"
+                            : "Yalnız Kloudeks"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Aynı anda çalışan analiz</dt>
+                        <dd>{health?.max_running_turns ?? "—"}</dd>
+                      </div>
+                      <div>
+                        <dt>Oturum başına soru</dt>
+                        <dd>{health?.max_turns_per_session ?? "—"}</dd>
+                      </div>
+                    </dl>
+                    <div className="panel-callout">
+                      <ShieldCheck size={20} />
+                      <p>
+                        Doğrulama ve güvenlik kontrolleri model tercihine bağlı
+                        değildir.
+                      </p>
+                    </div>
                     <p className="helper">
-                      Başlangıç ve bitiş tarihi, aradaki tüm dönemlerin eksiksiz
-                      olduğu anlamına gelmez. Uygunluk analiz sırasında ayrıca
-                      kontrol edilir.
+                      {history
+                        ? "Sohbetler, mesajlar, yüklenen belgeler, yayımlanan tablolar ve işlem kayıtları yeniden başlatmadan sonra da açılır. Bu tarayıcının anahtarı silinirse eski sohbetlere ulaşılamaz. Arşivlemek veri silmez."
+                        : "API yeniden başlatılınca tarayıcı oturumu geçersiz olur."}{" "}
+                      Yeni sohbet açmak önceki hesap dosyalarını silmez.
+                      Gelişmiş agent davranışı ayarları sonraki geliştirmedir.
                     </p>
                   </>
                 )}
-              </>
-            ) : (
-              <>
-                <p className="panel-description">
-                  Bu sürümde ayarlar bilgi amaçlıdır. Model, araç ve doğrulama
-                  kuralları uygulamanın yapılandırmasında yönetilir.
-                </p>
-                <dl className="settings-list">
-                  <div>
-                    <dt>Model yolu</dt>
-                    <dd>
-                      {health?.execution_mode === "scripted"
-                        ? "Çevrimdışı test senaryosu"
-                        : "Yalnız Kloudeks"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Canlı model testi</dt>
-                    <dd>Bu ekranda doğrulanmadı</dd>
-                  </div>
-                  <div>
-                    <dt>Aynı anda çalışan analiz</dt>
-                    <dd>{health?.max_running_turns ?? "—"}</dd>
-                  </div>
-                  <div>
-                    <dt>Oturum başına soru</dt>
-                    <dd>{health?.max_turns_per_session ?? "—"}</dd>
-                  </div>
-                  <div>
-                    <dt>Sohbet geçmişi</dt>
-                    <dd>
-                      {history
-                        ? "Kalıcı; bu tarayıcının anahtarına bağlı"
-                        : "Bu sekmeye özel"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>İşlem kayıtları</dt>
-                    <dd>
-                      {history
-                        ? "Her tur kaydedilir; açmak yeni analiz başlatmaz"
-                        : "Bu sürümde tutulmuyor"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Kayıtlı veri kopyası</dt>
-                    <dd>Oturumlar arasında ayrılır</dd>
-                  </div>
-                  <div>
-                    <dt>Belge yükleme</dt>
-                    <dd>
-                      {uploads ? "Açık · CSV, Excel, PDF, HTML" : "Kapalı"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Taranmış PDF (OCR)</dt>
-                    <dd>
-                      {ocr
-                        ? "Açık · tablolar sütun toplamıyla doğrulanır"
-                        : "Kapalı · OCR modeli tanımlı değil"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Web araması</dt>
-                    <dd>
-                      {webSearch
-                        ? "Açık · sonuçlar doğrulanmamış aday listesi olarak gösterilir"
-                        : "Kapalı · arama servisi tanımlı değil"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Resmî kaynaktan veri edinme</dt>
-                    <dd>
-                      {acquisition
-                        ? "Açık · incelenmiş EVDS/BDDK serileri gerektiğinde çekilir ve saklanır"
-                        : "Kapalı · yalnız hazır havuz kullanılır"}
-                    </dd>
-                  </div>
-                </dl>
-                <div className="panel-callout">
-                  <ShieldCheck size={20} />
-                  <p>
-                    Doğrulama ve güvenlik kontrolleri model tercihine bağlı
-                    değildir.
-                  </p>
-                </div>
-                <p className="helper">
-                  {history
-                    ? "Sohbetler, mesajlar, yüklenen belgeler, yayımlanan tablolar ve işlem kayıtları yeniden başlatmadan sonra da açılır. Bu tarayıcının anahtarı silinirse eski sohbetlere ulaşılamaz. Arşivlemek veri silmez."
-                    : "API yeniden başlatılınca tarayıcı oturumu geçersiz olur."}{" "}
-                  Yeni sohbet açmak önceki hesap dosyalarını silmez. Gelişmiş
-                  agent davranışı ayarları sonraki geliştirmedir.
-                </p>
-              </>
+              </section>
             )}
-          </section>
-        </Panel>
-      )}
+          </>
+        )}
+      </main>
     </div>
   );
 }

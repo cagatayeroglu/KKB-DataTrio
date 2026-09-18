@@ -143,23 +143,24 @@ export function KnowledgePanel({
   return (
     <div className="knowledge">
       <p className="panel-description">
-        Ajanın bildiği her şey: incelenmiş katalog serileri ve senin eklediğin
-        veri setleri. İncelenmiş kayıtlar değiştirilmez; arşivleme, eş anlamlı
-        ve not ayrı bir katmanda sürümlü tutulur. Silme yoktur: arşivlenen kayıt
-        keşiften ve hesaplamadan çıkar, geçmişi kalır, geri alınabilir.
+        Ajanın bildiği her şey. İncelenmiş kayıtlar değiştirilmez; arşivleme, eş
+        anlamlı ve not ayrı bir katmanda sürümlü tutulur. Arşivlenen kayıt
+        keşiften ve hesaplamadan çıkar, geçmişi kalır ve geri alınabilir.
       </p>
-      <div className="panel-stat">
-        <strong>
-          {counts.reviewed} / {counts.user}
-        </strong>
-        <span>incelenmiş seri / eklediğin veri seti</span>
-        <small>
+      <div className="page-stats">
+        <span>
+          <strong>{counts.reviewed}</strong> incelenmiş seri
+        </span>
+        <span>
+          <strong>{counts.user}</strong> eklediğin veri seti
+        </span>
+        <span>
           {listing
             ? listing.catalog_digest === listing.reviewed_digest
               ? "Katalog incelenmiş haliyle kullanılıyor"
-              : `Katalog bilgi tabanıyla birlikte kullanılıyor · ${counts.archived} arşivli`
+              : `Bilgi tabanıyla birlikte · ${counts.archived} arşivli`
             : "Yükleniyor"}
-        </small>
+        </span>
       </div>
       <div className="knowledge-tools">
         <label className="table-search">

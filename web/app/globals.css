@@ -170,31 +170,11 @@ svg {
 }
 .sidebar-bottom {
   margin-top: auto;
-  padding: 25px 12px 0;
-}
-.trust-icon {
-  color: #99bfb0;
-  margin-bottom: 15px;
-}
-.sidebar-bottom strong {
-  font-size: 12px;
-  font-weight: 500;
-  color: #d9e7df;
-}
-.sidebar-bottom p {
-  font-size: 13px;
-  line-height: 1.8;
-  color: #87a69b;
-  margin-top: 7px;
-}
-.sidebar-event {
+  padding: 18px 12px 0;
   border-top: 1px solid #2d4540;
   font-size: 10px;
-  letter-spacing: 1.4px;
-  padding-top: 22px;
-  margin-top: 32px;
-  display: flex;
-  justify-content: space-between;
+  letter-spacing: 1.2px;
+  color: #6f8c83;
 }
 .main-shell {
   margin-left: 210px;
@@ -329,61 +309,6 @@ svg {
   width: 34px;
   height: 34px;
   padding: 0;
-}
-.data-bar {
-  display: flex;
-  align-items: center;
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 16px 20px;
-  margin-bottom: 22px;
-  gap: 24px;
-  box-shadow: 0 2px 3px #17312b02;
-}
-.data-bar-title {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-right: 14px;
-  min-width: 190px;
-}
-.data-icon {
-  display: grid;
-  place-items: center;
-  width: 39px;
-  height: 39px;
-  background: #f0f6f3;
-  border-radius: 9px;
-  color: var(--accent);
-}
-.data-bar-title strong {
-  font-size: 13px;
-  font-weight: 600;
-  display: block;
-}
-.data-bar-title small {
-  font-size: 11px;
-  color: var(--muted);
-  display: block;
-  margin-top: 4px;
-}
-.data-stat {
-  border-left: 1px solid var(--line);
-  padding-left: 23px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.data-stat strong {
-  font-size: 20px;
-  font-weight: 550;
-  letter-spacing: -0.4px;
-  font-variant-numeric: tabular-nums;
-}
-.data-stat span {
-  font-size: 11px;
-  color: var(--muted);
 }
 .text-action {
   margin-left: auto;
@@ -1301,34 +1226,15 @@ svg {
   font-family: Consolas, monospace;
   font-size: 10px;
 }
-.panel-backdrop {
-  position: fixed;
-  inset: 0;
-  background: #071d2140;
-  z-index: 50;
-  display: flex;
-  justify-content: flex-end;
-  backdrop-filter: blur(2px);
+.page-view {
+  padding: 4px 30px 40px;
+  max-width: 1100px;
 }
-.info-panel {
-  width: 440px;
-  max-width: 100%;
-  background: #fff;
-  height: 100%;
-  overflow: auto;
-  padding: 25px 28px;
-  box-shadow: -8px 0 30px #17352510;
-}
-.panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 18px;
-}
-.info-panel h2 {
+.page-view h2 {
   font-size: 26px;
   font-weight: 500;
   letter-spacing: -0.7px;
+  margin-bottom: 14px;
 }
 .panel-description {
   font-size: 12px;
@@ -1473,24 +1379,6 @@ svg {
   }
   .brand {
     font-size: 21px;
-  }
-  .data-bar {
-    gap: 15px;
-    padding: 15px;
-  }
-  .data-bar-title {
-    min-width: 160px;
-    margin-right: 0;
-  }
-  .data-stat {
-    padding-left: 15px;
-  }
-  .data-bar .text-action {
-    font-size: 0;
-    gap: 0;
-  }
-  .data-bar .text-action svg {
-    width: 18px;
   }
   .analysis-grid {
     gap: 15px;
@@ -1652,33 +1540,6 @@ svg {
   .page-heading > .ui-button svg {
     width: 18px;
   }
-  .data-bar {
-    padding: 13px;
-    gap: 13px;
-    flex-wrap: wrap;
-    margin-bottom: 15px;
-  }
-  .data-bar-title {
-    flex-basis: calc(100% - 40px);
-    order: 0;
-  }
-  .data-stat {
-    order: 2;
-    flex: 1;
-    border: 0;
-    padding: 12px 0 0;
-    border-top: 1px solid var(--line);
-  }
-  .data-stat strong {
-    font-size: 20px;
-  }
-  .data-stat span {
-    font-size: 10px;
-  }
-  .data-bar .text-action {
-    order: 1;
-    margin-left: 0;
-  }
   .suggestions {
     grid-template-columns: 1fr;
   }
@@ -1749,8 +1610,8 @@ svg {
   .metric-item {
     flex-basis: 145px;
   }
-  .info-panel {
-    padding: 20px;
+  .page-view {
+    padding: 4px 16px 30px;
   }
   .empty-steps {
     gap: 10px;
@@ -1789,20 +1650,6 @@ svg {
   min-height: 45px;
 }
 
-/* Native dialog supplies focus containment and Escape semantics. */
-dialog.panel-backdrop {
-  margin: 0;
-  padding: 0;
-  border: 0;
-  width: 100%;
-  max-width: none;
-  max-height: none;
-  height: 100%;
-  overflow: hidden;
-}
-dialog.panel-backdrop::backdrop {
-  background: transparent;
-}
 .metric-period {
   display: block;
   margin-top: 6px;
@@ -1890,20 +1737,30 @@ dialog.panel-backdrop::backdrop {
 .chat-toggle {
   display: flex;
   align-items: center;
-  gap: 5px;
-  border: 0;
+  gap: 6px;
+  border: 1px solid transparent;
+  border-radius: 7px;
   background: transparent;
   color: #9db3ad;
   font-size: 11px;
   cursor: pointer;
-  padding: 0 3px;
+  padding: 5px 8px;
+}
+.chat-toggle:hover {
+  color: #d9e7df;
+  background: #ffffff10;
+}
+.chat-toggle.on {
+  color: #eaf5ef;
+  background: #ffffff14;
+  border-color: #ffffff2e;
 }
 .chat-items {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   overflow-y: auto;
-  max-height: 34vh;
+  max-height: 38vh;
 }
 .chat-empty {
   font-size: 11px;
@@ -1915,7 +1772,16 @@ dialog.panel-backdrop::backdrop {
   align-items: center;
   gap: 2px;
   border-radius: 7px;
-  padding: 1px 4px 1px 0;
+  padding: 2px 5px 2px 0;
+}
+/* The row's own actions appear on hover or focus, so a long title keeps its width. */
+.chat-item > button:not(.chat-open) {
+  opacity: 0;
+}
+.chat-item:hover > button:not(.chat-open),
+.chat-item:focus-within > button:not(.chat-open),
+.chat-item.active > button:not(.chat-open) {
+  opacity: 1;
 }
 .chat-item.active,
 .chat-item:hover {
@@ -2421,13 +2287,11 @@ dialog.panel-backdrop::backdrop {
 
 /* Full trace reader: every conversation's runs, every step whole. */
 .traces-page {
-  width: min(1600px, 100vw);
-  height: 100%;
-  margin-left: auto;
+  width: 100%;
+  height: calc(100vh - 128px);
   background: #fff;
   display: flex;
   flex-direction: column;
-  box-shadow: -8px 0 30px #17352510;
 }
 .traces-head {
   display: flex;
@@ -2553,4 +2417,33 @@ dialog.panel-backdrop::backdrop {
     border-right: 0;
     border-bottom: 1px solid var(--line);
   }
+}
+
+/* One quiet row of figures at the top of a page, instead of stacked cards. */
+.page-stats {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+  padding: 12px 0 16px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 18px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.page-stats strong {
+  font-size: 19px;
+  font-weight: 500;
+  color: var(--ink);
+  margin-right: 4px;
+}
+.page-stats button {
+  margin-left: auto;
+}
+.settings-group {
+  font-size: 11px;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 22px 0 8px;
 }
