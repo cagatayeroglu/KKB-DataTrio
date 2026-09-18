@@ -244,6 +244,7 @@ class _Builder:
                     "column": None if table else location.get("column_index"),
                     "sheet_selected": "sheet" in location,
                     "values_read": sum(1 for row in rows if row[1] is not None),
+                    "extraction": "ocr" if snapshot.get("extraction") == "ocr" else "text",
                 }
             )
         except ValidationError:
@@ -569,5 +570,6 @@ def _document(
             "row": location["row_index"],
             "column": location["column_index"],
             "sheet_selected": "sheet" in location,
+            "extraction": "ocr" if cell.attributes.get("extraction") == "ocr" else "text",
         }
     )

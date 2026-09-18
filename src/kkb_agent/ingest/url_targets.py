@@ -36,6 +36,7 @@ class TargetReason(StrEnum):
     INVALID_RESOLUTION = "INVALID_RESOLUTION"
     HTTPS_DOWNGRADE = "HTTPS_DOWNGRADE"
     PEER_MISMATCH = "PEER_MISMATCH"
+    CROSS_ORIGIN = "CROSS_ORIGIN"
 
 
 @dataclass(frozen=True)
@@ -196,12 +197,38 @@ def validate_url_target(
     return URLTarget(SecretStr(canonical_url), parsed.scheme, host, port, addresses)
 
 
+def origin_of(url: str) -> str | None:
+    """`scheme://host:port` of an approved target, or None when the URL is not one.
+
+    The page a person wrote delegates to its own origin and no further
+    (DEC-150 amendment), so the comparison must normalize exactly as the
+    destination policy does: case, a DNS root dot, IP spelling and the port
+    the scheme implies.
+    """
+    target = validate_url_target(url)
+    if isinstance(target, TargetRejection):
+        return None
+    host = target.hostname
+    return (
+        f"{target.scheme}://[{host}]:{target.port}"
+        if ":" in host
+        else (f"{target.scheme}://{host}:{target.port}")
+    )
+
+
+def same_origin(one: str, other: str) -> bool:
+    """True when both are approved targets of the very same origin."""
+    origin = origin_of(one)
+    return origin is not None and origin == origin_of(other)
+
+
 def validate_redirect_target(
     current_url: str,
     location: str,
     *,
     max_url_chars: int = 4096,
     resolved_addresses: tuple[str, ...] | None = None,
+    stay_within_origin: bool = False,
 ) -> TargetOutcome:
     """Resolve a Location as data and revalidate it, without following it.
 
@@ -231,4 +258,12 @@ def validate_redirect_target(
     )
     if isinstance(target, URLTarget) and current.scheme == "https" and target.scheme != "https":
         return TargetRejection(TargetReason.HTTPS_DOWNGRADE)
+    # A delegated fetch (a page's own link, script or data endpoint) may not be
+    # redirected out of the origin that authorized it.
+    if (
+        stay_within_origin
+        and isinstance(target, URLTarget)
+        and not same_origin(current.url.get_secret_value(), target.url.get_secret_value())
+    ):
+        return TargetRejection(TargetReason.CROSS_ORIGIN)
     return target

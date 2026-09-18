@@ -148,7 +148,7 @@ class TestAnUnjoinedNumberCannotBecomeEvidence:
 
     def test_the_refusal_names_the_required_identity_and_semantics(self, house):
         result = run(house, "SELECT value FROM silver_observations").output.result
-        assert "series_id, period_start, period_end, value, unit and scale" in result.reason
+        assert "series_id, period_start, period_end and value" in result.reason
 
     def test_a_value_without_a_period_claims_no_coverage(self, house):
         result = run(house, "SELECT value FROM silver_observations").output.result

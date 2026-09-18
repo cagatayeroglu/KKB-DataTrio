@@ -266,7 +266,8 @@ def make_web_search_tool(*, backend: SearchBackend, timeout_seconds: float = 5.0
             "Returns bounded ranked untrusted metadata, not verified factual or numeric evidence. "
             "URLs are redacted display locators; search does not fetch pages or authorize web_url. "
             "web_url can fetch only an exact address the user wrote in the original question. "
-            "No production provider is included; live acceptance is separate."
+            "Use it to find where data is published: the person is shown the candidates as an "
+            "unverified list and can write an address into a question for web_url to read."
         ),
         arguments=SearchRequest,
         run=run,

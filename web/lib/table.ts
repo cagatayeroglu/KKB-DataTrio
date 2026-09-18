@@ -113,9 +113,19 @@ export function seriesLabel(label: string, dataset: Dataset | null) {
   ))
     result = result.replaceAll(series.series_id, preparedTitle(series.title));
   result = result
-    .replaceAll(
-      "monthly average (by_end)",
-      "hafta bitişine göre aylık ortalama",
+    .replace(
+      / monthly (sum|average|first|last|min|max) \((by_end|by_majority)\)/g,
+      (_, how: string, week: string) =>
+        ` ${week === "by_end" ? "hafta bitişine" : "haftanın çoğunluğuna"} göre aylık ${
+          {
+            sum: "toplam",
+            average: "ortalama",
+            first: "ilk değer",
+            last: "son değer",
+            min: "en küçük",
+            max: "en büyük",
+          }[how]
+        }`,
     )
     .replaceAll("month-over-month change", "aylık değişim")
     .replace(/ real, (\d{4}-\d{2}) prices /g, " reel, $1 fiyatlarıyla ");

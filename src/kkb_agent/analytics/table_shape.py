@@ -62,8 +62,11 @@ def _key(value: ResultValue) -> PeriodKey:
 
 
 def _period_columns(source: AnalyticalResult) -> tuple[dict[str, set[PeriodKey]], Frequency, int]:
-    if source.status is not ResultStatus.COMPUTED or source.unresolved_semantics:
-        raise TableShapeRefused("The source table is not computed with resolved semantics")
+    # Selecting existing cells reads periods only. A column whose unit a document
+    # did not state stays unresolved and travels with the table; it is not a
+    # reason to refuse the other columns (operation-scoped semantics).
+    if source.status is not ResultStatus.COMPUTED:
+        raise TableShapeRefused("The source table is not computed")
     raw: dict[str, set[PeriodKey]] = {}
     non_period = 0
     for value in source.values:
@@ -107,8 +110,10 @@ def rebase_index(
     new_base: float,
 ) -> RebasedColumn:
     """Add a rescaled copy of one index column using an explicit reference."""
-    if source.status is not ResultStatus.COMPUTED or source.unresolved_semantics:
-        raise TableShapeRefused("The source table is not computed with resolved semantics")
+    # The rebased column itself must be a typed index (checked below); other
+    # unresolved columns are unchanged and stay declared.
+    if source.status is not ResultStatus.COMPUTED:
+        raise TableShapeRefused("The source table is not computed")
     if not isfinite(new_base) or new_base <= 0:
         raise TableShapeRefused("The new index base must be finite and positive")
     column = [value for value in source.values if value.label == column_label]

@@ -9,9 +9,34 @@ export const DOCUMENT_TYPES = new Set([
   "text/html",
 ]);
 export const RESPONSE_LIMIT = 1024 * 1024;
+/** DEC-157: the one JSON body allowed past 16 KiB, a knowledge-base dataset. */
+export const KNOWLEDGE_LIMIT = 1024 * 1024;
 const REF = "[a-f0-9]{32}";
 const route = new RegExp(`^v1/sessions/${REF}/turns(?:/${REF})?$`);
 const documentRoute = new RegExp(`^v1/sessions/${REF}/documents$`);
+const conversationRoute = new RegExp(`^v1/conversations/${REF}$`);
+const runRoute = new RegExp(
+  `^v1/conversations/${REF}/runs(?:/${REF}(?:/steps/[1-9][0-9]{0,5})?)?$`,
+);
+/** A stored trace holds every prompt and tool output, so it may exceed the usual ceiling. */
+export const TRACE_LIMIT = 8 * 1024 * 1024;
+const feedbackRoute = new RegExp(`^v1/conversations/${REF}/feedback$`);
+const cancelRoute = new RegExp(`^v1/sessions/${REF}/turns/${REF}/cancel$`);
+const SLUG = "[a-z][a-z0-9_]{2,39}";
+const datasetRoute = new RegExp(`^v1/knowledge/datasets/${SLUG}$`);
+const datasetStatusRoute = new RegExp(
+  `^v1/knowledge/datasets/${SLUG}/(?:archive|restore)$`,
+);
+const notesRoute =
+  /^v1\/knowledge\/series\/[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}\/notes$/;
+const valuesRoute =
+  /^v1\/knowledge\/series\/[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}\/values$/;
+const usesRoute =
+  /^v1\/knowledge\/series\/[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}\/uses$/;
+/** Only the conversation list carries a query, and only these bounded filters. */
+export const SEARCH_QUERY = /^q=[^&]{1,512}$/;
+export const LIST_QUERY =
+  /^(?:archived=(?:true|false)|search=[^&]{0,120})(?:&(?:archived=(?:true|false)|search=[^&]{0,120}))?$/;
 const hosts = new Set(["127.0.0.1:3000", "localhost:3000"]);
 const tokenPattern = /^[A-Za-z0-9_-]{43}$/;
 const responseHeaders = {
@@ -92,8 +117,7 @@ export async function forward(
     !host ||
     !hosts.has(host) ||
     (origin !== null && origin !== `http://${host}`) ||
-    (site !== null && !["same-origin", "none"].includes(site)) ||
-    new URL(request.url).search
+    (site !== null && !["same-origin", "none"].includes(site))
   )
     return error("forbidden", 403);
   if (request.method === "POST" && origin !== `http://${host}`)
@@ -101,22 +125,98 @@ export async function forward(
   const name = path.join("/");
   const publicGet = ["v1/health", "v1/dataset"].includes(name);
   const creation = name === "v1/sessions";
+  const owner = name === "v1/owner";
+  const list = name === "v1/conversations";
+  const conversation = conversationRoute.test(name);
+  const runs = runRoute.test(name);
+  const feedback = feedbackRoute.test(name);
   const turns = route.test(name);
   const documents = documentRoute.test(name);
+  const cancel = cancelRoute.test(name);
+  const settings = name === "v1/settings";
+  const prompts = name === "v1/prompts";
+  const knowledgeList = name === "v1/knowledge";
+  const knowledgeSearch = name === "v1/knowledge/search";
+  const vectorIndex = name === "v1/knowledge/index";
+  const datasetSave = name === "v1/knowledge/datasets";
+  const dataset = datasetRoute.test(name);
+  const datasetStatus = datasetStatusRoute.test(name);
+  const notes = notesRoute.test(name);
+  const values = valuesRoute.test(name);
+  const uses = usesRoute.test(name);
+  const knowledge =
+    knowledgeList ||
+    knowledgeSearch ||
+    vectorIndex ||
+    datasetSave ||
+    dataset ||
+    datasetStatus ||
+    notes ||
+    values ||
+    uses ||
+    settings ||
+    prompts;
   const getTurn = turns && path.length === 5;
+  const search = new URL(request.url).search.replace(/^\?/, "");
   if (
-    !(request.method === "GET" && (publicGet || getTurn)) &&
+    search &&
+    !(list && LIST_QUERY.test(search)) &&
+    !(knowledgeSearch && SEARCH_QUERY.test(search))
+  )
+    return error("forbidden", 403);
+  if (
+    !(
+      request.method === "GET" &&
+      (publicGet ||
+        getTurn ||
+        list ||
+        settings ||
+        prompts ||
+        conversation ||
+        runs ||
+        feedback ||
+        knowledgeList ||
+        knowledgeSearch ||
+        vectorIndex ||
+        dataset ||
+        notes ||
+        values ||
+        uses)
+    ) &&
     !(
       request.method === "POST" &&
-      (creation || documents || (turns && path.length === 4))
-    )
+      (creation ||
+        owner ||
+        documents ||
+        feedback ||
+        cancel ||
+        datasetSave ||
+        datasetStatus ||
+        notes ||
+        vectorIndex ||
+        (turns && path.length === 4))
+    ) &&
+    !(request.method === "PATCH" && (conversation || settings))
   )
     return error("not_found", 404);
   const headers = new Headers({ Accept: "application/json" });
-  if (turns || documents) {
+  if (turns || documents || conversation || runs || feedback || cancel) {
     const token = request.headers.get("x-kkb-session-token");
     if (!token || !tokenPattern.test(token)) return error("not_found", 404);
     headers.set("X-KKB-Session-Token", token);
+  }
+  if (knowledge) {
+    // The knowledge base is the browser key's: every read and edit names its owner.
+    const key = request.headers.get("x-kkb-owner-token");
+    if (!key || !tokenPattern.test(key)) return error("not_found", 404);
+    headers.set("X-KKB-Owner-Token", key);
+  }
+  if (list || creation) {
+    // The browser's own key: required to list, optional only where the backend says so.
+    const key = request.headers.get("x-kkb-owner-token");
+    if (key && !tokenPattern.test(key)) return error("not_found", 404);
+    if (!key && list) return error("not_found", 404);
+    if (key) headers.set("X-KKB-Owner-Token", key);
   }
   let timeoutMs: number;
   try {
@@ -157,22 +257,20 @@ export async function forward(
         );
       }
       headers.set("Content-Type", type);
-    } else if (request.method === "POST") {
+    } else if (request.method === "POST" || request.method === "PATCH") {
       if (
         !/^application\/json(?:;\s*charset=utf-8)?$/i.test(
           request.headers.get("content-type") ?? "",
         )
       )
         return error("invalid_request", 415);
+      const limit = datasetSave ? KNOWLEDGE_LIMIT : BODY_LIMIT;
       const declared = request.headers.get("content-length");
-      if (
-        declared &&
-        (!/^\d+$/.test(declared) || Number(declared) > BODY_LIMIT)
-      )
+      if (declared && (!/^\d+$/.test(declared) || Number(declared) > limit))
         return error("body_too_large", 413);
       try {
         body = new TextDecoder("utf-8", { fatal: true }).decode(
-          await boundedRead(request.body, BODY_LIMIT, controller.signal),
+          await boundedRead(request.body, limit, controller.signal),
         );
       } catch {
         return error(
@@ -182,19 +280,22 @@ export async function forward(
       }
       headers.set("Content-Type", "application/json");
     }
-    const upstream = await transport(`${backend}/${name}`, {
-      method: request.method,
-      headers,
-      body,
-      cache: "no-store",
-      redirect: "error",
-      signal: controller.signal,
-    });
+    const upstream = await transport(
+      `${backend}/${name}${search ? `?${search}` : ""}`,
+      {
+        method: request.method,
+        headers,
+        body,
+        cache: "no-store",
+        redirect: "error",
+        signal: controller.signal,
+      },
+    );
     if (!upstream.headers.get("content-type")?.startsWith("application/json"))
       return error("unavailable", 502);
     const bytes = await boundedRead(
       upstream.body,
-      RESPONSE_LIMIT,
+      runs && path.length > 4 ? TRACE_LIMIT : RESPONSE_LIMIT,
       controller.signal,
     );
     return new Response(bytes, {

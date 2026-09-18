@@ -8,6 +8,7 @@ import {
   BODY_LIMIT,
   DOCUMENT_LIMIT,
   RESPONSE_LIMIT,
+  TRACE_LIMIT,
 } from "../lib/proxy";
 const sid = "1".repeat(32),
   tid = "2".repeat(32),
@@ -423,4 +424,217 @@ test("document uploads refuse other types, sizes, methods and missing tokens", a
   );
   assert.equal(BODY_LIMIT < DOCUMENT_LIMIT, true);
   assert.equal(calls, 0);
+});
+
+test("conversation routes pass only with their key, method and bounded query", async () => {
+  const seen: { url: string; headers: Headers }[] = [];
+  const transport: typeof fetch = async (url, init) => {
+    seen.push({ url: String(url), headers: new Headers(init?.headers) });
+    return Response.json({ ok: true });
+  };
+  const owner = "o".repeat(43);
+
+  // Listing needs the owner key and passes its filters through.
+  const listed = await forward(
+    request("v1/conversations?archived=true&search=konut", "GET", {
+      "x-kkb-owner-token": owner,
+    }),
+    ["v1", "conversations"],
+    transport,
+  );
+  assert.equal(listed.status, 200);
+  assert.match(seen[0].url, /\/v1\/conversations\?archived=true&search=konut$/);
+  assert.equal(seen[0].headers.get("X-KKB-Owner-Token"), owner);
+
+  // Without the key, and with a query nobody offered, nothing is forwarded.
+  assert.equal(
+    (
+      await forward(
+        request("v1/conversations", "GET"),
+        ["v1", "conversations"],
+        transport,
+      )
+    ).status,
+    404,
+  );
+  assert.equal(
+    (
+      await forward(
+        request("v1/conversations?limit=9999", "GET", {
+          "x-kkb-owner-token": owner,
+        }),
+        ["v1", "conversations"],
+        transport,
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await forward(
+        request(`v1/sessions/${sid}/turns?x=1`, "GET", {
+          "x-kkb-session-token": token,
+        }),
+        ["v1", "sessions", sid, "turns"],
+        transport,
+      )
+    ).status,
+    403,
+  );
+
+  // Renaming is a PATCH with a JSON body and the conversation's own credential.
+  const renamed = await forward(
+    request(
+      `v1/conversations/${sid}`,
+      "PATCH",
+      { "x-kkb-session-token": token, "content-type": "application/json" },
+      JSON.stringify({ title: "Konut" }),
+    ),
+    ["v1", "conversations", sid],
+    transport,
+  );
+  assert.equal(renamed.status, 200);
+  assert.equal(seen.at(-1)?.headers.get("X-KKB-Session-Token"), token);
+  assert.equal(
+    (
+      await forward(
+        request(`v1/conversations/${sid}`, "DELETE", {
+          "x-kkb-session-token": token,
+        }),
+        ["v1", "conversations", sid],
+        transport,
+      )
+    ).status,
+    404,
+  );
+});
+
+test("a turn's cancel passes only as a keyed POST to that exact turn", async () => {
+  const seen: { url: string; method: string; headers: Headers }[] = [];
+  const transport: typeof fetch = async (url, init) => {
+    seen.push({
+      url: String(url),
+      method: init?.method ?? "GET",
+      headers: new Headers(init?.headers),
+    });
+    return Response.json({ ok: true }, { status: 202 });
+  };
+  const path = `v1/sessions/${sid}/turns/${"c".repeat(32)}/cancel`;
+  const keyed = {
+    "x-kkb-session-token": token,
+    "content-type": "application/json",
+  };
+
+  const sent = await forward(
+    request(path, "POST", keyed, "{}"),
+    path.split("/"),
+    transport,
+  );
+  assert.equal(sent.status, 202);
+  assert.match(seen[0].url, new RegExp(`/${path}$`));
+  assert.equal(seen[0].headers.get("X-KKB-Session-Token"), token);
+
+  // Without the key, with another method, or under another name: nothing is forwarded.
+  for (const [target, method, headers] of [
+    [path, "POST", { "content-type": "application/json" }],
+    [path, "GET", keyed],
+    [`v1/sessions/${sid}/turns/${"c".repeat(32)}/stop`, "POST", keyed],
+    [`v1/sessions/${sid}/turns/cancel`, "POST", keyed],
+  ] as const) {
+    const refused = await forward(
+      request(target, method, headers, method === "POST" ? "{}" : undefined),
+      target.split("/"),
+      transport,
+    );
+    assert.equal(refused.status, 404, `${method} ${target}`);
+  }
+  assert.equal(seen.length, 1);
+});
+
+test("a stored trace and one whole step pass with the key, under the trace ceiling", async () => {
+  const run = "3".repeat(32);
+  const keyed = { "x-kkb-session-token": token };
+  const big =
+    (bytes: number): typeof fetch =>
+    async () =>
+      new Response("x".repeat(bytes), {
+        headers: { "content-type": "application/json" },
+      });
+  for (const path of [
+    `v1/conversations/${sid}/runs/${run}`,
+    `v1/conversations/${sid}/runs/${run}/steps/12`,
+  ]) {
+    // A trace larger than an ordinary response still arrives whole.
+    const passed = await forward(
+      request(path, "GET", keyed),
+      path.split("/"),
+      big(RESPONSE_LIMIT + 1),
+    );
+    assert.equal(passed.status, 200);
+    const beyond = await forward(
+      request(path, "GET", keyed),
+      path.split("/"),
+      big(TRACE_LIMIT + 1),
+    );
+    assert.equal(beyond.status, 503);
+    assert.equal(
+      (await forward(request(path, "GET"), path.split("/"), big(2))).status,
+      404,
+    );
+  }
+  // The list keeps the ordinary ceiling; malformed steps never dispatch.
+  const list = `v1/conversations/${sid}/runs`;
+  assert.equal(
+    (
+      await forward(
+        request(list, "GET", keyed),
+        list.split("/"),
+        big(RESPONSE_LIMIT + 1),
+      )
+    ).status,
+    503,
+  );
+  for (const step of ["0", "01", "1234567", "x"]) {
+    const path = `v1/conversations/${sid}/runs/${run}/steps/${step}`;
+    assert.equal(
+      (await forward(request(path, "GET", keyed), path.split("/"), big(2)))
+        .status,
+      404,
+    );
+  }
+});
+
+test("the catalogue trial passes with the browser key and only its own query", async () => {
+  const seen: { url: string; headers: Headers }[] = [];
+  const transport: typeof fetch = async (url, init) => {
+    seen.push({ url: String(url), headers: new Headers(init?.headers) });
+    return Response.json({ ok: true });
+  };
+  const key = "o".repeat(43);
+  const path = ["v1", "knowledge", "search"];
+
+  const passed = await forward(
+    request("v1/knowledge/search?q=konut%20kredisi", "GET", {
+      "x-kkb-owner-token": key,
+    }),
+    path,
+    transport,
+  );
+  assert.equal(passed.status, 200);
+  assert.match(seen[0].url, /\/v1\/knowledge\/search\?q=konut%20kredisi$/);
+  assert.equal(seen[0].headers.get("X-KKB-Owner-Token"), key);
+
+  // Without the key, with another parameter, or as a write: nothing is forwarded.
+  for (const [target, method, headers] of [
+    ["v1/knowledge/search?q=x", "GET", {}],
+    ["v1/knowledge/search?limit=9", "GET", { "x-kkb-owner-token": key }],
+    ["v1/knowledge/search?q=x", "POST", { "x-kkb-owner-token": key }],
+  ] as [string, string, Record<string, string>][]) {
+    const refused = await forward(
+      request(target, method, headers),
+      path,
+      transport,
+    );
+    assert.ok([403, 404].includes(refused.status), `${target} ${method}`);
+  }
 });

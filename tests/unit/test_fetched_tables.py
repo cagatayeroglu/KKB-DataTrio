@@ -167,8 +167,10 @@ class TestTheServersLabelIsCheckedAgainstTheBytes:
 
 
 class TestDeclarationsBelongToTheirFormat:
-    def test_a_csv_without_a_separator_needs_one_even_when_a_sheet_is_named(self):
-        result = load_fetched(fetched(TABLE, CSV), source=SOURCE, sheet="Observations")
+    def test_an_undetectable_csv_separator_needs_one_even_when_a_sheet_is_named(self):
+        # Comma and semicolon both split every row evenly (DEC-147 keeps it undecided).
+        ambiguous = b"a,b;c\n1,2;3\n"
+        result = load_fetched(fetched(ambiguous, CSV), source=SOURCE, sheet="Observations")
 
         assert (result.status, result.code) == ("needs_input", "PARSING_DECLARATION_REQUIRED")
 

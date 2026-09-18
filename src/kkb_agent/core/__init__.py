@@ -1,5 +1,11 @@
 """Minimal shared source, semantic, evidence and analytical-result records."""
 
+from kkb_agent.core.identity import (
+    OpaqueSeriesReference,
+    SeriesId,
+    SeriesIdentity,
+    declared_series_identities,
+)
 from kkb_agent.core.models import (
     Aggregation,
     CumulativeKind,
@@ -27,6 +33,9 @@ from kkb_agent.core.results import (
 )
 
 __all__ = [
+    "OpaqueSeriesReference",
+    "SeriesId",
+    "SeriesIdentity",
     "DIMENSIONLESS",
     "RELATIONAL_KINDS",
     "Aggregation",
@@ -47,5 +56,6 @@ __all__ = [
     "StockFlow",
     "TransformationRecord",
     "ValidationOutcome",
+    "declared_series_identities",
     "WeeklyAnchor",
 ]

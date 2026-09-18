@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import stat
 from uuid import uuid4
 
@@ -78,7 +79,10 @@ def test_admitted_upload_is_stored_by_reference_without_its_name(tmp_path):
         }
     (stored,) = (runner.run_root / sid / "documents").iterdir()
     assert stored.name == f"{body['document_ref']}.csv" and stored.read_bytes() == CSV
-    assert stat.S_IMODE(stored.stat().st_mode) == 0o600
+    if os.name != "nt":
+        # The store asks for owner-only bytes; NTFS carries no POSIX mode, so the
+        # rule is asserted where the operating system can keep it.
+        assert stat.S_IMODE(stored.stat().st_mode) == 0o600
 
 
 def test_without_the_switch_there_is_no_upload(tmp_path):
@@ -168,9 +172,11 @@ def test_the_attachment_reaches_the_tools_only_when_its_bytes_still_match(tmp_pa
     seen = []
     original = PreparedRunner._registry
 
-    def registry(self, connection, workspace, lineage, attachment=None):
+    def registry(
+        self, connection, workspace, lineage, attachment=None, library=None, fetch=None, **extra
+    ):
         seen.append(attachment)
-        return original(self, connection, workspace, lineage, attachment)
+        return original(self, connection, workspace, lineage, attachment, library, fetch, **extra)
 
     monkeypatch.setattr(PreparedRunner, "_registry", registry)
     provider = scripted('{"question": "q", "steps": [], "clarification": "unsupported_request"}')
@@ -204,7 +210,8 @@ def test_the_attachment_reaches_the_tools_only_when_its_bytes_still_match(tmp_pa
 
 
 @pytest.mark.parametrize("flag", [True, False])
-def test_launcher_wires_the_store_only_when_enabled(tmp_path, monkeypatch, capsys, flag):
+def test_launcher_admits_documents_unless_they_are_refused(tmp_path, monkeypatch, capsys, flag):
+    """Uploads are on by default; --no-uploads is the one way to refuse them."""
     set_config(monkeypatch)
     root = tmp_path.resolve() / "prepared"
     seed_prepared(root)
@@ -235,7 +242,7 @@ def test_launcher_wires_the_store_only_when_enabled(tmp_path, monkeypatch, capsy
         "--state-root",
         str(tmp_path.resolve() / "runtime"),
     ]
-    assert cli.main([*arguments, "--enable-uploads"] if flag else arguments) == 0
+    assert cli.main(arguments if flag else [*arguments, "--no-uploads"]) == 0
     assert (seen["store"] is not None) is flag
     assert json.loads(capsys.readouterr().out.splitlines()[0])["uploads"] is flag
 

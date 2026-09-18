@@ -35,7 +35,7 @@ import hashlib
 import json
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 import duckdb
 from pydantic import BaseModel, ConfigDict, Field
@@ -43,7 +43,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
 from kkb_agent.agent.registry import ToolSpec
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
-from kkb_agent.core import AnalyticalResult, ResultStatus
+from kkb_agent.core import AnalyticalResult, OpaqueSeriesReference, ResultStatus
 from kkb_agent.database import all_tables
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.lakehouse.result_evidence import _record_execution, canonical
@@ -70,7 +70,8 @@ class LakehouseArguments(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    sql: str = Field(min_length=1, max_length=8000)
+    # SQL can name any series; the admission rule cannot enumerate them from text.
+    sql: Annotated[str, OpaqueSeriesReference()] = Field(min_length=1, max_length=8000)
     purpose: str = Field(default="", max_length=500)
 
 
@@ -318,14 +319,22 @@ def make_lakehouse_tool(
 
 
 def _describe(readable: Iterable[str]) -> str:
+    # The planner reads this text; nothing here is ever executed. It is the tool's
+    # description, returned for ToolSpec.description, and the only interpolation is
+    # the list of readable table names. Bandit's B608 heuristic sees SQL words beside
+    # an f-string and cannot tell prose from a query, so the finding is a false
+    # positive. The real SQL boundary is the parser and the read-only engine limits
+    # applied to the model's statement, not this string.
     return (
-        "Run one read-only SELECT over the analysis tables. "
+        # nosec B608 - prose, never executed; the marker sits on the flagged line.
+        "Run one read-only SELECT over the analysis tables. "  # nosec B608
         f"Readable tables: {', '.join(sorted(readable))}. "
         "Only SELECT is accepted; no table functions, no writes, no other tables."
-        " Measurements require direct columns: silver_observations o (series_id, period_start,"
-        " period_end, value) joined to silver_series s (series_id, unit, scale, frequency,"
-        " anchor, observation) on series_id, selecting o.series_id, o.period_start,"
-        " o.period_end, o.value, s.unit and s.scale. unit and scale exist only on silver_series."
+        " Measurements require direct columns: select o.series_id, o.period_start,"
+        " o.period_end and o.value from silver_observations o. Each row's unit, scale,"
+        " frequency, weekly anchor and stock/flow kind come from that series' silver_series"
+        " declaration (series_id, unit, scale, frequency, anchor, observation); join"
+        " silver_series s on series_id when you filter or show them."
         " Expressions and other projections return inspection rows only, not financial evidence."
     )
 

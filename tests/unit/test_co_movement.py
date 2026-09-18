@@ -534,8 +534,8 @@ def test_planner_is_told_where_columns_live_and_to_avoid_redundant_steps(lake):
     from kkb_agent.tools import make_lakehouse_tool
 
     description = make_lakehouse_tool(lake.connection).description
-    assert "silver_series s (series_id, unit, scale" in description
-    assert "unit and scale exist only on silver_series" in description
+    assert "silver_series declaration (series_id, unit, scale" in description
+    assert "join silver_series s on series_id" in description
     assert "another planned step already returns" in SYSTEM_PROMPT
 
 

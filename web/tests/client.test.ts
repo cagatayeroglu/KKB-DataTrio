@@ -4,7 +4,6 @@ import {
   admit,
   admissionRejection,
   draftRequest,
-  draftWorkspaceRequest,
   publishedResult,
   restoredSelection,
   readTurn,
@@ -380,46 +379,12 @@ test("only explicit admission rejection ends recovery; transport and server erro
   }
 });
 
-test("workspace continuation intent reaches the browser request body", async () => {
-  const abstainedTurn = turnSchema.parse({
-    ...turn,
-    state: "completed",
-    answer: {
-      status: "abstained",
-      text: "Seri seçimi net değil.",
-      omitted_claims: 0,
-      notices: [],
-      result: null,
-    },
-  });
-
-  assert.equal(publishedResult(abstainedTurn), undefined);
-  const cases = [
-    {
-      entry: draftWorkspaceRequest("BDDK verisini kullan", true, abstainedTurn),
-      expected: { is_continuation: true, selected_result_id: undefined },
-    },
-    {
-      entry: draftWorkspaceRequest(
-        "Yeni soru: 2026 yılı enflasyonu",
-        false,
-        abstainedTurn,
-      ),
-      expected: { is_continuation: false, selected_result_id: undefined },
-    },
-    {
-      entry: draftWorkspaceRequest("Bu tabloya TÜFE ekle", true, completed()),
-      expected: { is_continuation: true, selected_result_id: "a".repeat(32) },
-    },
-    {
-      entry: draftWorkspaceRequest("Bağımsız soru", false, completed()),
-      expected: { is_continuation: false, selected_result_id: undefined },
-    },
-    {
-      entry: draftWorkspaceRequest("İlk bağımsız soru", true),
-      expected: { is_continuation: false, selected_result_id: undefined },
-    },
-  ];
+test("a workspace question pins no table and states no continuation", async () => {
+  // The composer sends the question alone: which earlier table serves it, and
+  // whether it continues a pending clarification, is the agent's reading.
+  const entry = draftRequest("Bu tabloya TÜFE ekle", undefined, undefined);
+  assert.equal(entry.selected_result_id, undefined);
+  assert.equal(entry.is_continuation, undefined);
   const old = globalThis.fetch;
   const bodies: Record<string, unknown>[] = [];
   globalThis.fetch = async (_url, init) => {
@@ -427,14 +392,18 @@ test("workspace continuation intent reaches the browser request body", async () 
     return Response.json({ ...turn, request_id: bodies.at(-1)?.request_id });
   };
   try {
-    for (const { entry } of cases) await admit({ ...saved, turns: [entry] }, 0);
+    await admit({ ...saved, turns: [entry] }, 0);
   } finally {
     globalThis.fetch = old;
   }
-  cases.forEach(({ expected }, index) => {
-    assert.equal(bodies[index].is_continuation, expected.is_continuation);
-    assert.equal(bodies[index].selected_result_id, expected.selected_result_id);
+  assert.deepEqual(bodies[0], {
+    request_id: entry.request_id,
+    question: entry.question,
   });
+  // An API caller may still pin one explicitly; the contract keeps that field.
+  const pinned = draftRequest("Bu tabloya TÜFE ekle", completed(), true);
+  assert.equal(pinned.selected_result_id, "a".repeat(32));
+  assert.equal(pinned.is_continuation, true);
 });
 
 test("abstained or error turns leave client UI state clean and selectable", () => {
@@ -516,4 +485,58 @@ test("an attached document travels with exactly one question", async () => {
     ),
     true,
   );
+});
+
+test("a key the server does not know is replaced; a known key and a network error are kept", async () => {
+  const { usableOwner } = await import("../lib/client");
+  const store = new Map<string, string>();
+  const storage = {
+    getItem: (k: string) => store.get(k) ?? null,
+    setItem: (k: string, v: string) => void store.set(k, v),
+    removeItem: (k: string) => void store.delete(k),
+  } as unknown as Storage;
+  const old = "o".repeat(43);
+  const fresh = "n".repeat(43);
+  const original = globalThis.fetch;
+  const calls: string[] = [];
+  try {
+    // Unknown here (another state root): listing is refused, a new key is issued.
+    store.set("kkb.owner.v1", old);
+    globalThis.fetch = async (url, init) => {
+      calls.push(`${init?.method ?? "GET"} ${String(url)}`);
+      if (String(url).endsWith("/conversations"))
+        return Response.json(
+          { api_version: 1, error: "forbidden" },
+          { status: 403 },
+        );
+      return Response.json(
+        { api_version: 1, owner_token: fresh },
+        { status: 201 },
+      );
+    };
+    assert.equal(await usableOwner(storage), fresh);
+    assert.equal(store.get("kkb.owner.v1"), fresh);
+    assert.deepEqual(calls, [
+      "GET /api/kkb/v1/conversations",
+      "POST /api/kkb/v1/owner",
+    ]);
+
+    // Known: kept, nothing created.
+    calls.length = 0;
+    globalThis.fetch = async (url, init) => {
+      calls.push(`${init?.method ?? "GET"} ${String(url)}`);
+      return Response.json({ api_version: 1, conversations: [] });
+    };
+    assert.equal(await usableOwner(storage), fresh);
+    assert.deepEqual(calls, ["GET /api/kkb/v1/conversations"]);
+
+    // A server that cannot be reached says nothing about the key: it is kept.
+    globalThis.fetch = async () => {
+      throw new TypeError("offline");
+    };
+    await assert.rejects(usableOwner(storage));
+    assert.equal(store.get("kkb.owner.v1"), fresh);
+  } finally {
+    globalThis.fetch = original;
+  }
 });

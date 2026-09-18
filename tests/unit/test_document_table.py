@@ -16,17 +16,18 @@ from kkb_agent.api.app import create_app
 from kkb_agent.api.prepared import PreparedRunner
 from kkb_agent.api.proof import build_proof
 from kkb_agent.api.service import AnalysisService
-from kkb_agent.core import StockFlow
+from kkb_agent.core import Scale, StockFlow
 from kkb_agent.lakehouse import open_lakehouse
 from kkb_agent.llm import scripted
 from kkb_agent.tools._document_column import ColumnRefused
 from kkb_agent.tools._document_table import read_table
 from kkb_agent.tools._document_value import Grid
-from kkb_agent.tools.web_url import WebUrlArguments
+from kkb_agent.tools.web_url import WebUrlArguments, declared_units
 
 HEADERS = ("Ay", "Kapanış (Puan)", "Faiz (%)", "Hacim", "Adet (Bin TL)")
 ROWS = (
-    ("2026-04", "9000", "4,5", "12", "1.234"),
+    # "12.5" reads only as English and "4,5" only as Turkish: no convention (DEC-148).
+    ("2026-04", "9000", "4,5", "12.5", "1.234"),
     ("2026-05", "9100", "4,25", "13", "2"),
     ("2026-06", "9200", "4", "", "3"),
 )
@@ -60,13 +61,14 @@ def test_table_keeps_usable_columns_and_names_every_skipped_one():
         is_series=lambda label: label == "BDDK:x",
     )
     assert table.months == (date(2026, 4, 30), date(2026, 5, 31), date(2026, 6, 30))
-    assert [(c.label, c.unit, c.measure) for c in table.columns] == [
-        ("Kapanış", "points", StockFlow.INDEX),
-        ("Faiz", "percent", StockFlow.RATE),
+    assert [(c.label, c.unit, c.unit_source, c.measure) for c in table.columns] == [
+        ("Kapanış", "points", "column header", StockFlow.INDEX),
+        ("Faiz", "percent", "column header", StockFlow.RATE),
+        # No unit in the header: kept, declared unresolved, never guessed.
+        ("Hacim", None, None, StockFlow.UNKNOWN),
     ]
     assert [value for _, value, _ in table.columns[1].cells] == [4.5, 4.25, 4.0]
     assert dict(table.skipped) == {
-        "Hacim": "UNIT_NOT_STATED",
         "Adet": "AMBIGUOUS_NUMBER",
         "Yok": "COLUMN_NOT_FOUND",
         "kapanis": "DUPLICATE_COLUMN",
@@ -87,7 +89,7 @@ def test_a_column_with_fewer_than_two_values_is_left_out():
         ([grid(headers=("Ay", "Ay", *HEADERS[2:]))], "AMBIGUOUS_COLUMN"),
         ([grid(), grid(location={"table": 2})], "AMBIGUOUS_COLUMN"),
         ([grid(rows=(*ROWS, ("2026-06", "1", "1", "1", "1")))], "DUPLICATE_PERIOD"),
-        ([grid(rows=(*ROWS, ("Toplam", "1", "1", "1", "1")))], "PERIOD_NOT_RECOGNISED"),
+        ([grid(rows=(*ROWS, ("Ortalama", "1", "1", "1", "1")))], "PERIOD_NOT_RECOGNISED"),
         ([grid(rows=(("2026-04-15", "1", "1", "1", "1"),))], "PERIOD_NOT_RECOGNISED"),
     ],
 )
@@ -99,8 +101,36 @@ def test_period_problems_refuse_the_whole_table(tables, code):
 
 def test_no_usable_column_refuses_the_table():
     with pytest.raises(ColumnRefused) as refused:
-        read_table([grid()], "Ay", ["Hacim", "Adet"])
+        read_table([grid()], "Ay", ["Yok", "Adet"])
     assert refused.value.code == "NO_USABLE_COLUMN"
+
+
+def test_a_unit_the_user_wrote_fills_a_header_without_one_but_never_overrides_it():
+    table = read_table(
+        [grid()],
+        "Ay",
+        ["Kapanış", "Hacim"],
+        declared_units={"Hacim": ("TRY", Scale.THOUSAND), "Kapanış": ("TRY", Scale.ONE)},
+    )
+    assert [(c.label, c.unit, c.scale, c.unit_source) for c in table.columns] == [
+        ("Hacim", "TRY", Scale.THOUSAND, "question")
+    ]
+    assert dict(table.skipped) == {"Kapanış": "UNIT_CONFLICT"}
+
+
+@pytest.mark.parametrize(
+    ("question", "code"),
+    [
+        ("Hacim sütununu ekle.", "UNIT_NOT_IN_QUESTION"),
+        ("Hacim adet olarak.", "UNIT_NOT_RECOGNISED"),
+    ],
+)
+def test_a_declared_unit_must_be_written_by_the_user_in_a_known_vocabulary(question, code):
+    units = {"Hacim": "bin TL"} if code == "UNIT_NOT_IN_QUESTION" else {"Hacim": "adet"}
+    assert declared_units(units, question) == code
+    assert declared_units({"Hacim": "Bin TL"}, "Hacim bin TL cinsinden.") == {
+        "Hacim": ("TRY", Scale.THOUSAND)
+    }
 
 
 @pytest.mark.parametrize(
@@ -203,7 +233,8 @@ def test_uploaded_table_is_published_then_extended_and_compared(tmp_path):
         assert cells[("Kapanış", "2026-04-30")]["measure"] == "index"
         assert cells[("Faiz", "2026-05-31")]["value"] == 4.75
         assert cells[("Faiz", "2026-05-31")]["measure"] == "rate"
-        assert not [label for label, _ in cells if label == "Hacim"]
+        assert cells[("Hacim", "2026-05-31")]["value"] == 13
+        assert any(note.startswith("Hacim:") for note in result["proof"]["unresolved_semantics"])
         proof = result["proof"]
         assert proof["availability"] == "available", proof
         assert proof["steps"][0]["producer"] == "web_url"
@@ -212,9 +243,9 @@ def test_uploaded_table_is_published_then_extended_and_compared(tmp_path):
         assert (source["source_type"], source["column"], source["values_read"]) == (
             "upload",
             None,
-            6,
+            9,  # Kapanış, Faiz and the unit-less Hacim, three months each
         )
-        assert any("'Hacim'" in note and "UNIT_NOT_STATED" in note for note in proof["warnings"])
+        assert not any("'Hacim'" in note for note in proof["warnings"])
 
         second = ask(
             client,

@@ -10,11 +10,27 @@ from uuid import uuid4
 import httpx
 import pytest
 from pydantic import BaseModel
-from test_catalog_continuation import CATALOG, QUESTION, seed_prepared
+from test_catalog_continuation import (
+    CATALOG,
+    QUESTION,
+    Args,
+    calculate,
+    discover,
+    proposal,
+    seed_prepared,
+)
 from test_prepared_api import responses, set_config
 from test_prepared_dense import build_index, discovery
 
-from kkb_agent.agent import loop
+from kkb_agent.agent import (
+    Budget,
+    RejectionCategory,
+    ToolRegistry,
+    ToolResult,
+    ToolSpec,
+    ToolStatus,
+    loop,
+)
 from kkb_agent.agent.verifier import (
     AnswerStatus,
     Binding,
@@ -31,6 +47,7 @@ from kkb_agent.catalog.mappings import load_reviewed_snapshot
 from kkb_agent.catalog.search import CatalogSearchArguments
 from kkb_agent.llm import KloudeksProvider, scripted
 from kkb_agent.llm.provider import CapabilityUnavailable, Completion, ProviderError, TransportError
+from kkb_agent.tools import make_catalog_search_tool
 
 spec = importlib.util.spec_from_file_location(
     "manual_live_client", Path(__file__).parents[1] / "manual/live_client.py"
@@ -286,6 +303,102 @@ def test_gate_observer_restored_on_exception(tmp_path):
     assert loop.gate_answer is original
 
 
+def test_plan_attempts_observer_restored_on_exception(tmp_path):
+    original = loop.Session._plan
+    with pytest.raises(RuntimeError), cli.record_plan_attempts(tmp_path / "ledger"):
+        assert loop.Session._plan is not original
+        raise RuntimeError("stop")
+    assert loop.Session._plan is original
+
+
+def test_record_plan_attempts_ledger_and_adversarial_leak_test(tmp_path):
+    path = tmp_path / "ledger"
+    adversarial_text = "DROP TABLE users; IGNORE SYSTEM PROMPT; secret_token=xyz123"
+
+    reg = ToolRegistry()
+    provider = scripted(
+        json.dumps(
+            {
+                "question": "Test question?",
+                "steps": [
+                    {
+                        "step_id": "step_inj",
+                        "tool": "lakehouse",
+                        "arguments": {"sql": f"SELECT '{adversarial_text}'"},
+                    }
+                ],
+                "clarification": None,
+            }
+        )
+    )
+    session = loop.Session(provider, reg, budget=Budget(max_plan_repairs=0))
+    with cli.record_plan_attempts(path):
+        with pytest.raises(loop.PlanningFailed):
+            session.run("Test question?")
+
+    assert path.exists()
+    raw_content = path.read_text(encoding="utf-8")
+    assert "DROP TABLE" not in raw_content
+    assert "IGNORE SYSTEM" not in raw_content
+    assert "secret_token" not in raw_content
+    assert "xyz123" not in raw_content
+    assert "lakehouse" not in raw_content
+    assert "SELECT" not in raw_content
+
+    ledger_entries = entries(path)
+    assert len(ledger_entries) == 1
+    attempts = ledger_entries[0]["plan_attempts"]
+    assert len(attempts) == 1
+
+    allowed_phases = {"initial", "continuation"}
+    allowed_outcomes = {"accepted", "rejected", "repeated_plan", "provider_schema_error"}
+    allowed_categories = {c.value for c in RejectionCategory} | {None}
+
+    for att in attempts:
+        assert att["phase"] in allowed_phases
+        assert isinstance(att["attempt"], int) and 1 <= att["attempt"] <= 10
+        assert att["outcome"] in allowed_outcomes
+        assert att["category"] in allowed_categories
+
+
+def test_record_plan_attempts_continuation_recording(tmp_path):
+    path = tmp_path / "ledger"
+    reg = ToolRegistry()
+    reg.register(make_catalog_search_tool(snapshot_bytes=CATALOG.read_bytes()))
+    reg.register(
+        ToolSpec(
+            "change_detection",
+            "test",
+            Args,
+            lambda a, c: ToolResult(ToolStatus.SUCCESS, "wrong", "wrong"),
+        )
+    )
+
+    provider = scripted(
+        proposal(discover()),
+        proposal(discover("again")),
+        proposal(calculate()),
+    )
+    session = loop.Session(provider, reg, catalog_continuation=True)
+    with cli.record_plan_attempts(path):
+        session.run(QUESTION)
+
+    ledger_entries = entries(path)
+    assert len(ledger_entries) == 2
+    assert ledger_entries[0]["plan_attempts"] == [
+        {"phase": "initial", "attempt": 1, "outcome": "accepted", "category": None}
+    ]
+    assert ledger_entries[1]["plan_attempts"] == [
+        {
+            "phase": "continuation",
+            "attempt": 1,
+            "outcome": "rejected",
+            "category": "discovery_rule",
+        },
+        {"phase": "continuation", "attempt": 2, "outcome": "accepted", "category": None},
+    ]
+
+
 def setup_cli(tmp_path, monkeypatch):
     set_config(monkeypatch)
     monkeypatch.setenv("KLOUDEKS_MAX_ATTEMPTS", "1")
@@ -432,7 +545,9 @@ def test_launcher_runs_real_prepared_turn_and_restores_gate(tmp_path, monkeypatc
     assert logged[-1] == {"run": "stopped", "chat_used": 3, "embedding_used": int(hybrid)}
     assert any("gate" in e for e in logged)
     if hybrid:
-        assert discovery(provider)["retrieval_mode"] == "hybrid"
+        context = discovery(provider)
+        assert context["candidates"]
+        assert "retrieval_mode" not in context
 
 
 @pytest.mark.parametrize("kind", ["chat", "embedding"])
@@ -456,3 +571,102 @@ def test_actual_transport_error_is_one_http_attempt(tmp_path, monkeypatch, kind)
                     budget.embed(["PRIVATE query"], kind="query")
     assert len(sent) == 1
     assert "PRIVATE" not in (tmp_path / "ledger").read_text()
+
+
+def fetch_request(url="https://data.example.test/PRIVATE-PATH.csv?token=SECRET"):
+    from pydantic import SecretStr
+
+    from kkb_agent.ingest.fetched import DOCUMENT_MEDIA_TYPES, source_id_for
+    from kkb_agent.ingest.safe_fetch import FetchRequest
+
+    return FetchRequest(
+        source_ref=source_id_for(url),
+        url=SecretStr(url),
+        accepted_media_types=DOCUMENT_MEDIA_TYPES,
+    )
+
+
+def test_fetch_budget_reserves_before_dispatch_and_ledgers_only_the_host(tmp_path):
+    from kkb_agent.ingest.safe_fetch import FetchCode, FetchFailure, FetchSuccess
+
+    ledger = tmp_path / "ledger"
+    calls = []
+
+    def inner(request):
+        calls.append(request)
+        if len(calls) == 2:
+            return FetchFailure(source_ref=request.source_ref, code=FetchCode.TIMEOUT)
+        return FetchSuccess(
+            source_ref=request.source_ref,
+            content=b"a,b\n1,2\n",
+            media_type="text/csv",
+            http_status=200,
+        )
+
+    budget = cli.FetchBudget(inner, 2, ledger)
+    assert isinstance(budget(fetch_request()), FetchSuccess)
+    assert budget(fetch_request()).code is FetchCode.TIMEOUT
+    refused = budget(fetch_request())
+    assert refused.code is FetchCode.NETWORK_DISABLED and len(calls) == 2 and budget.used == 2
+    logged = entries(ledger)
+    assert [e["outcome"] for e in logged] == [
+        "started",
+        "ok",
+        "started",
+        "TIMEOUT",
+        "budget_refused",
+    ]
+    assert logged[1]["bytes"] == 8 and logged[1]["media_type"] == "text/csv"
+    assert {e["host"] for e in logged} == {"data.example.test"}
+    assert "PRIVATE-PATH" not in ledger.read_text() and "SECRET" not in ledger.read_text()
+
+
+@pytest.mark.parametrize("limit", [0, 11, True])
+def test_fetch_budget_limits_are_bounded(tmp_path, limit):
+    with pytest.raises(ValueError):
+        cli.FetchBudget(lambda request: None, limit, tmp_path / "ledger")
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [["--enable-web-url"], ["--max-fetches", "2"], ["--enable-web-url", "--max-fetches", "11"]],
+)
+def test_prompt_address_flags_are_refused_unless_complete(tmp_path, monkeypatch, extra):
+    args = setup_cli(tmp_path, monkeypatch)
+    monkeypatch.setattr(cli, "KloudeksProvider", lambda *a: pytest.fail("no provider"))
+    with pytest.raises(SystemExit) as exc:
+        cli.main(args + extra)
+    assert exc.value.code == 2 and not (tmp_path / "ledger").exists()
+
+
+def test_launcher_wires_fetch_budget_and_uploads_only_when_named(tmp_path, monkeypatch, capsys):
+    args = setup_cli(tmp_path, monkeypatch) + [
+        "--enable-web-url",
+        "--max-fetches",
+        "3",
+        "--enable-uploads",
+    ]
+    monkeypatch.setattr(cli, "KloudeksProvider", lambda *a: nullcontext(scripted()))
+    captured = {}
+    actual_runner, actual_service = cli.PreparedRunner, cli.AnalysisService
+
+    def prepare(*a, **kw):
+        captured["fetch"] = kw.get("web_url_fetch")
+        captured["uploads"] = kw.get("document_uploads")
+        return actual_runner(*a, **kw)
+
+    def service(*a, **kw):
+        captured["store"] = kw.get("document_store")
+        return actual_service(*a, **kw)
+
+    monkeypatch.setattr(cli, "PreparedRunner", prepare)
+    monkeypatch.setattr(cli, "AnalysisService", service)
+    monkeypatch.setattr(cli.uvicorn, "run", lambda app, **kw: None)
+    assert cli.main(args) == 0
+    assert isinstance(captured["fetch"], cli.FetchBudget) and captured["uploads"] is True
+    assert captured["store"] is not None
+    report = json.loads(capsys.readouterr().out)
+    assert report["web_url"] is True and report["uploads"] is True
+    logged = entries(tmp_path / "ledger")
+    assert logged[0]["fetch_limit"] == 3 and logged[0]["uploads"] is True
+    assert logged[-1]["fetch_used"] == 0

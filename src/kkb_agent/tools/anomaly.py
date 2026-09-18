@@ -22,7 +22,7 @@ from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
 from kkb_agent.agent.registry import ToolSpec
 from kkb_agent.analytics import detect_anomalies
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
-from kkb_agent.core import AnalyticalResult, ResultStatus
+from kkb_agent.core import AnalyticalResult, ResultStatus, SeriesId
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.lakehouse.result_evidence import _record_execution
 from kkb_agent.tools.change_detection import SeriesUnknown, read_series
@@ -41,7 +41,7 @@ class AnomalyArguments(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    series_id: str = Field(min_length=1, max_length=200)
+    series_id: SeriesId = Field(min_length=1, max_length=200)
     start: date | None = Field(
         default=None, description="Earliest period end to examine; omit for the whole series"
     )

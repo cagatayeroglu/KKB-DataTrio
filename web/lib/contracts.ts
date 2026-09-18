@@ -7,7 +7,7 @@ export const sessionSchema = z
     api_version: z.literal(1),
     session_id: ref,
     token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
-    survives_restart: z.literal(false),
+    survives_restart: z.boolean(),
   })
   .strict();
 const periodSchema = z
@@ -95,6 +95,7 @@ const proofDocumentSchema = z
     column: z.number().int().min(1).nullable(),
     sheet_selected: z.boolean(),
     values_read: z.number().int().nonnegative().nullable().default(null),
+    extraction: z.enum(["text", "ocr"]).default("text"),
   })
   .strict();
 const proofStepSchema = z
@@ -303,3 +304,429 @@ export const savedSchema = z
   })
   .strict();
 export type Saved = z.infer<typeof savedSchema>;
+
+const key = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
+export const ownerSchema = z
+  .object({ api_version: z.literal(1), owner_token: key })
+  .strict();
+export const conversationSummarySchema = z
+  .object({
+    conversation_id: ref,
+    title: label,
+    archived: z.boolean(),
+    created_at: z.iso.datetime({ offset: true }),
+    updated_at: z.iso.datetime({ offset: true }),
+    turns: z.number().int().nonnegative(),
+  })
+  .strict();
+export const conversationListSchema = z
+  .object({
+    api_version: z.literal(1),
+    conversations: z.array(conversationSummarySchema).max(200),
+  })
+  .strict();
+export const storedMessageSchema = z
+  .object({
+    sequence: z.number().int().min(1),
+    turn_id: ref,
+    role: z.enum(["user", "assistant"]),
+    text: bounded,
+    status: z.enum(["accepted", "qualified", "abstained"]).nullable(),
+    result_ref: ref.nullable(),
+    result_version: digest.nullable(),
+    document_ref: ref.nullable(),
+    created_at: z.iso.datetime({ offset: true }),
+  })
+  .strict();
+export const conversationDetailSchema = z
+  .object({
+    api_version: z.literal(1),
+    conversation: conversationSummarySchema,
+    token: key.nullable(),
+    messages: z.array(storedMessageSchema).max(512),
+    documents: z
+      .array(
+        z
+          .object({
+            document_ref: ref,
+            name: z.string().regex(/^belge_[0-9]{1,2}$/),
+            document_format: z.enum(["csv", "xlsx", "pdf", "html"]),
+            bytes: z.number().int().positive(),
+            sha256: digest,
+            admitted_at: z.iso.datetime({ offset: true }),
+          })
+          .strict(),
+      )
+      .max(4),
+  })
+  .strict();
+export type ConversationSummary = z.infer<typeof conversationSummarySchema>;
+export type ConversationDetail = z.infer<typeof conversationDetailSchema>;
+export type StoredMessage = z.infer<typeof storedMessageSchema>;
+
+export const runSummarySchema = z
+  .object({
+    run_id: ref,
+    turn_id: ref,
+    question: bounded,
+    status: z.enum(["running", "completed", "failed", "cancelled"]),
+    answer_status: z.enum(["accepted", "qualified", "abstained"]).nullable(),
+    error: z.string().nullable(),
+    result_ref: ref.nullable(),
+    duration_ms: z.number().int().nonnegative(),
+    started_at: z.iso.datetime({ offset: true }),
+    ended_at: z.iso.datetime({ offset: true }).nullable(),
+    events: z.number().int().nonnegative(),
+  })
+  .strict();
+export const runListSchema = z
+  .object({
+    api_version: z.literal(1),
+    runs: z.array(runSummarySchema).max(200),
+  })
+  .strict();
+export const traceStepSchema = z
+  .object({
+    sequence: z.number().int().min(1),
+    stage: z.string().max(120),
+    name: z.string().max(120),
+    status: z.string().max(120),
+    started_ms: z.number().int().nonnegative(),
+    duration_ms: z.number().int().nonnegative(),
+    attributes: z.record(z.string(), z.unknown()),
+    // A long detail arrives as a preview; the step route returns all of it.
+    detail: z.string().max(16384).nullable(),
+    parent: z.number().int().min(1).nullable(),
+    detail_chars: z.number().int().nonnegative().nullable().optional(),
+    detail_complete: z.boolean().optional(),
+  })
+  .strict();
+export const traceStepFullSchema = z
+  .object({
+    api_version: z.literal(1),
+    sequence: z.number().int().min(1),
+    name: z.string().max(120),
+    detail: z.string().max(2_000_000).nullable(),
+  })
+  .strict();
+export const runDetailSchema = z
+  .object({
+    api_version: z.literal(1),
+    run: runSummarySchema,
+    steps: z.array(traceStepSchema).max(5000),
+  })
+  .strict();
+export type RunSummary = z.infer<typeof runSummarySchema>;
+export type RunDetail = z.infer<typeof runDetailSchema>;
+export type TraceStep = z.infer<typeof traceStepSchema>;
+export type TraceStepFull = z.infer<typeof traceStepFullSchema>;
+
+export const searchTrialSchema = z
+  .object({
+    api_version: z.literal(1),
+    query: z.string().max(512),
+    status: z.string().max(40),
+    clarification_required: z.boolean(),
+    total_candidates: z.number().int().min(0),
+    hits: z
+      .array(
+        z
+          .object({
+            series_id: z.string().max(200),
+            title: z.string().max(400),
+            provider: z.string().max(200),
+            unit: z.string().max(200).nullable(),
+            frequency: z.string().max(40),
+            stock_flow: z.string().max(40),
+            prepared: z.boolean(),
+            archived: z.boolean(),
+            stage: z.enum(["lexical", "dense", "both"]),
+            concepts: z.array(z.string().max(120)).max(20),
+          })
+          .strict(),
+      )
+      .max(10),
+    retrieval_mode: z.enum(["lexical_only", "hybrid", "lexical_degraded"]),
+    dense_status: z.enum([
+      "not_configured",
+      "skipped_no_eligible",
+      "success",
+      "failed",
+    ]),
+    dense_failure: z
+      .enum(["snapshot_mismatch", "embedding_failed", "index_failed"])
+      .nullable(),
+    embedding_model: z.string().max(200).nullable(),
+    input_policy_id: z.string().max(120).nullable(),
+  })
+  .strict();
+export type SearchTrial = z.infer<typeof searchTrialSchema>;
+
+/** Which generation of meaning vectors this deployment searches, and what it covers. */
+export const vectorIndexSchema = z
+  .object({
+    api_version: z.literal(1),
+    configured: z.boolean(),
+    model: z.string().max(200).nullable(),
+    input_policy_id: z.string().max(120).nullable(),
+    origin: z.string().max(60).nullable(),
+    dimension: z.number().int().min(0),
+    generation_sha256: z.string().max(64).nullable(),
+    generation_version: z.string().max(120).nullable(),
+    catalog_sha256: z.string().max(64),
+    catalog_version: z.string().max(120),
+    covers_catalog: z.boolean(),
+    series_total: z.number().int().min(0),
+    series_vectored: z.number().int().min(0),
+    missing: z.array(z.string().max(200)).max(50),
+    rebuilding: z.boolean(),
+    rebuildable: z.boolean(),
+    built_at: z.string().max(40).nullable(),
+    last_error: z.string().max(120).nullable(),
+  })
+  .strict();
+export type VectorIndex = z.infer<typeof vectorIndexSchema>;
+
+/** Reverse lineage: this browser's answers whose proof read the series. */
+export const seriesUsesSchema = z
+  .object({
+    api_version: z.literal(1),
+    series_id: z.string().max(200),
+    uses: z
+      .array(
+        z
+          .object({
+            conversation_id: z.string().max(64),
+            title: z.string().max(200),
+            turn_id: z.string().max(64),
+            question: z.string().max(500),
+            used_at: z.string().max(40),
+          })
+          .strict(),
+      )
+      .max(200),
+  })
+  .strict();
+export type SeriesUses = z.infer<typeof seriesUsesSchema>;
+
+/** The sources model calls are assembled from; reading is the whole contract. */
+export const promptPartsSchema = z
+  .object({
+    api_version: z.literal(1),
+    parts: z
+      .array(
+        z
+          .object({
+            part_id: z.string().max(120),
+            title: z.string().max(200),
+            sent_when: z.string().max(300),
+            content: z.string().max(20000),
+            content_sha256: z.string().length(64),
+          })
+          .strict(),
+      )
+      .max(64),
+  })
+  .strict();
+export type PromptParts = z.infer<typeof promptPartsSchema>;
+
+export const runtimeSettingsSchema = z
+  .object({
+    api_version: z.literal(1),
+    available: z.array(z.string().max(60)).max(16),
+    disabled: z.array(z.string().max(60)).max(16),
+    history_turns: z.number().int().min(0).max(64),
+    max_history_turns: z.number().int().min(0).max(64),
+  })
+  .strict();
+export type RuntimeSettings = z.infer<typeof runtimeSettingsSchema>;
+
+export const feedbackReasons = [
+  "accuracy",
+  "incomplete",
+  "wrong_source",
+  "slow",
+  "lost_context",
+  "unclear",
+  "other",
+] as const;
+export const feedbackSchema = z
+  .object({
+    turn_id: ref,
+    answer_digest: digest,
+    run_id: ref.nullable(),
+    result_version: digest.nullable(),
+    rating: z.enum(["up", "down"]),
+    comment: z.string().max(2000).nullable(),
+    reasons: z.array(z.enum(feedbackReasons)).max(8),
+    created_at: z.iso.datetime({ offset: true }),
+    updated_at: z.iso.datetime({ offset: true }),
+    score: z.number().int().min(1).max(5).nullable(),
+  })
+  .strict();
+export const feedbackListSchema = z
+  .object({
+    api_version: z.literal(1),
+    feedback: z.array(feedbackSchema).max(200),
+  })
+  .strict();
+export type Feedback = z.infer<typeof feedbackSchema>;
+export type FeedbackReason = (typeof feedbackReasons)[number];
+
+// -- Knowledge base (DEC-157) -------------------------------------------------
+const moment = z.iso.datetime({ offset: true });
+const day = z.iso.date();
+export const knowledgeSeriesSchema = z
+  .object({
+    series_id: z.string().max(200),
+    title: z.string().max(1024),
+    provider: z.string().max(200),
+    origin: z.enum(["reviewed", "user"]),
+    status: z.enum(["active", "archived", "unknown"]),
+    prepared: z.boolean(),
+    fetchable: z.boolean(),
+    unit: z.string().max(200).nullable(),
+    scale: z.string().max(40),
+    frequency: z.string().max(40),
+    stock_flow: z.string().max(40),
+    cumulative: z.string().max(40),
+    base_year: z.number().int().nullable(),
+    coverage_start: day.nullable(),
+    coverage_end: day.nullable(),
+    observations: z.number().int().nonnegative().nullable(),
+    aliases: z.array(z.string().max(120)).max(10),
+    note: z.string().max(1000).nullable(),
+    version: z.number().int().positive().nullable(),
+    slug: z.string().max(40).nullable(),
+    updated_at: moment.nullable(),
+    acquired_at: moment.nullable(),
+  })
+  .strict();
+export const knowledgeListSchema = z
+  .object({
+    api_version: z.literal(1),
+    catalog_digest: z.string().regex(/^[a-f0-9]{64}$/),
+    reviewed_digest: z.string().regex(/^[a-f0-9]{64}$/),
+    // Mirrors MAX_CATALOG_SERIES: a guard against a malformed body, not a catalog size.
+    series: z.array(knowledgeSeriesSchema).max(10000),
+  })
+  .strict();
+export const datasetDetailSchema = z
+  .object({
+    api_version: z.literal(1),
+    series: knowledgeSeriesSchema,
+    source_kind: z.enum(["upload", "manual"]),
+    description: z.string().max(1000).nullable(),
+    aggregation: z.string().max(40),
+    weekly_anchor: z.string().max(20).nullable().optional(),
+    observations: z
+      .array(
+        z
+          .object({
+            period_start: day,
+            period_end: day,
+            value: z.number().finite().nullable(),
+          })
+          .strict(),
+      )
+      .max(5000),
+    history: z
+      .array(
+        z
+          .object({
+            version: z.number().int().positive(),
+            status: z.enum(["active", "archived"]),
+            observations: z.number().int().nonnegative(),
+            content_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+            created_at: moment,
+          })
+          .strict(),
+      )
+      .max(500),
+  })
+  .strict();
+export const noteHistorySchema = z
+  .object({
+    api_version: z.literal(1),
+    series_id: z.string().max(200),
+    history: z
+      .array(
+        z
+          .object({
+            version: z.number().int().positive(),
+            archived: z.boolean(),
+            aliases: z.array(z.string().max(120)).max(10),
+            note: z.string().max(1000).nullable(),
+            created_at: moment,
+          })
+          .strict(),
+      )
+      .max(500),
+  })
+  .strict();
+export type KnowledgeSeries = z.infer<typeof knowledgeSeriesSchema>;
+export type KnowledgeList = z.infer<typeof knowledgeListSchema>;
+export type DatasetDetail = z.infer<typeof datasetDetailSchema>;
+/**
+ * A saved knowledge base: the listing as read, plus each user dataset's full
+ * detail (observations and declared meaning), so the file can be imported
+ * elsewhere by replaying the same versioned writes. Nothing reviewed travels:
+ * the reviewed catalogue is the deployment's own.
+ */
+export const knowledgeExportSchema = z
+  .object({
+    schema: z.literal("kkb-knowledge-export-v1"),
+    exported_at: z.string().max(40),
+    listing: knowledgeListSchema,
+    datasets: z.array(datasetDetailSchema).max(5000),
+  })
+  .strict();
+export type KnowledgeExport = z.infer<typeof knowledgeExportSchema>;
+export type NoteHistory = z.infer<typeof noteHistorySchema>;
+export type DatasetRequest = {
+  slug: string;
+  title: string;
+  description?: string;
+  unit: string;
+  scale: "one" | "thousand" | "million" | "billion";
+  frequency: "weekly" | "monthly" | "quarterly" | "annual";
+  weekly_anchor?:
+    | "monday"
+    | "tuesday"
+    | "wednesday"
+    | "thursday"
+    | "friday"
+    | "saturday"
+    | "sunday";
+  stock_flow: "stock" | "flow" | "rate" | "index";
+  cumulative: "none" | "yearly_reset" | "since_inception";
+  aggregation: "sum" | "average" | "first" | "last" | "min" | "max";
+  base_year?: number;
+  aliases: string[];
+  observations?: { period_end: string; value: number | null }[];
+  document?: {
+    session_id: string;
+    document_ref: string;
+    period_column: string;
+    value_column: string;
+    sheet?: string;
+    year?: number;
+  };
+};
+export const seriesValuesSchema = z
+  .object({
+    api_version: z.literal(1),
+    series_id: z.string().max(200),
+    observations: z
+      .array(
+        z
+          .object({
+            period_start: day,
+            period_end: day,
+            value: z.number().finite().nullable(),
+          })
+          .strict(),
+      )
+      .max(5000),
+  })
+  .strict();

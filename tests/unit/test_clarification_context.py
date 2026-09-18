@@ -579,3 +579,39 @@ def test_fastapi_invalid_types_and_foreign_sessions_rejected(pool, tmp_path):
         )
         assert res_foreign.status_code == 404
         assert res_foreign.json()["error"] == "not_found"
+
+
+def test_a_pending_clarification_is_read_without_the_person_stating_it(pool, tmp_path):
+    """No `is_continuation`: a short answer is merged, a standing question replaces it."""
+    provider = scripted(
+        # Turn 1: pending clarification.
+        proposal(discover("d1")),
+        proposal(clarification="ambiguous_series"),
+        # Turn 2: a short answer, merged into the original request.
+        proposal(discover("d2")),
+        proposal(calculate("a1")),
+        "Nisan'dan Haziran 2026'ya konut kredisi stoğu 50 milyon TL arttı.",
+        # Turn 3: pending clarification again.
+        proposal(discover("d3")),
+        proposal(clarification="ambiguous_series"),
+        # Turn 4: a question of its own, answered on its own.
+        proposal(discover("d4")),
+        proposal(calculate("a2", start="2026-05-31")),
+        "Mayıs 2026'dan Haziran 2026'ya konut kredisi stoğu 30 milyon TL arttı.",
+    )
+    prepared = runner(pool, tmp_path, provider)
+    sid = uuid4().hex
+
+    q1 = "Nisan-Haziran 2026 konut kredisi bakiyesini göster."
+    assert prepared(sid, uuid4().hex, q1).status.value == "abstained"
+    answer = "BDDK Aylık Bülten toplam bakiyeyi kullan."
+    assert prepared(sid, uuid4().hex, answer).status.value == "accepted"
+    merged = provider.seen[-1][-1].content
+    assert f"Orijinal istek: {q1}" in merged and f"Açıklama: {answer}" in merged
+
+    assert prepared(sid, uuid4().hex, q1).status.value == "abstained"
+    fresh = "Mayıs-Haziran 2026 konut kredisi bakiyesi ne kadar arttı?"
+    assert prepared(sid, uuid4().hex, fresh).status.value == "accepted"
+    standing = provider.seen[-1][-1].content
+    assert standing == fresh  # Neither merged into the pending request nor repeated.
+    assert sid not in prepared._pending_clarifications

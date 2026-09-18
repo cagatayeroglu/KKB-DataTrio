@@ -13,7 +13,9 @@ from kkb_agent.agent import (
     AnalyticalPlan,
     AnswerStatus,
     Budget,
+    PlanAttempt,
     PlanningFailed,
+    RejectionCategory,
     Session,
     ToolRegistry,
     ToolResult,
@@ -21,6 +23,8 @@ from kkb_agent.agent import (
     ToolStatus,
     Workspace,
 )
+from kkb_agent.agent.discovery import catalog_feedback
+from kkb_agent.agent.executor import ExecutionOutcome
 from kkb_agent.catalog.mappings import load_reviewed_snapshot
 from kkb_agent.catalog.search import CatalogSearchArguments, search_catalog
 from kkb_agent.core import Aggregation, CumulativeKind, Frequency, Scale, SourceRef, StockFlow
@@ -103,6 +107,77 @@ def test_discovery_is_consumed_once_with_complete_trace_and_separate_data_role(r
     assert payload["results"][0]["analytical_evidence"] is False
     assert payload["results"][0]["observation_fetch_authorized"] is False
     assert provider.seen[1][-2].content == QUESTION
+
+
+def test_catalog_feedback_removes_retrieval_mechanics_but_keeps_planning_semantics(snapshot):
+    output = search_catalog(snapshot, CatalogSearchArguments(query="Konut Fiyat Endeksi"))
+    outcome = ExecutionOutcome(
+        (ToolResult(ToolStatus.SUCCESS, "d", "catalog_search", output),), True
+    )
+    feedback = catalog_feedback(outcome)
+    payload = json.loads(feedback)
+    legacy_data = output.model_dump(mode="json", exclude={"candidates"})
+    legacy_data["step_id"] = "d"
+    legacy_data["candidates"] = [
+        candidate.model_dump(
+            mode="json",
+            exclude={"series": {"evidence_ids": True, "record": {"source", "sample_values"}}},
+        )
+        for candidate in output.candidates
+    ]
+    legacy = json.dumps(
+        {"kind": "untrusted_catalog_discovery", "results": [legacy_data]},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    assert len(feedback.encode("utf-8")) < len(legacy.encode("utf-8")) * 0.7
+    candidate = payload["results"][0]["candidates"][-1]
+    record = candidate["series"]["record"]
+    assert record["series_id"] == "EVDS:TP.KFE.TR"
+    assert record["frequency"] == "monthly" and record["stock_flow"] == "index"
+    assert record["base_year"] == 2023 and candidate["series"]["geography"] == "Türkiye"
+    assert "bm25_score" not in candidate and "rank" not in candidate
+    assert "snapshot_sha256" not in payload["results"][0]
+
+
+def test_continuation_prompt_is_smaller_without_exposing_extra_tool_schemas(rig, snapshot):
+    reg, calls = rig
+    provider = scripted(proposal(discover()), proposal(calculate()))
+    planned, outcome = enabled(provider, reg).run(QUESTION)
+    assert outcome.completed and planned.discovery_rounds == 1 and len(calls) == 1
+    first, continuation = provider.seen
+    output = search_catalog(snapshot, CatalogSearchArguments(query="toplam konut kredisi"))
+    legacy_data = output.model_dump(mode="json", exclude={"candidates"})
+    legacy_data["step_id"] = "d"
+    legacy_data["candidates"] = [
+        candidate.model_dump(
+            mode="json",
+            exclude={"series": {"evidence_ids": True, "record": {"source", "sample_values"}}},
+        )
+        for candidate in output.candidates
+    ]
+    legacy_feedback = json.dumps(
+        {"kind": "untrusted_catalog_discovery", "results": [legacy_data]},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    continuation_bytes = sum(len(message.content.encode("utf-8")) for message in continuation)
+    legacy_bytes = sum(len(message.content.encode("utf-8")) for message in continuation[:-1]) + len(
+        legacy_feedback.encode("utf-8")
+    )
+    assert continuation_bytes < legacy_bytes * 0.82
+    first_tools = json.loads(
+        next(m.content for m in first if m.content.startswith("Available tools:"))[17:]
+    )
+    continuation_tools = json.loads(
+        next(m.content for m in continuation if m.content.startswith("Available tools:"))[17:]
+    )
+    assert {item["name"] for item in first_tools} == {"catalog_search", "change_detection"}
+    assert {item["name"] for item in continuation_tools} == {"change_detection"}
 
 
 def test_single_plan_mode_remains_explicit_and_makes_no_extra_call(rig):
@@ -525,3 +600,158 @@ def test_retried_failure_identity_comes_from_validated_step(rig):
     assert not outcome.completed and len(attempts) == 2
     result = outcome.by_step("real_step")
     assert result.tool == "change_detection" and result.evidence == "trace"
+
+
+def test_continuation_rejection_then_valid_repair_records_attempts_log(rig):
+    reg, calls = rig
+    provider = scripted(
+        proposal(discover()),
+        proposal(discover("again")),
+        proposal(calculate()),
+    )
+    planned, outcome = enabled(provider, reg).run(QUESTION)
+    assert planned.attempts == 3
+    assert len(planned.attempts_log) == 3
+    assert planned.attempts_log == (
+        PlanAttempt(phase="initial", attempt=1, outcome="accepted", category=None),
+        PlanAttempt(
+            phase="continuation",
+            attempt=1,
+            outcome="rejected",
+            category=RejectionCategory.DISCOVERY_RULE,
+        ),
+        PlanAttempt(phase="continuation", attempt=2, outcome="accepted", category=None),
+    )
+
+
+def test_shared_repair_budget_exhaustion_across_phases_gives_one_attempt(rig):
+    reg, calls = rig
+    provider = scripted(
+        proposal(discover(), calculate()),
+        proposal(discover()),
+        proposal(discover("again")),
+    )
+    session = enabled(provider, reg, budget=Budget(max_plan_repairs=1))
+    with pytest.raises(PlanningFailed):
+        session.run(QUESTION)
+    assert len(provider.seen) == 3 and not calls
+    assert session.plan_attempts == [
+        PlanAttempt(
+            phase="initial",
+            attempt=1,
+            outcome="rejected",
+            category=RejectionCategory.DISCOVERY_RULE,
+        ),
+        PlanAttempt(phase="initial", attempt=2, outcome="accepted", category=None),
+        PlanAttempt(
+            phase="continuation",
+            attempt=1,
+            outcome="rejected",
+            category=RejectionCategory.DISCOVERY_RULE,
+        ),
+    ]
+
+
+def test_a_reply_refused_for_a_source_message_is_a_categorised_rejection(rig):
+    """The reply guard is a plan-shape refusal, not an uncategorised one.
+
+    A message carrying an address or a document may not be answered by a reply.
+    That refusal reaches the ledger as a structure rejection, so a live run can
+    tell it apart from a discovery or selection failure.
+    """
+    reg, _ = rig
+    reply = json.dumps(
+        {"question": QUESTION, "steps": [], "clarification": None, "reply": "Merhaba!"}
+    )
+    session = Session(scripted(reply, proposal(calculate())), reg, tools_required=True)
+    planned, _ = session.run(QUESTION)
+    assert planned.attempts == 2
+    assert session.plan_attempts == [
+        PlanAttempt(
+            phase="initial",
+            attempt=1,
+            outcome="rejected",
+            category=RejectionCategory.STRUCTURE,
+        ),
+        PlanAttempt(phase="initial", attempt=2, outcome="accepted", category=None),
+    ]
+
+
+def test_repeating_identical_invalid_plan_stops_with_repeated_plan_outcome(rig):
+    reg, calls = rig
+    provider = scripted(
+        proposal(discover()),
+        proposal(discover("again")),
+        proposal(discover("again")),
+    )
+    session = enabled(provider, reg, budget=Budget(max_plan_repairs=10))
+    with pytest.raises(PlanningFailed, match="repeated"):
+        session.run(QUESTION)
+    assert len(provider.seen) == 3 and not calls
+    assert session.plan_attempts == [
+        PlanAttempt(
+            phase="initial",
+            attempt=1,
+            outcome="accepted",
+            category=None,
+        ),
+        PlanAttempt(
+            phase="continuation",
+            attempt=1,
+            outcome="rejected",
+            category=RejectionCategory.DISCOVERY_RULE,
+        ),
+        PlanAttempt(
+            phase="continuation",
+            attempt=2,
+            outcome="repeated_plan",
+            category=RejectionCategory.DISCOVERY_RULE,
+        ),
+    ]
+
+
+def test_planning_failure_preserves_previously_selected_table_and_publishes_nothing():
+    import duckdb
+
+    from kkb_agent.agent.selection import SelectedTable
+    from kkb_agent.agent.workspace import ArtifactKind, Workspace
+    from kkb_agent.core import (
+        AnalyticalResult,
+        ResultEvidence,
+        ResultKind,
+        ResultStatus,
+        ResultValue,
+        Scale,
+    )
+
+    with duckdb.connect(":memory:") as connection:
+        ws = Workspace.open(connection, "owned")
+        result = AnalyticalResult(
+            result_id="prior_result",
+            kind=ResultKind.LEVEL,
+            status=ResultStatus.COMPUTED,
+            tool="lakehouse",
+            values=[ResultValue(label="amount", value=999.0, unit="TRY", scale=Scale.ONE)],
+            evidence=ResultEvidence(input_refs=["silver_observations"]),
+        )
+        artifact = ws.record("source_table", ArtifactKind.VALUE, result)
+        assert ws.names() == ["source_table"]
+
+        selected = SelectedTable(
+            workspace=ws,
+            name="source_table",
+            artifact_id=artifact.artifact_id,
+            version=artifact.value_ref,
+        )
+        reg = ToolRegistry()
+        provider = scripted(
+            proposal({"step_id": "bad", "tool": "unregistered", "arguments": {}}),
+            proposal({"step_id": "bad2", "tool": "unregistered", "arguments": {}}),
+        )
+        session = Session(provider, reg, budget=Budget(max_plan_repairs=0), selection=selected)
+        with pytest.raises(PlanningFailed):
+            session.run("Any question?", ws)
+
+        # Assert previously selected table is preserved in workspace and nothing new was published
+        assert ws.names() == ["source_table"]
+        assert selected.check() is not None

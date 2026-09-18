@@ -70,6 +70,74 @@ observations do not move into it.
 
 Target packages follow DEC-125 (only existing source links below imply implementation): `src/kkb_agent/{app,agent,tools,ingest,transform,catalog,lineage,llm,eval}/`, with the web client in `web/`.
 
+## Per-conversation stores, acquisition and traces
+
+Delivered in [#244](https://github.com/cagatayeroglu/KKB-DataTrio/pull/244) under DEC-154 to
+DEC-161. This section describes what the code does today; anything still planned says so.
+
+### Where a conversation's data lives
+
+Each conversation owns its own copy of the stores under the state root:
+
+| Store | File / directory | Holds |
+| --- | --- | --- |
+| Lakehouse | `kkb.duckdb` (`lakehouse/store.py`) | `bronze` raw source bytes by content hash, immutable; `silver_series` declared unit, scale, frequency and stock/flow with `silver_observations` values, also exported as Parquet; `gold` published analysis tables (`analiz_N`) |
+| Conversations | `conversations.sqlite` (`api/store.py`) | conversations, turns, traces and answer feedback |
+| Knowledge base | `knowledge.sqlite` (`knowledge/store.py`) | the append-only, versioned user layer over the reviewed catalog |
+| Acquisitions | `<state-root>/acquired/` (`ingest/acquisition.py`) | raw EVDS/BDDK responses, kept so a later conversation does not refetch the same series |
+
+LanceDB is **not** a data store. It is the catalog's vector index only, built offline by the
+operator with the Kloudeks `qwen3-instruct-query-v1` embedding model, and it serves the dense half
+of search.
+
+Under DEC-154 a turn's table is written to `gold_cells` only **after** the answer is gated, so this
+turn's claims cannot bind to cells the same turn wrote. A result that is not period-shaped, mixes
+frequencies or has no lineage node is not written; the trace records `gold.materialized`,
+`gold.skipped` or `gold.refused`. Gold never carries semantics — units and scales come only from
+`silver_series`, so SQL over gold returns inspection rows rather than a self-describing table.
+
+### How data enters
+
+**Reviewed official series (EVDS/BDDK).** The model finds a series with `catalog_search` and uses
+its identity in the analysis step. If the prepared pool lacks it, the harness fetches it through
+safe fetch over a fixed window — 10 years for EVDS, 24 months for BDDK — the strict loaders write
+bronze and silver, and the inspector compares what arrived against the catalog's declaration.
+Acquisition is on by default and refused with `--no-official-acquisition`. **Current limit: only
+series already in the reviewed catalog can be acquired**, which is 37 identities today — 26 EVDS
+codes plus the BDDK housing components.
+
+**A web address in the question.** `web_url` reads only an address the question states literally,
+through the existing CSV/XLSX/PDF/HTML loaders. What it reads never becomes a persistent series and
+never enters the catalog: it is used as a single cell, or added to an already published table as a
+column with `add_document_column`. Provenance is recorded either way.
+
+**An uploaded document.** The file is stored by reference and read through the same loaders. For it
+to become a persistent series the user must declare its unit, frequency and stock/flow in the
+knowledge base form; the record is then versioned as `USER:<name>.vN`, the catalog layer turns it
+into a catalog record whose provider is `USER` on every turn, and the series is written to that
+conversation's silver layer.
+
+Descriptions are never model-generated. A reviewed catalog entry's description, labels and synonyms
+come from the human-written JSON source, and a knowledge-base record's description is declared by
+the user.
+
+### Search
+
+`catalog_search` combines BM25, synonyms, concept families and LanceDB dense search. The ranking
+orders candidates; it does not choose for the model, which still selects the series. The harness
+then applies its semantic, provenance and verification checks. Bounds on catalog size are memory
+guards, not product limits: `MAX_CATALOG_SERIES` and `MAX_CATALOG_CONCEPTS` are 10,000 and
+`MAX_CATALOG_GROUPS` is 1,000 (`catalog/records.py`).
+
+### Traces
+
+Every model call is its own trace step with its duration. The trace keeps all prompt messages,
+prompt/completion/reasoning token counts, the thinking text in `model.reasoning`, the writer call as
+a separate `writer.call` step, and tool output as JSON. One API route returns a single step
+untruncated. The web "İşlem kayıtları" page selects a conversation and turn, expands any step or all
+of them, filters by step, downloads JSON, shows the answer text, and collects a score, a reason and
+a comment.
+
 ## Official-data preparation and demo runtime
 
 [DEC-137](DECISIONS.md#dec-137--catalog-complete-lakehouse-first-official-source-materialization-architecture) refines DEC-136's prepared-data direction into a catalog-complete, lakehouse-first target. “Catalog-complete” means extensible trusted metadata coverage for safely representable financial measures, not a claim that full coverage is delivered. Bounded Monthly/EVDS adapters have recorded live preparation evidence. Arda's 29-series / 4,124-observation pool is operator-local, absent from fresh Git checkout and not identically repository-reproducible today ([recorded pool](EVALUATION.md#prepared-api-delivery-and-pool-evidence)); broader coverage, availability routing and version/refresh orchestration remain unfinished.
@@ -257,6 +325,14 @@ candidate's execution/store checks pass. It reuses the same computed results,
 reruns the full gate, and publishes only an ACCEPTED answer. It never reruns
 calculations or bypasses verification; provider failure preserves the first gated
 answer. This extra call counts against the launcher's total chat ceiling.
+
+Under [DEC-152](DECISIONS.md#dec-152--plan-contract-conversational-reply-and-budget-increase), `AnalyticalPlan.reply` handles conversational messages ("Merhaba", "bu sonuç ne demek") without tool execution or publication. Exactly one of `steps`, `clarification`, or `reply` is set. `REPLY_INSTRUCTIONS` and the last 6 turns of conversation history are included only in the initial planning call; continuation calls omit them, preserving the #237 budget. A reply cannot be issued when the message contains a URL or document attachment. `Budget.max_steps` is 12.
+
+**Conversation document library**: Admitted uploads are stored as `belge_1..N` in a per-session library. The planner receives a header outline (column names, types, row count — no values) so it can reference documents by name in later turns without re-uploading. `choose_document` resolves a library reference; `add_document_column` accepts `document=` to select from the library.
+
+**Address outline and TurnFetchCache**: `web_url` produces an `address_outline` containing the page title, same-site links and script endpoint headers. Under [DEC-150](DECISIONS.md#dec-150--prompt-address-authority-same-site-link-follow-and-script-endpoint-datasets), `follow="<link text>"` follows one same-registrable-domain link; `follow="endpoint_N"` reads a script-declared JSON endpoint. `TurnFetchCache` ensures each URL is fetched at most once per turn, and cached responses are reused across follow operations within the same turn.
+
+**join_table**: `table_transform` gained `join_table`, which performs a left exact-month join of another published result into the current workspace table. The join key is the period column; no interpolation or fill is applied. This enables combining an uploaded document table with an official series table.
 
 ### 2. LLMProvider / Kloudeks boundary — CONFIRMED interface direction
 
@@ -451,7 +527,7 @@ Exposed to the planner as the brief-named [`change_detection`](../src/kkb_agent/
 
 CURRENTLY IMPLEMENTED: [core/results.py](../src/kkb_agent/core/results.py) defines what a tool returns — `AnalyticalResult` with typed `ResultValue`s, explicit `Period`s, `SampleCounts`, warnings, limitations, `unresolved_semantics` and `ResultEvidence` references, under `ResultKind`/`ResultStatus`. Three refusals are structural: a value states its unit or the result declares what is unresolved (`DIMENSIONLESS` is not the same as unknown); a non-COMPUTED result carries no values and names what stopped it, keeping INSUFFICIENT, UNDEFINED and ABSTAINED distinct; and an association, lag or causality result must state limitations, which puts DEC-120 in the type system. `digest()` hashes content excluding the caller's `result_id`, which is the identity M5 needs to reject a stale read and M8 needs to detect an altered result. `lakehouse` is the first producer (M6-21). [tools/_projection.py](../src/kkb_agent/tools/_projection.py) maps a validated query onto that contract by **reading the semantics the lakehouse already stores** — `silver_series` records unit, scale, frequency, anchor and observation kind as exact enum values — and declaring every semantic the query did not select rather than inferring one. Two refusals live here rather than in the SQL gates, which were never meant to catch them: a query reading **no lakehouse table** abstains, so `SELECT 42 AS value` cannot mint a figure; and a query with no `value` column abstains as a listing. Since M6-23, reading an allowed table is not provenance on its own: [_projection_provenance.py](../src/kkb_agent/tools/_projection_provenance.py) admits only direct `silver_observations`/`silver_series` columns joined on `series_id`, then rechecks every returned row against its stored identity, value and semantics through fixed SQL, so literal, computed, aggregated or otherwise derived measurements abstain instead of becoming COMPUTED. The tool returns [LakehouseOutput](../src/kkb_agent/tools/lakehouse.py), keeping the verifiable `result` and the presentation `table` apart so a rendering convenience cannot become an analytical claim.
 
-The four analytical tools emit typed analytical results, consumed by the result verifier and answer gate. `web_url` returns a loaded table or document, and a result only for one named cell: its unit and scale are what the column header states in parentheses, its period is a full date written as the row label, and anything unstated stays unresolved. Under DEC-132, exact source quotation may pass with a resolved literal cell proof; analytical interpretation still cannot (M7-18); `web_search` produces discovery metadata only and never an AnalyticalResult. The verifier resolves preserved table/lineage references on this path; complete source/run/transformation resolution remains M8-04. A matching digest is not a proof of correctness.
+The four analytical tools emit typed analytical results, consumed by the result verifier and answer gate. `web_url` returns a loaded table or document, and a result only for one named cell: its unit and scale are what the column header states in parentheses, its period is a full date written as the row label (a single day) or a month-form row label (that calendar month, [DEC-147](DECISIONS.md#dec-147--document-csv-separators-are-detected-and-month-row-labels-give-a-cell-its-month)), and anything unstated stays unresolved. Under DEC-132, exact source quotation may pass with a resolved literal cell proof; analytical interpretation still cannot (M7-18); `web_search` produces discovery metadata only and never an AnalyticalResult. The verifier resolves preserved table/lineage references on this path; complete source/run/transformation resolution remains M8-04. A matching digest is not a proof of correctness.
 
 ### 10. Evidence ledger and verifier — CONFIRMED direction
 
@@ -549,7 +625,7 @@ M5-20 `add_series` adds a registered monthly series to a published table through
 
 M7-14 `add_document_column` exists in the schema only when the runtime has a
 prompt-address fetch boundary (`--enable-web-url`). Its arguments are the source
-name, the address as written, an optional CSV delimiter or sheet, and the period
+name, the address as written, an optional CSV delimiter (detected when absent) or sheet, and the period
 and value headers as the user named them. The document is read through
 `web_url`'s shared `read_document` (address written in the question,
 `safe_fetch`, upload admission). The reader is strict: exactly one table holds
@@ -593,6 +669,44 @@ source table and a `document_column_v1` snapshot (content hash, sanitized
 locator, retrieval time, cell location, month/value/digest rows); lineage and the
 execution arguments keep the address only as its opaque source ID. Refusal
 reasons are fixed codes without document text.
+
+Under [DEC-147](DECISIONS.md#dec-147--document-csv-separators-are-detected-and-month-row-labels-give-a-cell-its-month)
+every document reader (`web_url` cell and table modes, `add_document_column`,
+uploads) goes through `load_document`, which asks the CSV loader to detect a
+separator the plan did not declare. Inside the terminated parser worker, the
+strict structure check runs for `,` `;` tab `|` on the complete records of a
+65,536-character prefix; one separator giving a consistent width of at least two
+is used and must still parse the whole file, none or several return
+`PARSING_DECLARATION_REQUIRED`, and a declaration contradicting that single
+separator returns `DELIMITER_CONFLICT`. The table and column snapshots and
+transformations record `csv: {delimiter, delimiter_source}`. `load_csv` called
+directly keeps the explicit M1-06 declaration.
+
+Under [DEC-148](DECISIONS.md#dec-148--text-layout-pdf-tables-year-context-table-digit-convention-and-special-rows)
+the PDF worker also returns `layout` tables reconstructed from word positions
+(right-edge value columns, a left label run, header runs ending on a column
+edge, group labels only through a drawn header cell) and, for every table, the
+years stated above it; grids made only of filled rectangles are treated as
+shading. `grids` turns group + leaf into a `HeaderPath` name. Shared row rules
+(`RowRules`) serve table mode and `add_document_column`: a month name without a
+year takes the document's single year or a question year (`year` argument,
+checked against the user's words before any fetch), a table's one-sided digit
+evidence decides `1.234`, total rows are skipped and periods ending after the
+document's `retrieved_at` date are dropped (`FUTURE_PERIOD`, refused in cell
+mode); the year and its source, the deciding convention and skipped-row counts
+are recorded in snapshots and transformations.
+
+Under [DEC-149](DECISIONS.md#dec-149--ocr-tables-count-only-through-a-column-total-check)
+a configured OCR model injects the Kloudeks OCR provider into `PreparedRunner`
+(DEC-153; `--no-ocr` refuses it), which
+passes it to `web_url` and `add_document_column`; pages without a text layer
+are rendered and OCRed as in M7-11, and `pdf_ocr.ocr_tables` reads the model's
+HTML tables (spans expanded, header rows as group + leaf) into `PdfPage.ocr_tables`.
+`grids` turns them into grids with a per-column `checked` flag from
+`total_checked`: one total row, and each value column summing to it within
+rounding. Unchecked columns refuse with `OCR_NOT_VALIDATED`; checked ones follow
+the same year, convention and special-row rules, and their evidence, cell lineage
+and proof document record `extraction: ocr`.
 
 The M2-14/M5-20 unary table-shaping slice extends that same verified published-result boundary without adding source I/O. `rebase` requires an existing column explicitly typed as an unscaled period INDEX, a present positive reference-period value, and a positive new base; it adds `old / reference × new_base` as a new column and states that this is index scaling, not deflation. `align` takes at least two exact labels and either intersects their complete period identities or uses a named left anchor; `filter` keeps cells whose period end lies in an explicit inclusive range. Align/filter retain other table columns on the selected period spine, preserve input cell order and missing cells, and remove periodless or singleton summary values whose old aggregate would no longer describe the new row set. All three reject unresolved/mixed/duplicate/incompatible inputs, record parameters and source snapshots, and mint a new result without mutating the prior workspace result. They do not resample, aggregate, interpolate, convert frequency, join another table, or accept SQL/free-form predicates. Existing `lakehouse.alignment.to_monthly` remains the separate declared weekly-to-monthly reduction path; `add_series` remains the exact monthly left join for a registered series.
 
@@ -995,7 +1109,7 @@ session's own lineage. In hybrid mode a `web_url` step needs no catalog
 discovery, while any prepared-series step still does and a discovery
 continuation still cannot read an address.
 
-With `--enable-uploads` (M10-04 slice 1) the API adds
+Unless `--no-uploads` refuses them (M10-04 slice 1, DEC-153) the API adds
 `POST /v1/sessions/{id}/documents`. It is the only route whose body is not
 JSON: the ASGI boundary allows exactly the CSV/XLSX/PDF/HTML media types and
 10 MiB there (30 s body deadline), while every other route keeps the 16 KiB

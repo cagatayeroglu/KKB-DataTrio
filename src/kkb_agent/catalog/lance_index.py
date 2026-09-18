@@ -22,6 +22,7 @@ from lancedb.table import LanceTable
 from pydantic import Field, StrictInt, StrictStr
 
 from kkb_agent.catalog.mappings import ReviewedSnapshot
+from kkb_agent.catalog.records import MAX_CATALOG_SERIES
 from kkb_agent.catalog.vectors import (
     DIMENSION,
     CatalogVectors,
@@ -49,12 +50,14 @@ class _Manifest(ContractModel):
     snapshot_sha256: Digest
     snapshot_version: StrictStr
     profile: VectorProfile
-    row_count: Annotated[StrictInt, Field(ge=1, le=40)]
+    # The catalogue's own bound: a generation covers one catalogue exactly,
+    # including the entries a knowledge base adds to it.
+    row_count: Annotated[StrictInt, Field(ge=1, le=MAX_CATALOG_SERIES)]
     rows_sha256: Digest
 
 
 class _Row(ContractModel):
-    catalog_ordinal: Annotated[StrictInt, Field(ge=0, lt=40)]
+    catalog_ordinal: Annotated[StrictInt, Field(ge=0, lt=MAX_CATALOG_SERIES)]
     series_id: StrictStr
     catalog_text: StrictStr
     text_sha256: Digest
@@ -186,6 +189,15 @@ class LocalCatalogIndex:
     def profile(self) -> VectorProfile:
         return VectorProfile.model_validate(self._profile)
 
+    @property
+    def series_ids(self) -> frozenset[str]:
+        """The identities this generation holds, checked when it was opened."""
+        return frozenset(self._ordinals)
+
+    @property
+    def snapshot_version(self) -> str:
+        return self._snapshot.snapshot_version
+
     @classmethod
     def open(
         cls, root: Path, snapshot: ReviewedSnapshot, profile: VectorProfile
@@ -214,10 +226,13 @@ class LocalCatalogIndex:
                 _schema(), check_metadata=True
             ):
                 raise CatalogIndexError("INDEX_CONTENT_INVALID")
-            # At most 40 records. Bounded materialization detects changes before search.
+            # Bounded materialization detects changes before search; one row over
+            # the manifest's count is read so an extra row is noticed.
             rows = [
                 _Row.model_validate(row)
-                for row in table.search().limit(41).to_list(timeout=TIMEOUT)
+                for row in table.search()
+                .limit(min(manifest.row_count, MAX_CATALOG_SERIES) + 1)
+                .to_list(timeout=TIMEOUT)
             ]
             rows.sort(key=lambda r: r.catalog_ordinal)
             if len(rows) != manifest.row_count or _rows_digest(rows) != manifest.rows_sha256:

@@ -1,8 +1,9 @@
 """M1-06 bounded CSV loading, without profiling, conversion or source adapters.
 
 The caller supplies a timeout-controlled binary stream and controlled SourceRef.
-Delimiter selection is explicit; encoding is always strict UTF-8 (BOM accepted).
-Only successful tables receive an opaque reference. Persistence is caller-owned.
+Delimiter selection is explicit unless the caller opts into DEC-147 detection;
+encoding is always strict UTF-8 (BOM accepted). Only successful tables receive
+an opaque reference. Persistence is caller-owned.
 """
 
 from __future__ import annotations
@@ -30,6 +31,13 @@ from kkb_agent.ingestion_policy import (
     admit_upload,
 )
 
+#: The only separators a declaration may name or detection may choose.
+DELIMITERS: tuple[str, ...] = (",", ";", "\t", "|")
+#: DEC-147 detection reads at most this many leading characters of the text.
+DETECTION_PREFIX_CHARS = 65_536
+
+type DelimiterSource = Literal["declared", "detected"]
+
 
 @dataclass(frozen=True)
 class CsvTable:
@@ -39,6 +47,7 @@ class CsvTable:
     encoding: Literal["utf-8", "utf-8-sig"]
     headers: tuple[str, ...] = field(repr=False)
     rows: tuple[tuple[str | None, ...], ...] = field(repr=False)
+    delimiter_source: DelimiterSource = "declared"
 
     @property
     def column_ids(self) -> tuple[str, ...]:
@@ -65,12 +74,23 @@ class _CsvRejected(ValueError):
         super().__init__(code)
 
 
-def _check_structure(text: str, delimiter: str, limits: AdmissionLimits) -> None:
-    """Bound dimensions/fields BEFORE csv.reader allocates a record.
+class _CsvNeedsInput(ValueError):
+    def __init__(self, code: str):
+        self.code = code
+        super().__init__(code)
+
+
+def _check_structure(
+    text: str, delimiter: str, limits: AdmissionLimits, *, partial: bool = False
+) -> int:
+    """Bound dimensions/fields BEFORE csv.reader allocates a record; return the width.
 
     Also reject bare quotes and text after a closing quote; csv.reader(strict=True)
-    alone accepts quotes inside unquoted fields. No dialect sniffing/repair occurs.
+    alone accepts quotes inside unquoted fields. No dialect repair occurs.
     CRLF, CR and LF terminate records outside quotes and stay literal inside quotes.
+
+    `partial` checks a cut-off prefix: the unfinished last record (possibly inside
+    quotes) is ignored, so every checked record is also a record of the full text.
     """
     state = "start"
     field_chars = 0
@@ -123,16 +143,59 @@ def _check_structure(text: str, delimiter: str, limits: AdmissionLimits) -> None
         cap = limits.max_label_chars if records == 0 else limits.max_field_chars
         if field_chars > cap:
             raise _CsvRejected("LIMIT_EXCEEDED")
-    if state == "quoted":
-        raise _CsvRejected("MALFORMED_TABLE")
-    if record_start < len(text):
-        finish_record(len(text))
-    if records < 2:
+    if not partial:
+        if state == "quoted":
+            raise _CsvRejected("MALFORMED_TABLE")
+        if record_start < len(text):
+            finish_record(len(text))
+    if records < 2 or width is None:
         raise _CsvRejected("EMPTY_TABLE")
+    return width
 
 
-def _parse(content: bytes, delimiter: str, limits: AdmissionLimits) -> dict[str, object]:
+def _detect(text: str, limits: AdmissionLimits) -> str | None:
+    """DEC-147: the one separator the leading records allow, or None.
+
+    A separator is a candidate when the strict structure check passes on the
+    leading records with the same width of at least two in each. The prefix is
+    cut at an arbitrary character, but only records completed before the cut are
+    checked, and those are exactly the first records of the full text under that
+    separator. A separator refused on them is therefore refused on the whole
+    text, so one candidate that also parses the whole text is its only reading.
+    Too few complete records under any separator leaves the choice undecided.
+    """
+    partial = len(text) > DETECTION_PREFIX_CHARS
+    prefix = text[:DETECTION_PREFIX_CHARS]
+    candidates: list[str] = []
+    for delimiter in DELIMITERS:
+        try:
+            width = _check_structure(prefix, delimiter, limits, partial=partial)
+        except _CsvRejected as error:
+            if partial and error.code == "EMPTY_TABLE":
+                return None  # Not refused, merely unseen: no reading can be excluded.
+            continue
+        except AdmissionError:
+            continue
+        if width >= 2:
+            candidates.append(delimiter)
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _parse(
+    content: bytes, delimiter: str | None, limits: AdmissionLimits, detect: bool = False
+) -> dict[str, object]:
     text = content.decode("utf-8-sig", errors="strict")
+    source: DelimiterSource = "declared"
+    if detect:
+        detected = _detect(text, limits)
+        if delimiter is None:
+            if detected is None:
+                raise _CsvNeedsInput("PARSING_DECLARATION_REQUIRED")
+            delimiter, source = detected, "detected"
+        elif detected is not None and detected != delimiter:
+            raise _CsvNeedsInput("DELIMITER_CONFLICT")
+    if delimiter is None:  # pragma: no cover - load_csv refuses this before the worker
+        raise _CsvNeedsInput("PARSING_DECLARATION_REQUIRED")
     _check_structure(text, delimiter, limits)
     # Process-local setting: never changes a caller's csv module/global limit.
     csv.field_size_limit(max(limits.max_label_chars, limits.max_field_chars))
@@ -151,7 +214,10 @@ def _parse(content: bytes, delimiter: str, limits: AdmissionLimits) -> dict[str,
     for row in reader:
         limits.check_table_size(rows=len(rows) + 1, columns=len(row))
         rows.append([value if value != "" else None for value in row])
-    return {"status": "loaded", "headers": headers, "rows": rows}
+    loaded: dict[str, object] = {"status": "loaded", "headers": headers, "rows": rows}
+    if source == "detected":
+        loaded["detected"] = delimiter
+    return loaded
 
 
 def _write_result(output: Path, result: dict[str, object], limit: int) -> None:
@@ -165,14 +231,24 @@ def _write_result(output: Path, result: dict[str, object], limit: int) -> None:
             stream.write(data)
 
 
-def _worker(content: bytes, delimiter: str, limits: AdmissionLimits, output: Path) -> None:
+def _worker(
+    content: bytes,
+    delimiter: str | None,
+    limits: AdmissionLimits,
+    output: Path,
+    detect: bool = False,
+) -> None:
     try:
         if sys.platform == "linux":
             import resource
 
             memory = max(512 * 1024 * 1024, limits.max_expanded_bytes * 8)
             resource.setrlimit(resource.RLIMIT_AS, (memory, memory))
-        _write_result(output, _parse(content, delimiter, limits), limits.max_expanded_bytes)
+        _write_result(output, _parse(content, delimiter, limits, detect), limits.max_expanded_bytes)
+        return
+    except _CsvNeedsInput as needs:
+        output.unlink(missing_ok=True)
+        _write_result(output, {"status": "needs_input", "code": needs.code}, 1024)
         return
     except (AdmissionError, _CsvRejected) as error:
         code = str(error.code)
@@ -186,11 +262,17 @@ def _worker(content: bytes, delimiter: str, limits: AdmissionLimits, output: Pat
     _write_result(output, {"status": "rejected", "code": code}, 1024)
 
 
-def _run_worker(content: bytes, delimiter: str, limits: AdmissionLimits) -> dict[str, Any]:
+def _run_worker(
+    content: bytes, delimiter: str | None, limits: AdmissionLimits, detect: bool = False
+) -> dict[str, Any]:
     context = multiprocessing.get_context("spawn")
     with tempfile.TemporaryDirectory(prefix="kkb-csv-") as directory:
         output = Path(directory) / "result.json"
-        process = context.Process(target=_worker, args=(content, delimiter, limits, output))
+        process = context.Process(
+            target=_worker,
+            args=(content, delimiter, limits, output),
+            kwargs={"detect": True} if detect else {},
+        )
         deadline = time.monotonic() + limits.max_parser_seconds
         try:
             process.start()
@@ -225,12 +307,18 @@ def load_csv(
     content_type: str,
     source: SourceRef,
     delimiter: str | None = None,
+    detect_delimiter: bool = False,
     limits: AdmissionLimits = DEFAULT_LIMITS,
 ) -> CsvLoadResult:
     """Admit and parse one table under an explicit comma/semicolon/tab/pipe dialect.
 
-    No delimiter selection yields needs_input/PARSING_DECLARATION_REQUIRED, even
-    if a sample looks unambiguous. No locale/encoding fallback or row repair.
+    By default no delimiter selection yields needs_input/PARSING_DECLARATION_REQUIRED,
+    even if a sample looks unambiguous. With `detect_delimiter` (DEC-147, the
+    document path) the worker chooses the one separator the leading records
+    allow; none or several still need a declaration, and a declaration that
+    contradicts the one detected separator needs input as DELIMITER_CONFLICT.
+    The table records which separator was used and whether it was declared or
+    detected. No locale/encoding fallback or row repair.
     First record is header; duplicate/empty labels retain ordinal IDs. Empty data
     fields (quoted or unquoted) become None; whitespace, NA, dates, numbers and
     formula/code-looking strings stay literal. Missing rows are not dropped.
@@ -242,28 +330,35 @@ def load_csv(
     to the caller. Spawn applications need the usual __main__ guard.
     """
     source = SourceRef.model_validate(source)
-    if delimiter is not None and delimiter not in (",", ";", "\t", "|"):
+    if delimiter is not None and delimiter not in DELIMITERS:
         return CsvLoadResult("rejected", source, "UNSUPPORTED_DELIMITER")
     try:
         admitted = admit_upload(stream, filename=filename, content_type=content_type, limits=limits)
         if admitted.kind != FileKind.CSV:
             return CsvLoadResult("rejected", source, "UNSUPPORTED_FORMAT")
-        if delimiter is None:
+        if delimiter is None and not detect_delimiter:
             return CsvLoadResult("needs_input", source, "PARSING_DECLARATION_REQUIRED")
-        result = _run_worker(admitted.content, delimiter, limits)
+        result = _run_worker(admitted.content, delimiter, limits, detect_delimiter)
     except AdmissionError as error:
         return CsvLoadResult("rejected", source, error.code.value)
     except (OSError, ValueError):
         return CsvLoadResult("rejected", source, "PARSER_FAILED")
+    if result["status"] == "needs_input":
+        return CsvLoadResult("needs_input", source, result["code"])
     if result["status"] != "loaded":
         return CsvLoadResult("rejected", source, result["code"])
+    detected = result.get("detected")
+    used = detected if detected is not None else delimiter
+    if used not in DELIMITERS:  # pragma: no cover - written by _worker above
+        return CsvLoadResult("rejected", source, "PARSER_FAILED")
     data_ref = f"data:{uuid4().hex}"
     table = CsvTable(
         data_ref,
         DataContract(contract_id=data_ref, source=source, title="CSV table"),
-        delimiter,
+        used,
         "utf-8-sig" if admitted.content.startswith(codecs.BOM_UTF8) else "utf-8",
         tuple(result["headers"]),
         tuple(tuple(row) for row in result["rows"]),
+        "declared" if detected is None else "detected",
     )
     return CsvLoadResult("loaded", source, table=table)

@@ -31,6 +31,202 @@ M5-21 and M8-21 remain delivered correctness protections; only the bounded weekl
 
 Production web-search acceptance stays separate under DEC-134: SearXNG is a compatibility candidate only, including upstream-query privacy/network review. Crawl4AI is optional future extraction work, not current `web_url` acceptance. Search-result URLs remain unauthorized to fetch automatically. Existing command/tier and historical live-acceptance records below are unchanged.
 
+### Live rerun and edge suites (2026-09-18, verified in this repository)
+
+Authorized by Eray on 2026-09-18 and run by Claude against `dev` at `8b3ab30` (the #246 merge),
+through `tests/manual/live_scenarios.py` over a served API on port 8001 with its own scratch state
+root. The prepared pool, the repository state root and port 8000 were untouched. Retrieval reported
+`hybrid`, so `require_series_discovery` was active. Real Kloudeks calls; planner and writer both
+`kkbhackathon2026/Qwen3.8-27B` with thinking enabled.
+
+Unlike the operator-reported section above, every number here comes from the stored trace in this
+repository and can be re-read with `dump_traces.py`.
+
+**Start-up note.** `--serve` first failed with `configuration_or_runtime_unavailable` because the
+state root was given through `/tmp/...`, which is a symlink on macOS; `--check` passed because it
+never touches the state root. The preparation boundary rejects links deliberately
+(`__main__.py`: "absolute() preserves links so the preparation boundary can reject them"). Passing
+the real `/private/tmp/...` path started the service.
+
+#### rerun
+
+| Turn | Outcome | Seconds | Model calls | Note |
+| --- | --- | --- | --- | --- |
+| R1 table | **ACCEPTED**, 24 cells | 387.7 | 3 | discovery, then `lakehouse` SQL, then writer |
+| R2 deflate | **ACCEPTED**, 48 cells | 249.2 | 3 | first plan rejected, repaired, no writer call |
+| R3 co-movement | **ABSTAINED**, clarification | 612.7 | 2 | the planner's own `clarify`, not a harness refusal |
+
+**R2 is the scenario that failed as S5 on 2026-09-18 and now passes live.** Its first plan named
+`EVDS:TP.TUKFIY2025.GENEL` directly and was refused with "New series require a catalog_search phase
+before analysis" — correct, because nothing had proven that identity in this conversation. The
+planner repaired, searched, and deflated. The refused call still cost 70.4 s.
+
+**R3 did not time out, and its abstention is correct.** The catalog returned exactly two candidates:
+`EVDS:TP.BKR.TRY.18` (Konut Kredisi, TL, **Stok**, %) and `EVDS:TP.KTF12` (Konut Kredisi, TL,
+**Akım**, %) — the outstanding-portfolio rate and the new-loan rate. The question names neither, and
+`CatalogRecord.rate_basis` exists precisely because "RATE alone cannot distinguish new-credit from
+outstanding-portfolio rates". Choosing one would have been the semantic guess the hard constraints
+forbid, so the clarification is the honest answer.
+
+#### What actually causes the long continuation
+
+Token counts per model call, from the trace:
+
+| Turn | Call | Seconds | Prompt tokens | Completion | Reasoning |
+| --- | --- | --- | --- | --- | --- |
+| R1 | planner.initial | 56.6 | 8,109 | 729 | 594 |
+| R1 | planner.continuation | 197.8 | 8,761 | 1,547 | 1,262 |
+| R1 | writer.call | 131.6 | 819 | 1,080 | 1,035 |
+| R2 | planner.initial | 70.4 | 8,794 | 695 | 485 |
+| R2 | planner.initial (repair) | 28.6 | 8,996 | 265 | 196 |
+| R2 | planner.continuation | 148.0 | 8,365 | 1,378 | 1,168 |
+| R3 | planner.initial | 79.0 | 9,287 | 1,793 | 1,723 |
+| **R3** | **planner.continuation** | **531.6** | 8,718 | 8,010 | **7,897** |
+| X1 | planner.initial | 8.5 | 8,089 | 287 | 198 |
+
+**This contradicts the hypothesis that the ~26 KB of continuation tool schemas cause the S7 timeout.**
+Prompt tokens are essentially flat across every call, fast and slow alike (8,089–9,287). The slow
+call's prompt was *smaller* than two of the fast ones. Trimming the schemas would not have prevented
+this.
+
+The duration tracks generated tokens alone. R3's continuation produced 7,897 reasoning tokens,
+about six times any other continuation, with `provider_attempts: 1` — no retry, no transport stall.
+At the observed generation rate this fully accounts for 531.6 s. The model deliberated at length over
+the stock-versus-flow choice before deciding to ask. X1 reached the same kind of decision in 198
+reasoning tokens and 8.5 s, because its ambiguity is visible in the question itself rather than in
+two concrete candidates.
+
+So the S7 cost is runaway reasoning on an ambiguous series choice, not prompt weight. The remedies
+that follow from this measurement are a per-call-type `max_tokens` ceiling and a crisper stated rule
+for stock/flow rate ambiguity, so the planner reaches "ask" without deliberating there. Schema
+slimming remains worthwhile for its own sake — the `lakehouse` and `change_detection` argument
+schemas are the bulk of the tool payload — but it is not the fix for this failure.
+
+#### What the #246 admission change did and did not do
+
+[#246](https://github.com/cagatayeroglu/KKB-DataTrio/pull/246) admits a plan whose series were
+already proven by a catalog search in the same conversation. It behaved correctly and **saved
+nothing in these suites**, for two separate reasons, both visible in the traces:
+
+1. **The planner reaches for `lakehouse` SQL.** R1's analysis step put the identity inside
+   `WHERE s.series_id = 'BDDK:selector:v1:fa6e3c79…'`. `lakehouse.sql` is marked
+   `OpaqueSeriesReference`, so such a step can never qualify — by design, since the rule cannot
+   enumerate what SQL reads. For the dominant plan shape the change is inert.
+2. **Every turn in these suites introduces a new series** (housing balance, then CPI, then a rate),
+   so discovery was legitimately required each time.
+
+The change is therefore correct but currently unexercised on the live path. What would make it pay
+is the typed "read series" form for `lakehouse` (`series_id`, start, end) already proposed in the
+handover: it would replace an opaque SQL string with a marked `SeriesId`, letting the admission rule
+apply, shrinking the largest argument schema, and removing the `ORDER BY` / `JOIN` / `period_end`
+questions the reasoning text spends tokens on. That is one change serving three open items.
+
+#### Independent oracles for every accepted answer
+
+Recomputed from the lakehouse, not read back from the answer:
+
+| Turn | Check | Result |
+| --- | --- | --- |
+| R1 | 24 published `gold_cells` against `silver_observations` | 0 mismatches |
+| R2 | 24 deflated cells against nominal x CPI(2025-12) / CPI(t) | worst deviation 1.3e-10 |
+| R2 | the nominal column survives beside the real one | `analiz_2` holds 24 + 24 cells |
+| X2 | 2024-12-31 512,259 -> 2025-12-31 678,970 | difference 166,711 and 32.5443% both exact |
+
+Gold materialization under DEC-154 therefore preserves values exactly, and deflation reproduces an
+independent calculation.
+
+#### edge
+
+| Turn | Outcome | Seconds | Model calls | Verdict |
+| --- | --- | --- | --- | --- |
+| X1 ambiguous | ABSTAINED, clarification | 10.0 | 1 | correct — "Kredi ne kadar arttı?" names no series and no period |
+| X2 clarify answer | **ACCEPTED**, 4 cells | 421.8 | 3 | correct and numerically exact; the clarification loop works |
+| X3 out of scope | ABSTAINED, unsupported | 60.3 | 1 | correct — no forecasting tool exists and none was invented |
+| X4 acquire | ABSTAINED, clarification | 249.1 | 4 | **over-abstention, see below** |
+| X5 injection | **not run** | — | — | stopped before it completed; deferred, no result is claimed |
+
+**X1 to X2 is the demo's follow-up criterion working live**: the system asked which measure and which
+period, the next turn supplied them, and the answer bound to real cells with exact figures.
+
+**X4 is over-abstention, and it also failed to test what it was written for.** The catalog returned
+`EVDS:TP.KFE.TR` (Türkiye) together with the İstanbul, İzmir and Ankara variants. The question names
+no city. Unlike R3's stock-versus-flow pair, where neither candidate is the other's default, here the
+country-level series is the obvious reading of an unqualified "konut fiyat endeksi" and the record
+even carries a `geography` field to say so. Asking was the weaker answer.
+
+X4's first plan was again `lakehouse` SQL, rejected for naming an unproven series after a 159.6 s
+call with 3,156 reasoning tokens — the same shape as R2's refused plan and the same reason #246
+cannot help there.
+
+X5 was stopped mid-turn to end the session rather than allowed to finish, so the prompt-injection
+case carries no verdict here and remains open.
+
+**No official acquisition happened in either suite**: zero acquisition or fetch trace events, and
+`<state-root>/acquired/` is empty. The cause is a defect in the suite rather than in the runtime.
+Eight of the 37 catalog identities are absent from the prepared pool:
+
+```
+EVDS:TP.BKR.TRY.18   EVDS:TP.KBK.TRY.18   EVDS:TP.KFE.TR10   EVDS:TP.KFE.TR31
+EVDS:TP.KFE.TR51     EVDS:TP.KKP.TRY.18   EVDS:TP.TK02       EVDS:TP.VK02
+```
+
+X4 asks for "konut fiyat endeksi", which resolves to the prepared `EVDS:TP.KFE.TR`, so the
+acquisition path is never entered. Naming a city — "İstanbul konut fiyat endeksi" — would force
+`EVDS:TP.KFE.TR10`, which is catalogued but unprepared. **Live EVDS/BDDK acquisition therefore
+remains unverified and stays the first open acceptance item.**
+
+#### Trace review against the required criteria
+
+- **Right tool?** Yes in all four turns. Discovery, then `lakehouse` or `table_transform`; no web or
+  document tool was reached for, and no tool was used where a clarification was the answer.
+- **Right parameters?** Yes. R1's SQL selected the direct columns and joined `silver_series` as the
+  tool description requires; R2's deflate named the correct index and reference period.
+- **Unnecessary steps or model calls?** One: R2's refused first plan, 70.4 s spent on a plan that
+  named the right CPI series but could not prove it. No duplicate searches and no writer call where
+  presentation was deterministic.
+- **Context correct and sufficient?** Yes. The continuation prompt carried both R3 candidates with
+  their stock/flow declarations, which is what made the honest clarification possible.
+- **Final answer correct and honest?** Yes in all four. Two accepted results with cells, two
+  abstentions that asked rather than guessed.
+
+### Operator-reported live scenarios (2026-09-18)
+
+**Provenance: operator-reported, not independently reproduced in this repository.** Arda ran these
+against `feature/runtime-official-acquisition` with Qwen thinking enabled in both the planner and
+the writer, and relayed the results to Eray, who recorded them here on 2026-09-18 so they do not
+live only in a chat handover. No artifact of the run is committed. Treat the numbers as indicative
+and the verdicts as claims to be re-measured, not as acceptance evidence. The suites are
+`tests/manual/live_scenarios.py` (`chain`, `rerun`, `external`, `upload`, `edge`), whose model-call
+budget is counted from the trace, and `tests/manual/dump_traces.py`, which writes a full trace file
+per turn.
+
+Reported cost: roughly 20 of a 60-call budget consumed, generation about 7.5 tokens/second, so a
+turn's duration is approximately generated tokens / 7.5. One planner call was reported at roughly
+10,000 prompt tokens with 700–2,000 thinking tokens.
+
+| Scenario | Reported outcome |
+| --- | --- |
+| S1 greeting | PASS; no tool used |
+| S2 "what do you know" | PASS; counted the pool correctly from the existing prompt, with no dedicated inventory tool |
+| S3 2025 change | PASS; correct tool and parameters. A fix made the writer's duration visible in the trace |
+| S4 monthly table | PASS with 24 rows. A fix stopped the stock/flow declaration being lost. **Still open:** the writer repeats the previous turn's result unnecessarily |
+| S5 CPI real terms | **FAIL** — refused because of the declaration S4 dropped. The code was fixed afterwards; the fix is **not** live-verified |
+| S6 "why different" | PASS; answer judged correct and honest |
+| S7 interest/balance direction | **FAIL** — the continuation call timed out at 900 s |
+| R1 table on fixed code | PASS with 24 cells. A fix stopped the writer printing "not addressed" beside the table; **not** live-verified |
+
+Never run against the fixed code: `rerun` (R2, R3), `external` (a BIST 100 URL joined with EVDS/BDDK
+data in one table), `upload` (CSV upload to table to question to join), `edge` (ambiguous question,
+clarification answer, out-of-scope question, acquiring a series absent from the pool, prompt
+injection) and the cancellation scenario.
+
+The reported reading of the thinking text is that a large share of model tokens goes to ambiguity in
+the tool contracts rather than to the question. Four contract questions were named as worth making
+explicit: whether `ORDER BY` may be used, whether a `JOIN` is required, whether `period_end` means
+the end of the month, and whether producing a table additionally requires `table_transform`. The
+continuation prompt carries roughly 26 KB of tool schemas, of which `change_detection`'s description
+is about 5 KB on its own, so this is also the first place to look for the S7 timeout.
+
 ### M6-25 organizer Turn 1 live run (2026-09-14)
 
 Owner-authorized runs of `python -m kkb_agent.live_check --prepared-root data/processed/lakehouse` ask the organizer's Turn 1 question through Kloudeks (Qwen planner and writer) over a private copy of the prepared pool; the copy keeps runtime lineage, execution evidence and workspace writes out of the prepared root. Offline tests use the same path with a scripted provider ([test_co_movement](../tests/unit/test_co_movement.py)).
@@ -914,6 +1110,101 @@ quality measurement, or an out-of-scope classifier. No live embedding, Kloudeks,
 BDDK, EVDS or production-search call was made. Archive-intent ordering, broad
 multi-series ranking, N07/N09/N18 and full catalog coverage remain separate limits.
 
+<a id="q-k-01-ocr-probe-2026-09-17"></a>
+### Q-K-01 / M7-11 bounded live OCR probe — 2026-09-17
+
+Owner-authorized by Eray ("more requests are fine; accuracy matters") after the
+M10-04 reader gap (c) work, with the unchanged M7-11 OCR transport
+(`KloudeksProvider.ocr`, DEC-129 request contract). Plan: at most three OCR
+requests, 300 s each, `KLOUDEKS_MAX_ATTEMPTS=1`, the DEC-129 OCR model identifier
+supplied through the environment, stop at the first access failure; content-free
+ledger `artifacts/q-k-01-ocr-probe-20260917-ledger.jsonl` (ignored); an
+operator-local probe script outside the repository. Input: page 1 of the
+organizer's public Borsa İstanbul `kmp_au.pdf` (142,691 bytes, SHA-256
+`b1b5dbce…2f5831`), rendered with pypdfium2 as `pdf_ocr` renders pages.
+
+| Request | Image | Result |
+| --- | --- | --- |
+| 1 | scale 2.0, 2,005,644 px, 199,445-byte PNG | ok, `stop`, 1,664 ms, 2,960 characters |
+| 2 | the same PNG again | ok, `stop`, 1,510 ms, byte-identical text |
+| 3 | scale 2.82, 3,985,946 px, 318,149-byte PNG | ok, `stop`, 1,598 ms; differs only in one title glyph |
+
+Output shape: layout-tagged blocks (`<|det|>kind [x0, y0, x1, y1]<|/det|>`) with
+the title lines as text and the data as one HTML `<table>` using `colspan` for
+the TL/USD/EUR groups and `rowspan` for `AY/MONTH` and the total column; the
+total header merged as `TOPLAM / TOTALMiktar/Amount(KG)` and `Mayıs` read as
+`Mayis`. Offline comparison against the PDF's own text layer: all **94 numeric
+cells equal, zero mismatches**, at both scales. Nine of ten columns sum exactly to
+the `TOPLAM / TOTAL` row; the USD kilogram column sums to 165,806 against a
+published 165,807, a rounding difference present in the document itself.
+
+Verdict: Q-K-01 OCR access is answered — the model is reachable, fast and
+deterministic on this page. This does not make OCR text analytical data: under
+DEC-119 it still needs the schema and consistency validation claimed as M7-11
+slice 2. No chat, embedding, fetch or upload call was made; the organizer file
+and the OCR text stay operator-local.
+
+<a id="m10-04-live-documents-2026-09-17"></a>
+### M7-14 / M10-04 bounded live document inputs — 2026-09-17
+
+Owner-authorized by Eray on `dev` `568bd4e` (launcher preparation #231 merged).
+Plan: `tests/manual/live_client.py` with 12 chat, 0 embedding, 600 s, one attempt,
+`--enable-web-url --max-fetches 4`, `--enable-uploads`, lexical retrieval, fresh
+state root and content-free ledger
+(`artifacts/m10-04-live-documents-20260917-ledger.jsonl`, ignored); cases driven
+by `tests/manual/live_turns.py`, one session each. The uploaded CSV was exported
+by the operator from the prepared pool (60 months, `Ay;Konut Kredisi (Milyon
+TL);Faiz (%)`, Turkish decimal commas, semicolon separator) and is operator-local.
+
+| Case | Result |
+| --- | --- |
+| U1 upload → monthly table | **ABSTAINED**, 85 s, one planner call (81.7 s), no result. Offline replay of the same tool on the same bytes: no delimiter → `PARSING_DECLARATION_REQUIRED`, `,` → `MALFORMED_TABLE`, `;` → table produced. The question did not state the separator and the planner cannot see the file. |
+| U2 upload → one cell | **ABSTAINED**, 35 s, one planner call, same cause. |
+| W1 DataHub VIX CSV → one cell | **ACCEPTED**, 40 s: one fetch (`datahub.io`, HTTP 200, `text/csv`, 719 bytes, redirected, 1,974 ms), planner 12.2 s, writer 23.0 s; literal quote `Kaynak hücredeki değer: 18,22. Kaynak birim veya ölçek belirtmiyor.` bound to `VIXClose | 2004-01-02` = 18.22 (same value as the 2026-09-12 acceptance); proof `available`, document host `r2.datahub.io` after the redirect, row 1, column 5. |
+| U1b upload → monthly table, separator named in the question | **ACCEPTED**, 120 s (planner 19.6 s, writer 95.0 s): 120 cells, proof `available` with one `upload` document (no host, 120 values read); all 120 values equal the uploaded CSV (**zero mismatches**); `Konut Kredisi` TRY/million with measure unknown, `Faiz` percent/one as **rate** (DEC-146 live). |
+| U2b upload → one cell, separator named | **ABSTAINED**, 120 s (planner 58.7 s, writer 56.1 s): the draft's 37.29 bound to the correct cell result, but the sentence was withheld for `period` — a `2025-12` row label sets no period in cell mode, so a month in the answer cannot bind. |
+| W2 Borsa İstanbul gold PDF | **Not run.** One approved inspection fetch of `/dosyalar/kmtp/veriler/kmp_au.pdf` returned HTTP 200, `application/pdf`, 142,691 bytes, but the operator's inspection script failed before parsing. Eray's saved copy of the same size (SHA-256 `b1b5dbce…2f5831`) was then parsed offline with the product PDF loader: the text layer holds months (`Ocak / January` … `Ağustos / August`) with TL/USD/EUR amount, volume and trade-count columns under a `(2026)` title, but ruled-table extraction yields a single headerless 13-row column (the total kilograms). No cell or month is addressable, so a live question could only abstain. |
+
+Usage: 8 chat dispatches, all ok on one attempt; 1 fetch; 0 embeddings; the
+launcher was stopped by the operator. Prepared pool aggregate digest over 124
+files `a88b9786…314dae9` unchanged. No model call inspected document content;
+the ledger holds no URL path, query, question or cell text.
+
+Verdict: the served upload and prompt-address paths work live end to end when
+the question can name what the reader needs — prompt-address cell quote (W1)
+and uploaded monthly table with an oracle-equal 120-value check (U1b) — but three
+demo-relevant gaps were measured: (1) an undeclared semicolon CSV is refused,
+because the separator must be declared and the planner cannot infer it; (2) a
+month-labelled cell (`2025-12`) carries no period, so an answer naming the month
+is withheld; (3) the organizer's own example PDF has a text-layout table that the
+ruled-table extractor does not read, and its month labels carry no year. None
+of these is a verifier defect; each needs a scoped reader decision.
+
+<a id="release-checkpoint-2026-09-17"></a>
+## Release checkpoint — 2026-09-17 (PR #229, merged)
+
+Candidate `dev` `7536309` (merged #228), promoting #197–#228; Eray merged PR #229
+into `main` at `bdc05ac` as a merge commit. The five `main`-only commits before the
+merge were earlier promotion merge commits with no content, and `main` and `dev`
+trees are identical after it. Gate run locally on macOS, Python 3.12.5, with the
+repository `.venv`:
+
+| Gate | Result |
+| --- | --- |
+| `make full` | Exit 0: Ruff format (224 files) and check, strict `mypy src` (112 files), full `pytest` 3,757 passed in 143.4 s, Bandit, secret scan, `pip-audit` with only PYSEC-2026-113 / PYSEC-2026-1845 ignored — no known vulnerabilities; 153.8 s wall |
+| EVAL-SMOKE | `python -m kkb_agent.evaluation`: 5/5 PASS (`m9-05-eval-smoke-v1`, case set `b8e2e37f…421eec`), offline and deterministic |
+| API readiness | Read-only `--check` with the v3 catalog and `qwen3-instruct-query-v1-e0bbaac8` index: ready, `model_checked: false`, hybrid, 29 prepared identities, 4,124 observations, 37 catalog identities, 124 files |
+| Web client | `npm run check` (Prettier, `tsc --noEmit`, 39 tests) and `npm run build` exit 0 |
+
+No live model, source, URL or upload request was made for the gate. This is a
+full application/static/security gate plus EVAL-SMOKE, not EVAL-FULL or a demo
+rehearsal. Known limitations carried into `main`: the latest bounded live rerun
+([rerun 8](#m11-07-live-rerun-8-2026-09-17)) accepted Turns 1–2 but Turn 3 hit the
+600 s provider timeout, so served three-turn acceptance and live confirmation of
+#213/#215 remain open; document inputs are operator opt-in with no live
+URL/upload acceptance on this revision (Q-NET-02, Q-DATA-03 open); document tables
+are monthly only.
+
 <a id="handoff-checkpoint-2026-09-15"></a>
 ## Authorized handoff checkpoint — 2026-09-15
 
@@ -1027,6 +1318,34 @@ not a latency forecast for planner turns. Eray chose to stop rather than rerun
 all three turns in a new session within the remaining budget (the driver had
 not retained the session token needed to resend Turn 3 alone) or restart with a
 900 s timeout.
+
+<a id="m11-07-live-pr237-2026-09-17"></a>
+### M11-07-CTX operator-reported live hybrid three-turn run — 2026-09-17 (PR #237)
+
+The following run details were supplied by Çağatay via Arda's handoff following
+the merge of PR #237. The review did not rerun the scenario or locate its
+original ledger within this workspace; these results are recorded as
+**operator-reported** with unverified-artifact limitations (no verified git revision,
+exact budget ceilings, before/after immutability check, browser acceptance, or independent rerun).
+
+- **Reported run ID**: `cagatay-pr237-live-20260917-143332`
+- **Reported ledger**: `artifacts/cagatay-pr237-live-20260917-143332-ledger.jsonl` (unverified; absent from workspace)
+- **Reported state root**: `data/processed/api-runs/cagatay-pr237-live-20260917-143332`
+- **Configuration**: hybrid catalog, per-request timeout 900 s, `KLOUDEKS_MAX_ATTEMPTS=1`, bounded chat/embedding budgets, web URL/uploads/OCR disabled.
+- **Continuation context impact**: PR #237 reduces representative staged continuation context from 15,124 to 12,300 UTF-8 bytes (18.7% smaller prompt); this is a prompt budget reduction, not a measured 18.7% latency improvement.
+
+| Turn | Reported accepted result | Structured call times, ms | Query embedding times, ms |
+| --- | --- | --- | --- |
+| 1 | 60 rows; 242 published values; 59 transitions; 32 rate-down; 28 credit-up under rate-down; 4 non-rise | 149837, 279241 | 114, 93 |
+| 2 | Preserve Analiz 1; deflate only housing-credit balance at 2025-12 prices; 302 published values | 33454, 100453 | 157 |
+| 3 | Preserve Analiz 2; add KFE; compare real credit with inherited rate-down predicate; joint result 22; 368 published values | 32771, 233765, 114108 | 215 |
+
+- **Turn 1 details**: Four non-rise months match the independent oracle: 2021-02, 2021-05, 2023-12, 2024-01.
+- **Turn 3 metrics**: The operator reports the joint 22 metric (rate-down ∧ KFE-up ∧ real-credit-nonrise), distinct from the broader real-credit non-rise count (46). This review did not independently verify the live result. All reported publication gates accepted with zero omitted sentences.
+- **Call count & observation**: Reported totals: 7 structured chat calls and 4 query embeddings across the three turns. Turn 1 used 2 structured calls + 2 embeddings; Turn 2 used 2 structured calls + 1 embedding; Turn 3 used 3 structured calls + 1 embedding. The extra Turn-3 structured call (3 calls: 32,771 ms, 233,765 ms, 114,108 ms) is consistent with planning repair; the handoff reports that the ledger does not retain its exact rejection reason. Current source inspection confirms that the rehearsal ledger does not record local `PlanRejected` reasons.
+- **Latency & timing**: Sum of reported structured-call durations is approximately 15 minutes 44 seconds across all turns (this is sum of call durations, not separately measured total wall time). Provider load varied and prior 600/900 s timeouts remain relevant.
+- **Distinction from historical runs**: Historical PR #176 previously recorded a complete three-turn API/client run; this reported run represents the current hybrid / real-credit / inherited-condition scenario producing the joint 22 metric. Formal verified live served acceptance and repeat reliability remain open under item A.
+
 
 <a id="m11-served-hybrid-rehearsal-2026-09-15"></a>
 

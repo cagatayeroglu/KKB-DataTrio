@@ -8,7 +8,8 @@ import json
 import os
 import re
 import threading
-from collections.abc import Iterator
+import time
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -16,9 +17,12 @@ from typing import TYPE_CHECKING, Annotated
 from uuid import uuid4
 
 import duckdb
-from pydantic import Field
+from pydantic import Field, JsonValue
 
 from kkb_agent.agent import Session, ToolRegistry, Workspace
+from kkb_agent.agent.cancellation import TurnCancelled
+from kkb_agent.agent.loop import MAX_HISTORY_TURNS
+from kkb_agent.agent.observer import Tracer
 from kkb_agent.agent.selection import SelectedTable, SelectionError
 from kkb_agent.agent.verifier import AnswerStatus
 from kkb_agent.agent.workspace import WorkspaceError
@@ -32,19 +36,31 @@ from kkb_agent.api.contracts import (
 )
 from kkb_agent.api.projection import project_answer, safe_text
 from kkb_agent.api.proof import build_proof
-from kkb_agent.api.service import SelectedResult, ServiceError
+from kkb_agent.api.service import SelectedResult, ServiceError, TurnSettings
+from kkb_agent.api.store import DEFAULT_TITLE, ConversationStore
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
-from kkb_agent.catalog.mappings import MAX_SNAPSHOT_BYTES, ReviewedSnapshot, load_reviewed_snapshot
+from kkb_agent.catalog.mappings import (
+    MAX_SNAPSHOT_BYTES,
+    ReviewedSnapshot,
+    load_reviewed_snapshot,
+    series_display_names,
+)
 from kkb_agent.core import AnalyticalResult, SourceRef
 from kkb_agent.core.models import ContractModel
+from kkb_agent.ingest.acquisition import AcquiringInspector, OfficialSources, TurnAcquirer
+from kkb_agent.ingest.address_outline import TurnFetchCache, address_outline
 from kkb_agent.ingest.attached import SOURCE_TYPE as UPLOAD
 from kkb_agent.ingest.attached import Attachment
 from kkb_agent.ingest.prepared_series import prepared_series_names
 from kkb_agent.ingestion_policy import MIME_TYPES, AdmissionError, admit_upload
+from kkb_agent.knowledge import KnowledgeStore, effective_snapshot
 from kkb_agent.lakehouse import open_lakehouse
-from kkb_agent.lakehouse.lineage import Lineage
-from kkb_agent.lakehouse.store import DATABASE_NAME, SANDBOX
+from kkb_agent.lakehouse.gold import GoldError, gold_from_result, persist_gold
+from kkb_agent.lakehouse.lineage import Lineage, LineageError
+from kkb_agent.lakehouse.semantics import SemanticsError
+from kkb_agent.lakehouse.store import DATABASE_NAME, SANDBOX, Lakehouse
 from kkb_agent.llm.provider import LLMProvider
+from kkb_agent.pdf_ocr import OcrProvider
 from kkb_agent.tools import (
     make_anomaly_tool,
     make_catalog_search_tool,
@@ -52,9 +68,14 @@ from kkb_agent.tools import (
     make_change_detection_tool,
     make_lakehouse_tool,
     make_table_transform_tool,
+    make_web_search_tool,
     make_web_url_tool,
 )
-from kkb_agent.tools.web_url import Fetcher
+from kkb_agent.tools._document_column import ColumnRefused, read_month_values
+from kkb_agent.tools._document_library import document_name, document_outline
+from kkb_agent.tools._document_value import as_of, grids
+from kkb_agent.tools.web_search import SearchBackend
+from kkb_agent.tools.web_url import Fetcher, addresses_in, read_attachment
 
 if TYPE_CHECKING:  # pragma: no cover
     from kkb_agent.catalog.hybrid import CatalogDenseStage
@@ -111,6 +132,9 @@ _NEW_QUESTION_PREFIXES = (
     "vazgeçip başka",
     "başka bir soru",
 )
+#: Words a message must reach, while asking something of its own, before it reads
+#: as a new request rather than an answer to the pending clarification.
+_NEW_QUESTION_WORDS = 6
 
 
 def _is_cancellation(question: str) -> bool:
@@ -125,12 +149,21 @@ def _is_new_question(
     selection: SelectedResult | None,
     pending: PendingClarification,
 ) -> bool:
+    """Decide, without asking the person, whether this message answers the clarification.
+
+    An answer to a clarification is short and declarative ("aylık olsun", "TCMB
+    verisi"). A message that asks something of its own, at the length of a real
+    request, is a new question however the previous turn ended. A caller may still
+    state `is_continuation`; this decides only when it did not, and the decision
+    is recorded in the turn's trace rather than left to a control the person has
+    to operate.
+    """
     q = question.strip().lower()
     if any(q.startswith(prefix) for prefix in _NEW_QUESTION_PREFIXES):
         return True
     if selection is not None and pending.selection is not None and selection != pending.selection:
         return True
-    return False
+    return q.endswith("?") and len(q.split()) >= _NEW_QUESTION_WORDS
 
 
 def _format_clarification_prompt(original: str, clarifications: tuple[str, ...]) -> str:
@@ -318,6 +351,13 @@ def _copy(root: Path, destination: Path, expected: dict[str, tuple[int, str]]) -
         raise PreparedError("prepared_pool_changed")
 
 
+def _recent(history: Sequence[tuple[str, str]], turns: int | None) -> tuple[tuple[str, str], ...]:
+    """The earlier turns a planner is shown: the owner's count, or every kept turn."""
+    if turns is None:
+        return tuple(history)
+    return tuple(history)[-turns:] if turns > 0 else ()
+
+
 class PreparedRunner:
     """Only the service's one worker invokes this runner; no caller paths/settings."""
 
@@ -332,6 +372,12 @@ class PreparedRunner:
         catalog_dense: CatalogDenseStage | None = None,
         web_url_fetch: Fetcher | None = None,
         document_uploads: bool = False,
+        document_ocr: OcrProvider | None = None,
+        store: ConversationStore | None = None,
+        official: OfficialSources | None = None,
+        clock: Callable[[], date] = lambda: datetime.now(UTC).date(),
+        knowledge: KnowledgeStore | None = None,
+        search_backend: SearchBackend | None = None,
     ):
         self._catalog = load_reviewed_snapshot(catalog_bytes)
         self._catalog_bytes = catalog_bytes
@@ -345,6 +391,15 @@ class PreparedRunner:
         self._web_url_fetch = web_url_fetch
         # Operator switch for uploads (M10-04); documents live under this process's state.
         self._document_uploads = document_uploads
+        # Operator switch for OCR of PDF pages without text (M7-11, DEC-149).
+        self._document_ocr = document_ocr
+        # Operator switch for fetching a reviewed official series on first use (DEC-155).
+        self._official = official
+        self._clock = clock
+        # The editable knowledge base layered over the reviewed catalog (DEC-157).
+        self._knowledge = knowledge
+        # Operator-configured discovery backend (DEC-134, DEC-158); absent means no tool.
+        self._search_backend = search_backend
         self._documents: dict[tuple[str, str], _Document] = {}
         self._documents_lock = threading.Lock()
         self._provider = provider
@@ -359,13 +414,31 @@ class PreparedRunner:
             != self.status.snapshot_id
         ):
             raise PreparedError("prepared_pool_changed")
-        self.run_root = state_root / uuid4().hex
+        # A fixed root, so a conversation's lakehouse is where it was before the
+        # restart. The seed is copied once and verified afterwards: a prepared
+        # pool that changed underneath must not be reused silently.
+        self.run_root = state_root
         self.seed = self.run_root / "seed"
-        _copy(root, self.seed, expected)
+        if (self.seed / DATABASE_NAME).is_file():
+            if manifest(self.seed) != expected:
+                raise PreparedError("prepared_pool_changed")
+        else:
+            _copy(root, self.seed, expected)
+        self._store = store
         self._manifest = expected
         self._turns: dict[str, int] = {}
         self._publications: dict[tuple[str, str], _Publication] = {}
         self._pending_clarifications: dict[str, PendingClarification] = {}
+        # Bounded (question, shown answer) pairs so a planner can resolve "bu",
+        # "önceki cevap" after an unrelated message; analytical state stays in
+        # the workspace, never here.
+        self._history: dict[str, list[tuple[str, str]]] = {}
+        # Series identities the catalog returned earlier in each conversation. A plan
+        # naming only these may skip the discovery phase, which otherwise costs a
+        # planner round trip per turn for an identity already proven. Bounded by the
+        # catalog itself. Held in memory: after a restart it starts empty, so the turn
+        # simply searches again, which is the previous behaviour and never less safe.
+        self._proven: dict[str, set[str]] = {}
         self._lock = threading.Lock()
 
     def __call__(
@@ -376,6 +449,7 @@ class PreparedRunner:
         *,
         is_continuation: bool | None = None,
         document_ref: str | None = None,
+        settings: TurnSettings | None = None,
     ) -> Answer:
         return self._run(
             session_id,
@@ -383,7 +457,31 @@ class PreparedRunner:
             question,
             is_continuation=is_continuation,
             document_ref=document_ref,
+            settings=settings,
         )
+
+    def _restore(self, session_id: str) -> None:
+        """Bring one conversation's persisted references back into this process."""
+        if self._store is None or session_id in self._turns:
+            return
+        self._turns[session_id] = self._store.turn_count(session_id)
+        for item in self._store.publications(session_id):
+            self._publications[session_id, item.turn_id] = _Publication(
+                SelectedResult(item.turn_id, item.result_ref, item.result_version),
+                item.name,
+                item.artifact_id,
+            )
+        with self._documents_lock:
+            for document in self._store.documents(session_id):
+                self._documents[session_id, document.document_ref] = _Document(
+                    document.document_format,
+                    document.media_type,
+                    document.sha256,
+                    document.byte_count,
+                    document.path,
+                    document.admitted_at,
+                )
+        self._history[session_id] = list(self._store.history(session_id, MAX_HISTORY_TURNS))
 
     def admit_document(self, session_id: str, media_type: str, content: bytes) -> DocumentAdmitted:
         """Admit through the upload checks and store by opaque reference; no filename is kept."""
@@ -391,6 +489,7 @@ class PreparedRunner:
             raise ServiceError("unavailable", 503)
         if not _IDENTIFIER.fullmatch(session_id):
             raise ServiceError("not_found", 404)
+        self._restore(session_id)
         kind = _UPLOAD_KINDS.get(media_type)
         if kind is None or not content or len(content) > MAX_DOCUMENT_BYTES:
             raise ServiceError("document_rejected", 422)
@@ -416,13 +515,27 @@ class PreparedRunner:
                     stream.write(admitted.content)
             except OSError:
                 raise ServiceError("unavailable", 503) from None
+            admitted_at = datetime.now(UTC)
             self._documents[session_id, reference] = _Document(
                 kind.value,
                 media_type,
                 digest,
                 len(admitted.content),
                 path,
-                datetime.now(UTC),
+                admitted_at,
+            )
+            position = sum(1 for owner, _ in self._documents if owner == session_id)
+        if self._store is not None:
+            self._store.add_document(
+                session_id,
+                document_ref=reference,
+                name=document_name(position),
+                document_format=kind.value,
+                media_type=media_type,
+                sha256=digest,
+                byte_count=len(admitted.content),
+                path=path,
+                admitted_at=admitted_at,
             )
         return DocumentAdmitted(
             document_ref=reference,
@@ -456,6 +569,101 @@ class PreparedRunner:
             ),
         )
 
+    def series_values(self, series_id: str) -> tuple[tuple[date, date, float | None], ...]:
+        """A prepared series' stored observations, read-only from the verified seed.
+
+        The seed is checked against its manifest at every start; it is opened
+        read-only so that looking at it can never change what later sessions copy.
+        """
+        if not 1 <= len(series_id) <= 200:
+            raise ServiceError("not_found", 404)
+        connection = duckdb.connect(
+            str(self.seed / DATABASE_NAME), read_only=True, config=dict(SANDBOX)
+        )
+        try:
+            rows = connection.execute(
+                "SELECT period_start, period_end, value FROM silver_observations"
+                " WHERE series_id = ? ORDER BY period_end LIMIT 5000",
+                [series_id],
+            ).fetchall()
+        finally:
+            connection.close()
+        if not rows:
+            raise ServiceError("not_found", 404)
+        return tuple((row[0], row[1], None if row[2] is None else float(row[2])) for row in rows)
+
+    @property
+    def catalog(self) -> ReviewedSnapshot:
+        """The reviewed catalog this runner was started with; never the knowledge overlay."""
+        return self._catalog
+
+    @property
+    def dense(self) -> CatalogDenseStage | None:
+        """The vector generation discovery may use, whichever catalogue it covers."""
+        return self._dense
+
+    def _dense_for(self, catalog: ReviewedSnapshot) -> CatalogDenseStage | None:
+        """A generation searches only the catalogue it was built for (its digest)."""
+        if self._dense is None or self._dense.index.snapshot_sha256 != catalog.content_sha256:
+            return None
+        return self._dense
+
+    def use_dense(self, stage: CatalogDenseStage) -> None:
+        """Install a newly built generation for later turns; the profile may not change.
+
+        The running turn keeps the stage it started with: a registry is built once
+        per turn. A generation is never edited in place, so the one replaced here
+        stays readable on disk.
+        """
+        if self._dense is not None and stage.index.profile != self._dense.index.profile:
+            raise PreparedError("catalog_index_mismatch")
+        self._dense = stage
+
+    def document_column(
+        self,
+        session_id: str,
+        document_ref: str,
+        period_column: str,
+        value_column: str,
+        sheet: str | None = None,
+        year: int | None = None,
+    ) -> tuple[tuple[tuple[date, float | None], ...], str]:
+        """One monthly column of an upload, for the knowledge base (DEC-157).
+
+        The same path a turn uses: the stored bytes are rehashed, loaded by the
+        strict loaders and read by `read_column`, which refuses rather than
+        guesses. Only (month end, value) pairs and the document digest leave here;
+        the person declares what the numbers mean.
+        """
+        if not _IDENTIFIER.fullmatch(session_id) or not _IDENTIFIER.fullmatch(document_ref):
+            raise ServiceError("invalid_document", 422)
+        self._restore(session_id)
+        attachment = self._attachment(session_id, document_ref)
+        read = read_attachment(attachment, sheet=sheet, ocr=self._document_ocr)
+        if read.failure is not None or read.output.source is None:
+            raise ServiceError("document_rejected", 422)
+        try:
+            rows = read_month_values(
+                grids(read.output.table, read.output.document),
+                period_column,
+                value_column,
+                year=year,
+                as_of=as_of(read.output.source),
+            )
+        except ColumnRefused:
+            raise ServiceError("document_rejected", 422) from None
+        digest = (attachment.source.content_hash or "").removeprefix("sha256:")
+        return tuple((end, value) for end, value, _ in rows), digest
+
+    def _library(self, session_id: str) -> dict[str, tuple[str, Attachment]]:
+        """This conversation's documents by server-owned name, each rehashed on read."""
+        with self._documents_lock:
+            references = [ref for owner, ref in self._documents if owner == session_id]
+        return {
+            document_name(position): (reference, self._attachment(session_id, reference))
+            for position, reference in enumerate(references, 1)
+        }
+
     def selected(
         self,
         session_id: str,
@@ -465,6 +673,7 @@ class PreparedRunner:
         *,
         is_continuation: bool | None = None,
         document_ref: str | None = None,
+        settings: TurnSettings | None = None,
     ) -> Answer:
         """Service worker entry; resolve and execute under the same runner lock."""
         try:
@@ -475,6 +684,7 @@ class PreparedRunner:
                 selection,
                 is_continuation=is_continuation,
                 document_ref=document_ref,
+                settings=settings,
             )
         except (SelectionError, WorkspaceError):
             raise ServiceError("invalid_result", 422) from None
@@ -487,12 +697,16 @@ class PreparedRunner:
         selection: SelectedResult | None = None,
         is_continuation: bool | None = None,
         document_ref: str | None = None,
+        settings: TurnSettings | None = None,
     ) -> Answer:
+        # The owner's own narrowing, applied to this turn only; never a widening.
+        chosen = settings or TurnSettings()
         if not _IDENTIFIER.fullmatch(session_id) or not _IDENTIFIER.fullmatch(turn_id):
             raise PreparedError("invalid_runtime_identity")
         if not self._lock.acquire(blocking=False):
             raise PreparedError("concurrent_runtime_refused")
         try:
+            self._restore(session_id)
             pending = self._pending_clarifications.get(session_id)
             effective_question = question
             effective_selection = selection
@@ -534,7 +748,8 @@ class PreparedRunner:
                 raise PreparedError("runtime_turn_limit")
             self._turns.setdefault(session_id, 0)
             target = self.run_root / session_id / "lake"
-            if previous == 0:
+            if not (target / DATABASE_NAME).is_file():
+                # First turn of this conversation, in this process or an earlier one.
                 _copy(self.seed, target, self._manifest)
             if not (target / DATABASE_NAME).is_file():
                 raise PreparedError("session_pool_missing")
@@ -559,16 +774,172 @@ class PreparedRunner:
                         resolved.artifact_id,
                         effective_selection.version,
                     )
-                registry = self._registry(lake.connection, workspace, lake.lineage, attachment)
-                answered = Session(
+                named = self._library(session_id)
+                library = {name: item for name, (_, item) in named.items()}
+                current = next(
+                    (name for name, (ref, _) in named.items() if ref == effective_document), None
+                )
+                # One page read per written address; tools reuse exactly these bytes.
+                turn_fetch = (
+                    TurnFetchCache(self._web_url_fetch)
+                    if self._web_url_fetch is not None and "web_url" not in chosen.disabled
+                    else None
+                )
+                addresses = addresses_in(question)
+                address_note = (
+                    address_outline(addresses, turn_fetch)
+                    if turn_fetch is not None and addresses
+                    else None
+                )
+                document_note = document_outline(library, current)
+                # A reviewed official series the pool lacks is fetched on first use,
+                # and every attempt is shown in this turn's trace (DEC-155).
+                acquirer = (
+                    TurnAcquirer(
+                        lake,
+                        self._clock(),
+                        sources=self._official,
+                        observe=lambda item: tracer.event(
+                            "acquisition",
+                            f"acquisition.{item.code.value}",
+                            series=item.series_id,
+                            observations=item.observations,
+                            missing_values=item.missing_values,
+                            window_start=(
+                                item.window_start.isoformat() if item.window_start else None
+                            ),
+                            window_end=item.window_end.isoformat() if item.window_end else None,
+                            detail=item.detail,
+                            from_store=item.from_store,
+                        ),
+                    )
+                    if self._official is not None and "official_acquisition" not in chosen.disabled
+                    else None
+                )
+                catalog, knowledge_loaded = self._apply_knowledge(lake)
+                registry = self._registry(
+                    lake.connection,
+                    workspace,
+                    lake.lineage,
+                    attachment,
+                    library,
+                    turn_fetch,
+                    acquirer=acquirer,
+                    catalog=catalog,
+                    disabled=chosen.disabled,
+                )
+                # One run per turn: what ran, with which context, and for how long.
+                run_id = uuid4().hex
+                store = self._store
+                if store is not None:
+                    # The run row exists before its first event, so everything this
+                    # turn records can be stored as it happens rather than at the end.
+                    store.start_run(session_id, run_id=run_id, turn_id=turn_id, question=question)
+                tracer = Tracer(
+                    redactions=self._redactions,
+                    sink=(
+                        (lambda event: store.add_event(run_id, event))
+                        if store is not None
+                        else None
+                    ),
+                )
+                if self._knowledge is not None:
+                    tracer.event(
+                        "context",
+                        "knowledge.applied",
+                        catalog_digest=catalog.content_sha256,
+                        reviewed=catalog is self._catalog,
+                        loaded_datasets=list[JsonValue](knowledge_loaded),
+                        discovery="hybrid" if self._dense_for(catalog) is not None else "lexical",
+                    )
+                tracer.event(
+                    "request",
+                    "turn.received",
+                    question_bytes=len(question.encode()),
+                    is_continuation=is_continuation,
+                    attached_document=effective_document is not None,
+                    pending_clarification=pending is not None,
+                    # How the pending clarification was read, and by whom: the
+                    # person states it only when they pass is_continuation.
+                    clarification=(
+                        None
+                        if pending is None
+                        else "cancelled"
+                        if is_cancel
+                        else "replaced"
+                        if is_new_q
+                        else "merged"
+                    ),
+                    clarification_decided_by=(
+                        None
+                        if pending is None
+                        else "request"
+                        if is_continuation is not None
+                        else "agent"
+                    ),
+                )
+                tracer.event(
+                    "context",
+                    "context.assembled",
+                    selected_result=(
+                        effective_selection.result_ref if effective_selection is not None else None
+                    ),
+                    selected_version=(
+                        effective_selection.version if effective_selection is not None else None
+                    ),
+                    workspace_results=len(workspace.names()),
+                    conversation_documents=len(library),
+                    history_turns=len(self._history.get(session_id, ())),
+                    addresses=len(addresses),
+                    address_outline_bytes=len(address_note.encode()) if address_note else 0,
+                    document_outline=document_note is not None,
+                )
+                started = time.monotonic()
+                session = Session(
                     self._provider,
                     registry,
                     catalog_continuation=True,
                     selection=selected_table,
                     require_series_discovery=self._dense is not None,
+                    proven_series=frozenset(self._proven.get(session_id, ())),
                     repair_period_wording=True,
                     repair_unmatched_numbers=True,
-                ).answer(effective_question, lake.connection, workspace=workspace, remember=name)
+                    documents_note=document_note,
+                    address_note=address_note,
+                    tracer=tracer,
+                    # A clarification merge already restates the original request, and
+                    # the owner may ask for fewer earlier turns than the built-in ceiling.
+                    history=(
+                        _recent(self._history.get(session_id, ()), chosen.history_turns)
+                        if pending is None or is_cancel or is_new_q
+                        else ()
+                    ),
+                    tools_required=bool(addresses_in(question)) or document_ref is not None,
+                    # Named from this turn's catalog, knowledge-base entries included.
+                    series_names=series_display_names(catalog),
+                )
+                try:
+                    answered = session.answer(
+                        effective_question, lake.connection, workspace=workspace, remember=name
+                    )
+                except Exception as failure:
+                    # The catalog vouched for whatever it returned, even if the turn
+                    # failed afterwards, so the next turn need not ask again.
+                    self._proven.setdefault(session_id, set()).update(session.newly_proven)
+                    # A failed or cancelled turn is still a run someone can open and read.
+                    cancelled = isinstance(failure, TurnCancelled)
+                    if cancelled:
+                        tracer.event("request", "turn.cancelled", at=str(failure))
+                    if self._store is not None:
+                        self._store.finish_run(
+                            run_id,
+                            status="cancelled" if cancelled else "failed",
+                            duration_ms=max(0, round((time.monotonic() - started) * 1000)),
+                            error=type(failure).__name__,
+                            events=tracer.events,
+                        )
+                    raise
+                self._proven.setdefault(session_id, set()).update(session.newly_proven)
                 published = workspace.value_of(name) if name in workspace.names() else None
                 answer = project_answer(
                     answered,
@@ -581,15 +952,37 @@ class PreparedRunner:
                         else None
                     ),
                 )
+                # How the turn ended, in the trace itself: an abstention or a
+                # clarification never reaches the answer gate, so without this the
+                # record stops at the last plan and never says what was shown.
+                tracer.event(
+                    "answer",
+                    f"turn.{answer.status.value}",
+                    omitted_claims=answer.omitted_claims,
+                    published=answer.result is not None,
+                    clarification=answered.planned.plan.clarification,
+                    detail=answer.text,
+                )
                 # Only retain references that survived publication AND projection.
                 # Bounded by the existing session/turn limits; never rebuild this
                 # ownership map by scanning arbitrary stored result digests.
                 if answer.result is not None:
+                    self._materialize_gold(lake, name, published, tracer)
+                    artifact = workspace.resolve(name).artifact_id
                     self._publications[session_id, turn_id] = _Publication(
                         SelectedResult(turn_id, answer.result.result_ref, answer.result.version),
                         name,
-                        workspace.resolve(name).artifact_id,
+                        artifact,
                     )
+                    if self._store is not None:
+                        self._store.add_publication(
+                            session_id,
+                            turn_id=turn_id,
+                            name=name,
+                            artifact_id=artifact,
+                            result_ref=answer.result.result_ref,
+                            result_version=answer.result.version,
+                        )
                 clarification_reason = answered.planned.plan.clarification
                 if answer.status == AnswerStatus.ACCEPTED:
                     self._pending_clarifications.pop(session_id, None)
@@ -612,10 +1005,135 @@ class PreparedRunner:
                         selection=sel,
                         document_ref=effective_document,
                     )
+                if self._store is not None:
+                    self._store.finish_run(
+                        run_id,
+                        status="completed",
+                        duration_ms=max(0, round((time.monotonic() - started) * 1000)),
+                        answer_status=answer.status.value,
+                        result_ref=answer.result.result_ref if answer.result else None,
+                        events=tracer.events,
+                    )
+                turns = self._history.setdefault(session_id, [])
+                turns.append((question, answer.text))
+                del turns[:-MAX_HISTORY_TURNS]
+                self._remember(session_id, turn_id, question, answer, effective_document)
                 return answer
 
         finally:
             self._lock.release()
+
+    def _apply_knowledge(self, lake: Lakehouse) -> tuple[ReviewedSnapshot, list[str]]:
+        """This turn's catalog, and the user datasets newly loaded into this session's lake.
+
+        A user dataset enters the session's own lakehouse — never the prepared seed —
+        through the same bronze/silver path as any series: its declared content as
+        the bronze artifact, its declaration as the silver series, its numbers as
+        observations. A version already present is left as it is.
+        """
+        if self._knowledge is None:
+            return self._catalog, []
+        datasets = self._knowledge.datasets(include_archived=False)
+        catalog = effective_snapshot(self._catalog, datasets, self._knowledge.notes())
+        loaded: list[str] = []
+        for item in datasets:
+            present = lake.connection.execute(
+                "SELECT 1 FROM silver_series WHERE series_id = ?", [item.series_id]
+            ).fetchone()
+            if present is not None:
+                continue
+            content = json.dumps(
+                {"series_id": item.series_id, "sha256": item.content_sha256()}, sort_keys=True
+            ).encode()
+            artifact = lake.record_artifact(
+                content,
+                source=SourceRef(
+                    source_id=f"knowledge:{item.slug}",
+                    source_type="user-declared",
+                    locator=f"knowledge:{item.slug}.v{item.version}",
+                    content_hash=f"sha256:{item.content_sha256()}",
+                ),
+                media_type="application/json",
+                recorded_at=item.created_at,
+            )
+            lake.register_series(
+                item.series_id,
+                title=item.title,
+                semantics=item.semantics(),
+                artifact_id=artifact.artifact_id,
+            )
+            lake.append_observations(item.series_id, list(item.observations))
+            loaded.append(item.series_id)
+        return catalog, loaded
+
+    def _materialize_gold(
+        self,
+        lake: Lakehouse,
+        name: str,
+        published: AnalyticalResult | None,
+        tracer: Tracer,
+    ) -> None:
+        """Write a published period table into gold, so the store holds it too.
+
+        This runs after the turn's answer was gated, so nothing in this answer was
+        checked against a cell this turn wrote. Later turns read the table by
+        identity — through SQL over `gold_cells` or the verifier's store recheck —
+        and each column carries the lineage node of the result that produced it.
+        A table that cannot be written traceably is simply not written: the
+        workspace remains its record, and the trace says which it was.
+        """
+        if published is None:
+            return
+        try:
+            table = gold_from_result(published, table_id=name, lineage=lake.lineage)
+            rows = persist_gold(lake.connection, table) if table is not None else 0
+        except (GoldError, LineageError, SemanticsError) as refused:
+            # Writing gold is a copy for later reads; it never costs the turn its answer.
+            tracer.event("store", "gold.refused", table=name, reason=type(refused).__name__)
+            return
+        tracer.event(
+            "store",
+            "gold.materialized" if rows else "gold.skipped",
+            table=name,
+            columns=len(table.columns) if table is not None else 0,
+            rows=rows,
+            incomplete=list(table.incomplete_columns()) if table is not None else [],
+        )
+
+    def _remember(
+        self,
+        session_id: str,
+        turn_id: str,
+        question: str,
+        answer: Answer,
+        document_ref: str | None,
+    ) -> None:
+        """Persist the turn's two messages, so reopening shows the conversation."""
+        if self._store is None:
+            return
+        self._store.append_message(
+            session_id, turn_id=turn_id, role="user", text=question, document_ref=document_ref
+        )
+        self._store.append_message(
+            session_id,
+            turn_id=turn_id,
+            role="assistant",
+            text=answer.text,
+            status=answer.status.value,
+            result_ref=answer.result.result_ref if answer.result is not None else None,
+            result_version=answer.result.version if answer.result is not None else None,
+        )
+        if answer.result is not None:
+            # Reverse lineage: which answers rest on which series, from the proof.
+            self._store.record_result_series(
+                session_id,
+                turn_id,
+                [source.series_id for source in answer.result.proof.sources],
+            )
+        found = self._store.conversation(session_id)
+        if found is not None and found.title == DEFAULT_TITLE:
+            # The first question names the conversation until the user renames it.
+            self._store.update_conversation(session_id, title=" ".join(question.split())[:60])
 
     def resolve_selection(self, session_id: str, selection: SelectedResult) -> ResolvedSelection:
         """Worker-side resolution only; never an HTTP endpoint or selected runner.
@@ -659,14 +1177,36 @@ class PreparedRunner:
         workspace: Workspace,
         lineage: Lineage,
         attachment: Attachment | None = None,
+        library: dict[str, Attachment] | None = None,
+        turn_fetch: TurnFetchCache | None = None,
+        *,
+        acquirer: TurnAcquirer | None = None,
+        catalog: ReviewedSnapshot | None = None,
+        disabled: frozenset[str] = frozenset(),
     ) -> ToolRegistry:
-        inspector = PreparedSeriesInspector(self._catalog)
+        fetch = turn_fetch if turn_fetch is not None else self._web_url_fetch
+        catalog = catalog if catalog is not None else self._catalog
+        inspector = PreparedSeriesInspector(catalog)
+        if acquirer is not None:
+            inspector = AcquiringInspector(inspector, acquirer)
         # Existing code-reviewed names only. Free catalog/source metadata belongs
         # in catalog continuation's USER data, never a SYSTEM tool description.
         names = prepared_series_names(connection)
         registry = ToolRegistry()
         registry.register(
-            make_catalog_search_tool(snapshot_bytes=self._catalog_bytes, dense=self._dense)
+            make_catalog_search_tool(
+                snapshot_bytes=(
+                    self._catalog_bytes
+                    if catalog is self._catalog
+                    else catalog.model_dump_json().encode("utf-8")
+                ),
+                # The dense index is bound to the reviewed digest; with knowledge-base
+                # entries applied, discovery is lexical for this turn.
+                # A generation is built for one exact catalogue: it is offered only
+                # to the catalogue whose digest it carries, reviewed or with the
+                # knowledge base applied. Otherwise discovery stays lexical.
+                dense=self._dense_for(catalog),
+            )
         )
         registry.register(make_lakehouse_tool(connection, lineage=lineage, inspector=inspector))
         registry.register(
@@ -685,16 +1225,27 @@ class PreparedRunner:
                 lineage=lineage,
                 series_names=names,
                 inspector=inspector,
-                document_fetch=self._web_url_fetch,
+                document_fetch=fetch,
                 attachment=attachment,
+                document_ocr=None if "document_ocr" in disabled else self._document_ocr,
+                library=library,
             )
         )
         for make in (make_anomaly_tool, make_causality_tool):
             registry.register(make(connection, lineage=lineage, inspector=inspector))
-        if self._web_url_fetch is not None or attachment is not None:
+        if self._search_backend is not None and "web_search" not in disabled:
+            registry.register(make_web_search_tool(backend=self._search_backend))
+        if self._web_url_fetch is not None or attachment is not None or library:
             # The cell proof lives in this session's own lineage, where the gate
             # and the proof builder re-read it; the document itself is not kept.
             registry.register(
-                make_web_url_tool(fetch=self._web_url_fetch, attachment=attachment, lineage=lineage)
+                make_web_url_tool(
+                    fetch=fetch,
+                    attachment=attachment,
+                    lineage=lineage,
+                    ocr=None if "document_ocr" in disabled else self._document_ocr,
+                    library=library,
+                    endpoints=turn_fetch.endpoints if turn_fetch is not None else None,
+                )
             )
         return registry

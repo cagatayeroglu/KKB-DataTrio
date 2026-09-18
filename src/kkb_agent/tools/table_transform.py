@@ -30,12 +30,19 @@ from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
 from kkb_agent.agent.registry import TableInput, ToolSpec
 from kkb_agent.agent.verifier import result_faults
 from kkb_agent.agent.workspace import Workspace, WorkspaceError
+from kkb_agent.analytics.accumulation import FORMULA as TO_FLOW_FORMULA
+from kkb_agent.analytics.accumulation import METHOD as TO_FLOW_METHOD
+from kkb_agent.analytics.accumulation import AccumulationRefused, to_flow_column
 from kkb_agent.analytics.deflation import FORMULA, METHOD, DeflationRefused, deflate
+from kkb_agent.analytics.resample import METHOD as RESAMPLE_METHOD
+from kkb_agent.analytics.resample import ResampleRefused, resample_column
 from kkb_agent.analytics.table_series import (
     DOCUMENT_METHOD,
+    JOIN_METHOD,
     SeriesAdditionRefused,
     add_document_column,
     add_monthly_series,
+    join_monthly_table,
 )
 from kkb_agent.analytics.table_series import METHOD as ADD_SERIES_METHOD
 from kkb_agent.analytics.table_shape import (
@@ -56,15 +63,18 @@ from kkb_agent.core import (
     ResultKind,
     ResultStatus,
     ResultValue,
+    SeriesId,
     SourceRef,
     TransformationRecord,
 )
 from kkb_agent.ingest.attached import Attachment
 from kkb_agent.ingest.fetched import source_id_for
+from kkb_agent.lakehouse.alignment import WeekAssignment
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.lakehouse.records import Observation
 from kkb_agent.lakehouse.result_evidence import _record_execution, canonical
 from kkb_agent.lakehouse.semantics import SeriesSemantics
+from kkb_agent.pdf_ocr import OcrProvider
 from kkb_agent.tools._document_column import (
     ColumnRefused,
     DocumentColumn,
@@ -72,9 +82,9 @@ from kkb_agent.tools._document_column import (
     measure_limitation,
     read_column,
 )
-from kkb_agent.tools._document_value import grids
+from kkb_agent.tools._document_value import as_of, csv_parsing, grids, year_in_question
 from kkb_agent.tools.change_detection import SeriesUnknown, read_series
-from kkb_agent.tools.web_url import Fetcher, read_attachment, read_document
+from kkb_agent.tools.web_url import Fetcher, choose_document, read_attachment, read_document
 
 if TYPE_CHECKING:  # pragma: no cover
     from duckdb import DuckDBPyConnection
@@ -103,7 +113,7 @@ class DeflateArguments(BaseModel):
         max_length=400,
         description="The column's exact label in that result",
     )
-    index_series_id: str = Field(
+    index_series_id: SeriesId = Field(
         min_length=1, max_length=200, description="A registered monthly price index series"
     )
     reference_period: date = Field(
@@ -121,6 +131,60 @@ class DeflateArguments(BaseModel):
         return self
 
 
+class ToFlowArguments(BaseModel):
+    """Differencing a column the store declares cumulative; no other column qualifies."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation: Literal["to_flow"] = Field(
+        description=(
+            "to_flow: add a per-period flow copy of one column the store records as a "
+            "cumulative series (yearly_reset or since_inception), keeping every existing "
+            "column unchanged. The store's declaration decides; a column that only looks "
+            "cumulative is refused"
+        )
+    )
+    source: str = Field(
+        pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
+        description="Name of a published result from an earlier turn; its rows stay unchanged",
+    )
+    column: str = Field(
+        min_length=1,
+        max_length=400,
+        description="The cumulative column's exact label in that result; it is a series id",
+    )
+
+
+class ResampleArguments(BaseModel):
+    """Reducing a weekly column onto months by the series' declared aggregation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation: Literal["resample"] = Field(
+        description=(
+            "resample: add a monthly copy of one weekly column, reduced by the aggregation the "
+            "store declares for that series (a rate averaged, a flow summed, a stock at its "
+            "last week), keeping every existing column unchanged; then join_table can put it "
+            "beside monthly tables"
+        )
+    )
+    source: str = Field(
+        pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
+        description="Name of a published result from an earlier turn; its rows stay unchanged",
+    )
+    column: str = Field(
+        min_length=1,
+        max_length=400,
+        description="The weekly column's exact label in that result; it is a series id",
+    )
+    week_assignment: Literal["by_end", "by_majority"] = Field(
+        description=(
+            "Which month a week spanning two months belongs to: by_end, the month its last "
+            "day falls in (how sources label a week), or by_majority, where most of its days fell"
+        )
+    )
+
+
 class AddSeriesArguments(BaseModel):
     """Adding a column requires no deflation parameters or model-supplied data."""
 
@@ -131,7 +195,7 @@ class AddSeriesArguments(BaseModel):
         pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
         description="Name of a published result from an earlier turn; its rows stay unchanged",
     )
-    series_id: str = Field(
+    series_id: SeriesId = Field(
         min_length=1, max_length=200, description="Registered monthly series to add as a column"
     )
 
@@ -155,16 +219,34 @@ class AddDocumentColumnArguments(BaseModel):
     )
     attached: bool = Field(
         default=False,
-        description="true to read the document the user uploaded with this question instead",
+        description="true to read a document uploaded in this conversation instead of a url",
+    )
+    document: str | None = Field(
+        default=None,
+        pattern=r"^belge_[0-9]{1,2}$",
+        description="With attached=true: which uploaded document (belge_1, belge_2, ...)",
     )
     delimiter: Literal[",", ";", "\t", "|"] | None = Field(
-        default=None, description="Column separator of a CSV file; required for CSV"
+        default=None,
+        description=(
+            "Column separator of a CSV file, only when the user states it; otherwise it is "
+            "detected from the file"
+        ),
     )
     sheet: str | None = Field(
         default=None,
         min_length=1,
         max_length=256,
         description="Worksheet to read when a workbook has several",
+    )
+    year: int | None = Field(
+        default=None,
+        ge=1900,
+        le=2100,
+        description=(
+            "Only when the user wrote a year and the document's month labels may carry none: "
+            "that year; a year the document states takes precedence"
+        ),
     )
     period_column: str = Field(
         min_length=1,
@@ -181,6 +263,36 @@ class AddDocumentColumnArguments(BaseModel):
     def one_document(self) -> Self:
         if (self.url is None) == (not self.attached):
             raise ValueError("give either url or attached=true, not both or neither")
+        if self.document is not None and not self.attached:
+            raise ValueError("document names an upload; it needs attached=true")
+        return self
+
+
+class JoinTableArguments(BaseModel):
+    """Join monthly columns of another published result onto the source's months."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation: Literal["join_table"]
+    source: str = Field(
+        pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
+        description="Published result whose rows stay unchanged (the selected table)",
+    )
+    other: str = Field(
+        pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
+        description="Another published result from an earlier turn, such as an uploaded table",
+    )
+    columns: tuple[Annotated[str, Field(min_length=1, max_length=400)], ...] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=12,
+        description="Exact column labels of the other result; omit to join all its monthly columns",
+    )
+
+    @model_validator(mode="after")
+    def two_tables(self) -> Self:
+        if self.source == self.other:
+            raise ValueError("join two different published results")
         return self
 
 
@@ -246,6 +358,9 @@ class TableTransformArguments(
         Annotated[
             DeflateArguments
             | AddSeriesArguments
+            | ToFlowArguments
+            | ResampleArguments
+            | JoinTableArguments
             | RebaseArguments
             | AlignArguments
             | FilterArguments,
@@ -261,7 +376,10 @@ class DocumentTableTransformArguments(
         Annotated[
             DeflateArguments
             | AddSeriesArguments
+            | ToFlowArguments
+            | ResampleArguments
             | AddDocumentColumnArguments
+            | JoinTableArguments
             | RebaseArguments
             | AlignArguments
             | FilterArguments,
@@ -287,14 +405,19 @@ def make_table_transform_tool(
     inspector: PreparedSeriesInspector | None = None,
     document_fetch: Fetcher | None = None,
     attachment: Attachment | None = None,
+    document_ocr: OcrProvider | None = None,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+    library: Mapping[str, Attachment] | None = None,
 ) -> ToolSpec:
     """Bind the tool to one database and one workspace.
 
     `document_fetch` is the operator's prompt-address switch: without it the
     `add_document_column` operation is not part of the schema at all.
+    `document_ocr` reads PDF pages without text (DEC-149 column-total check).
     """
     names = dict(series_names or {})
+    documents = dict(library or {})
+    readable = attachment is not None or bool(documents)
 
     def failure(category: str, message: str) -> ToolResult:
         return ToolResult(
@@ -341,12 +464,50 @@ def make_table_transform_tool(
                 if isinstance(selected, AddSeriesArguments)
                 else _deflated(selected, source, series.observations, series.semantics, names)
             )
+        elif isinstance(selected, ResampleArguments):
+            try:
+                series = read_series(connection, selected.column, inspector=inspector)
+            except SeriesUnknown as error:
+                return failure("series_unknown", str(error))
+            inputs.append(series.snapshot)
+            result = _resampled(selected, source, series.semantics)
+        elif isinstance(selected, ToFlowArguments):
+            try:
+                series = read_series(connection, selected.column, inspector=inspector)
+            except SeriesUnknown as error:
+                return failure("series_unknown", str(error))
+            inputs.append(series.snapshot)
+            result = _flowed(selected, source, series.semantics)
+        elif isinstance(selected, JoinTableArguments):
+            try:
+                other = workspace.value_of(selected.other)
+            except WorkspaceError:
+                return failure(
+                    "workspace_reference",
+                    f"No current published result is named {selected.other!r}",
+                )
+            if other.status is not ResultStatus.COMPUTED:
+                return failure(
+                    "workspace_reference", f"{selected.other!r} holds no computed values"
+                )
+            if result_faults({selected.other: other}, connection):
+                return failure("workspace_evidence", "The other table cannot be verified")
+            inputs.append(
+                canonical({"workspace": selected.other, "result": other.model_dump(mode="json")})
+            )
+            result = _joined(selected, source, other)
         elif isinstance(selected, AddDocumentColumnArguments):
+            if selected.year is not None and not year_in_question(selected.year, context.question):
+                return failure("needs_input", "YEAR_NOT_IN_QUESTION")
             if selected.attached:
-                if attachment is None:
-                    return failure("no_attachment", "No document is attached to this question")
+                chosen = choose_document(selected.document, attachment, documents)
+                if isinstance(chosen, str):
+                    return failure("no_attachment", chosen)
                 read = read_attachment(
-                    attachment, delimiter=selected.delimiter, sheet=selected.sheet
+                    chosen,
+                    delimiter=selected.delimiter,
+                    sheet=selected.sheet,
+                    ocr=document_ocr,
                 )
             elif document_fetch is None or selected.url is None:
                 return failure("document_disabled", "Reading a web address is not enabled")
@@ -357,6 +518,7 @@ def make_table_transform_tool(
                     fetch=document_fetch,
                     delimiter=selected.delimiter,
                     sheet=selected.sheet,
+                    ocr=document_ocr,
                     clock=clock,
                 )
             document, media_type = read.output.source, read.output.media_type
@@ -367,6 +529,8 @@ def make_table_transform_tool(
                     grids(read.output.table, read.output.document),
                     selected.period_column,
                     selected.value_column,
+                    year=selected.year,
+                    as_of=as_of(document),
                 )
                 if connection.execute(
                     "SELECT 1 FROM silver_series WHERE series_id = ? LIMIT 1",
@@ -376,7 +540,8 @@ def make_table_transform_tool(
             except ColumnRefused as error:
                 result = _document_refused(selected, error.code)
             else:
-                inputs.append(column_snapshot(column, document, media_type))
+                csv = csv_parsing(read.output.table)
+                inputs.append(column_snapshot(column, document, media_type, csv=csv))
                 source_node = (
                     lineage.record(
                         NodeKind.SOURCE_FILE,
@@ -391,7 +556,7 @@ def make_table_transform_tool(
                     if lineage is not None
                     else None
                 )
-                result = _documented(selected, source, column, document, source_node)
+                result = _documented(selected, source, column, document, source_node, csv)
         else:
             result = _closed_transform(selected, source)
         recorded = _recorded_arguments(selected)
@@ -441,8 +606,19 @@ def make_table_transform_tool(
             "housing price index) on the table's exact months. Use source and series_id only "
             "for add_series. It preserves every old column, records missing months without "
             "filling them, and does not calculate a relationship or establish a cause. "
+            "to_flow adds a per-period flow copy of a column the store records as cumulative "
+            "(yearly_reset or since_inception), which is what comparison, breakpoint and "
+            "table direction comparison can use; series-based tools still read original series. "
+            "A column the store does "
+            "not declare cumulative is refused rather than differenced. "
+            "resample adds a monthly copy of a weekly column by the series' declared "
+            "aggregation (state week_assignment), so a weekly rate can then be joined with "
+            "monthly tables. "
             "rebase adds an explicitly based copy of an existing index column. align selects "
-            "existing exact periods using inner or explicitly anchored-left policy. filter "
+            "existing exact periods using inner or explicitly anchored-left policy. join_table "
+            "adds the monthly columns of another published result (for example a table built "
+            "from an uploaded document, or an official-series table) onto the source table's "
+            "exact months, keeping each column's own unit. filter "
             "selects an inclusive period-end range. These unary operations never fill cells, "
             "convert frequency, or accept SQL."
             + (
@@ -452,22 +628,23 @@ def make_table_transform_tool(
                     if document_fetch is not None
                     else ""
                 )
-                + (" or " if document_fetch is not None and attachment is not None else "")
+                + (" or " if document_fetch is not None and readable else "")
                 + (
-                    "in the document uploaded with this question (attached=true)"
-                    if attachment is not None
+                    "in a document uploaded in this conversation (attached=true, and "
+                    "document=<name> when there are several)"
+                    if readable
                     else ""
                 )
                 + ", with the header of its month column and of the value column. Months must "
                 "be explicit, one row per month; the value header must state its unit in "
                 "parentheses. It needs no catalog_search and does not convert frequency."
-                if document_fetch is not None or attachment is not None
+                if document_fetch is not None or readable
                 else ""
             )
         ),
         arguments=(
             DocumentTableTransformArguments
-            if document_fetch is not None or attachment is not None
+            if document_fetch is not None or readable
             else TableTransformArguments
         ),
         run=run,
@@ -786,6 +963,221 @@ def _augmented(
     )
 
 
+def _resampled(
+    arguments: ResampleArguments,
+    source: AnalyticalResult,
+    semantics: SeriesSemantics,
+) -> AnalyticalResult:
+    """The source table with a monthly copy of one weekly column."""
+    result_id = f"table_transform:resample:{arguments.source}:{arguments.column}"
+    column = [value for value in source.values if value.label == arguments.column]
+    try:
+        reduced = resample_column(
+            column,
+            semantics,
+            column_label=arguments.column,
+            assignment=WeekAssignment(arguments.week_assignment),
+        )
+    except ResampleRefused as error:
+        return AnalyticalResult(
+            result_id=result_id,
+            kind=ResultKind.SERIES,
+            status=ResultStatus.ABSTAINED,
+            tool="table_transform",
+            method=RESAMPLE_METHOD,
+            reason=str(error),
+        )
+    parameters = dict(source.parameters)
+    parameters.update({"source": arguments.source, "resampled": arguments.column})
+    warnings = list(source.warnings)
+    if reduced.incomplete:
+        warnings.append(
+            f"{len(reduced.incomplete)} month(s) did not see every week they expected; "
+            "their monthly value rests on fewer weeks and the coverage is recorded"
+        )
+    previous = source.evidence.transformations if source.evidence is not None else []
+    return AnalyticalResult(
+        result_id=result_id,
+        kind=source.kind,
+        status=ResultStatus.COMPUTED,
+        tool="table_transform",
+        method=RESAMPLE_METHOD,
+        values=[*source.values, *reduced.values],
+        coverage=source.coverage,
+        parameters=parameters,
+        samples=source.samples,
+        evidence=ResultEvidence(
+            input_refs=[
+                *(
+                    [source.evidence.lineage_node]
+                    if source.evidence is not None and source.evidence.lineage_node
+                    else []
+                ),
+                *INPUTS,
+            ],
+            transformations=[*previous, reduced.transformation],
+        ),
+        warnings=warnings,
+        limitations=[
+            *source.limitations,
+            f"{reduced.label} is a monthly reduction by the series' declared aggregation; "
+            "the weekly column it came from is unchanged beside it",
+        ],
+        unresolved_semantics=list(source.unresolved_semantics),
+    )
+
+
+def _flowed(
+    arguments: ToFlowArguments,
+    source: AnalyticalResult,
+    semantics: SeriesSemantics,
+) -> AnalyticalResult:
+    """The source table with a per-period flow copy of one declared cumulative column."""
+    result_id = f"table_transform:to_flow:{arguments.source}:{arguments.column}"
+    column = [value for value in source.values if value.label == arguments.column]
+    try:
+        flowed = to_flow_column(column, semantics, column_label=arguments.column)
+        if any(value.label == flowed.label for value in source.values):
+            raise AccumulationRefused("This table already contains the converted flow column")
+        if not flowed.values:
+            raise AccumulationRefused("No period has a usable predecessor or yearly reset")
+    except AccumulationRefused as error:
+        return AnalyticalResult(
+            result_id=result_id,
+            kind=ResultKind.SERIES,
+            status=ResultStatus.ABSTAINED,
+            tool="table_transform",
+            method=TO_FLOW_METHOD,
+            reason=str(error),
+        )
+    parameters = dict(source.parameters)
+    parameters.update({"source": arguments.source, "flow_of": arguments.column})
+    warnings = list(source.warnings)
+    if flowed.empty_periods:
+        warnings.append(
+            f"{len(flowed.empty_periods)} period(s) have no usable predecessor, so their flow "
+            "is empty rather than a figure spanning two periods"
+        )
+    previous = source.evidence.transformations if source.evidence is not None else []
+    return AnalyticalResult(
+        result_id=result_id,
+        kind=source.kind,
+        status=ResultStatus.COMPUTED,
+        tool="table_transform",
+        method=TO_FLOW_METHOD,
+        values=[*source.values, *flowed.values],
+        coverage=source.coverage,
+        parameters=parameters,
+        samples=source.samples,
+        evidence=ResultEvidence(
+            input_refs=[
+                *(
+                    [source.evidence.lineage_node]
+                    if source.evidence is not None and source.evidence.lineage_node
+                    else []
+                ),
+                *INPUTS,
+            ],
+            transformations=[*previous, flowed.transformation],
+        ),
+        warnings=warnings,
+        limitations=[
+            *source.limitations,
+            f"Only {flowed.label} is a per-period flow ({TO_FLOW_FORMULA}); every other column "
+            "keeps its original cumulative or level meaning",
+            "The conversion follows the store's declared cumulative kind; it is not inferred "
+            "from the values and it does not restate the source",
+        ],
+        unresolved_semantics=list(source.unresolved_semantics),
+    )
+
+
+def _joined(
+    arguments: JoinTableArguments, source: AnalyticalResult, other: AnalyticalResult
+) -> AnalyticalResult:
+    result_id = f"table_transform:join_table:{arguments.source}:{arguments.other}"
+    try:
+        joined = join_monthly_table(
+            source, other, other_name=arguments.other, columns=arguments.columns
+        )
+    except SeriesAdditionRefused as error:
+        return AnalyticalResult(
+            result_id=result_id,
+            kind=ResultKind.SERIES,
+            status=ResultStatus.ABSTAINED,
+            tool="table_transform",
+            method=JOIN_METHOD,
+            reason=str(error),
+        )
+    series_names: dict[str, JsonValue] = {}
+    for table in (source, other):
+        known = table.parameters.get("series_names")
+        if isinstance(known, dict):
+            series_names.update(known)
+    parameters = dict(source.parameters)
+    parameters.update(
+        {
+            "series_names": series_names,
+            "source": arguments.source,
+            "joined_table": joined.transformation.parameters,
+        }
+    )
+    refs: list[str] = []
+    for table in (source, other):
+        if table.evidence is not None:
+            refs.extend(
+                [table.evidence.lineage_node]
+                if table.evidence.lineage_node is not None
+                else table.evidence.input_refs
+            )
+    sources = [
+        *(source.evidence.sources if source.evidence is not None else []),
+        *(other.evidence.sources if other.evidence is not None else []),
+    ]
+    carried = [
+        note
+        for note in other.unresolved_semantics
+        if ":" not in note or any(note.startswith(f"{label}:") for label in joined.columns)
+    ]
+    missing = joined.transformation.parameters["missing_periods"]
+    gaps = (
+        sum(len(ends) for ends in missing.values() if isinstance(ends, list))
+        if isinstance(missing, dict)
+        else 0
+    )
+    previous = source.evidence.transformations if source.evidence is not None else []
+    gap_warning = f"{gaps} joined cell(s) have no value in {arguments.other!r}; never filled"
+    return AnalyticalResult(
+        result_id=result_id,
+        kind=source.kind,
+        status=ResultStatus.COMPUTED,
+        tool="table_transform",
+        method=JOIN_METHOD,
+        values=[*source.values, *joined.values],
+        coverage=source.coverage,
+        parameters=parameters,
+        samples=source.samples,
+        evidence=ResultEvidence(
+            input_refs=list(dict.fromkeys(refs)) or [source.result_id],
+            transformations=[*previous, joined.transformation],
+            sources=list({ref.source_id: ref for ref in sources}.values()),
+        ),
+        warnings=[*source.warnings, *([gap_warning] if gaps else [])],
+        limitations=list(
+            dict.fromkeys(
+                [
+                    *source.limitations,
+                    *other.limitations,
+                    "Joined columns are aligned by exact monthly periods only; the source "
+                    "table's rows define the months and nothing was resampled, filled or "
+                    "converted",
+                ]
+            )
+        ),
+        unresolved_semantics=list(dict.fromkeys([*source.unresolved_semantics, *carried])),
+    )
+
+
 def _recorded_arguments(selected: BaseModel) -> dict[str, Any]:
     """Arguments as lineage keeps them; an address is kept only as its opaque identity."""
     recorded: dict[str, Any] = selected.model_dump(mode="json")
@@ -813,6 +1205,7 @@ def _documented(
     column: DocumentColumn,
     document: SourceRef,
     source_node: str | None,
+    csv: dict[str, str] | None = None,
 ) -> AnalyticalResult:
     result_id = (
         f"table_transform:add_document_column:{arguments.source}:{document.source_id}:"
@@ -838,11 +1231,25 @@ def _documented(
             method=DOCUMENT_METHOD,
             reason=str(error),
         )
+    transformation = added.transformation
+    decided = column.rules.evidence() if column.rules is not None else {}
+    if csv is not None or decided:
+        transformation = transformation.model_copy(
+            update={
+                "parameters": {
+                    **transformation.parameters,
+                    **({"csv": csv} if csv is not None else {}),
+                    **decided,
+                }
+            }
+        )
     parameters = dict(source.parameters)
     parameters.update(
-        {"source": arguments.source, "added_document_column": added.transformation.parameters}
+        {"source": arguments.source, "added_document_column": transformation.parameters}
     )
     warnings = list(source.warnings)
+    if column.rules is not None:
+        warnings.extend(column.rules.warnings())
     if added.missing_periods:
         warnings.append(
             f"{len(added.missing_periods)} table period(s) have no value in the document "
@@ -866,7 +1273,7 @@ def _documented(
         samples=source.samples,
         evidence=ResultEvidence(
             input_refs=[*prior, source_node or document.source_id],
-            transformations=[*previous, added.transformation],
+            transformations=[*previous, transformation],
             sources=[document],
         ),
         warnings=warnings,
@@ -876,6 +1283,7 @@ def _documented(
             "resampling, filling, currency conversion, inflation adjustment or rebasing was "
             "applied to it",
             measure_limitation(column.measure),
+            *(column.rules.limitations() if column.rules is not None else ()),
             "Existing comparison metrics still concern their original columns; adding a "
             "column does not compute a relationship with it",
         ],

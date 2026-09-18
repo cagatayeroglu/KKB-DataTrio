@@ -11,6 +11,7 @@ from typing import Literal
 from kkb_agent.core import (
     DIMENSIONLESS,
     AnalyticalResult,
+    CumulativeKind,
     Frequency,
     Period,
     ResultEvidence,
@@ -21,6 +22,8 @@ from kkb_agent.core import (
     StockFlow,
     TransformationRecord,
 )
+from kkb_agent.lakehouse.cumulative import Confidence, detect_cumulative
+from kkb_agent.lakehouse.records import Observation
 from kkb_agent.lakehouse.semantics import SemanticsError, period_bounds
 
 Direction = Literal["up", "down", "unchanged", "non_increasing", "non_decreasing"]
@@ -41,7 +44,20 @@ def _matches(change: float, direction: Direction) -> bool:
     }[direction]
 
 
-def _column(source: AnalyticalResult, label: str) -> dict[date, float]:
+#: Measurement kinds whose month-over-month direction needs no further evidence.
+LEVEL_MEASURES = (StockFlow.STOCK, StockFlow.RATE, StockFlow.INDEX)
+
+
+def _column(source: AnalyticalResult, label: str, notes: list[str]) -> dict[date, float]:
+    """One column's monthly values; `notes` receives how its semantics were settled.
+
+    Direction counts compare a column with itself, so they need one consistent
+    unit and scale per column, not a known one. What they do need is that a
+    month-over-month change means a change in level: a year-to-date cumulative
+    column rises all year by construction. A stock, rate or index says so; any
+    other column is admitted only when its own values rule accumulation out
+    (they fall inside a calendar year), which is recorded, never assumed.
+    """
     selected = [value for value in source.values if value.label == label]
     if not selected:
         raise TableComparisonRefused("A selected column does not exist in the table")
@@ -50,13 +66,8 @@ def _column(source: AnalyticalResult, label: str) -> dict[date, float]:
         raise TableComparisonRefused("A selected column changes units, scale or measurement kind")
     values: dict[date, float] = {}
     for value in selected:
-        if value.semantics_are_unresolved or value.unit == DIMENSIONLESS:
-            raise TableComparisonRefused("A selected column has unresolved or summary semantics")
-        if value.measure not in (StockFlow.STOCK, StockFlow.RATE, StockFlow.INDEX):
-            raise TableComparisonRefused(
-                "Only stock, rate and index columns are supported; "
-                "flow accumulation needs inspection"
-            )
+        if value.unit == DIMENSIONLESS:
+            raise TableComparisonRefused("A selected column has summary semantics")
         period = value.period
         if period is None or period.frequency is not Frequency.MONTHLY:
             raise TableComparisonRefused("A selected column is not monthly")
@@ -67,6 +78,45 @@ def _column(source: AnalyticalResult, label: str) -> dict[date, float]:
         if not valid or period.end in values or not isfinite(value.value):
             raise TableComparisonRefused("A selected column has invalid/duplicate dates or values")
         values[period.end] = value.value
+    first = selected[0]
+    if first.semantics_are_unresolved:
+        notes.append(
+            f"{label!r} has no stated unit or scale; only its own month-over-month "
+            "directions were used, never its level"
+        )
+    # The caller verifies the complete source execution before this analytical
+    # helper runs. A recorded transformation, never a display-label suffix or
+    # the shape of values, states that this column is now a period flow.
+    converted_flow = (
+        first.measure is StockFlow.FLOW
+        and source.evidence is not None
+        and any(
+            item.operation == "to_flow"
+            and item.output_ref == label
+            and item.parameters.get("declared_cumulative") in ("yearly_reset", "since_inception")
+            for item in source.evidence.transformations
+        )
+    )
+    if converted_flow:
+        notes.append(f"{label!r} is a period flow from the recorded to_flow transformation")
+    if first.measure not in LEVEL_MEASURES and not converted_flow:
+        verdict = detect_cumulative(
+            [
+                Observation(date(end.year, end.month, 1), end, level)
+                for end, level in sorted(values.items())
+            ],
+            frequency=Frequency.MONTHLY,
+        )
+        if verdict.kind is not CumulativeKind.NONE or verdict.confidence is not Confidence.HIGH:
+            raise TableComparisonRefused(
+                f"{label!r} does not state whether it is a level or a cumulative total, and its "
+                "values cannot rule out year-to-date accumulation; state which it is"
+            )
+        notes.append(
+            f"{label!r} does not state its stock/flow meaning; it was compared as a level "
+            "because its values fall within calendar years, which rules out year-to-date "
+            "accumulation (inferred from the values)"
+        )
     return values
 
 
@@ -98,15 +148,16 @@ def compare_table_directions(
     transitions. All denominators are explicit, and zero qualifying months is
     a computed zero count rather than a fabricated percentage.
     """
-    if source.status is not ResultStatus.COMPUTED or source.unresolved_semantics:
-        raise TableComparisonRefused("The source is not a computed table with resolved semantics")
+    if source.status is not ResultStatus.COMPUTED:
+        raise TableComparisonRefused("The source is not a computed table")
     if driver_column == target_column:
         raise TableComparisonRefused("Select two different columns")
     if (when_column is None) != (when_direction is None):
         raise TableComparisonRefused("The condition column and direction must be given together")
-    driver = _column(source, driver_column)
-    target = _column(source, target_column)
-    condition = _column(source, when_column) if when_column is not None else None
+    semantic_notes: list[str] = []
+    driver = _column(source, driver_column, semantic_notes)
+    target = _column(source, target_column, semantic_notes)
+    condition = _column(source, when_column, semantic_notes) if when_column is not None else None
     columns = [driver, target, *([condition] if condition is not None else [])]
     union = set().union(*(column.keys() for column in columns))
     common = set.intersection(*(set(column) for column in columns))
@@ -225,6 +276,7 @@ def compare_table_directions(
         limitations=[
             *source.limitations,
             *nominal_notes,
+            *semantic_notes,
             "Direction counts describe contemporaneous movement, not an identified causal effect; "
             "other factors are not controlled",
             "Directions use the selected column as stored, including its existing price reference; "
@@ -232,4 +284,5 @@ def compare_table_directions(
             "A stock change is a net balance change, not new lending; "
             "counts condition on complete consecutive monthly observations",
         ],
+        unresolved_semantics=list(source.unresolved_semantics),
     )

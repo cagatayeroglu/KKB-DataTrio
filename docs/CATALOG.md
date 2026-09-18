@@ -87,6 +87,22 @@ same configured provider (same timeout and attempts); a bounded cache holds the 
 256 query vectors. Embedding or index failure yields `lexical_degraded` for that
 search, not a failed turn. Without `--catalog-index` retrieval stays lexical.
 
+A generation covers one exact catalogue, identified by its digest, and is offered
+only to that catalogue — the reviewed snapshot, or the reviewed snapshot with the
+knowledge base applied. A knowledge-base dataset, alias or archival therefore makes
+a catalogue the startup generation does not cover, and discovery over it is lexical
+until vectors exist for it. `GET /v1/knowledge/index` reports the generation in use
+(model, input policy, dimension, digest, coverage, missing identities) and
+`POST /v1/knowledge/index` builds one for the catalogue in use now, with the same
+profile — the browser chooses none of it. Building embeds every catalogue entry, so
+it runs on one background thread, one at a time, while the page polls the status;
+generations are immutable and named by the digest they cover, so an earlier one is
+reopened instead of embedded again and a failed build leaves the one in use
+untouched. The catalogue trial (`GET /v1/knowledge/search`) runs the same retrieval
+and reports `retrieval_mode`, `dense_status` and `dense_failure`, so a catalogue the
+vectors no longer cover is visible rather than quietly lexical
+([DEC-163](DECISIONS.md#dec-163--a-vector-generation-covers-one-catalogue-and-the-knowledge-base-can-have-its-own)).
+
 
 <a id="catalog_search-catalog-and-observation-boundary"></a>
 

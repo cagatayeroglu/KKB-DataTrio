@@ -72,6 +72,21 @@ model call. Do not overwrite older evidence to hide a conflicting source revisio
 | POST `/v1/sessions/{session_id}/turns` | JSON `request_id`, `question`, optional `selected_result_id`; token header | Owned turn reference/state; HTTP 202 |
 | GET `/v1/sessions/{session_id}/turns/{turn_id}` | Token header | State, gated answer and published cells when available |
 | GET `/v1/sessions/{session_id}/turns/{turn_id}/events` | Token header; optional `Last-Event-ID` 0–3 | Actual turn lifecycle SSE |
+| POST `/v1/sessions/{session_id}/turns/{turn_id}/cancel` | Token header | Accepted (202); the turn stops at its next checkpoint |
+| POST `/v1/sessions/{session_id}/documents` | Raw CSV/XLSX/PDF/HTML body with its content type; token header | Admitted document reference; HTTP 201 |
+| POST `/v1/owner` | JSON `{}` | The browser's owner key, which lists and reopens its own conversations |
+| GET / PATCH `/v1/settings` | Owner key header; PATCH body `disabled`, `history_turns` | The owner's restrict-only runtime choices ([DEC-162](DECISIONS.md#dec-162--a-browser-narrows-its-own-runtime-only-the-operator-widens-it)) |
+| GET `/v1/prompts` | Owner key header | The prompt parts model calls are assembled from, each with its content digest; read-only by design |
+| GET `/v1/conversations` (+ `q`, `archived` filters) | Owner key header | This browser's conversations, newest first |
+| GET / PATCH `/v1/conversations/{id}` | Owner key or conversation token | Messages and documents; PATCH renames or archives |
+| GET `/v1/conversations/{id}/runs`, `/runs/{run_id}`, `/runs/{run_id}/steps/{seq}` | Owner key or conversation token | Recorded runs, their trace steps, and one step's full detail |
+| GET / POST `/v1/conversations/{id}/feedback` | Owner key or conversation token | Ratings for this conversation's answers |
+| GET `/v1/dataset` | None | The prepared pool's series and coverage |
+| GET `/v1/knowledge` | Owner key header | Every series the agent can reach, with where each one's meaning comes from |
+| GET `/v1/knowledge/search?q=` | Owner key header | A question tried against this catalogue with the deployment's own retrieval, run here and stored nowhere |
+| GET / POST `/v1/knowledge/index` | Owner key header | The vector generation in use; POST builds one for the catalogue in use now ([DEC-163](DECISIONS.md#dec-163--a-vector-generation-covers-one-catalogue-and-the-knowledge-base-can-have-its-own)) |
+| POST `/v1/knowledge/datasets`; GET `/{slug}`; POST `/{slug}/archive`, `/{slug}/restore` | Owner key header | Versioned user datasets (DEC-157); archive keeps history |
+| GET `/v1/knowledge/series/{id}/values`, `/notes` (+ POST), `/uses` | Owner key header | Stored values, versioned notes/aliases, and the answers whose proof read the series |
 
 `X-KKB-Session-Token` carries a random 256-bit capability. Never place it in a
 URL, question, browser log or model prompt. The server retains only its SHA-256
@@ -153,7 +168,32 @@ fetches a public address is a live network action and needs its own approval;
 offline evidence is `tests/unit/test_prepared_web_url.py` and
 `tests/unit/test_document_column.py`.
 
-Add `--enable-uploads` to let the local client attach an uploaded CSV, Excel
+OCR follows its configuration (DEC-153): PDF pages without a text layer are read
+through OCR whenever `KLOUDEKS_OCR_MODEL` names the DEC-129 OCR model, and
+`--no-ocr` refuses it. Readiness JSON reports `"ocr"`, and OCR figures count only
+from table columns that add up to the table's total row (DEC-149). Every OCR
+request is a live model call inside an approved plan.
+
+`--searxng-url https://search.example.org` (DEC-158) registers `web_search` over
+that SearXNG instance's JSON API (enable `json` in its `search.formats`). The
+request goes through `safe_fetch`, which refuses loopback and private addresses,
+so the instance must be publicly reachable; a local `127.0.0.1` instance is
+refused and reported as a backend error. Results are
+shown as an unverified candidate list and never authorize `web_url`; a live search
+smoke is still required before production search is claimed (DEC-134).
+
+Official acquisition is on by default (DEC-155, DEC-159); `--no-official-acquisition`
+refuses it. A question that needs a reviewed EVDS series or a reviewed BDDK
+monthly housing selector the prepared pool lacks fetches it through the reviewed
+adapter (EVDS: ten years to the last whole month; BDDK: 24 months ending three
+months back, one request per month), at most three a turn, each shown in the
+turn's trace as `acquisition.<code>`. Successful raw responses are kept under
+`<state-root>/acquired/` by request fingerprint and replayed through the same
+parser, so later conversations do not refetch within the same month; the
+knowledge base shows when each series was fetched. Readiness JSON reports
+`"official_acquisition"`. A live fetch needs network access to the public source.
+
+Uploads are admitted by default and `--no-uploads` refuses them: the local client attaches an uploaded CSV, Excel
 (`.xlsx`), PDF or static HTML document (up to 10 MiB, four per session) to the
 next question; readiness JSON reports `"uploads"` and `/v1/health` lists the
 `document_upload` capability, which shows the client's attach button. Uploads
@@ -449,6 +489,24 @@ embedding and vision remain refused. Cached queries make no new provider request
 Once the embedding budget is exhausted, uncached dense searches explicitly degrade
 to lexical retrieval under the existing catalog policy; chat can continue within
 its own ceiling. This degraded result does not establish live hybrid acceptance.
+
+For document inputs, `--enable-uploads` accepts attached uploads, and
+`--enable-web-url --max-fetches N` (1–10) lets questions read an address they
+contain through the real `safe_fetch`; each request is reserved before dispatch
+and ledgered as host, outcome code, media type, bytes and time only, never path
+or query. Every fetch of a public address is a live network action inside the
+same separately approved plan. `--enable-ocr --max-ocr-requests N` (1–10) OCRs
+PDF pages without a text layer (set `KLOUDEKS_OCR_MODEL` to the DEC-129 OCR model
+in the environment); each OCR request is reserved before dispatch and ledgered
+as outcome, character count and time only. OCR figures count only from table
+columns that add up to the table's total row (DEC-149).
+
+`python tests/manual/live_turns.py --port 8128 --plan plan.json --out <dir>` drives
+such a launcher over the HTTP turn contract: plan steps upload a document or ask
+a question (optionally selecting the previous publication and attaching the last
+upload). It keeps the session token in memory, resends a `provider_failed` turn
+once in the same session, stops at the first non-accepted turn and writes each
+turn's JSON to `<dir>`, which is operator-local data.
 
 Choose a fresh `--ledger artifacts/<run-name>.jsonl` for each run. The default is
 `artifacts/live-rehearsal-ledger.jsonl`; an existing file refuses startup rather than
