@@ -14,6 +14,7 @@ export const KNOWLEDGE_LIMIT = 1024 * 1024;
 const REF = "[a-f0-9]{32}";
 const route = new RegExp(`^v1/sessions/${REF}/turns(?:/${REF})?$`);
 const documentRoute = new RegExp(`^v1/sessions/${REF}/documents$`);
+const documentUrlRoute = new RegExp(`^v1/sessions/${REF}/documents/from-url$`);
 const conversationRoute = new RegExp(`^v1/conversations/${REF}$`);
 const runRoute = new RegExp(
   `^v1/conversations/${REF}/runs(?:/${REF}(?:/steps/[1-9][0-9]{0,5})?)?$`,
@@ -133,6 +134,7 @@ export async function forward(
   const turns = route.test(name);
   const documents = documentRoute.test(name);
   const cancel = cancelRoute.test(name);
+  const documentFromUrl = documentUrlRoute.test(name);
   const settings = name === "v1/settings";
   const prompts = name === "v1/prompts";
   const knowledgeList = name === "v1/knowledge";
@@ -190,6 +192,7 @@ export async function forward(
         documents ||
         feedback ||
         cancel ||
+        documentFromUrl ||
         datasetSave ||
         datasetStatus ||
         notes ||
@@ -200,7 +203,15 @@ export async function forward(
   )
     return error("not_found", 404);
   const headers = new Headers({ Accept: "application/json" });
-  if (turns || documents || conversation || runs || feedback || cancel) {
+  if (
+    turns ||
+    documents ||
+    conversation ||
+    runs ||
+    feedback ||
+    cancel ||
+    documentFromUrl
+  ) {
     const token = request.headers.get("x-kkb-session-token");
     if (!token || !tokenPattern.test(token)) return error("not_found", 404);
     headers.set("X-KKB-Session-Token", token);

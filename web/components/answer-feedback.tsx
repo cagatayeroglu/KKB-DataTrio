@@ -1,6 +1,12 @@
 "use client";
 import { useState } from "react";
-import { Check, LoaderCircle, ThumbsDown, ThumbsUp } from "lucide-react";
+import {
+  Check,
+  LoaderCircle,
+  MoreHorizontal,
+  ThumbsDown,
+  ThumbsUp,
+} from "lucide-react";
 import { describeError, rateAnswer } from "@/lib/client";
 import type { Feedback, FeedbackReason } from "@/lib/contracts";
 
@@ -30,6 +36,8 @@ export function AnswerFeedback({
   onOpenTrace?: (runId?: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  //: The quiet menu behind the three dots: a comment, the trace.
+  const [more, setMore] = useState(false);
   const [comment, setComment] = useState(saved?.comment ?? "");
   const [reasons, setReasons] = useState<FeedbackReason[]>(
     saved?.reasons ?? [],
@@ -63,10 +71,10 @@ export function AnswerFeedback({
 
   return (
     <div className="answer-feedback">
-      <span>Bu cevap işine yaradı mı?</span>
       <button
         type="button"
         aria-label="Olumlu"
+        title="Bu cevap işine yaradı"
         aria-pressed={saved?.rating === "up"}
         className={saved?.rating === "up" ? "chosen" : ""}
         disabled={busy}
@@ -77,6 +85,7 @@ export function AnswerFeedback({
       <button
         type="button"
         aria-label="Olumsuz"
+        title="Bu cevap işine yaramadı"
         aria-pressed={saved?.rating === "down"}
         className={saved?.rating === "down" ? "chosen" : ""}
         disabled={busy}
@@ -84,22 +93,43 @@ export function AnswerFeedback({
       >
         <ThumbsDown size={13} />
       </button>
-      <button
-        type="button"
-        className="link"
-        onClick={() => setOpen((value) => !value)}
-      >
-        {saved?.comment ? "Yorumu düzenle" : "Yorum ekle"}
-      </button>
-      {onOpenTrace && (
+      <div className="more-wrap">
         <button
           type="button"
-          className="link"
-          onClick={() => onOpenTrace(saved?.run_id ?? undefined)}
+          aria-label="Daha fazla"
+          aria-haspopup="menu"
+          aria-expanded={more}
+          onClick={() => setMore((value) => !value)}
         >
-          İşlemi incele
+          <MoreHorizontal size={14} />
         </button>
-      )}
+        {more && (
+          <div className="more-menu" role="menu">
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setMore(false);
+                setOpen((value) => !value);
+              }}
+            >
+              {saved?.comment ? "Yorumu düzenle" : "Yorum ekle"}
+            </button>
+            {onOpenTrace && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMore(false);
+                  onOpenTrace(saved?.run_id ?? undefined);
+                }}
+              >
+                İşlem ayrıntıları
+              </button>
+            )}
+          </div>
+        )}
+      </div>
       {busy && <LoaderCircle size={13} className="spin" />}
       {saved && !busy && !open && (
         <span className="saved">

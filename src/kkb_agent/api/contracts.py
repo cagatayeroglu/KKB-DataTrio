@@ -298,6 +298,8 @@ class Health(ContractModel):
     max_sessions: int = MAX_SESSIONS
     max_turns_per_session: int = MAX_TURNS
     max_running_turns: Literal[1] = 1
+    #: The planner model this deployment routes to, shown as the connected model.
+    model: str | None = None
     capabilities: tuple[str, ...] = ("sessions", "questions", "published_values", "turn_events")
 
 

@@ -176,6 +176,7 @@ class AnalysisService:
         knowledge: bool = False,
         web_search: bool = False,
         web_url: bool = False,
+        model: str | None = None,
     ):
         if mode not in ("kloudeks", "scripted"):
             raise ValueError("An explicit execution mode is required")
@@ -197,6 +198,8 @@ class AnalysisService:
         self._web_search = web_search
         # Reading an address written in a question is the operator's switch too.
         self._web_url = web_url
+        # The planner model's name, for the page's connection badge; never a switch.
+        self._model = model
         self._mode = mode
         self._sessions: dict[str, _Session] = {}
         self._lock = threading.RLock()
@@ -221,7 +224,7 @@ class AnalysisService:
                 capabilities = (*capabilities, "knowledge_base")
             if self._web_search:
                 capabilities = (*capabilities, "web_search")
-            return Health(execution_mode=self._mode, capabilities=capabilities)
+            return Health(execution_mode=self._mode, capabilities=capabilities, model=self._model)
 
     def _restrictable(self) -> tuple[str, ...]:
         """Restrictable capabilities this deployment actually offers."""

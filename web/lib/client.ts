@@ -528,6 +528,22 @@ export async function readTurn(
     throw new ApiError("invalid_response");
   return turn;
 }
+/**
+ * Fetch a tabular document at an address the person typed and admit it exactly
+ * like an upload; the server's safe_fetch and admission rules decide. The
+ * document then belongs to this conversation, like any upload.
+ */
+export function admitDocumentFromUrl(session: Session, url: string) {
+  return api(
+    `sessions/${session.session_id}/documents/from-url`,
+    documentAdmittedSchema,
+    {
+      method: "POST",
+      body: JSON.stringify({ url: url.trim().slice(0, 2000) }),
+    },
+    session.token,
+  );
+}
 export async function admit(saved: Saved, index: number) {
   const entry = saved.turns[index];
   if (entry.admission_error) throw new ApiError(entry.admission_error, 400);
