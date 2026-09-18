@@ -134,6 +134,7 @@ export async function forward(
   const documents = documentRoute.test(name);
   const cancel = cancelRoute.test(name);
   const settings = name === "v1/settings";
+  const prompts = name === "v1/prompts";
   const knowledgeList = name === "v1/knowledge";
   const knowledgeSearch = name === "v1/knowledge/search";
   const vectorIndex = name === "v1/knowledge/index";
@@ -153,7 +154,8 @@ export async function forward(
     notes ||
     values ||
     uses ||
-    settings;
+    settings ||
+    prompts;
   const getTurn = turns && path.length === 5;
   const search = new URL(request.url).search.replace(/^\?/, "");
   if (
@@ -169,6 +171,7 @@ export async function forward(
         getTurn ||
         list ||
         settings ||
+        prompts ||
         conversation ||
         runs ||
         feedback ||

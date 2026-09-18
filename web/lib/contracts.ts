@@ -509,6 +509,27 @@ export const seriesUsesSchema = z
   .strict();
 export type SeriesUses = z.infer<typeof seriesUsesSchema>;
 
+/** The sources model calls are assembled from; reading is the whole contract. */
+export const promptPartsSchema = z
+  .object({
+    api_version: z.literal(1),
+    parts: z
+      .array(
+        z
+          .object({
+            part_id: z.string().max(120),
+            title: z.string().max(200),
+            sent_when: z.string().max(300),
+            content: z.string().max(20000),
+            content_sha256: z.string().length(64),
+          })
+          .strict(),
+      )
+      .max(64),
+  })
+  .strict();
+export type PromptParts = z.infer<typeof promptPartsSchema>;
+
 export const runtimeSettingsSchema = z
   .object({
     api_version: z.literal(1),
