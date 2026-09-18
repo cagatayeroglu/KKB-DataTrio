@@ -38,7 +38,15 @@ and identities, never financial observations.
 
 The prepared path supports reviewed BDDK/EVDS data, catalog discovery, deterministic
 analysis, bounded deflation/add-series transforms, table co-movement and mandatory
-configured metadata inspection. [ARCHITECTURE](docs/ARCHITECTURE.md) owns runtime
+configured metadata inspection. A reviewed series the prepared pool lacks is fetched on
+first use over a fixed window and kept for later conversations (on by default,
+`--no-official-acquisition`); an append-only versioned knowledge base layers user
+datasets and edits over the reviewed catalog; `web_search` runs over a SearXNG instance
+when one is given (`--searxng-url`). A turn can be cancelled, its table exported, its
+answer scored 1-5, and every model call — with its duration, prompt messages, token
+counts and thinking text — read back on the web "İşlem kayıtları" page. Live acceptance
+of acquisition and search has **not** been done; see
+[ROADMAP](docs/ROADMAP.md#current-project-status) for what is merged versus accepted. [ARCHITECTURE](docs/ARCHITECTURE.md) owns runtime
 mechanics and distinguishes supported slices from targets; [CATALOG](docs/CATALOG.md)
 owns retrieval contracts. [ROADMAP](docs/ROADMAP.md#current-project-status) owns
 completion and remaining work; [EVALUATION](docs/EVALUATION.md) separates synthetic,
@@ -116,6 +124,8 @@ The backend API accepts optional flags at startup to enable additional data acqu
 | Flag | Capability |
 | --- | --- |
 | `--enable-web-url` | Read tables and data from user-supplied URLs, including same-site link follow and script endpoint datasets ([DEC-150](docs/DECISIONS.md#dec-150--prompt-address-authority-same-site-link-follow-and-script-endpoint-datasets)) |
+| `--searxng-url URL` | Register `web_search` over a SearXNG instance; results are an unverified candidate list ([DEC-158](docs/DECISIONS.md#dec-158--searxng-as-the-web_search-backend-and-search-results-shown-as-a-fixed-list)) |
+| `--no-official-acquisition` | Refuse fetching reviewed EVDS series and BDDK housing selectors the prepared pool lacks. Acquisition is on by default and fetched responses are kept under the state root ([DEC-155](docs/DECISIONS.md#dec-155--a-reviewed-evds-series-outside-the-prepared-pool-is-fetched-on-first-use), DEC-159) |
 | `--no-uploads` | Refuse CSV/XLSX/PDF uploads. They are admitted by default, with the conversation document library (`belge_1..N`) |
 | `--no-ocr` | Refuse OCR. It is on whenever `KLOUDEKS_OCR_MODEL` names the DEC-129 OCR model ([DEC-149](docs/DECISIONS.md#dec-149--ocr-tables-count-only-through-a-column-total-check), [DEC-153](docs/DECISIONS.md#dec-153--capabilities-follow-their-configuration-and-the-agent-reads-continuation-itself)) |
 

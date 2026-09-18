@@ -34,6 +34,8 @@ from kkb_agent.analytics.accumulation import FORMULA as TO_FLOW_FORMULA
 from kkb_agent.analytics.accumulation import METHOD as TO_FLOW_METHOD
 from kkb_agent.analytics.accumulation import AccumulationRefused, to_flow_column
 from kkb_agent.analytics.deflation import FORMULA, METHOD, DeflationRefused, deflate
+from kkb_agent.analytics.resample import METHOD as RESAMPLE_METHOD
+from kkb_agent.analytics.resample import ResampleRefused, resample_column
 from kkb_agent.analytics.table_series import (
     DOCUMENT_METHOD,
     JOIN_METHOD,
@@ -66,6 +68,7 @@ from kkb_agent.core import (
 )
 from kkb_agent.ingest.attached import Attachment
 from kkb_agent.ingest.fetched import source_id_for
+from kkb_agent.lakehouse.alignment import WeekAssignment
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.lakehouse.records import Observation
 from kkb_agent.lakehouse.result_evidence import _record_execution, canonical
@@ -148,6 +151,36 @@ class ToFlowArguments(BaseModel):
         min_length=1,
         max_length=400,
         description="The cumulative column's exact label in that result; it is a series id",
+    )
+
+
+class ResampleArguments(BaseModel):
+    """Reducing a weekly column onto months by the series' declared aggregation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation: Literal["resample"] = Field(
+        description=(
+            "resample: add a monthly copy of one weekly column, reduced by the aggregation the "
+            "store declares for that series (a rate averaged, a flow summed, a stock at its "
+            "last week), keeping every existing column unchanged; then join_table can put it "
+            "beside monthly tables"
+        )
+    )
+    source: str = Field(
+        pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
+        description="Name of a published result from an earlier turn; its rows stay unchanged",
+    )
+    column: str = Field(
+        min_length=1,
+        max_length=400,
+        description="The weekly column's exact label in that result; it is a series id",
+    )
+    week_assignment: Literal["by_end", "by_majority"] = Field(
+        description=(
+            "Which month a week spanning two months belongs to: by_end, the month its last "
+            "day falls in (how sources label a week), or by_majority, where most of its days fell"
+        )
     )
 
 
@@ -325,6 +358,7 @@ class TableTransformArguments(
             DeflateArguments
             | AddSeriesArguments
             | ToFlowArguments
+            | ResampleArguments
             | JoinTableArguments
             | RebaseArguments
             | AlignArguments
@@ -342,6 +376,7 @@ class DocumentTableTransformArguments(
             DeflateArguments
             | AddSeriesArguments
             | ToFlowArguments
+            | ResampleArguments
             | AddDocumentColumnArguments
             | JoinTableArguments
             | RebaseArguments
@@ -428,6 +463,13 @@ def make_table_transform_tool(
                 if isinstance(selected, AddSeriesArguments)
                 else _deflated(selected, source, series.observations, series.semantics, names)
             )
+        elif isinstance(selected, ResampleArguments):
+            try:
+                series = read_series(connection, selected.column, inspector=inspector)
+            except SeriesUnknown as error:
+                return failure("series_unknown", str(error))
+            inputs.append(series.snapshot)
+            result = _resampled(selected, source, series.semantics)
         elif isinstance(selected, ToFlowArguments):
             try:
                 series = read_series(connection, selected.column, inspector=inspector)
@@ -568,6 +610,9 @@ def make_table_transform_tool(
             "table direction comparison can use; series-based tools still read original series. "
             "A column the store does "
             "not declare cumulative is refused rather than differenced. "
+            "resample adds a monthly copy of a weekly column by the series' declared "
+            "aggregation (state week_assignment), so a weekly rate can then be joined with "
+            "monthly tables. "
             "rebase adds an explicitly based copy of an existing index column. align selects "
             "existing exact periods using inner or explicitly anchored-left policy. join_table "
             "adds the monthly columns of another published result (for example a table built "
@@ -912,6 +957,70 @@ def _augmented(
             "filling, currency conversion, inflation adjustment or rebasing was applied to it",
             "Existing comparison metrics still concern their original columns; adding a "
             "column does not compute a relationship with it",
+        ],
+        unresolved_semantics=list(source.unresolved_semantics),
+    )
+
+
+def _resampled(
+    arguments: ResampleArguments,
+    source: AnalyticalResult,
+    semantics: SeriesSemantics,
+) -> AnalyticalResult:
+    """The source table with a monthly copy of one weekly column."""
+    result_id = f"table_transform:resample:{arguments.source}:{arguments.column}"
+    column = [value for value in source.values if value.label == arguments.column]
+    try:
+        reduced = resample_column(
+            column,
+            semantics,
+            column_label=arguments.column,
+            assignment=WeekAssignment(arguments.week_assignment),
+        )
+    except ResampleRefused as error:
+        return AnalyticalResult(
+            result_id=result_id,
+            kind=ResultKind.SERIES,
+            status=ResultStatus.ABSTAINED,
+            tool="table_transform",
+            method=RESAMPLE_METHOD,
+            reason=str(error),
+        )
+    parameters = dict(source.parameters)
+    parameters.update({"source": arguments.source, "resampled": arguments.column})
+    warnings = list(source.warnings)
+    if reduced.incomplete:
+        warnings.append(
+            f"{len(reduced.incomplete)} month(s) did not see every week they expected; "
+            "their monthly value rests on fewer weeks and the coverage is recorded"
+        )
+    previous = source.evidence.transformations if source.evidence is not None else []
+    return AnalyticalResult(
+        result_id=result_id,
+        kind=source.kind,
+        status=ResultStatus.COMPUTED,
+        tool="table_transform",
+        method=RESAMPLE_METHOD,
+        values=[*source.values, *reduced.values],
+        coverage=source.coverage,
+        parameters=parameters,
+        samples=source.samples,
+        evidence=ResultEvidence(
+            input_refs=[
+                *(
+                    [source.evidence.lineage_node]
+                    if source.evidence is not None and source.evidence.lineage_node
+                    else []
+                ),
+                *INPUTS,
+            ],
+            transformations=[*previous, reduced.transformation],
+        ),
+        warnings=warnings,
+        limitations=[
+            *source.limitations,
+            f"{reduced.label} is a monthly reduction by the series' declared aggregation; "
+            "the weekly column it came from is unchanged beside it",
         ],
         unresolved_semantics=list(source.unresolved_semantics),
     )

@@ -284,3 +284,29 @@ test("document proof schema refuses dangling, leaking or foreign documents", () 
     );
   }
 });
+
+test("the evidence graph is the recorded inputs, drawn from source to this result", async () => {
+  const { evidenceGraph } = await import("../lib/evidence-graph");
+  const graph = evidenceGraph(proofSchema.parse(proof), null);
+  const column = Object.fromEntries(graph.nodes.map((n) => [n.id, n.column]));
+  // Source first, then the table step it fed, then this result last.
+  assert.deepEqual(column, { "source-0": 0, "step-1": 1, "step-0": 2 });
+  assert.equal(graph.columns, 3);
+  assert.deepEqual(graph.edges.map((e) => `${e.from}>${e.to}`).sort(), [
+    "source-0>step-0",
+    "source-0>step-1",
+    "step-1>step-0",
+  ]);
+  assert.equal(graph.nodes.find((n) => n.id === "step-0")?.detail, "bu sonuç");
+  assert.equal(graph.nodes.find((n) => n.id === "step-1")?.detail, "analiz_1");
+});
+
+test("an empty proof draws nothing and a lone source stands alone", async () => {
+  const { evidenceGraph } = await import("../lib/evidence-graph");
+  const lone = evidenceGraph({ ...proofSchema.parse(proof), steps: [] }, null);
+  assert.equal(lone.edges.length, 0);
+  assert.deepEqual(
+    lone.nodes.map((n) => n.id),
+    ["source-0"],
+  );
+});

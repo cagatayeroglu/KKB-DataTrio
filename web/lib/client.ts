@@ -6,8 +6,14 @@ import {
   documentAdmittedSchema,
   feedbackListSchema,
   feedbackSchema,
+  knowledgeListSchema,
+  datasetDetailSchema,
+  noteHistorySchema,
+  seriesValuesSchema,
+  type DatasetRequest,
   ownerSchema,
   runDetailSchema,
+  traceStepFullSchema,
   runListSchema,
   sessionSchema,
   turnSchema,
@@ -34,6 +40,7 @@ export async function api<T>(
   options: RequestInit = {},
   token?: string,
   ownerToken?: string,
+  limits: { bytes?: number; timeoutMs?: number } = {},
 ): Promise<T> {
   const headers = new Headers(options.headers);
   if (
@@ -49,7 +56,7 @@ export async function api<T>(
       ...options,
       headers,
       cache: "no-store",
-      signal: AbortSignal.timeout(12000),
+      signal: AbortSignal.timeout(limits.timeoutMs ?? 12000),
     });
   } catch {
     throw new ApiError("connection");
@@ -57,7 +64,7 @@ export async function api<T>(
   let data: unknown;
   try {
     const text = await response.text();
-    if (text.length > 1024 * 1024) throw new Error();
+    if (text.length > (limits.bytes ?? 1024 * 1024)) throw new Error();
     data = JSON.parse(text);
   } catch {
     throw new ApiError("invalid_response");
@@ -115,6 +122,27 @@ export async function ensureOwner(storage: Storage) {
   }
   return created.owner_token;
 }
+/**
+ * The stored key if this server knows it, otherwise a fresh one. A key from another
+ * state root opens nothing here, so keeping it would only turn every list into an error.
+ */
+export async function usableOwner(storage: Storage) {
+  const stored = loadOwner(storage);
+  if (stored) {
+    try {
+      await listConversations(stored);
+      return stored;
+    } catch (error) {
+      if (!(error instanceof ApiError && error.status === 403)) throw error;
+      try {
+        storage.removeItem(OWNER_KEY);
+      } catch {
+        // Storage refused: a new key is still issued for this page.
+      }
+    }
+  }
+  return ensureOwner(storage);
+}
 export function newSession(ownerToken?: string) {
   return api(
     "sessions",
@@ -156,12 +184,144 @@ export function rateAnswer(
     rating: "up" | "down";
     comment?: string;
     reasons?: readonly string[];
+    score?: number;
   },
 ) {
   return api(
     `conversations/${conversationId}/feedback`,
     feedbackSchema,
     { method: "POST", body: JSON.stringify(rating) },
+    token,
+  );
+}
+// -- Knowledge base (DEC-157): every read and edit carries the browser's key.
+export function listKnowledge(owner: string) {
+  return api("knowledge", knowledgeListSchema, {}, undefined, owner);
+}
+export function openDataset(owner: string, slug: string) {
+  return api(
+    `knowledge/datasets/${slug}`,
+    datasetDetailSchema,
+    {},
+    undefined,
+    owner,
+  );
+}
+export function saveDataset(owner: string, request: DatasetRequest) {
+  return api(
+    "knowledge/datasets",
+    datasetDetailSchema,
+    { method: "POST", body: JSON.stringify(request) },
+    undefined,
+    owner,
+  );
+}
+export function setDatasetArchived(
+  owner: string,
+  slug: string,
+  archived: boolean,
+) {
+  return api(
+    `knowledge/datasets/${slug}/${archived ? "archive" : "restore"}`,
+    datasetDetailSchema,
+    { method: "POST", body: "{}" },
+    undefined,
+    owner,
+  );
+}
+/**
+ * "2025-01-03;100" lines, the period end written as a full date (weekly data).
+ * The date is kept as written; the server checks it falls on the declared weekday.
+ */
+export function parseDatedRows(text: string) {
+  const observations: { period_end: string; value: number | null }[] = [];
+  const rejected: number[] = [];
+  text.split(/\r?\n/).forEach((line, index) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    const match = trimmed.match(
+      /^(\d{4}-\d{2}-\d{2})\s*[;,\t]\s*(-?\d+(?:[.,]\d+)?)?\s*$/,
+    );
+    const day = match ? new Date(`${match[1]}T00:00:00Z`) : null;
+    if (
+      !match ||
+      !day ||
+      Number.isNaN(day.getTime()) ||
+      day.toISOString().slice(0, 10) !== match[1]
+    ) {
+      rejected.push(index + 1);
+      return;
+    }
+    observations.push({
+      period_end: match[1],
+      value: match[2] === undefined ? null : Number(match[2].replace(",", ".")),
+    });
+  });
+  return { observations, rejected };
+}
+export function seriesValues(owner: string, seriesId: string) {
+  return api(
+    `knowledge/series/${seriesId}/values`,
+    seriesValuesSchema,
+    {},
+    undefined,
+    owner,
+  );
+}
+export function seriesNotes(owner: string, seriesId: string) {
+  return api(
+    `knowledge/series/${seriesId}/notes`,
+    noteHistorySchema,
+    {},
+    undefined,
+    owner,
+  );
+}
+export function annotateSeries(
+  owner: string,
+  seriesId: string,
+  note: { archived: boolean; aliases: string[]; note?: string },
+) {
+  return api(
+    `knowledge/series/${seriesId}/notes`,
+    noteHistorySchema,
+    { method: "POST", body: JSON.stringify(note) },
+    undefined,
+    owner,
+  );
+}
+/**
+ * "2025-01;100" or "2025-01-31,100" lines into month-end observations; an empty
+ * value stays empty. Returns the line numbers it could not read instead of guessing.
+ */
+export function parseMonthlyRows(text: string) {
+  const observations: { period_end: string; value: number | null }[] = [];
+  const rejected: number[] = [];
+  text.split(/\r?\n/).forEach((line, index) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    const match = trimmed.match(
+      /^(\d{4})-(\d{2})(?:-\d{2})?\s*[;,\t]\s*(-?\d+(?:[.,]\d+)?)?\s*$/,
+    );
+    const month = match ? Number(match[2]) : 0;
+    if (!match || month < 1 || month > 12) {
+      rejected.push(index + 1);
+      return;
+    }
+    const end = new Date(Date.UTC(Number(match[1]), month, 0));
+    observations.push({
+      period_end: end.toISOString().slice(0, 10),
+      value: match[3] === undefined ? null : Number(match[3].replace(",", ".")),
+    });
+  });
+  return { observations, rejected };
+}
+/** Ask a running turn to stop at its next checkpoint; the turn is then polled as usual. */
+export function cancelTurn(sessionId: string, token: string, turnId: string) {
+  return api(
+    `sessions/${sessionId}/turns/${turnId}/cancel`,
+    turnSchema,
+    { method: "POST", body: "{}" },
     token,
   );
 }
@@ -176,6 +336,8 @@ export function listFeedback(conversationId: string, token: string) {
 export function listRuns(conversationId: string, token: string) {
   return api(`conversations/${conversationId}/runs`, runListSchema, {}, token);
 }
+/** A trace carries every prompt and tool output; it is read with a larger ceiling. */
+export const TRACE_BYTES = 8 * 1024 * 1024;
 export function openRun(conversationId: string, runId: string, token: string) {
   // Reading a trace is a stored record: it starts no model or tool call.
   return api(
@@ -183,6 +345,24 @@ export function openRun(conversationId: string, runId: string, token: string) {
     runDetailSchema,
     {},
     token,
+    undefined,
+    { bytes: TRACE_BYTES, timeoutMs: 30000 },
+  );
+}
+/** One step's whole detail: every prompt byte and every tool output, never clipped. */
+export function openRunStep(
+  conversationId: string,
+  runId: string,
+  sequence: number,
+  token: string,
+) {
+  return api(
+    `conversations/${conversationId}/runs/${runId}/steps/${sequence}`,
+    traceStepFullSchema,
+    {},
+    token,
+    undefined,
+    { bytes: TRACE_BYTES, timeoutMs: 30000 },
   );
 }
 export function updateConversation(
@@ -354,8 +534,12 @@ export const errorText: Record<string, string> = {
   provider_failed: "Model isteği tamamlanamadı. Önceki tablolar korunuyor.",
   invalid_result:
     "Kaynak tablo bu oturumda kullanılamıyor. Geçerli bir sonuç seçip yeni soru gönderebilirsin.",
+  session_gone:
+    "Bu sekmedeki oturum sunucuda artık yok (sunucu yeniden başlatılmış olabilir). Yeni bir sohbet açıldı; kayıtlı sohbetler soldaki listede.",
   selection_unavailable:
-    "Kayıtlı kaynak tablo yüklenemedi. Devam etmek için bir sonuç seç veya serbest soruya geç.",
+    "Kayıtlı kaynak tablo yüklenemedi. Yeni bir soru gönderebilirsin; ajan kullanılabilir tabloları kendisi seçer.",
+  cancelled:
+    "İstek durduruldu. O ana kadar yapılanlar işlem kaydında duruyor; tablo yayımlanmadı.",
   invalid_request:
     "İstek kabul edilmedi. Soruyu ve metin uzunluğunu kontrol et.",
   invalid_response: "Yanıt beklenen veri biçimine uymuyor; sonuç gösterilmedi.",

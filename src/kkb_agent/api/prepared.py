@@ -9,7 +9,7 @@ import os
 import re
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -17,9 +17,10 @@ from typing import TYPE_CHECKING, Annotated
 from uuid import uuid4
 
 import duckdb
-from pydantic import Field
+from pydantic import Field, JsonValue
 
 from kkb_agent.agent import Session, ToolRegistry, Workspace
+from kkb_agent.agent.cancellation import TurnCancelled
 from kkb_agent.agent.loop import MAX_HISTORY_TURNS
 from kkb_agent.agent.observer import Tracer
 from kkb_agent.agent.selection import SelectedTable, SelectionError
@@ -38,17 +39,25 @@ from kkb_agent.api.proof import build_proof
 from kkb_agent.api.service import SelectedResult, ServiceError
 from kkb_agent.api.store import DEFAULT_TITLE, ConversationStore
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
-from kkb_agent.catalog.mappings import MAX_SNAPSHOT_BYTES, ReviewedSnapshot, load_reviewed_snapshot
+from kkb_agent.catalog.mappings import (
+    MAX_SNAPSHOT_BYTES,
+    ReviewedSnapshot,
+    load_reviewed_snapshot,
+    series_display_names,
+)
 from kkb_agent.core import AnalyticalResult, SourceRef
 from kkb_agent.core.models import ContractModel
+from kkb_agent.ingest.acquisition import AcquiringInspector, OfficialSources, TurnAcquirer
 from kkb_agent.ingest.address_outline import TurnFetchCache, address_outline
 from kkb_agent.ingest.attached import SOURCE_TYPE as UPLOAD
 from kkb_agent.ingest.attached import Attachment
 from kkb_agent.ingest.prepared_series import prepared_series_names
 from kkb_agent.ingestion_policy import MIME_TYPES, AdmissionError, admit_upload
+from kkb_agent.knowledge import KnowledgeStore, effective_snapshot
 from kkb_agent.lakehouse import open_lakehouse
 from kkb_agent.lakehouse.gold import GoldError, gold_from_result, persist_gold
 from kkb_agent.lakehouse.lineage import Lineage, LineageError
+from kkb_agent.lakehouse.semantics import SemanticsError
 from kkb_agent.lakehouse.store import DATABASE_NAME, SANDBOX, Lakehouse
 from kkb_agent.llm.provider import LLMProvider
 from kkb_agent.pdf_ocr import OcrProvider
@@ -59,10 +68,14 @@ from kkb_agent.tools import (
     make_change_detection_tool,
     make_lakehouse_tool,
     make_table_transform_tool,
+    make_web_search_tool,
     make_web_url_tool,
 )
+from kkb_agent.tools._document_column import ColumnRefused, read_month_values
 from kkb_agent.tools._document_library import document_name, document_outline
-from kkb_agent.tools.web_url import Fetcher, addresses_in
+from kkb_agent.tools._document_value import as_of, grids
+from kkb_agent.tools.web_search import SearchBackend
+from kkb_agent.tools.web_url import Fetcher, addresses_in, read_attachment
 
 if TYPE_CHECKING:  # pragma: no cover
     from kkb_agent.catalog.hybrid import CatalogDenseStage
@@ -354,6 +367,10 @@ class PreparedRunner:
         document_uploads: bool = False,
         document_ocr: OcrProvider | None = None,
         store: ConversationStore | None = None,
+        official: OfficialSources | None = None,
+        clock: Callable[[], date] = lambda: datetime.now(UTC).date(),
+        knowledge: KnowledgeStore | None = None,
+        search_backend: SearchBackend | None = None,
     ):
         self._catalog = load_reviewed_snapshot(catalog_bytes)
         self._catalog_bytes = catalog_bytes
@@ -369,6 +386,13 @@ class PreparedRunner:
         self._document_uploads = document_uploads
         # Operator switch for OCR of PDF pages without text (M7-11, DEC-149).
         self._document_ocr = document_ocr
+        # Operator switch for fetching a reviewed official series on first use (DEC-155).
+        self._official = official
+        self._clock = clock
+        # The editable knowledge base layered over the reviewed catalog (DEC-157).
+        self._knowledge = knowledge
+        # Operator-configured discovery backend (DEC-134, DEC-158); absent means no tool.
+        self._search_backend = search_backend
         self._documents: dict[tuple[str, str], _Document] = {}
         self._documents_lock = threading.Lock()
         self._provider = provider
@@ -530,6 +554,70 @@ class PreparedRunner:
             ),
         )
 
+    def series_values(self, series_id: str) -> tuple[tuple[date, date, float | None], ...]:
+        """A prepared series' stored observations, read-only from the verified seed.
+
+        The seed is checked against its manifest at every start; it is opened
+        read-only so that looking at it can never change what later sessions copy.
+        """
+        if not 1 <= len(series_id) <= 200:
+            raise ServiceError("not_found", 404)
+        connection = duckdb.connect(
+            str(self.seed / DATABASE_NAME), read_only=True, config=dict(SANDBOX)
+        )
+        try:
+            rows = connection.execute(
+                "SELECT period_start, period_end, value FROM silver_observations"
+                " WHERE series_id = ? ORDER BY period_end LIMIT 5000",
+                [series_id],
+            ).fetchall()
+        finally:
+            connection.close()
+        if not rows:
+            raise ServiceError("not_found", 404)
+        return tuple((row[0], row[1], None if row[2] is None else float(row[2])) for row in rows)
+
+    @property
+    def catalog(self) -> ReviewedSnapshot:
+        """The reviewed catalog this runner was started with; never the knowledge overlay."""
+        return self._catalog
+
+    def document_column(
+        self,
+        session_id: str,
+        document_ref: str,
+        period_column: str,
+        value_column: str,
+        sheet: str | None = None,
+        year: int | None = None,
+    ) -> tuple[tuple[tuple[date, float | None], ...], str]:
+        """One monthly column of an upload, for the knowledge base (DEC-157).
+
+        The same path a turn uses: the stored bytes are rehashed, loaded by the
+        strict loaders and read by `read_column`, which refuses rather than
+        guesses. Only (month end, value) pairs and the document digest leave here;
+        the person declares what the numbers mean.
+        """
+        if not _IDENTIFIER.fullmatch(session_id) or not _IDENTIFIER.fullmatch(document_ref):
+            raise ServiceError("invalid_document", 422)
+        self._restore(session_id)
+        attachment = self._attachment(session_id, document_ref)
+        read = read_attachment(attachment, sheet=sheet, ocr=self._document_ocr)
+        if read.failure is not None or read.output.source is None:
+            raise ServiceError("document_rejected", 422)
+        try:
+            rows = read_month_values(
+                grids(read.output.table, read.output.document),
+                period_column,
+                value_column,
+                year=year,
+                as_of=as_of(read.output.source),
+            )
+        except ColumnRefused:
+            raise ServiceError("document_rejected", 422) from None
+        digest = (attachment.source.content_hash or "").removeprefix("sha256:")
+        return tuple((end, value) for end, value, _ in rows), digest
+
     def _library(self, session_id: str) -> dict[str, tuple[str, Attachment]]:
         """This conversation's documents by server-owned name, each rehashed on read."""
         with self._documents_lock:
@@ -660,8 +748,40 @@ class PreparedRunner:
                     else None
                 )
                 document_note = document_outline(library, current)
+                # A reviewed official series the pool lacks is fetched on first use,
+                # and every attempt is shown in this turn's trace (DEC-155).
+                acquirer = (
+                    TurnAcquirer(
+                        lake,
+                        self._clock(),
+                        sources=self._official,
+                        observe=lambda item: tracer.event(
+                            "acquisition",
+                            f"acquisition.{item.code.value}",
+                            series=item.series_id,
+                            observations=item.observations,
+                            missing_values=item.missing_values,
+                            window_start=(
+                                item.window_start.isoformat() if item.window_start else None
+                            ),
+                            window_end=item.window_end.isoformat() if item.window_end else None,
+                            detail=item.detail,
+                            from_store=item.from_store,
+                        ),
+                    )
+                    if self._official is not None
+                    else None
+                )
+                catalog, knowledge_loaded = self._apply_knowledge(lake)
                 registry = self._registry(
-                    lake.connection, workspace, lake.lineage, attachment, library, turn_fetch
+                    lake.connection,
+                    workspace,
+                    lake.lineage,
+                    attachment,
+                    library,
+                    turn_fetch,
+                    acquirer=acquirer,
+                    catalog=catalog,
                 )
                 # One run per turn: what ran, with which context, and for how long.
                 run_id = uuid4().hex
@@ -678,6 +798,17 @@ class PreparedRunner:
                         else None
                     ),
                 )
+                if self._knowledge is not None:
+                    tracer.event(
+                        "context",
+                        "knowledge.applied",
+                        catalog_digest=catalog.content_sha256,
+                        reviewed=catalog is self._catalog,
+                        loaded_datasets=list[JsonValue](knowledge_loaded),
+                        discovery="hybrid"
+                        if self._dense is not None and catalog is self._catalog
+                        else "lexical",
+                    )
                 tracer.event(
                     "request",
                     "turn.received",
@@ -739,17 +870,22 @@ class PreparedRunner:
                         else ()
                     ),
                     tools_required=bool(addresses_in(question)) or document_ref is not None,
+                    # Named from this turn's catalog, knowledge-base entries included.
+                    series_names=series_display_names(catalog),
                 )
                 try:
                     answered = session.answer(
                         effective_question, lake.connection, workspace=workspace, remember=name
                     )
                 except Exception as failure:
-                    # A failed turn is still a run someone can open and read.
+                    # A failed or cancelled turn is still a run someone can open and read.
+                    cancelled = isinstance(failure, TurnCancelled)
+                    if cancelled:
+                        tracer.event("request", "turn.cancelled", at=str(failure))
                     if self._store is not None:
                         self._store.finish_run(
                             run_id,
-                            status="failed",
+                            status="cancelled" if cancelled else "failed",
                             duration_ms=max(0, round((time.monotonic() - started) * 1000)),
                             error=type(failure).__name__,
                             events=tracer.events,
@@ -827,6 +963,49 @@ class PreparedRunner:
         finally:
             self._lock.release()
 
+    def _apply_knowledge(self, lake: Lakehouse) -> tuple[ReviewedSnapshot, list[str]]:
+        """This turn's catalog, and the user datasets newly loaded into this session's lake.
+
+        A user dataset enters the session's own lakehouse — never the prepared seed —
+        through the same bronze/silver path as any series: its declared content as
+        the bronze artifact, its declaration as the silver series, its numbers as
+        observations. A version already present is left as it is.
+        """
+        if self._knowledge is None:
+            return self._catalog, []
+        datasets = self._knowledge.datasets(include_archived=False)
+        catalog = effective_snapshot(self._catalog, datasets, self._knowledge.notes())
+        loaded: list[str] = []
+        for item in datasets:
+            present = lake.connection.execute(
+                "SELECT 1 FROM silver_series WHERE series_id = ?", [item.series_id]
+            ).fetchone()
+            if present is not None:
+                continue
+            content = json.dumps(
+                {"series_id": item.series_id, "sha256": item.content_sha256()}, sort_keys=True
+            ).encode()
+            artifact = lake.record_artifact(
+                content,
+                source=SourceRef(
+                    source_id=f"knowledge:{item.slug}",
+                    source_type="user-declared",
+                    locator=f"knowledge:{item.slug}.v{item.version}",
+                    content_hash=f"sha256:{item.content_sha256()}",
+                ),
+                media_type="application/json",
+                recorded_at=item.created_at,
+            )
+            lake.register_series(
+                item.series_id,
+                title=item.title,
+                semantics=item.semantics(),
+                artifact_id=artifact.artifact_id,
+            )
+            lake.append_observations(item.series_id, list(item.observations))
+            loaded.append(item.series_id)
+        return catalog, loaded
+
     def _materialize_gold(
         self,
         lake: Lakehouse,
@@ -848,7 +1027,8 @@ class PreparedRunner:
         try:
             table = gold_from_result(published, table_id=name, lineage=lake.lineage)
             rows = persist_gold(lake.connection, table) if table is not None else 0
-        except (GoldError, LineageError) as refused:
+        except (GoldError, LineageError, SemanticsError) as refused:
+            # Writing gold is a copy for later reads; it never costs the turn its answer.
             tracer.event("store", "gold.refused", table=name, reason=type(refused).__name__)
             return
         tracer.event(
@@ -932,15 +1112,30 @@ class PreparedRunner:
         attachment: Attachment | None = None,
         library: dict[str, Attachment] | None = None,
         turn_fetch: TurnFetchCache | None = None,
+        *,
+        acquirer: TurnAcquirer | None = None,
+        catalog: ReviewedSnapshot | None = None,
     ) -> ToolRegistry:
         fetch = turn_fetch if turn_fetch is not None else self._web_url_fetch
-        inspector = PreparedSeriesInspector(self._catalog)
+        catalog = catalog if catalog is not None else self._catalog
+        inspector = PreparedSeriesInspector(catalog)
+        if acquirer is not None:
+            inspector = AcquiringInspector(inspector, acquirer)
         # Existing code-reviewed names only. Free catalog/source metadata belongs
         # in catalog continuation's USER data, never a SYSTEM tool description.
         names = prepared_series_names(connection)
         registry = ToolRegistry()
         registry.register(
-            make_catalog_search_tool(snapshot_bytes=self._catalog_bytes, dense=self._dense)
+            make_catalog_search_tool(
+                snapshot_bytes=(
+                    self._catalog_bytes
+                    if catalog is self._catalog
+                    else catalog.model_dump_json().encode("utf-8")
+                ),
+                # The dense index is bound to the reviewed digest; with knowledge-base
+                # entries applied, discovery is lexical for this turn.
+                dense=self._dense if catalog is self._catalog else None,
+            )
         )
         registry.register(make_lakehouse_tool(connection, lineage=lineage, inspector=inspector))
         registry.register(
@@ -967,6 +1162,8 @@ class PreparedRunner:
         )
         for make in (make_anomaly_tool, make_causality_tool):
             registry.register(make(connection, lineage=lineage, inspector=inspector))
+        if self._search_backend is not None:
+            registry.register(make_web_search_tool(backend=self._search_backend))
         if self._web_url_fetch is not None or attachment is not None or library:
             # The cell proof lives in this session's own lineage, where the gate
             # and the proof builder re-read it; the document itself is not kept.

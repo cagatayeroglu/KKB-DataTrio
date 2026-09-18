@@ -64,11 +64,14 @@ export function TracePanel({
   conversationId,
   token,
   runId,
+  turnId,
   onClose,
 }: {
   conversationId: string;
   token: string;
   runId?: string;
+  /** Open this turn's own run; without it, the newest run. */
+  turnId?: string;
   onClose: () => void;
 }) {
   const [runs, setRuns] = useState<RunSummary[]>([]);
@@ -84,7 +87,14 @@ export function TracePanel({
         const listed = await listRuns(conversationId, token);
         if (cancelled) return;
         setRuns(listed.runs);
-        setChosen((current) => current ?? listed.runs[0]?.run_id);
+        setChosen(
+          (current) =>
+            current ??
+            (turnId
+              ? listed.runs.find((run) => run.turn_id === turnId)?.run_id
+              : undefined) ??
+            listed.runs[0]?.run_id,
+        );
       } catch (error) {
         if (!cancelled) setIssue(describeError(error));
       } finally {
@@ -94,7 +104,7 @@ export function TracePanel({
     return () => {
       cancelled = true;
     };
-  }, [conversationId, token]);
+  }, [conversationId, token, turnId]);
 
   useEffect(() => {
     if (!chosen) return;

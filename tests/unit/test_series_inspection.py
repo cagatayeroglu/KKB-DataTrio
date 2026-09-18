@@ -380,3 +380,61 @@ def test_prepared_runtime_injects_inspection_even_without_a_discovery_step(tmp_p
     )
     assert not report["passed"] and report["published"] == []
     assert len(provider.seen) == 1 and report["tools"][0]["status"] == "failure"
+
+
+def test_a_query_that_omits_declared_columns_still_carries_the_declaration(house, inspector):
+    """Live trace 2026-09-18: without `s.observation` a stock balance became "unknown"
+    and the next turn's deflation refused the table. The stored declaration of a
+    proven series identity completes what the query did not select."""
+    bare = (
+        "SELECT o.series_id,o.period_start,o.period_end,o.value,s.unit,s.scale "
+        "FROM silver_observations o JOIN silver_series s ON o.series_id=s.series_id "
+        f"WHERE o.series_id='{TOTAL}' ORDER BY o.period_end"
+    )
+    tool = make_lakehouse_tool(house.connection, lineage=house.lineage, inspector=inspector)
+    full = invoke(tool, sql=SQL).output.result
+    omitted = invoke(tool, sql=bare).output.result
+
+    assert omitted.status is ResultStatus.COMPUTED and not omitted.unresolved_semantics
+    assert [(v.measure, v.period.frequency) for v in omitted.values] == [
+        (v.measure, v.period.frequency) for v in full.values
+    ]
+    assert {v.measure.value for v in omitted.values} == {"stock"}
+
+    workspace = Workspace.open(house.connection)
+    workspace.record("base", ArtifactKind.VALUE, omitted)
+    deflated = invoke(
+        make_table_transform_tool(house.connection, workspace, inspector=inspector),
+        operation="deflate",
+        source="base",
+        column=TOTAL,
+        index_series_id=CPI,
+        reference_period="2026-06-30",
+    )
+    assert deflated.output.status is ResultStatus.COMPUTED, deflated.output.reason
+
+
+def test_observation_columns_alone_are_a_measurement_with_stored_semantics(house, inspector):
+    """Live trace 2026-09-18: the planner selected only the observation columns."""
+    observations_only = (
+        "SELECT o.series_id,o.period_start,o.period_end,o.value FROM silver_observations o "
+        f"WHERE o.series_id='{TOTAL}' ORDER BY o.period_end"
+    )
+    tool = make_lakehouse_tool(house.connection, lineage=house.lineage, inspector=inspector)
+    full = invoke(tool, sql=SQL).output.result
+    bare = invoke(tool, sql=observations_only).output.result
+
+    assert bare.status is ResultStatus.COMPUTED, bare.reason
+    assert [(v.value, v.unit, v.scale, v.measure) for v in bare.values] == [
+        (v.value, v.unit, v.scale, v.measure) for v in full.values
+    ]
+    assert execution_proof(bare, house.connection)
+
+
+def test_selected_metadata_that_differs_from_the_store_is_still_refused(house, inspector):
+    forged = SQL.replace("s.unit", "'USD' AS unit")
+    result = invoke(
+        make_lakehouse_tool(house.connection, lineage=house.lineage, inspector=inspector),
+        sql=forged,
+    ).output.result
+    assert result.status is ResultStatus.ABSTAINED and not result.values

@@ -139,6 +139,7 @@ CREATE TABLE IF NOT EXISTS feedback (
     reasons         TEXT NOT NULL,
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL,
+    score           INTEGER CHECK (score IS NULL OR score BETWEEN 1 AND 5),
     PRIMARY KEY (conversation_id, turn_id, answer_digest)
 );
 
@@ -210,6 +211,7 @@ class StoredFeedback:
     reasons: tuple[str, ...]
     created_at: datetime
     updated_at: datetime
+    score: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -262,6 +264,17 @@ class ConversationStore:
         self._connection.row_factory = sqlite3.Row
         with self._lock:
             self._connection.executescript(SCHEMA)
+            self._migrate()
+
+    def _migrate(self) -> None:
+        """Bring a store created by an earlier version up to this schema, in place."""
+        columns = {row["name"] for row in self._connection.execute("PRAGMA table_info(feedback)")}
+        if "score" not in columns:
+            # Earlier ratings keep no score; nothing is invented for them.
+            self._connection.execute(
+                "ALTER TABLE feedback ADD COLUMN score INTEGER"
+                " CHECK (score IS NULL OR score BETWEEN 1 AND 5)"
+            )
 
     @property
     def path(self) -> Path:
@@ -758,6 +771,7 @@ class ConversationStore:
         reasons: Sequence[str] = (),
         run_id: str | None = None,
         result_version: str | None = None,
+        score: int | None = None,
     ) -> StoredFeedback:
         """Record or change the rating of one exact answer.
 
@@ -772,8 +786,12 @@ class ConversationStore:
                 " AND answer_digest = ?",
                 [conversation_id, turn_id, answer_digest],
             ).fetchone()
+            if score is not None and not 1 <= score <= 5:
+                raise StoreError("invalid_score")
             connection.execute(
-                "INSERT OR REPLACE INTO feedback VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO feedback (conversation_id, turn_id, answer_digest,"
+                " run_id, result_version, rating, comment, reasons, created_at, updated_at,"
+                " score) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [
                     conversation_id,
                     turn_id,
@@ -785,6 +803,7 @@ class ConversationStore:
                     json.dumps(list(reasons)[:8], ensure_ascii=False),
                     existing["created_at"] if existing is not None else moment,
                     moment,
+                    score,
                 ],
             )
         found = self.feedback(conversation_id, turn_id=turn_id, answer_digest=answer_digest)
@@ -823,4 +842,5 @@ class ConversationStore:
             tuple(json.loads(row["reasons"])),
             _moment(row["created_at"]),
             _moment(row["updated_at"]),
+            row["score"],
         )

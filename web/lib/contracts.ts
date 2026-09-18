@@ -369,7 +369,7 @@ export const runSummarySchema = z
     run_id: ref,
     turn_id: ref,
     question: bounded,
-    status: z.enum(["running", "completed", "failed"]),
+    status: z.enum(["running", "completed", "failed", "cancelled"]),
     answer_status: z.enum(["accepted", "qualified", "abstained"]).nullable(),
     error: z.string().nullable(),
     result_ref: ref.nullable(),
@@ -394,20 +394,32 @@ export const traceStepSchema = z
     started_ms: z.number().int().nonnegative(),
     duration_ms: z.number().int().nonnegative(),
     attributes: z.record(z.string(), z.unknown()),
+    // A long detail arrives as a preview; the step route returns all of it.
     detail: z.string().max(16384).nullable(),
     parent: z.number().int().min(1).nullable(),
+    detail_chars: z.number().int().nonnegative().nullable().optional(),
+    detail_complete: z.boolean().optional(),
+  })
+  .strict();
+export const traceStepFullSchema = z
+  .object({
+    api_version: z.literal(1),
+    sequence: z.number().int().min(1),
+    name: z.string().max(120),
+    detail: z.string().max(2_000_000).nullable(),
   })
   .strict();
 export const runDetailSchema = z
   .object({
     api_version: z.literal(1),
     run: runSummarySchema,
-    steps: z.array(traceStepSchema).max(400),
+    steps: z.array(traceStepSchema).max(5000),
   })
   .strict();
 export type RunSummary = z.infer<typeof runSummarySchema>;
 export type RunDetail = z.infer<typeof runDetailSchema>;
 export type TraceStep = z.infer<typeof traceStepSchema>;
+export type TraceStepFull = z.infer<typeof traceStepFullSchema>;
 
 export const feedbackReasons = [
   "accuracy",
@@ -429,6 +441,7 @@ export const feedbackSchema = z
     reasons: z.array(z.enum(feedbackReasons)).max(8),
     created_at: z.iso.datetime({ offset: true }),
     updated_at: z.iso.datetime({ offset: true }),
+    score: z.number().int().min(1).max(5).nullable(),
   })
   .strict();
 export const feedbackListSchema = z
@@ -439,3 +452,145 @@ export const feedbackListSchema = z
   .strict();
 export type Feedback = z.infer<typeof feedbackSchema>;
 export type FeedbackReason = (typeof feedbackReasons)[number];
+
+// -- Knowledge base (DEC-157) -------------------------------------------------
+const moment = z.iso.datetime({ offset: true });
+const day = z.iso.date();
+export const knowledgeSeriesSchema = z
+  .object({
+    series_id: z.string().max(200),
+    title: z.string().max(1024),
+    provider: z.string().max(200),
+    origin: z.enum(["reviewed", "user"]),
+    status: z.enum(["active", "archived", "unknown"]),
+    prepared: z.boolean(),
+    fetchable: z.boolean(),
+    unit: z.string().max(200).nullable(),
+    scale: z.string().max(40),
+    frequency: z.string().max(40),
+    stock_flow: z.string().max(40),
+    cumulative: z.string().max(40),
+    base_year: z.number().int().nullable(),
+    coverage_start: day.nullable(),
+    coverage_end: day.nullable(),
+    observations: z.number().int().nonnegative().nullable(),
+    aliases: z.array(z.string().max(120)).max(10),
+    note: z.string().max(1000).nullable(),
+    version: z.number().int().positive().nullable(),
+    slug: z.string().max(40).nullable(),
+    updated_at: moment.nullable(),
+    acquired_at: moment.nullable(),
+  })
+  .strict();
+export const knowledgeListSchema = z
+  .object({
+    api_version: z.literal(1),
+    catalog_digest: z.string().regex(/^[a-f0-9]{64}$/),
+    reviewed_digest: z.string().regex(/^[a-f0-9]{64}$/),
+    // Mirrors MAX_CATALOG_SERIES: a guard against a malformed body, not a catalog size.
+    series: z.array(knowledgeSeriesSchema).max(10000),
+  })
+  .strict();
+export const datasetDetailSchema = z
+  .object({
+    api_version: z.literal(1),
+    series: knowledgeSeriesSchema,
+    source_kind: z.enum(["upload", "manual"]),
+    description: z.string().max(1000).nullable(),
+    aggregation: z.string().max(40),
+    observations: z
+      .array(
+        z
+          .object({
+            period_start: day,
+            period_end: day,
+            value: z.number().finite().nullable(),
+          })
+          .strict(),
+      )
+      .max(5000),
+    history: z
+      .array(
+        z
+          .object({
+            version: z.number().int().positive(),
+            status: z.enum(["active", "archived"]),
+            observations: z.number().int().nonnegative(),
+            content_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+            created_at: moment,
+          })
+          .strict(),
+      )
+      .max(500),
+  })
+  .strict();
+export const noteHistorySchema = z
+  .object({
+    api_version: z.literal(1),
+    series_id: z.string().max(200),
+    history: z
+      .array(
+        z
+          .object({
+            version: z.number().int().positive(),
+            archived: z.boolean(),
+            aliases: z.array(z.string().max(120)).max(10),
+            note: z.string().max(1000).nullable(),
+            created_at: moment,
+          })
+          .strict(),
+      )
+      .max(500),
+  })
+  .strict();
+export type KnowledgeSeries = z.infer<typeof knowledgeSeriesSchema>;
+export type KnowledgeList = z.infer<typeof knowledgeListSchema>;
+export type DatasetDetail = z.infer<typeof datasetDetailSchema>;
+export type NoteHistory = z.infer<typeof noteHistorySchema>;
+export type DatasetRequest = {
+  slug: string;
+  title: string;
+  description?: string;
+  unit: string;
+  scale: "one" | "thousand" | "million" | "billion";
+  frequency: "weekly" | "monthly" | "quarterly" | "annual";
+  weekly_anchor?:
+    | "monday"
+    | "tuesday"
+    | "wednesday"
+    | "thursday"
+    | "friday"
+    | "saturday"
+    | "sunday";
+  stock_flow: "stock" | "flow" | "rate" | "index";
+  cumulative: "none" | "yearly_reset" | "since_inception";
+  aggregation: "sum" | "average" | "first" | "last" | "min" | "max";
+  base_year?: number;
+  aliases: string[];
+  observations?: { period_end: string; value: number | null }[];
+  document?: {
+    session_id: string;
+    document_ref: string;
+    period_column: string;
+    value_column: string;
+    sheet?: string;
+    year?: number;
+  };
+};
+export const seriesValuesSchema = z
+  .object({
+    api_version: z.literal(1),
+    series_id: z.string().max(200),
+    observations: z
+      .array(
+        z
+          .object({
+            period_start: day,
+            period_end: day,
+            value: z.number().finite().nullable(),
+          })
+          .strict(),
+      )
+      .max(5000),
+  })
+  .strict();

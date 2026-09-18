@@ -31,7 +31,10 @@ _SERIES_COLUMNS = frozenset(
     }
 )
 _COLUMNS = {"silver_observations": _OBSERVATION_COLUMNS, "silver_series": _SERIES_COLUMNS}
-_REQUIRED = frozenset({"series_id", "period_start", "period_end", "value", "unit", "scale"})
+#: The observation's identity. Its unit, scale and other declarations are read
+#: back from silver_series below and completed by the projection, so a query
+#: need not restate them; any it does select must still match what is stored.
+_REQUIRED = _OBSERVATION_COLUMNS
 _STORED_COLUMNS = (
     "series_id",
     "period_start",
@@ -46,9 +49,9 @@ _STORED_COLUMNS = (
     "artifact_id",
 )
 _SHAPE_REASON = (
-    "Unsupported projection provenance: use direct silver observation columns "
-    "joined to silver_series by series_id, including series_id, period_start, "
-    "period_end, value, unit and scale. Expressions, fabricated metadata and "
+    "Unsupported projection provenance: select direct silver_observations columns "
+    "series_id, period_start, period_end and value (optionally direct silver_series "
+    "columns joined by series_id). Expressions, fabricated metadata and "
     "ambiguous identities cannot establish a measurement"
 )
 
@@ -88,6 +91,11 @@ def _column(expression: dict[str, Any], sources: dict[str, str]) -> tuple[str, s
 
 
 def _sources(node: dict[str, Any]) -> dict[str, str] | None:
+    single = _base_table(node)
+    if single is not None:
+        # Observations alone carry the identity; their declaration is read back
+        # from silver_series below, so no join is needed to state it.
+        return dict((single,)) if single[1] == "silver_observations" else None
     if (
         node.get("type") != "JOIN"
         or node.get("join_type") != "INNER"

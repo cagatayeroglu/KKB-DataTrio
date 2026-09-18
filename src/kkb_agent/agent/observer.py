@@ -28,10 +28,12 @@ from typing import Final
 
 from pydantic import JsonValue
 
-MAX_EVENTS: Final = 400
-MAX_DETAIL_CHARS: Final = 12_000
-MAX_ATTRIBUTE_CHARS: Final = 600
-MAX_ATTRIBUTES: Final = 24
+#: Safety ceilings, not summaries: a development trace records every prompt, model
+#: output and tool return in full, and only a pathological turn reaches these.
+MAX_EVENTS: Final = 5_000
+MAX_DETAIL_CHARS: Final = 2_000_000
+MAX_ATTRIBUTE_CHARS: Final = 4_000
+MAX_ATTRIBUTES: Final = 64
 #: Stages a reader can filter by; each is a phase of one turn.
 STAGES: Final = (
     "request",

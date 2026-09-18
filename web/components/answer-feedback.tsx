@@ -34,6 +34,7 @@ export function AnswerFeedback({
   const [reasons, setReasons] = useState<FeedbackReason[]>(
     saved?.reasons ?? [],
   );
+  const [score, setScore] = useState<number | null>(saved?.score ?? null);
   const [busy, setBusy] = useState(false);
   const [issue, setIssue] = useState("");
 
@@ -48,6 +49,7 @@ export function AnswerFeedback({
           ? { comment: comment.trim().slice(0, 2000) }
           : {}),
         ...(withWords && reasons.length ? { reasons } : {}),
+        ...(withWords && score !== null ? { score } : {}),
       });
       onSaved(stored);
       if (!withWords && rating === "down") setOpen(true);
@@ -107,6 +109,35 @@ export function AnswerFeedback({
       {issue && <span className="notice">{issue}</span>}
       {open && (
         <div className="feedback-form">
+          <div
+            className="feedback-score"
+            role="radiogroup"
+            aria-label="Cevabın işe yararlığı, 1-5"
+          >
+            <span>Puan</span>
+            {[1, 2, 3, 4, 5].map((value) => (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-label={`${value} puan`}
+                aria-checked={score === value}
+                className={score === value ? "chosen" : ""}
+                title={
+                  value === 1
+                    ? "Hiç işe yaramadı"
+                    : value === 5
+                      ? "Tam olarak işe yaradı"
+                      : undefined
+                }
+                onClick={() =>
+                  setScore((current) => (current === value ? null : value))
+                }
+              >
+                {value}
+              </button>
+            ))}
+          </div>
           <div className="feedback-reasons">
             {(Object.keys(reasonLabels) as FeedbackReason[]).map((reason) => (
               <button

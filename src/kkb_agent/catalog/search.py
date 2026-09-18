@@ -14,7 +14,7 @@ from pydantic import Field, StrictBool, StrictInt, StrictStr, field_validator
 from kkb_agent.catalog.mappings import Concept, ReviewedSeries, ReviewedSnapshot
 from kkb_agent.catalog.normalization import normalize_search_text
 from kkb_agent.catalog.ranking import rerank_by_reviewed_intent
-from kkb_agent.catalog.records import CatalogStatus
+from kkb_agent.catalog.records import MAX_CATALOG_CONCEPTS, MAX_CATALOG_SERIES, CatalogStatus
 from kkb_agent.core import Frequency
 from kkb_agent.core.models import ContractModel
 
@@ -65,11 +65,11 @@ class CatalogCandidate(ContractModel):
 class CatalogSearchOutput(ContractModel):
     status: SearchStatus
     candidates: tuple[CatalogCandidate, ...] = Field(default=(), max_length=10)
-    concepts: tuple[ConceptMatch, ...] = Field(default=(), max_length=60)
-    total_candidates: int = Field(ge=0, le=40)
+    concepts: tuple[ConceptMatch, ...] = Field(default=(), max_length=MAX_CATALOG_CONCEPTS)
+    total_candidates: int = Field(ge=0, le=MAX_CATALOG_SERIES)
     truncated: bool
     clarification_required: bool
-    excluded_archived_count: int = Field(ge=0, le=40)
+    excluded_archived_count: int = Field(ge=0, le=MAX_CATALOG_SERIES)
     snapshot_version: str
     snapshot_sha256: str
     retrieval_version: Literal["m13-04-lexical-v1", "m13-05-combined-v1"] = "m13-04-lexical-v1"

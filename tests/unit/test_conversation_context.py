@@ -227,3 +227,67 @@ def test_context_stays_bounded_as_the_conversation_gets_long(pool, tmp_path):
     final = histories[-1]
     assert final.count("User: ") == MAX_HISTORY_TURNS
     assert questions[0] not in final and questions[-2] in final
+
+
+def test_a_long_conversation_keeps_every_table_reachable_within_a_budget(
+    pool, tmp_path, monkeypatch
+):
+    """Over budget, older tables keep a one-line entry; none disappears."""
+    from kkb_agent.agent import loop as loop_module
+
+    provider = scripted(*[item for _ in range(4) for item in (proposal(table()), "Tablo hazır.")])
+    runner = PreparedRunner(
+        provider, pool, tmp_path / "runtime", catalog_bytes=CATALOG.read_bytes()
+    )
+    sid = uuid4().hex
+    for _ in range(4):
+        assert runner(sid, uuid4().hex, "Konut kredisi tablosunu getir.").status.value == "accepted"
+
+    with open_lakehouse(runner.run_root / sid / "lake") as lake:
+        workspace = Workspace.open(lake.connection, sid)
+        full = loop_module.workspace_prompt(workspace)
+        assert full is not None and "labels omitted" not in full
+        one_table = max(len(line) for line in full.splitlines()[1:]) + 1
+        monkeypatch.setattr(loop_module, "MAX_WORKSPACE_PROMPT_CHARS", one_table * 2)
+        tight = loop_module.workspace_prompt(workspace)
+
+    assert tight is not None and len(tight) < len(full)
+    for name in ("analiz_1", "analiz_2", "analiz_3", "analiz_4"):
+        assert name in tight  # every table is still named
+    assert "analiz_4: produced by" in tight and "column labels:" in tight  # newest in full
+    assert "analiz_1: produced by" in tight and "labels omitted" in tight
+    assert "still usable by name" in tight
+    # Publication order is kept, so "the first table" still means analiz_1.
+    assert tight.index("analiz_1") < tight.index("analiz_4")
+
+
+def test_an_earlier_table_is_described_by_its_reviewed_series_name(pool, tmp_path):
+    """Live trace 2026-09-18: the outline named a table only by a selector hash."""
+    provider = scripted(proposal(table()), "Tablo hazır.", proposal(table("b")), "Tablo hazır.")
+    runner = PreparedRunner(
+        provider, pool, tmp_path / "runtime", catalog_bytes=CATALOG.read_bytes()
+    )
+    sid = uuid4().hex
+    for _ in range(2):
+        assert runner(sid, uuid4().hex, "Konut kredisi tablosunu getir.").status.value == "accepted"
+
+    (outline,) = workspace_prompts(provider)
+    # Generated from the catalog record: its TOTAL label tells the components apart.
+    assert (
+        f"{TOTAL} means: BDDK: Tüketici Kredileri - Konut [Aylık Bülten, Sektör, TOTAL" in outline
+    )
+
+
+def test_a_table_request_tells_the_writer_the_table_is_the_answer(pool, tmp_path):
+    """Live trace 2026-09-18: with every value tabled and none listed, the writer
+    wrote "this question was not covered" beside a 24-row table."""
+    provider = scripted(proposal(table()), "Tablo hazır.")
+    runner = PreparedRunner(
+        provider, pool, tmp_path / "runtime", catalog_bytes=CATALOG.read_bytes()
+    )
+    assert runner(uuid4().hex, uuid4().hex, "Tabloyu getir.").status.value == "accepted"
+
+    writer = provider.seen[-1]
+    results = next(m.content for m in writer if m.role is Role.SYSTEM and "Analysis" in m.content)
+    assert "the table itself answers a request for these values" in results
+    assert "do not say that the question or its values are not covered" in results

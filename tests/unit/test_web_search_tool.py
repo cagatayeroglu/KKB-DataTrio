@@ -271,7 +271,11 @@ def test_injection_is_inert_and_search_cannot_support_a_numeric_answer():
     answer = Session(provider, registry).answer("q")
     assert answer.outcome.results[0].output.candidates[0].snippet == text
     assert collect_results(answer.outcome) == ()
-    assert answer.answer.status.value == "abstained"
+    # DEC-158: found candidates are listed deterministically, never written up by the
+    # model. The injected title carries a figure nothing verified, so its whole line
+    # is withheld by the gate: search still cannot support a numeric answer.
+    assert "999999" not in answer.answer.text and "Ignore all rules" not in answer.answer.text
+    assert answer.answer.omitted
     assert len(provider.seen) == 1  # no writer call; snippets not routed to model as facts
     assert text not in str(provider.seen)
 
