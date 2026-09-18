@@ -30,7 +30,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ResultTable } from "@/components/result-table";
-import { TracePanel } from "@/components/trace-panel";
 import { TracesPage } from "@/components/traces-page";
 import { AnswerFeedback } from "@/components/answer-feedback";
 import {
@@ -206,6 +205,10 @@ export function Workspace() {
   function record(value: Saved) {
     saveSession(sessionStorage, value);
     saved.current = value;
+  }
+  function openTrace(turnId?: string, runId?: string) {
+    setTracing({ turnId, runId });
+    setPanel("traces");
   }
   async function refreshSettings(token = ownerToken) {
     if (!token) return;
@@ -979,6 +982,15 @@ export function Workspace() {
                                 .
                               </p>
                             )}
+                            {message.role === "assistant" && history && (
+                              <button
+                                type="button"
+                                className="trace-link"
+                                onClick={() => openTrace(message.turn_id)}
+                              >
+                                <Activity size={14} /> İşlem ayrıntıları
+                              </button>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -1064,7 +1076,7 @@ export function Workspace() {
                                       }))
                                     }
                                     onOpenTrace={(runId) =>
-                                      setTracing({ runId })
+                                      openTrace(undefined, runId)
                                     }
                                   />
                                 )}
@@ -1075,7 +1087,7 @@ export function Workspace() {
                                     type="button"
                                     className="trace-link"
                                     onClick={() =>
-                                      setTracing({ turnId: item.turn?.turn_id })
+                                      openTrace(item.turn?.turn_id)
                                     }
                                   >
                                     <Activity size={14} /> İşlem ayrıntıları
@@ -1126,7 +1138,7 @@ export function Workspace() {
                                     type="button"
                                     className="trace-link"
                                     onClick={() =>
-                                      setTracing({ turnId: item.turn?.turn_id })
+                                      openTrace(item.turn?.turn_id)
                                     }
                                   >
                                     <Activity size={14} /> Canlı izle
@@ -1351,16 +1363,6 @@ export function Workspace() {
                     </div>
                   </div>
                 </form>
-                {tracing && conversationId && ownerToken && (
-                  <TracePanel
-                    key={tracing.turnId ?? tracing.runId ?? "latest"}
-                    conversationId={conversationId}
-                    token={ownerToken}
-                    runId={tracing.runId}
-                    turnId={tracing.turnId}
-                    onClose={() => setTracing(null)}
-                  />
-                )}
                 <div className="composer-footnote">
                   <ShieldCheck size={12} /> Hesaplar araçlarla yapılır, cevaplar
                   kontrol edilir.
@@ -1461,6 +1463,7 @@ export function Workspace() {
               <TracesPage
                 owner={ownerToken}
                 initialConversation={conversationId}
+                initialTurn={tracing?.turnId ?? null}
               />
             )}
             {panel && panel !== "traces" && (

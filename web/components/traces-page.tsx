@@ -359,9 +359,12 @@ function RunView({
 export function TracesPage({
   owner,
   initialConversation,
+  initialTurn,
 }: {
   owner: string;
   initialConversation?: string | null;
+  /** Open this turn's own run: the studio's "İşlem ayrıntıları" and "Canlı izle". */
+  initialTurn?: string | null;
 }) {
   const [archived, setArchived] = useState(false);
   const [search, setSearch] = useState("");
@@ -416,7 +419,13 @@ export function TracesPage({
         ]);
         if (cancelled) return;
         setRuns(listed.runs);
-        setRun(listed.runs[0]?.run_id ?? null);
+        setRun(
+          (initialTurn
+            ? listed.runs.find((item) => item.turn_id === initialTurn)?.run_id
+            : undefined) ??
+            listed.runs[0]?.run_id ??
+            null,
+        );
         setAnswers(
           Object.fromEntries(
             detail.messages
@@ -433,7 +442,7 @@ export function TracesPage({
     return () => {
       cancelled = true;
     };
-  }, [chosen, owner]);
+  }, [chosen, owner, initialTurn]);
 
   const current = runs.find((item) => item.run_id === run);
   return (
