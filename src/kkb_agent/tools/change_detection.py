@@ -44,6 +44,7 @@ from kkb_agent.core import (
     ResultKind,
     ResultStatus,
     Scale,
+    SeriesId,
     StockFlow,
     TransformationRecord,
 )
@@ -88,7 +89,9 @@ class SeriesChangeArguments(BaseModel):
             "window"
         )
     )
-    series_id: str = Field(min_length=1, max_length=200, description="compare series or target")
+    series_id: SeriesId = Field(
+        min_length=1, max_length=200, description="compare series or target"
+    )
     start: date = Field(
         description=(
             "compare: period end of the first observation, exactly as published. "
@@ -101,7 +104,7 @@ class SeriesChangeArguments(BaseModel):
             "co_movement: last day of the window"
         )
     )
-    driver_series_id: str | None = Field(
+    driver_series_id: SeriesId | None = Field(
         default=None,
         min_length=1,
         max_length=200,

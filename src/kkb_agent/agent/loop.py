@@ -26,9 +26,10 @@ from kkb_agent.agent.discovery import (
     CONTINUATION_TOOLS,
     DISCOVERY_INSTRUCTIONS,
     REQUIRED_DISCOVERY_BASE,
-    REQUIRED_DISCOVERY_INSTRUCTIONS,
     WEB_ADDRESS_INSTRUCTIONS,
     catalog_feedback,
+    proven_identities,
+    required_discovery_instructions,
     validate_discovery_phase,
 )
 from kkb_agent.agent.executor import (
@@ -552,6 +553,14 @@ class Session:
     catalog_continuation: bool = False
     selection: SelectedTable | None = None
     require_series_discovery: bool = False
+    #: Identities this conversation's earlier catalog searches returned. Searching
+    #: for one again buys no authority, so a plan naming only these may skip the
+    #: discovery phase. Only the catalog fills this; never the planner or a source.
+    proven_series: frozenset[str] = frozenset()
+    #: Identities the catalog returned during *this* turn, for the caller to carry
+    #: into the next one. Filled even when the turn later fails: the catalog still
+    #: vouched for them.
+    newly_proven: set[str] = field(default_factory=set, repr=False)
     repair_period_wording: bool = False
     repair_unmatched_numbers: bool = False
     deterministic_presentation: bool = True
@@ -607,7 +616,12 @@ class Session:
                 )
             )
             if self.require_series_discovery and discovery is None:
-                messages.append(Message(Role.SYSTEM, REQUIRED_DISCOVERY_INSTRUCTIONS))
+                messages.append(
+                    Message(
+                        Role.SYSTEM,
+                        required_discovery_instructions(self.proven_series, self.series_names),
+                    )
+                )
                 if "web_url" in self.registry:
                     messages.append(Message(Role.SYSTEM, WEB_ADDRESS_INSTRUCTIONS))
         published = (
@@ -680,6 +694,7 @@ class Session:
                         continuation=discovery is not None,
                         used_ids=used_ids,
                         require_series_discovery=self.require_series_discovery,
+                        proven_series=self.proven_series,
                     )
             except PlanRejected as error:
                 reason = str(error)
@@ -802,6 +817,7 @@ class Session:
                 feedback = catalog_feedback(outcome)
             except (ValueError, TypeError) as error:
                 raise PlanningFailed("Catalog discovery output failed validation") from error
+            self.newly_proven |= proven_identities(outcome)
             continuation = self._plan(
                 question,
                 workspace,

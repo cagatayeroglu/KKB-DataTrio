@@ -63,6 +63,7 @@ from kkb_agent.core import (
     ResultKind,
     ResultStatus,
     ResultValue,
+    SeriesId,
     SourceRef,
     TransformationRecord,
 )
@@ -112,7 +113,7 @@ class DeflateArguments(BaseModel):
         max_length=400,
         description="The column's exact label in that result",
     )
-    index_series_id: str = Field(
+    index_series_id: SeriesId = Field(
         min_length=1, max_length=200, description="A registered monthly price index series"
     )
     reference_period: date = Field(
@@ -194,7 +195,7 @@ class AddSeriesArguments(BaseModel):
         pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
         description="Name of a published result from an earlier turn; its rows stay unchanged",
     )
-    series_id: str = Field(
+    series_id: SeriesId = Field(
         min_length=1, max_length=200, description="Registered monthly series to add as a column"
     )
 
