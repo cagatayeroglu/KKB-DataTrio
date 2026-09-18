@@ -212,7 +212,10 @@ class SourceConnection(HTTPConnection):
 
         target = self._checked_target(
             validate_redirect_target(
-                self.url.get_secret_value(), location, max_url_chars=self._limits.max_url_chars
+                self.url.get_secret_value(),
+                location,
+                max_url_chars=self._limits.max_url_chars,
+                stay_within_origin=self._request.stay_within_origin,
             )
         )
         return SourceConnection(
@@ -220,6 +223,8 @@ class SourceConnection(HTTPConnection):
                 source_ref=self._request.source_ref,
                 url=target.url,
                 accepted_media_types=self._request.accepted_media_types,
+                # A delegated fetch stays bound for every further hop.
+                stay_within_origin=self._request.stay_within_origin,
             ),
             limits=self._limits,
         )

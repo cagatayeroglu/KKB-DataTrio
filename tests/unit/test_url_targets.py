@@ -297,3 +297,22 @@ def test_policy_reasons_survive_fetch_serialization_without_sensitive_locators()
     for diagnostic in (repr(failure), failure.model_dump_json(), repr(target)):
         for sensitive in ("synthetic-secret", "example.test", "private-path", "private-query"):
             assert sensitive not in diagnostic
+
+
+def test_a_delegated_redirect_may_not_leave_the_origin_that_authorized_it() -> None:
+    """DEC-150 amendment: a page's link/script/endpoint fetch stays in its origin."""
+    # Not delegated: a person's own address keeps following public redirects.
+    assert isinstance(
+        validate_redirect_target("https://example.test/a", "https://other.test/b"), URLTarget
+    )
+    for location in ("https://other.test/b", "https://cdn.example.test/b", "http://example.test/b"):
+        assert validate_redirect_target(
+            "https://example.test/a", location, stay_within_origin=True
+        ) in (
+            TargetRejection(TargetReason.CROSS_ORIGIN),
+            TargetRejection(TargetReason.HTTPS_DOWNGRADE),
+        )
+    # Inside the same origin a redirect is still allowed, and still revalidated.
+    same = validate_redirect_target("https://example.test/a", "/b?x=1", stay_within_origin=True)
+    assert isinstance(same, URLTarget)
+    assert same.url.get_secret_value() == "https://example.test/b?x=1"

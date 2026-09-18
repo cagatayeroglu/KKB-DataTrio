@@ -150,3 +150,40 @@ def test_duplicate_or_unreadable_days_refuse_the_table():
     ).encode()
     with pytest.raises(ColumnRefused):
         read_daily_table([grid(doubled)], "d", ["v"], rule="last", as_of=date(2026, 9, 1))
+
+
+def test_a_script_or_endpoint_on_another_subdomain_is_never_read():
+    """DEC-150 amendment: the page delegates to its own origin, not to its domain."""
+    page = (
+        b'<html><head><script src="https://cdn.borsa.example.tr/app.js"></script>'
+        b'<script src="/file/js/app.js?v=1"></script></head><body></body></html>'
+    )
+    base = "https://www.borsa.example.tr"
+    served = site()
+    served.pages[PAGE_URL] = (page, "text/html")
+    served.pages["https://cdn.borsa.example.tr/app.js"] = (SCRIPT, "application/javascript")
+    cache = TurnFetchCache(served)
+
+    outline = address_outline((PAGE_URL,), cache)
+
+    assert outline is not None and "endpoint_1" in outline
+    assert "cdn.borsa.example.tr" not in " ".join(served.requests)
+    # Its own script is read, and only same-origin endpoint addresses are fetched.
+    assert f"{base}/file/js/app.js?v=1" in served.requests
+
+
+def test_every_delegated_fetch_is_bound_to_the_page_origin():
+    """A script or endpoint request may not be redirected out of the origin."""
+    delegated: list[tuple[str, bool]] = []
+
+    class Recording(Site):
+        def __call__(self, request):
+            delegated.append((request.url.get_secret_value(), request.stay_within_origin))
+            return super().__call__(request)
+
+    served = Recording(site().pages)
+    address_outline((PAGE_URL,), TurnFetchCache(served))
+
+    bound = dict(delegated)
+    assert bound[PAGE_URL] is False  # the address a person wrote is not delegated
+    assert all(value for url, value in bound.items() if url != PAGE_URL)
