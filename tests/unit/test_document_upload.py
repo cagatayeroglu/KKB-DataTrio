@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import stat
 from uuid import uuid4
 
@@ -78,7 +79,10 @@ def test_admitted_upload_is_stored_by_reference_without_its_name(tmp_path):
         }
     (stored,) = (runner.run_root / sid / "documents").iterdir()
     assert stored.name == f"{body['document_ref']}.csv" and stored.read_bytes() == CSV
-    assert stat.S_IMODE(stored.stat().st_mode) == 0o600
+    if os.name != "nt":
+        # The store asks for owner-only bytes; NTFS carries no POSIX mode, so the
+        # rule is asserted where the operating system can keep it.
+        assert stat.S_IMODE(stored.stat().st_mode) == 0o600
 
 
 def test_without_the_switch_there_is_no_upload(tmp_path):
