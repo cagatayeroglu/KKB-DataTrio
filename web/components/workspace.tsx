@@ -1522,6 +1522,7 @@ export function Workspace() {
                       <KnowledgePanel
                         owner={ownerToken}
                         documents={chatDocuments}
+                        pool={dataset}
                       />
                     ) : (
                       <>

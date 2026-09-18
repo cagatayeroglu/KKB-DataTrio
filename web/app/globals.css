@@ -2625,3 +2625,13 @@ svg {
   font-size: 12px;
   line-height: 1.6;
 }
+.series-health {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.series-health.stale {
+  color: #9a6a2f;
+}

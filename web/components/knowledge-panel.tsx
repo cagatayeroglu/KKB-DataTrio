@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Archive,
   ArchiveRestore,
+  Download,
   History,
   LoaderCircle,
   Pencil,
@@ -24,6 +25,7 @@ import {
   setDatasetArchived,
 } from "@/lib/client";
 import type {
+  Dataset,
   DatasetDetail,
   DatasetRequest,
   KnowledgeList,
@@ -57,6 +59,49 @@ const frequencies: Record<string, string> = {
   unknown: "belirsiz",
 };
 
+const monthNames = [
+  "Ocak",
+  "Şubat",
+  "Mart",
+  "Nisan",
+  "Mayıs",
+  "Haziran",
+  "Temmuz",
+  "Ağustos",
+  "Eylül",
+  "Ekim",
+  "Kasım",
+  "Aralık",
+];
+
+function monthOf(value: string) {
+  const [year, month] = value.split("-");
+  return `${monthNames[Number(month) - 1] ?? month} ${year}`;
+}
+
+/** Coverage and staleness, from the record or the pool; nothing is inferred. */
+function health(item: KnowledgeSeries, pool?: Dataset | null) {
+  const stored = pool?.series.find((one) => one.series_id === item.series_id);
+  const start = item.coverage_start ?? stored?.first_period ?? null;
+  const end = item.coverage_end ?? stored?.last_period ?? null;
+  const observations =
+    item.observations ?? stored?.nonnull_observations ?? null;
+  if (!end) return null;
+  const last = new Date(end);
+  const now = new Date();
+  const months =
+    (now.getFullYear() - last.getFullYear()) * 12 +
+    (now.getMonth() - last.getMonth());
+  return {
+    last: monthOf(end),
+    first: start ? monthOf(start) : null,
+    months,
+    observations,
+    // BDDK and EVDS publish two to three months late; that is not staleness.
+    stale: months >= 6,
+  };
+}
+
 function where(item: KnowledgeSeries) {
   if (item.status === "archived") return "Arşivde";
   if (item.origin === "user") return "Kullanıcı beyanı";
@@ -82,9 +127,12 @@ export type ChatDocument = { sessionId: string; ref: string; label: string };
 export function KnowledgePanel({
   owner,
   documents,
+  pool,
 }: {
   owner: string;
   documents: ChatDocument[];
+  /** The prepared pool's own coverage, which the catalogue record does not carry. */
+  pool?: Dataset | null;
 }) {
   const [listing, setListing] = useState<KnowledgeList | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
@@ -94,6 +142,18 @@ export function KnowledgePanel({
   const [issue, setIssue] = useState("");
   const [busy, setBusy] = useState(false);
 
+  /** The catalogue as this browser sees it, saved as it is read: no server call. */
+  function exportListing() {
+    if (!listing) return;
+    const blob = new Blob([JSON.stringify(listing, null, 2)], {
+      type: "application/json",
+    });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `bilgi-tabani-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  }
   async function refresh() {
     try {
       setListing(await listKnowledge(owner));
@@ -172,6 +232,14 @@ export function KnowledgePanel({
             onChange={(e) => setQuery(e.target.value)}
           />
         </label>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!listing}
+          onClick={() => exportListing()}
+        >
+          <Download size={14} /> Dışa aktar
+        </Button>
         <Button size="sm" onClick={() => setEditing("new")} disabled={busy}>
           <Plus size={14} /> Veri seti ekle
         </Button>
@@ -218,6 +286,22 @@ export function KnowledgePanel({
               </span>
               <h3>{item.title}</h3>
               <small>{where(item)}</small>
+              {(() => {
+                const state = health(item, pool);
+                if (!state) return null;
+                return (
+                  <span
+                    className={`series-health ${state.stale ? "stale" : ""}`}
+                  >
+                    {state.first ? `${state.first} – ` : ""}
+                    {state.last}
+                    {state.observations !== null
+                      ? ` · ${state.observations} gözlem`
+                      : ""}
+                    {state.months >= 4 ? ` · ${state.months} ay geride` : ""}
+                  </span>
+                );
+              })()}
             </button>
             {open === item.series_id && (
               <SeriesDetail
