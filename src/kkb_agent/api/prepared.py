@@ -62,7 +62,7 @@ from kkb_agent.lakehouse.gold import GoldError, gold_from_result, persist_gold
 from kkb_agent.lakehouse.lineage import Lineage, LineageError
 from kkb_agent.lakehouse.semantics import SemanticsError
 from kkb_agent.lakehouse.store import DATABASE_NAME, SANDBOX, Lakehouse
-from kkb_agent.llm.provider import LLMProvider
+from kkb_agent.llm.provider import LLMProvider, ProviderError
 from kkb_agent.pdf_ocr import OcrProvider
 from kkb_agent.tools import (
     make_anomaly_tool,
@@ -969,7 +969,14 @@ class PreparedRunner:
                             run_id,
                             status="cancelled" if cancelled else "failed",
                             duration_ms=max(0, round((time.monotonic() - started) * 1000)),
-                            error=type(failure).__name__,
+                            # A provider failure keeps its curated category, status
+                            # included ("Kloudeks rejected the request (400)"); every
+                            # other failure is named by type only, never by text.
+                            error=(
+                                f"{type(failure).__name__}: {failure}"
+                                if isinstance(failure, ProviderError)
+                                else type(failure).__name__
+                            ),
                             events=tracer.events,
                         )
                     raise

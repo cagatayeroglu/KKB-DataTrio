@@ -161,6 +161,34 @@ class TestTheKeyGoesToOneDestination:
             {"role": "user", "content": "düzelt"},
         ]
 
+    def test_every_system_turn_is_hoisted_into_one_leading_message(self):
+        # 2026-09-19 live: a PDF-attached turn sent its document note as a user
+        # turn and the reply instructions as a system turn after it; the served
+        # model answered 400. Every system turn now travels first, joined in
+        # order, and only user/assistant turns follow, in theirs.
+        server = Server(chat("ok"))
+        provider(server).complete(
+            [
+                Message(Role.SYSTEM, "talimat"),
+                Message(Role.USER, "belge özeti"),
+                Message(Role.SYSTEM, "cevaplama"),
+                Message(Role.USER, PROMPT),
+            ]
+        )
+        (body,) = server.bodies()
+        roles = [item["role"] for item in body["messages"]]
+        assert roles == ["system", "user", "user"]
+        assert body["messages"][0]["content"] == "talimat" + chr(10) * 2 + "cevaplama"
+        assert [item["content"] for item in body["messages"][1:]] == ["belge özeti", PROMPT]
+
+    def test_a_rejected_request_keeps_its_status_in_the_safe_category(self):
+        # The run record shows "ProviderError: Kloudeks rejected the request (400)"
+        # rather than a bare type name, and never the provider's body.
+        server = Server(httpx.Response(400, json={"error": {"message": "PRIVATE detail"}}))
+        with pytest.raises(ProviderError) as refused:
+            ask(provider(server))
+        assert "(400)" in str(refused.value) and "PRIVATE" not in str(refused.value)
+
     def test_a_turn_without_system_messages_is_sent_as_it_is(self):
         server = Server(chat("ok"))
         ask(provider(server))

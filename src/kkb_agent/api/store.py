@@ -454,7 +454,7 @@ class ConversationStore:
     ) -> list[Conversation]:
         query = (
             "SELECT * FROM conversations WHERE owner_id = ? AND archived = ? "
-            "ORDER BY updated_at DESC LIMIT ?"
+            "ORDER BY updated_at DESC, rowid DESC LIMIT ?"
         )
         parameters: list[object] = [owner_id, int(archived), MAX_LISTED]
         if search:
