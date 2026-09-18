@@ -233,6 +233,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 official_acquisition=acquisition_enabled,
                 knowledge=True,
                 web_search=search is not None,
+                web_url=args.enable_web_url,
             )
             knowledge_service = KnowledgeService(
                 knowledge,

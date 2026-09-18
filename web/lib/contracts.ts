@@ -421,6 +421,17 @@ export type RunDetail = z.infer<typeof runDetailSchema>;
 export type TraceStep = z.infer<typeof traceStepSchema>;
 export type TraceStepFull = z.infer<typeof traceStepFullSchema>;
 
+export const runtimeSettingsSchema = z
+  .object({
+    api_version: z.literal(1),
+    available: z.array(z.string().max(60)).max(16),
+    disabled: z.array(z.string().max(60)).max(16),
+    history_turns: z.number().int().min(0).max(64),
+    max_history_turns: z.number().int().min(0).max(64),
+  })
+  .strict();
+export type RuntimeSettings = z.infer<typeof runtimeSettingsSchema>;
+
 export const feedbackReasons = [
   "accuracy",
   "incomplete",

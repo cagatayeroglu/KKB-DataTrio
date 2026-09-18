@@ -37,11 +37,13 @@ from kkb_agent.api.contracts import (
     Reference,
     RunDetail,
     RunList,
+    RuntimeSettings,
     SeriesIdentity,
     SeriesNoteHistory,
     SeriesNoteRequest,
     SeriesValues,
     SessionCreated,
+    SettingsUpdate,
     Slug,
     TraceStepFull,
     Turn,
@@ -349,6 +351,15 @@ def create_app(
         if knowledge is None:
             raise ServiceError("unavailable", 503)
         return knowledge
+
+    @app.get("/v1/settings", response_model=RuntimeSettings)
+    def settings(owner: OwnerToken) -> RuntimeSettings:
+        return service.settings(owner)
+
+    @app.patch("/v1/settings", response_model=RuntimeSettings)
+    def update_settings(owner: OwnerToken, body: SettingsUpdate) -> RuntimeSettings:
+        # A browser may narrow its own runtime; widening is not expressible here.
+        return service.update_settings(owner, body)
 
     @app.get("/v1/knowledge", response_model=KnowledgeList)
     def knowledge_list(owner: OwnerToken) -> KnowledgeList:

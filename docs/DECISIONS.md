@@ -732,6 +732,14 @@ Confirmed team priority refinement, explicitly requested by Çağatay after M3-0
 - Rejected: writing comparison answers in code instead of the writer call (reverted — the competition's model must do the work); a hand-kept name list for the workspace outline.
 - Tests: `test_kloudeks_provider.py` usage/reasoning and thinking switches, `test_series_inspection.py` omitted-declaration and observations-only cases, `test_conversation_context.py` catalog-named outline, `test_knowledge_base.py` 60 datasets over the production catalog, web `proxy.test.ts` trace ceiling and step route.
 
+### DEC-162 — A browser narrows its own runtime; only the operator widens it
+
+- Status: CONFIRMED team decision, 2026-09-18, by Arda (implemented with Claude Code). The settings page was read-only and said so.
+- Decision: `GET`/`PATCH /v1/settings`, keyed by the browser's owner key, expose two kinds of choice. (1) Restrictable capabilities — `document_upload`, `document_ocr`, `official_acquisition`, `web_search`, `web_url` — may be switched **off** for that owner's own turns and switched back on. Naming a capability the operator did not enable is refused (422), so a browser can never widen what this deployment may do; that stays the operator's command line. (2) `history_turns`, the number of earlier turns the planner is shown, between zero and the built-in ceiling. Choices are stored per owner in the conversation store and applied per turn: an upload is refused at admission, and the turn's registry leaves out the tools the owner switched off, skips acquisition and truncates the history block. A turn carries the owner's choices only when they made one, so a runtime with nothing to apply keeps its existing call.
+- Reason: The operator owns the deployment's authority and the person owns their own session. Turning a capability off is always safe; turning one on is the operator's decision, and expressing it in the browser would make the browser part of the security boundary.
+- Rejected: a settings page that documents flags nobody can change; browser-set model or verification switches, which would let a session weaken correctness; storing settings in the browser, where the server could not apply them.
+- Tests: `test_settings_api.py` — the page lists only what this deployment offers, a capability switches off and back on and survives a reread, a capability the operator did not enable is refused, history is bounded by the ceiling, a switched-off upload is refused for that owner only, and a turn carries settings only when the owner made a choice.
+
 ## Proposed decisions
 
 Candidates below are not approved selections. Compare options in a bounded task; do not silently promote a proposal to CONFIRMED.

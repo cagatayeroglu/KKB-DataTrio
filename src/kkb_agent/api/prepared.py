@@ -9,7 +9,7 @@ import os
 import re
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -36,7 +36,7 @@ from kkb_agent.api.contracts import (
 )
 from kkb_agent.api.projection import project_answer, safe_text
 from kkb_agent.api.proof import build_proof
-from kkb_agent.api.service import SelectedResult, ServiceError
+from kkb_agent.api.service import SelectedResult, ServiceError, TurnSettings
 from kkb_agent.api.store import DEFAULT_TITLE, ConversationStore
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
 from kkb_agent.catalog.mappings import (
@@ -351,6 +351,13 @@ def _copy(root: Path, destination: Path, expected: dict[str, tuple[int, str]]) -
         raise PreparedError("prepared_pool_changed")
 
 
+def _recent(history: Sequence[tuple[str, str]], turns: int | None) -> tuple[tuple[str, str], ...]:
+    """The earlier turns a planner is shown: the owner's count, or every kept turn."""
+    if turns is None:
+        return tuple(history)
+    return tuple(history)[-turns:] if turns > 0 else ()
+
+
 class PreparedRunner:
     """Only the service's one worker invokes this runner; no caller paths/settings."""
 
@@ -442,6 +449,7 @@ class PreparedRunner:
         *,
         is_continuation: bool | None = None,
         document_ref: str | None = None,
+        settings: TurnSettings | None = None,
     ) -> Answer:
         return self._run(
             session_id,
@@ -449,6 +457,7 @@ class PreparedRunner:
             question,
             is_continuation=is_continuation,
             document_ref=document_ref,
+            settings=settings,
         )
 
     def _restore(self, session_id: str) -> None:
@@ -642,6 +651,7 @@ class PreparedRunner:
         *,
         is_continuation: bool | None = None,
         document_ref: str | None = None,
+        settings: TurnSettings | None = None,
     ) -> Answer:
         """Service worker entry; resolve and execute under the same runner lock."""
         try:
@@ -652,6 +662,7 @@ class PreparedRunner:
                 selection,
                 is_continuation=is_continuation,
                 document_ref=document_ref,
+                settings=settings,
             )
         except (SelectionError, WorkspaceError):
             raise ServiceError("invalid_result", 422) from None
@@ -664,7 +675,10 @@ class PreparedRunner:
         selection: SelectedResult | None = None,
         is_continuation: bool | None = None,
         document_ref: str | None = None,
+        settings: TurnSettings | None = None,
     ) -> Answer:
+        # The owner's own narrowing, applied to this turn only; never a widening.
+        chosen = settings or TurnSettings()
         if not _IDENTIFIER.fullmatch(session_id) or not _IDENTIFIER.fullmatch(turn_id):
             raise PreparedError("invalid_runtime_identity")
         if not self._lock.acquire(blocking=False):
@@ -745,7 +759,9 @@ class PreparedRunner:
                 )
                 # One page read per written address; tools reuse exactly these bytes.
                 turn_fetch = (
-                    TurnFetchCache(self._web_url_fetch) if self._web_url_fetch is not None else None
+                    TurnFetchCache(self._web_url_fetch)
+                    if self._web_url_fetch is not None and "web_url" not in chosen.disabled
+                    else None
                 )
                 addresses = addresses_in(question)
                 address_note = (
@@ -775,7 +791,7 @@ class PreparedRunner:
                             from_store=item.from_store,
                         ),
                     )
-                    if self._official is not None
+                    if self._official is not None and "official_acquisition" not in chosen.disabled
                     else None
                 )
                 catalog, knowledge_loaded = self._apply_knowledge(lake)
@@ -788,6 +804,7 @@ class PreparedRunner:
                     turn_fetch,
                     acquirer=acquirer,
                     catalog=catalog,
+                    disabled=chosen.disabled,
                 )
                 # One run per turn: what ran, with which context, and for how long.
                 run_id = uuid4().hex
@@ -870,9 +887,10 @@ class PreparedRunner:
                     documents_note=document_note,
                     address_note=address_note,
                     tracer=tracer,
-                    # A clarification merge already restates the original request.
+                    # A clarification merge already restates the original request, and
+                    # the owner may ask for fewer earlier turns than the built-in ceiling.
                     history=(
-                        tuple(self._history.get(session_id, ()))
+                        _recent(self._history.get(session_id, ()), chosen.history_turns)
                         if pending is None or is_cancel or is_new_q
                         else ()
                     ),
@@ -1126,6 +1144,7 @@ class PreparedRunner:
         *,
         acquirer: TurnAcquirer | None = None,
         catalog: ReviewedSnapshot | None = None,
+        disabled: frozenset[str] = frozenset(),
     ) -> ToolRegistry:
         fetch = turn_fetch if turn_fetch is not None else self._web_url_fetch
         catalog = catalog if catalog is not None else self._catalog
@@ -1167,13 +1186,13 @@ class PreparedRunner:
                 inspector=inspector,
                 document_fetch=fetch,
                 attachment=attachment,
-                document_ocr=self._document_ocr,
+                document_ocr=None if "document_ocr" in disabled else self._document_ocr,
                 library=library,
             )
         )
         for make in (make_anomaly_tool, make_causality_tool):
             registry.register(make(connection, lineage=lineage, inspector=inspector))
-        if self._search_backend is not None:
+        if self._search_backend is not None and "web_search" not in disabled:
             registry.register(make_web_search_tool(backend=self._search_backend))
         if self._web_url_fetch is not None or attachment is not None or library:
             # The cell proof lives in this session's own lineage, where the gate
@@ -1183,7 +1202,7 @@ class PreparedRunner:
                     fetch=fetch,
                     attachment=attachment,
                     lineage=lineage,
-                    ocr=self._document_ocr,
+                    ocr=None if "document_ocr" in disabled else self._document_ocr,
                     library=library,
                     endpoints=turn_fetch.endpoints if turn_fetch is not None else None,
                 )

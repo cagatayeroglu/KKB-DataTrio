@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Annotated, Literal, Self
+from typing import Annotated, Final, Literal, Self
 
 from pydantic import AwareDatetime, Field, JsonValue, StringConstraints, model_validator
 
@@ -293,6 +293,38 @@ class Health(ContractModel):
     max_turns_per_session: int = MAX_TURNS
     max_running_turns: Literal[1] = 1
     capabilities: tuple[str, ...] = ("sessions", "questions", "published_values", "turn_events")
+
+
+#: Capabilities a browser may switch **off** for its own turns. It can never switch
+#: one on: the operator decides what this deployment may do at all, and a browser
+#: that could widen that would widen the deployment's authority (DEC-162).
+RESTRICTABLE_CAPABILITIES: Final = (
+    "document_upload",
+    "document_ocr",
+    "official_acquisition",
+    "web_search",
+    "web_url",
+)
+
+
+class RuntimeSettings(ContractModel):
+    """What this deployment can do, and what this browser chose to switch off."""
+
+    api_version: Literal[1] = 1
+    #: Restrictable capabilities the operator actually enabled, in a fixed order.
+    available: Annotated[tuple[str, ...], Field(max_length=16)] = ()
+    #: The subset this browser turned off; never anything outside `available`.
+    disabled: Annotated[tuple[str, ...], Field(max_length=16)] = ()
+    #: Earlier turns of the conversation the planner is shown.
+    history_turns: Annotated[int, Field(strict=True, ge=0, le=64)]
+    max_history_turns: Annotated[int, Field(strict=True, ge=0, le=64)]
+
+
+class SettingsUpdate(ContractModel):
+    """A change to this browser's own settings; absent fields stay as they were."""
+
+    disabled: Annotated[tuple[str, ...], Field(max_length=16)] | None = None
+    history_turns: Annotated[int, Field(strict=True, ge=0, le=64)] | None = None
 
 
 #: The browser-held keys: an owner key and a conversation token share this shape.

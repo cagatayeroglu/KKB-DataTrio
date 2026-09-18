@@ -130,6 +130,7 @@ export async function forward(
   const turns = route.test(name);
   const documents = documentRoute.test(name);
   const cancel = cancelRoute.test(name);
+  const settings = name === "v1/settings";
   const knowledgeList = name === "v1/knowledge";
   const datasetSave = name === "v1/knowledge/datasets";
   const dataset = datasetRoute.test(name);
@@ -137,7 +138,13 @@ export async function forward(
   const notes = notesRoute.test(name);
   const values = valuesRoute.test(name);
   const knowledge =
-    knowledgeList || datasetSave || dataset || datasetStatus || notes || values;
+    knowledgeList ||
+    datasetSave ||
+    dataset ||
+    datasetStatus ||
+    notes ||
+    values ||
+    settings;
   const getTurn = turns && path.length === 5;
   const search = new URL(request.url).search.replace(/^\?/, "");
   if (search && !(list && LIST_QUERY.test(search)))
@@ -148,6 +155,7 @@ export async function forward(
       (publicGet ||
         getTurn ||
         list ||
+        settings ||
         conversation ||
         runs ||
         feedback ||
@@ -168,7 +176,7 @@ export async function forward(
         notes ||
         (turns && path.length === 4))
     ) &&
-    !(request.method === "PATCH" && conversation)
+    !(request.method === "PATCH" && (conversation || settings))
   )
     return error("not_found", 404);
   const headers = new Headers({ Accept: "application/json" });

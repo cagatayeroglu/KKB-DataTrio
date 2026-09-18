@@ -6,7 +6,6 @@ import {
   ArrowUpRight,
   Check,
   ChevronDown,
-  CircleHelp,
   Database,
   ListTree,
   FileText,
@@ -54,6 +53,8 @@ import {
   describeError,
   usableOwner,
   listConversations,
+  readSettings,
+  saveSettings,
   listFeedback,
   loadSession,
   newSession,
@@ -76,6 +77,7 @@ import {
   type Saved,
   type StoredMessage,
   type Turn,
+  type RuntimeSettings,
 } from "@/lib/contracts";
 
 const examples = [
@@ -98,6 +100,40 @@ const examples = [
       "Hazır veri havuzunda konut kredileri ve fiyat endeksleri için hangi seriler var?",
   },
 ];
+//: What the settings page may switch off, in the order the API reports them.
+const capabilityRows = [
+  {
+    name: "document_upload",
+    label: "Belge yükleme",
+    on: "Açık · CSV, Excel, PDF, HTML",
+    absent: "Operatör açmadı",
+  },
+  {
+    name: "document_ocr",
+    label: "Taranmış PDF (OCR)",
+    on: "Açık · tablolar sütun toplamıyla doğrulanır",
+    absent: "OCR modeli tanımlı değil",
+  },
+  {
+    name: "official_acquisition",
+    label: "Resmî kaynaktan veri edinme",
+    on: "Açık · incelenmiş seriler gerektiğinde çekilir",
+    absent: "Operatör açmadı",
+  },
+  {
+    name: "web_search",
+    label: "Web araması",
+    on: "Açık · sonuçlar doğrulanmamış aday listesi",
+    absent: "Arama servisi tanımlı değil",
+  },
+  {
+    name: "web_url",
+    label: "Sorudaki web adresini okuma",
+    on: "Açık · yalnız soruda yazılan adres",
+    absent: "Operatör açmadı",
+  },
+];
+
 type Item = Saved["turns"][number] & { turn?: Turn };
 export function Workspace() {
   const [health, setHealth] = useState<Health | null>(null),
@@ -133,11 +169,10 @@ export function Workspace() {
   const history =
     health?.capabilities.includes("conversation_history") ?? false;
   const pending = pendingIndex !== null;
+  const [settings, setSettings] = useState<RuntimeSettings | null>(null),
+    [savingSetting, setSavingSetting] = useState("");
   const uploads = health?.capabilities.includes("document_upload") ?? false;
   const ocr = health?.capabilities.includes("document_ocr") ?? false;
-  const acquisition =
-    health?.capabilities.includes("official_acquisition") ?? false;
-  const webSearch = health?.capabilities.includes("web_search") ?? false;
   const knowledgeBase =
     health?.capabilities.includes("knowledge_base") ?? false;
   const saved = useRef<Saved | null>(null),
@@ -171,6 +206,28 @@ export function Workspace() {
   function record(value: Saved) {
     saveSession(sessionStorage, value);
     saved.current = value;
+  }
+  async function refreshSettings(token = ownerToken) {
+    if (!token) return;
+    try {
+      setSettings(await readSettings(token));
+    } catch (error) {
+      setIssue(describeError(error));
+    }
+  }
+  async function changeSetting(change: {
+    disabled?: string[];
+    history_turns?: number;
+  }) {
+    if (!ownerToken) return;
+    setSavingSetting(Object.keys(change)[0] ?? "");
+    try {
+      setSettings(await saveSettings(ownerToken, change));
+    } catch (error) {
+      setIssue(describeError(error));
+    } finally {
+      setSavingSetting("");
+    }
   }
   async function refreshConversations(token = ownerToken) {
     if (!token) return;
@@ -390,6 +447,9 @@ export function Workspace() {
     const stored = loadSession(sessionStorage);
     saved.current = stored;
     if (stored) {
+      // A session is its conversation, so a reloaded tab keeps the sidebar, the
+      // rename and archive actions and the trace page pointing at this chat.
+      setConversationId(stored.session.session_id);
       setItems(stored.turns.map((entry) => ({ ...entry })));
       void (async () => {
         const resume: number[] = [];
@@ -467,6 +527,7 @@ export function Workspace() {
         if (cancelled || !mounted.current) return;
         setOwnerToken(token);
         await refreshConversations(token);
+        await refreshSettings(token);
       } catch (error) {
         if (!cancelled && mounted.current) setIssue(describeError(error));
       }
@@ -851,17 +912,11 @@ export function Workspace() {
                   </span>
                 </div>
                 <div className="conversation-body">
-                  {!items.length ? (
+                  {!items.length && !transcript.length ? (
                     <div className="welcome">
                       <div className="welcome-symbol">
                         <Layers3 size={27} />
                       </div>
-                      <h2>Neyi inceleyelim?</h2>
-                      <p>
-                        Bir dönem, bir ölçü, bir soru.
-                        <br />
-                        Analizin buradan başlasın.
-                      </p>
                       <div className="suggestions">
                         {examples.map((example) => (
                           <button
@@ -878,13 +933,6 @@ export function Workspace() {
                             </span>
                           </button>
                         ))}
-                      </div>
-                      <div className="welcome-tip">
-                        <CircleHelp size={15} />
-                        <span>
-                          Sorunda dönemi ve ölçüyü belirtmen doğru veriyi
-                          seçmeye yardımcı olur.
-                        </span>
                       </div>
                     </div>
                   ) : (
@@ -1169,7 +1217,7 @@ export function Workspace() {
                           ? "Son cevap netleştirme istedi: kısa bir yanıt yazarsan o isteğe eklenir, kendi başına bir soru yazarsan yeni soru sayılır."
                           : contextTables > 0
                             ? `Bu sohbetteki ${contextTables} tablo ve önceki sorular bağlamda; hangisini kullanacağını ajan seçer.`
-                            : "Sorunuzu yazın."}
+                            : ""}
                     </span>
                   </div>
                   <textarea
@@ -1385,28 +1433,7 @@ export function Workspace() {
                         <ShieldCheck size={23} />
                       </div>
                     </div>
-                    <h2>
-                      Sorudan tabloya,
-                      <br />
-                      her adım izlenebilir.
-                    </h2>
-                    <p>
-                      Analizin tamamlandığında kayıtlı değerler burada görünür.
-                      Sonraki sorularınla aynı tabloyu geliştirebilirsin.
-                    </p>
-                    <div className="empty-steps">
-                      <span>
-                        <Database size={16} /> Veriyi bul
-                      </span>
-                      <ArrowRight size={12} />
-                      <span>
-                        <Activity size={16} /> Hesapla
-                      </span>
-                      <ArrowRight size={12} />
-                      <span>
-                        <ShieldCheck size={16} /> Kontrol et
-                      </span>
-                    </div>
+                    <p>Analiz tamamlandığında tablo burada görünür.</p>
                   </div>
                 )}
                 <div className="results-bottom">
@@ -1521,37 +1548,51 @@ export function Workspace() {
                     </p>
                     <h3 className="settings-group">Yetenekler</h3>
                     <dl className="settings-list">
-                      <div>
-                        <dt>Belge yükleme</dt>
-                        <dd>
-                          {uploads ? "Açık · CSV, Excel, PDF, HTML" : "Kapalı"}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>Taranmış PDF (OCR)</dt>
-                        <dd>
-                          {ocr
-                            ? "Açık · tablolar sütun toplamıyla doğrulanır"
-                            : "Kapalı · OCR modeli tanımlı değil"}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>Web araması</dt>
-                        <dd>
-                          {webSearch
-                            ? "Açık · sonuçlar doğrulanmamış aday listesi olarak gösterilir"
-                            : "Kapalı · arama servisi tanımlı değil"}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>Resmî kaynaktan veri edinme</dt>
-                        <dd>
-                          {acquisition
-                            ? "Açık · incelenmiş EVDS/BDDK serileri gerektiğinde çekilir ve saklanır"
-                            : "Kapalı · yalnız hazır havuz kullanılır"}
-                        </dd>
-                      </div>
+                      {capabilityRows.map((row) => {
+                        const offered = settings?.available.includes(row.name);
+                        const off =
+                          settings?.disabled.includes(row.name) ?? false;
+                        return (
+                          <div key={row.name}>
+                            <dt>{row.label}</dt>
+                            <dd>
+                              {!settings ? (
+                                <span className="setting-off">—</span>
+                              ) : !offered ? (
+                                <span className="setting-off">
+                                  {row.absent}
+                                </span>
+                              ) : (
+                                <label className="setting-switch">
+                                  <input
+                                    type="checkbox"
+                                    checked={!off}
+                                    disabled={savingSetting !== ""}
+                                    onChange={(event) =>
+                                      void changeSetting({
+                                        disabled: event.target.checked
+                                          ? (settings?.disabled ?? []).filter(
+                                              (item) => item !== row.name,
+                                            )
+                                          : [
+                                              ...(settings?.disabled ?? []),
+                                              row.name,
+                                            ],
+                                      })
+                                    }
+                                  />
+                                  <span>{off ? "Kapalı" : row.on}</span>
+                                </label>
+                              )}
+                            </dd>
+                          </div>
+                        );
+                      })}
                     </dl>
+                    <p className="helper">
+                      Operatörün açmadığı bir yetenek buradan açılamaz; açık
+                      olanı kendi sohbetlerin için kapatabilirsin.
+                    </p>
                     <h3 className="settings-group">Bu tarayıcı</h3>
                     <dl className="settings-list">
                       <div>
@@ -1560,6 +1601,34 @@ export function Workspace() {
                           {history
                             ? "Kalıcı; bu tarayıcının anahtarına bağlı"
                             : "Bu sekmeye özel"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Ajana gösterilen önceki tur</dt>
+                        <dd>
+                          {settings ? (
+                            <label className="setting-switch">
+                              <input
+                                type="range"
+                                min={0}
+                                max={settings.max_history_turns}
+                                value={settings.history_turns}
+                                disabled={savingSetting !== ""}
+                                onChange={(event) =>
+                                  void changeSetting({
+                                    history_turns: Number(event.target.value),
+                                  })
+                                }
+                              />
+                              <span>
+                                {settings.history_turns === 0
+                                  ? "Yok"
+                                  : `${settings.history_turns} tur`}
+                              </span>
+                            </label>
+                          ) : (
+                            "—"
+                          )}
                         </dd>
                       </div>
                       <div>

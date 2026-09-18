@@ -13,6 +13,7 @@ import {
   type DatasetRequest,
   ownerSchema,
   runDetailSchema,
+  runtimeSettingsSchema,
   traceStepFullSchema,
   runListSchema,
   sessionSchema,
@@ -194,6 +195,23 @@ export function rateAnswer(
     token,
   );
 }
+// -- Settings (DEC-162): a browser narrows its own runtime, never widens it.
+export function readSettings(owner: string) {
+  return api("settings", runtimeSettingsSchema, {}, undefined, owner);
+}
+export function saveSettings(
+  owner: string,
+  change: { disabled?: string[]; history_turns?: number },
+) {
+  return api(
+    "settings",
+    runtimeSettingsSchema,
+    { method: "PATCH", body: JSON.stringify(change) },
+    undefined,
+    owner,
+  );
+}
+
 // -- Knowledge base (DEC-157): every read and edit carries the browser's key.
 export function listKnowledge(owner: string) {
   return api("knowledge", knowledgeListSchema, {}, undefined, owner);

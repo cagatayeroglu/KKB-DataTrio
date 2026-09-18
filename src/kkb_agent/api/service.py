@@ -18,13 +18,14 @@ from kkb_agent.agent.cancellation import (
     cancellable,
     checkpoint,
 )
-from kkb_agent.agent.loop import PlanningFailed
+from kkb_agent.agent.loop import MAX_HISTORY_TURNS, PlanningFailed
 from kkb_agent.agent.verifier import AnswerStatus
 from kkb_agent.api.contracts import (
     MAX_DOCUMENTS,
     MAX_RESPONSE_BYTES,
     MAX_SESSIONS,
     MAX_TURNS,
+    RESTRICTABLE_CAPABILITIES,
     TRACE_PREVIEW_CHARS,
     Answer,
     ConversationDetail,
@@ -44,7 +45,9 @@ from kkb_agent.api.contracts import (
     RunDetail,
     RunList,
     RunSummary,
+    RuntimeSettings,
     SessionCreated,
+    SettingsUpdate,
     StoredMessage,
     TraceStep,
     TraceStepFull,
@@ -62,6 +65,21 @@ from kkb_agent.api.store import (
 from kkb_agent.llm.provider import ProviderError
 
 
+@dataclass(frozen=True, slots=True)
+class TurnSettings:
+    """What this owner switched off, and how much history they want shown.
+
+    Only ever narrower than the deployment: `disabled` names capabilities the
+    operator enabled, and `history_turns` is at most the built-in ceiling.
+    """
+
+    disabled: frozenset[str] = frozenset()
+    history_turns: int | None = None
+
+    def chosen(self) -> bool:
+        return bool(self.disabled) or self.history_turns is not None
+
+
 # Executed only on the one worker. A runtime must own/open/close its connection
 # there and retain session state under the server-issued session_id.
 class Runner(Protocol):
@@ -73,6 +91,9 @@ class Runner(Protocol):
         *,
         is_continuation: bool | None,
         document_ref: str | None = None,
+        # Passed only when the owner changed something, so a runtime that has no
+        # settings to apply keeps its existing signature.
+        settings: TurnSettings | None = None,
     ) -> Answer: ...
 
 
@@ -100,6 +121,7 @@ class SelectedRunner(Protocol):
         *,
         is_continuation: bool | None,
         document_ref: str | None = None,
+        settings: TurnSettings | None = None,
     ) -> Answer: ...
 
 
@@ -148,6 +170,7 @@ class AnalysisService:
         official_acquisition: bool = False,
         knowledge: bool = False,
         web_search: bool = False,
+        web_url: bool = False,
     ):
         if mode not in ("kloudeks", "scripted"):
             raise ValueError("An explicit execution mode is required")
@@ -166,6 +189,8 @@ class AnalysisService:
         # The knowledge base routes exist only when the operator supplied its store.
         self._knowledge = knowledge
         self._web_search = web_search
+        # Reading an address written in a question is the operator's switch too.
+        self._web_url = web_url
         self._mode = mode
         self._sessions: dict[str, _Session] = {}
         self._lock = threading.RLock()
@@ -191,6 +216,85 @@ class AnalysisService:
             if self._web_search:
                 capabilities = (*capabilities, "web_search")
             return Health(execution_mode=self._mode, capabilities=capabilities)
+
+    def _restrictable(self) -> tuple[str, ...]:
+        """Restrictable capabilities this deployment actually offers."""
+        offered = set(self.health().capabilities) | ({"web_url"} if self._web_url else set())
+        return tuple(name for name in RESTRICTABLE_CAPABILITIES if name in offered)
+
+    def _owner(self, owner_token: str) -> str:
+        if self._store is None:
+            raise ServiceError("unavailable", 503)
+        owner = self._store.owner_by_token(owner_token)
+        if owner is None:
+            raise ServiceError("forbidden", 403)
+        return owner
+
+    def _settings_of(self, owner_id: str) -> TurnSettings:
+        """Stored choices, narrowed to what this deployment still offers."""
+        if self._store is None:  # pragma: no cover - callers check first
+            return TurnSettings()
+        stored = self._store.settings_of(owner_id)
+        offered = set(self._restrictable())
+        disabled = stored.get("disabled")
+        chosen = (
+            frozenset(name for name in disabled if isinstance(name, str) and name in offered)
+            if isinstance(disabled, list)
+            else frozenset()
+        )
+        turns = stored.get("history_turns")
+        history = turns if isinstance(turns, int) and 0 <= turns <= MAX_HISTORY_TURNS else None
+        return TurnSettings(disabled=chosen, history_turns=history)
+
+    def settings(self, owner_token: str) -> RuntimeSettings:
+        """What this deployment offers and what this browser switched off."""
+        with self._lock:
+            if self._closed:
+                raise ServiceError("unavailable", 503)
+            owner = self._owner(owner_token)
+            chosen = self._settings_of(owner)
+        return RuntimeSettings(
+            available=self._restrictable(),
+            disabled=tuple(sorted(chosen.disabled)),
+            history_turns=(
+                chosen.history_turns if chosen.history_turns is not None else MAX_HISTORY_TURNS
+            ),
+            max_history_turns=MAX_HISTORY_TURNS,
+        )
+
+    def update_settings(self, owner_token: str, update: SettingsUpdate) -> RuntimeSettings:
+        """Narrow this browser's own runtime; a capability can be switched off, never on."""
+        with self._lock:
+            if self._closed:
+                raise ServiceError("unavailable", 503)
+            owner = self._owner(owner_token)
+            if self._store is None:  # pragma: no cover - _owner refuses without a store
+                raise ServiceError("unavailable", 503)
+            current = self._settings_of(owner)
+            offered = set(self._restrictable())
+            if update.disabled is not None and not set(update.disabled) <= offered:
+                # Nothing outside what the operator enabled can be named at all,
+                # so a browser cannot ask for a capability by switching it "off".
+                raise ServiceError("invalid_request", 422)
+            disabled = (
+                frozenset(update.disabled) if update.disabled is not None else current.disabled
+            )
+            history = (
+                update.history_turns if update.history_turns is not None else current.history_turns
+            )
+            if history is not None and history > MAX_HISTORY_TURNS:
+                raise ServiceError("invalid_request", 422)
+            try:
+                self._store.save_settings(
+                    owner,
+                    {
+                        "disabled": sorted(disabled),
+                        **({} if history is None else {"history_turns": history}),
+                    },
+                )
+            except StoreError:
+                raise ServiceError("unavailable", 503) from None
+        return self.settings(owner_token)
 
     def create_owner(self) -> OwnerCreated:
         """A key this browser keeps; without it, earlier conversations stay closed."""
@@ -465,6 +569,9 @@ class AnalysisService:
             session = self._owned(session_id, token)
             if self._document_store is None:
                 raise ServiceError("unavailable", 503)
+            if "document_upload" in self._session_settings(session_id).disabled:
+                # The owner switched uploads off for their own turns.
+                raise ServiceError("unavailable", 503)
             if len(session.documents) >= MAX_DOCUMENTS:
                 raise ServiceError("capacity", 429)
         admitted = DocumentAdmitted.model_validate(
@@ -474,6 +581,13 @@ class AnalysisService:
             session = self._owned(session_id, token)
             session.documents.add(admitted.document_ref)
         return admitted
+
+    def _session_settings(self, session_id: str) -> TurnSettings:
+        """The settings of whoever owns this conversation; none when nobody does."""
+        if self._store is None:
+            return TurnSettings()
+        owner = self._store.owner_of_conversation(session_id)
+        return self._settings_of(owner) if owner is not None else TurnSettings()
 
     def submit(self, session_id: str, token: str, question: Question) -> Turn:
         question = Question.model_validate(question.model_dump())
@@ -636,34 +750,23 @@ class AnalysisService:
         try:
             self._transition(session_id, turn_id, "running", start)
             checkpoint("start")
+            chosen = self._session_settings(session_id)
+            extra: dict[str, object] = {"is_continuation": is_continuation}
+            if document_ref is not None:
+                extra["document_ref"] = document_ref
+            if chosen.chosen():
+                extra["settings"] = chosen
             if selected is None:
-                output = (
-                    self._runner(session_id, turn_id, question, is_continuation=is_continuation)
-                    if document_ref is None
-                    else self._runner(
-                        session_id,
-                        turn_id,
-                        question,
-                        is_continuation=is_continuation,
-                        document_ref=document_ref,
-                    )
-                )
+                output = self._runner(session_id, turn_id, question, **extra)  # type: ignore[arg-type]
             else:
                 if self._selected_runner is None:  # Defensive: never fall back to latest.
                     raise ServiceError("unavailable", 503)
-                output = (
-                    self._selected_runner(
-                        session_id, turn_id, question, selected, is_continuation=is_continuation
-                    )
-                    if document_ref is None
-                    else self._selected_runner(
-                        session_id,
-                        turn_id,
-                        question,
-                        selected,
-                        is_continuation=is_continuation,
-                        document_ref=document_ref,
-                    )
+                output = self._selected_runner(
+                    session_id,
+                    turn_id,
+                    question,
+                    selected,
+                    **extra,  # type: ignore[arg-type]
                 )
             answer = Answer.model_validate(output.model_dump())
             if len(answer.model_dump_json().encode()) > MAX_RESPONSE_BYTES - 4096:
