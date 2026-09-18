@@ -2849,3 +2849,23 @@ svg {
   max-height: 320px;
   overflow-y: auto;
 }
+
+/* Answering a clarification where it was asked; the original request is kept. */
+.clarify-reply {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.clarify-reply input {
+  flex: 1;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--ink);
+  padding: 7px 10px;
+  font-size: 12.5px;
+}
+.clarify-reply input:focus {
+  outline: none;
+  border-color: var(--accent);
+}

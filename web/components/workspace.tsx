@@ -615,11 +615,11 @@ export function Workspace() {
       if (picker.current) picker.current.value = "";
     }
   }
-  async function submit() {
+  async function submit(text = question) {
     if (
       busyRef.current ||
       pending ||
-      !validQuestion(question) ||
+      !validQuestion(text) ||
       !health ||
       !dataset ||
       !ready
@@ -643,7 +643,7 @@ export function Workspace() {
       // conversation published, and whether a message continues the previous
       // request is the agent's reading, not a control the person operates.
       const entry = draftRequest(
-        question,
+        text,
         undefined,
         undefined,
         attachment ?? undefined,
@@ -1143,6 +1143,34 @@ export function Workspace() {
                                   desteklenmeyen ifade yanıta alınmadı.
                                 </p>
                               )}
+                              {item.turn.answer.status === "abstained" &&
+                                index === items.length - 1 &&
+                                !pending && (
+                                  <form
+                                    className="clarify-reply"
+                                    onSubmit={(event) => {
+                                      event.preventDefault();
+                                      const reply = new FormData(
+                                        event.currentTarget,
+                                      )
+                                        .get("reply")
+                                        ?.toString()
+                                        .trim();
+                                      if (reply) void submit(reply);
+                                    }}
+                                  >
+                                    <input
+                                      name="reply"
+                                      aria-label="Netleştirme cevabın"
+                                      placeholder="Kısa cevabını yaz — orijinal istek korunur"
+                                      maxLength={300}
+                                      disabled={busy}
+                                    />
+                                    <Button size="sm" disabled={busy}>
+                                      Netleştir ve devam et
+                                    </Button>
+                                  </form>
+                                )}
                               {history &&
                                 conversationId &&
                                 ownerToken &&
