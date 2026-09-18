@@ -7,7 +7,7 @@ never interpreted, fetched, normalized or used as an execution instruction.
 
 from datetime import date
 from enum import StrEnum
-from typing import Self
+from typing import Final, Self
 
 from pydantic import Field, StrictBool, StrictFloat, StrictInt, StrictStr, model_validator
 
@@ -21,6 +21,14 @@ from kkb_agent.core import (
     WeeklyAnchor,
 )
 from kkb_agent.core.models import ContractModel, NonEmptyText
+
+#: Catalog size bounds. They guard memory against a malformed file, not the
+#: catalog's size: a reviewed catalog and a knowledge base grow together, and a
+#: bound near today's count (it was 40 with 37 reviewed series) made a fourth
+#: added dataset invalidate every turn's catalog.
+MAX_CATALOG_SERIES: Final = 10_000
+MAX_CATALOG_CONCEPTS: Final = 10_000
+MAX_CATALOG_GROUPS: Final = 1_000
 
 
 class CatalogStatus(StrEnum):

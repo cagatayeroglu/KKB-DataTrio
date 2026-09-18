@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import FastAPI, Header, Query, Request
+from fastapi import FastAPI, Header, Path, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.exceptions import HTTPException
@@ -22,6 +22,8 @@ from kkb_agent.api.contracts import (
     ConversationList,
     ConversationSummary,
     ConversationUpdate,
+    DatasetDetail,
+    DatasetRequest,
     DocumentAdmitted,
     Error,
     ErrorCode,
@@ -29,14 +31,22 @@ from kkb_agent.api.contracts import (
     FeedbackList,
     FeedbackRequest,
     Health,
+    KnowledgeList,
     OwnerCreated,
     Question,
     Reference,
     RunDetail,
     RunList,
+    SeriesIdentity,
+    SeriesNoteHistory,
+    SeriesNoteRequest,
+    SeriesValues,
     SessionCreated,
+    Slug,
+    TraceStepFull,
     Turn,
 )
+from kkb_agent.api.knowledge_service import KnowledgeService
 from kkb_agent.api.prepared import PreparedStatus
 from kkb_agent.api.service import AnalysisService, ServiceError
 from kkb_agent.core.models import ContractModel
@@ -47,6 +57,9 @@ Token = Annotated[str, Header(alias="X-KKB-Session-Token", min_length=43, max_le
 OwnerToken = Annotated[str, Header(alias="X-KKB-Owner-Token", min_length=43, max_length=43)]
 #: The only route whose body is not JSON (M10-04); every other POST stays JSON-only.
 DOCUMENT_ROUTE = re.compile(r"/v1/sessions/[a-f0-9]{32}/documents\Z")
+#: The one JSON route allowed a larger body: a knowledge-base dataset (DEC-157).
+KNOWLEDGE_DATASET_ROUTE = re.compile(r"/v1/knowledge/datasets\Z")
+MAX_KNOWLEDGE_BODY_BYTES = 1024 * 1024
 #: The one route with a query string: listing a browser's own conversations.
 LIST_ROUTE = re.compile(r"/v1/conversations\Z")
 MAX_QUERY_BYTES = 256
@@ -130,7 +143,16 @@ class LocalBoundary:
                 await reject("invalid_request", 400)
                 return
             document = scope["method"] == "POST" and bool(DOCUMENT_ROUTE.fullmatch(scope["path"]))
-            limit = MAX_DOCUMENT_BYTES if document else MAX_BODY_BYTES
+            dataset = scope["method"] == "POST" and bool(
+                KNOWLEDGE_DATASET_ROUTE.fullmatch(scope["path"])
+            )
+            limit = (
+                MAX_DOCUMENT_BYTES
+                if document
+                else MAX_KNOWLEDGE_BODY_BYTES
+                if dataset
+                else MAX_BODY_BYTES
+            )
             declared = int(headers.get(b"content-length", [b"0"])[0])
             if declared < 0 or declared > limit:
                 await reject("body_too_large", 413)
@@ -150,7 +172,7 @@ class LocalBoundary:
             return
         body = bytearray()
         try:
-            async with asyncio.timeout(30 if document else 5):
+            async with asyncio.timeout(30 if document or dataset else 5):
                 while True:
                     message = await receive()
                     if message["type"] == "http.disconnect":
@@ -191,6 +213,7 @@ def create_app(
     *,
     port: int = 8000,
     prepared: PreparedStatus | None = None,
+    knowledge: KnowledgeService | None = None,
 ) -> FastAPI:
     """No provider creation or model call; the operator supplies the runner."""
 
@@ -277,6 +300,18 @@ def create_app(
         # Reading a trace never starts work: it is a stored record, not a replay.
         return service.run(session_id, run_id, token)
 
+    @app.get(
+        "/v1/conversations/{session_id}/runs/{run_id}/steps/{sequence}",
+        response_model=TraceStepFull,
+    )
+    def run_step(
+        session_id: Reference,
+        run_id: Reference,
+        sequence: Annotated[int, Path(ge=1, le=100_000)],
+        token: Token,
+    ) -> TraceStepFull:
+        return service.run_step(session_id, run_id, sequence, token)
+
     @app.post("/v1/conversations/{session_id}/feedback", response_model=Feedback, status_code=201)
     def rate(session_id: Reference, token: Token, body: FeedbackRequest) -> Feedback:
         return service.rate(session_id, token, body)
@@ -309,6 +344,52 @@ def create_app(
     @app.get("/v1/sessions/{session_id}/turns/{turn_id}", response_model=Turn)
     def turn(session_id: Reference, turn_id: Reference, token: Token) -> Turn:
         return service.get_turn(session_id, token, turn_id)
+
+    def _knowledge() -> KnowledgeService:
+        if knowledge is None:
+            raise ServiceError("unavailable", 503)
+        return knowledge
+
+    @app.get("/v1/knowledge", response_model=KnowledgeList)
+    def knowledge_list(owner: OwnerToken) -> KnowledgeList:
+        return _knowledge().listing(owner)
+
+    @app.get("/v1/knowledge/datasets/{slug}", response_model=DatasetDetail)
+    def knowledge_dataset(slug: Slug, owner: OwnerToken) -> DatasetDetail:
+        return _knowledge().dataset(owner, slug)
+
+    @app.post("/v1/knowledge/datasets", response_model=DatasetDetail, status_code=201)
+    def knowledge_save(body: DatasetRequest, owner: OwnerToken) -> DatasetDetail:
+        return _knowledge().save_dataset(owner, body)
+
+    @app.post("/v1/knowledge/datasets/{slug}/archive", response_model=DatasetDetail)
+    def knowledge_archive(slug: Slug, owner: OwnerToken) -> DatasetDetail:
+        return _knowledge().set_status(owner, slug, archived=True)
+
+    @app.post("/v1/knowledge/datasets/{slug}/restore", response_model=DatasetDetail)
+    def knowledge_restore(slug: Slug, owner: OwnerToken) -> DatasetDetail:
+        return _knowledge().set_status(owner, slug, archived=False)
+
+    @app.get("/v1/knowledge/series/{series_id}/values", response_model=SeriesValues)
+    def knowledge_values(series_id: SeriesIdentity, owner: OwnerToken) -> SeriesValues:
+        return _knowledge().values(owner, series_id)
+
+    @app.get("/v1/knowledge/series/{series_id}/notes", response_model=SeriesNoteHistory)
+    def knowledge_notes(series_id: SeriesIdentity, owner: OwnerToken) -> SeriesNoteHistory:
+        return _knowledge().note_history(owner, series_id)
+
+    @app.post("/v1/knowledge/series/{series_id}/notes", response_model=SeriesNoteHistory)
+    def knowledge_annotate(
+        series_id: SeriesIdentity, body: SeriesNoteRequest, owner: OwnerToken
+    ) -> SeriesNoteHistory:
+        return _knowledge().annotate(owner, series_id, body)
+
+    @app.post(
+        "/v1/sessions/{session_id}/turns/{turn_id}/cancel", response_model=Turn, status_code=202
+    )
+    def cancel(session_id: Reference, turn_id: Reference, token: Token) -> Turn:
+        # Accepted, not done: the turn stops at its next checkpoint (poll the turn).
+        return service.cancel(session_id, token, turn_id)
 
     @app.get("/v1/sessions/{session_id}/turns/{turn_id}/events", response_class=StreamingResponse)
     async def events(

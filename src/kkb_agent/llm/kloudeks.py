@@ -29,6 +29,7 @@ import base64
 import json
 import time
 from collections.abc import Sequence
+from dataclasses import replace
 from math import isfinite
 from typing import Any, Final
 from urllib.parse import urlsplit
@@ -49,6 +50,7 @@ from kkb_agent.llm.provider import (
     Refused,
     Role,
     TransportError,
+    Usage,
 )
 from kkb_agent.llm.structured import complete_with_repair
 
@@ -146,6 +148,12 @@ class KloudeksProvider:
             # Not echoed: a model name can arrive from text nobody vetted.
             raise CapabilityUnavailable("The requested model is not one this deployment configures")
         json_mode = schema is not None and self._config.structured_output
+        # A structured request is a plan; free text is the writer's sentence.
+        thinking = (
+            self._config.planner_thinking if schema is not None else self._config.writer_thinking
+        )
+        spent: list[Usage] = []
+        reasoning: list[str] = []
 
         def ask(conversation: list[Message]) -> tuple[str, str | None]:
             body: dict[str, object] = {
@@ -158,10 +166,26 @@ class KloudeksProvider:
                 # Opt-in only: Q-K-03 has not confirmed guaranteed JSON output,
                 # so strict local validation still decides.
                 body["response_format"] = {"type": "json_object"}
-            return _choice(self._post(CHAT_PATH, body))
+            if not thinking:
+                # The served Qwen reasons by default; its chat template takes this
+                # switch (observed 2026-09-18: reasoning tokens 274 -> 0).
+                body["chat_template_kwargs"] = {"enable_thinking": False}
+            document = self._post(CHAT_PATH, body)
+            reply = _choice(document)
+            # Recorded for traces only; neither changes what the caller receives.
+            if (usage := _usage(document)) is not None:
+                spent.append(usage)
+            if (thought := _reasoning(document)) is not None:
+                reasoning.append(thought)
+            return reply
 
-        return complete_with_repair(
+        completion = complete_with_repair(
             ask, messages, schema=schema, max_attempts=self._config.max_attempts, model=chosen
+        )
+        return replace(
+            completion,
+            usage=_summed(spent) if spent else None,
+            reasoning="\n\n---\n\n".join(reasoning) if reasoning else None,
         )
 
     def embed(self, texts: Sequence[str], *, kind: EmbeddingKind) -> list[list[float]]:
@@ -363,6 +387,47 @@ def _choice(document: dict[str, Any]) -> tuple[str, str | None]:
     if not isinstance(content, str):
         raise ProviderError("Kloudeks returned no message content")
     return content, finish_reason
+
+
+def _usage(document: dict[str, Any]) -> Usage | None:
+    """Token counts as the platform reported them, or None when it reported none."""
+    usage = document.get("usage")
+    if not isinstance(usage, dict):
+        return None
+    prompt, completion = usage.get("prompt_tokens"), usage.get("completion_tokens")
+    if not (isinstance(prompt, int) and isinstance(completion, int)):
+        return None
+    details = usage.get("completion_tokens_details")
+    reasoning = details.get("reasoning_tokens") if isinstance(details, dict) else None
+    return Usage(
+        prompt_tokens=prompt,
+        completion_tokens=completion,
+        reasoning_tokens=reasoning if isinstance(reasoning, int) else None,
+    )
+
+
+def _summed(spent: list[Usage]) -> Usage:
+    reasoning = [item.reasoning_tokens for item in spent if item.reasoning_tokens is not None]
+    return Usage(
+        prompt_tokens=sum(item.prompt_tokens for item in spent),
+        completion_tokens=sum(item.completion_tokens for item in spent),
+        reasoning_tokens=sum(reasoning) if reasoning else None,
+    )
+
+
+def _reasoning(document: dict[str, Any]) -> str | None:
+    """The served model's reasoning text (vLLM names it `reasoning` or `reasoning_content`)."""
+    choices = document.get("choices")
+    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+        return None
+    message = choices[0].get("message")
+    if not isinstance(message, dict):
+        return None
+    for key in ("reasoning", "reasoning_content"):
+        value = message.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
 
 
 def _vectors(document: dict[str, Any], expected: int) -> list[list[float]]:

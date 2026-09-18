@@ -14,15 +14,22 @@ from pathlib import Path
 import uvicorn
 
 from kkb_agent.api.app import create_app
+from kkb_agent.api.knowledge_service import KnowledgeService
 from kkb_agent.api.prepared import PreparedRunner, _local, inspect_pool, read_catalog
 from kkb_agent.api.service import AnalysisService
 from kkb_agent.api.store import DATABASE_NAME as STORE_NAME
 from kkb_agent.api.store import ConversationStore
 from kkb_agent.catalog.mappings import load_reviewed_snapshot
+from kkb_agent.ingest.acquisition import AcquisitionStore, OfficialSources
 from kkb_agent.ingest.safe_fetch import safe_fetch
+from kkb_agent.knowledge import DATABASE_NAME as KNOWLEDGE_NAME
+from kkb_agent.knowledge import KnowledgeStore
 from kkb_agent.llm import KloudeksProvider, ProviderConfig, approved_base_url
+from kkb_agent.tools.searxng import SearxngBackend
 
 MAX_REQUEST_TIMEOUT = 900.0
+#: Fetched official responses, kept for later conversations (DEC-159).
+ACQUIRED_DIRECTORY = "acquired"
 
 
 def literal_config(path: Path | None) -> ProviderConfig:
@@ -94,6 +101,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Let questions read a web address they contain, through safe fetch; off by default",
     )
     parser.add_argument(
+        "--no-official-acquisition",
+        action="store_true",
+        help=(
+            "Refuse to fetch a reviewed EVDS series or BDDK selector the prepared pool lacks. "
+            "Acquisition is on by default (DEC-155, DEC-159): reviewed routes only, fixed "
+            "windows, at most three a turn, and fetched responses are kept under the state "
+            "root for later conversations"
+        ),
+    )
+    parser.add_argument(
+        "--searxng-url",
+        help=(
+            "Register web_search over this publicly reachable SearXNG instance's JSON API "
+            "(DEC-158), read through safe_fetch. Results are untrusted discovery metadata "
+            "and never authorize web_url; off when absent"
+        ),
+    )
+    parser.add_argument(
         "--no-ocr",
         action="store_true",
         help=(
@@ -128,6 +153,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         # configured, not because a second flag was remembered. --no-ocr still refuses it.
         ocr_enabled = config.ocr_model is not None and not args.no_ocr
         uploads_enabled = not args.no_uploads
+        acquisition_enabled = not args.no_official_acquisition
+        search = SearxngBackend(args.searxng_url) if args.searxng_url else None
         snapshot = load_reviewed_snapshot(catalog_bytes)
         index = None
         if args.catalog_index is not None:
@@ -154,6 +181,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "web_url": args.enable_web_url,
                         "uploads": uploads_enabled,
                         "ocr": ocr_enabled,
+                        "official_acquisition": acquisition_enabled,
+                        "web_search": search is not None,
                         "prepared": status.model_dump(mode="json"),
                     },
                     ensure_ascii=False,
@@ -171,6 +200,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             # Conversations, their messages and uploads outlive this process.
             store = ConversationStore(args.state_root.absolute() / STORE_NAME)
+            acquired = (
+                AcquisitionStore(args.state_root.absolute() / ACQUIRED_DIRECTORY)
+                if acquisition_enabled
+                else None
+            )
+            official = OfficialSources(store=acquired) if acquisition_enabled else None
+            # The editable knowledge base over the reviewed catalog (DEC-157).
+            knowledge = KnowledgeStore(args.state_root.absolute() / KNOWLEDGE_NAME)
             runner = PreparedRunner(
                 provider,
                 root,
@@ -182,6 +219,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 document_uploads=uploads_enabled,
                 document_ocr=provider if ocr_enabled else None,
                 store=store,
+                official=official,
+                knowledge=knowledge,
+                search_backend=search,
             )
             service = AnalysisService(
                 runner,
@@ -190,8 +230,23 @@ def main(argv: Sequence[str] | None = None) -> int:
                 document_store=runner.admit_document if uploads_enabled else None,
                 store=store,
                 ocr=ocr_enabled,
+                official_acquisition=acquisition_enabled,
+                knowledge=True,
+                web_search=search is not None,
             )
-            app = create_app(service, port=args.port, prepared=runner.status)
+            knowledge_service = KnowledgeService(
+                knowledge,
+                store,
+                runner.catalog,
+                prepared=frozenset(item.series_id for item in runner.status.series),
+                acquisition=acquisition_enabled,
+                read_document_column=runner.document_column if uploads_enabled else None,
+                acquisitions=acquired.acquisitions if acquired is not None else None,
+                series_values=runner.series_values,
+            )
+            app = create_app(
+                service, port=args.port, prepared=runner.status, knowledge=knowledge_service
+            )
             print(
                 json.dumps(
                     {
@@ -203,6 +258,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "web_url": args.enable_web_url,
                         "uploads": uploads_enabled,
                         "ocr": ocr_enabled,
+                        "official_acquisition": acquisition_enabled,
+                        "web_search": search is not None,
                         "conversations": "persistent",
                         "prepared_identities": runner.status.prepared_identities,
                     }

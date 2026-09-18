@@ -19,7 +19,9 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
+from pydantic_core import to_jsonable_python
 
+from kkb_agent.agent.cancellation import checkpoint
 from kkb_agent.agent.observer import Tracer
 from kkb_agent.agent.plan import AnalyticalPlan, ClarificationReason, PlanStep
 from kkb_agent.agent.registry import ArgumentsRejected, RegistryError, ToolRegistry
@@ -253,6 +255,7 @@ def execute(
                     reason="an earlier step failed",
                 )
             continue
+        checkpoint(f"tool.{validated.step.tool}")
         result = _traced_step(validated, registry, context, budget, selection, tracer)
         results.append(result)
         if result.status is ToolStatus.SUCCESS:
@@ -296,8 +299,21 @@ def _traced_step(
             + json.dumps(arguments, ensure_ascii=False, sort_keys=True, default=str)
             + "\n\nReturned:\n"
             + tool_output_preview(result)
+            + "\n\nFull output:\n"
+            + tool_output_full(result)
         )
     return result
+
+
+def tool_output_full(result: ToolResult) -> str:
+    """Everything the step returned, as JSON, whether or not the model is shown it."""
+    output = result.output
+    try:
+        # Models, dataclasses (a lakehouse output holds both), dates and enums
+        # become plain JSON; only what has no JSON form falls back to its text.
+        return json.dumps(to_jsonable_python(output, fallback=str), ensure_ascii=False, indent=2)
+    except Exception:  # A trace never costs the turn; say what could not be written.
+        return f"<{type(output).__name__} could not be serialized>"
 
 
 def tool_output_preview(result: ToolResult) -> str:

@@ -47,6 +47,8 @@ class Usage:
 
     prompt_tokens: int
     completion_tokens: int
+    #: Hidden reasoning tokens inside completion_tokens, when the platform reports them.
+    reasoning_tokens: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +67,9 @@ class Completion:
     finish_reason: str | None = None
     #: Present only when the platform returned usage counts.
     usage: Usage | None = None
+    #: The model's reasoning text, when it returned one beside the answer. It is
+    #: never used as an answer; it is kept so a trace shows why a call was slow.
+    reasoning: str | None = field(default=None, repr=False)
 
 
 class ProviderError(RuntimeError):

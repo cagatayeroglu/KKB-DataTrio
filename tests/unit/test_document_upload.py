@@ -168,9 +168,11 @@ def test_the_attachment_reaches_the_tools_only_when_its_bytes_still_match(tmp_pa
     seen = []
     original = PreparedRunner._registry
 
-    def registry(self, connection, workspace, lineage, attachment=None, library=None, fetch=None):
+    def registry(
+        self, connection, workspace, lineage, attachment=None, library=None, fetch=None, **extra
+    ):
         seen.append(attachment)
-        return original(self, connection, workspace, lineage, attachment, library, fetch)
+        return original(self, connection, workspace, lineage, attachment, library, fetch, **extra)
 
     monkeypatch.setattr(PreparedRunner, "_registry", registry)
     provider = scripted('{"question": "q", "steps": [], "clarification": "unsupported_request"}')

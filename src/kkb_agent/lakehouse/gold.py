@@ -185,6 +185,8 @@ def gold_from_result(
     columns = {label: items for label, items in columns.items() if len(items) >= 2}
     if not columns or len(frequencies) != 1 or len(anchors) != 1:
         return None
+    if next(iter(frequencies)) is Frequency.UNKNOWN:
+        return None  # No calendar to lay a spine on: the workspace stays its record.
     ends = [item.period_end for items in columns.values() for item in items]
     return build_gold(
         table_id,

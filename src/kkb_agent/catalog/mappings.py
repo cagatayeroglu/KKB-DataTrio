@@ -15,7 +15,13 @@ from typing import Annotated, Literal, Self
 from pydantic import Field, StrictBool, StringConstraints, model_validator
 
 from kkb_agent.catalog.normalization import normalize_search_text
-from kkb_agent.catalog.records import CatalogRecord, CatalogStatus
+from kkb_agent.catalog.records import (
+    MAX_CATALOG_CONCEPTS,
+    MAX_CATALOG_GROUPS,
+    MAX_CATALOG_SERIES,
+    CatalogRecord,
+    CatalogStatus,
+)
 from kkb_agent.core.models import ContractModel
 
 Text = Annotated[str, StringConstraints(strict=True, min_length=1, max_length=1024)]
@@ -66,7 +72,7 @@ class Concept(ContractModel):
     concept_id: Text
     definition: Text
     aliases: tuple[Alias, ...] = Field(min_length=1, max_length=20)
-    candidate_series_ids: tuple[Text, ...] = Field(default=(), max_length=40)
+    candidate_series_ids: tuple[Text, ...] = Field(default=(), max_length=MAX_CATALOG_SERIES)
     resolution: Literal["MAPPED", "PARTIAL", "UNRESOLVED"]
     clarification_required: StrictBool
     conditions: tuple[Text, ...] = Field(min_length=1, max_length=20)
@@ -94,7 +100,7 @@ class ConceptFamily(ContractModel):
     label: Text
     rationale: Text
     evidence_ids: tuple[Text, ...] = Field(min_length=1, max_length=10)
-    excluded_series_ids: tuple[Text, ...] = Field(default=(), max_length=40)
+    excluded_series_ids: tuple[Text, ...] = Field(default=(), max_length=MAX_CATALOG_SERIES)
     exclusions: tuple[Text, ...] = Field(min_length=1, max_length=20)
 
 
@@ -113,11 +119,11 @@ class ReviewedSnapshot(ContractModel):
     review_revision: Text
     review_pr: Text
     review_note: Text
-    evidence: tuple[Evidence, ...] = Field(min_length=1, max_length=20)
-    series: tuple[ReviewedSeries, ...] = Field(min_length=1, max_length=40)
-    contexts: tuple[SourceContext, ...] = Field(default=(), max_length=30)
-    concepts: tuple[Concept, ...] = Field(min_length=1, max_length=60)
-    families: tuple[ConceptFamily, ...] = Field(min_length=1, max_length=20)
+    evidence: tuple[Evidence, ...] = Field(min_length=1, max_length=MAX_CATALOG_GROUPS)
+    series: tuple[ReviewedSeries, ...] = Field(min_length=1, max_length=MAX_CATALOG_SERIES)
+    contexts: tuple[SourceContext, ...] = Field(default=(), max_length=MAX_CATALOG_GROUPS)
+    concepts: tuple[Concept, ...] = Field(min_length=1, max_length=MAX_CATALOG_CONCEPTS)
+    families: tuple[ConceptFamily, ...] = Field(min_length=1, max_length=MAX_CATALOG_GROUPS)
     content_sha256: Digest
 
     def canonical_bytes(self) -> bytes:
@@ -216,3 +222,28 @@ def load_reviewed_snapshot(data: bytes) -> ReviewedSnapshot:
     if not isinstance(data, bytes) or len(data) > MAX_SNAPSHOT_BYTES:
         raise ValueError("snapshot must be bounded bytes")
     return ReviewedSnapshot.model_validate_json(data)
+
+
+def series_display_name(series: ReviewedSeries) -> str:
+    """What a series is, in one line, from its catalog record alone.
+
+    Every series a turn can compute on has a catalog record — reviewed, or a
+    knowledge-base entry the overlay turned into one — so this one function
+    names prepared, fetched and user-declared series alike, with no list kept
+    by hand. Labels carry what a title leaves out (the three BDDK housing
+    components share one source title and differ only by their TP/YP/TOTAL
+    label).
+    """
+    record = series.record
+    labels = f" [{', '.join(record.labels)}]" if record.labels else ""
+    place = f", {series.geography}" if series.geography else ""
+    return (
+        f"{record.provider}: {record.title}{labels}{place}; "
+        f"{record.unit or 'unknown unit'} {record.scale.value}, "
+        f"{record.frequency.value}, {record.stock_flow.value}"
+    )
+
+
+def series_display_names(snapshot: ReviewedSnapshot) -> dict[str, str]:
+    """`series_display_name` for every series of a (possibly overlaid) catalog."""
+    return {item.record.series_id: series_display_name(item) for item in snapshot.series}

@@ -486,3 +486,57 @@ test("an attached document travels with exactly one question", async () => {
     true,
   );
 });
+
+test("a key the server does not know is replaced; a known key and a network error are kept", async () => {
+  const { usableOwner } = await import("../lib/client");
+  const store = new Map<string, string>();
+  const storage = {
+    getItem: (k: string) => store.get(k) ?? null,
+    setItem: (k: string, v: string) => void store.set(k, v),
+    removeItem: (k: string) => void store.delete(k),
+  } as unknown as Storage;
+  const old = "o".repeat(43);
+  const fresh = "n".repeat(43);
+  const original = globalThis.fetch;
+  const calls: string[] = [];
+  try {
+    // Unknown here (another state root): listing is refused, a new key is issued.
+    store.set("kkb.owner.v1", old);
+    globalThis.fetch = async (url, init) => {
+      calls.push(`${init?.method ?? "GET"} ${String(url)}`);
+      if (String(url).endsWith("/conversations"))
+        return Response.json(
+          { api_version: 1, error: "forbidden" },
+          { status: 403 },
+        );
+      return Response.json(
+        { api_version: 1, owner_token: fresh },
+        { status: 201 },
+      );
+    };
+    assert.equal(await usableOwner(storage), fresh);
+    assert.equal(store.get("kkb.owner.v1"), fresh);
+    assert.deepEqual(calls, [
+      "GET /api/kkb/v1/conversations",
+      "POST /api/kkb/v1/owner",
+    ]);
+
+    // Known: kept, nothing created.
+    calls.length = 0;
+    globalThis.fetch = async (url, init) => {
+      calls.push(`${init?.method ?? "GET"} ${String(url)}`);
+      return Response.json({ api_version: 1, conversations: [] });
+    };
+    assert.equal(await usableOwner(storage), fresh);
+    assert.deepEqual(calls, ["GET /api/kkb/v1/conversations"]);
+
+    // A server that cannot be reached says nothing about the key: it is kept.
+    globalThis.fetch = async () => {
+      throw new TypeError("offline");
+    };
+    await assert.rejects(usableOwner(storage));
+    assert.equal(store.get("kkb.owner.v1"), fresh);
+  } finally {
+    globalThis.fetch = original;
+  }
+});

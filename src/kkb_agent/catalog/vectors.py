@@ -12,6 +12,7 @@ from pydantic import Field, StrictFloat, StringConstraints, model_validator
 
 from kkb_agent.catalog.mappings import ReviewedSnapshot
 from kkb_agent.catalog.normalization import normalize_index_text
+from kkb_agent.catalog.records import MAX_CATALOG_SERIES
 from kkb_agent.core.models import ContractModel
 
 DIMENSION = 4096
@@ -61,7 +62,9 @@ class SeriesVector(ContractModel):
 class CatalogVectors(ContractModel):
     snapshot_sha256: Digest
     profile: VectorProfile
-    vectors: tuple[SeriesVector, ...] = Field(min_length=1, max_length=40, repr=False)
+    vectors: tuple[SeriesVector, ...] = Field(
+        min_length=1, max_length=MAX_CATALOG_SERIES, repr=False
+    )
 
     @model_validator(mode="after")
     def unique_identities(self) -> Self:

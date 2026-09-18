@@ -159,6 +159,25 @@ through OCR whenever `KLOUDEKS_OCR_MODEL` names the DEC-129 OCR model, and
 from table columns that add up to the table's total row (DEC-149). Every OCR
 request is a live model call inside an approved plan.
 
+`--searxng-url https://search.example.org` (DEC-158) registers `web_search` over
+that SearXNG instance's JSON API (enable `json` in its `search.formats`). The
+request goes through `safe_fetch`, which refuses loopback and private addresses,
+so the instance must be publicly reachable; a local `127.0.0.1` instance is
+refused and reported as a backend error. Results are
+shown as an unverified candidate list and never authorize `web_url`; a live search
+smoke is still required before production search is claimed (DEC-134).
+
+Official acquisition is on by default (DEC-155, DEC-159); `--no-official-acquisition`
+refuses it. A question that needs a reviewed EVDS series or a reviewed BDDK
+monthly housing selector the prepared pool lacks fetches it through the reviewed
+adapter (EVDS: ten years to the last whole month; BDDK: 24 months ending three
+months back, one request per month), at most three a turn, each shown in the
+turn's trace as `acquisition.<code>`. Successful raw responses are kept under
+`<state-root>/acquired/` by request fingerprint and replayed through the same
+parser, so later conversations do not refetch within the same month; the
+knowledge base shows when each series was fetched. Readiness JSON reports
+`"official_acquisition"`. A live fetch needs network access to the public source.
+
 Uploads are admitted by default and `--no-uploads` refuses them: the local client attaches an uploaded CSV, Excel
 (`.xlsx`), PDF or static HTML document (up to 10 MiB, four per session) to the
 next question; readiness JSON reports `"uploads"` and `/v1/health` lists the

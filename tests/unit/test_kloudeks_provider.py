@@ -482,3 +482,59 @@ class TestItIsTheProductsProvider:
         assert [message["role"] for message in messages] == ["system", "user"]
         assert messages[0]["content"].count(schema_instructions(AnalyticalPlan)) == 1
         assert messages[0]["content"].count("Available tools:\n") == 1
+
+
+class TestWhatACallCost:
+    """Live trace 2026-09-18: most of a slow call was hidden reasoning nobody could see."""
+
+    @staticmethod
+    def costed(text, completion, reasoning_tokens=None, **message):
+        response = chat(text, **message)
+        document = json.loads(response.content)
+        usage = {"prompt_tokens": 100, "completion_tokens": completion}
+        if reasoning_tokens is not None:
+            usage["completion_tokens_details"] = {"reasoning_tokens": reasoning_tokens}
+        document["usage"] = usage
+        return httpx.Response(200, json=document)
+
+    def test_usage_and_reasoning_are_summed_over_repair_attempts(self):
+        server = Server(
+            self.costed('{"tool": "x"}', 300, 250, reasoning="first thought"),
+            self.costed('{"tool": "x", "limit": 1}', 90, 40, reasoning_content="second"),
+        )
+        result = ask(provider(server), schema=Plan)
+
+        assert result.parsed == Plan(tool="x", limit=1)
+        assert (result.usage.prompt_tokens, result.usage.completion_tokens) == (200, 390)
+        assert result.usage.reasoning_tokens == 290
+        assert result.reasoning == "first thought\n\n---\n\nsecond"
+        assert "first thought" not in result.text
+
+    def test_a_platform_that_reports_nothing_leaves_both_empty(self):
+        result = ask(provider(Server(chat("düz metin"))))
+        assert result.usage is None and result.reasoning is None
+
+    def test_both_calls_reason_by_default_and_each_can_be_switched_off(self):
+        server = Server(chat('{"tool": "t", "limit": 1}'), chat("cümle"))
+        target = provider(server)
+        ask(target, schema=Plan)
+        ask(target)
+        planned, written = server.bodies()
+        assert "chat_template_kwargs" not in planned
+        assert "chat_template_kwargs" not in written
+
+        server = Server(chat('{"tool": "t", "limit": 1}'), chat("cümle"))
+        target = provider(server, planner_thinking=False)
+        ask(target, schema=Plan)
+        ask(target)
+        planned, written = server.bodies()
+        assert planned["chat_template_kwargs"] == {"enable_thinking": False}
+        assert "chat_template_kwargs" not in written
+
+        server = Server(chat('{"tool": "t", "limit": 1}'), chat("cümle"))
+        target = provider(server, writer_thinking=False)
+        ask(target, schema=Plan)
+        ask(target)
+        planned, written = server.bodies()
+        assert "chat_template_kwargs" not in planned
+        assert written["chat_template_kwargs"] == {"enable_thinking": False}
