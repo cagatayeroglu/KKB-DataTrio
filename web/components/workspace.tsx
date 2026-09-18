@@ -32,6 +32,7 @@ import { Button } from "@/components/ui/button";
 import { ResultTable } from "@/components/result-table";
 import { TracesPage } from "@/components/traces-page";
 import { AnswerFeedback } from "@/components/answer-feedback";
+import { LiveActivity } from "@/components/live-activity";
 import {
   KnowledgePanel,
   type ChatDocument,
@@ -1126,11 +1127,26 @@ export function Workspace() {
                                 size={15}
                                 className={busy ? "spin" : ""}
                               />
-                              {busy
-                                ? item.turn?.state === "running"
-                                  ? "Analiz çalışıyor…"
-                                  : "İstek iletiliyor…"
-                                : "Durum yeniden alınabilir."}
+                              {busy ? (
+                                item.turn?.state === "running" ? (
+                                  history &&
+                                  conversationId &&
+                                  ownerToken &&
+                                  item.turn.turn_id ? (
+                                    <LiveActivity
+                                      conversationId={conversationId}
+                                      token={ownerToken}
+                                      turnId={item.turn.turn_id}
+                                    />
+                                  ) : (
+                                    "Analiz çalışıyor…"
+                                  )
+                                ) : (
+                                  "İstek iletiliyor…"
+                                )
+                              ) : (
+                                "Durum yeniden alınabilir."
+                              )}
                               {history &&
                                 conversationId &&
                                 item.turn?.state === "running" && (

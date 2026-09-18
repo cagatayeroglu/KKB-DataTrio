@@ -2556,3 +2556,72 @@ svg {
 .setting-off {
   color: var(--muted);
 }
+
+/* A model call carries its own prompts and reasoning, opened in place. */
+.trace-nested {
+  background: var(--surface-2);
+  border-left: 3px solid var(--line);
+}
+.trace-child {
+  border-top: 1px solid var(--line);
+  padding: 8px 10px 4px 14px;
+}
+.trace-child h4 {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.trace-children {
+  font-size: 10.5px;
+  color: var(--muted);
+}
+.trace-expand {
+  float: right;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--accent-ink);
+  padding: 2px 4px;
+}
+/* One record read on its own, over the page it belongs to. */
+.trace-full {
+  position: fixed;
+  inset: 56px 24px 24px calc(var(--rail) + 24px);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 18px 50px #0b0d0f26;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.trace-full header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+}
+.trace-full header strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+.trace-full header button {
+  margin-left: auto;
+  color: var(--accent-ink);
+  font-size: 12px;
+}
+.trace-full pre {
+  margin: 0;
+  padding: 14px 16px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.6;
+}
