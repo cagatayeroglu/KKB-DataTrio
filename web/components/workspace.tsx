@@ -969,7 +969,9 @@ export function Workspace() {
                     onClick={() => setChatMenu((value) => !value)}
                   >
                     <strong>{currentTitle}</strong>
-                    {currentWhen && <small>{currentWhen}</small>}
+                    {currentWhen && (
+                      <small title="Son etkinlik">{currentWhen}</small>
+                    )}
                     {conversationId && <ChevronDown size={14} />}
                   </button>
                 )}
@@ -1443,14 +1445,17 @@ export function Workspace() {
                   value={question}
                   onChange={(e) => setQuestion(e.target.value)}
                   placeholder={
-                    items.length || transcript.length
-                      ? items.at(-1)?.turn?.answer?.status === "abstained"
-                        ? "Kısa bir cevap netleştirmeye eklenir; soru yazarsan yeni soru sayılır"
-                        : "Devam et…"
-                      : "Finansal sorunu yaz…"
+                    pending
+                      ? "Analiz sürüyor; bitince devam edebilirsin"
+                      : items.length || transcript.length
+                        ? items.at(-1)?.turn?.answer?.status === "abstained"
+                          ? "Kısa bir cevap netleştirmeye eklenir; soru yazarsan yeni soru sayılır"
+                          : "Devam et…"
+                        : "Finansal sorunu yaz…"
                   }
                   maxLength={4096}
-                  disabled={busy || pending}
+                  // Drafting is always allowed; only sending waits for the running
+                  // turn (one turn at a time - the server refuses a second with 409).
                   onKeyDown={(e) => {
                     if (
                       e.key === "Enter" &&
