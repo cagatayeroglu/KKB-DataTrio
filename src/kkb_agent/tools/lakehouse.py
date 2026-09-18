@@ -318,8 +318,15 @@ def make_lakehouse_tool(
 
 
 def _describe(readable: Iterable[str]) -> str:
+    # The planner reads this text; nothing here is ever executed. It is the tool's
+    # description, returned for ToolSpec.description, and the only interpolation is
+    # the list of readable table names. Bandit's B608 heuristic sees SQL words beside
+    # an f-string and cannot tell prose from a query, so the finding is a false
+    # positive. The real SQL boundary is the parser and the read-only engine limits
+    # applied to the model's statement, not this string.
     return (
-        "Run one read-only SELECT over the analysis tables. "
+        # nosec B608 - prose, never executed; the marker sits on the flagged line.
+        "Run one read-only SELECT over the analysis tables. "  # nosec B608
         f"Readable tables: {', '.join(sorted(readable))}. "
         "Only SELECT is accepted; no table functions, no writes, no other tables."
         " Measurements require direct columns: select o.series_id, o.period_start,"
