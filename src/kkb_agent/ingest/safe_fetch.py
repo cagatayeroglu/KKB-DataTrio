@@ -10,7 +10,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Annotated, Literal, Self
 
-from pydantic import ConfigDict, Field, SecretStr, StringConstraints, model_validator
+from pydantic import ConfigDict, Field, SecretStr, StrictBool, StringConstraints, model_validator
 
 from kkb_agent.core.models import ContractModel
 from kkb_agent.ingest.url_targets import TargetReason, TargetRejection, validate_url_target
@@ -73,6 +73,11 @@ class FetchRequest(ContractModel):
     source_ref: SourceId
     url: SecretStr = Field(min_length=1, repr=False, exclude=True)
     accepted_media_types: Annotated[tuple[MediaType, ...], Field(min_length=1, max_length=8)]
+    #: A fetch a page delegated (its own link, script or data endpoint) may not be
+    #: redirected out of that page's origin (DEC-150 amendment). A person's own
+    #: address is not delegated: its site may redirect as it likes, and the page
+    #: the fetch ends on is the origin every later hop is measured against.
+    stay_within_origin: StrictBool = False
 
 
 class FetchCode(StrEnum):

@@ -6,9 +6,9 @@ question contains an address and fetching is enabled, the runner reads that page
 once and gives the planner a bounded outline, as untrusted data:
 
 - the page's static tables (location, headers, row count),
-- same-site document links (visible text and file name),
+- same-origin document links (visible text and file name),
 - data endpoints: relative `*.php?`/`*.json`/`/api/` addresses written in the
-  page's own same-site scripts whose query ends in a parameter the page address
+  page's own same-origin scripts whose query ends in a parameter the page address
   itself names (`indexCode=` + `XTUMY` from `/endeks/xtumy`), each fetched once as
   JSON, outlined only when it holds one record table (keys, row count, first and
   last value of a date-like key; no measured values).
@@ -34,8 +34,9 @@ from pydantic import SecretStr
 from kkb_agent.ingest.fetched import DOCUMENT_MEDIA_TYPES, source_id_for
 from kkb_agent.ingest.json_table import MEDIA_TYPE as JSON_MEDIA_TYPE
 from kkb_agent.ingest.json_table import JsonRejected, load_records
-from kkb_agent.ingest.page_links import page_links, site_of
+from kkb_agent.ingest.page_links import page_links
 from kkb_agent.ingest.safe_fetch import FetchOutcome, FetchRequest, FetchSuccess
+from kkb_agent.ingest.url_targets import same_origin
 
 type Fetcher = Callable[[FetchRequest], FetchOutcome]
 
@@ -70,10 +71,15 @@ class TurnFetchCache:
             self.seen[key] = self.fetch(request)
         return self.seen[key]
 
-    def get(self, url: str, media_types: tuple[str, ...]) -> FetchSuccess | None:
+    def get(
+        self, url: str, media_types: tuple[str, ...], *, stay_within_origin: bool = False
+    ) -> FetchSuccess | None:
         outcome = self(
             FetchRequest(
-                source_ref=source_id_for(url), url=SecretStr(url), accepted_media_types=media_types
+                source_ref=source_id_for(url),
+                url=SecretStr(url),
+                accepted_media_types=media_types,
+                stay_within_origin=stay_within_origin,
             )
         )
         return outcome if isinstance(outcome, FetchSuccess) else None
@@ -124,18 +130,16 @@ def outline_address(url: str, cache: TurnFetchCache) -> dict[str, object] | None
     ][:MAX_DOCUMENT_LINKS]
     if documents:
         outline["document_links"] = documents
-    host = urlsplit(base).hostname or ""
     scripts = []
     for src in _SCRIPT_SRC.findall(page.content.decode("utf-8", "replace")):
         absolute = urljoin(base, src)
-        target = urlsplit(absolute)
-        if target.scheme in ("http", "https") and site_of(target.hostname or "") == site_of(host):
+        if same_origin(absolute, base):
             scripts.append(absolute)
     endpoints: list[dict[str, object]] = []
     attempts = 0
     tokens = _path_tokens(base)
     for script_url in list(dict.fromkeys(scripts))[:MAX_SCRIPTS]:
-        script = cache.get(script_url, SCRIPT_MEDIA_TYPES)
+        script = cache.get(script_url, SCRIPT_MEDIA_TYPES, stay_within_origin=True)
         if script is None or not tokens:
             continue
         for relative in dict.fromkeys(_ENDPOINT.findall(script.content.decode("utf-8", "replace"))):
@@ -143,12 +147,12 @@ def outline_address(url: str, cache: TurnFetchCache) -> dict[str, object] | None
                 break
             for token in tokens:
                 address = urljoin(base, relative + token)
-                if site_of(urlsplit(address).hostname or "") != site_of(host):
+                if not same_origin(address, base):
                     continue
                 if attempts >= MAX_ENDPOINT_ATTEMPTS:
                     break
                 attempts += 1
-                data = cache.get(address, (JSON_MEDIA_TYPE,))
+                data = cache.get(address, (JSON_MEDIA_TYPE,), stay_within_origin=True)
                 records = _record_outline(data.content) if data is not None else None
                 if records is None:
                     continue

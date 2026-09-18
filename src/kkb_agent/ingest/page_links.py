@@ -5,7 +5,8 @@ opens a PDF) or behind a script endpoint, never at the address a user types. An
 address the user wrote therefore also authorizes, and only authorizes:
 
 - a link present in the **bytes of that page**, and
-- only on the **same site** (registrable domain) as the page the fetch ended on,
+- only on the **same origin** (scheme, host and port) as the page the fetch
+  ended on: one registrable domain can hold a subdomain nobody vetted,
 - one hop deep: a followed document's own links are never followed.
 
 The model never supplies an address. It names a link by its visible text or its
@@ -17,26 +18,22 @@ Credentials, fragments and other schemes in a link are refused.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import Final
 from urllib.parse import unquote, urljoin, urlsplit, urlunsplit
 
 from kkb_agent.catalog.normalization import normalize_search_text
+from kkb_agent.ingest.url_targets import same_origin
 
 #: Enough for a large portal page; a page beyond it offers no links rather than a partial list.
 MAX_PAGE_BYTES: Final = 4 * 1024 * 1024
 MAX_LINKS: Final = 2000
 MAX_TEXT_CHARS: Final = 200
-#: Second-level labels under which a registrable domain has three labels.
-_SECOND_LEVEL: Final = frozenset(
-    {"com", "net", "org", "gov", "edu", "gen", "bel", "k12", "av", "bbs", "co", "ac", "or", "go"}
-)
 
 
 class LinkRefused(ValueError):
-    """No single same-site link matches; `code` is fixed."""
+    """No single same-origin link matches; `code` is fixed."""
 
     def __init__(self, code: str):
         self.code = code
@@ -47,21 +44,6 @@ class LinkRefused(ValueError):
 class PageLink:
     url: str
     text: str
-
-
-def site_of(host: str) -> str:
-    """The registrable domain of a host, conservatively, without a suffix list.
-
-    `www.borsaistanbul.com` -> `borsaistanbul.com`; `evds2.cbrt.gov.tr` ->
-    `cbrt.gov.tr`. An IP address or a single-label host is its own site.
-    """
-    host = host.lower().rstrip(".")
-    labels = host.split(".")
-    if len(labels) < 2 or re.fullmatch(r"[0-9.]+|\[.*\]", host):
-        return host
-    if len(labels) >= 3 and len(labels[-1]) == 2 and labels[-2] in _SECOND_LEVEL:
-        return ".".join(labels[-3:])
-    return ".".join(labels[-2:])
 
 
 class _Anchors(HTMLParser):
@@ -87,7 +69,7 @@ class _Anchors(HTMLParser):
 
 
 def page_links(content: bytes, page_url: str) -> tuple[PageLink, ...]:
-    """Same-site http(s) links of a page, absolute, credential- and fragment-free."""
+    """Same-origin http(s) links of a page, absolute, credential- and fragment-free."""
     if len(content) > MAX_PAGE_BYTES:
         return ()
     page = urlsplit(page_url)
@@ -105,7 +87,7 @@ def page_links(content: bytes, page_url: str) -> tuple[PageLink, ...]:
             or not target.hostname
             or target.username is not None
             or target.password is not None
-            or site_of(target.hostname) != site_of(page.hostname)
+            or not same_origin(absolute, page_url)
         ):
             continue
         clean = urlunsplit((target.scheme, target.netloc, target.path or "/", target.query, ""))
