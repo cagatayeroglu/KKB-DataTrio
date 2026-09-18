@@ -182,6 +182,8 @@ export function KnowledgePanel({
   const [trying, setTrying] = useState(false);
   //: Which generation of meaning vectors this deployment searches, and what it covers.
   const [index, setIndex] = useState<VectorIndex | null>(null);
+  //: A friendly next-step note (not an error), cleared by the next action.
+  const [hint, setHint] = useState("");
 
   /**
    * The knowledge base as a file that can be imported again: the listing plus
@@ -334,10 +336,29 @@ export function KnowledgePanel({
     try {
       await work();
       await refresh();
+      noteVectorGap();
     } catch (error) {
       setIssue(describeError(error));
     } finally {
       setBusy(false);
+    }
+  }
+
+  /**
+   * A gentle reminder after any knowledge-base change: word search covers the
+   * change at once, meaning-based search only after the vectors are rebuilt.
+   * Read fresh so the message never claims a gap that is not there.
+   */
+  async function noteVectorGap() {
+    try {
+      const state = await readIndex(owner);
+      setIndex(state);
+      if (state.configured && !state.covers_catalog && state.rebuildable)
+        setHint(
+          'Kaydedildi. Kelime araması değişikliğini hemen görür; yeni açıklama ve eş anlamlıların ANLAMSAL aramaya girmesi için yukarıdaki "Yeniden vektörle" düğmesine basman yeterli.',
+        );
+    } catch {
+      // Without the index route there is nothing to remind about.
     }
   }
 
@@ -510,6 +531,14 @@ export function KnowledgePanel({
           </button>
         ))}
       </div>
+      {hint && (
+        <p className="hint" role="status">
+          {hint}
+          <button type="button" onClick={() => setHint("")} aria-label="Kapat">
+            <X size={13} />
+          </button>
+        </p>
+      )}
       {issue && <p className="notice">{issue}</p>}
       {editing && (
         <DatasetForm
@@ -520,6 +549,7 @@ export function KnowledgePanel({
           onSaved={async () => {
             setEditing(null);
             await refresh();
+            await noteVectorGap();
           }}
         />
       )}

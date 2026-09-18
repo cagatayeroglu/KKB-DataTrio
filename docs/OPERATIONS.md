@@ -74,6 +74,7 @@ model call. Do not overwrite older evidence to hide a conflicting source revisio
 | GET `/v1/sessions/{session_id}/turns/{turn_id}/events` | Token header; optional `Last-Event-ID` 0–3 | Actual turn lifecycle SSE |
 | POST `/v1/sessions/{session_id}/turns/{turn_id}/cancel` | Token header | Accepted (202); the turn stops at its next checkpoint |
 | POST `/v1/sessions/{session_id}/documents` | Raw CSV/XLSX/PDF/HTML body with its content type; token header | Admitted document reference; HTTP 201 |
+| POST `/v1/sessions/{session_id}/documents/from-url` | JSON `url` (https); token header; needs `--enable-web-url` | Fetches a tabular document through safe_fetch and admits it like an upload; HTTP 201 |
 | POST `/v1/owner` | JSON `{}` | The browser's owner key, which lists and reopens its own conversations |
 | GET / PATCH `/v1/settings` | Owner key header; PATCH body `disabled`, `history_turns` | The owner's restrict-only runtime choices ([DEC-162](DECISIONS.md#dec-162--a-browser-narrows-its-own-runtime-only-the-operator-widens-it)) |
 | GET `/v1/prompts` | Owner key header | The prompt parts model calls are assembled from, each with its content digest; read-only by design |

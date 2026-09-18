@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Annotated
 from uuid import uuid4
 
 import duckdb
-from pydantic import Field, JsonValue
+from pydantic import Field, JsonValue, SecretStr
 
 from kkb_agent.agent import Session, ToolRegistry, Workspace
 from kkb_agent.agent.cancellation import TurnCancelled
@@ -51,7 +51,9 @@ from kkb_agent.ingest.acquisition import AcquiringInspector, OfficialSources, Tu
 from kkb_agent.ingest.address_outline import TurnFetchCache, address_outline
 from kkb_agent.ingest.attached import SOURCE_TYPE as UPLOAD
 from kkb_agent.ingest.attached import Attachment
+from kkb_agent.ingest.fetched import TABLE_MEDIA_TYPES, source_id_for
 from kkb_agent.ingest.prepared_series import prepared_series_names
+from kkb_agent.ingest.safe_fetch import FetchFailure, FetchRequest, FetchSuccess
 from kkb_agent.ingestion_policy import MIME_TYPES, AdmissionError, admit_upload
 from kkb_agent.knowledge import KnowledgeStore, effective_snapshot
 from kkb_agent.lakehouse import open_lakehouse
@@ -117,6 +119,8 @@ class _Document:
 
 
 _UPLOAD_KINDS = {media_type: kind for kind, media_type in MIME_TYPES.items()}
+#: A user-written https address; the bound keeps a stray field out of the fetcher.
+_WEB_ADDRESS = re.compile(r"https://[^\s<>\"'`]{1,2000}")
 
 
 _CANCELLATION_KEYWORDS = {"iptal", "vazgeç", "vazgeçtim", "cancel", "iptal et"}
@@ -482,6 +486,35 @@ class PreparedRunner:
                     document.admitted_at,
                 )
         self._history[session_id] = list(self._store.history(session_id, MAX_HISTORY_TURNS))
+
+    def admit_document_from_url(self, session_id: str, url: str) -> DocumentAdmitted:
+        """Fetch a tabular document at a user-written address and admit it like an upload.
+
+        The address is the person's own request, typed in the knowledge-base form,
+        so it plays the same role the question does for `web_url`: only an https
+        table is fetched, through the operator's `safe_fetch` (GET-only, no cookie,
+        DNS/TLS/redirect/byte/time bounds), and the bytes then meet the exact upload
+        admission rules. No new download or parsing code is introduced, and the
+        planner is not involved. Persisting the numbers into the knowledge base is
+        a second, explicit step over the admitted document, with a human-confirmed
+        declaration - nothing is stored to the catalogue from here.
+        """
+        if self._web_url_fetch is None or not self._document_uploads:
+            raise ServiceError("unavailable", 503)
+        if not isinstance(url, str) or not _WEB_ADDRESS.fullmatch(url):
+            raise ServiceError("document_rejected", 422)
+        outcome = self._web_url_fetch(
+            FetchRequest(
+                source_ref=source_id_for(url),
+                url=SecretStr(url),
+                accepted_media_types=TABLE_MEDIA_TYPES,
+            )
+        )
+        if isinstance(outcome, FetchFailure):
+            raise ServiceError("document_rejected", 422)
+        if not isinstance(outcome, FetchSuccess):  # pragma: no cover - FetchOutcome is closed
+            raise TypeError("fetch returned neither a success nor a failure")
+        return self.admit_document(session_id, outcome.media_type, outcome.content)
 
     def admit_document(self, session_id: str, media_type: str, content: bytes) -> DocumentAdmitted:
         """Admit through the upload checks and store by opaque reference; no filename is kept."""

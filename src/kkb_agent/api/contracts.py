@@ -152,6 +152,12 @@ class ProofSource(ContractModel):
     last_retrieved: AwareDatetime | None
 
 
+class DocumentFromUrl(ContractModel):
+    """A user-written https address to fetch a tabular document from (M-URL-KB)."""
+
+    url: Annotated[str, StringConstraints(strict=True, pattern=r"^https://[^\s<>\"'`]{1,2000}$")]
+
+
 class DocumentAdmitted(ContractModel):
     """What an admitted upload returns; never its filename or content."""
 

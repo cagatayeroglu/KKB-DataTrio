@@ -2869,3 +2869,26 @@ svg {
   outline: none;
   border-color: var(--accent);
 }
+
+/* A friendly next step, distinct from an error notice. */
+.hint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #cfe3e9;
+  border-radius: var(--radius);
+  background: var(--accent-light);
+  color: var(--accent-ink);
+  padding: 9px 12px;
+  font-size: 12.5px;
+  margin: 0 0 12px;
+}
+.hint button {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--accent-ink);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}

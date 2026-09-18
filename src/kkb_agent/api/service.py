@@ -102,6 +102,10 @@ class DocumentStore(Protocol):
     def __call__(self, session_id: str, media_type: str, content: bytes) -> DocumentAdmitted: ...
 
 
+class UrlDocumentStore(Protocol):
+    def __call__(self, session_id: str, url: str) -> DocumentAdmitted: ...
+
+
 @dataclass(frozen=True, slots=True)
 class SelectedResult:
     """Server-resolved publication identity; workspace validity is checked by its runner."""
@@ -165,6 +169,7 @@ class AnalysisService:
         mode: Literal["kloudeks", "scripted"],
         selected_runner: SelectedRunner | None = None,
         document_store: DocumentStore | None = None,
+        url_document_store: UrlDocumentStore | None = None,
         store: ConversationStore | None = None,
         ocr: bool = False,
         official_acquisition: bool = False,
@@ -180,6 +185,7 @@ class AnalysisService:
         self._selected_runner = selected_runner
         # Uploads exist only when the operator supplied a store (--enable-uploads).
         self._document_store = document_store
+        self._url_document_store = url_document_store
         # Conversations survive a restart only when the operator supplied one.
         self._store = store
         # Scanned pages are read only when the operator enabled OCR (DEC-149).
@@ -576,6 +582,29 @@ class AnalysisService:
                 raise ServiceError("capacity", 429)
         admitted = DocumentAdmitted.model_validate(
             self._document_store(session_id, media_type, content).model_dump()
+        )
+        with self._lock:
+            session = self._owned(session_id, token)
+            session.documents.add(admitted.document_ref)
+        return admitted
+
+    def admit_document_from_url(self, session_id: str, token: str, url: str) -> DocumentAdmitted:
+        """Admit a tabular document at a user-written address, like an upload.
+
+        The same authentication and per-owner upload switch as a file upload; the
+        fetch and admission rules live in the store. The address is the person's
+        own request from the form, never a planner output or a document's content.
+        """
+        with self._lock:
+            session = self._owned(session_id, token)
+            if self._url_document_store is None:
+                raise ServiceError("unavailable", 503)
+            if "document_upload" in self._session_settings(session_id).disabled:
+                raise ServiceError("unavailable", 503)
+            if len(session.documents) >= MAX_DOCUMENTS:
+                raise ServiceError("capacity", 429)
+        admitted = DocumentAdmitted.model_validate(
+            self._url_document_store(session_id, url).model_dump()
         )
         with self._lock:
             session = self._owned(session_id, token)
