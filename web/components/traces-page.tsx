@@ -326,10 +326,12 @@ function RunView({
     URL.revokeObjectURL(link.href);
   }
 
+  // One count per model call: a planning call, or the writer's own call. The
+  // plan it returned and the draft it wrote are records of that call, not calls.
   const model = detail?.steps.filter(
     (step) =>
       (step.stage === "planning" && step.name !== "planner.output") ||
-      step.name === "draft.model",
+      step.name === "writer.call",
   ).length;
   const tools = detail?.steps.filter((step) => step.stage === "tool").length;
 

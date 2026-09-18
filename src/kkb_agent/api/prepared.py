@@ -932,6 +932,17 @@ class PreparedRunner:
                         else None
                     ),
                 )
+                # How the turn ended, in the trace itself: an abstention or a
+                # clarification never reaches the answer gate, so without this the
+                # record stops at the last plan and never says what was shown.
+                tracer.event(
+                    "answer",
+                    f"turn.{answer.status.value}",
+                    omitted_claims=answer.omitted_claims,
+                    published=answer.result is not None,
+                    clarification=answered.planned.plan.clarification,
+                    detail=answer.text,
+                )
                 # Only retain references that survived publication AND projection.
                 # Bounded by the existing session/turn limits; never rebuild this
                 # ownership map by scanning arbitrary stored result digests.
