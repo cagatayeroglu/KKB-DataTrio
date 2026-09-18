@@ -4,7 +4,11 @@ import {
   conversationListSchema,
   conversationSummarySchema,
   documentAdmittedSchema,
+  feedbackListSchema,
+  feedbackSchema,
   ownerSchema,
+  runDetailSchema,
+  runListSchema,
   sessionSchema,
   turnSchema,
   savedSchema,
@@ -144,6 +148,43 @@ export function openConversation(conversationId: string, token: string) {
     token,
   );
 }
+export function rateAnswer(
+  conversationId: string,
+  token: string,
+  rating: {
+    turn_id: string;
+    rating: "up" | "down";
+    comment?: string;
+    reasons?: readonly string[];
+  },
+) {
+  return api(
+    `conversations/${conversationId}/feedback`,
+    feedbackSchema,
+    { method: "POST", body: JSON.stringify(rating) },
+    token,
+  );
+}
+export function listFeedback(conversationId: string, token: string) {
+  return api(
+    `conversations/${conversationId}/feedback`,
+    feedbackListSchema,
+    {},
+    token,
+  );
+}
+export function listRuns(conversationId: string, token: string) {
+  return api(`conversations/${conversationId}/runs`, runListSchema, {}, token);
+}
+export function openRun(conversationId: string, runId: string, token: string) {
+  // Reading a trace is a stored record: it starts no model or tool call.
+  return api(
+    `conversations/${conversationId}/runs/${runId}`,
+    runDetailSchema,
+    {},
+    token,
+  );
+}
 export function updateConversation(
   conversationId: string,
   token: string,
@@ -261,23 +302,6 @@ export function draftRequest(
         }
       : {}),
   };
-}
-export function draftWorkspaceRequest(
-  question: string,
-  followSelected: boolean,
-  source?: Turn,
-  document?: DocumentAdmitted,
-): Saved["turns"][number] {
-  const selected =
-    followSelected && publishedResult(source) ? source : undefined;
-  const clarifying =
-    source?.state === "completed" && source.answer?.status === "abstained";
-  return draftRequest(
-    question,
-    selected,
-    followSelected && (Boolean(selected) || Boolean(clarifying)),
-    document,
-  );
 }
 export function admissionRejection(
   error: unknown,

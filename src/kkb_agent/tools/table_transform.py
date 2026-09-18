@@ -30,6 +30,9 @@ from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
 from kkb_agent.agent.registry import TableInput, ToolSpec
 from kkb_agent.agent.verifier import result_faults
 from kkb_agent.agent.workspace import Workspace, WorkspaceError
+from kkb_agent.analytics.accumulation import FORMULA as TO_FLOW_FORMULA
+from kkb_agent.analytics.accumulation import METHOD as TO_FLOW_METHOD
+from kkb_agent.analytics.accumulation import AccumulationRefused, to_flow_column
 from kkb_agent.analytics.deflation import FORMULA, METHOD, DeflationRefused, deflate
 from kkb_agent.analytics.table_series import (
     DOCUMENT_METHOD,
@@ -122,6 +125,30 @@ class DeflateArguments(BaseModel):
         if following.day != 1:
             raise ValueError("reference_period must be the last day of a month")
         return self
+
+
+class ToFlowArguments(BaseModel):
+    """Differencing a column the store declares cumulative; no other column qualifies."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation: Literal["to_flow"] = Field(
+        description=(
+            "to_flow: add a per-period flow copy of one column the store records as a "
+            "cumulative series (yearly_reset or since_inception), keeping every existing "
+            "column unchanged. The store's declaration decides; a column that only looks "
+            "cumulative is refused"
+        )
+    )
+    source: str = Field(
+        pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
+        description="Name of a published result from an earlier turn; its rows stay unchanged",
+    )
+    column: str = Field(
+        min_length=1,
+        max_length=400,
+        description="The cumulative column's exact label in that result; it is a series id",
+    )
 
 
 class AddSeriesArguments(BaseModel):
@@ -297,6 +324,7 @@ class TableTransformArguments(
         Annotated[
             DeflateArguments
             | AddSeriesArguments
+            | ToFlowArguments
             | JoinTableArguments
             | RebaseArguments
             | AlignArguments
@@ -313,6 +341,7 @@ class DocumentTableTransformArguments(
         Annotated[
             DeflateArguments
             | AddSeriesArguments
+            | ToFlowArguments
             | AddDocumentColumnArguments
             | JoinTableArguments
             | RebaseArguments
@@ -399,6 +428,13 @@ def make_table_transform_tool(
                 if isinstance(selected, AddSeriesArguments)
                 else _deflated(selected, source, series.observations, series.semantics, names)
             )
+        elif isinstance(selected, ToFlowArguments):
+            try:
+                series = read_series(connection, selected.column, inspector=inspector)
+            except SeriesUnknown as error:
+                return failure("series_unknown", str(error))
+            inputs.append(series.snapshot)
+            result = _flowed(selected, source, series.semantics)
         elif isinstance(selected, JoinTableArguments):
             try:
                 other = workspace.value_of(selected.other)
@@ -527,6 +563,11 @@ def make_table_transform_tool(
             "housing price index) on the table's exact months. Use source and series_id only "
             "for add_series. It preserves every old column, records missing months without "
             "filling them, and does not calculate a relationship or establish a cause. "
+            "to_flow adds a per-period flow copy of a column the store records as cumulative "
+            "(yearly_reset or since_inception), which is what comparison, breakpoint and "
+            "table direction comparison can use; series-based tools still read original series. "
+            "A column the store does "
+            "not declare cumulative is refused rather than differenced. "
             "rebase adds an explicitly based copy of an existing index column. align selects "
             "existing exact periods using inner or explicitly anchored-left policy. join_table "
             "adds the monthly columns of another published result (for example a table built "
@@ -871,6 +912,71 @@ def _augmented(
             "filling, currency conversion, inflation adjustment or rebasing was applied to it",
             "Existing comparison metrics still concern their original columns; adding a "
             "column does not compute a relationship with it",
+        ],
+        unresolved_semantics=list(source.unresolved_semantics),
+    )
+
+
+def _flowed(
+    arguments: ToFlowArguments,
+    source: AnalyticalResult,
+    semantics: SeriesSemantics,
+) -> AnalyticalResult:
+    """The source table with a per-period flow copy of one declared cumulative column."""
+    result_id = f"table_transform:to_flow:{arguments.source}:{arguments.column}"
+    column = [value for value in source.values if value.label == arguments.column]
+    try:
+        flowed = to_flow_column(column, semantics, column_label=arguments.column)
+        if any(value.label == flowed.label for value in source.values):
+            raise AccumulationRefused("This table already contains the converted flow column")
+        if not flowed.values:
+            raise AccumulationRefused("No period has a usable predecessor or yearly reset")
+    except AccumulationRefused as error:
+        return AnalyticalResult(
+            result_id=result_id,
+            kind=ResultKind.SERIES,
+            status=ResultStatus.ABSTAINED,
+            tool="table_transform",
+            method=TO_FLOW_METHOD,
+            reason=str(error),
+        )
+    parameters = dict(source.parameters)
+    parameters.update({"source": arguments.source, "flow_of": arguments.column})
+    warnings = list(source.warnings)
+    if flowed.empty_periods:
+        warnings.append(
+            f"{len(flowed.empty_periods)} period(s) have no usable predecessor, so their flow "
+            "is empty rather than a figure spanning two periods"
+        )
+    previous = source.evidence.transformations if source.evidence is not None else []
+    return AnalyticalResult(
+        result_id=result_id,
+        kind=source.kind,
+        status=ResultStatus.COMPUTED,
+        tool="table_transform",
+        method=TO_FLOW_METHOD,
+        values=[*source.values, *flowed.values],
+        coverage=source.coverage,
+        parameters=parameters,
+        samples=source.samples,
+        evidence=ResultEvidence(
+            input_refs=[
+                *(
+                    [source.evidence.lineage_node]
+                    if source.evidence is not None and source.evidence.lineage_node
+                    else []
+                ),
+                *INPUTS,
+            ],
+            transformations=[*previous, flowed.transformation],
+        ),
+        warnings=warnings,
+        limitations=[
+            *source.limitations,
+            f"Only {flowed.label} is a per-period flow ({TO_FLOW_FORMULA}); every other column "
+            "keeps its original cumulative or level meaning",
+            "The conversion follows the store's declared cumulative kind; it is not inferred "
+            "from the values and it does not restate the source",
         ],
         unresolved_semantics=list(source.unresolved_semantics),
     )

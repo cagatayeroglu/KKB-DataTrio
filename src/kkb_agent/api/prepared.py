@@ -8,6 +8,7 @@ import json
 import os
 import re
 import threading
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -20,6 +21,7 @@ from pydantic import Field
 
 from kkb_agent.agent import Session, ToolRegistry, Workspace
 from kkb_agent.agent.loop import MAX_HISTORY_TURNS
+from kkb_agent.agent.observer import Tracer
 from kkb_agent.agent.selection import SelectedTable, SelectionError
 from kkb_agent.agent.verifier import AnswerStatus
 from kkb_agent.agent.workspace import WorkspaceError
@@ -45,8 +47,9 @@ from kkb_agent.ingest.attached import Attachment
 from kkb_agent.ingest.prepared_series import prepared_series_names
 from kkb_agent.ingestion_policy import MIME_TYPES, AdmissionError, admit_upload
 from kkb_agent.lakehouse import open_lakehouse
-from kkb_agent.lakehouse.lineage import Lineage
-from kkb_agent.lakehouse.store import DATABASE_NAME, SANDBOX
+from kkb_agent.lakehouse.gold import GoldError, gold_from_result, persist_gold
+from kkb_agent.lakehouse.lineage import Lineage, LineageError
+from kkb_agent.lakehouse.store import DATABASE_NAME, SANDBOX, Lakehouse
 from kkb_agent.llm.provider import LLMProvider
 from kkb_agent.pdf_ocr import OcrProvider
 from kkb_agent.tools import (
@@ -116,6 +119,9 @@ _NEW_QUESTION_PREFIXES = (
     "vazgeçip başka",
     "başka bir soru",
 )
+#: Words a message must reach, while asking something of its own, before it reads
+#: as a new request rather than an answer to the pending clarification.
+_NEW_QUESTION_WORDS = 6
 
 
 def _is_cancellation(question: str) -> bool:
@@ -130,12 +136,21 @@ def _is_new_question(
     selection: SelectedResult | None,
     pending: PendingClarification,
 ) -> bool:
+    """Decide, without asking the person, whether this message answers the clarification.
+
+    An answer to a clarification is short and declarative ("aylık olsun", "TCMB
+    verisi"). A message that asks something of its own, at the length of a real
+    request, is a new question however the previous turn ended. A caller may still
+    state `is_continuation`; this decides only when it did not, and the decision
+    is recorded in the turn's trace rather than left to a control the person has
+    to operate.
+    """
     q = question.strip().lower()
     if any(q.startswith(prefix) for prefix in _NEW_QUESTION_PREFIXES):
         return True
     if selection is not None and pending.selection is not None and selection != pending.selection:
         return True
-    return False
+    return q.endswith("?") and len(q.split()) >= _NEW_QUESTION_WORDS
 
 
 def _format_clarification_prompt(original: str, clarifications: tuple[str, ...]) -> str:
@@ -644,10 +659,69 @@ class PreparedRunner:
                     if turn_fetch is not None and addresses
                     else None
                 )
+                document_note = document_outline(library, current)
                 registry = self._registry(
                     lake.connection, workspace, lake.lineage, attachment, library, turn_fetch
                 )
-                answered = Session(
+                # One run per turn: what ran, with which context, and for how long.
+                run_id = uuid4().hex
+                store = self._store
+                if store is not None:
+                    # The run row exists before its first event, so everything this
+                    # turn records can be stored as it happens rather than at the end.
+                    store.start_run(session_id, run_id=run_id, turn_id=turn_id, question=question)
+                tracer = Tracer(
+                    redactions=self._redactions,
+                    sink=(
+                        (lambda event: store.add_event(run_id, event))
+                        if store is not None
+                        else None
+                    ),
+                )
+                tracer.event(
+                    "request",
+                    "turn.received",
+                    question_bytes=len(question.encode()),
+                    is_continuation=is_continuation,
+                    attached_document=effective_document is not None,
+                    pending_clarification=pending is not None,
+                    # How the pending clarification was read, and by whom: the
+                    # person states it only when they pass is_continuation.
+                    clarification=(
+                        None
+                        if pending is None
+                        else "cancelled"
+                        if is_cancel
+                        else "replaced"
+                        if is_new_q
+                        else "merged"
+                    ),
+                    clarification_decided_by=(
+                        None
+                        if pending is None
+                        else "request"
+                        if is_continuation is not None
+                        else "agent"
+                    ),
+                )
+                tracer.event(
+                    "context",
+                    "context.assembled",
+                    selected_result=(
+                        effective_selection.result_ref if effective_selection is not None else None
+                    ),
+                    selected_version=(
+                        effective_selection.version if effective_selection is not None else None
+                    ),
+                    workspace_results=len(workspace.names()),
+                    conversation_documents=len(library),
+                    history_turns=len(self._history.get(session_id, ())),
+                    addresses=len(addresses),
+                    address_outline_bytes=len(address_note.encode()) if address_note else 0,
+                    document_outline=document_note is not None,
+                )
+                started = time.monotonic()
+                session = Session(
                     self._provider,
                     registry,
                     catalog_continuation=True,
@@ -655,8 +729,9 @@ class PreparedRunner:
                     require_series_discovery=self._dense is not None,
                     repair_period_wording=True,
                     repair_unmatched_numbers=True,
-                    documents_note=document_outline(library, current),
+                    documents_note=document_note,
                     address_note=address_note,
+                    tracer=tracer,
                     # A clarification merge already restates the original request.
                     history=(
                         tuple(self._history.get(session_id, ()))
@@ -664,7 +739,22 @@ class PreparedRunner:
                         else ()
                     ),
                     tools_required=bool(addresses_in(question)) or document_ref is not None,
-                ).answer(effective_question, lake.connection, workspace=workspace, remember=name)
+                )
+                try:
+                    answered = session.answer(
+                        effective_question, lake.connection, workspace=workspace, remember=name
+                    )
+                except Exception as failure:
+                    # A failed turn is still a run someone can open and read.
+                    if self._store is not None:
+                        self._store.finish_run(
+                            run_id,
+                            status="failed",
+                            duration_ms=max(0, round((time.monotonic() - started) * 1000)),
+                            error=type(failure).__name__,
+                            events=tracer.events,
+                        )
+                    raise
                 published = workspace.value_of(name) if name in workspace.names() else None
                 answer = project_answer(
                     answered,
@@ -681,6 +771,7 @@ class PreparedRunner:
                 # Bounded by the existing session/turn limits; never rebuild this
                 # ownership map by scanning arbitrary stored result digests.
                 if answer.result is not None:
+                    self._materialize_gold(lake, name, published, tracer)
                     artifact = workspace.resolve(name).artifact_id
                     self._publications[session_id, turn_id] = _Publication(
                         SelectedResult(turn_id, answer.result.result_ref, answer.result.version),
@@ -718,6 +809,15 @@ class PreparedRunner:
                         selection=sel,
                         document_ref=effective_document,
                     )
+                if self._store is not None:
+                    self._store.finish_run(
+                        run_id,
+                        status="completed",
+                        duration_ms=max(0, round((time.monotonic() - started) * 1000)),
+                        answer_status=answer.status.value,
+                        result_ref=answer.result.result_ref if answer.result else None,
+                        events=tracer.events,
+                    )
                 turns = self._history.setdefault(session_id, [])
                 turns.append((question, answer.text))
                 del turns[:-MAX_HISTORY_TURNS]
@@ -726,6 +826,39 @@ class PreparedRunner:
 
         finally:
             self._lock.release()
+
+    def _materialize_gold(
+        self,
+        lake: Lakehouse,
+        name: str,
+        published: AnalyticalResult | None,
+        tracer: Tracer,
+    ) -> None:
+        """Write a published period table into gold, so the store holds it too.
+
+        This runs after the turn's answer was gated, so nothing in this answer was
+        checked against a cell this turn wrote. Later turns read the table by
+        identity — through SQL over `gold_cells` or the verifier's store recheck —
+        and each column carries the lineage node of the result that produced it.
+        A table that cannot be written traceably is simply not written: the
+        workspace remains its record, and the trace says which it was.
+        """
+        if published is None:
+            return
+        try:
+            table = gold_from_result(published, table_id=name, lineage=lake.lineage)
+            rows = persist_gold(lake.connection, table) if table is not None else 0
+        except (GoldError, LineageError) as refused:
+            tracer.event("store", "gold.refused", table=name, reason=type(refused).__name__)
+            return
+        tracer.event(
+            "store",
+            "gold.materialized" if rows else "gold.skipped",
+            table=name,
+            columns=len(table.columns) if table is not None else 0,
+            rows=rows,
+            incomplete=list(table.incomplete_columns()) if table is not None else [],
+        )
 
     def _remember(
         self,

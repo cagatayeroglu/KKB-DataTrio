@@ -363,3 +363,79 @@ export const conversationDetailSchema = z
 export type ConversationSummary = z.infer<typeof conversationSummarySchema>;
 export type ConversationDetail = z.infer<typeof conversationDetailSchema>;
 export type StoredMessage = z.infer<typeof storedMessageSchema>;
+
+export const runSummarySchema = z
+  .object({
+    run_id: ref,
+    turn_id: ref,
+    question: bounded,
+    status: z.enum(["running", "completed", "failed"]),
+    answer_status: z.enum(["accepted", "qualified", "abstained"]).nullable(),
+    error: z.string().nullable(),
+    result_ref: ref.nullable(),
+    duration_ms: z.number().int().nonnegative(),
+    started_at: z.iso.datetime({ offset: true }),
+    ended_at: z.iso.datetime({ offset: true }).nullable(),
+    events: z.number().int().nonnegative(),
+  })
+  .strict();
+export const runListSchema = z
+  .object({
+    api_version: z.literal(1),
+    runs: z.array(runSummarySchema).max(200),
+  })
+  .strict();
+export const traceStepSchema = z
+  .object({
+    sequence: z.number().int().min(1),
+    stage: z.string().max(120),
+    name: z.string().max(120),
+    status: z.string().max(120),
+    started_ms: z.number().int().nonnegative(),
+    duration_ms: z.number().int().nonnegative(),
+    attributes: z.record(z.string(), z.unknown()),
+    detail: z.string().max(16384).nullable(),
+    parent: z.number().int().min(1).nullable(),
+  })
+  .strict();
+export const runDetailSchema = z
+  .object({
+    api_version: z.literal(1),
+    run: runSummarySchema,
+    steps: z.array(traceStepSchema).max(400),
+  })
+  .strict();
+export type RunSummary = z.infer<typeof runSummarySchema>;
+export type RunDetail = z.infer<typeof runDetailSchema>;
+export type TraceStep = z.infer<typeof traceStepSchema>;
+
+export const feedbackReasons = [
+  "accuracy",
+  "incomplete",
+  "wrong_source",
+  "slow",
+  "lost_context",
+  "unclear",
+  "other",
+] as const;
+export const feedbackSchema = z
+  .object({
+    turn_id: ref,
+    answer_digest: digest,
+    run_id: ref.nullable(),
+    result_version: digest.nullable(),
+    rating: z.enum(["up", "down"]),
+    comment: z.string().max(2000).nullable(),
+    reasons: z.array(z.enum(feedbackReasons)).max(8),
+    created_at: z.iso.datetime({ offset: true }),
+    updated_at: z.iso.datetime({ offset: true }),
+  })
+  .strict();
+export const feedbackListSchema = z
+  .object({
+    api_version: z.literal(1),
+    feedback: z.array(feedbackSchema).max(200),
+  })
+  .strict();
+export type Feedback = z.infer<typeof feedbackSchema>;
+export type FeedbackReason = (typeof feedbackReasons)[number];

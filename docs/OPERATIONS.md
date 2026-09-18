@@ -153,12 +153,13 @@ fetches a public address is a live network action and needs its own approval;
 offline evidence is `tests/unit/test_prepared_web_url.py` and
 `tests/unit/test_document_column.py`.
 
-Add `--enable-ocr` (with `KLOUDEKS_OCR_MODEL` set to the DEC-129 OCR model) to
-read PDF pages without a text layer through OCR; readiness JSON reports `"ocr"`,
-and OCR figures count only from table columns that add up to the table's total
-row (DEC-149). Every OCR request is a live model call inside an approved plan.
+OCR follows its configuration (DEC-153): PDF pages without a text layer are read
+through OCR whenever `KLOUDEKS_OCR_MODEL` names the DEC-129 OCR model, and
+`--no-ocr` refuses it. Readiness JSON reports `"ocr"`, and OCR figures count only
+from table columns that add up to the table's total row (DEC-149). Every OCR
+request is a live model call inside an approved plan.
 
-Add `--enable-uploads` to let the local client attach an uploaded CSV, Excel
+Uploads are admitted by default and `--no-uploads` refuses them: the local client attaches an uploaded CSV, Excel
 (`.xlsx`), PDF or static HTML document (up to 10 MiB, four per session) to the
 next question; readiness JSON reports `"uploads"` and `/v1/health` lists the
 `document_upload` capability, which shows the client's attach button. Uploads

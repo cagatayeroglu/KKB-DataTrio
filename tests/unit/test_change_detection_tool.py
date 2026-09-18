@@ -229,12 +229,19 @@ class TestTheArgumentSchema:
                 }
             )
 
-    def test_the_description_says_breakpoints_are_not_available(self, house):
+    def test_the_description_offers_breakpoints_and_says_what_they_are_not(self, house):
         registry = ToolRegistry()
         registry.register(make_change_detection_tool(house.connection))
 
         described = registry.descriptions()[0]["description"]
-        assert "not available yet" in described
+        assert "breakpoint:" in described
+        # The operation is offered, and its limits are part of the same sentence.
+        assert "names no event and establishes no cause" in described
+        assert "threshold is fixed by the harness" in described
+        operations = registry.descriptions()[0]["arguments"]["$defs"]["SeriesChangeArguments"][
+            "properties"
+        ]["operation"]["enum"]
+        assert "breakpoint" in operations
 
     def test_no_seventh_tool_was_added(self, house):
         # The registry refuses any name outside the six the brief fixes, so

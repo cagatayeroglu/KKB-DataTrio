@@ -18,16 +18,21 @@ conversation id is never enough. Digests are stored, never the keys themselves.
 from __future__ import annotations
 
 import hashlib
+import json
 import secrets
 import sqlite3
 import threading
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final, Literal
 from uuid import uuid4
+
+from pydantic import JsonValue
+
+from kkb_agent.agent.observer import TraceEvent
 
 DATABASE_NAME: Final = "conversations.sqlite"
 MAX_TITLE_CHARS: Final = 120
@@ -95,6 +100,49 @@ CREATE TABLE IF NOT EXISTS publications (
     PRIMARY KEY (conversation_id, turn_id)
 );
 
+CREATE TABLE IF NOT EXISTS runs (
+    run_id          TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL REFERENCES conversations(conversation_id),
+    turn_id         TEXT NOT NULL,
+    question        TEXT NOT NULL,
+    status          TEXT NOT NULL,
+    answer_status   TEXT,
+    error           TEXT,
+    result_ref      TEXT,
+    duration_ms     INTEGER NOT NULL DEFAULT 0,
+    started_at      TEXT NOT NULL,
+    ended_at        TEXT
+);
+
+CREATE TABLE IF NOT EXISTS trace_events (
+    run_id      TEXT NOT NULL REFERENCES runs(run_id),
+    sequence    INTEGER NOT NULL,
+    stage       TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    status      TEXT NOT NULL,
+    started_ms  INTEGER NOT NULL,
+    duration_ms INTEGER NOT NULL,
+    attributes  TEXT NOT NULL,
+    detail      TEXT,
+    parent      INTEGER,
+    PRIMARY KEY (run_id, sequence)
+);
+
+CREATE TABLE IF NOT EXISTS feedback (
+    conversation_id TEXT NOT NULL REFERENCES conversations(conversation_id),
+    turn_id         TEXT NOT NULL,
+    answer_digest   TEXT NOT NULL,
+    run_id          TEXT,
+    result_version  TEXT,
+    rating          TEXT NOT NULL,
+    comment         TEXT,
+    reasons         TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL,
+    PRIMARY KEY (conversation_id, turn_id, answer_digest)
+);
+
+CREATE INDEX IF NOT EXISTS runs_by_conversation ON runs(conversation_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS conversations_by_owner
     ON conversations(owner_id, archived, updated_at DESC);
 CREATE INDEX IF NOT EXISTS messages_by_turn ON messages(conversation_id, turn_id);
@@ -147,6 +195,50 @@ class StoredPublication:
     artifact_id: str
     result_ref: str
     result_version: str
+
+
+@dataclass(frozen=True, slots=True)
+class StoredFeedback:
+    """One rating of one exact answer; a re-answered turn keeps its own rating."""
+
+    turn_id: str
+    answer_digest: str
+    run_id: str | None
+    result_version: str | None
+    rating: str
+    comment: str | None
+    reasons: tuple[str, ...]
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class StoredRun:
+    """One executed turn: what was asked, how it ended, how long it took."""
+
+    run_id: str
+    turn_id: str
+    question: str
+    status: str
+    answer_status: str | None
+    error: str | None
+    result_ref: str | None
+    duration_ms: int
+    started_at: datetime
+    ended_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class StoredEvent:
+    sequence: int
+    stage: str
+    name: str
+    status: str
+    started_ms: int
+    duration_ms: int
+    attributes: dict[str, JsonValue]
+    detail: str | None
+    parent: int | None
 
 
 def _digest(token: str) -> bytes:
@@ -534,3 +626,201 @@ class ConversationStore:
             )
             for row in rows
         ]
+
+    # -- runs and trace events ------------------------------------------------
+
+    def start_run(self, conversation_id: str, *, run_id: str, turn_id: str, question: str) -> None:
+        """Record a run as soon as it starts, so a crash leaves a visible attempt."""
+        with self._write() as connection:
+            connection.execute(
+                "INSERT OR REPLACE INTO runs VALUES (?, ?, ?, ?, 'running', NULL, NULL, NULL,"
+                " 0, ?, NULL)",
+                [run_id, conversation_id, turn_id, question[:MAX_TEXT_CHARS], self._now()],
+            )
+
+    def finish_run(
+        self,
+        run_id: str,
+        *,
+        status: str,
+        duration_ms: int,
+        answer_status: str | None = None,
+        error: str | None = None,
+        result_ref: str | None = None,
+        events: Sequence[TraceEvent] = (),
+    ) -> None:
+        """Close a run and store its events; a run is written once, never edited."""
+        with self._write() as connection:
+            connection.execute(
+                "UPDATE runs SET status = ?, answer_status = ?, error = ?, result_ref = ?,"
+                " duration_ms = ?, ended_at = ? WHERE run_id = ?",
+                [status, answer_status, error, result_ref, duration_ms, self._now(), run_id],
+            )
+            for event in events:
+                connection.execute(
+                    "INSERT OR REPLACE INTO trace_events VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    [
+                        run_id,
+                        event.sequence,
+                        event.stage,
+                        event.name,
+                        event.status,
+                        event.started_ms,
+                        event.duration_ms,
+                        json.dumps(event.attributes, ensure_ascii=False),
+                        event.detail,
+                        event.parent,
+                    ],
+                )
+
+    def add_event(self, run_id: str, event: TraceEvent) -> None:
+        """Persist one event as it happens, so a running turn can be followed."""
+        with self._write() as connection:
+            connection.execute(
+                "INSERT OR REPLACE INTO trace_events VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    run_id,
+                    event.sequence,
+                    event.stage,
+                    event.name,
+                    event.status,
+                    event.started_ms,
+                    event.duration_ms,
+                    json.dumps(event.attributes, ensure_ascii=False),
+                    event.detail,
+                    event.parent,
+                ],
+            )
+
+    def runs(self, conversation_id: str, limit: int = 100) -> list[StoredRun]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT * FROM runs WHERE conversation_id = ? ORDER BY started_at DESC LIMIT ?",
+                [conversation_id, limit],
+            ).fetchall()
+        return [
+            StoredRun(
+                row["run_id"],
+                row["turn_id"],
+                row["question"],
+                row["status"],
+                row["answer_status"],
+                row["error"],
+                row["result_ref"],
+                int(row["duration_ms"]),
+                _moment(row["started_at"]),
+                _moment(row["ended_at"]) if row["ended_at"] else None,
+            )
+            for row in rows
+        ]
+
+    def run_of(self, conversation_id: str, run_id: str) -> StoredRun | None:
+        """One run, only when it belongs to this conversation."""
+        return next(
+            (
+                item
+                for item in self.runs(conversation_id, limit=MAX_LISTED)
+                if item.run_id == run_id
+            ),
+            None,
+        )
+
+    def events(self, run_id: str) -> list[StoredEvent]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT * FROM trace_events WHERE run_id = ? ORDER BY sequence", [run_id]
+            ).fetchall()
+        return [
+            StoredEvent(
+                int(row["sequence"]),
+                row["stage"],
+                row["name"],
+                row["status"],
+                int(row["started_ms"]),
+                int(row["duration_ms"]),
+                json.loads(row["attributes"]),
+                row["detail"],
+                int(row["parent"]) if row["parent"] is not None else None,
+            )
+            for row in rows
+        ]
+
+    # -- feedback -------------------------------------------------------------
+
+    def rate(
+        self,
+        conversation_id: str,
+        *,
+        turn_id: str,
+        answer_digest: str,
+        rating: str,
+        comment: str | None = None,
+        reasons: Sequence[str] = (),
+        run_id: str | None = None,
+        result_version: str | None = None,
+    ) -> StoredFeedback:
+        """Record or change the rating of one exact answer.
+
+        Keyed by the answer's own digest: rating the same answer again edits that
+        rating, while an answer produced again (a new digest) starts unrated
+        rather than inheriting what was said about the previous one.
+        """
+        moment = self._now()
+        with self._write() as connection:
+            existing = connection.execute(
+                "SELECT created_at FROM feedback WHERE conversation_id = ? AND turn_id = ?"
+                " AND answer_digest = ?",
+                [conversation_id, turn_id, answer_digest],
+            ).fetchone()
+            connection.execute(
+                "INSERT OR REPLACE INTO feedback VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    conversation_id,
+                    turn_id,
+                    answer_digest,
+                    run_id,
+                    result_version,
+                    rating,
+                    (comment or None) and comment[:MAX_TEXT_CHARS],
+                    json.dumps(list(reasons)[:8], ensure_ascii=False),
+                    existing["created_at"] if existing is not None else moment,
+                    moment,
+                ],
+            )
+        found = self.feedback(conversation_id, turn_id=turn_id, answer_digest=answer_digest)
+        if found is None:  # pragma: no cover - just written above
+            raise StoreError("feedback_missing")
+        return found
+
+    def feedback(
+        self, conversation_id: str, *, turn_id: str, answer_digest: str
+    ) -> StoredFeedback | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT * FROM feedback WHERE conversation_id = ? AND turn_id = ?"
+                " AND answer_digest = ?",
+                [conversation_id, turn_id, answer_digest],
+            ).fetchone()
+        return None if row is None else self._feedback(row)
+
+    def ratings(self, conversation_id: str) -> list[StoredFeedback]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT * FROM feedback WHERE conversation_id = ? ORDER BY updated_at DESC",
+                [conversation_id],
+            ).fetchall()
+        return [self._feedback(row) for row in rows]
+
+    @staticmethod
+    def _feedback(row: sqlite3.Row) -> StoredFeedback:
+        return StoredFeedback(
+            row["turn_id"],
+            row["answer_digest"],
+            row["run_id"],
+            row["result_version"],
+            row["rating"],
+            row["comment"],
+            tuple(json.loads(row["reasons"])),
+            _moment(row["created_at"]),
+            _moment(row["updated_at"]),
+        )

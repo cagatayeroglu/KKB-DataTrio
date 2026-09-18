@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Annotated, Literal, Self
 
-from pydantic import AwareDatetime, Field, StringConstraints, model_validator
+from pydantic import AwareDatetime, Field, JsonValue, StringConstraints, model_validator
 
 from kkb_agent.agent.verifier import AnswerStatus
 from kkb_agent.core import ClaimKind, Period, ResultKind, SampleCounts, Scale, StockFlow
@@ -357,3 +357,85 @@ class ConversationUpdate(ContractModel):
         if self.title is None and self.archived is None:
             raise ValueError("Give a title or an archived flag")
         return self
+
+
+class RunSummary(ContractModel):
+    """One executed turn, as a reader picks it from a list."""
+
+    run_id: Reference
+    turn_id: Reference
+    question: Text
+    status: Literal["running", "completed", "failed"]
+    answer_status: AnswerStatus | None = None
+    error: ErrorCode | Code | None = None
+    result_ref: Reference | None = None
+    duration_ms: Annotated[int, Field(strict=True, ge=0)]
+    started_at: AwareDatetime
+    ended_at: AwareDatetime | None = None
+    events: Annotated[int, Field(strict=True, ge=0)] = 0
+
+
+class RunList(ContractModel):
+    api_version: Literal[1] = 1
+    runs: Annotated[tuple[RunSummary, ...], Field(max_length=200)] = ()
+
+
+class TraceStep(ContractModel):
+    """One recorded step of a run: what ran, how it ended, how long it took."""
+
+    sequence: Annotated[int, Field(strict=True, ge=1)]
+    stage: Code
+    name: Code
+    status: Code
+    started_ms: Annotated[int, Field(strict=True, ge=0)]
+    duration_ms: Annotated[int, Field(strict=True, ge=0)]
+    attributes: dict[str, JsonValue] = Field(default_factory=dict)
+    # The step's own text: the context sent to the model, what it returned, a
+    # tool's arguments and a preview of what it produced. Bounded and redacted.
+    detail: Annotated[str, StringConstraints(strict=True, max_length=16384)] | None = None
+    parent: Annotated[int, Field(strict=True, ge=1)] | None = None
+
+
+class RunDetail(ContractModel):
+    api_version: Literal[1] = 1
+    run: RunSummary
+    steps: Annotated[tuple[TraceStep, ...], Field(max_length=400)] = ()
+
+
+#: Why an answer was rated down; a fixed vocabulary, never free-form categories.
+FeedbackReason = Literal[
+    "accuracy",
+    "incomplete",
+    "wrong_source",
+    "slow",
+    "lost_context",
+    "unclear",
+    "other",
+]
+
+
+class FeedbackRequest(ContractModel):
+    """A rating of the answer shown for one turn, with optional words."""
+
+    turn_id: Reference
+    rating: Literal["up", "down"]
+    comment: Annotated[str, StringConstraints(strict=True, max_length=2000)] | None = None
+    reasons: Annotated[tuple[FeedbackReason, ...], Field(max_length=8)] = ()
+
+
+class Feedback(ContractModel):
+    turn_id: Reference
+    # The exact answer this rating is about; a re-answered turn rates separately.
+    answer_digest: Digest
+    run_id: Reference | None = None
+    result_version: Digest | None = None
+    rating: Literal["up", "down"]
+    comment: Annotated[str, StringConstraints(strict=True, max_length=2000)] | None = None
+    reasons: Annotated[tuple[FeedbackReason, ...], Field(max_length=8)] = ()
+    created_at: AwareDatetime
+    updated_at: AwareDatetime
+
+
+class FeedbackList(ContractModel):
+    api_version: Literal[1] = 1
+    feedback: Annotated[tuple[Feedback, ...], Field(max_length=200)] = ()

@@ -27,16 +27,29 @@ from kkb_agent.api.contracts import (
     DocumentAdmitted,
     ErrorCode,
     Event,
+    Feedback,
+    FeedbackList,
+    FeedbackRequest,
     Health,
     OwnerCreated,
     Question,
+    RunDetail,
+    RunList,
+    RunSummary,
     SessionCreated,
     StoredMessage,
+    TraceStep,
     Turn,
     TurnState,
 )
 from kkb_agent.api.projection import OutputRefused
-from kkb_agent.api.store import DEFAULT_TITLE, ConversationStore, StoreError
+from kkb_agent.api.store import (
+    DEFAULT_TITLE,
+    ConversationStore,
+    StoredFeedback,
+    StoredRun,
+    StoreError,
+)
 from kkb_agent.llm.provider import ProviderError
 
 
@@ -96,6 +109,11 @@ class _Session:
     documents: set[str] = field(default_factory=set)
 
 
+def answer_digest(text: str) -> str:
+    """Identity of one shown answer, so a rating cannot drift onto a new one."""
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
 class AnalysisService:
     """No implicit expiration/deletion/restart recovery, cancellation or retries.
 
@@ -112,6 +130,7 @@ class AnalysisService:
         selected_runner: SelectedRunner | None = None,
         document_store: DocumentStore | None = None,
         store: ConversationStore | None = None,
+        ocr: bool = False,
     ):
         if mode not in ("kloudeks", "scripted"):
             raise ValueError("An explicit execution mode is required")
@@ -123,6 +142,8 @@ class AnalysisService:
         self._document_store = document_store
         # Conversations survive a restart only when the operator supplied one.
         self._store = store
+        # Scanned pages are read only when the operator enabled OCR (DEC-149).
+        self._ocr = ocr
         self._mode = mode
         self._sessions: dict[str, _Session] = {}
         self._lock = threading.RLock()
@@ -139,6 +160,8 @@ class AnalysisService:
                 capabilities = (*capabilities, "document_upload")
             if self._store is not None:
                 capabilities = (*capabilities, "conversation_history")
+            if self._ocr:
+                capabilities = (*capabilities, "document_ocr")
             return Health(execution_mode=self._mode, capabilities=capabilities)
 
     def create_owner(self) -> OwnerCreated:
@@ -272,6 +295,111 @@ class AnalysisService:
                 )
                 for document in self._store.documents(session_id)
             ),
+        )
+
+    def runs(self, session_id: str, token: str) -> RunList:
+        """Every run of this conversation, newest first; opening one runs nothing."""
+        self._reading(session_id, token)
+        if self._store is None:  # pragma: no cover - _reading refuses without a store
+            raise ServiceError("unavailable", 503)
+        return RunList(
+            runs=tuple(self._run_summary(item, events=0) for item in self._store.runs(session_id))
+        )
+
+    def run(self, session_id: str, run_id: str, token: str) -> RunDetail:
+        self._reading(session_id, token)
+        if self._store is None:  # pragma: no cover - _reading refuses without a store
+            raise ServiceError("unavailable", 503)
+        found = self._store.run_of(session_id, run_id)
+        if found is None:
+            raise ServiceError("not_found", 404)
+        steps = tuple(
+            TraceStep(
+                sequence=event.sequence,
+                stage=event.stage,
+                name=event.name,
+                status=event.status,
+                started_ms=event.started_ms,
+                duration_ms=event.duration_ms,
+                attributes=dict(event.attributes),
+                detail=event.detail,
+                parent=event.parent,
+            )
+            for event in self._store.events(run_id)
+        )
+        return RunDetail(run=self._run_summary(found, events=len(steps)), steps=steps)
+
+    @staticmethod
+    def _run_summary(item: StoredRun, *, events: int) -> RunSummary:
+        return RunSummary.model_validate(
+            {
+                "run_id": item.run_id,
+                "turn_id": item.turn_id,
+                "question": item.question,
+                "status": item.status,
+                "answer_status": item.answer_status,
+                "error": item.error,
+                "result_ref": item.result_ref,
+                "duration_ms": item.duration_ms,
+                "started_at": item.started_at,
+                "ended_at": item.ended_at,
+                "events": events,
+            }
+        )
+
+    def rate(self, session_id: str, token: str, request: FeedbackRequest) -> Feedback:
+        """Rate the answer this turn actually produced, as it was shown."""
+        self._reading(session_id, token)
+        if self._store is None:  # pragma: no cover - _reading refuses without a store
+            raise ServiceError("unavailable", 503)
+        answered = next(
+            (
+                message
+                for message in self._store.messages(session_id)
+                if message.turn_id == request.turn_id and message.role == "assistant"
+            ),
+            None,
+        )
+        if answered is None:
+            raise ServiceError("not_found", 404)
+        run = next(
+            (item for item in self._store.runs(session_id) if item.turn_id == request.turn_id),
+            None,
+        )
+        stored = self._store.rate(
+            session_id,
+            turn_id=request.turn_id,
+            answer_digest=answer_digest(answered.text),
+            rating=request.rating,
+            comment=request.comment,
+            reasons=request.reasons,
+            run_id=run.run_id if run is not None else None,
+            result_version=answered.result_version,
+        )
+        return self._feedback(stored)
+
+    def ratings(self, session_id: str, token: str) -> FeedbackList:
+        self._reading(session_id, token)
+        if self._store is None:  # pragma: no cover - _reading refuses without a store
+            raise ServiceError("unavailable", 503)
+        return FeedbackList(
+            feedback=tuple(self._feedback(item) for item in self._store.ratings(session_id))
+        )
+
+    @staticmethod
+    def _feedback(item: StoredFeedback) -> Feedback:
+        return Feedback.model_validate(
+            {
+                "turn_id": item.turn_id,
+                "answer_digest": item.answer_digest,
+                "run_id": item.run_id,
+                "result_version": item.result_version,
+                "rating": item.rating,
+                "comment": item.comment,
+                "reasons": item.reasons,
+                "created_at": item.created_at,
+                "updated_at": item.updated_at,
+            }
         )
 
     def update_conversation(

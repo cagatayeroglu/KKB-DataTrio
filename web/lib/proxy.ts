@@ -13,6 +13,8 @@ const REF = "[a-f0-9]{32}";
 const route = new RegExp(`^v1/sessions/${REF}/turns(?:/${REF})?$`);
 const documentRoute = new RegExp(`^v1/sessions/${REF}/documents$`);
 const conversationRoute = new RegExp(`^v1/conversations/${REF}$`);
+const runRoute = new RegExp(`^v1/conversations/${REF}/runs(?:/${REF})?$`);
+const feedbackRoute = new RegExp(`^v1/conversations/${REF}/feedback$`);
 /** Only the conversation list carries a query, and only these bounded filters. */
 export const LIST_QUERY =
   /^(?:archived=(?:true|false)|search=[^&]{0,120})(?:&(?:archived=(?:true|false)|search=[^&]{0,120}))?$/;
@@ -107,6 +109,8 @@ export async function forward(
   const owner = name === "v1/owner";
   const list = name === "v1/conversations";
   const conversation = conversationRoute.test(name);
+  const runs = runRoute.test(name);
+  const feedback = feedbackRoute.test(name);
   const turns = route.test(name);
   const documents = documentRoute.test(name);
   const getTurn = turns && path.length === 5;
@@ -116,17 +120,21 @@ export async function forward(
   if (
     !(
       request.method === "GET" &&
-      (publicGet || getTurn || list || conversation)
+      (publicGet || getTurn || list || conversation || runs || feedback)
     ) &&
     !(
       request.method === "POST" &&
-      (creation || owner || documents || (turns && path.length === 4))
+      (creation ||
+        owner ||
+        documents ||
+        feedback ||
+        (turns && path.length === 4))
     ) &&
     !(request.method === "PATCH" && conversation)
   )
     return error("not_found", 404);
   const headers = new Headers({ Accept: "application/json" });
-  if (turns || documents || conversation) {
+  if (turns || documents || conversation || runs || feedback) {
     const token = request.headers.get("x-kkb-session-token");
     if (!token || !tokenPattern.test(token)) return error("not_found", 404);
     headers.set("X-KKB-Session-Token", token);

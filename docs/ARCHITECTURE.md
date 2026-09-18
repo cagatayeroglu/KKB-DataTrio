@@ -629,7 +629,8 @@ mode); the year and its source, the deciding convention and skipped-row counts
 are recorded in snapshots and transformations.
 
 Under [DEC-149](DECISIONS.md#dec-149--ocr-tables-count-only-through-a-column-total-check)
-`--enable-ocr` injects the Kloudeks OCR provider into `PreparedRunner`, which
+a configured OCR model injects the Kloudeks OCR provider into `PreparedRunner`
+(DEC-153; `--no-ocr` refuses it), which
 passes it to `web_url` and `add_document_column`; pages without a text layer
 are rendered and OCRed as in M7-11, and `pdf_ocr.ocr_tables` reads the model's
 HTML tables (spans expanded, header rows as group + leaf) into `PdfPage.ocr_tables`.
@@ -1040,7 +1041,7 @@ session's own lineage. In hybrid mode a `web_url` step needs no catalog
 discovery, while any prepared-series step still does and a discovery
 continuation still cannot read an address.
 
-With `--enable-uploads` (M10-04 slice 1) the API adds
+Unless `--no-uploads` refuses them (M10-04 slice 1, DEC-153) the API adds
 `POST /v1/sessions/{id}/documents`. It is the only route whose body is not
 JSON: the ASGI boundary allows exactly the CSV/XLSX/PDF/HTML media types and
 10 MiB there (30 s body deadline), while every other route keeps the 16 KiB

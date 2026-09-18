@@ -23,6 +23,7 @@ from kkb_agent.lakehouse.gold import (
     GoldError,
     GoldTable,
     build_gold,
+    gold_from_result,
     persist_gold,
 )
 from kkb_agent.lakehouse.lineage import (
@@ -93,6 +94,7 @@ __all__ = [
     "add_months",
     "assign_month",
     "build_gold",
+    "gold_from_result",
     "check_period",
     "detect_cumulative",
     "is_january",
