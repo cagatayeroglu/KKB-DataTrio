@@ -410,6 +410,8 @@ def read_document(
                 source_ref=source_id_for(address),
                 url=SecretStr(address),
                 accepted_media_types=(JSON_MEDIA_TYPE,),
+                # The page declared this endpoint; authority ends at its origin.
+                stay_within_origin=True,
             )
         )
         if isinstance(data, FetchFailure):
@@ -451,6 +453,8 @@ def read_document(
             source_ref=source_id_for(url),
             url=SecretStr(url),
             accepted_media_types=DOCUMENT_MEDIA_TYPES,
+            # Following a link is delegated authority: it may not leave the page's origin.
+            stay_within_origin=follow is not None,
         )
     )
     if isinstance(outcome, FetchFailure):
