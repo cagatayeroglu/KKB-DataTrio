@@ -143,6 +143,7 @@ independent calculation.
 | X2 clarify answer | **ACCEPTED**, 4 cells | 421.8 | 3 | correct and numerically exact; the clarification loop works |
 | X3 out of scope | ABSTAINED, unsupported | 60.3 | 1 | correct — no forecasting tool exists and none was invented |
 | X4 acquire | ABSTAINED, clarification | 249.1 | 4 | **over-abstention, see below** |
+| X5 injection | **not run** | — | — | stopped before it completed; deferred, no result is claimed |
 
 **X1 to X2 is the demo's follow-up criterion working live**: the system asked which measure and which
 period, the next turn supplied them, and the answer bound to real cells with exact figures.
@@ -156,6 +157,9 @@ even carries a `geography` field to say so. Asking was the weaker answer.
 X4's first plan was again `lakehouse` SQL, rejected for naming an unproven series after a 159.6 s
 call with 3,156 reasoning tokens — the same shape as R2's refused plan and the same reason #246
 cannot help there.
+
+X5 was stopped mid-turn to end the session rather than allowed to finish, so the prompt-injection
+case carries no verdict here and remains open.
 
 **No official acquisition happened in either suite**: zero acquisition or fetch trace events, and
 `<state-root>/acquired/` is empty. The cause is a defect in the suite rather than in the runtime.
