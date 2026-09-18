@@ -38,6 +38,12 @@ MAX_ATTEMPTS = f"{PREFIX}MAX_ATTEMPTS"
 #: it, and on 2026-09-18 its hidden reasoning cost the writer minutes per turn.
 PLANNER_THINKING = f"{PREFIX}PLANNER_THINKING"
 WRITER_THINKING = f"{PREFIX}WRITER_THINKING"
+#: An upper bound on tokens one completion may generate. Not a latency knob:
+#: it is a memory/safety ceiling on runaway generation, set well above the
+#: most a real plan or answer has ever needed (7,897 reasoning tokens on
+#: 2026-09-18), so a legitimate call is never truncated. Zero would truncate
+#: answers, so the floor is generous.
+MAX_OUTPUT_TOKENS = f"{PREFIX}MAX_OUTPUT_TOKENS"
 
 REQUIRED = (BASE_URL, CREDENTIAL, PLANNER_MODEL, ROUTER_MODEL)
 
@@ -65,6 +71,7 @@ class ProviderConfig:
     ocr_model: str | None = None
     planner_thinking: bool = True
     writer_thinking: bool = True
+    max_output_tokens: int = 16384
 
     def __post_init__(self) -> None:
         if not self.base_url.startswith("https://"):
@@ -74,6 +81,9 @@ class ProviderConfig:
             raise ConfigurationError(f"{REQUEST_TIMEOUT} must be positive")
         if self.max_attempts < 1:
             raise ConfigurationError(f"{MAX_ATTEMPTS} must be at least 1")
+        if self.max_output_tokens < 4096:
+            # Below this a real reasoning-plus-answer call would be truncated.
+            raise ConfigurationError(f"{MAX_OUTPUT_TOKENS} must be at least 4096")
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> ProviderConfig:
@@ -99,6 +109,7 @@ class ProviderConfig:
             max_attempts=int(_number(source, MAX_ATTEMPTS, default=3.0)),
             planner_thinking=_flag(source, PLANNER_THINKING, default=True),
             writer_thinking=_flag(source, WRITER_THINKING, default=True),
+            max_output_tokens=int(_number(source, MAX_OUTPUT_TOKENS, default=16384.0)),
         )
 
     def capabilities(self) -> dict[str, bool]:

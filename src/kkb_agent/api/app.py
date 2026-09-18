@@ -25,6 +25,7 @@ from kkb_agent.api.contracts import (
     DatasetDetail,
     DatasetRequest,
     DocumentAdmitted,
+    DocumentFromUrl,
     Error,
     ErrorCode,
     Feedback,
@@ -36,6 +37,7 @@ from kkb_agent.api.contracts import (
     PromptParts,
     Question,
     Reference,
+    Result,
     RunDetail,
     RunList,
     RuntimeSettings,
@@ -305,6 +307,11 @@ def create_app(
     def conversation(session_id: Reference, token: Token) -> ConversationDetail:
         return service.conversation(session_id, token)
 
+    @app.get("/v1/conversations/{session_id}/results/{turn_id}", response_model=Result)
+    def stored_result(session_id: Reference, turn_id: Reference, token: Token) -> Result:
+        # A published table read back from its receipt; nothing is recomputed.
+        return service.stored_result(session_id, token, turn_id)
+
     @app.get("/v1/conversations/{session_id}/runs", response_model=RunList)
     def runs(session_id: Reference, token: Token) -> RunList:
         return service.runs(session_id, token)
@@ -358,6 +365,17 @@ def create_app(
     @app.get("/v1/sessions/{session_id}/turns/{turn_id}", response_model=Turn)
     def turn(session_id: Reference, turn_id: Reference, token: Token) -> Turn:
         return service.get_turn(session_id, token, turn_id)
+
+    @app.post(
+        "/v1/sessions/{session_id}/documents/from-url",
+        response_model=DocumentAdmitted,
+        status_code=201,
+    )
+    def document_from_url(
+        session_id: Reference, body: DocumentFromUrl, token: Token
+    ) -> DocumentAdmitted:
+        # The address is the person's own request; the fetch obeys safe_fetch.
+        return service.admit_document_from_url(session_id, token, body.url)
 
     def _knowledge() -> KnowledgeService:
         if knowledge is None:

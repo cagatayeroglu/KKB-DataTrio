@@ -13,6 +13,7 @@ import {
   type DatasetRequest,
   type DatasetDetail,
   ownerSchema,
+  resultSchema,
   runDetailSchema,
   runtimeSettingsSchema,
   searchTrialSchema,
@@ -474,6 +475,23 @@ export function listRuns(conversationId: string, token: string) {
 }
 /** A trace carries every prompt and tool output; it is read with a larger ceiling. */
 export const TRACE_BYTES = 8 * 1024 * 1024;
+/**
+ * The table a stored turn published, rebuilt by the server from its receipt -
+ * same reference and version the conversation recorded - so a reopened chat
+ * shows its tables whether or not this server process produced them.
+ */
+export function storedResult(
+  conversationId: string,
+  turnId: string,
+  token: string,
+) {
+  return api(
+    `conversations/${conversationId}/results/${turnId}`,
+    resultSchema,
+    {},
+    token,
+  );
+}
 export function openRun(conversationId: string, runId: string, token: string) {
   // Reading a trace is a stored record: it starts no model or tool call.
   return api(
@@ -527,6 +545,22 @@ export async function readTurn(
   if (turn.turn_id !== id || (requestId && turn.request_id !== requestId))
     throw new ApiError("invalid_response");
   return turn;
+}
+/**
+ * Fetch a tabular document at an address the person typed and admit it exactly
+ * like an upload; the server's safe_fetch and admission rules decide. The
+ * document then belongs to this conversation, like any upload.
+ */
+export function admitDocumentFromUrl(session: Session, url: string) {
+  return api(
+    `sessions/${session.session_id}/documents/from-url`,
+    documentAdmittedSchema,
+    {
+      method: "POST",
+      body: JSON.stringify({ url: url.trim().slice(0, 2000) }),
+    },
+    session.token,
+  );
 }
 export async function admit(saved: Saved, index: number) {
   const entry = saved.turns[index];

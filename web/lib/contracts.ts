@@ -220,6 +220,8 @@ export const healthSchema = z
     max_turns_per_session: z.number().int(),
     max_running_turns: z.literal(1),
     capabilities: z.array(z.string()),
+    /** The planner model this deployment routes to; older servers omit it. */
+    model: z.string().max(200).nullable().optional(),
   })
   .strict();
 export const datasetSchema = z

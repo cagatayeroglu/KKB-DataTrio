@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
+  admitDocumentFromUrl,
   annotateSeries,
   datasetRequestFromExport,
   describeError,
@@ -161,6 +162,7 @@ export function KnowledgePanel({
   documents,
   pool,
   onOpenConversation,
+  session = null,
 }: {
   owner: string;
   documents: ChatDocument[];
@@ -168,6 +170,8 @@ export function KnowledgePanel({
   pool?: Dataset | null;
   /** Opens one of this browser's conversations in the studio (reverse lineage). */
   onOpenConversation?: (id: string) => void;
+  /** The open conversation; a document fetched from an address is admitted into it. */
+  session?: { id: string; token: string } | null;
 }) {
   const [listing, setListing] = useState<KnowledgeList | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
@@ -182,6 +186,8 @@ export function KnowledgePanel({
   const [trying, setTrying] = useState(false);
   //: Which generation of meaning vectors this deployment searches, and what it covers.
   const [index, setIndex] = useState<VectorIndex | null>(null);
+  //: A friendly next-step note (not an error), cleared by the next action.
+  const [hint, setHint] = useState("");
 
   /**
    * The knowledge base as a file that can be imported again: the listing plus
@@ -334,10 +340,29 @@ export function KnowledgePanel({
     try {
       await work();
       await refresh();
+      noteVectorGap();
     } catch (error) {
       setIssue(describeError(error));
     } finally {
       setBusy(false);
+    }
+  }
+
+  /**
+   * A gentle reminder after any knowledge-base change: word search covers the
+   * change at once, meaning-based search only after the vectors are rebuilt.
+   * Read fresh so the message never claims a gap that is not there.
+   */
+  async function noteVectorGap() {
+    try {
+      const state = await readIndex(owner);
+      setIndex(state);
+      if (state.configured && !state.covers_catalog && state.rebuildable)
+        setHint(
+          'Kaydedildi. Kelime araması değişikliğini hemen görür; yeni açıklama ve eş anlamlıların ANLAMSAL aramaya girmesi için yukarıdaki "Yeniden vektörle" düğmesine basman yeterli.',
+        );
+    } catch {
+      // Without the index route there is nothing to remind about.
     }
   }
 
@@ -484,7 +509,7 @@ export function KnowledgePanel({
           </ol>
         </div>
       )}
-      {index && (
+      {index ? (
         <VectorIndexCard
           index={index}
           onRebuild={async () => {
@@ -496,6 +521,18 @@ export function KnowledgePanel({
             }
           }}
         />
+      ) : (
+        <section className="vector-index">
+          <div className="vector-head">
+            <h3>Anlamsal arama dizini</h3>
+            <span className="pill-warn">bilgi alınamadı</span>
+          </div>
+          <p className="helper">
+            Bu sunucu sürümü dizin bilgisini sunmuyor. Sunucu güncel koddan (ve{" "}
+            <code>--catalog-index</code> ile) yeniden başlatılınca burada
+            modelin, kapsamın ve &quot;Yeniden vektörle&quot; düğmesi görünür.
+          </p>
+        </section>
       )}
       <div className="knowledge-filters" role="tablist">
         {filters.map(([key, label]) => (
@@ -510,16 +547,26 @@ export function KnowledgePanel({
           </button>
         ))}
       </div>
+      {hint && (
+        <p className="hint" role="status">
+          {hint}
+          <button type="button" onClick={() => setHint("")} aria-label="Kapat">
+            <X size={13} />
+          </button>
+        </p>
+      )}
       {issue && <p className="notice">{issue}</p>}
       {editing && (
         <DatasetForm
           owner={owner}
           documents={documents}
+          session={session}
           initial={editing === "new" ? null : editing}
           onClose={() => setEditing(null)}
           onSaved={async () => {
             setEditing(null);
             await refresh();
+            await noteVectorGap();
           }}
         />
       )}
@@ -1027,12 +1074,14 @@ function DatasetForm({
   initial,
   onClose,
   onSaved,
+  session = null,
 }: {
   owner: string;
   documents: ChatDocument[];
   initial: DatasetDetail | null;
   onClose: () => void;
   onSaved: () => Promise<void>;
+  session?: { id: string; token: string } | null;
 }) {
   const series = initial?.series;
   const [form, setForm] = useState({
@@ -1058,7 +1107,42 @@ function DatasetForm({
       .map((o) => `${o.period_end.slice(0, 7)};${o.value ?? ""}`)
       .join("\n") ?? "",
   );
+  //: Documents fetched from an address during this form, admitted like uploads.
+  const [extraDocs, setExtraDocs] = useState<ChatDocument[]>([]);
+  const allDocs = [...documents, ...extraDocs];
+  const [urlDraft, setUrlDraft] = useState("");
+  const [fetchingUrl, setFetchingUrl] = useState(false);
   const [document, setDocument] = useState(documents[0]?.ref ?? "");
+
+  async function fetchFromUrl() {
+    if (!session || !/^https:\/\//.test(urlDraft.trim())) return;
+    setFetchingUrl(true);
+    setIssue("");
+    try {
+      const admitted = await admitDocumentFromUrl(
+        {
+          api_version: 1,
+          session_id: session.id,
+          token: session.token,
+          survives_restart: true,
+        },
+        urlDraft,
+      );
+      const entry: ChatDocument = {
+        sessionId: session.id,
+        ref: admitted.document_ref,
+        label: `Adresten belge ${extraDocs.length + 1} · ${admitted.document_format.toUpperCase()}`,
+      };
+      setExtraDocs((current) => [...current, entry]);
+      setDocument(entry.ref);
+      setSource("document");
+      setUrlDraft("");
+    } catch (error) {
+      setIssue(describeError(error));
+    } finally {
+      setFetchingUrl(false);
+    }
+  }
   const [columns, setColumns] = useState({ period: "", value: "" });
   const [issue, setIssue] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1267,6 +1351,41 @@ function DatasetForm({
         />
       </label>
       <div className="knowledge-filters" role="radiogroup" aria-label="Kaynak">
+        {session && (
+          <div className="url-fetch">
+            <input
+              type="url"
+              inputMode="url"
+              placeholder="https://… — CSV/Excel tablo adresi"
+              aria-label="Tablo adresi"
+              value={urlDraft}
+              maxLength={2000}
+              disabled={fetchingUrl}
+              onChange={(e) => setUrlDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void fetchFromUrl();
+                }
+              }}
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={fetchingUrl || !/^https:\/\//.test(urlDraft.trim())}
+              onClick={() => void fetchFromUrl()}
+              title="Adres güvenli indirme kurallarından geçer (yalnız GET, https, sınırlı boyut) ve bir yükleme gibi kabul edilir."
+            >
+              {fetchingUrl ? (
+                <LoaderCircle size={13} className="spin" />
+              ) : (
+                <Download size={13} />
+              )}{" "}
+              Adresten getir
+            </Button>
+          </div>
+        )}
         <button
           role="radio"
           aria-checked={source === "rows"}
@@ -1279,10 +1398,10 @@ function DatasetForm({
           role="radio"
           aria-checked={source === "document"}
           className={source === "document" ? "chosen" : ""}
-          disabled={documents.length === 0 || form.frequency !== "monthly"}
+          disabled={allDocs.length === 0 || form.frequency !== "monthly"}
           title={
-            documents.length === 0
-              ? "Önce sohbete bir belge yükle"
+            allDocs.length === 0
+              ? "Önce sohbete bir belge yükle ya da bir adresten getir"
               : "Belgeden okuma yalnız aylık dönemlerle çalışır"
           }
           onClick={() => setSource("document")}
@@ -1310,7 +1429,7 @@ function DatasetForm({
               value={document}
               onChange={(e) => setDocument(e.target.value)}
             >
-              {documents.map((d) => (
+              {allDocs.map((d) => (
                 <option key={d.ref} value={d.ref}>
                   {d.label}
                 </option>

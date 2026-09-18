@@ -74,12 +74,14 @@ model call. Do not overwrite older evidence to hide a conflicting source revisio
 | GET `/v1/sessions/{session_id}/turns/{turn_id}/events` | Token header; optional `Last-Event-ID` 0–3 | Actual turn lifecycle SSE |
 | POST `/v1/sessions/{session_id}/turns/{turn_id}/cancel` | Token header | Accepted (202); the turn stops at its next checkpoint |
 | POST `/v1/sessions/{session_id}/documents` | Raw CSV/XLSX/PDF/HTML body with its content type; token header | Admitted document reference; HTTP 201 |
+| POST `/v1/sessions/{session_id}/documents/from-url` | JSON `url` (https); token header; needs `--enable-web-url` | Fetches a tabular document through safe_fetch and admits it like an upload; HTTP 201 |
 | POST `/v1/owner` | JSON `{}` | The browser's owner key, which lists and reopens its own conversations |
 | GET / PATCH `/v1/settings` | Owner key header; PATCH body `disabled`, `history_turns` | The owner's restrict-only runtime choices ([DEC-162](DECISIONS.md#dec-162--a-browser-narrows-its-own-runtime-only-the-operator-widens-it)) |
 | GET `/v1/prompts` | Owner key header | The prompt parts model calls are assembled from, each with its content digest; read-only by design |
 | GET `/v1/conversations` (+ `q`, `archived` filters) | Owner key header | This browser's conversations, newest first |
 | GET / PATCH `/v1/conversations/{id}` | Owner key or conversation token | Messages and documents; PATCH renames or archives |
 | GET `/v1/conversations/{id}/runs`, `/runs/{run_id}`, `/runs/{run_id}/steps/{seq}` | Owner key or conversation token | Recorded runs, their trace steps, and one step's full detail |
+| GET `/v1/conversations/{id}/results/{turn_id}` | Owner key or conversation token | The table a stored turn published, rebuilt from its receipt with the same reference, version and proof - after any restart; 409 while a turn runs |
 | GET / POST `/v1/conversations/{id}/feedback` | Owner key or conversation token | Ratings for this conversation's answers |
 | GET `/v1/dataset` | None | The prepared pool's series and coverage |
 | GET `/v1/knowledge` | Owner key header | Every series the agent can reach, with where each one's meaning comes from |

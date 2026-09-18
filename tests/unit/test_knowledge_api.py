@@ -598,3 +598,100 @@ def test_a_series_lists_the_answers_whose_proof_read_it(tmp_path):
     finally:
         store.close()
         knowledge.close()
+
+
+def test_a_url_becomes_a_session_document_then_a_persisted_dataset(tmp_path):
+    """URL -> safe_fetch -> upload admission -> the existing document-column dataset."""
+    from test_document_check import FakeFetch
+    from test_document_dataset import ADMISSIONS, csv
+
+    root = tmp_path.resolve() / "prepared"
+    seed(root)
+    store = ConversationStore(tmp_path.resolve() / "state" / DATABASE_NAME)
+    knowledge = KnowledgeStore(tmp_path.resolve() / "state" / "knowledge.sqlite")
+    fetch = FakeFetch(csv())
+    runner = PreparedRunner(
+        scripted(),
+        root,
+        tmp_path.resolve() / "state" / "runtime",
+        catalog_bytes=CATALOG.read_bytes(),
+        document_uploads=True,
+        web_url_fetch=fetch,
+        store=store,
+        knowledge=knowledge,
+    )
+    service = AnalysisService(
+        runner,
+        mode="scripted",
+        document_store=runner.admit_document,
+        url_document_store=runner.admit_document_from_url,
+        store=store,
+        knowledge=True,
+    )
+    knowledge_service = KnowledgeService(
+        knowledge,
+        store,
+        runner.catalog,
+        prepared=frozenset(item.series_id for item in runner.status.series),
+        read_document_column=runner.document_column,
+        series_values=runner.series_values,
+    )
+    client = TestClient(
+        create_app(service, prepared=runner.status, knowledge=knowledge_service), base_url=BASE
+    )
+    try:
+        with client:
+            token = owner(client)
+            session = client.post(
+                "/v1/sessions", json={}, headers={"X-KKB-Owner-Token": token}
+            ).json()
+            headers = {"X-KKB-Session-Token": session["token"]}
+            sid = session["session_id"]
+
+            # A bare id or a non-https address never reaches the fetcher.
+            assert (
+                client.post(
+                    f"/v1/sessions/{sid}/documents/from-url",
+                    json={"url": "ftp://x/y.csv"},
+                    headers=headers,
+                ).status_code
+                == 422
+            )
+
+            admitted = client.post(
+                f"/v1/sessions/{sid}/documents/from-url",
+                json={"url": "https://data.example.test/basvurular.csv"},
+                headers=headers,
+            )
+            assert admitted.status_code == 201, admitted.text
+            document_ref = admitted.json()["document_ref"]
+            assert admitted.json()["document_format"] == "csv"
+            # The fetch obeyed the tabular contract, GET-only, from the given address.
+            assert fetch.requests[0].url.get_secret_value().endswith("basvurular.csv")
+
+            saved = client.post(
+                "/v1/knowledge/datasets",
+                json=manual(
+                    slug="basvurular_url",
+                    title="URL'den başvurular",
+                    unit="count",
+                    scale="one",
+                    stock_flow="flow",
+                    observations=[],
+                    document={
+                        "session_id": sid,
+                        "document_ref": document_ref,
+                        "period_column": "Ay",
+                        "value_column": "Başvuru Sayısı",
+                    },
+                ),
+                headers={"X-KKB-Owner-Token": token},
+            )
+            assert saved.status_code == 201, saved.text
+            assert [o["value"] for o in saved.json()["observations"]] == [
+                float(v) for v in ADMISSIONS
+            ]
+            assert saved.json()["source_kind"] == "upload"
+    finally:
+        store.close()
+        knowledge.close()

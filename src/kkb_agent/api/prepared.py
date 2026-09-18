@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Annotated
 from uuid import uuid4
 
 import duckdb
-from pydantic import Field, JsonValue
+from pydantic import Field, JsonValue, SecretStr
 
 from kkb_agent.agent import Session, ToolRegistry, Workspace
 from kkb_agent.agent.cancellation import TurnCancelled
@@ -33,8 +33,9 @@ from kkb_agent.api.contracts import (
     MAX_TURNS,
     Answer,
     DocumentAdmitted,
+    Result,
 )
-from kkb_agent.api.projection import project_answer, safe_text
+from kkb_agent.api.projection import OutputRefused, project_answer, project_result, safe_text
 from kkb_agent.api.proof import build_proof
 from kkb_agent.api.service import SelectedResult, ServiceError, TurnSettings
 from kkb_agent.api.store import DEFAULT_TITLE, ConversationStore
@@ -51,7 +52,9 @@ from kkb_agent.ingest.acquisition import AcquiringInspector, OfficialSources, Tu
 from kkb_agent.ingest.address_outline import TurnFetchCache, address_outline
 from kkb_agent.ingest.attached import SOURCE_TYPE as UPLOAD
 from kkb_agent.ingest.attached import Attachment
+from kkb_agent.ingest.fetched import TABLE_MEDIA_TYPES, source_id_for
 from kkb_agent.ingest.prepared_series import prepared_series_names
+from kkb_agent.ingest.safe_fetch import FetchFailure, FetchRequest, FetchSuccess
 from kkb_agent.ingestion_policy import MIME_TYPES, AdmissionError, admit_upload
 from kkb_agent.knowledge import KnowledgeStore, effective_snapshot
 from kkb_agent.lakehouse import open_lakehouse
@@ -59,7 +62,7 @@ from kkb_agent.lakehouse.gold import GoldError, gold_from_result, persist_gold
 from kkb_agent.lakehouse.lineage import Lineage, LineageError
 from kkb_agent.lakehouse.semantics import SemanticsError
 from kkb_agent.lakehouse.store import DATABASE_NAME, SANDBOX, Lakehouse
-from kkb_agent.llm.provider import LLMProvider
+from kkb_agent.llm.provider import LLMProvider, ProviderError
 from kkb_agent.pdf_ocr import OcrProvider
 from kkb_agent.tools import (
     make_anomaly_tool,
@@ -117,6 +120,8 @@ class _Document:
 
 
 _UPLOAD_KINDS = {media_type: kind for kind, media_type in MIME_TYPES.items()}
+#: A user-written https address; the bound keeps a stray field out of the fetcher.
+_WEB_ADDRESS = re.compile(r"https://[^\s<>\"'`]{1,2000}")
 
 
 _CANCELLATION_KEYWORDS = {"iptal", "vazgeç", "vazgeçtim", "cancel", "iptal et"}
@@ -482,6 +487,35 @@ class PreparedRunner:
                     document.admitted_at,
                 )
         self._history[session_id] = list(self._store.history(session_id, MAX_HISTORY_TURNS))
+
+    def admit_document_from_url(self, session_id: str, url: str) -> DocumentAdmitted:
+        """Fetch a tabular document at a user-written address and admit it like an upload.
+
+        The address is the person's own request, typed in the knowledge-base form,
+        so it plays the same role the question does for `web_url`: only an https
+        table is fetched, through the operator's `safe_fetch` (GET-only, no cookie,
+        DNS/TLS/redirect/byte/time bounds), and the bytes then meet the exact upload
+        admission rules. No new download or parsing code is introduced, and the
+        planner is not involved. Persisting the numbers into the knowledge base is
+        a second, explicit step over the admitted document, with a human-confirmed
+        declaration - nothing is stored to the catalogue from here.
+        """
+        if self._web_url_fetch is None or not self._document_uploads:
+            raise ServiceError("unavailable", 503)
+        if not isinstance(url, str) or not _WEB_ADDRESS.fullmatch(url):
+            raise ServiceError("document_rejected", 422)
+        outcome = self._web_url_fetch(
+            FetchRequest(
+                source_ref=source_id_for(url),
+                url=SecretStr(url),
+                accepted_media_types=TABLE_MEDIA_TYPES,
+            )
+        )
+        if isinstance(outcome, FetchFailure):
+            raise ServiceError("document_rejected", 422)
+        if not isinstance(outcome, FetchSuccess):  # pragma: no cover - FetchOutcome is closed
+            raise TypeError("fetch returned neither a success nor a failure")
+        return self.admit_document(session_id, outcome.media_type, outcome.content)
 
     def admit_document(self, session_id: str, media_type: str, content: bytes) -> DocumentAdmitted:
         """Admit through the upload checks and store by opaque reference; no filename is kept."""
@@ -935,7 +969,14 @@ class PreparedRunner:
                             run_id,
                             status="cancelled" if cancelled else "failed",
                             duration_ms=max(0, round((time.monotonic() - started) * 1000)),
-                            error=type(failure).__name__,
+                            # A provider failure keeps its curated category, status
+                            # included ("Kloudeks rejected the request (400)"); every
+                            # other failure is named by type only, never by text.
+                            error=(
+                                f"{type(failure).__name__}: {failure}"
+                                if isinstance(failure, ProviderError)
+                                else type(failure).__name__
+                            ),
                             events=tracer.events,
                         )
                     raise
@@ -1157,6 +1198,49 @@ class PreparedRunner:
                     connection.close()
             except (ValueError, duckdb.Error):
                 raise PreparedError("invalid_result") from None
+        finally:
+            self._lock.release()
+
+    def published_result(self, session_id: str, turn_id: str) -> Result:
+        """The table a turn published, rebuilt from its receipt after any restart.
+
+        The receipt (`publications`) names the workspace artifact and the exact
+        version; the artifact is checked against both before anything is shown,
+        the proof is rebuilt from the same lineage, and the projection is the
+        one publication used, so the reference and version match the stored
+        messages. While a turn is running the runner's lock is held, and this
+        read says so (busy) instead of opening the lake beside a writer.
+        """
+        if not _IDENTIFIER.fullmatch(session_id) or not _IDENTIFIER.fullmatch(turn_id):
+            raise ServiceError("not_found", 404)
+        if not self._lock.acquire(blocking=False):
+            raise ServiceError("busy", 409)
+        try:
+            self._restore(session_id)
+            publication = self._publications.get((session_id, turn_id))
+            if publication is None:
+                raise ServiceError("not_found", 404)
+            target = self.run_root / session_id / "lake" / DATABASE_NAME
+            try:
+                connection = duckdb.connect(str(target), read_only=True, config=dict(SANDBOX))
+            except duckdb.Error:
+                raise ServiceError("not_found", 404) from None
+            try:
+                value = SelectedTable(
+                    Workspace(connection, session_id),
+                    publication.name,
+                    publication.artifact_id,
+                    publication.selection.version,
+                ).check()
+                proof = build_proof(connection, value, secrets=self._redactions)
+            except (SelectionError, WorkspaceError, ValueError, duckdb.Error):
+                raise ServiceError("not_found", 404) from None
+            finally:
+                connection.close()
+            try:
+                return project_result(value, turn_id=turn_id, secrets=self._redactions, proof=proof)
+            except OutputRefused:
+                raise ServiceError("not_found", 404) from None
         finally:
             self._lock.release()
 

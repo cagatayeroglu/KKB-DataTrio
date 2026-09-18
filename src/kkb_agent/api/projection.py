@@ -55,6 +55,49 @@ def _owned_proof(proof: Proof | None, version: str) -> Proof:
     return canonical
 
 
+def project_result(
+    published: AnalyticalResult,
+    *,
+    turn_id: str,
+    secrets: tuple[str, ...] = (),
+    proof: Proof | None = None,
+) -> Result:
+    """The public table for a published value: deterministic from the turn and the digest.
+
+    Read back from a stored publication after a restart, it yields the very same
+    `result_ref` and `version` the conversation's messages recorded, so a
+    reopened conversation shows the table it showed then, proof included.
+    """
+    namespace = UUID(hex=turn_id)
+    canonical = AnalyticalResult.model_validate_json(published.model_dump_json())
+    if len(canonical.values) > MAX_VALUES:
+        raise OutputRefused("output_limit")
+    version = canonical.digest()
+    return Result(
+        result_ref=uuid5(namespace, version).hex,
+        version=version,
+        kind=canonical.kind,
+        claim_kind=canonical.claim_kind,
+        cells=tuple(
+            Cell(
+                cell_id=uuid5(namespace, f"{version}:{slot}").hex,
+                slot=slot,
+                label=safe_text(value.label, limit=240, secrets=secrets),
+                value=value.value,
+                display=display_value(value),
+                unit=safe_text(value.unit, limit=240, secrets=secrets) if value.unit else None,
+                scale=value.scale,
+                measure=value.measure,
+                period=value.period,
+                samples=value.samples,
+                lag=value.lag,
+            )
+            for slot, value in enumerate(canonical.values)
+        ),
+        proof=_owned_proof(proof, version),
+    )
+
+
 def project_answer(
     answered: Answered,
     *,
@@ -68,7 +111,6 @@ def project_answer(
     No candidate result, raw outcome, omitted sentence, verdict exception,
     locator, transformation parameters or source content is serialized.
     """
-    namespace = UUID(hex=turn_id)
     gate = answered.answer
     notices = []
     text = ""
@@ -99,33 +141,7 @@ def project_answer(
             or published.digest() != answered.results[-1].digest()
         ):
             raise OutputRefused("publication_mismatch")
-        canonical = AnalyticalResult.model_validate_json(published.model_dump_json())
-        if len(canonical.values) > MAX_VALUES:
-            raise OutputRefused("output_limit")
-        version = canonical.digest()
-        result = Result(
-            result_ref=uuid5(namespace, version).hex,
-            version=version,
-            kind=canonical.kind,
-            claim_kind=canonical.claim_kind,
-            cells=tuple(
-                Cell(
-                    cell_id=uuid5(namespace, f"{version}:{slot}").hex,
-                    slot=slot,
-                    label=safe_text(value.label, limit=240, secrets=secrets),
-                    value=value.value,
-                    display=display_value(value),
-                    unit=safe_text(value.unit, limit=240, secrets=secrets) if value.unit else None,
-                    scale=value.scale,
-                    measure=value.measure,
-                    period=value.period,
-                    samples=value.samples,
-                    lag=value.lag,
-                )
-                for slot, value in enumerate(canonical.values)
-            ),
-            proof=_owned_proof(proof, version),
-        )
+        result = project_result(published, turn_id=turn_id, secrets=secrets, proof=proof)
     elif gate.status is not AnswerStatus.ABSTAINED and answered.planned.plan.reply is None:
         # A conversational reply never publishes, so saying so would be noise.
         notices.append("Bu turda yeni bir doğrulanmış tablo çalışma alanına yayımlanmadı.")

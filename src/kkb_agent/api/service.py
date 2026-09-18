@@ -42,6 +42,7 @@ from kkb_agent.api.contracts import (
     Health,
     OwnerCreated,
     Question,
+    Result,
     RunDetail,
     RunList,
     RunSummary,
@@ -100,6 +101,14 @@ class Runner(Protocol):
 # M10-04: admits and stores one upload for a session; never on the analysis worker.
 class DocumentStore(Protocol):
     def __call__(self, session_id: str, media_type: str, content: bytes) -> DocumentAdmitted: ...
+
+
+class UrlDocumentStore(Protocol):
+    def __call__(self, session_id: str, url: str) -> DocumentAdmitted: ...
+
+
+class StoredResultReader(Protocol):
+    def __call__(self, session_id: str, turn_id: str) -> Result: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,12 +174,15 @@ class AnalysisService:
         mode: Literal["kloudeks", "scripted"],
         selected_runner: SelectedRunner | None = None,
         document_store: DocumentStore | None = None,
+        url_document_store: UrlDocumentStore | None = None,
         store: ConversationStore | None = None,
         ocr: bool = False,
         official_acquisition: bool = False,
         knowledge: bool = False,
         web_search: bool = False,
         web_url: bool = False,
+        model: str | None = None,
+        stored_result: StoredResultReader | None = None,
     ):
         if mode not in ("kloudeks", "scripted"):
             raise ValueError("An explicit execution mode is required")
@@ -180,6 +192,7 @@ class AnalysisService:
         self._selected_runner = selected_runner
         # Uploads exist only when the operator supplied a store (--enable-uploads).
         self._document_store = document_store
+        self._url_document_store = url_document_store
         # Conversations survive a restart only when the operator supplied one.
         self._store = store
         # Scanned pages are read only when the operator enabled OCR (DEC-149).
@@ -191,6 +204,10 @@ class AnalysisService:
         self._web_search = web_search
         # Reading an address written in a question is the operator's switch too.
         self._web_url = web_url
+        # The planner model's name, for the page's connection badge; never a switch.
+        self._model = model
+        # A published table read back from its receipt, after any restart.
+        self._stored_result = stored_result
         self._mode = mode
         self._sessions: dict[str, _Session] = {}
         self._lock = threading.RLock()
@@ -215,7 +232,7 @@ class AnalysisService:
                 capabilities = (*capabilities, "knowledge_base")
             if self._web_search:
                 capabilities = (*capabilities, "web_search")
-            return Health(execution_mode=self._mode, capabilities=capabilities)
+            return Health(execution_mode=self._mode, capabilities=capabilities, model=self._model)
 
     def _restrictable(self) -> tuple[str, ...]:
         """Restrictable capabilities this deployment actually offers."""
@@ -429,6 +446,18 @@ class AnalysisService:
             ),
         )
 
+    def stored_result(self, session_id: str, token: str, turn_id: str) -> Result:
+        """The table a stored turn published, rebuilt from its receipt.
+
+        Authorised exactly like reading the conversation (its token or the
+        owner's key); the runner rebuilds cells and proof from the workspace, so
+        a reopened conversation shows the table it showed then.
+        """
+        self._reading(session_id, token)
+        if self._stored_result is None:
+            raise ServiceError("unavailable", 503)
+        return Result.model_validate(self._stored_result(session_id, turn_id).model_dump())
+
     def runs(self, session_id: str, token: str) -> RunList:
         """Every run of this conversation, newest first; opening one runs nothing."""
         self._reading(session_id, token)
@@ -576,6 +605,29 @@ class AnalysisService:
                 raise ServiceError("capacity", 429)
         admitted = DocumentAdmitted.model_validate(
             self._document_store(session_id, media_type, content).model_dump()
+        )
+        with self._lock:
+            session = self._owned(session_id, token)
+            session.documents.add(admitted.document_ref)
+        return admitted
+
+    def admit_document_from_url(self, session_id: str, token: str, url: str) -> DocumentAdmitted:
+        """Admit a tabular document at a user-written address, like an upload.
+
+        The same authentication and per-owner upload switch as a file upload; the
+        fetch and admission rules live in the store. The address is the person's
+        own request from the form, never a planner output or a document's content.
+        """
+        with self._lock:
+            session = self._owned(session_id, token)
+            if self._url_document_store is None:
+                raise ServiceError("unavailable", 503)
+            if "document_upload" in self._session_settings(session_id).disabled:
+                raise ServiceError("unavailable", 503)
+            if len(session.documents) >= MAX_DOCUMENTS:
+                raise ServiceError("capacity", 429)
+        admitted = DocumentAdmitted.model_validate(
+            self._url_document_store(session_id, url).model_dump()
         )
         with self._lock:
             session = self._owned(session_id, token)
