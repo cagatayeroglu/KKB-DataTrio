@@ -61,6 +61,7 @@ import {
   openConversation,
   updateConversation,
   readTurn,
+  storedResult,
   saveSession,
   uploadDocument,
   validQuestion,
@@ -77,6 +78,7 @@ import {
   type Saved,
   type StoredMessage,
   type Turn,
+  type Result,
   type RuntimeSettings,
   type PromptParts,
 } from "@/lib/contracts";
@@ -166,7 +168,9 @@ export function Workspace() {
     [conversations, setConversations] = useState<ConversationSummary[]>([]),
     [conversationId, setConversationId] = useState<string | null>(null),
     [transcript, setTranscript] = useState<StoredMessage[]>([]),
-    [restoredTurns, setRestoredTurns] = useState<Turn[]>([]),
+    [restoredTables, setRestoredTables] = useState<
+      { turnId: string; result: Result }[]
+    >([]),
     [chatSearch, setChatSearch] = useState(""),
     [showArchived, setShowArchived] = useState(false),
     [renaming, setRenaming] = useState<string | null>(null),
@@ -290,7 +294,7 @@ export function Workspace() {
     recoveries.current = [];
     setItems([]);
     setTranscript([]);
-    setRestoredTurns([]);
+    setRestoredTables([]);
     setConversationId(null);
     setRatings({});
     setPendingIndex(null);
@@ -336,36 +340,32 @@ export function Workspace() {
       setPendingIndex(null);
       setAttachment(null);
       setQuestion("");
-      // A reopened conversation keeps its tables: the turns that published one
-      // are read back, so the results pane and follow-ups work as they did.
+      // A reopened conversation keeps its tables: each published one is read
+      // back from its receipt on the server, so it comes with the same reference
+      // and version the messages recorded - whichever process produced it.
       const published = detail.messages.filter((message) => message.result_ref);
       const restored = await Promise.all(
         published.map(async (message) => {
           try {
-            return await readTurn(
-              {
-                api_version: 1,
-                session_id: id,
-                token: ownerToken,
-                survives_restart: true,
-              },
-              message.turn_id,
-            );
+            return {
+              turnId: message.turn_id,
+              result: await storedResult(id, message.turn_id, ownerToken),
+            };
           } catch {
-            // A turn the server no longer serves simply has no table here.
+            // Busy (a turn is running) or gone: the message says so in place.
             return undefined;
           }
         }),
       );
       if (mounted.current) {
-        const kept = restored.filter((turn): turn is Turn => Boolean(turn));
-        setRestoredTurns(kept);
+        const kept = restored.filter(
+          (entry): entry is { turnId: string; result: Result } =>
+            Boolean(entry),
+        );
+        setRestoredTables(kept);
         // The newest table opens with the conversation; nobody re-selects what
         // they were already looking at when they left.
-        const newest = kept
-          .map((turn) => publishedResult(turn)?.result_ref)
-          .filter((ref): ref is string => Boolean(ref))
-          .at(-1);
+        const newest = kept.at(-1)?.result.result_ref;
         if (newest) setSelected(newest);
       }
     } catch (error) {
@@ -672,22 +672,16 @@ export function Workspace() {
    * reopened conversation shows its results and follow-ups can cite them.
    */
   const analyses = [
-    ...restoredTurns.flatMap((turn) => {
-      const published = publishedResult(turn);
-      return published
-        ? [
-            {
-              ref: published.result_ref,
-              result: published,
-              question: transcript.find(
-                (message) =>
-                  message.turn_id === turn.turn_id && message.role === "user",
-              )?.text,
-              answer: turn.answer?.text,
-            },
-          ]
-        : [];
-    }),
+    ...restoredTables.map(({ turnId, result }) => ({
+      ref: result.result_ref,
+      result,
+      question: transcript.find(
+        (message) => message.turn_id === turnId && message.role === "user",
+      )?.text,
+      answer: transcript.find(
+        (message) => message.turn_id === turnId && message.role === "assistant",
+      )?.text,
+    })),
     ...items.flatMap((item) => {
       const published = publishedResult(item.turn);
       return published
@@ -753,7 +747,7 @@ export function Workspace() {
   /** The table a stored message published, when this process still serves it. */
   const restoredTable = (ref: string | null | undefined) =>
     ref
-      ? restoredTurns.map(publishedResult).find((r) => r?.result_ref === ref)
+      ? restoredTables.find((t) => t.result.result_ref === ref)?.result
       : undefined;
   async function shareConversation() {
     const lines: string[] = [];

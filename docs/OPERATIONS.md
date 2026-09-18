@@ -81,6 +81,7 @@ model call. Do not overwrite older evidence to hide a conflicting source revisio
 | GET `/v1/conversations` (+ `q`, `archived` filters) | Owner key header | This browser's conversations, newest first |
 | GET / PATCH `/v1/conversations/{id}` | Owner key or conversation token | Messages and documents; PATCH renames or archives |
 | GET `/v1/conversations/{id}/runs`, `/runs/{run_id}`, `/runs/{run_id}/steps/{seq}` | Owner key or conversation token | Recorded runs, their trace steps, and one step's full detail |
+| GET `/v1/conversations/{id}/results/{turn_id}` | Owner key or conversation token | The table a stored turn published, rebuilt from its receipt with the same reference, version and proof - after any restart; 409 while a turn runs |
 | GET / POST `/v1/conversations/{id}/feedback` | Owner key or conversation token | Ratings for this conversation's answers |
 | GET `/v1/dataset` | None | The prepared pool's series and coverage |
 | GET `/v1/knowledge` | Owner key header | Every series the agent can reach, with where each one's meaning comes from |

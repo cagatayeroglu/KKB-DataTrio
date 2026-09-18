@@ -21,6 +21,8 @@ const runRoute = new RegExp(
 );
 /** A stored trace holds every prompt and tool output, so it may exceed the usual ceiling. */
 export const TRACE_LIMIT = 8 * 1024 * 1024;
+/** A published table read back from its receipt, after any restart. */
+const resultRoute = new RegExp(`^v1/conversations/${REF}/results/${REF}$`);
 const feedbackRoute = new RegExp(`^v1/conversations/${REF}/feedback$`);
 const cancelRoute = new RegExp(`^v1/sessions/${REF}/turns/${REF}/cancel$`);
 const SLUG = "[a-z][a-z0-9_]{2,39}";
@@ -131,6 +133,7 @@ export async function forward(
   const conversation = conversationRoute.test(name);
   const runs = runRoute.test(name);
   const feedback = feedbackRoute.test(name);
+  const results = resultRoute.test(name);
   const turns = route.test(name);
   const documents = documentRoute.test(name);
   const cancel = cancelRoute.test(name);
@@ -176,6 +179,7 @@ export async function forward(
         prompts ||
         conversation ||
         runs ||
+        results ||
         feedback ||
         knowledgeList ||
         knowledgeSearch ||
@@ -208,6 +212,7 @@ export async function forward(
     documents ||
     conversation ||
     runs ||
+    results ||
     feedback ||
     cancel ||
     documentFromUrl

@@ -33,8 +33,9 @@ from kkb_agent.api.contracts import (
     MAX_TURNS,
     Answer,
     DocumentAdmitted,
+    Result,
 )
-from kkb_agent.api.projection import project_answer, safe_text
+from kkb_agent.api.projection import OutputRefused, project_answer, project_result, safe_text
 from kkb_agent.api.proof import build_proof
 from kkb_agent.api.service import SelectedResult, ServiceError, TurnSettings
 from kkb_agent.api.store import DEFAULT_TITLE, ConversationStore
@@ -1190,6 +1191,49 @@ class PreparedRunner:
                     connection.close()
             except (ValueError, duckdb.Error):
                 raise PreparedError("invalid_result") from None
+        finally:
+            self._lock.release()
+
+    def published_result(self, session_id: str, turn_id: str) -> Result:
+        """The table a turn published, rebuilt from its receipt after any restart.
+
+        The receipt (`publications`) names the workspace artifact and the exact
+        version; the artifact is checked against both before anything is shown,
+        the proof is rebuilt from the same lineage, and the projection is the
+        one publication used, so the reference and version match the stored
+        messages. While a turn is running the runner's lock is held, and this
+        read says so (busy) instead of opening the lake beside a writer.
+        """
+        if not _IDENTIFIER.fullmatch(session_id) or not _IDENTIFIER.fullmatch(turn_id):
+            raise ServiceError("not_found", 404)
+        if not self._lock.acquire(blocking=False):
+            raise ServiceError("busy", 409)
+        try:
+            self._restore(session_id)
+            publication = self._publications.get((session_id, turn_id))
+            if publication is None:
+                raise ServiceError("not_found", 404)
+            target = self.run_root / session_id / "lake" / DATABASE_NAME
+            try:
+                connection = duckdb.connect(str(target), read_only=True, config=dict(SANDBOX))
+            except duckdb.Error:
+                raise ServiceError("not_found", 404) from None
+            try:
+                value = SelectedTable(
+                    Workspace(connection, session_id),
+                    publication.name,
+                    publication.artifact_id,
+                    publication.selection.version,
+                ).check()
+                proof = build_proof(connection, value, secrets=self._redactions)
+            except (SelectionError, WorkspaceError, ValueError, duckdb.Error):
+                raise ServiceError("not_found", 404) from None
+            finally:
+                connection.close()
+            try:
+                return project_result(value, turn_id=turn_id, secrets=self._redactions, proof=proof)
+            except OutputRefused:
+                raise ServiceError("not_found", 404) from None
         finally:
             self._lock.release()
 

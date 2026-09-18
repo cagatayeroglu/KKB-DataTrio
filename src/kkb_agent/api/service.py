@@ -42,6 +42,7 @@ from kkb_agent.api.contracts import (
     Health,
     OwnerCreated,
     Question,
+    Result,
     RunDetail,
     RunList,
     RunSummary,
@@ -104,6 +105,10 @@ class DocumentStore(Protocol):
 
 class UrlDocumentStore(Protocol):
     def __call__(self, session_id: str, url: str) -> DocumentAdmitted: ...
+
+
+class StoredResultReader(Protocol):
+    def __call__(self, session_id: str, turn_id: str) -> Result: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,6 +182,7 @@ class AnalysisService:
         web_search: bool = False,
         web_url: bool = False,
         model: str | None = None,
+        stored_result: StoredResultReader | None = None,
     ):
         if mode not in ("kloudeks", "scripted"):
             raise ValueError("An explicit execution mode is required")
@@ -200,6 +206,8 @@ class AnalysisService:
         self._web_url = web_url
         # The planner model's name, for the page's connection badge; never a switch.
         self._model = model
+        # A published table read back from its receipt, after any restart.
+        self._stored_result = stored_result
         self._mode = mode
         self._sessions: dict[str, _Session] = {}
         self._lock = threading.RLock()
@@ -437,6 +445,18 @@ class AnalysisService:
                 for document in self._store.documents(session_id)
             ),
         )
+
+    def stored_result(self, session_id: str, token: str, turn_id: str) -> Result:
+        """The table a stored turn published, rebuilt from its receipt.
+
+        Authorised exactly like reading the conversation (its token or the
+        owner's key); the runner rebuilds cells and proof from the workspace, so
+        a reopened conversation shows the table it showed then.
+        """
+        self._reading(session_id, token)
+        if self._stored_result is None:
+            raise ServiceError("unavailable", 503)
+        return Result.model_validate(self._stored_result(session_id, turn_id).model_dump())
 
     def runs(self, session_id: str, token: str) -> RunList:
         """Every run of this conversation, newest first; opening one runs nothing."""

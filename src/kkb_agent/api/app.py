@@ -37,6 +37,7 @@ from kkb_agent.api.contracts import (
     PromptParts,
     Question,
     Reference,
+    Result,
     RunDetail,
     RunList,
     RuntimeSettings,
@@ -305,6 +306,11 @@ def create_app(
     @app.get("/v1/conversations/{session_id}", response_model=ConversationDetail)
     def conversation(session_id: Reference, token: Token) -> ConversationDetail:
         return service.conversation(session_id, token)
+
+    @app.get("/v1/conversations/{session_id}/results/{turn_id}", response_model=Result)
+    def stored_result(session_id: Reference, turn_id: Reference, token: Token) -> Result:
+        # A published table read back from its receipt; nothing is recomputed.
+        return service.stored_result(session_id, token, turn_id)
 
     @app.get("/v1/conversations/{session_id}/runs", response_model=RunList)
     def runs(session_id: Reference, token: Token) -> RunList:
