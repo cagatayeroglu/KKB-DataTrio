@@ -1,5 +1,5 @@
 import type { Cell, Dataset, Result } from "./contracts";
-import { arrange, seriesLabel, unitLabel } from "./table";
+import { arrange, seriesLabel, unitLabel, type TableRow } from "./table";
 
 /**
  * Exports of a published result, built from the cells the browser already
@@ -57,8 +57,17 @@ export function tableCsv(
   result: Result,
   dataset: Dataset | null,
   dialect: CsvDialect,
+  /**
+   * What the reader is looking at, when that is narrower than the whole table:
+   * the rows a search left on screen. Omitted, the whole published table is
+   * written. Columns and proof are never narrowed by this: a file always says
+   * which series and which period each number belongs to.
+   */
+  view?: { rows: TableRow[] },
 ) {
-  const { columns, rows, metrics } = arrange(result.cells);
+  const arranged = arrange(result.cells);
+  const { columns, metrics } = arranged;
+  const rows = view?.rows ?? arranged.rows;
   if (columns.length === 0) {
     return lines(
       [

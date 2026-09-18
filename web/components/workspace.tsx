@@ -145,7 +145,9 @@ export function Workspace() {
     [items, setItems] = useState<Item[]>([]),
     [busy, setBusy] = useState(false),
     [issue, setIssue] = useState("");
-  const [selected, setSelected] = useState<number>(-1),
+  // The published table on screen, named by its own reference: a reopened
+  // conversation's tables and this tab's turns are one list.
+  const [selected, setSelected] = useState<string | null>(null),
     [panel, setPanel] = useState<"data" | "traces" | "settings" | null>(null),
     [pendingIndex, setPendingIndex] = useState<number | null>(null),
     [attachment, setAttachment] = useState<DocumentAdmitted | null>(null),
@@ -158,6 +160,7 @@ export function Workspace() {
     [conversationId, setConversationId] = useState<string | null>(null),
     [transcript, setTranscript] = useState<StoredMessage[]>([]),
     [restoredResult, setRestoredResult] = useState<string | null>(null),
+    [restoredTurns, setRestoredTurns] = useState<Turn[]>([]),
     [chatSearch, setChatSearch] = useState(""),
     [showArchived, setShowArchived] = useState(false),
     [renaming, setRenaming] = useState<string | null>(null),
@@ -261,6 +264,9 @@ export function Workspace() {
   }
   function startChat() {
     if (busyRef.current || pending || !ready) return;
+    // Starting or opening a chat is a move to the studio: the page follows the
+    // choice instead of leaving the person on a page that does not show it.
+    setPanel(null);
     try {
       clearSession(sessionStorage);
     } catch (error) {
@@ -273,16 +279,18 @@ export function Workspace() {
     setItems([]);
     setTranscript([]);
     setRestoredResult(null);
+    setRestoredTurns([]);
     setConversationId(null);
     setRatings({});
     setPendingIndex(null);
-    setSelected(-1);
+    setSelected(null);
     setAttachment(null);
     setQuestion("");
     setIssue("");
   }
   async function openChat(id: string) {
     if (busyRef.current || pending || !ready || !ownerToken) return;
+    setPanel(null);
     setIssue("");
     try {
       const detail = await openConversation(id, ownerToken);
@@ -317,10 +325,35 @@ export function Workspace() {
         .find((message) => message.result_ref);
       setRestoredResult(answered?.result_ref ?? null);
       setItems([]);
-      setSelected(-1);
+      setSelected(null);
       setPendingIndex(null);
       setAttachment(null);
       setQuestion("");
+      // A reopened conversation keeps its tables: the turns that published one
+      // are read back, so the results pane and follow-ups work as they did.
+      const published = detail.messages.filter((message) => message.result_ref);
+      const restored = await Promise.all(
+        published.map(async (message) => {
+          try {
+            return await readTurn(
+              {
+                api_version: 1,
+                session_id: id,
+                token: ownerToken,
+                survives_restart: true,
+              },
+              message.turn_id,
+            );
+          } catch {
+            // A turn the server no longer serves simply has no table here.
+            return undefined;
+          }
+        }),
+      );
+      if (mounted.current)
+        setRestoredTurns(
+          restored.filter((turn): turn is Turn => Boolean(turn)),
+        );
     } catch (error) {
       if (mounted.current) setIssue(describeError(error));
     }
@@ -347,13 +380,13 @@ export function Workspace() {
       setIssue(describeError(error));
     }
   }
-  function chooseResult(index: number) {
-    const result = publishedResult(items[index]?.turn);
-    if (!ready || busyRef.current || pending || !result || !saved.current)
+  function chooseResult(ref: string) {
+    const chosen = analyses.find((item) => item.ref === ref);
+    if (!ready || busyRef.current || pending || !chosen || !saved.current)
       return;
     try {
-      record({ ...saved.current, view_result_id: result.result_ref });
-      setSelected(index);
+      record({ ...saved.current, view_result_id: ref });
+      setSelected(ref);
       setIssue("");
     } catch (error) {
       setIssue(describeError(error));
@@ -363,7 +396,7 @@ export function Workspace() {
     const result = publishedResult(turn);
     if (selectResult && result && saved.current) {
       record({ ...saved.current, view_result_id: result.result_ref });
-      setSelected(index);
+      setSelected(result.result_ref);
     }
     setItems((old) =>
       old.map((item, i) => (i === index ? { ...item, turn } : item)),
@@ -488,7 +521,7 @@ export function Workspace() {
               saved.current = null;
               setItems([]);
               setPendingIndex(null);
-              setSelected(-1);
+              setSelected(null);
               setIssue(errorText.session_gone);
               setReady(true);
               return;
@@ -507,7 +540,9 @@ export function Workspace() {
             });
           else if (stored.view_result_id && resume.length === 0)
             setIssue(errorText.selection_unavailable);
-          setSelected(index);
+          setSelected(
+            index >= 0 ? publishedResult(restored[index])!.result_ref : null,
+          );
         } catch (error) {
           setIssue(describeError(error));
         }
@@ -649,14 +684,48 @@ export function Workspace() {
     recoveries.current = [];
     setItems([]);
     setPendingIndex(null);
-    setSelected(-1);
+    setSelected(null);
     setIssue("");
     setQuestion("");
   }
-  const versions = items.flatMap((item, index) =>
-    publishedResult(item.turn) ? [{ index, item }] : [],
-  );
-  const result = publishedResult(items[selected]?.turn);
+  /**
+   * Every table this conversation has published, oldest first: the ones read
+   * back when it was reopened, then this tab's own turns. One list, so a
+   * reopened conversation shows its results and follow-ups can cite them.
+   */
+  const analyses = [
+    ...restoredTurns.flatMap((turn) => {
+      const published = publishedResult(turn);
+      return published
+        ? [
+            {
+              ref: published.result_ref,
+              result: published,
+              question: transcript.find(
+                (message) =>
+                  message.turn_id === turn.turn_id && message.role === "user",
+              )?.text,
+              answer: turn.answer?.text,
+            },
+          ]
+        : [];
+    }),
+    ...items.flatMap((item) => {
+      const published = publishedResult(item.turn);
+      return published
+        ? [
+            {
+              ref: published.result_ref,
+              result: published,
+              question: item.question,
+              answer: item.turn?.answer?.text,
+            },
+          ]
+        : [];
+    }),
+  ];
+  const chosen = analyses.find((item) => item.ref === selected);
+  const result = chosen?.result;
   // Tables this conversation published, this tab's turns and the reopened ones:
   // what the agent may reach for without being pointed at it.
   // Documents this conversation uploaded, offered to the knowledge-base form.
@@ -673,13 +742,10 @@ export function Workspace() {
         label: `Belge ${index + 1}`,
       }))
     : [];
-  const contextTables =
-    versions.length + transcript.filter((message) => message.result_ref).length;
+  const contextTables = analyses.length;
   function sourceLabel(reference?: string) {
     if (!reference) return "Serbest soru";
-    const index = items.findIndex(
-      (item) => publishedResult(item.turn)?.result_ref === reference,
-    );
+    const index = analyses.findIndex((entry) => entry.ref === reference);
     return index >= 0
       ? `Kaynak tablo: Analiz ${index + 1}`
       : "Kaynak tablo yüklenemedi";
@@ -1096,13 +1162,22 @@ export function Workspace() {
                                 )}
                               {item.turn.answer.result && (
                                 <button
-                                  className={`result-link ${selected === index ? "selected" : ""}`}
-                                  onClick={() => chooseResult(index)}
+                                  className={`result-link ${selected === item.turn.answer.result.result_ref ? "selected" : ""}`}
+                                  onClick={() =>
+                                    chooseResult(
+                                      item.turn!.answer!.result!.result_ref,
+                                    )
+                                  }
                                   disabled={!ready || busy || pending}
                                 >
                                   <Table2 size={17} />
                                   <span>
-                                    Analiz {index + 1}
+                                    Analiz{" "}
+                                    {analyses.findIndex(
+                                      (entry) =>
+                                        entry.ref ===
+                                        item.turn!.answer!.result!.result_ref,
+                                    ) + 1}
                                     <small>
                                       {item.turn.answer.result.cells.length}{" "}
                                       kayıtlı değer
@@ -1389,19 +1464,19 @@ export function Workspace() {
                   <span>
                     <Table2 size={17} /> Analiz sonuçları
                   </span>
-                  {versions.length > 0 ? (
+                  {analyses.length > 0 ? (
                     <label className="version-select">
                       <select
                         aria-label="Sonuç sürümü"
-                        value={selected}
-                        onChange={(e) => chooseResult(Number(e.target.value))}
+                        value={selected ?? ""}
+                        onChange={(e) => chooseResult(e.target.value)}
                         disabled={!ready || busy || pending}
                       >
-                        {selected < 0 && <option value={-1}>Sonuç seç</option>}
-                        {versions.map(({ index }) => (
-                          <option key={index} value={index}>
+                        {!chosen && <option value="">Sonuç seç</option>}
+                        {analyses.map((entry, index) => (
+                          <option key={entry.ref} value={entry.ref}>
                             Analiz {index + 1}
-                            {index === versions.at(-1)?.index
+                            {index === analyses.length - 1
                               ? " · son sonuç"
                               : " · önceki sonuç"}
                           </option>
@@ -1418,7 +1493,12 @@ export function Workspace() {
                     <div className="result-intro">
                       <div>
                         <span className="result-kicker">YAYIMLANAN SONUÇ</span>
-                        <h2>Analiz {selected + 1}</h2>
+                        <h2>
+                          Analiz{" "}
+                          {analyses.findIndex(
+                            (entry) => entry.ref === selected,
+                          ) + 1}
+                        </h2>
                       </div>
                       <span className="verified-pill">
                         <Check size={14} /> Kayıtlı tablo
@@ -1429,8 +1509,8 @@ export function Workspace() {
                       result={result}
                       dataset={dataset}
                       context={{
-                        question: items[selected]?.question,
-                        answer: items[selected]?.turn?.answer?.text,
+                        question: chosen?.question,
+                        answer: chosen?.answer,
                       }}
                     />
                   </>

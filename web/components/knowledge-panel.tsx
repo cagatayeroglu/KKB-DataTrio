@@ -48,6 +48,12 @@ const retrievalWords: Record<string, string> = {
   hybrid: "kelime + anlam araması",
   lexical_degraded: "anlam araması devre dışı",
 };
+/** Which of the two stages offered a candidate, in the words the trial uses. */
+const stageWords: Record<string, string> = {
+  lexical: "KELİME",
+  dense: "ANLAM",
+  both: "İKİSİ",
+};
 const denseFailureWords: Record<string, string> = {
   snapshot_mismatch:
     "Vektörler bu kataloğu kapsamıyor: bilgi tabanı değişmiş, yeniden vektörlemek gerekiyor.",
@@ -187,6 +193,9 @@ export function KnowledgePanel({
     } catch (error) {
       setIssue(describeError(error));
     }
+    // Every knowledge-base change makes a different catalogue, so the card that
+    // reports vector coverage is read again with the listing.
+    void readIndexStatus();
   }
   async function readIndexStatus() {
     try {
@@ -267,8 +276,8 @@ export function KnowledgePanel({
         <label className="table-search">
           <Search size={14} />
           <input
-            aria-label="Bilgi tabanında ara"
-            placeholder="Ad, kimlik veya eş anlamlı"
+            aria-label="Listeyi süz: yazdığın metni içeren kayıtlar"
+            placeholder="Listeyi süz: ad, kimlik veya eş anlamlı"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -285,6 +294,12 @@ export function KnowledgePanel({
           <Plus size={14} /> Veri seti ekle
         </Button>
       </div>
+      <p className="trial-lead">
+        <strong>Ajanın araması.</strong> Aşağısı listeyi süzmez: soruyu ajanın
+        kendi keşfine verir — onaylı eş anlamlılarla kelime eşleşmesi ve, dizin
+        kuruluysa, anlamsal arama birlikte. Sonuçta hangi aşamaların çalıştığı
+        yazar.
+      </p>
       <form
         className="knowledge-trial"
         onSubmit={async (event) => {
@@ -305,7 +320,7 @@ export function KnowledgePanel({
           <FlaskConical size={14} />
           <input
             aria-label="Bir soru yazıp ajanın ne bulacağını dene"
-            placeholder="Bir soru yaz: ajan bu katalogda ne bulur?"
+            placeholder="Doğal dille bir soru yaz: ajan bu katalogda ne bulur?"
             value={trialQuery}
             maxLength={512}
             onChange={(e) => setTrialQuery(e.target.value)}
@@ -349,12 +364,12 @@ export function KnowledgePanel({
           <ol>
             {trial.hits.map((hit) => (
               <li key={hit.series_id}>
-                <span className="trial-rank">{hit.provider}</span>
+                <span className="trial-rank">{stageWords[hit.stage]}</span>
                 <span>
                   {hit.title}
                   <small>
-                    {hit.unit ?? "birim bilinmiyor"} · {hit.frequency} ·{" "}
-                    {hit.stock_flow}
+                    {hit.provider} ·{hit.unit ?? "birim bilinmiyor"} ·{" "}
+                    {hit.frequency} · {hit.stock_flow}
                     {hit.prepared ? " · hazır havuzda" : " · havuzda yok"}
                     {hit.archived ? " · arşivde" : ""}
                   </small>
@@ -535,6 +550,12 @@ function VectorIndexCard({
               <dd>{index.catalog_version}</dd>
             </div>
           </dl>
+          <p className="helper">
+            Vektörler kendiliğinden oluşmaz: eklediğin açıklama, başlık ve eş
+            anlamlılar ancak yeniden vektörlendikten sonra anlamsal aramaya
+            girer. Kurulum her kayıt için bir gömme çağrısı demektir, bu yüzden
+            düğmeye basınca arka planda çalışır.
+          </p>
           {!covered && (
             <p className="helper">
               Vektörler {index.generation_version ?? "başka bir"} kataloğu için

@@ -2737,3 +2737,15 @@ svg {
 .vector-index .helper {
   margin: 10px 0 0;
 }
+
+/* The agent's own search, named apart from the list filter above it. */
+.trial-lead {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--muted);
+  max-width: 78ch;
+}
+.trial-lead strong {
+  color: var(--ink);
+  font-weight: 600;
+}
