@@ -33,6 +33,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Final, Literal
 
+from kkb_agent.catalog.records import MAX_CATALOG_SERIES
 from kkb_agent.core import Aggregation, CumulativeKind, Frequency, Scale, StockFlow, WeeklyAnchor
 from kkb_agent.lakehouse.records import Observation
 from kkb_agent.lakehouse.semantics import SemanticsError, SeriesSemantics, check_period
@@ -45,8 +46,9 @@ FORBIDDEN_WORDS: Final = ("synth", "fixture", "example")
 MAX_OBSERVATIONS: Final = 5000
 MAX_ALIASES: Final = 10
 MAX_TEXT: Final = 1000
-#: The reviewed snapshot holds at most 40 series; leave the reviewed ones room.
-MAX_ACTIVE_DATASETS: Final = 20
+#: Active datasets share the catalog's series bound with the reviewed series;
+#: the half left to them is a guard, not a product limit.
+MAX_ACTIVE_DATASETS: Final = MAX_CATALOG_SERIES // 2
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS kb_datasets (

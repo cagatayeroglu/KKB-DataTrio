@@ -285,8 +285,11 @@ def test_planner_schema_exposes_separate_closed_operation_objects(pool):
         "align",
         "filter",
         "to_flow",
+        "resample",
     }
     definitions = schema["$defs"]
+    # A weekly-to-monthly reduction always states which month a straddling week joins.
+    assert "week_assignment" in definitions["ResampleArguments"]["required"]
     assert set(definitions["AddSeriesArguments"]["required"]) == {
         "operation",
         "source",

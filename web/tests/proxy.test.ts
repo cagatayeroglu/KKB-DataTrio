@@ -8,6 +8,7 @@ import {
   BODY_LIMIT,
   DOCUMENT_LIMIT,
   RESPONSE_LIMIT,
+  TRACE_LIMIT,
 } from "../lib/proxy";
 const sid = "1".repeat(32),
   tid = "2".repeat(32),
@@ -548,4 +549,57 @@ test("a turn's cancel passes only as a keyed POST to that exact turn", async () 
     assert.equal(refused.status, 404, `${method} ${target}`);
   }
   assert.equal(seen.length, 1);
+});
+
+test("a stored trace and one whole step pass with the key, under the trace ceiling", async () => {
+  const run = "3".repeat(32);
+  const keyed = { "x-kkb-session-token": token };
+  const big =
+    (bytes: number): typeof fetch =>
+    async () =>
+      new Response("x".repeat(bytes), {
+        headers: { "content-type": "application/json" },
+      });
+  for (const path of [
+    `v1/conversations/${sid}/runs/${run}`,
+    `v1/conversations/${sid}/runs/${run}/steps/12`,
+  ]) {
+    // A trace larger than an ordinary response still arrives whole.
+    const passed = await forward(
+      request(path, "GET", keyed),
+      path.split("/"),
+      big(RESPONSE_LIMIT + 1),
+    );
+    assert.equal(passed.status, 200);
+    const beyond = await forward(
+      request(path, "GET", keyed),
+      path.split("/"),
+      big(TRACE_LIMIT + 1),
+    );
+    assert.equal(beyond.status, 503);
+    assert.equal(
+      (await forward(request(path, "GET"), path.split("/"), big(2))).status,
+      404,
+    );
+  }
+  // The list keeps the ordinary ceiling; malformed steps never dispatch.
+  const list = `v1/conversations/${sid}/runs`;
+  assert.equal(
+    (
+      await forward(
+        request(list, "GET", keyed),
+        list.split("/"),
+        big(RESPONSE_LIMIT + 1),
+      )
+    ).status,
+    503,
+  );
+  for (const step of ["0", "01", "1234567", "x"]) {
+    const path = `v1/conversations/${sid}/runs/${run}/steps/${step}`;
+    assert.equal(
+      (await forward(request(path, "GET", keyed), path.split("/"), big(2)))
+        .status,
+      404,
+    );
+  }
 });

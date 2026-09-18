@@ -259,3 +259,35 @@ def test_a_long_conversation_keeps_every_table_reachable_within_a_budget(
     assert "still usable by name" in tight
     # Publication order is kept, so "the first table" still means analiz_1.
     assert tight.index("analiz_1") < tight.index("analiz_4")
+
+
+def test_an_earlier_table_is_described_by_its_reviewed_series_name(pool, tmp_path):
+    """Live trace 2026-09-18: the outline named a table only by a selector hash."""
+    provider = scripted(proposal(table()), "Tablo hazır.", proposal(table("b")), "Tablo hazır.")
+    runner = PreparedRunner(
+        provider, pool, tmp_path / "runtime", catalog_bytes=CATALOG.read_bytes()
+    )
+    sid = uuid4().hex
+    for _ in range(2):
+        assert runner(sid, uuid4().hex, "Konut kredisi tablosunu getir.").status.value == "accepted"
+
+    (outline,) = workspace_prompts(provider)
+    # Generated from the catalog record: its TOTAL label tells the components apart.
+    assert (
+        f"{TOTAL} means: BDDK: Tüketici Kredileri - Konut [Aylık Bülten, Sektör, TOTAL" in outline
+    )
+
+
+def test_a_table_request_tells_the_writer_the_table_is_the_answer(pool, tmp_path):
+    """Live trace 2026-09-18: with every value tabled and none listed, the writer
+    wrote "this question was not covered" beside a 24-row table."""
+    provider = scripted(proposal(table()), "Tablo hazır.")
+    runner = PreparedRunner(
+        provider, pool, tmp_path / "runtime", catalog_bytes=CATALOG.read_bytes()
+    )
+    assert runner(uuid4().hex, uuid4().hex, "Tabloyu getir.").status.value == "accepted"
+
+    writer = provider.seen[-1]
+    results = next(m.content for m in writer if m.role is Role.SYSTEM and "Analysis" in m.content)
+    assert "the table itself answers a request for these values" in results
+    assert "do not say that the question or its values are not covered" in results

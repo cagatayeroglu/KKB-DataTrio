@@ -33,6 +33,11 @@ EMBEDDING_MODEL = f"{PREFIX}EMBEDDING_MODEL"
 STRUCTURED_OUTPUT = f"{PREFIX}STRUCTURED_OUTPUT"
 REQUEST_TIMEOUT = f"{PREFIX}REQUEST_TIMEOUT"
 MAX_ATTEMPTS = f"{PREFIX}MAX_ATTEMPTS"
+#: Whether the served model may reason before it answers. A plan is a decision
+#: and keeps it by default; a sentence written from given values does not need
+#: it, and on 2026-09-18 its hidden reasoning cost the writer minutes per turn.
+PLANNER_THINKING = f"{PREFIX}PLANNER_THINKING"
+WRITER_THINKING = f"{PREFIX}WRITER_THINKING"
 
 REQUIRED = (BASE_URL, CREDENTIAL, PLANNER_MODEL, ROUTER_MODEL)
 
@@ -58,6 +63,8 @@ class ProviderConfig:
     request_timeout: float = 30.0
     max_attempts: int = 3
     ocr_model: str | None = None
+    planner_thinking: bool = True
+    writer_thinking: bool = True
 
     def __post_init__(self) -> None:
         if not self.base_url.startswith("https://"):
@@ -90,6 +97,8 @@ class ProviderConfig:
             embedding_model=_optional(source, EMBEDDING_MODEL),
             request_timeout=_number(source, REQUEST_TIMEOUT, default=30.0),
             max_attempts=int(_number(source, MAX_ATTEMPTS, default=3.0)),
+            planner_thinking=_flag(source, PLANNER_THINKING, default=True),
+            writer_thinking=_flag(source, WRITER_THINKING, default=True),
         )
 
     def capabilities(self) -> dict[str, bool]:

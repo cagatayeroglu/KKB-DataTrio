@@ -304,3 +304,24 @@ def json_text(event):
     import json
 
     return json.dumps([event.attributes, event.detail], ensure_ascii=False, default=str)
+
+
+def test_the_knowledge_base_is_not_capped_by_the_reviewed_catalog_size(store):
+    """The production snapshot holds 37 series; the schema allowed 40 in total, so a
+    fourth added dataset used to make every turn's catalog invalid."""
+    from pathlib import Path
+
+    production = load_reviewed_snapshot(
+        (Path(__file__).parents[2] / "docs" / "catalog" / "prepared_v3.json").read_bytes()
+    )
+    saved = [
+        store.save_dataset(dataset(slug=f"veri_seti_{n}", title=f"Kullanıcı serisi {n}"))
+        for n in range(60)
+    ]
+    snapshot = effective_snapshot(production, store.datasets(), store.notes())
+
+    assert len(snapshot.series) == len(production.series) + 60 > 40
+    assert {item.series_id for item in saved} <= {s.record.series_id for s in snapshot.series}
+    # Search over the grown catalog reports every candidate it counted.
+    found = search_catalog(snapshot, CatalogSearchArguments(query="kullanıcı serisi"))
+    assert found.total_candidates >= 60

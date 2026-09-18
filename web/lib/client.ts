@@ -13,6 +13,7 @@ import {
   type DatasetRequest,
   ownerSchema,
   runDetailSchema,
+  traceStepFullSchema,
   runListSchema,
   sessionSchema,
   turnSchema,
@@ -39,6 +40,7 @@ export async function api<T>(
   options: RequestInit = {},
   token?: string,
   ownerToken?: string,
+  limits: { bytes?: number; timeoutMs?: number } = {},
 ): Promise<T> {
   const headers = new Headers(options.headers);
   if (
@@ -54,7 +56,7 @@ export async function api<T>(
       ...options,
       headers,
       cache: "no-store",
-      signal: AbortSignal.timeout(12000),
+      signal: AbortSignal.timeout(limits.timeoutMs ?? 12000),
     });
   } catch {
     throw new ApiError("connection");
@@ -62,7 +64,7 @@ export async function api<T>(
   let data: unknown;
   try {
     const text = await response.text();
-    if (text.length > 1024 * 1024) throw new Error();
+    if (text.length > (limits.bytes ?? 1024 * 1024)) throw new Error();
     data = JSON.parse(text);
   } catch {
     throw new ApiError("invalid_response");
@@ -334,6 +336,8 @@ export function listFeedback(conversationId: string, token: string) {
 export function listRuns(conversationId: string, token: string) {
   return api(`conversations/${conversationId}/runs`, runListSchema, {}, token);
 }
+/** A trace carries every prompt and tool output; it is read with a larger ceiling. */
+export const TRACE_BYTES = 8 * 1024 * 1024;
 export function openRun(conversationId: string, runId: string, token: string) {
   // Reading a trace is a stored record: it starts no model or tool call.
   return api(
@@ -341,6 +345,24 @@ export function openRun(conversationId: string, runId: string, token: string) {
     runDetailSchema,
     {},
     token,
+    undefined,
+    { bytes: TRACE_BYTES, timeoutMs: 30000 },
+  );
+}
+/** One step's whole detail: every prompt byte and every tool output, never clipped. */
+export function openRunStep(
+  conversationId: string,
+  runId: string,
+  sequence: number,
+  token: string,
+) {
+  return api(
+    `conversations/${conversationId}/runs/${runId}/steps/${sequence}`,
+    traceStepFullSchema,
+    {},
+    token,
+    undefined,
+    { bytes: TRACE_BYTES, timeoutMs: 30000 },
   );
 }
 export function updateConversation(

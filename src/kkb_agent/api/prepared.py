@@ -39,7 +39,12 @@ from kkb_agent.api.proof import build_proof
 from kkb_agent.api.service import SelectedResult, ServiceError
 from kkb_agent.api.store import DEFAULT_TITLE, ConversationStore
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
-from kkb_agent.catalog.mappings import MAX_SNAPSHOT_BYTES, ReviewedSnapshot, load_reviewed_snapshot
+from kkb_agent.catalog.mappings import (
+    MAX_SNAPSHOT_BYTES,
+    ReviewedSnapshot,
+    load_reviewed_snapshot,
+    series_display_names,
+)
 from kkb_agent.core import AnalyticalResult, SourceRef
 from kkb_agent.core.models import ContractModel
 from kkb_agent.ingest.acquisition import AcquiringInspector, OfficialSources, TurnAcquirer
@@ -52,6 +57,7 @@ from kkb_agent.knowledge import KnowledgeStore, effective_snapshot
 from kkb_agent.lakehouse import open_lakehouse
 from kkb_agent.lakehouse.gold import GoldError, gold_from_result, persist_gold
 from kkb_agent.lakehouse.lineage import Lineage, LineageError
+from kkb_agent.lakehouse.semantics import SemanticsError
 from kkb_agent.lakehouse.store import DATABASE_NAME, SANDBOX, Lakehouse
 from kkb_agent.llm.provider import LLMProvider
 from kkb_agent.pdf_ocr import OcrProvider
@@ -864,6 +870,8 @@ class PreparedRunner:
                         else ()
                     ),
                     tools_required=bool(addresses_in(question)) or document_ref is not None,
+                    # Named from this turn's catalog, knowledge-base entries included.
+                    series_names=series_display_names(catalog),
                 )
                 try:
                     answered = session.answer(
@@ -1019,7 +1027,8 @@ class PreparedRunner:
         try:
             table = gold_from_result(published, table_id=name, lineage=lake.lineage)
             rows = persist_gold(lake.connection, table) if table is not None else 0
-        except (GoldError, LineageError) as refused:
+        except (GoldError, LineageError, SemanticsError) as refused:
+            # Writing gold is a copy for later reads; it never costs the turn its answer.
             tracer.event("store", "gold.refused", table=name, reason=type(refused).__name__)
             return
         tracer.event(

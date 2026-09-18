@@ -15,7 +15,11 @@ const REF = "[a-f0-9]{32}";
 const route = new RegExp(`^v1/sessions/${REF}/turns(?:/${REF})?$`);
 const documentRoute = new RegExp(`^v1/sessions/${REF}/documents$`);
 const conversationRoute = new RegExp(`^v1/conversations/${REF}$`);
-const runRoute = new RegExp(`^v1/conversations/${REF}/runs(?:/${REF})?$`);
+const runRoute = new RegExp(
+  `^v1/conversations/${REF}/runs(?:/${REF}(?:/steps/[1-9][0-9]{0,5})?)?$`,
+);
+/** A stored trace holds every prompt and tool output, so it may exceed the usual ceiling. */
+export const TRACE_LIMIT = 8 * 1024 * 1024;
 const feedbackRoute = new RegExp(`^v1/conversations/${REF}/feedback$`);
 const cancelRoute = new RegExp(`^v1/sessions/${REF}/turns/${REF}/cancel$`);
 const SLUG = "[a-z][a-z0-9_]{2,39}";
@@ -263,7 +267,7 @@ export async function forward(
       return error("unavailable", 502);
     const bytes = await boundedRead(
       upstream.body,
-      RESPONSE_LIMIT,
+      runs && path.length > 4 ? TRACE_LIMIT : RESPONSE_LIMIT,
       controller.signal,
     );
     return new Response(bytes, {

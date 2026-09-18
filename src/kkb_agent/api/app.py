@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import FastAPI, Header, Query, Request
+from fastapi import FastAPI, Header, Path, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.exceptions import HTTPException
@@ -43,6 +43,7 @@ from kkb_agent.api.contracts import (
     SeriesValues,
     SessionCreated,
     Slug,
+    TraceStepFull,
     Turn,
 )
 from kkb_agent.api.knowledge_service import KnowledgeService
@@ -298,6 +299,18 @@ def create_app(
     def run(session_id: Reference, run_id: Reference, token: Token) -> RunDetail:
         # Reading a trace never starts work: it is a stored record, not a replay.
         return service.run(session_id, run_id, token)
+
+    @app.get(
+        "/v1/conversations/{session_id}/runs/{run_id}/steps/{sequence}",
+        response_model=TraceStepFull,
+    )
+    def run_step(
+        session_id: Reference,
+        run_id: Reference,
+        sequence: Annotated[int, Path(ge=1, le=100_000)],
+        token: Token,
+    ) -> TraceStepFull:
+        return service.run_step(session_id, run_id, sequence, token)
 
     @app.post("/v1/conversations/{session_id}/feedback", response_model=Feedback, status_code=201)
     def rate(session_id: Reference, token: Token, body: FeedbackRequest) -> Feedback:

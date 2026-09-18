@@ -8,13 +8,13 @@ import {
   ChevronDown,
   CircleHelp,
   Database,
+  ListTree,
   FileText,
   Layers3,
   LoaderCircle,
   MessageSquare,
   Archive,
   ArchiveRestore,
-  BookOpen,
   MessagesSquare,
   Paperclip,
   Pencil,
@@ -33,6 +33,7 @@ import { Button } from "@/components/ui/button";
 import { ResultTable } from "@/components/result-table";
 import { Panel } from "@/components/panel";
 import { TracePanel } from "@/components/trace-panel";
+import { TracesPage } from "@/components/traces-page";
 import { AnswerFeedback } from "@/components/answer-feedback";
 import {
   KnowledgePanel,
@@ -110,9 +111,7 @@ export function Workspace() {
     [busy, setBusy] = useState(false),
     [issue, setIssue] = useState("");
   const [selected, setSelected] = useState<number>(-1),
-    [panel, setPanel] = useState<"data" | "knowledge" | "settings" | null>(
-      null,
-    ),
+    [panel, setPanel] = useState<"data" | "traces" | "settings" | null>(null),
     [pendingIndex, setPendingIndex] = useState<number | null>(null),
     [attachment, setAttachment] = useState<DocumentAdmitted | null>(null),
     [dragging, setDragging] = useState(false),
@@ -757,17 +756,17 @@ export function Workspace() {
           className={`nav-item ${panel === "data" ? "chosen" : ""}`}
           onClick={() => setPanel("data")}
         >
-          <Database size={18} /> Veri havuzu{" "}
+          <Database size={18} /> Veri ve bilgi tabanı{" "}
           <span className="nav-count">
             {dataset?.prepared_identities ?? "—"}
           </span>
         </button>
-        {knowledgeBase && ownerToken && (
+        {history && ownerToken && (
           <button
-            className={`nav-item ${panel === "knowledge" ? "chosen" : ""}`}
-            onClick={() => setPanel("knowledge")}
+            className={`nav-item ${panel === "traces" ? "chosen" : ""}`}
+            onClick={() => setPanel("traces")}
           >
-            <BookOpen size={18} /> Bilgi tabanı
+            <ListTree size={18} /> İşlem kayıtları
           </button>
         )}
         <button
@@ -1463,7 +1462,16 @@ export function Workspace() {
           </span>
         </footer>
       </main>
-      {panel && (
+      {panel === "traces" && ownerToken && (
+        <Panel onClose={() => setPanel(null)}>
+          <TracesPage
+            owner={ownerToken}
+            initialConversation={conversationId}
+            onClose={() => setPanel(null)}
+          />
+        </Panel>
+      )}
+      {panel && panel !== "traces" && (
         <Panel onClose={() => setPanel(null)}>
           <section
             className="info-panel"
@@ -1485,19 +1493,14 @@ export function Workspace() {
               </Button>
             </div>
             <h2 id="panel-title">
-              {panel === "data"
-                ? "Veri havuzu"
-                : panel === "knowledge"
-                  ? "Bilgi tabanı"
-                  : "Çalışma ayarları"}
+              {panel === "data" ? "Veri ve bilgi tabanı" : "Çalışma ayarları"}
             </h2>
-            {panel === "knowledge" && ownerToken ? (
-              <KnowledgePanel owner={ownerToken} documents={chatDocuments} />
-            ) : panel === "data" ? (
+            {panel === "data" ? (
               <>
                 <p className="panel-description">
-                  Bu oturumun başlangıçta hazırlanan veri kopyası. Katalogda
-                  bulunan her seri bu havuza indirilmiş olmayabilir.
+                  Agentin bildiği her şey burada: hazır havuzdaki seriler,
+                  kaynaktan çekilebilen incelenmiş seriler ve sizin eklediğiniz
+                  veri setleri. Agent aynı listeyi kullanır.
                 </p>
                 <div className="panel-stat">
                   <strong>
@@ -1524,35 +1527,44 @@ export function Workspace() {
                   {acquisition &&
                     " Bir soru havuzda olmayan incelenmiş bir EVDS/BDDK serisine ihtiyaç duyarsa seri kaynaktan çekilir, saklanır ve işlem kaydında görünür; sonraki sohbetler yeniden çekmez."}
                 </p>
-                <div className="series-list">
-                  {dataset?.series.map((series) => (
-                    <article key={series.series_id}>
-                      <span className="series-source">
-                        {series.series_id.startsWith("EVDS:")
-                          ? "TCMB EVDS"
-                          : "BDDK"}
-                      </span>
-                      <h3>{preparedTitle(series.title)}</h3>
-                      <p>
-                        {series.first_period ?? "?"} <ArrowRight size={12} />{" "}
-                        {series.last_period ?? "?"}
-                      </p>
-                      <small>
-                        {series.nonnull_observations} dolu gözlem /{" "}
-                        {series.observations} kayıt
-                      </small>
-                      <details>
-                        <summary>Seri kimliği</summary>
-                        <code>{series.series_id}</code>
-                      </details>
-                    </article>
-                  ))}
-                </div>
-                <p className="helper">
-                  Başlangıç ve bitiş tarihi, aradaki tüm dönemlerin eksiksiz
-                  olduğu anlamına gelmez. Uygunluk analiz sırasında ayrıca
-                  kontrol edilir.
-                </p>
+                {knowledgeBase && ownerToken ? (
+                  <KnowledgePanel
+                    owner={ownerToken}
+                    documents={chatDocuments}
+                  />
+                ) : (
+                  <>
+                    <div className="series-list">
+                      {dataset?.series.map((series) => (
+                        <article key={series.series_id}>
+                          <span className="series-source">
+                            {series.series_id.startsWith("EVDS:")
+                              ? "TCMB EVDS"
+                              : "BDDK"}
+                          </span>
+                          <h3>{preparedTitle(series.title)}</h3>
+                          <p>
+                            {series.first_period ?? "?"}{" "}
+                            <ArrowRight size={12} /> {series.last_period ?? "?"}
+                          </p>
+                          <small>
+                            {series.nonnull_observations} dolu gözlem /{" "}
+                            {series.observations} kayıt
+                          </small>
+                          <details>
+                            <summary>Seri kimliği</summary>
+                            <code>{series.series_id}</code>
+                          </details>
+                        </article>
+                      ))}
+                    </div>
+                    <p className="helper">
+                      Başlangıç ve bitiş tarihi, aradaki tüm dönemlerin eksiksiz
+                      olduğu anlamına gelmez. Uygunluk analiz sırasında ayrıca
+                      kontrol edilir.
+                    </p>
+                  </>
+                )}
               </>
             ) : (
               <>

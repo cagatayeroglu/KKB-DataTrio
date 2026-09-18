@@ -394,20 +394,32 @@ export const traceStepSchema = z
     started_ms: z.number().int().nonnegative(),
     duration_ms: z.number().int().nonnegative(),
     attributes: z.record(z.string(), z.unknown()),
+    // A long detail arrives as a preview; the step route returns all of it.
     detail: z.string().max(16384).nullable(),
     parent: z.number().int().min(1).nullable(),
+    detail_chars: z.number().int().nonnegative().nullable().optional(),
+    detail_complete: z.boolean().optional(),
+  })
+  .strict();
+export const traceStepFullSchema = z
+  .object({
+    api_version: z.literal(1),
+    sequence: z.number().int().min(1),
+    name: z.string().max(120),
+    detail: z.string().max(2_000_000).nullable(),
   })
   .strict();
 export const runDetailSchema = z
   .object({
     api_version: z.literal(1),
     run: runSummarySchema,
-    steps: z.array(traceStepSchema).max(400),
+    steps: z.array(traceStepSchema).max(5000),
   })
   .strict();
 export type RunSummary = z.infer<typeof runSummarySchema>;
 export type RunDetail = z.infer<typeof runDetailSchema>;
 export type TraceStep = z.infer<typeof traceStepSchema>;
+export type TraceStepFull = z.infer<typeof traceStepFullSchema>;
 
 export const feedbackReasons = [
   "accuracy",
@@ -475,7 +487,8 @@ export const knowledgeListSchema = z
     api_version: z.literal(1),
     catalog_digest: z.string().regex(/^[a-f0-9]{64}$/),
     reviewed_digest: z.string().regex(/^[a-f0-9]{64}$/),
-    series: z.array(knowledgeSeriesSchema).max(80),
+    // Mirrors MAX_CATALOG_SERIES: a guard against a malformed body, not a catalog size.
+    series: z.array(knowledgeSeriesSchema).max(10000),
   })
   .strict();
 export const datasetDetailSchema = z

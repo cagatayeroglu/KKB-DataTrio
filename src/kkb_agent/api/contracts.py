@@ -8,6 +8,7 @@ from typing import Annotated, Literal, Self
 from pydantic import AwareDatetime, Field, JsonValue, StringConstraints, model_validator
 
 from kkb_agent.agent.verifier import AnswerStatus
+from kkb_agent.catalog.records import MAX_CATALOG_SERIES
 from kkb_agent.core import ClaimKind, Period, ResultKind, SampleCounts, Scale, StockFlow
 from kkb_agent.core.models import ContractModel
 
@@ -393,15 +394,31 @@ class TraceStep(ContractModel):
     duration_ms: Annotated[int, Field(strict=True, ge=0)]
     attributes: dict[str, JsonValue] = Field(default_factory=dict)
     # The step's own text: the context sent to the model, what it returned, a
-    # tool's arguments and a preview of what it produced. Bounded and redacted.
+    # tool's arguments and everything it returned. Redacted. In a run listing it is
+    # a preview; `detail_chars` is the full length and the step route returns it all.
     detail: Annotated[str, StringConstraints(strict=True, max_length=16384)] | None = None
+    detail_chars: Annotated[int, Field(strict=True, ge=0)] | None = None
+    detail_complete: bool = True
     parent: Annotated[int, Field(strict=True, ge=1)] | None = None
+
+
+#: Preview length of a step's text inside a run listing.
+TRACE_PREVIEW_CHARS = 16_000
+
+
+class TraceStepFull(ContractModel):
+    """One step's text exactly as recorded, never clipped for display."""
+
+    api_version: Literal[1] = 1
+    sequence: Annotated[int, Field(strict=True, ge=1)]
+    name: Code
+    detail: Annotated[str, StringConstraints(strict=True, max_length=2_000_000)] | None = None
 
 
 class RunDetail(ContractModel):
     api_version: Literal[1] = 1
     run: RunSummary
-    steps: Annotated[tuple[TraceStep, ...], Field(max_length=400)] = ()
+    steps: Annotated[tuple[TraceStep, ...], Field(max_length=5000)] = ()
 
 
 #: Why an answer was rated down; a fixed vocabulary, never free-form categories.
@@ -496,7 +513,7 @@ class KnowledgeList(ContractModel):
     #: Digest of the catalog a turn searches now; equals the reviewed one when nothing is added.
     catalog_digest: str
     reviewed_digest: str
-    series: Annotated[tuple[KnowledgeSeries, ...], Field(max_length=80)] = ()
+    series: Annotated[tuple[KnowledgeSeries, ...], Field(max_length=MAX_CATALOG_SERIES)] = ()
 
 
 class ObservationIn(ContractModel):

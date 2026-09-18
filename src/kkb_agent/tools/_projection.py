@@ -155,6 +155,53 @@ def _semantics_of(
     return unit, scale, measure
 
 
+#: The series declaration a proven row can be completed from.
+DECLARED_COLUMNS: Final = (
+    UNIT_COLUMN,
+    SCALE_COLUMN,
+    FREQUENCY_COLUMN,
+    ANCHOR_COLUMN,
+    OBSERVATION_COLUMN,
+)
+
+
+def _with_declarations(
+    connection: DuckDBPyConnection,
+    rows: Sequence[Sequence[Any]],
+    positions: Mapping[str, int],
+    width: int,
+) -> tuple[Sequence[Sequence[Any]], dict[str, int]]:
+    """Complete each row with its series' stored declaration where the query omitted it.
+
+    Provenance has proven the row's `series_id` is the stored silver identity,
+    so its declared unit, scale, frequency, anchor and stock/flow kind are the
+    values the query would have returned had it selected them. Their absence
+    made a stock balance "unknown" and a later deflation refuse it (live trace,
+    2026-09-18). A column the query did select is left exactly as selected, and
+    an identity without a declaration stays unresolved.
+    """
+    series_at = positions.get("series_id")
+    omitted = [column for column in DECLARED_COLUMNS if column not in positions]
+    if series_at is None or not omitted:
+        return rows, dict(positions)
+    identities = sorted({row[series_at] for row in rows if isinstance(row[series_at], str)})
+    if not identities:
+        return rows, dict(positions)
+    stored = {
+        found[0]: dict(zip(DECLARED_COLUMNS, found[1:], strict=True))
+        for found in connection.execute(
+            "SELECT series_id, unit, scale, frequency, anchor, observation FROM silver_series "
+            "WHERE list_contains(?, series_id)",
+            [identities],
+        ).fetchall()
+    }
+    completed = [
+        tuple(row) + tuple(stored.get(row[series_at], {}).get(column) for column in omitted)
+        for row in rows
+    ]
+    return completed, {**positions, **{name: width + at for at, name in enumerate(omitted)}}
+
+
 def _label_of(row: Sequence[Any], positions: Mapping[str, int]) -> str:
     for column in LABEL_COLUMNS:
         at = positions.get(column)
@@ -256,12 +303,15 @@ def project(
         if snapshots is not None:
             snapshots.extend(receipts)
 
+    rows: Sequence[Sequence[Any]] = query.rows
+    rows, positions = _with_declarations(connection, rows, positions, len(query.columns))
+
     values: list[ResultValue] = []
     notes: set[str] = set()
     missing = 0
     excluded = 0
     value_at = positions[VALUE_COLUMN]
-    for row in query.rows:
+    for row in rows:
         cell = row[value_at]
         if cell is None:
             # A period a series did not publish is null and stays null; gold

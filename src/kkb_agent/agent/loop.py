@@ -13,7 +13,7 @@ to spend the whole repair budget on a loop it is clearly not going to escape.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Final, Literal
 
@@ -25,6 +25,7 @@ from kkb_agent.agent.discovery import (
     CONTINUATION_INSTRUCTIONS,
     CONTINUATION_TOOLS,
     DISCOVERY_INSTRUCTIONS,
+    REQUIRED_DISCOVERY_BASE,
     REQUIRED_DISCOVERY_INSTRUCTIONS,
     WEB_ADDRESS_INSTRUCTIONS,
     catalog_feedback,
@@ -43,7 +44,7 @@ from kkb_agent.agent.executor import (
     validate_plan,
 )
 from kkb_agent.agent.literal import literal_text
-from kkb_agent.agent.observer import Tracer, prompt_outline
+from kkb_agent.agent.observer import Span, Tracer, prompt_outline
 from kkb_agent.agent.plan import AnalyticalPlan
 from kkb_agent.agent.presentation import (
     PeriodTable,
@@ -405,6 +406,21 @@ def render_result(result: AnalyticalResult, ambiguous: frozenset[int] = frozense
             + "; ".join(tabled)
             + ". Only highlighted periods and summary values are listed below."
         )
+        if not values:
+            # With nothing listed, the live writer read "only highlights below" as
+            # "the question is not covered" and said so beside a 24-row table
+            # (trace 2026-09-18). The table is the answer to a request for values.
+            coverage = (
+                f" from {result.coverage.start.isoformat()} to {result.coverage.end.isoformat()}"
+                if result.coverage is not None
+                else ""
+            )
+            lines.append(
+                "No value is listed because the table itself answers a request for these "
+                f"values{coverage}. Say briefly what the table holds, naming the series by "
+                "its meaning and the period it covers, without quoting figures, and do not "
+                "say that the question or its values are not covered."
+            )
         table = period_table(result)
         if table is not None:
             # Presence is stated from the table itself, so the writer is never left
@@ -453,7 +469,9 @@ def render_result(result: AnalyticalResult, ambiguous: frozenset[int] = frozense
     return "\n".join(lines)
 
 
-def workspace_prompt(workspace: Workspace) -> str | None:
+def workspace_prompt(
+    workspace: Workspace, series_names: Mapping[str, str] | None = None
+) -> str | None:
     """Published results the planner may reference, without their values.
 
     Labels and reviewed series names are system-produced metadata. Values stay
@@ -484,10 +502,18 @@ def workspace_prompt(workspace: Workspace) -> str | None:
         head = f"- {name}: produced by {result.tool} ({result.method}), coverage {coverage}"
         full = [f"{head}; column labels: " + " | ".join(labels)]
         names = result.parameters.get("series_names")
-        if isinstance(names, dict):
-            for series_id, meaning in names.items():
-                if isinstance(meaning, str):
-                    full.append(f"  {series_id} means: {meaning}")
+        meanings: dict[str, str] = (
+            {key: text for key, text in names.items() if isinstance(text, str)}
+            if isinstance(names, dict)
+            else {}
+        )
+        # Reviewed names for identities a label carries: a raw selector hash
+        # says nothing about which table "bu tablo" is (live trace 2026-09-18).
+        for series_id, reviewed in (series_names or {}).items():
+            if series_id not in meanings and any(series_id in label for label in labels):
+                meanings[series_id] = reviewed
+        for series_id, text in meanings.items():
+            full.append(f"  {series_id} means: {text}")
         entries.append((head, full))
     if not entries:
         return None
@@ -539,6 +565,8 @@ class Session:
     tools_required: bool = False
     #: Records what actually ran: prompts, model output, tool calls, timings.
     tracer: Tracer | None = None
+    #: Reviewed names of the series this lakehouse holds, for describing earlier tables.
+    series_names: Mapping[str, str] | None = None
 
     def plan(self, question: str, workspace: Workspace | None = None) -> Planned:
         """Obtain a plan the registry will accept, or fail with the reasons why.
@@ -571,14 +599,20 @@ class Session:
             messages.append(
                 Message(
                     Role.SYSTEM,
-                    DISCOVERY_INSTRUCTIONS if discovery is None else CONTINUATION_INSTRUCTIONS,
+                    CONTINUATION_INSTRUCTIONS
+                    if discovery is not None
+                    else REQUIRED_DISCOVERY_BASE
+                    if self.require_series_discovery
+                    else DISCOVERY_INSTRUCTIONS,
                 )
             )
             if self.require_series_discovery and discovery is None:
                 messages.append(Message(Role.SYSTEM, REQUIRED_DISCOVERY_INSTRUCTIONS))
                 if "web_url" in self.registry:
                     messages.append(Message(Role.SYSTEM, WEB_ADDRESS_INSTRUCTIONS))
-        published = workspace_prompt(workspace) if workspace is not None else None
+        published = (
+            workspace_prompt(workspace, self.series_names) if workspace is not None else None
+        )
         if published is not None:
             messages.append(Message(Role.SYSTEM, published))
         if self.documents_note is not None:
@@ -715,23 +749,9 @@ class Session:
             span.describe(prompt_outline(messages))
             completion = self.provider.complete(messages, model=self.model, schema=AnalyticalPlan)
             span.set(model=completion.model, provider_attempts=completion.attempts)
-            if completion.usage is not None:
-                span.set(
-                    prompt_tokens=completion.usage.prompt_tokens,
-                    completion_tokens=completion.usage.completion_tokens,
-                )
+            _record_cost(span, completion)
             parent = span.sequence
-        # Every message that went to the model, in order, each openable on its own:
-        # one long detail would truncate exactly the part a reader came for.
-        for index, item in enumerate(messages, 1):
-            self.tracer.event(
-                "context",
-                f"prompt.{item.role.value}",
-                parent=parent,
-                position=index,
-                bytes=len(item.content.encode()),
-                detail=item.content,
-            )
+        self._trace_exchange(messages, completion, parent)
         plan = completion.parsed
         self.tracer.event(
             "planning",
@@ -1130,18 +1150,53 @@ class Session:
             else ""
         )
         checkpoint("writer")
-        completion = self.provider.complete(
-            [
-                Message(
-                    Role.SYSTEM,
-                    SYNTHESIS_PROMPT + ("\n" + repair if repair else ""),
-                ),
-                Message(Role.SYSTEM, render_results(available)),
-                Message(Role.USER, question),
-            ],
-            model=self.model,
-        )
+        messages = [
+            Message(Role.SYSTEM, SYNTHESIS_PROMPT + ("\n" + repair if repair else "")),
+            Message(Role.SYSTEM, render_results(available)),
+            Message(Role.USER, question),
+        ]
+        if self.tracer is None:
+            return self.provider.complete(messages, model=self.model).text
+        with self.tracer.span("answer", "writer.call") as span:
+            span.set(
+                messages=len(messages),
+                prompt_bytes=sum(len(item.content.encode()) for item in messages),
+                repair="period" if repair_period else "numeric" if repair_numeric else None,
+            )
+            completion = self.provider.complete(messages, model=self.model)
+            span.set(model=completion.model)
+            _record_cost(span, completion)
+            parent = span.sequence
+        self._trace_exchange(messages, completion, parent)
         return completion.text
+
+    def _trace_exchange(
+        self, messages: Sequence[Message], completion: Completion, parent: int | None
+    ) -> None:
+        """Every message that went to the model, in order, and its hidden reasoning.
+
+        Each is openable on its own: one long detail would truncate exactly the
+        part a reader came for.
+        """
+        if self.tracer is None:
+            return
+        for index, item in enumerate(messages, 1):
+            self.tracer.event(
+                "context",
+                f"prompt.{item.role.value}",
+                parent=parent,
+                position=index,
+                bytes=len(item.content.encode()),
+                detail=item.content,
+            )
+        if completion.reasoning:
+            self.tracer.event(
+                "context",
+                "model.reasoning",
+                parent=parent,
+                chars=len(completion.reasoning),
+                detail=completion.reasoning,
+            )
 
     def _tools_prompt(self, *, continuation: bool = False) -> str:
         """The only tool information the planner receives (M5-06)."""
@@ -1154,3 +1209,13 @@ class Session:
             ensure_ascii=False,
             sort_keys=True,
         )
+
+
+def _record_cost(span: Span, completion: Completion) -> None:
+    """Token counts as the platform reported them; reasoning is most of a slow call."""
+    usage = completion.usage
+    if usage is None:
+        return
+    span.set(prompt_tokens=usage.prompt_tokens, completion_tokens=usage.completion_tokens)
+    if usage.reasoning_tokens is not None:
+        span.set(reasoning_tokens=usage.reasoning_tokens)

@@ -25,6 +25,7 @@ from kkb_agent.api.contracts import (
     MAX_RESPONSE_BYTES,
     MAX_SESSIONS,
     MAX_TURNS,
+    TRACE_PREVIEW_CHARS,
     Answer,
     ConversationDetail,
     ConversationDocument,
@@ -46,6 +47,7 @@ from kkb_agent.api.contracts import (
     SessionCreated,
     StoredMessage,
     TraceStep,
+    TraceStepFull,
     Turn,
     TurnState,
 )
@@ -348,12 +350,28 @@ class AnalysisService:
                 started_ms=event.started_ms,
                 duration_ms=event.duration_ms,
                 attributes=dict(event.attributes),
-                detail=event.detail,
+                detail=(event.detail[:TRACE_PREVIEW_CHARS] if event.detail is not None else None),
+                detail_chars=len(event.detail) if event.detail is not None else None,
+                detail_complete=event.detail is None or len(event.detail) <= TRACE_PREVIEW_CHARS,
                 parent=event.parent,
             )
             for event in self._store.events(run_id)
         )
         return RunDetail(run=self._run_summary(found, events=len(steps)), steps=steps)
+
+    def run_step(self, session_id: str, run_id: str, sequence: int, token: str) -> TraceStepFull:
+        """One step's recorded text in full: every prompt, output and tool return."""
+        self._reading(session_id, token)
+        if self._store is None:  # pragma: no cover - _reading refuses without a store
+            raise ServiceError("unavailable", 503)
+        if self._store.run_of(session_id, run_id) is None:
+            raise ServiceError("not_found", 404)
+        found = next(
+            (event for event in self._store.events(run_id) if event.sequence == sequence), None
+        )
+        if found is None:
+            raise ServiceError("not_found", 404)
+        return TraceStepFull(sequence=found.sequence, name=found.name, detail=found.detail)
 
     @staticmethod
     def _run_summary(item: StoredRun, *, events: int) -> RunSummary:
