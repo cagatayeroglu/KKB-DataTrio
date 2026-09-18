@@ -28,6 +28,8 @@ from kkb_agent.api.contracts import (
     SeriesNoteHistory,
     SeriesNoteRequest,
     SeriesNoteVersion,
+    SeriesUse,
+    SeriesUses,
     SeriesValues,
     StoredObservation,
     VectorIndexStatus,
@@ -171,6 +173,27 @@ class KnowledgeService:
         notes = list({note.series_id: note for note in self._knowledge.notes()}.values())
         return effective_snapshot(
             self._reviewed, [d for d in datasets if d.status == "active"], notes
+        )
+
+    def uses(self, owner_token: str, series_id: str) -> SeriesUses:
+        """Which of this browser's answers rest on the series (reverse lineage).
+
+        Read from the rows the runner wrote out of each published answer's proof;
+        an archived series or a superseded user version keeps its history here.
+        """
+        owner = self._author(owner_token)
+        return SeriesUses(
+            series_id=series_id,
+            uses=tuple(
+                SeriesUse(
+                    conversation_id=row["conversation_id"],
+                    title=row["title"],
+                    turn_id=row["turn_id"],
+                    question=row["question"][:500],
+                    used_at=row["used_at"],
+                )
+                for row in self._conversations.series_uses(owner, series_id)
+            ),
         )
 
     def index_status(self, owner_token: str) -> VectorIndexStatus:
@@ -362,6 +385,7 @@ class KnowledgeService:
             source_kind=latest.source_kind,
             description=latest.description,
             aggregation=latest.aggregation.value,
+            weekly_anchor=latest.anchor.value if latest.anchor is not None else None,
             observations=tuple(
                 StoredObservation(
                     period_start=o.period_start, period_end=o.period_end, value=o.value

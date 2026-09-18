@@ -536,3 +536,65 @@ def test_the_vectors_can_be_built_again_for_a_catalogue_the_knowledge_base_chang
     finally:
         store.close()
         knowledge.close()
+
+
+def test_a_series_lists_the_answers_whose_proof_read_it(tmp_path):
+    """Reverse lineage: recorded from the proof when the answer is stored, per owner."""
+    from test_api_proof import prepare_pool
+    from test_catalog_continuation import TOTAL
+    from test_prepared_api import responses, wait_http
+
+    root = prepare_pool(tmp_path.resolve() / "prepared")
+    store = ConversationStore(tmp_path.resolve() / "state" / DATABASE_NAME)
+    knowledge = KnowledgeStore(tmp_path.resolve() / "state" / "knowledge.sqlite")
+    runner = PreparedRunner(
+        scripted(*responses()),
+        root,
+        tmp_path.resolve() / "state" / "runtime",
+        catalog_bytes=CATALOG.read_bytes(),
+        store=store,
+        knowledge=knowledge,
+    )
+    service = AnalysisService(runner, mode="scripted", store=store, knowledge=True)
+    knowledge_service = KnowledgeService(
+        knowledge,
+        store,
+        runner.catalog,
+        prepared=frozenset(item.series_id for item in runner.status.series),
+        series_values=runner.series_values,
+    )
+    client = TestClient(
+        create_app(service, prepared=runner.status, knowledge=knowledge_service), base_url=BASE
+    )
+    try:
+        with client:
+            key = {"X-KKB-Owner-Token": owner(client)}
+            session = client.post("/v1/sessions", json={}, headers=key).json()
+            headers = {"X-KKB-Session-Token": session["token"]}
+            turns = f"/v1/sessions/{session['session_id']}/turns"
+            question = "Konut kredisi Nisan-Haziran 2026 arasında ne kadar değişti?"
+            asked = client.post(
+                turns, json={"request_id": "a" * 32, "question": question}, headers=headers
+            ).json()
+            done = wait_http(client, f"{turns}/{asked['turn_id']}", headers)
+            assert done["answer"]["status"] == "accepted", done
+
+            uses = client.get(f"/v1/knowledge/series/{TOTAL}/uses", headers=key)
+            assert uses.status_code == 200, uses.text
+            body = uses.json()
+            assert body["series_id"] == TOTAL
+            [use] = body["uses"]
+            assert use["conversation_id"] == session["session_id"]
+            assert use["turn_id"] == asked["turn_id"] and use["question"] == question
+            assert use["title"]
+
+            # A series no answer read has no uses; another browser sees nothing.
+            none = client.get("/v1/knowledge/series/EVDS:TP.YOK/uses", headers=key).json()
+            assert none["uses"] == []
+            other = {"X-KKB-Owner-Token": owner(client)}
+            assert (
+                client.get(f"/v1/knowledge/series/{TOTAL}/uses", headers=other).json()["uses"] == []
+            )
+    finally:
+        store.close()
+        knowledge.close()

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseMonthlyRows } from "../lib/client";
+import { datasetRequestFromExport, parseMonthlyRows } from "../lib/client";
 import { forward, KNOWLEDGE_LIMIT, BODY_LIMIT } from "../lib/proxy";
 
 test("pasted monthly rows become month ends, and a bad line is named, not guessed", () => {
@@ -118,4 +118,63 @@ test("weekly rows keep the date as written and refuse one that is not a date", a
     { period_end: "2026-09-18", value: null },
   ]);
   assert.deepEqual(parsed.rejected, [3, 4]);
+});
+
+test("an exported dataset detail rebuilds the exact versioned save request", () => {
+  const detail = {
+    api_version: 1 as const,
+    series: {
+      series_id: "USER:haftalik.v2",
+      title: "Haftalık seri",
+      provider: "USER",
+      origin: "user" as const,
+      status: "active" as const,
+      prepared: false,
+      fetchable: false,
+      unit: "TRY",
+      scale: "million",
+      frequency: "weekly",
+      stock_flow: "flow",
+      cumulative: "none",
+      base_year: null,
+      coverage_start: null,
+      coverage_end: null,
+      observations: 1,
+      aliases: ["haftalık"],
+      note: null,
+      version: 2,
+      slug: "haftalik",
+      updated_at: null,
+      acquired_at: null,
+    },
+    source_kind: "manual" as const,
+    description: "Açıklama",
+    aggregation: "sum",
+    weekly_anchor: "monday",
+    observations: [
+      { period_start: "2026-01-05", period_end: "2026-01-11", value: 4 },
+    ],
+    history: [],
+  };
+  const request = datasetRequestFromExport(detail);
+  assert.equal(request.slug, "haftalik");
+  assert.equal(request.weekly_anchor, "monday");
+  assert.equal(request.aggregation, "sum");
+  assert.deepEqual(request.observations, [
+    { period_end: "2026-01-11", value: 4 },
+  ]);
+
+  // A meaning this build does not know is refused by name, never coerced.
+  assert.throws(
+    () =>
+      datasetRequestFromExport({
+        ...detail,
+        aggregation: "median",
+      }),
+    /aggregation_not_importable/,
+  );
+  assert.throws(
+    () => datasetRequestFromExport({ ...detail, weekly_anchor: null }),
+    /weekly_anchor_not_importable/,
+  );
 });

@@ -487,6 +487,28 @@ export const vectorIndexSchema = z
   .strict();
 export type VectorIndex = z.infer<typeof vectorIndexSchema>;
 
+/** Reverse lineage: this browser's answers whose proof read the series. */
+export const seriesUsesSchema = z
+  .object({
+    api_version: z.literal(1),
+    series_id: z.string().max(200),
+    uses: z
+      .array(
+        z
+          .object({
+            conversation_id: z.string().max(64),
+            title: z.string().max(200),
+            turn_id: z.string().max(64),
+            question: z.string().max(500),
+            used_at: z.string().max(40),
+          })
+          .strict(),
+      )
+      .max(200),
+  })
+  .strict();
+export type SeriesUses = z.infer<typeof seriesUsesSchema>;
+
 export const runtimeSettingsSchema = z
   .object({
     api_version: z.literal(1),
@@ -575,6 +597,7 @@ export const datasetDetailSchema = z
     source_kind: z.enum(["upload", "manual"]),
     description: z.string().max(1000).nullable(),
     aggregation: z.string().max(40),
+    weekly_anchor: z.string().max(20).nullable().optional(),
     observations: z
       .array(
         z
@@ -623,6 +646,21 @@ export const noteHistorySchema = z
 export type KnowledgeSeries = z.infer<typeof knowledgeSeriesSchema>;
 export type KnowledgeList = z.infer<typeof knowledgeListSchema>;
 export type DatasetDetail = z.infer<typeof datasetDetailSchema>;
+/**
+ * A saved knowledge base: the listing as read, plus each user dataset's full
+ * detail (observations and declared meaning), so the file can be imported
+ * elsewhere by replaying the same versioned writes. Nothing reviewed travels:
+ * the reviewed catalogue is the deployment's own.
+ */
+export const knowledgeExportSchema = z
+  .object({
+    schema: z.literal("kkb-knowledge-export-v1"),
+    exported_at: z.string().max(40),
+    listing: knowledgeListSchema,
+    datasets: z.array(datasetDetailSchema).max(5000),
+  })
+  .strict();
+export type KnowledgeExport = z.infer<typeof knowledgeExportSchema>;
 export type NoteHistory = z.infer<typeof noteHistorySchema>;
 export type DatasetRequest = {
   slug: string;

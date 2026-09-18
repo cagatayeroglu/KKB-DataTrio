@@ -2749,3 +2749,52 @@ svg {
   color: var(--ink);
   font-weight: 600;
 }
+
+/* Answers whose proof read this series, each opening its conversation. */
+.series-uses {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.use-link {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--ink);
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.use-link:hover {
+  border-color: var(--accent);
+}
+.use-link small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 1px;
+}
+
+/* The import control reads as the outline button beside it. */
+.import-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--ink);
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.import-label:hover {
+  border-color: var(--accent);
+}

@@ -11,16 +11,19 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Upload,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   annotateSeries,
+  datasetRequestFromExport,
   describeError,
   listKnowledge,
   openDataset,
   readIndex,
   rebuildIndex,
+  seriesUses,
   trySearch,
   parseDatedRows,
   parseMonthlyRows,
@@ -29,13 +32,16 @@ import {
   seriesValues,
   setDatasetArchived,
 } from "@/lib/client";
+import { knowledgeExportSchema } from "@/lib/contracts";
 import type {
   Dataset,
+  KnowledgeExport,
   SearchTrial,
   DatasetDetail,
   DatasetRequest,
   KnowledgeList,
   KnowledgeSeries,
+  SeriesUses,
   VectorIndex,
 } from "@/lib/contracts";
 import { unitLabel } from "@/lib/table";
@@ -154,11 +160,14 @@ export function KnowledgePanel({
   owner,
   documents,
   pool,
+  onOpenConversation,
 }: {
   owner: string;
   documents: ChatDocument[];
   /** The prepared pool's own coverage, which the catalogue record does not carry. */
   pool?: Dataset | null;
+  /** Opens one of this browser's conversations in the studio (reverse lineage). */
+  onOpenConversation?: (id: string) => void;
 }) {
   const [listing, setListing] = useState<KnowledgeList | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
@@ -174,17 +183,99 @@ export function KnowledgePanel({
   //: Which generation of meaning vectors this deployment searches, and what it covers.
   const [index, setIndex] = useState<VectorIndex | null>(null);
 
-  /** The catalogue as this browser sees it, saved as it is read: no server call. */
-  function exportListing() {
+  /**
+   * The knowledge base as a file that can be imported again: the listing plus
+   * each user dataset's full detail (declared meaning and observations).
+   * Reviewed catalogue entries travel only as their notes and aliases.
+   */
+  async function exportKnowledge() {
     if (!listing) return;
-    const blob = new Blob([JSON.stringify(listing, null, 2)], {
-      type: "application/json",
-    });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `bilgi-tabani-${new Date().toISOString().slice(0, 10)}.json`;
-    link.click();
-    URL.revokeObjectURL(link.href);
+    setBusy(true);
+    try {
+      const datasets = await Promise.all(
+        listing.series
+          .filter((item) => item.origin === "user" && item.slug)
+          .map((item) => openDataset(owner, item.slug!)),
+      );
+      const file: KnowledgeExport = {
+        schema: "kkb-knowledge-export-v1",
+        exported_at: new Date().toISOString(),
+        listing,
+        datasets,
+      };
+      const blob = new Blob([JSON.stringify(file, null, 2)], {
+        type: "application/json",
+      });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `bilgi-tabani-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+      setIssue("");
+    } catch (error) {
+      setIssue(describeError(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Replay an exported knowledge base into this one. Every dataset lands as a
+   * new version through the same declared-meaning gate a manual save passes,
+   * and reviewed-series notes/aliases/archivals are replayed as annotations -
+   * nothing is written behind the store's back, and nothing reviewed changes.
+   */
+  async function importKnowledge(file: File) {
+    setBusy(true);
+    const problems: string[] = [];
+    let imported = 0;
+    try {
+      const parsed = knowledgeExportSchema.safeParse(
+        JSON.parse(await file.text()),
+      );
+      if (!parsed.success) {
+        setIssue("Bu dosya bir bilgi tabanı dışa aktarımı değil.");
+        return;
+      }
+      for (const detail of parsed.data.datasets) {
+        const item = detail.series;
+        try {
+          await saveDataset(owner, datasetRequestFromExport(detail));
+          if (item.status === "archived" && item.slug)
+            await setDatasetArchived(owner, item.slug, true);
+          imported++;
+        } catch (error) {
+          problems.push(
+            `${item.slug ?? item.series_id}: ${describeError(error)}`,
+          );
+        }
+      }
+      for (const item of parsed.data.listing.series) {
+        // A reviewed entry travels as its annotations, never as its record.
+        if (item.origin !== "reviewed") continue;
+        if (!item.aliases.length && !item.note && item.status !== "archived")
+          continue;
+        try {
+          await annotateSeries(owner, item.series_id, {
+            archived: item.status === "archived",
+            aliases: item.aliases,
+            ...(item.note ? { note: item.note } : {}),
+          });
+        } catch (error) {
+          problems.push(`${item.series_id}: ${describeError(error)}`);
+        }
+      }
+      setIssue(
+        problems.length
+          ? `${imported} veri seti alındı; alınamayanlar - ${problems.slice(0, 3).join(" · ")}`
+          : `${imported} veri seti ve notlar içe aktarıldı; her biri yeni bir sürüm olarak kaydedildi.`,
+      );
+      await refresh();
+    } catch (error) {
+      setIssue(describeError(error));
+    } finally {
+      setBusy(false);
+    }
   }
   async function refresh() {
     try {
@@ -285,11 +376,25 @@ export function KnowledgePanel({
         <Button
           size="sm"
           variant="outline"
-          disabled={!listing}
-          onClick={() => exportListing()}
+          disabled={!listing || busy}
+          onClick={() => void exportKnowledge()}
         >
           <Download size={14} /> Dışa aktar
         </Button>
+        <label className="import-label">
+          <Upload size={14} /> İçe aktar
+          <input
+            type="file"
+            accept="application/json,.json"
+            hidden
+            disabled={busy}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) void importKnowledge(file);
+            }}
+          />
+        </label>
         <Button size="sm" onClick={() => setEditing("new")} disabled={busy}>
           <Plus size={14} /> Veri seti ekle
         </Button>
@@ -457,6 +562,7 @@ export function KnowledgePanel({
                 owner={owner}
                 busy={busy}
                 act={act}
+                onOpenConversation={onOpenConversation}
                 onEdit={async () => {
                   if (!item.slug) return;
                   try {
@@ -596,15 +702,32 @@ function SeriesDetail({
   busy,
   act,
   onEdit,
+  onOpenConversation,
 }: {
   item: KnowledgeSeries;
   owner: string;
   busy: boolean;
   act: (work: () => Promise<unknown>) => Promise<void>;
   onEdit: () => void;
+  onOpenConversation?: (id: string) => void;
 }) {
   const [aliases, setAliases] = useState(item.aliases.join(", "));
   const [note, setNote] = useState(item.note ?? "");
+  //: Reverse lineage: this browser's answers whose proof read the series.
+  const [uses, setUses] = useState<SeriesUses | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    seriesUses(owner, item.series_id)
+      .then((found) => {
+        if (!cancelled) setUses(found);
+      })
+      .catch(() => {
+        // An older server has no uses route; the section simply stays away.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [owner, item.series_id]);
   const [detail, setDetail] = useState<DatasetDetail | null>(null);
   const [history, setHistory] = useState<string[] | null>(null);
   const [stored, setStored] = useState<
@@ -651,6 +774,39 @@ function SeriesDetail({
               : "İncelenmiş katalog kaydı"}
           </dd>
         </div>
+        {uses && uses.uses.length > 0 && (
+          <div>
+            <dt>Bu seriyi kullanan yanıtlar</dt>
+            <dd>
+              <ul className="series-uses">
+                {uses.uses.slice(0, 8).map((use) => (
+                  <li key={`${use.conversation_id}-${use.turn_id}`}>
+                    <button
+                      type="button"
+                      className="use-link"
+                      title={use.question}
+                      onClick={() => onOpenConversation?.(use.conversation_id)}
+                      disabled={!onOpenConversation}
+                    >
+                      {use.title || use.question || use.conversation_id}
+                      <small>
+                        {use.question && use.question !== use.title
+                          ? `${use.question.slice(0, 80)} · `
+                          : ""}
+                        {new Date(use.used_at).toLocaleDateString("tr-TR")}
+                      </small>
+                    </button>
+                  </li>
+                ))}
+                {uses.uses.length > 8 && (
+                  <li className="helper">
+                    ve {uses.uses.length - 8} yanıt daha
+                  </li>
+                )}
+              </ul>
+            </dd>
+          </div>
+        )}
       </dl>
       {item.origin === "reviewed" ? (
         <div className="knowledge-form">
@@ -891,7 +1047,9 @@ function DatasetForm({
     aggregation: (initial?.aggregation ??
       "last") as DatasetRequest["aggregation"],
     base_year: series?.base_year ? String(series.base_year) : "",
-    weekly_anchor: "friday" as NonNullable<DatasetRequest["weekly_anchor"]>,
+    weekly_anchor: (initial?.weekly_anchor ?? "friday") as NonNullable<
+      DatasetRequest["weekly_anchor"]
+    >,
     aliases: series?.aliases.join(", ") ?? "",
   });
   const [source, setSource] = useState<"rows" | "document">("rows");

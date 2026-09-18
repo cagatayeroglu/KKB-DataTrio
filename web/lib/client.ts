@@ -11,6 +11,7 @@ import {
   noteHistorySchema,
   seriesValuesSchema,
   type DatasetRequest,
+  type DatasetDetail,
   ownerSchema,
   runDetailSchema,
   runtimeSettingsSchema,
@@ -20,6 +21,7 @@ import {
   sessionSchema,
   turnSchema,
   vectorIndexSchema,
+  seriesUsesSchema,
   savedSchema,
   type DocumentAdmitted,
   type Saved,
@@ -237,6 +239,92 @@ export function rebuildIndex(owner: string) {
     "knowledge/index",
     vectorIndexSchema,
     { method: "POST", body: "{}" },
+    undefined,
+    owner,
+  );
+}
+/**
+ * Rebuild the versioned save request an exported dataset detail describes.
+ * Enum fields are checked against the request contract rather than cast blind:
+ * a file whose declared meaning this build does not know is refused by name,
+ * never silently coerced into something the store would accept.
+ */
+export function datasetRequestFromExport(
+  detail: DatasetDetail,
+): DatasetRequest {
+  const item = detail.series;
+  const oneOf = <T extends string>(
+    field: string,
+    value: string | null,
+    allowed: readonly T[],
+  ): T => {
+    if (value !== null && (allowed as readonly string[]).includes(value))
+      return value as T;
+    throw new ApiError(`${field}_not_importable`);
+  };
+  return {
+    slug: item.slug ?? "",
+    title: item.title,
+    ...(detail.description ? { description: detail.description } : {}),
+    unit: item.unit ?? "",
+    scale: oneOf("scale", item.scale, [
+      "one",
+      "thousand",
+      "million",
+      "billion",
+    ] as const),
+    frequency: oneOf("frequency", item.frequency, [
+      "weekly",
+      "monthly",
+      "quarterly",
+      "annual",
+    ] as const),
+    stock_flow: oneOf("stock_flow", item.stock_flow, [
+      "stock",
+      "flow",
+      "rate",
+      "index",
+    ] as const),
+    cumulative: oneOf("cumulative", item.cumulative, [
+      "none",
+      "yearly_reset",
+      "since_inception",
+    ] as const),
+    aggregation: oneOf("aggregation", detail.aggregation, [
+      "sum",
+      "average",
+      "first",
+      "last",
+      "min",
+      "max",
+    ] as const),
+    ...(item.base_year ? { base_year: item.base_year } : {}),
+    ...(item.frequency === "weekly"
+      ? {
+          weekly_anchor: oneOf("weekly_anchor", detail.weekly_anchor ?? null, [
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday",
+          ] as const),
+        }
+      : {}),
+    aliases: item.aliases,
+    observations: detail.observations.map((o) => ({
+      period_end: o.period_end,
+      value: o.value,
+    })),
+  };
+}
+export function seriesUses(owner: string, seriesId: string) {
+  // Which of this browser's answers rest on the series; reading starts nothing.
+  return api(
+    `knowledge/series/${encodeURIComponent(seriesId)}/uses`,
+    seriesUsesSchema,
+    {},
     undefined,
     owner,
   );

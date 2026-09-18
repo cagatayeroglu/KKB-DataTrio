@@ -42,6 +42,7 @@ from kkb_agent.api.contracts import (
     SeriesIdentity,
     SeriesNoteHistory,
     SeriesNoteRequest,
+    SeriesUses,
     SeriesValues,
     SessionCreated,
     SettingsUpdate,
@@ -231,6 +232,9 @@ def create_app(
             yield
         finally:
             await asyncio.to_thread(service.close)
+            if knowledge is not None:
+                # A vector build in progress finishes writing its generation.
+                await asyncio.to_thread(knowledge.close)
 
     app = FastAPI(
         title="KKB DataTrio local API",
@@ -407,6 +411,11 @@ def create_app(
     @app.get("/v1/knowledge/series/{series_id}/values", response_model=SeriesValues)
     def knowledge_values(series_id: SeriesIdentity, owner: OwnerToken) -> SeriesValues:
         return _knowledge().values(owner, series_id)
+
+    @app.get("/v1/knowledge/series/{series_id}/uses", response_model=SeriesUses)
+    def knowledge_uses(series_id: SeriesIdentity, owner: OwnerToken) -> SeriesUses:
+        # Reverse lineage: which of this browser's answers rest on the series.
+        return _knowledge().uses(owner, series_id)
 
     @app.get("/v1/knowledge/series/{series_id}/notes", response_model=SeriesNoteHistory)
     def knowledge_notes(series_id: SeriesIdentity, owner: OwnerToken) -> SeriesNoteHistory:

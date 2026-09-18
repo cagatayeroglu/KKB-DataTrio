@@ -151,6 +151,15 @@ CREATE TABLE IF NOT EXISTS feedback (
     PRIMARY KEY (conversation_id, turn_id, answer_digest)
 );
 
+CREATE TABLE IF NOT EXISTS result_series (
+    conversation_id TEXT NOT NULL REFERENCES conversations(conversation_id),
+    turn_id         TEXT NOT NULL,
+    series_id       TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    PRIMARY KEY (conversation_id, turn_id, series_id)
+);
+
+CREATE INDEX IF NOT EXISTS result_series_by_series ON result_series(series_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS runs_by_conversation ON runs(conversation_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS conversations_by_owner
     ON conversations(owner_id, archived, updated_at DESC);
@@ -480,6 +489,52 @@ class ConversationStore:
         if found is None:
             raise StoreError("unknown_conversation")
         return found
+
+    # -- which answers rest on which series (reverse lineage) ------------------
+
+    def record_result_series(
+        self, conversation_id: str, turn_id: str, series_ids: Sequence[str]
+    ) -> None:
+        """The series a published answer's proof actually read, one row each.
+
+        Written where the answer's messages are written, from the proof's own
+        sources - never from the question's wording or the planner's intent.
+        """
+        now = self._now()
+        with self._lock, self._connection:
+            for series_id in sorted(set(series_ids)):
+                self._connection.execute(
+                    "INSERT OR IGNORE INTO result_series VALUES (?, ?, ?, ?)",
+                    [conversation_id, turn_id, series_id[:200], now],
+                )
+
+    def series_uses(self, owner_id: str, series_id: str) -> list[dict[str, str]]:
+        """This owner's answers whose proof read the series, newest first."""
+        with self._lock:
+            rows = self._connection.execute(
+                """
+                SELECT r.conversation_id, c.title, r.turn_id, r.created_at,
+                       (SELECT m.text FROM messages m
+                         WHERE m.conversation_id = r.conversation_id
+                           AND m.turn_id = r.turn_id AND m.role = 'user'
+                         ORDER BY m.sequence LIMIT 1) AS question
+                  FROM result_series r
+                  JOIN conversations c ON c.conversation_id = r.conversation_id
+                 WHERE r.series_id = ? AND c.owner_id = ?
+                 ORDER BY r.created_at DESC LIMIT ?
+                """,
+                [series_id, owner_id, MAX_LISTED],
+            ).fetchall()
+        return [
+            {
+                "conversation_id": row["conversation_id"],
+                "title": row["title"],
+                "turn_id": row["turn_id"],
+                "question": row["question"] or "",
+                "used_at": row["created_at"],
+            }
+            for row in rows
+        ]
 
     # -- messages -------------------------------------------------------------
 

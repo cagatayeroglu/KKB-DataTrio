@@ -584,6 +584,29 @@ class SearchTrial(ContractModel):
     input_policy_id: str | None = None
 
 
+class SeriesUse(ContractModel):
+    """One answer whose proof read the series: where it lives and what was asked."""
+
+    conversation_id: Reference
+    title: str
+    turn_id: Reference
+    question: str
+    used_at: str
+
+
+class SeriesUses(ContractModel):
+    """Reverse lineage for one series: this browser's answers that rest on it.
+
+    Recorded from each published answer's proof sources at the moment the
+    answer is stored, never inferred from wording. Answers stored before this
+    record existed are not listed.
+    """
+
+    api_version: Literal[1] = 1
+    series_id: SeriesIdentity
+    uses: Annotated[tuple[SeriesUse, ...], Field(max_length=200)] = ()
+
+
 class VectorIndexStatus(ContractModel):
     """Which generation of meaning vectors this deployment searches, and what it covers.
 
@@ -686,6 +709,9 @@ class DatasetDetail(ContractModel):
     source_kind: Literal["upload", "manual"]
     description: str | None = None
     aggregation: str
+    #: The weekday a weekly period ends on; carried so an edit or an export
+    #: cannot silently change a declared anchor.
+    weekly_anchor: str | None = None
     observations: Annotated[
         tuple[StoredObservation, ...], Field(max_length=MAX_KNOWLEDGE_OBSERVATIONS)
     ] = ()
