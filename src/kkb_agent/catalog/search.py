@@ -84,8 +84,8 @@ class CatalogSearchOutput(ContractModel):
     embedding_origin: Literal["offline_fixture", "kloudeks"] | None = None
     input_policy_id: str | None = None
     profile_sha256: str | None = None
-    lexical_total_candidates: int | None = Field(default=None, ge=0, le=40)
-    dense_total_candidates: int | None = Field(default=None, ge=0, le=40)
+    lexical_total_candidates: int | None = Field(default=None, ge=0, le=MAX_CATALOG_SERIES)
+    dense_total_candidates: int | None = Field(default=None, ge=0, le=MAX_CATALOG_SERIES)
     untrusted_metadata: Literal[True] = True
     observation_fetch_authorized: Literal[False] = False
     analytical_evidence: Literal[False] = False

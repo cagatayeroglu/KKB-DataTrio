@@ -597,6 +597,28 @@ class PreparedRunner:
         """The reviewed catalog this runner was started with; never the knowledge overlay."""
         return self._catalog
 
+    @property
+    def dense(self) -> CatalogDenseStage | None:
+        """The vector generation discovery may use, whichever catalogue it covers."""
+        return self._dense
+
+    def _dense_for(self, catalog: ReviewedSnapshot) -> CatalogDenseStage | None:
+        """A generation searches only the catalogue it was built for (its digest)."""
+        if self._dense is None or self._dense.index.snapshot_sha256 != catalog.content_sha256:
+            return None
+        return self._dense
+
+    def use_dense(self, stage: CatalogDenseStage) -> None:
+        """Install a newly built generation for later turns; the profile may not change.
+
+        The running turn keeps the stage it started with: a registry is built once
+        per turn. A generation is never edited in place, so the one replaced here
+        stays readable on disk.
+        """
+        if self._dense is not None and stage.index.profile != self._dense.index.profile:
+            raise PreparedError("catalog_index_mismatch")
+        self._dense = stage
+
     def document_column(
         self,
         session_id: str,
@@ -828,9 +850,7 @@ class PreparedRunner:
                         catalog_digest=catalog.content_sha256,
                         reviewed=catalog is self._catalog,
                         loaded_datasets=list[JsonValue](knowledge_loaded),
-                        discovery="hybrid"
-                        if self._dense is not None and catalog is self._catalog
-                        else "lexical",
+                        discovery="hybrid" if self._dense_for(catalog) is not None else "lexical",
                     )
                 tracer.event(
                     "request",
@@ -1175,7 +1195,10 @@ class PreparedRunner:
                 ),
                 # The dense index is bound to the reviewed digest; with knowledge-base
                 # entries applied, discovery is lexical for this turn.
-                dense=self._dense if catalog is self._catalog else None,
+                # A generation is built for one exact catalogue: it is offered only
+                # to the catalogue whose digest it carries, reviewed or with the
+                # knowledge base applied. Otherwise discovery stays lexical.
+                dense=self._dense_for(catalog),
             )
         )
         registry.register(make_lakehouse_tool(connection, lineage=lineage, inspector=inspector))

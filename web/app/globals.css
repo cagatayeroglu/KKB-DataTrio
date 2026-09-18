@@ -2635,3 +2635,105 @@ svg {
 .series-health.stale {
   color: #9a6a2f;
 }
+
+/* Trying a question against the catalogue, beside the catalogue itself. */
+.knowledge-trial {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 6px;
+}
+.knowledge-trial > button[type="button"] {
+  font-size: 12px;
+  color: var(--muted);
+}
+.trial-result {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+.trial-result ol {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.trial-result li {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+.trial-result li small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+}
+.trial-rank {
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+  min-width: 46px;
+}
+
+/* The meaning-based half of discovery: what it covers and when it was built. */
+.vector-index {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+.vector-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.vector-head h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.vector-head > :last-child {
+  margin-left: auto;
+}
+.pill-ok,
+.pill-warn {
+  font-size: 11px;
+  border-radius: 999px;
+  padding: 2px 9px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--accent-ink);
+}
+.pill-warn {
+  color: #8a5a20;
+  border-color: #e7d3b6;
+  background: #fbf3e8;
+}
+.vector-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px 16px;
+  margin: 10px 0 0;
+}
+.vector-facts dt {
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.vector-facts dd {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.vector-index .helper {
+  margin: 10px 0 0;
+}

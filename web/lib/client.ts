@@ -14,10 +14,12 @@ import {
   ownerSchema,
   runDetailSchema,
   runtimeSettingsSchema,
+  searchTrialSchema,
   traceStepFullSchema,
   runListSchema,
   sessionSchema,
   turnSchema,
+  vectorIndexSchema,
   savedSchema,
   type DocumentAdmitted,
   type Saved,
@@ -215,6 +217,29 @@ export function saveSettings(
 // -- Knowledge base (DEC-157): every read and edit carries the browser's key.
 export function listKnowledge(owner: string) {
   return api("knowledge", knowledgeListSchema, {}, undefined, owner);
+}
+export function trySearch(owner: string, query: string) {
+  // Reading what discovery would find starts no analysis and stores nothing.
+  return api(
+    `knowledge/search?q=${encodeURIComponent(query.slice(0, 512))}`,
+    searchTrialSchema,
+    {},
+    undefined,
+    owner,
+  );
+}
+export function readIndex(owner: string) {
+  return api("knowledge/index", vectorIndexSchema, {}, undefined, owner);
+}
+export function rebuildIndex(owner: string) {
+  // Accepted, not finished: the build embeds every catalogue entry again.
+  return api(
+    "knowledge/index",
+    vectorIndexSchema,
+    { method: "POST", body: "{}" },
+    undefined,
+    owner,
+  );
 }
 export function openDataset(owner: string, slug: string) {
   return api(

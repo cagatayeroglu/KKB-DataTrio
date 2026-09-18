@@ -32,6 +32,7 @@ const notesRoute =
 const valuesRoute =
   /^v1\/knowledge\/series\/[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}\/values$/;
 /** Only the conversation list carries a query, and only these bounded filters. */
+export const SEARCH_QUERY = /^q=[^&]{1,512}$/;
 export const LIST_QUERY =
   /^(?:archived=(?:true|false)|search=[^&]{0,120})(?:&(?:archived=(?:true|false)|search=[^&]{0,120}))?$/;
 const hosts = new Set(["127.0.0.1:3000", "localhost:3000"]);
@@ -132,6 +133,8 @@ export async function forward(
   const cancel = cancelRoute.test(name);
   const settings = name === "v1/settings";
   const knowledgeList = name === "v1/knowledge";
+  const knowledgeSearch = name === "v1/knowledge/search";
+  const vectorIndex = name === "v1/knowledge/index";
   const datasetSave = name === "v1/knowledge/datasets";
   const dataset = datasetRoute.test(name);
   const datasetStatus = datasetStatusRoute.test(name);
@@ -139,6 +142,8 @@ export async function forward(
   const values = valuesRoute.test(name);
   const knowledge =
     knowledgeList ||
+    knowledgeSearch ||
+    vectorIndex ||
     datasetSave ||
     dataset ||
     datasetStatus ||
@@ -147,7 +152,11 @@ export async function forward(
     settings;
   const getTurn = turns && path.length === 5;
   const search = new URL(request.url).search.replace(/^\?/, "");
-  if (search && !(list && LIST_QUERY.test(search)))
+  if (
+    search &&
+    !(list && LIST_QUERY.test(search)) &&
+    !(knowledgeSearch && SEARCH_QUERY.test(search))
+  )
     return error("forbidden", 403);
   if (
     !(
@@ -160,6 +169,8 @@ export async function forward(
         runs ||
         feedback ||
         knowledgeList ||
+        knowledgeSearch ||
+        vectorIndex ||
         dataset ||
         notes ||
         values)
@@ -174,6 +185,7 @@ export async function forward(
         datasetSave ||
         datasetStatus ||
         notes ||
+        vectorIndex ||
         (turns && path.length === 4))
     ) &&
     !(request.method === "PATCH" && (conversation || settings))
