@@ -21,6 +21,7 @@ import {
   openDataset,
   readIndex,
   rebuildIndex,
+  seriesUses,
   trySearch,
   parseDatedRows,
   parseMonthlyRows,
@@ -36,6 +37,7 @@ import type {
   DatasetRequest,
   KnowledgeList,
   KnowledgeSeries,
+  SeriesUses,
   VectorIndex,
 } from "@/lib/contracts";
 import { unitLabel } from "@/lib/table";
@@ -154,11 +156,14 @@ export function KnowledgePanel({
   owner,
   documents,
   pool,
+  onOpenConversation,
 }: {
   owner: string;
   documents: ChatDocument[];
   /** The prepared pool's own coverage, which the catalogue record does not carry. */
   pool?: Dataset | null;
+  /** Opens one of this browser's conversations in the studio (reverse lineage). */
+  onOpenConversation?: (id: string) => void;
 }) {
   const [listing, setListing] = useState<KnowledgeList | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
@@ -457,6 +462,7 @@ export function KnowledgePanel({
                 owner={owner}
                 busy={busy}
                 act={act}
+                onOpenConversation={onOpenConversation}
                 onEdit={async () => {
                   if (!item.slug) return;
                   try {
@@ -596,15 +602,32 @@ function SeriesDetail({
   busy,
   act,
   onEdit,
+  onOpenConversation,
 }: {
   item: KnowledgeSeries;
   owner: string;
   busy: boolean;
   act: (work: () => Promise<unknown>) => Promise<void>;
   onEdit: () => void;
+  onOpenConversation?: (id: string) => void;
 }) {
   const [aliases, setAliases] = useState(item.aliases.join(", "));
   const [note, setNote] = useState(item.note ?? "");
+  //: Reverse lineage: this browser's answers whose proof read the series.
+  const [uses, setUses] = useState<SeriesUses | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    seriesUses(owner, item.series_id)
+      .then((found) => {
+        if (!cancelled) setUses(found);
+      })
+      .catch(() => {
+        // An older server has no uses route; the section simply stays away.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [owner, item.series_id]);
   const [detail, setDetail] = useState<DatasetDetail | null>(null);
   const [history, setHistory] = useState<string[] | null>(null);
   const [stored, setStored] = useState<
@@ -651,6 +674,39 @@ function SeriesDetail({
               : "İncelenmiş katalog kaydı"}
           </dd>
         </div>
+        {uses && uses.uses.length > 0 && (
+          <div>
+            <dt>Bu seriyi kullanan yanıtlar</dt>
+            <dd>
+              <ul className="series-uses">
+                {uses.uses.slice(0, 8).map((use) => (
+                  <li key={`${use.conversation_id}-${use.turn_id}`}>
+                    <button
+                      type="button"
+                      className="use-link"
+                      title={use.question}
+                      onClick={() => onOpenConversation?.(use.conversation_id)}
+                      disabled={!onOpenConversation}
+                    >
+                      {use.title || use.question || use.conversation_id}
+                      <small>
+                        {use.question && use.question !== use.title
+                          ? `${use.question.slice(0, 80)} · `
+                          : ""}
+                        {new Date(use.used_at).toLocaleDateString("tr-TR")}
+                      </small>
+                    </button>
+                  </li>
+                ))}
+                {uses.uses.length > 8 && (
+                  <li className="helper">
+                    ve {uses.uses.length - 8} yanıt daha
+                  </li>
+                )}
+              </ul>
+            </dd>
+          </div>
+        )}
       </dl>
       {item.origin === "reviewed" ? (
         <div className="knowledge-form">

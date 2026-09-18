@@ -1603,6 +1603,7 @@ export function Workspace() {
                         owner={ownerToken}
                         documents={chatDocuments}
                         pool={dataset}
+                        onOpenConversation={(id) => void openChat(id)}
                       />
                     ) : (
                       <>

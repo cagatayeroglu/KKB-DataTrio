@@ -487,6 +487,28 @@ export const vectorIndexSchema = z
   .strict();
 export type VectorIndex = z.infer<typeof vectorIndexSchema>;
 
+/** Reverse lineage: this browser's answers whose proof read the series. */
+export const seriesUsesSchema = z
+  .object({
+    api_version: z.literal(1),
+    series_id: z.string().max(200),
+    uses: z
+      .array(
+        z
+          .object({
+            conversation_id: z.string().max(64),
+            title: z.string().max(200),
+            turn_id: z.string().max(64),
+            question: z.string().max(500),
+            used_at: z.string().max(40),
+          })
+          .strict(),
+      )
+      .max(200),
+  })
+  .strict();
+export type SeriesUses = z.infer<typeof seriesUsesSchema>;
+
 export const runtimeSettingsSchema = z
   .object({
     api_version: z.literal(1),

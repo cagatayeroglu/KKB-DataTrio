@@ -20,6 +20,7 @@ import {
   sessionSchema,
   turnSchema,
   vectorIndexSchema,
+  seriesUsesSchema,
   savedSchema,
   type DocumentAdmitted,
   type Saved,
@@ -237,6 +238,16 @@ export function rebuildIndex(owner: string) {
     "knowledge/index",
     vectorIndexSchema,
     { method: "POST", body: "{}" },
+    undefined,
+    owner,
+  );
+}
+export function seriesUses(owner: string, seriesId: string) {
+  // Which of this browser's answers rest on the series; reading starts nothing.
+  return api(
+    `knowledge/series/${encodeURIComponent(seriesId)}/uses`,
+    seriesUsesSchema,
+    {},
     undefined,
     owner,
   );

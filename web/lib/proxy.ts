@@ -31,6 +31,8 @@ const notesRoute =
   /^v1\/knowledge\/series\/[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}\/notes$/;
 const valuesRoute =
   /^v1\/knowledge\/series\/[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}\/values$/;
+const usesRoute =
+  /^v1\/knowledge\/series\/[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}\/uses$/;
 /** Only the conversation list carries a query, and only these bounded filters. */
 export const SEARCH_QUERY = /^q=[^&]{1,512}$/;
 export const LIST_QUERY =
@@ -140,6 +142,7 @@ export async function forward(
   const datasetStatus = datasetStatusRoute.test(name);
   const notes = notesRoute.test(name);
   const values = valuesRoute.test(name);
+  const uses = usesRoute.test(name);
   const knowledge =
     knowledgeList ||
     knowledgeSearch ||
@@ -149,6 +152,7 @@ export async function forward(
     datasetStatus ||
     notes ||
     values ||
+    uses ||
     settings;
   const getTurn = turns && path.length === 5;
   const search = new URL(request.url).search.replace(/^\?/, "");
@@ -173,7 +177,8 @@ export async function forward(
         vectorIndex ||
         dataset ||
         notes ||
-        values)
+        values ||
+        uses)
     ) &&
     !(
       request.method === "POST" &&

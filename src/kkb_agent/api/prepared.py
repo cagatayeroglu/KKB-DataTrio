@@ -1123,6 +1123,13 @@ class PreparedRunner:
             result_ref=answer.result.result_ref if answer.result is not None else None,
             result_version=answer.result.version if answer.result is not None else None,
         )
+        if answer.result is not None:
+            # Reverse lineage: which answers rest on which series, from the proof.
+            self._store.record_result_series(
+                session_id,
+                turn_id,
+                [source.series_id for source in answer.result.proof.sources],
+            )
         found = self._store.conversation(session_id)
         if found is not None and found.title == DEFAULT_TITLE:
             # The first question names the conversation until the user renames it.
