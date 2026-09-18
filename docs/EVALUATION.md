@@ -31,6 +31,44 @@ M5-21 and M8-21 remain delivered correctness protections; only the bounded weekl
 
 Production web-search acceptance stays separate under DEC-134: SearXNG is a compatibility candidate only, including upstream-query privacy/network review. Crawl4AI is optional future extraction work, not current `web_url` acceptance. Search-result URLs remain unauthorized to fetch automatically. Existing command/tier and historical live-acceptance records below are unchanged.
 
+### Operator-reported live scenarios (2026-09-18)
+
+**Provenance: operator-reported, not independently reproduced in this repository.** Arda ran these
+against `feature/runtime-official-acquisition` with Qwen thinking enabled in both the planner and
+the writer, and relayed the results to Eray, who recorded them here on 2026-09-18 so they do not
+live only in a chat handover. No artifact of the run is committed. Treat the numbers as indicative
+and the verdicts as claims to be re-measured, not as acceptance evidence. The suites are
+`tests/manual/live_scenarios.py` (`chain`, `rerun`, `external`, `upload`, `edge`), whose model-call
+budget is counted from the trace, and `tests/manual/dump_traces.py`, which writes a full trace file
+per turn.
+
+Reported cost: roughly 20 of a 60-call budget consumed, generation about 7.5 tokens/second, so a
+turn's duration is approximately generated tokens / 7.5. One planner call was reported at roughly
+10,000 prompt tokens with 700–2,000 thinking tokens.
+
+| Scenario | Reported outcome |
+| --- | --- |
+| S1 greeting | PASS; no tool used |
+| S2 "what do you know" | PASS; counted the pool correctly from the existing prompt, with no dedicated inventory tool |
+| S3 2025 change | PASS; correct tool and parameters. A fix made the writer's duration visible in the trace |
+| S4 monthly table | PASS with 24 rows. A fix stopped the stock/flow declaration being lost. **Still open:** the writer repeats the previous turn's result unnecessarily |
+| S5 CPI real terms | **FAIL** — refused because of the declaration S4 dropped. The code was fixed afterwards; the fix is **not** live-verified |
+| S6 "why different" | PASS; answer judged correct and honest |
+| S7 interest/balance direction | **FAIL** — the continuation call timed out at 900 s |
+| R1 table on fixed code | PASS with 24 cells. A fix stopped the writer printing "not addressed" beside the table; **not** live-verified |
+
+Never run against the fixed code: `rerun` (R2, R3), `external` (a BIST 100 URL joined with EVDS/BDDK
+data in one table), `upload` (CSV upload to table to question to join), `edge` (ambiguous question,
+clarification answer, out-of-scope question, acquiring a series absent from the pool, prompt
+injection) and the cancellation scenario.
+
+The reported reading of the thinking text is that a large share of model tokens goes to ambiguity in
+the tool contracts rather than to the question. Four contract questions were named as worth making
+explicit: whether `ORDER BY` may be used, whether a `JOIN` is required, whether `period_end` means
+the end of the month, and whether producing a table additionally requires `table_transform`. The
+continuation prompt carries roughly 26 KB of tool schemas, of which `change_detection`'s description
+is about 5 KB on its own, so this is also the first place to look for the S7 timeout.
+
 ### M6-25 organizer Turn 1 live run (2026-09-14)
 
 Owner-authorized runs of `python -m kkb_agent.live_check --prepared-root data/processed/lakehouse` ask the organizer's Turn 1 question through Kloudeks (Qwen planner and writer) over a private copy of the prepared pool; the copy keeps runtime lineage, execution evidence and workspace writes out of the prepared root. Offline tests use the same path with a scripted provider ([test_co_movement](../tests/unit/test_co_movement.py)).

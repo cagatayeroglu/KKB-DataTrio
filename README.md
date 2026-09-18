@@ -38,7 +38,15 @@ and identities, never financial observations.
 
 The prepared path supports reviewed BDDK/EVDS data, catalog discovery, deterministic
 analysis, bounded deflation/add-series transforms, table co-movement and mandatory
-configured metadata inspection. [ARCHITECTURE](docs/ARCHITECTURE.md) owns runtime
+configured metadata inspection. A reviewed series the prepared pool lacks is fetched on
+first use over a fixed window and kept for later conversations (on by default,
+`--no-official-acquisition`); an append-only versioned knowledge base layers user
+datasets and edits over the reviewed catalog; `web_search` runs over a SearXNG instance
+when one is given (`--searxng-url`). A turn can be cancelled, its table exported, its
+answer scored 1-5, and every model call — with its duration, prompt messages, token
+counts and thinking text — read back on the web "İşlem kayıtları" page. Live acceptance
+of acquisition and search has **not** been done; see
+[ROADMAP](docs/ROADMAP.md#current-project-status) for what is merged versus accepted. [ARCHITECTURE](docs/ARCHITECTURE.md) owns runtime
 mechanics and distinguishes supported slices from targets; [CATALOG](docs/CATALOG.md)
 owns retrieval contracts. [ROADMAP](docs/ROADMAP.md#current-project-status) owns
 completion and remaining work; [EVALUATION](docs/EVALUATION.md) separates synthetic,

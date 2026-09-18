@@ -70,6 +70,74 @@ observations do not move into it.
 
 Target packages follow DEC-125 (only existing source links below imply implementation): `src/kkb_agent/{app,agent,tools,ingest,transform,catalog,lineage,llm,eval}/`, with the web client in `web/`.
 
+## Per-conversation stores, acquisition and traces
+
+Delivered in [#244](https://github.com/cagatayeroglu/KKB-DataTrio/pull/244) under DEC-154 to
+DEC-161. This section describes what the code does today; anything still planned says so.
+
+### Where a conversation's data lives
+
+Each conversation owns its own copy of the stores under the state root:
+
+| Store | File / directory | Holds |
+| --- | --- | --- |
+| Lakehouse | `kkb.duckdb` (`lakehouse/store.py`) | `bronze` raw source bytes by content hash, immutable; `silver_series` declared unit, scale, frequency and stock/flow with `silver_observations` values, also exported as Parquet; `gold` published analysis tables (`analiz_N`) |
+| Conversations | `conversations.sqlite` (`api/store.py`) | conversations, turns, traces and answer feedback |
+| Knowledge base | `knowledge.sqlite` (`knowledge/store.py`) | the append-only, versioned user layer over the reviewed catalog |
+| Acquisitions | `<state-root>/acquired/` (`ingest/acquisition.py`) | raw EVDS/BDDK responses, kept so a later conversation does not refetch the same series |
+
+LanceDB is **not** a data store. It is the catalog's vector index only, built offline by the
+operator with the Kloudeks `qwen3-instruct-query-v1` embedding model, and it serves the dense half
+of search.
+
+Under DEC-154 a turn's table is written to `gold_cells` only **after** the answer is gated, so this
+turn's claims cannot bind to cells the same turn wrote. A result that is not period-shaped, mixes
+frequencies or has no lineage node is not written; the trace records `gold.materialized`,
+`gold.skipped` or `gold.refused`. Gold never carries semantics — units and scales come only from
+`silver_series`, so SQL over gold returns inspection rows rather than a self-describing table.
+
+### How data enters
+
+**Reviewed official series (EVDS/BDDK).** The model finds a series with `catalog_search` and uses
+its identity in the analysis step. If the prepared pool lacks it, the harness fetches it through
+safe fetch over a fixed window — 10 years for EVDS, 24 months for BDDK — the strict loaders write
+bronze and silver, and the inspector compares what arrived against the catalog's declaration.
+Acquisition is on by default and refused with `--no-official-acquisition`. **Current limit: only
+series already in the reviewed catalog can be acquired**, which is 37 identities today — 26 EVDS
+codes plus the BDDK housing components.
+
+**A web address in the question.** `web_url` reads only an address the question states literally,
+through the existing CSV/XLSX/PDF/HTML loaders. What it reads never becomes a persistent series and
+never enters the catalog: it is used as a single cell, or added to an already published table as a
+column with `add_document_column`. Provenance is recorded either way.
+
+**An uploaded document.** The file is stored by reference and read through the same loaders. For it
+to become a persistent series the user must declare its unit, frequency and stock/flow in the
+knowledge base form; the record is then versioned as `USER:<name>.vN`, the catalog layer turns it
+into a catalog record whose provider is `USER` on every turn, and the series is written to that
+conversation's silver layer.
+
+Descriptions are never model-generated. A reviewed catalog entry's description, labels and synonyms
+come from the human-written JSON source, and a knowledge-base record's description is declared by
+the user.
+
+### Search
+
+`catalog_search` combines BM25, synonyms, concept families and LanceDB dense search. The ranking
+orders candidates; it does not choose for the model, which still selects the series. The harness
+then applies its semantic, provenance and verification checks. Bounds on catalog size are memory
+guards, not product limits: `MAX_CATALOG_SERIES` and `MAX_CATALOG_CONCEPTS` are 10,000 and
+`MAX_CATALOG_GROUPS` is 1,000 (`catalog/records.py`).
+
+### Traces
+
+Every model call is its own trace step with its duration. The trace keeps all prompt messages,
+prompt/completion/reasoning token counts, the thinking text in `model.reasoning`, the writer call as
+a separate `writer.call` step, and tool output as JSON. One API route returns a single step
+untruncated. The web "İşlem kayıtları" page selects a conversation and turn, expands any step or all
+of them, filters by step, downloads JSON, shows the answer text, and collects a score, a reason and
+a comment.
+
 ## Official-data preparation and demo runtime
 
 [DEC-137](DECISIONS.md#dec-137--catalog-complete-lakehouse-first-official-source-materialization-architecture) refines DEC-136's prepared-data direction into a catalog-complete, lakehouse-first target. “Catalog-complete” means extensible trusted metadata coverage for safely representable financial measures, not a claim that full coverage is delivered. Bounded Monthly/EVDS adapters have recorded live preparation evidence. Arda's 29-series / 4,124-observation pool is operator-local, absent from fresh Git checkout and not identically repository-reproducible today ([recorded pool](EVALUATION.md#prepared-api-delivery-and-pool-evidence)); broader coverage, availability routing and version/refresh orchestration remain unfinished.
