@@ -629,29 +629,31 @@ class Session:
         )
         if published is not None:
             messages.append(Message(Role.SYSTEM, published))
+        # Every instruction travels before the first data turn: the served model
+        # rejects a system message after a user turn (400, live 2026-09-19 with an
+        # attached PDF), and the trace should show the order the wire carries.
+        if discovery is None:
+            messages.append(Message(Role.SYSTEM, REPLY_INSTRUCTIONS))
+        if self.selection is not None:
+            messages.append(
+                Message(
+                    Role.SYSTEM,
+                    "The explicit selected table is mandatory. Every calculation "
+                    "must consume its workspace source or an earlier step derived from it. "
+                    "Do not rebuild it with SQL or substitute another table. Catalog discovery "
+                    "may find a series to add; unsupported operations must clarify. A message "
+                    "that needs no calculation may still be answered with reply.",
+                )
+            )
         if self.documents_note is not None:
             messages.append(Message(Role.USER, self.documents_note))
         if self.address_note is not None and discovery is None:
             messages.append(Message(Role.USER, self.address_note))
-        if discovery is None:
-            messages.append(Message(Role.SYSTEM, REPLY_INSTRUCTIONS))
-            if (earlier := history_prompt(self.history)) is not None:
-                messages.append(Message(Role.USER, earlier))
+        if discovery is None and (earlier := history_prompt(self.history)) is not None:
+            messages.append(Message(Role.USER, earlier))
         if self.selection is not None:
-            messages.extend(
-                [
-                    Message(
-                        Role.SYSTEM,
-                        "The explicit selected table is mandatory. Every calculation "
-                        "must consume its workspace source or an earlier step derived from it. "
-                        "Do not rebuild it with SQL or substitute another table. Catalog discovery "
-                        "may find a series to add; unsupported operations must clarify. A message "
-                        "that needs no calculation may still be answered with reply.",
-                    ),
-                    Message(
-                        Role.USER, json.dumps({"selected_workspace_source": self.selection.name})
-                    ),
-                ]
+            messages.append(
+                Message(Role.USER, json.dumps({"selected_workspace_source": self.selection.name}))
             )
         messages.append(Message(Role.USER, question))
         if discovery is not None:
