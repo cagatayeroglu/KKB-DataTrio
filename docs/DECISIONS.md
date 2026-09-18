@@ -668,6 +668,14 @@ Confirmed team priority refinement, explicitly requested by Çağatay after M3-0
 - Rejected: defaulting network egress on with the same argument; a model call to classify continuation (cost and non-determinism on every turn); keeping the checkbox as an "advanced" control.
 - Consequences: DEC-149's `--enable-ocr` and M10-04's `--enable-uploads` are superseded as switches, not as rules — the OCR column-total check and the upload admission checks are unchanged. The rehearsal launcher (`tests/manual/live_client.py`) keeps `--enable-ocr --max-ocr-requests N`, because there the flag reserves a live request ceiling rather than declaring a capability.
 
+### DEC-154 — Published tables are written to gold; cumulative columns convert only by declaration
+
+- Status: CONFIRMED team decision, 2026-09-18, by Arda (implemented with Claude Code).
+- Context: `gold_cells` (M12-13) and `lakehouse.cumulative.to_flow` (M2-16) existed but nothing called them at runtime. Gold stayed empty, so the verifier's store recheck could reach only `silver_observations` and a derived column (deflated, joined, rebased) was checkable against context alone. Every analytic refused a cumulative series with "convert it to flow first", and no operation could convert.
+- Decision: after a turn's answer is gated and its table published, the runner writes the table's period columns to `gold_cells` under the workspace name, each column with a lineage node deriving from the result's own node (`gold_from_result`). A result that is not period-shaped, mixes frequencies or has no lineage node is not written; the trace records `gold.materialized`, `gold.skipped` or `gold.refused`. Gold never carries semantics: SQL over it returns inspection rows, and units and scales still come only from `silver_series`. `table_transform` gains `to_flow`: it adds a per-period flow copy of one column whose series the store declares `yearly_reset` or `since_inception`; a period without an adjacent predecessor stays empty, and a column declared `none` or `unknown` is refused rather than differenced.
+- Rejected: writing gold before the gate (this turn's claims would bind to cells it wrote itself); inferring the cumulative kind from the values; filling the first period with the cumulative value.
+- Consequences: the reviewed catalog currently declares no cumulative series, so `to_flow` refuses on the prepared pool today and becomes useful as acquisition registers declared cumulative series. Tests: `test_gold_runtime.py`, `test_to_flow.py`.
+
 ## Proposed decisions
 
 Candidates below are not approved selections. Compare options in a bounded task; do not silently promote a proposal to CONFIRMED.
