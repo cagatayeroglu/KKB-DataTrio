@@ -50,7 +50,9 @@ class _Manifest(ContractModel):
     snapshot_sha256: Digest
     snapshot_version: StrictStr
     profile: VectorProfile
-    row_count: Annotated[StrictInt, Field(ge=1, le=40)]
+    # The catalogue's own bound: a generation covers one catalogue exactly,
+    # including the entries a knowledge base adds to it.
+    row_count: Annotated[StrictInt, Field(ge=1, le=MAX_CATALOG_SERIES)]
     rows_sha256: Digest
 
 
@@ -186,6 +188,15 @@ class LocalCatalogIndex:
     @property
     def profile(self) -> VectorProfile:
         return VectorProfile.model_validate(self._profile)
+
+    @property
+    def series_ids(self) -> frozenset[str]:
+        """The identities this generation holds, checked when it was opened."""
+        return frozenset(self._ordinals)
+
+    @property
+    def snapshot_version(self) -> str:
+        return self._snapshot.snapshot_version
 
     @classmethod
     def open(

@@ -356,3 +356,183 @@ def test_the_inspector_accepts_a_weekly_user_series_with_its_anchor(tmp_path):
             assert inspection.status == "consistent", inspection
     finally:
         knowledge.close()
+
+
+def test_a_question_can_be_tried_against_the_catalogue_without_running_a_turn(api):
+    """The page shows why a series is or is not found, with no model call."""
+    client = api
+    key = {"X-KKB-Owner-Token": owner(client)}
+
+    found = client.get("/v1/knowledge/search", params={"q": "konut kredisi"}, headers=key)
+    assert found.status_code == 200
+    body = found.json()
+    assert body["query"] == "konut kredisi" and body["total_candidates"] >= 1
+    assert all(hit["series_id"] for hit in body["hits"])
+
+    nothing = client.get("/v1/knowledge/search", params={"q": "zzz kayıt yok"}, headers=key)
+    assert nothing.status_code == 200 and nothing.json()["hits"] == []
+
+    assert client.get("/v1/knowledge/search", params={"q": "x"}).status_code == 422
+    assert client.get("/v1/knowledge/search", params={"q": ""}, headers=key).status_code == 422
+
+
+def test_a_trial_runs_the_same_two_stages_a_turn_runs_and_says_which_ones_ran(tmp_path):
+    """With an index the trial is the agent's retrieval; the page never guesses the mode."""
+    from test_prepared_dense import build_index
+
+    from kkb_agent.catalog import embedding
+    from kkb_agent.catalog.hybrid import CatalogDenseStage
+    from kkb_agent.catalog.lance_index import LocalCatalogIndex
+
+    root = tmp_path.resolve() / "prepared"
+    seed(root)
+    store = ConversationStore(tmp_path.resolve() / "state" / DATABASE_NAME)
+    knowledge = KnowledgeStore(tmp_path.resolve() / "state" / "knowledge.sqlite")
+    runner = PreparedRunner(
+        scripted(),
+        root,
+        tmp_path.resolve() / "state" / "runtime",
+        catalog_bytes=CATALOG.read_bytes(),
+        document_uploads=True,
+        store=store,
+        knowledge=knowledge,
+    )
+    provider = scripted(embedding_dimension=4096)
+    index = LocalCatalogIndex.open(
+        build_index(tmp_path.resolve() / "index", CATALOG),
+        runner.catalog,
+        embedding.profile_for(embedding.RUNTIME_QUERY_POLICY, "kloudeks"),
+    )
+    dense = CatalogDenseStage(
+        index, embedding.query_embedder(provider, embedding.RUNTIME_QUERY_POLICY, origin="kloudeks")
+    )
+    service = AnalysisService(
+        runner, mode="scripted", document_store=runner.admit_document, store=store, knowledge=True
+    )
+    knowledge_service = KnowledgeService(
+        knowledge,
+        store,
+        runner.catalog,
+        prepared=frozenset(item.series_id for item in runner.status.series),
+        read_document_column=runner.document_column,
+        series_values=runner.series_values,
+        dense=dense,
+    )
+    client = TestClient(
+        create_app(service, prepared=runner.status, knowledge=knowledge_service), base_url=BASE
+    )
+    try:
+        with client:
+            key = {"X-KKB-Owner-Token": owner(client)}
+            body = client.get(
+                "/v1/knowledge/search", params={"q": "konut kredisi"}, headers=key
+            ).json()
+            assert body["retrieval_mode"] == "hybrid" and body["dense_status"] == "success"
+            assert body["embedding_model"] == embedding.MODEL
+            assert body["input_policy_id"] == embedding.RUNTIME_QUERY_POLICY
+            assert {hit["stage"] for hit in body["hits"]} <= {"lexical", "dense", "both"}
+
+            # A knowledge-base entry changes the catalogue the vectors were built for:
+            # the trial must say so instead of quietly searching words alone.
+            assert (
+                client.post("/v1/knowledge/datasets", json=manual(), headers=key).status_code == 201
+            )
+            after = client.get(
+                "/v1/knowledge/search", params={"q": "kart harcaması"}, headers=key
+            ).json()
+            assert after["retrieval_mode"] == "lexical_degraded"
+            assert after["dense_failure"] == "snapshot_mismatch"
+            assert any(hit["series_id"].startswith("USER:") for hit in after["hits"])
+    finally:
+        store.close()
+        knowledge.close()
+
+
+def test_the_vectors_can_be_built_again_for_a_catalogue_the_knowledge_base_changed(tmp_path):
+    """A knowledge-base entry becomes findable by meaning once vectors cover it."""
+    from test_prepared_dense import build_index
+
+    from kkb_agent.catalog import embedding
+    from kkb_agent.catalog.hybrid import CatalogDenseStage
+    from kkb_agent.catalog.lance_index import LocalCatalogIndex, build_catalog_index
+
+    root = tmp_path.resolve() / "prepared"
+    seed(root)
+    store = ConversationStore(tmp_path.resolve() / "state" / DATABASE_NAME)
+    knowledge = KnowledgeStore(tmp_path.resolve() / "state" / "knowledge.sqlite")
+    runner = PreparedRunner(
+        scripted(),
+        root,
+        tmp_path.resolve() / "state" / "runtime",
+        catalog_bytes=CATALOG.read_bytes(),
+        document_uploads=True,
+        store=store,
+        knowledge=knowledge,
+    )
+    provider = scripted(embedding_dimension=4096)
+    profile = embedding.profile_for(embedding.RUNTIME_QUERY_POLICY, "kloudeks")
+    dense = CatalogDenseStage(
+        LocalCatalogIndex.open(
+            build_index(tmp_path.resolve() / "index", CATALOG), runner.catalog, profile
+        ),
+        embedding.query_embedder(provider, embedding.RUNTIME_QUERY_POLICY, origin="kloudeks"),
+    )
+    generations = tmp_path.resolve() / "generations"
+
+    def rebuild(catalog):
+        directory = generations / catalog.content_sha256
+        if not (directory / "catalog-manifest.json").exists():
+            vectors = embedding.embed_catalog(
+                provider, catalog, embedding.RUNTIME_QUERY_POLICY, origin="offline_fixture"
+            )
+            build_catalog_index(directory, catalog, vectors.model_copy(update={"profile": profile}))
+        return CatalogDenseStage(
+            LocalCatalogIndex.open(directory, catalog, profile),
+            embedding.query_embedder(provider, embedding.RUNTIME_QUERY_POLICY, origin="kloudeks"),
+        )
+
+    service = AnalysisService(
+        runner, mode="scripted", document_store=runner.admit_document, store=store, knowledge=True
+    )
+    knowledge_service = KnowledgeService(
+        knowledge,
+        store,
+        runner.catalog,
+        prepared=frozenset(item.series_id for item in runner.status.series),
+        read_document_column=runner.document_column,
+        series_values=runner.series_values,
+        dense=dense,
+        rebuild_index=rebuild,
+        install_index=runner.use_dense,
+    )
+    client = TestClient(
+        create_app(service, prepared=runner.status, knowledge=knowledge_service), base_url=BASE
+    )
+    try:
+        with client:
+            key = {"X-KKB-Owner-Token": owner(client)}
+            assert (
+                client.post("/v1/knowledge/datasets", json=manual(), headers=key).status_code == 201
+            )
+            before = client.get("/v1/knowledge/index", headers=key).json()
+            assert before["configured"] and not before["covers_catalog"]
+            assert before["rebuildable"] and before["missing"] == ["USER:kart_harcamalari.v1"]
+            assert before["model"] == embedding.MODEL
+
+            assert client.post("/v1/knowledge/index", json={}, headers=key).status_code == 202
+            knowledge_service.close()
+            after = client.get("/v1/knowledge/index", headers=key).json()
+            assert after["last_error"] is None and after["built_at"]
+            assert after["covers_catalog"] and after["missing"] == []
+            assert after["series_vectored"] == after["series_total"]
+
+            # The rebuilt generation is what the next turn's discovery searches.
+            assert runner.dense is not None
+            assert runner.dense.index.snapshot_sha256 == after["catalog_sha256"]
+            trial = client.get(
+                "/v1/knowledge/search", params={"q": "kart harcaması"}, headers=key
+            ).json()
+            assert trial["retrieval_mode"] == "hybrid" and trial["dense_status"] == "success"
+    finally:
+        store.close()
+        knowledge.close()

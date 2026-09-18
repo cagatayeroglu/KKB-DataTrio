@@ -84,6 +84,10 @@ def test_a_turn_records_its_context_the_model_output_and_every_tool_call(launch)
         ["draft.deterministic"],
         ["draft.model"],
     )
+    # And the record says how the turn ended, with the text the person was shown.
+    ended = next(item for item in steps if item["name"].startswith("turn.a"))
+    assert ended["attributes"]["published"] is True
+    assert ended["detail"] == first["answer"]["text"]
 
 
 def test_a_rejected_plan_and_its_repair_are_both_visible(launch):

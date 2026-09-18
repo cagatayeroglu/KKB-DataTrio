@@ -39,6 +39,8 @@ MAX_TITLE_CHARS: Final = 120
 MAX_TEXT_CHARS: Final = 8192
 MAX_SEARCH_CHARS: Final = 120
 MAX_LISTED: Final = 200
+#: A settings record is a handful of flags and numbers, never free text.
+MAX_SETTINGS_CHARS: Final = 2000
 #: A conversation is named by its first question until the user renames it.
 DEFAULT_TITLE: Final = "Yeni sohbet"
 
@@ -50,6 +52,12 @@ CREATE TABLE IF NOT EXISTS owners (
     owner_id      TEXT PRIMARY KEY,
     token_digest  BLOB NOT NULL,
     created_at    TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS owner_settings (
+    owner_id   TEXT PRIMARY KEY REFERENCES owners(owner_id),
+    settings   TEXT NOT NULL,
+    updated_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS conversations (
@@ -318,6 +326,40 @@ class ConversationStore:
             if secrets.compare_digest(wanted, bytes(row["token_digest"])):
                 return str(row["owner_id"])
         return None
+
+    def settings_of(self, owner_id: str) -> dict[str, object]:
+        """What this browser chose, as stored; an owner who chose nothing has none."""
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT settings FROM owner_settings WHERE owner_id = ?", [owner_id]
+            ).fetchone()
+        if row is None:
+            return {}
+        try:
+            stored = json.loads(str(row["settings"]))
+        except json.JSONDecodeError:  # pragma: no cover - a hand-edited file
+            return {}
+        return stored if isinstance(stored, dict) else {}
+
+    def save_settings(self, owner_id: str, settings: dict[str, object]) -> None:
+        """Replace this owner's choices. The caller owns what a choice may say."""
+        payload = json.dumps(settings, ensure_ascii=False, sort_keys=True)
+        if len(payload) > MAX_SETTINGS_CHARS:
+            raise StoreError("settings_too_large")
+        with self._write() as connection:
+            connection.execute(
+                "INSERT INTO owner_settings VALUES (?, ?, ?) ON CONFLICT(owner_id) DO UPDATE "
+                "SET settings = excluded.settings, updated_at = excluded.updated_at",
+                [owner_id, payload, self._now()],
+            )
+
+    def owner_of_conversation(self, conversation_id: str) -> str | None:
+        """Whose conversation this is, so a turn can read that owner's settings."""
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT owner_id FROM conversations WHERE conversation_id = ?", [conversation_id]
+            ).fetchone()
+        return str(row["owner_id"]) if row is not None else None
 
     def owner_of(self, owner_id: str, token: str) -> bool:
         """Whether this owner key is the one recorded, compared in constant time."""

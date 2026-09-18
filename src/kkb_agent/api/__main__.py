@@ -19,7 +19,7 @@ from kkb_agent.api.prepared import PreparedRunner, _local, inspect_pool, read_ca
 from kkb_agent.api.service import AnalysisService
 from kkb_agent.api.store import DATABASE_NAME as STORE_NAME
 from kkb_agent.api.store import ConversationStore
-from kkb_agent.catalog.mappings import load_reviewed_snapshot
+from kkb_agent.catalog.mappings import ReviewedSnapshot, load_reviewed_snapshot
 from kkb_agent.ingest.acquisition import AcquisitionStore, OfficialSources
 from kkb_agent.ingest.safe_fetch import safe_fetch
 from kkb_agent.knowledge import DATABASE_NAME as KNOWLEDGE_NAME
@@ -30,6 +30,8 @@ from kkb_agent.tools.searxng import SearxngBackend
 MAX_REQUEST_TIMEOUT = 900.0
 #: Fetched official responses, kept for later conversations (DEC-159).
 ACQUIRED_DIRECTORY = "acquired"
+#: Built vector generations, one immutable directory per catalogue digest.
+GENERATIONS_DIRECTORY = "catalog-index"
 
 
 def literal_config(path: Path | None) -> ProviderConfig:
@@ -233,7 +235,40 @@ def main(argv: Sequence[str] | None = None) -> int:
                 official_acquisition=acquisition_enabled,
                 knowledge=True,
                 web_search=search is not None,
+                web_url=args.enable_web_url,
             )
+            rebuild = None
+            if index is not None:
+                from kkb_agent.catalog.embedding import (
+                    RUNTIME_QUERY_POLICY,
+                    embed_catalog,
+                    profile_for,
+                    query_embedder,
+                )
+                from kkb_agent.catalog.hybrid import CatalogDenseStage
+                from kkb_agent.catalog.lance_index import LocalCatalogIndex, build_catalog_index
+
+                generations = args.state_root.absolute() / GENERATIONS_DIRECTORY
+
+                def rebuild(catalog: ReviewedSnapshot) -> CatalogDenseStage:
+                    """A generation for exactly this catalogue, with the configured profile.
+
+                    Generations are immutable and named by the catalogue they cover,
+                    so an earlier one is reopened instead of embedded again, and a
+                    failed build never damages the one in use.
+                    """
+                    profile = profile_for(RUNTIME_QUERY_POLICY, "kloudeks")
+                    directory = generations / catalog.content_sha256
+                    if not (directory / "catalog-manifest.json").exists():
+                        vectors = embed_catalog(
+                            provider, catalog, RUNTIME_QUERY_POLICY, origin="kloudeks"
+                        )
+                        build_catalog_index(directory, catalog, vectors)
+                    return CatalogDenseStage(
+                        LocalCatalogIndex.open(directory, catalog, profile),
+                        query_embedder(provider, RUNTIME_QUERY_POLICY, origin="kloudeks"),
+                    )
+
             knowledge_service = KnowledgeService(
                 knowledge,
                 store,
@@ -243,6 +278,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 read_document_column=runner.document_column if uploads_enabled else None,
                 acquisitions=acquired.acquisitions if acquired is not None else None,
                 series_values=runner.series_values,
+                dense=dense,
+                rebuild_index=rebuild,
+                install_index=runner.use_dense,
             )
             app = create_app(
                 service, port=args.port, prepared=runner.status, knowledge=knowledge_service

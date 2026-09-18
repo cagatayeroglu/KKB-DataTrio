@@ -421,6 +421,83 @@ export type RunDetail = z.infer<typeof runDetailSchema>;
 export type TraceStep = z.infer<typeof traceStepSchema>;
 export type TraceStepFull = z.infer<typeof traceStepFullSchema>;
 
+export const searchTrialSchema = z
+  .object({
+    api_version: z.literal(1),
+    query: z.string().max(512),
+    status: z.string().max(40),
+    clarification_required: z.boolean(),
+    total_candidates: z.number().int().min(0),
+    hits: z
+      .array(
+        z
+          .object({
+            series_id: z.string().max(200),
+            title: z.string().max(400),
+            provider: z.string().max(200),
+            unit: z.string().max(200).nullable(),
+            frequency: z.string().max(40),
+            stock_flow: z.string().max(40),
+            prepared: z.boolean(),
+            archived: z.boolean(),
+            stage: z.enum(["lexical", "dense", "both"]),
+            concepts: z.array(z.string().max(120)).max(20),
+          })
+          .strict(),
+      )
+      .max(10),
+    retrieval_mode: z.enum(["lexical_only", "hybrid", "lexical_degraded"]),
+    dense_status: z.enum([
+      "not_configured",
+      "skipped_no_eligible",
+      "success",
+      "failed",
+    ]),
+    dense_failure: z
+      .enum(["snapshot_mismatch", "embedding_failed", "index_failed"])
+      .nullable(),
+    embedding_model: z.string().max(200).nullable(),
+    input_policy_id: z.string().max(120).nullable(),
+  })
+  .strict();
+export type SearchTrial = z.infer<typeof searchTrialSchema>;
+
+/** Which generation of meaning vectors this deployment searches, and what it covers. */
+export const vectorIndexSchema = z
+  .object({
+    api_version: z.literal(1),
+    configured: z.boolean(),
+    model: z.string().max(200).nullable(),
+    input_policy_id: z.string().max(120).nullable(),
+    origin: z.string().max(60).nullable(),
+    dimension: z.number().int().min(0),
+    generation_sha256: z.string().max(64).nullable(),
+    generation_version: z.string().max(120).nullable(),
+    catalog_sha256: z.string().max(64),
+    catalog_version: z.string().max(120),
+    covers_catalog: z.boolean(),
+    series_total: z.number().int().min(0),
+    series_vectored: z.number().int().min(0),
+    missing: z.array(z.string().max(200)).max(50),
+    rebuilding: z.boolean(),
+    rebuildable: z.boolean(),
+    built_at: z.string().max(40).nullable(),
+    last_error: z.string().max(120).nullable(),
+  })
+  .strict();
+export type VectorIndex = z.infer<typeof vectorIndexSchema>;
+
+export const runtimeSettingsSchema = z
+  .object({
+    api_version: z.literal(1),
+    available: z.array(z.string().max(60)).max(16),
+    disabled: z.array(z.string().max(60)).max(16),
+    history_turns: z.number().int().min(0).max(64),
+    max_history_turns: z.number().int().min(0).max(64),
+  })
+  .strict();
+export type RuntimeSettings = z.infer<typeof runtimeSettingsSchema>;
+
 export const feedbackReasons = [
   "accuracy",
   "incomplete",

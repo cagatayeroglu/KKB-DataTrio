@@ -13,10 +13,13 @@ import {
   type DatasetRequest,
   ownerSchema,
   runDetailSchema,
+  runtimeSettingsSchema,
+  searchTrialSchema,
   traceStepFullSchema,
   runListSchema,
   sessionSchema,
   turnSchema,
+  vectorIndexSchema,
   savedSchema,
   type DocumentAdmitted,
   type Saved,
@@ -194,9 +197,49 @@ export function rateAnswer(
     token,
   );
 }
+// -- Settings (DEC-162): a browser narrows its own runtime, never widens it.
+export function readSettings(owner: string) {
+  return api("settings", runtimeSettingsSchema, {}, undefined, owner);
+}
+export function saveSettings(
+  owner: string,
+  change: { disabled?: string[]; history_turns?: number },
+) {
+  return api(
+    "settings",
+    runtimeSettingsSchema,
+    { method: "PATCH", body: JSON.stringify(change) },
+    undefined,
+    owner,
+  );
+}
+
 // -- Knowledge base (DEC-157): every read and edit carries the browser's key.
 export function listKnowledge(owner: string) {
   return api("knowledge", knowledgeListSchema, {}, undefined, owner);
+}
+export function trySearch(owner: string, query: string) {
+  // Reading what discovery would find starts no analysis and stores nothing.
+  return api(
+    `knowledge/search?q=${encodeURIComponent(query.slice(0, 512))}`,
+    searchTrialSchema,
+    {},
+    undefined,
+    owner,
+  );
+}
+export function readIndex(owner: string) {
+  return api("knowledge/index", vectorIndexSchema, {}, undefined, owner);
+}
+export function rebuildIndex(owner: string) {
+  // Accepted, not finished: the build embeds every catalogue entry again.
+  return api(
+    "knowledge/index",
+    vectorIndexSchema,
+    { method: "POST", body: "{}" },
+    undefined,
+    owner,
+  );
 }
 export function openDataset(owner: string, slug: string) {
   return api(

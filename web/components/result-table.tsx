@@ -127,10 +127,10 @@ export function ResultTable({
             type="button"
             variant="ghost"
             size="sm"
-            title="Excel'de doğrudan açılır: noktalı virgül ayraç, virgül ondalık"
+            title="Ekranda görünen satırlar, Excel'de doğrudan açılır: noktalı virgül ayraç, virgül ondalık"
             onClick={() =>
               download(
-                tableCsv(result, dataset, "excel-tr"),
+                tableCsv(result, dataset, "excel-tr", { rows: filtered }),
                 exportName(result, "csv", "-excel"),
                 "text/csv;charset=utf-8",
               )
@@ -142,10 +142,10 @@ export function ResultTable({
             type="button"
             variant="ghost"
             size="sm"
-            title="Standart CSV: virgül ayraç, nokta ondalık, tam hassasiyet"
+            title="Ekranda görünen satırlar, standart CSV: virgül ayraç, nokta ondalık, tam hassasiyet"
             onClick={() =>
               download(
-                tableCsv(result, dataset, "standard"),
+                tableCsv(result, dataset, "standard", { rows: filtered }),
                 exportName(result, "csv"),
                 "text/csv;charset=utf-8",
               )

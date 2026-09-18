@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import date
-from typing import Annotated, Literal, Self
+from datetime import date, datetime
+from typing import Annotated, Final, Literal, Self
 
 from pydantic import AwareDatetime, Field, JsonValue, StringConstraints, model_validator
 
@@ -295,6 +295,38 @@ class Health(ContractModel):
     capabilities: tuple[str, ...] = ("sessions", "questions", "published_values", "turn_events")
 
 
+#: Capabilities a browser may switch **off** for its own turns. It can never switch
+#: one on: the operator decides what this deployment may do at all, and a browser
+#: that could widen that would widen the deployment's authority (DEC-162).
+RESTRICTABLE_CAPABILITIES: Final = (
+    "document_upload",
+    "document_ocr",
+    "official_acquisition",
+    "web_search",
+    "web_url",
+)
+
+
+class RuntimeSettings(ContractModel):
+    """What this deployment can do, and what this browser chose to switch off."""
+
+    api_version: Literal[1] = 1
+    #: Restrictable capabilities the operator actually enabled, in a fixed order.
+    available: Annotated[tuple[str, ...], Field(max_length=16)] = ()
+    #: The subset this browser turned off; never anything outside `available`.
+    disabled: Annotated[tuple[str, ...], Field(max_length=16)] = ()
+    #: Earlier turns of the conversation the planner is shown.
+    history_turns: Annotated[int, Field(strict=True, ge=0, le=64)]
+    max_history_turns: Annotated[int, Field(strict=True, ge=0, le=64)]
+
+
+class SettingsUpdate(ContractModel):
+    """A change to this browser's own settings; absent fields stay as they were."""
+
+    disabled: Annotated[tuple[str, ...], Field(max_length=16)] | None = None
+    history_turns: Annotated[int, Field(strict=True, ge=0, le=64)] | None = None
+
+
 #: The browser-held keys: an owner key and a conversation token share this shape.
 Key = Annotated[str, StringConstraints(strict=True, min_length=43, max_length=43)]
 
@@ -514,6 +546,74 @@ class KnowledgeList(ContractModel):
     catalog_digest: str
     reviewed_digest: str
     series: Annotated[tuple[KnowledgeSeries, ...], Field(max_length=MAX_CATALOG_SERIES)] = ()
+
+
+class SearchHit(ContractModel):
+    """One candidate as discovery would hand it to the planner, without scores."""
+
+    series_id: SeriesIdentity
+    title: str
+    provider: str
+    unit: str | None
+    frequency: str
+    stock_flow: str
+    prepared: bool
+    archived: bool
+    stage: Literal["lexical", "dense", "both"]
+    concepts: Annotated[tuple[str, ...], Field(max_length=20)] = ()
+
+
+class SearchTrial(ContractModel):
+    """What a question would find in this catalogue, run here and kept nowhere."""
+
+    api_version: Literal[1] = 1
+    query: str
+    status: str
+    clarification_required: bool
+    total_candidates: Annotated[int, Field(strict=True, ge=0, le=MAX_CATALOG_SERIES)]
+    hits: Annotated[tuple[SearchHit, ...], Field(max_length=10)] = ()
+    #: Which retrieval stages ran, exactly as the search tool recorded them, so a
+    #: catalogue the vector generation no longer covers is visible instead of
+    #: silently falling back to words alone.
+    retrieval_mode: Literal["lexical_only", "hybrid", "lexical_degraded"] = "lexical_only"
+    dense_status: Literal["not_configured", "skipped_no_eligible", "success", "failed"] = (
+        "not_configured"
+    )
+    dense_failure: Literal["snapshot_mismatch", "embedding_failed", "index_failed"] | None = None
+    embedding_model: str | None = None
+    input_policy_id: str | None = None
+
+
+class VectorIndexStatus(ContractModel):
+    """Which generation of meaning vectors this deployment searches, and what it covers.
+
+    A generation is built for one exact catalogue. Everything the knowledge base
+    adds or archives makes a different catalogue, so the vectors stop covering it
+    until they are built again with the same model and input policy.
+    """
+
+    api_version: Literal[1] = 1
+    configured: bool
+    model: str | None = None
+    input_policy_id: str | None = None
+    origin: str | None = None
+    dimension: Annotated[int, Field(strict=True, ge=0, le=1 << 16)] = 0
+    #: The catalogue digest the vectors were built for, and the one in use now.
+    generation_sha256: str | None = None
+    generation_version: str | None = None
+    catalog_sha256: str
+    catalog_version: str
+    covers_catalog: bool
+    series_total: Annotated[int, Field(strict=True, ge=0, le=MAX_CATALOG_SERIES)]
+    series_vectored: Annotated[int, Field(strict=True, ge=0, le=MAX_CATALOG_SERIES)]
+    #: Catalogue entries with no vector in this generation, newest concern first.
+    missing: Annotated[tuple[SeriesIdentity, ...], Field(max_length=50)] = ()
+    #: A build in progress, and how the last one ended. A build never edits a
+    #: generation in place: it writes a new one and installs it for later turns.
+    rebuilding: bool = False
+    rebuildable: bool = False
+    built_at: datetime | None = None
+    last_error: str | None = None
 
 
 class ObservationIn(ContractModel):

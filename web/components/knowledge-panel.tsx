@@ -3,10 +3,13 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Archive,
   ArchiveRestore,
+  Download,
+  FlaskConical,
   History,
   LoaderCircle,
   Pencil,
   Plus,
+  RefreshCw,
   Search,
   X,
 } from "lucide-react";
@@ -16,6 +19,9 @@ import {
   describeError,
   listKnowledge,
   openDataset,
+  readIndex,
+  rebuildIndex,
+  trySearch,
   parseDatedRows,
   parseMonthlyRows,
   saveDataset,
@@ -24,15 +30,37 @@ import {
   setDatasetArchived,
 } from "@/lib/client";
 import type {
+  Dataset,
+  SearchTrial,
   DatasetDetail,
   DatasetRequest,
   KnowledgeList,
   KnowledgeSeries,
+  VectorIndex,
 } from "@/lib/contracts";
 import { unitLabel } from "@/lib/table";
 
 type Filter =
   "all" | "prepared" | "fetchable" | "catalog" | "user" | "archived";
+/** Which retrieval stages ran for a trial, in the words the page uses elsewhere. */
+const retrievalWords: Record<string, string> = {
+  lexical_only: "yalnızca kelime eşleşmesi",
+  hybrid: "kelime + anlam araması",
+  lexical_degraded: "anlam araması devre dışı",
+};
+/** Which of the two stages offered a candidate, in the words the trial uses. */
+const stageWords: Record<string, string> = {
+  lexical: "KELİME",
+  dense: "ANLAM",
+  both: "İKİSİ",
+};
+const denseFailureWords: Record<string, string> = {
+  snapshot_mismatch:
+    "Vektörler bu kataloğu kapsamıyor: bilgi tabanı değişmiş, yeniden vektörlemek gerekiyor.",
+  embedding_failed: "Soru vektöre çevrilemedi.",
+  index_failed: "Vektör dizini okunamadı.",
+};
+
 const filters: [Filter, string][] = [
   ["all", "Tümü"],
   ["prepared", "Hazır"],
@@ -56,6 +84,49 @@ const frequencies: Record<string, string> = {
   daily: "günlük",
   unknown: "belirsiz",
 };
+
+const monthNames = [
+  "Ocak",
+  "Şubat",
+  "Mart",
+  "Nisan",
+  "Mayıs",
+  "Haziran",
+  "Temmuz",
+  "Ağustos",
+  "Eylül",
+  "Ekim",
+  "Kasım",
+  "Aralık",
+];
+
+function monthOf(value: string) {
+  const [year, month] = value.split("-");
+  return `${monthNames[Number(month) - 1] ?? month} ${year}`;
+}
+
+/** Coverage and staleness, from the record or the pool; nothing is inferred. */
+function health(item: KnowledgeSeries, pool?: Dataset | null) {
+  const stored = pool?.series.find((one) => one.series_id === item.series_id);
+  const start = item.coverage_start ?? stored?.first_period ?? null;
+  const end = item.coverage_end ?? stored?.last_period ?? null;
+  const observations =
+    item.observations ?? stored?.nonnull_observations ?? null;
+  if (!end) return null;
+  const last = new Date(end);
+  const now = new Date();
+  const months =
+    (now.getFullYear() - last.getFullYear()) * 12 +
+    (now.getMonth() - last.getMonth());
+  return {
+    last: monthOf(end),
+    first: start ? monthOf(start) : null,
+    months,
+    observations,
+    // BDDK and EVDS publish two to three months late; that is not staleness.
+    stale: months >= 6,
+  };
+}
 
 function where(item: KnowledgeSeries) {
   if (item.status === "archived") return "Arşivde";
@@ -82,9 +153,12 @@ export type ChatDocument = { sessionId: string; ref: string; label: string };
 export function KnowledgePanel({
   owner,
   documents,
+  pool,
 }: {
   owner: string;
   documents: ChatDocument[];
+  /** The prepared pool's own coverage, which the catalogue record does not carry. */
+  pool?: Dataset | null;
 }) {
   const [listing, setListing] = useState<KnowledgeList | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
@@ -93,7 +167,25 @@ export function KnowledgePanel({
   const [editing, setEditing] = useState<DatasetDetail | "new" | null>(null);
   const [issue, setIssue] = useState("");
   const [busy, setBusy] = useState(false);
+  //: What a question would find here, run on demand and kept nowhere.
+  const [trialQuery, setTrialQuery] = useState("");
+  const [trial, setTrial] = useState<SearchTrial | null>(null);
+  const [trying, setTrying] = useState(false);
+  //: Which generation of meaning vectors this deployment searches, and what it covers.
+  const [index, setIndex] = useState<VectorIndex | null>(null);
 
+  /** The catalogue as this browser sees it, saved as it is read: no server call. */
+  function exportListing() {
+    if (!listing) return;
+    const blob = new Blob([JSON.stringify(listing, null, 2)], {
+      type: "application/json",
+    });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `bilgi-tabani-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  }
   async function refresh() {
     try {
       setListing(await listKnowledge(owner));
@@ -101,10 +193,28 @@ export function KnowledgePanel({
     } catch (error) {
       setIssue(describeError(error));
     }
+    // Every knowledge-base change makes a different catalogue, so the card that
+    // reports vector coverage is read again with the listing.
+    void readIndexStatus();
+  }
+  async function readIndexStatus() {
+    try {
+      setIndex(await readIndex(owner));
+    } catch {
+      // An older deployment has no index route; the card then says so.
+      setIndex(null);
+    }
   }
   useEffect(() => {
     void refresh();
+    void readIndexStatus();
   }, [owner]);
+  useEffect(() => {
+    // A build embeds every entry again, so it is followed rather than waited on.
+    if (!index?.rebuilding) return;
+    const timer = setTimeout(() => void readIndexStatus(), 3000);
+    return () => clearTimeout(timer);
+  }, [index]);
 
   const shown = useMemo(
     () =>
@@ -143,38 +253,145 @@ export function KnowledgePanel({
   return (
     <div className="knowledge">
       <p className="panel-description">
-        Ajanın bildiği her şey: incelenmiş katalog serileri ve senin eklediğin
-        veri setleri. İncelenmiş kayıtlar değiştirilmez; arşivleme, eş anlamlı
-        ve not ayrı bir katmanda sürümlü tutulur. Silme yoktur: arşivlenen kayıt
-        keşiften ve hesaplamadan çıkar, geçmişi kalır, geri alınabilir.
+        Ajanın bildiği her şey. İncelenmiş kayıtlar değiştirilmez; arşivleme, eş
+        anlamlı ve not ayrı bir katmanda sürümlü tutulur. Arşivlenen kayıt
+        keşiften ve hesaplamadan çıkar, geçmişi kalır ve geri alınabilir.
       </p>
-      <div className="panel-stat">
-        <strong>
-          {counts.reviewed} / {counts.user}
-        </strong>
-        <span>incelenmiş seri / eklediğin veri seti</span>
-        <small>
+      <div className="page-stats">
+        <span>
+          <strong>{counts.reviewed}</strong> incelenmiş seri
+        </span>
+        <span>
+          <strong>{counts.user}</strong> eklediğin veri seti
+        </span>
+        <span>
           {listing
             ? listing.catalog_digest === listing.reviewed_digest
               ? "Katalog incelenmiş haliyle kullanılıyor"
-              : `Katalog bilgi tabanıyla birlikte kullanılıyor · ${counts.archived} arşivli`
+              : `Bilgi tabanıyla birlikte · ${counts.archived} arşivli`
             : "Yükleniyor"}
-        </small>
+        </span>
       </div>
       <div className="knowledge-tools">
         <label className="table-search">
           <Search size={14} />
           <input
-            aria-label="Bilgi tabanında ara"
-            placeholder="Ad, kimlik veya eş anlamlı"
+            aria-label="Listeyi süz: yazdığın metni içeren kayıtlar"
+            placeholder="Listeyi süz: ad, kimlik veya eş anlamlı"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
         </label>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!listing}
+          onClick={() => exportListing()}
+        >
+          <Download size={14} /> Dışa aktar
+        </Button>
         <Button size="sm" onClick={() => setEditing("new")} disabled={busy}>
           <Plus size={14} /> Veri seti ekle
         </Button>
       </div>
+      <p className="trial-lead">
+        <strong>Ajanın araması.</strong> Aşağısı listeyi süzmez: soruyu ajanın
+        kendi keşfine verir — onaylı eş anlamlılarla kelime eşleşmesi ve, dizin
+        kuruluysa, anlamsal arama birlikte. Sonuçta hangi aşamaların çalıştığı
+        yazar.
+      </p>
+      <form
+        className="knowledge-trial"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          if (!trialQuery.trim()) return;
+          setTrying(true);
+          try {
+            setTrial(await trySearch(owner, trialQuery.trim()));
+            setIssue("");
+          } catch (error) {
+            setIssue(describeError(error));
+          } finally {
+            setTrying(false);
+          }
+        }}
+      >
+        <label className="table-search">
+          <FlaskConical size={14} />
+          <input
+            aria-label="Bir soru yazıp ajanın ne bulacağını dene"
+            placeholder="Doğal dille bir soru yaz: ajan bu katalogda ne bulur?"
+            value={trialQuery}
+            maxLength={512}
+            onChange={(e) => setTrialQuery(e.target.value)}
+          />
+        </label>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={trying || !trialQuery.trim()}
+        >
+          {trying && <LoaderCircle size={13} className="spin" />} Dene
+        </Button>
+        {trial && (
+          <button type="button" onClick={() => setTrial(null)}>
+            Temizle
+          </button>
+        )}
+      </form>
+      {trial && (
+        <div className="trial-result">
+          <p>
+            <strong>{trial.status}</strong> · {trial.total_candidates} aday
+            {trial.clarification_required
+              ? " · netleştirme gerekir"
+              : " · tek seri seçilebilir"}
+            {" · "}
+            {retrievalWords[trial.retrieval_mode]}
+          </p>
+          {trial.retrieval_mode === "lexical_degraded" && (
+            <p className="helper">
+              {denseFailureWords[trial.dense_failure ?? "index_failed"]} Ajan da
+              bu soruyu yalnızca kelimelerle arar.
+            </p>
+          )}
+          {trial.hits.length === 0 && (
+            <p className="helper">
+              Bu soruyla eşleşen kayıt yok: ajan da bulamaz. Eş anlamlı eklemek
+              ya da veri setini eklemek gerekir.
+            </p>
+          )}
+          <ol>
+            {trial.hits.map((hit) => (
+              <li key={hit.series_id}>
+                <span className="trial-rank">{stageWords[hit.stage]}</span>
+                <span>
+                  {hit.title}
+                  <small>
+                    {hit.provider} ·{hit.unit ?? "birim bilinmiyor"} ·{" "}
+                    {hit.frequency} · {hit.stock_flow}
+                    {hit.prepared ? " · hazır havuzda" : " · havuzda yok"}
+                    {hit.archived ? " · arşivde" : ""}
+                  </small>
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+      {index && (
+        <VectorIndexCard
+          index={index}
+          onRebuild={async () => {
+            try {
+              setIndex(await rebuildIndex(owner));
+              setIssue("");
+            } catch (error) {
+              setIssue(describeError(error));
+            }
+          }}
+        />
+      )}
       <div className="knowledge-filters" role="tablist">
         {filters.map(([key, label]) => (
           <button
@@ -217,6 +434,22 @@ export function KnowledgePanel({
               </span>
               <h3>{item.title}</h3>
               <small>{where(item)}</small>
+              {(() => {
+                const state = health(item, pool);
+                if (!state) return null;
+                return (
+                  <span
+                    className={`series-health ${state.stale ? "stale" : ""}`}
+                  >
+                    {state.first ? `${state.first} – ` : ""}
+                    {state.last}
+                    {state.observations !== null
+                      ? ` · ${state.observations} gözlem`
+                      : ""}
+                    {state.months >= 4 ? ` · ${state.months} ay geride` : ""}
+                  </span>
+                );
+              })()}
             </button>
             {open === item.series_id && (
               <SeriesDetail
@@ -241,6 +474,119 @@ export function KnowledgePanel({
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * The meaning-based half of discovery, in the state it is actually in.
+ *
+ * A generation of vectors is built for one exact catalogue. Everything the
+ * knowledge base adds, renames or archives makes a different catalogue, and
+ * until the vectors are built again the agent searches words alone. The card
+ * says which it is, and builds them again with the same model and input policy.
+ */
+function VectorIndexCard({
+  index,
+  onRebuild,
+}: {
+  index: VectorIndex;
+  onRebuild: () => Promise<void>;
+}) {
+  const covered = index.configured && index.covers_catalog;
+  return (
+    <section className="vector-index">
+      <div className="vector-head">
+        <h3>Anlamsal arama dizini</h3>
+        <span className={covered ? "pill-ok" : "pill-warn"}>
+          {!index.configured
+            ? "kurulu değil"
+            : covered
+              ? "katalogla eşleşiyor"
+              : "katalogla eşleşmiyor"}
+        </span>
+        {index.rebuildable && (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={index.rebuilding || !index.configured}
+            onClick={() => void onRebuild()}
+          >
+            {index.rebuilding ? (
+              <LoaderCircle size={13} className="spin" />
+            ) : (
+              <RefreshCw size={13} />
+            )}
+            {index.rebuilding ? "Vektörleniyor" : "Yeniden vektörle"}
+          </Button>
+        )}
+      </div>
+      {!index.configured ? (
+        <p className="helper">
+          Bu sunucu vektör dizini olmadan başlatılmış: arama yalnızca kelime
+          eşleşmesiyle çalışır. Dizin, sunucu `--catalog-index` ile
+          başlatıldığında açılır.
+        </p>
+      ) : (
+        <>
+          <dl className="vector-facts">
+            <div>
+              <dt>Model</dt>
+              <dd>{index.model}</dd>
+            </div>
+            <div>
+              <dt>Girdi politikası</dt>
+              <dd>
+                {index.input_policy_id} · {index.dimension} boyut
+              </dd>
+            </div>
+            <div>
+              <dt>Kapsam</dt>
+              <dd>
+                {index.series_vectored}/{index.series_total} kayıt vektörlü
+              </dd>
+            </div>
+            <div>
+              <dt>Katalog sürümü</dt>
+              <dd>{index.catalog_version}</dd>
+            </div>
+          </dl>
+          <p className="helper">
+            Vektörler kendiliğinden oluşmaz: eklediğin açıklama, başlık ve eş
+            anlamlılar ancak yeniden vektörlendikten sonra anlamsal aramaya
+            girer. Kurulum her kayıt için bir gömme çağrısı demektir, bu yüzden
+            düğmeye basınca arka planda çalışır.
+          </p>
+          {!covered && (
+            <p className="helper">
+              Vektörler {index.generation_version ?? "başka bir"} kataloğu için
+              kuruldu. Bilgi tabanındaki değişiklikler yeniden vektörlenene
+              kadar anlamsal aramaya girmez
+              {index.missing.length > 0 && (
+                <>
+                  {" — kapsanmayan: "}
+                  {index.missing.slice(0, 4).join(", ")}
+                  {index.missing.length > 4
+                    ? ` ve ${index.missing.length - 4} kayıt daha`
+                    : ""}
+                </>
+              )}
+              .
+            </p>
+          )}
+          {index.last_error && (
+            <p className="helper">
+              Son kurulum tamamlanamadı ({index.last_error}); kullanımdaki
+              vektörler değişmedi.
+            </p>
+          )}
+          {index.built_at && !index.last_error && (
+            <p className="helper">
+              Son kurulum: {new Date(index.built_at).toLocaleString("tr-TR")}
+            </p>
+          )}
+        </>
+      )}
+    </section>
   );
 }
 

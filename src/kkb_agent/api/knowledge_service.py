@@ -9,9 +9,13 @@ applies as its catalog. Every write names its author, the browser key's owner.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import date, datetime
+from datetime import UTC, date, datetime
+from typing import Literal
+
+from pydantic import ValidationError
 
 from kkb_agent.api.contracts import (
     DatasetDetail,
@@ -19,16 +23,21 @@ from kkb_agent.api.contracts import (
     DatasetVersionSummary,
     KnowledgeList,
     KnowledgeSeries,
+    SearchHit,
+    SearchTrial,
     SeriesNoteHistory,
     SeriesNoteRequest,
     SeriesNoteVersion,
     SeriesValues,
     StoredObservation,
+    VectorIndexStatus,
 )
 from kkb_agent.api.service import ServiceError
 from kkb_agent.api.store import ConversationStore
+from kkb_agent.catalog.hybrid import CatalogDenseStage, search_hybrid_catalog
 from kkb_agent.catalog.mappings import ReviewedSnapshot
 from kkb_agent.catalog.records import CatalogRecord, CatalogStatus
+from kkb_agent.catalog.search import CatalogSearchArguments, search_catalog
 from kkb_agent.core import (
     Aggregation,
     CumulativeKind,
@@ -56,6 +65,13 @@ DocumentColumnReader = Callable[
 ]
 
 
+def _stage(sources: tuple[str, ...]) -> Literal["lexical", "dense", "both"]:
+    """Which retrieval stage offered this candidate, as the tool itself recorded it."""
+    if "lexical" in sources and "dense" in sources:
+        return "both"
+    return "dense" if "dense" in sources else "lexical"
+
+
 class KnowledgeService:
     def __init__(
         self,
@@ -68,8 +84,20 @@ class KnowledgeService:
         read_document_column: DocumentColumnReader | None = None,
         acquisitions: Callable[[], dict[str, dict[str, object]]] | None = None,
         series_values: Callable[[str], tuple[tuple[date, date, float | None], ...]] | None = None,
+        dense: CatalogDenseStage | None = None,
+        rebuild_index: Callable[[ReviewedSnapshot], CatalogDenseStage] | None = None,
+        install_index: Callable[[CatalogDenseStage], None] | None = None,
     ) -> None:
         self._knowledge = knowledge
+        self._dense = dense
+        # Building a generation calls the embedding model once per catalogue entry,
+        # so it runs on its own thread and one at a time; reading never does.
+        self._rebuild = rebuild_index
+        self._install = install_index
+        self._building = threading.Lock()
+        self._build_thread: threading.Thread | None = None
+        self._built_at: datetime | None = None
+        self._build_error: str | None = None
         self._conversations = conversations
         self._reviewed = reviewed
         self._prepared = prepared
@@ -89,6 +117,152 @@ class KnowledgeService:
         return owner
 
     # -- reading ---------------------------------------------------------------
+
+    def search(self, owner_token: str, query: str) -> SearchTrial:
+        """What discovery returns for a question, over this browser's own catalogue.
+
+        The retrieval a turn runs, with no turn, no answer and nothing stored: the
+        same two stages (reviewed lexical match and, when an index is configured,
+        the meaning-based one) over the same effective catalogue. A trial reports
+        which stages actually ran, so a catalogue whose vectors no longer cover it
+        is visible here rather than silently lexical.
+        """
+        self._author(owner_token)
+        catalog = self._effective()
+        try:
+            arguments = CatalogSearchArguments(query=query)
+        except ValidationError:
+            raise ServiceError("invalid_request", 422) from None
+        found = (
+            search_hybrid_catalog(catalog, arguments, self._dense)
+            if self._dense is not None
+            else search_catalog(catalog, arguments)
+        )
+        return SearchTrial(
+            query=query,
+            status=str(found.status),
+            clarification_required=found.clarification_required,
+            total_candidates=found.total_candidates,
+            retrieval_mode=found.retrieval_mode,
+            dense_status=found.dense_status,
+            dense_failure=found.dense_failure,
+            embedding_model=self._dense.index.profile.model if self._dense is not None else None,
+            input_policy_id=found.input_policy_id,
+            hits=tuple(
+                SearchHit(
+                    series_id=candidate.series.record.series_id,
+                    title=candidate.series.record.title,
+                    provider=candidate.series.record.provider,
+                    unit=candidate.series.record.unit,
+                    frequency=candidate.series.record.frequency.value,
+                    stock_flow=candidate.series.record.stock_flow.value,
+                    prepared=candidate.series.record.series_id in self._prepared,
+                    archived=candidate.series.record.status is CatalogStatus.ARCHIVED,
+                    stage=_stage(candidate.retrieval_sources),
+                    concepts=tuple(candidate.concept_ids)[:20],
+                )
+                for candidate in found.candidates
+            ),
+        )
+
+    def _effective(self) -> ReviewedSnapshot:
+        """The catalogue a turn would search: reviewed, with this knowledge base applied."""
+        datasets = self._knowledge.datasets(include_archived=True)
+        notes = list({note.series_id: note for note in self._knowledge.notes()}.values())
+        return effective_snapshot(
+            self._reviewed, [d for d in datasets if d.status == "active"], notes
+        )
+
+    def index_status(self, owner_token: str) -> VectorIndexStatus:
+        """What the meaning-based stage holds, against the catalogue in use now.
+
+        Reading only: no vector is computed here and no model is called. A
+        generation that no longer covers the catalogue is reported as such, with
+        the entries it is missing, because that is what turns the second stage off.
+        """
+        self._author(owner_token)
+        catalog = self._effective()
+        identities = [item.record.series_id for item in catalog.series]
+        building = self._build_thread is not None and self._build_thread.is_alive()
+        if self._dense is None:
+            return VectorIndexStatus(
+                configured=False,
+                catalog_sha256=catalog.content_sha256,
+                catalog_version=catalog.snapshot_version,
+                covers_catalog=False,
+                series_total=len(identities),
+                series_vectored=0,
+                missing=tuple(identities[:50]),
+                rebuilding=building,
+                rebuildable=self._rebuild is not None,
+                built_at=self._built_at,
+                last_error=self._build_error,
+            )
+        index = self._dense.index
+        profile = index.profile
+        held = index.series_ids
+        return VectorIndexStatus(
+            configured=True,
+            model=profile.model,
+            input_policy_id=profile.input_policy_id,
+            origin=profile.origin,
+            dimension=profile.dimension,
+            generation_sha256=index.snapshot_sha256,
+            generation_version=index.snapshot_version,
+            catalog_sha256=catalog.content_sha256,
+            catalog_version=catalog.snapshot_version,
+            covers_catalog=index.snapshot_sha256 == catalog.content_sha256,
+            series_total=len(identities),
+            series_vectored=sum(sid in held for sid in identities),
+            missing=tuple(sid for sid in identities if sid not in held)[:50],
+            rebuilding=building,
+            rebuildable=self._rebuild is not None,
+            built_at=self._built_at,
+            last_error=self._build_error,
+        )
+
+    def rebuild(self, owner_token: str) -> VectorIndexStatus:
+        """Build the vectors again for the catalogue in use now, with the same profile.
+
+        Accepted, not finished: the build calls the embedding model once per
+        catalogue entry and runs on its own thread, so the page polls the status.
+        One build runs at a time. The model, the input policy and the dimension are
+        the deployment's; nothing here selects them. A new generation is written and
+        installed for later turns only after it verifies against the catalogue it
+        was built for; on any failure the generation in use is left untouched.
+        """
+        self._author(owner_token)
+        if self._rebuild is None:
+            raise ServiceError("unavailable", 503)
+        if not self._building.acquire(blocking=False):
+            raise ServiceError("busy", 409)
+        catalog = self._effective()
+        build, install = self._rebuild, self._install
+
+        def run() -> None:
+            try:
+                stage = build(catalog)
+                if stage.index.snapshot_sha256 != catalog.content_sha256:
+                    raise ValueError("generation does not cover the catalogue it was built for")
+                if install is not None:
+                    install(stage)
+                self._dense = stage
+                self._built_at, self._build_error = datetime.now(UTC), None
+            except Exception as error:
+                # A category, never a path, a query or vector contents.
+                self._build_error = type(error).__name__
+            finally:
+                self._building.release()
+
+        self._build_thread = threading.Thread(target=run, name="catalog-index", daemon=True)
+        self._build_thread.start()
+        return self.index_status(owner_token)
+
+    def close(self) -> None:
+        """Wait for a build in progress so a generation is never left half written."""
+        thread = self._build_thread
+        if thread is not None:
+            thread.join(timeout=600)
 
     def listing(self, owner_token: str) -> KnowledgeList:
         self._author(owner_token)

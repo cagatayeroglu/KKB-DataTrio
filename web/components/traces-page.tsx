@@ -2,12 +2,12 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ChevronDown,
+  Maximize2,
   Download,
   LoaderCircle,
   Search,
   ThumbsDown,
   ThumbsUp,
-  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,6 +37,14 @@ const stageNames: Record<string, string> = {
   publication: "Yayın",
   answer: "Cevap",
 };
+//: What an event recorded under a model call is, in the reader's words.
+const childNames: Record<string, string> = {
+  "prompt.system": "Sistem mesajı",
+  "prompt.user": "Kullanıcı mesajı",
+  "prompt.assistant": "Model mesajı",
+  "model.reasoning": "Modelin akıl yürütmesi",
+  "planner.output": "Modelin verdiği plan",
+};
 const reasonNames: Record<string, string> = {
   accuracy: "Doğruluk",
   incomplete: "Eksik",
@@ -59,23 +67,84 @@ function size(chars: number) {
 /** Full text of every step whose stored detail was sent as a preview. */
 type FullDetails = Record<number, string | null>;
 
-function Step({
+function Content({
   step,
-  open,
   full,
-  onToggle,
+  onExpand,
 }: {
   step: TraceStep;
-  open: boolean;
   full: string | null | undefined;
-  onToggle: () => void;
+  onExpand: (step: TraceStep, text: string) => void;
 }) {
-  const entries = Object.entries(step.attributes).filter(
-    ([, value]) => value !== null && value !== "",
-  );
   const text = full !== undefined ? full : step.detail;
   const chars = step.detail_chars ?? step.detail?.length ?? 0;
   const clipped = step.detail_complete === false && full === undefined;
+  const entries = Object.entries(step.attributes).filter(
+    ([, value]) => value !== null && value !== "",
+  );
+  return (
+    <div className="trace-detail">
+      {entries.length > 0 && (
+        <dl>
+          {entries.map(([key, value]) => (
+            <div key={key}>
+              <dt>{key}</dt>
+              <dd>
+                {typeof value === "string"
+                  ? value
+                  : JSON.stringify(value, null, 1)}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {clipped && (
+        <p className="helper">
+          <LoaderCircle size={12} className="spin" />{" "}
+          {`Tam metin yükleniyor (${size(chars)})`}
+        </p>
+      )}
+      {text && (
+        <>
+          <button
+            type="button"
+            className="trace-expand"
+            onClick={() => onExpand(step, text)}
+          >
+            <Maximize2 size={12} /> Tam ekran
+          </button>
+          <pre>{text}</pre>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Step({
+  step,
+  records,
+  open,
+  full,
+  onToggle,
+  onExpand,
+  fullOf,
+}: {
+  step: TraceStep;
+  records: TraceStep[];
+  open: boolean;
+  full: string | null | undefined;
+  onToggle: () => void;
+  onExpand: (step: TraceStep, text: string) => void;
+  fullOf: (step: TraceStep) => string | null | undefined;
+}) {
+  const own = (step.detail_chars ?? step.detail?.length ?? 0) as number;
+  const chars =
+    own +
+    records.reduce(
+      (total, child) =>
+        total + (child.detail_chars ?? child.detail?.length ?? 0),
+      0,
+    );
   return (
     <li className={`trace-step ${step.status}`}>
       <button type="button" onClick={onToggle} aria-expanded={open}>
@@ -84,6 +153,9 @@ function Step({
           {stageNames[step.stage] ?? step.stage}
         </span>
         <span className="trace-name">{step.name}</span>
+        {records.length > 0 && (
+          <span className="trace-children">{records.length} kayıt</span>
+        )}
         {chars > 0 && <span className="trace-size">{size(chars)}</span>}
         <span className="trace-time">
           +{duration(step.started_ms)} · {duration(step.duration_ms)}
@@ -94,28 +166,19 @@ function Step({
         <ChevronDown size={13} className={open ? "open" : ""} />
       </button>
       {open && (
-        <div className="trace-detail">
-          {entries.length > 0 && (
-            <dl>
-              {entries.map(([key, value]) => (
-                <div key={key}>
-                  <dt>{key}</dt>
-                  <dd>
-                    {typeof value === "string"
-                      ? value
-                      : JSON.stringify(value, null, 1)}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          )}
-          {clipped && (
-            <p className="helper">
-              <LoaderCircle size={12} className="spin" />{" "}
-              {`Tam metin yükleniyor (${size(chars)})`}
-            </p>
-          )}
-          {text && <pre>{text}</pre>}
+        <div className="trace-nested">
+          <Content step={step} full={full} onExpand={onExpand} />
+          {records.map((child) => (
+            <section key={child.sequence} className="trace-child">
+              <h4>
+                {childNames[child.name] ?? child.name}
+                {typeof child.attributes.position === "number" && (
+                  <span> · {String(child.attributes.position)}</span>
+                )}
+              </h4>
+              <Content step={child} full={fullOf(child)} onExpand={onExpand} />
+            </section>
+          ))}
         </div>
       )}
     </li>
@@ -140,6 +203,11 @@ function RunView({
   const [full, setFull] = useState<FullDetails>({});
   const [issue, setIssue] = useState("");
   const [filter, setFilter] = useState("");
+  //: One record read on its own, filling the page until it is closed.
+  const [expanded, setExpanded] = useState<{
+    step: TraceStep;
+    text: string;
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -187,29 +255,44 @@ function RunView({
     }
   }
 
-  function toggle(step: TraceStep) {
+  function toggle(step: TraceStep, children: TraceStep[] = []) {
     setOpen((current) => {
       const next = new Set(current);
       if (next.has(step.sequence)) next.delete(step.sequence);
       else {
         next.add(step.sequence);
-        void loadFull([step]);
+        void loadFull([step, ...children]);
       }
       return next;
     });
   }
 
+  // A model call records its prompts and its reasoning as its own events; they
+  // belong under it, not as thirty sibling rows.
+  const grouped = useMemo(() => {
+    const steps = detail?.steps ?? [];
+    const children = new Map<number, TraceStep[]>();
+    for (const step of steps) {
+      if (step.parent == null) continue;
+      children.set(step.parent, [...(children.get(step.parent) ?? []), step]);
+    }
+    return steps
+      .filter((step) => step.parent == null)
+      .map((step) => ({ step, children: children.get(step.sequence) ?? [] }));
+  }, [detail]);
+
   const shown = useMemo(() => {
     const needle = filter.trim().toLocaleLowerCase("tr");
-    if (!detail) return [];
-    if (!needle) return detail.steps;
-    return detail.steps.filter((step) =>
+    if (!needle) return grouped;
+    const matches = (step: TraceStep) =>
       [step.stage, step.name, step.status, JSON.stringify(step.attributes)]
         .join(" ")
         .toLocaleLowerCase("tr")
-        .includes(needle),
+        .includes(needle);
+    return grouped.filter(
+      (item) => matches(item.step) || item.children.some(matches),
     );
-  }, [detail, filter]);
+  }, [grouped, filter]);
 
   async function download() {
     if (!detail) return;
@@ -243,10 +326,12 @@ function RunView({
     URL.revokeObjectURL(link.href);
   }
 
+  // One count per model call: a planning call, or the writer's own call. The
+  // plan it returned and the draft it wrote are records of that call, not calls.
   const model = detail?.steps.filter(
     (step) =>
       (step.stage === "planning" && step.name !== "planner.output") ||
-      step.name === "draft.model",
+      step.name === "writer.call",
   ).length;
   const tools = detail?.steps.filter((step) => step.stage === "tool").length;
 
@@ -312,8 +397,10 @@ function RunView({
           disabled={!detail}
           onClick={() => {
             if (!detail) return;
-            setOpen(new Set(shown.map((step) => step.sequence)));
-            void loadFull(shown);
+            setOpen(new Set(shown.map((item) => item.step.sequence)));
+            void loadFull(
+              shown.flatMap((item) => [item.step, ...item.children]),
+            );
           }}
         >
           Tümünü aç
@@ -341,14 +428,31 @@ function RunView({
           <LoaderCircle size={14} className="spin" /> Yükleniyor
         </p>
       )}
+      {expanded && (
+        <div className="trace-full" role="dialog" aria-label="Kayıt">
+          <header>
+            <strong>
+              {childNames[expanded.step.name] ?? expanded.step.name}
+            </strong>
+            <span>{size(expanded.text.length)}</span>
+            <button type="button" onClick={() => setExpanded(null)}>
+              Kapat
+            </button>
+          </header>
+          <pre>{expanded.text}</pre>
+        </div>
+      )}
       <ol className="trace-steps">
-        {shown.map((step) => (
+        {shown.map((item) => (
           <Step
-            key={step.sequence}
-            step={step}
-            open={open.has(step.sequence)}
-            full={full[step.sequence]}
-            onToggle={() => toggle(step)}
+            key={item.step.sequence}
+            step={item.step}
+            records={item.children}
+            open={open.has(item.step.sequence)}
+            full={full[item.step.sequence]}
+            onToggle={() => toggle(item.step, item.children)}
+            onExpand={(step, text) => setExpanded({ step, text })}
+            fullOf={(child) => full[child.sequence]}
           />
         ))}
       </ol>
@@ -360,11 +464,12 @@ function RunView({
 export function TracesPage({
   owner,
   initialConversation,
-  onClose,
+  initialTurn,
 }: {
   owner: string;
   initialConversation?: string | null;
-  onClose: () => void;
+  /** Open this turn's own run: the studio's "İşlem ayrıntıları" and "Canlı izle". */
+  initialTurn?: string | null;
 }) {
   const [archived, setArchived] = useState(false);
   const [search, setSearch] = useState("");
@@ -419,7 +524,13 @@ export function TracesPage({
         ]);
         if (cancelled) return;
         setRuns(listed.runs);
-        setRun(listed.runs[0]?.run_id ?? null);
+        setRun(
+          (initialTurn
+            ? listed.runs.find((item) => item.turn_id === initialTurn)?.run_id
+            : undefined) ??
+            listed.runs[0]?.run_id ??
+            null,
+        );
         setAnswers(
           Object.fromEntries(
             detail.messages
@@ -436,7 +547,7 @@ export function TracesPage({
     return () => {
       cancelled = true;
     };
-  }, [chosen, owner]);
+  }, [chosen, owner, initialTurn]);
 
   const current = runs.find((item) => item.run_id === run);
   return (
@@ -446,23 +557,11 @@ export function TracesPage({
       onClick={(e) => e.stopPropagation()}
     >
       <header className="traces-head">
-        <div>
-          <span className="eyebrow">HATA AYIKLAMA</span>
-          <h2 id="panel-title">İşlem kayıtları</h2>
-        </div>
+        <h2 id="panel-title">İşlem kayıtları</h2>
         <p>
           Her turda modele giden istemler, araç çağrıları ve dönen çıktıların
           tamamı. Açmak yeni analiz başlatmaz.
         </p>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Kapat"
-          autoFocus
-          onClick={onClose}
-        >
-          <X size={19} />
-        </Button>
       </header>
       {issue && <p className="notice">{issue}</p>}
       <div className="traces-body">

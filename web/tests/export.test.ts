@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { cellSchema, resultSchema, type Result } from "../lib/contracts";
 import { BOM, evidencePackage, exportName, tableCsv } from "../lib/export";
+import { arrange } from "../lib/table";
 
 const proof = {
   scope: "result",
@@ -147,4 +148,20 @@ test("file names carry the result version so an export can be matched to its tra
     exportName(table(), "csv", "-excel"),
     "kkb-analiz-bbbbbbbbbbbb-excel.csv",
   );
+});
+
+test("a narrowed view writes the rows on screen, with the table's own columns", () => {
+  const { rows, columns } = arrange(table().cells);
+  const csv = tableCsv(table(), null, "standard", { rows: rows.slice(0, 1) });
+  assert.equal(columns.length, 2);
+  assert.equal(
+    csv,
+    [
+      "Dönem başı,Dönem sonu,balance (milyon TL),rate (%)",
+      "2021-01-01,2021-01-31,100.25,18.39",
+      "",
+    ].join("\r\n"),
+  );
+  // Without a view the whole published table is written, unchanged.
+  assert.equal(tableCsv(table(), null, "standard").split("\r\n").length, 5);
 });

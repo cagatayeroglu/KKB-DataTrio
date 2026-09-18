@@ -37,14 +37,18 @@ from kkb_agent.api.contracts import (
     Reference,
     RunDetail,
     RunList,
+    RuntimeSettings,
+    SearchTrial,
     SeriesIdentity,
     SeriesNoteHistory,
     SeriesNoteRequest,
     SeriesValues,
     SessionCreated,
+    SettingsUpdate,
     Slug,
     TraceStepFull,
     Turn,
+    VectorIndexStatus,
 )
 from kkb_agent.api.knowledge_service import KnowledgeService
 from kkb_agent.api.prepared import PreparedStatus
@@ -60,9 +64,11 @@ DOCUMENT_ROUTE = re.compile(r"/v1/sessions/[a-f0-9]{32}/documents\Z")
 #: The one JSON route allowed a larger body: a knowledge-base dataset (DEC-157).
 KNOWLEDGE_DATASET_ROUTE = re.compile(r"/v1/knowledge/datasets\Z")
 MAX_KNOWLEDGE_BODY_BYTES = 1024 * 1024
-#: The one route with a query string: listing a browser's own conversations.
+#: The two routes with a query string: listing a browser's own conversations, and
+#: trying a question against its own catalogue.
 LIST_ROUTE = re.compile(r"/v1/conversations\Z")
-MAX_QUERY_BYTES = 256
+SEARCH_ROUTE = re.compile(r"/v1/knowledge/search\Z")
+MAX_QUERY_BYTES = 1024
 #: Methods that may carry a body; a body anywhere else is refused.
 BODY_METHODS = ("POST", "PATCH")
 
@@ -129,8 +135,10 @@ class LocalBoundary:
                 await reject("forbidden", 403)
                 return
             query = scope.get("query_string") or b""
-            listing = scope["method"] == "GET" and bool(LIST_ROUTE.fullmatch(scope["path"]))
-            if (query and not (listing and len(query) <= MAX_QUERY_BYTES)) or any(
+            queried = scope["method"] == "GET" and bool(
+                LIST_ROUTE.fullmatch(scope["path"]) or SEARCH_ROUTE.fullmatch(scope["path"])
+            )
+            if (query and not (queried and len(query) <= MAX_QUERY_BYTES)) or any(
                 len(headers.get(key, [])) > 1
                 for key in (
                     b"content-length",
@@ -350,9 +358,35 @@ def create_app(
             raise ServiceError("unavailable", 503)
         return knowledge
 
+    @app.get("/v1/settings", response_model=RuntimeSettings)
+    def settings(owner: OwnerToken) -> RuntimeSettings:
+        return service.settings(owner)
+
+    @app.patch("/v1/settings", response_model=RuntimeSettings)
+    def update_settings(owner: OwnerToken, body: SettingsUpdate) -> RuntimeSettings:
+        # A browser may narrow its own runtime; widening is not expressible here.
+        return service.update_settings(owner, body)
+
     @app.get("/v1/knowledge", response_model=KnowledgeList)
     def knowledge_list(owner: OwnerToken) -> KnowledgeList:
         return _knowledge().listing(owner)
+
+    @app.get("/v1/knowledge/search", response_model=SearchTrial)
+    def knowledge_search(
+        owner: OwnerToken, q: Annotated[str, Query(min_length=1, max_length=512)]
+    ) -> SearchTrial:
+        # A trial runs the same catalogue search a turn runs, and stores nothing.
+        return _knowledge().search(owner, q)
+
+    @app.get("/v1/knowledge/index", response_model=VectorIndexStatus)
+    def knowledge_index(owner: OwnerToken) -> VectorIndexStatus:
+        # What the meaning-based stage holds; reading computes no vector.
+        return _knowledge().index_status(owner)
+
+    @app.post("/v1/knowledge/index", response_model=VectorIndexStatus, status_code=202)
+    def knowledge_reindex(owner: OwnerToken) -> VectorIndexStatus:
+        # Accepted, not done: building calls the embedding model once per entry.
+        return _knowledge().rebuild(owner)
 
     @app.get("/v1/knowledge/datasets/{slug}", response_model=DatasetDetail)
     def knowledge_dataset(slug: Slug, owner: OwnerToken) -> DatasetDetail:

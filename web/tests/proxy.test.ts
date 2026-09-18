@@ -603,3 +603,38 @@ test("a stored trace and one whole step pass with the key, under the trace ceili
     );
   }
 });
+
+test("the catalogue trial passes with the browser key and only its own query", async () => {
+  const seen: { url: string; headers: Headers }[] = [];
+  const transport: typeof fetch = async (url, init) => {
+    seen.push({ url: String(url), headers: new Headers(init?.headers) });
+    return Response.json({ ok: true });
+  };
+  const key = "o".repeat(43);
+  const path = ["v1", "knowledge", "search"];
+
+  const passed = await forward(
+    request("v1/knowledge/search?q=konut%20kredisi", "GET", {
+      "x-kkb-owner-token": key,
+    }),
+    path,
+    transport,
+  );
+  assert.equal(passed.status, 200);
+  assert.match(seen[0].url, /\/v1\/knowledge\/search\?q=konut%20kredisi$/);
+  assert.equal(seen[0].headers.get("X-KKB-Owner-Token"), key);
+
+  // Without the key, with another parameter, or as a write: nothing is forwarded.
+  for (const [target, method, headers] of [
+    ["v1/knowledge/search?q=x", "GET", {}],
+    ["v1/knowledge/search?limit=9", "GET", { "x-kkb-owner-token": key }],
+    ["v1/knowledge/search?q=x", "POST", { "x-kkb-owner-token": key }],
+  ] as [string, string, Record<string, string>][]) {
+    const refused = await forward(
+      request(target, method, headers),
+      path,
+      transport,
+    );
+    assert.ok([403, 404].includes(refused.status), `${target} ${method}`);
+  }
+});
