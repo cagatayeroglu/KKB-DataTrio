@@ -2780,3 +2780,21 @@ svg {
   font-size: 11px;
   margin-top: 1px;
 }
+
+/* The import control reads as the outline button beside it. */
+.import-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--ink);
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.import-label:hover {
+  border-color: var(--accent);
+}

@@ -709,6 +709,9 @@ class DatasetDetail(ContractModel):
     source_kind: Literal["upload", "manual"]
     description: str | None = None
     aggregation: str
+    #: The weekday a weekly period ends on; carried so an edit or an export
+    #: cannot silently change a declared anchor.
+    weekly_anchor: str | None = None
     observations: Annotated[
         tuple[StoredObservation, ...], Field(max_length=MAX_KNOWLEDGE_OBSERVATIONS)
     ] = ()

@@ -350,10 +350,17 @@ export function Workspace() {
           }
         }),
       );
-      if (mounted.current)
-        setRestoredTurns(
-          restored.filter((turn): turn is Turn => Boolean(turn)),
-        );
+      if (mounted.current) {
+        const kept = restored.filter((turn): turn is Turn => Boolean(turn));
+        setRestoredTurns(kept);
+        // The newest table opens with the conversation; nobody re-selects what
+        // they were already looking at when they left.
+        const newest = kept
+          .map((turn) => publishedResult(turn)?.result_ref)
+          .filter((ref): ref is string => Boolean(ref))
+          .at(-1);
+        if (newest) setSelected(newest);
+      }
     } catch (error) {
       if (mounted.current) setIssue(describeError(error));
     }

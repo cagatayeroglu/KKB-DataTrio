@@ -597,6 +597,7 @@ export const datasetDetailSchema = z
     source_kind: z.enum(["upload", "manual"]),
     description: z.string().max(1000).nullable(),
     aggregation: z.string().max(40),
+    weekly_anchor: z.string().max(20).nullable().optional(),
     observations: z
       .array(
         z
@@ -645,6 +646,21 @@ export const noteHistorySchema = z
 export type KnowledgeSeries = z.infer<typeof knowledgeSeriesSchema>;
 export type KnowledgeList = z.infer<typeof knowledgeListSchema>;
 export type DatasetDetail = z.infer<typeof datasetDetailSchema>;
+/**
+ * A saved knowledge base: the listing as read, plus each user dataset's full
+ * detail (observations and declared meaning), so the file can be imported
+ * elsewhere by replaying the same versioned writes. Nothing reviewed travels:
+ * the reviewed catalogue is the deployment's own.
+ */
+export const knowledgeExportSchema = z
+  .object({
+    schema: z.literal("kkb-knowledge-export-v1"),
+    exported_at: z.string().max(40),
+    listing: knowledgeListSchema,
+    datasets: z.array(datasetDetailSchema).max(5000),
+  })
+  .strict();
+export type KnowledgeExport = z.infer<typeof knowledgeExportSchema>;
 export type NoteHistory = z.infer<typeof noteHistorySchema>;
 export type DatasetRequest = {
   slug: string;

@@ -72,6 +72,20 @@ model call. Do not overwrite older evidence to hide a conflicting source revisio
 | POST `/v1/sessions/{session_id}/turns` | JSON `request_id`, `question`, optional `selected_result_id`; token header | Owned turn reference/state; HTTP 202 |
 | GET `/v1/sessions/{session_id}/turns/{turn_id}` | Token header | State, gated answer and published cells when available |
 | GET `/v1/sessions/{session_id}/turns/{turn_id}/events` | Token header; optional `Last-Event-ID` 0–3 | Actual turn lifecycle SSE |
+| POST `/v1/sessions/{session_id}/turns/{turn_id}/cancel` | Token header | Accepted (202); the turn stops at its next checkpoint |
+| POST `/v1/sessions/{session_id}/documents` | Raw CSV/XLSX/PDF/HTML body with its content type; token header | Admitted document reference; HTTP 201 |
+| POST `/v1/owner` | JSON `{}` | The browser's owner key, which lists and reopens its own conversations |
+| GET / PATCH `/v1/settings` | Owner key header; PATCH body `disabled`, `history_turns` | The owner's restrict-only runtime choices ([DEC-162](DECISIONS.md#dec-162--a-browser-narrows-its-own-runtime-only-the-operator-widens-it)) |
+| GET `/v1/conversations` (+ `q`, `archived` filters) | Owner key header | This browser's conversations, newest first |
+| GET / PATCH `/v1/conversations/{id}` | Owner key or conversation token | Messages and documents; PATCH renames or archives |
+| GET `/v1/conversations/{id}/runs`, `/runs/{run_id}`, `/runs/{run_id}/steps/{seq}` | Owner key or conversation token | Recorded runs, their trace steps, and one step's full detail |
+| GET / POST `/v1/conversations/{id}/feedback` | Owner key or conversation token | Ratings for this conversation's answers |
+| GET `/v1/dataset` | None | The prepared pool's series and coverage |
+| GET `/v1/knowledge` | Owner key header | Every series the agent can reach, with where each one's meaning comes from |
+| GET `/v1/knowledge/search?q=` | Owner key header | A question tried against this catalogue with the deployment's own retrieval, run here and stored nowhere |
+| GET / POST `/v1/knowledge/index` | Owner key header | The vector generation in use; POST builds one for the catalogue in use now ([DEC-163](DECISIONS.md#dec-163--a-vector-generation-covers-one-catalogue-and-the-knowledge-base-can-have-its-own)) |
+| POST `/v1/knowledge/datasets`; GET `/{slug}`; POST `/{slug}/archive`, `/{slug}/restore` | Owner key header | Versioned user datasets (DEC-157); archive keeps history |
+| GET `/v1/knowledge/series/{id}/values`, `/notes` (+ POST), `/uses` | Owner key header | Stored values, versioned notes/aliases, and the answers whose proof read the series |
 
 `X-KKB-Session-Token` carries a random 256-bit capability. Never place it in a
 URL, question, browser log or model prompt. The server retains only its SHA-256

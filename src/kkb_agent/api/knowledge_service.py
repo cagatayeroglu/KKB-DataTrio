@@ -385,6 +385,7 @@ class KnowledgeService:
             source_kind=latest.source_kind,
             description=latest.description,
             aggregation=latest.aggregation.value,
+            weekly_anchor=latest.anchor.value if latest.anchor is not None else None,
             observations=tuple(
                 StoredObservation(
                     period_start=o.period_start, period_end=o.period_end, value=o.value
