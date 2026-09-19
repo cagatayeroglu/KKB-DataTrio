@@ -145,6 +145,8 @@ def test_catalog_feedback_removes_retrieval_mechanics_but_keeps_planning_semanti
     assert record["base_year"] == 2023 and candidate["series"]["geography"] == "Türkiye"
     assert "bm25_score" not in candidate and "rank" not in candidate
     assert "snapshot_sha256" not in payload["results"][0]
+    # DEC-165: the planner is told whether the first candidate is the default.
+    assert payload["results"][0]["top_candidate"] == "unambiguous"
 
 
 def test_continuation_prompt_is_smaller_without_exposing_extra_tool_schemas(rig, snapshot):
@@ -174,7 +176,9 @@ def test_continuation_prompt_is_smaller_without_exposing_extra_tool_schemas(rig,
     legacy_bytes = sum(len(message.content.encode("utf-8")) for message in continuation[:-1]) + len(
         legacy_feedback.encode("utf-8")
     )
-    assert continuation_bytes < legacy_bytes * 0.82
+    # DEC-165 added the top_candidate guidance to the continuation instructions;
+    # the prompt still stays well below the legacy full-dump feedback.
+    assert continuation_bytes < legacy_bytes * 0.85
     first_tools = json.loads(
         next(m.content for m in first if m.content.startswith("Available tools:"))[17:]
     )

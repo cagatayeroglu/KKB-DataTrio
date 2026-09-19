@@ -29,8 +29,38 @@ def _phrases(*values: str) -> tuple[str, ...]:
     return tuple(normalize_search_text(value) for value in values)
 
 
-RATE = _phrases("faiz", "faizi", "interest", "interest rate", "kâr payı", "profit share", "rate")
-STOCK = _phrases("bakiye", "stok", "hacim", "balance", "outstanding balance")
+RATE = _phrases(
+    "faiz",
+    "faizi",
+    "faizini",
+    "faizleri",
+    "faizlerini",
+    "faiz oranı",
+    "faiz oranını",
+    "faiz oranları",
+    "faiz oranlarını",
+    "interest",
+    "interest rate",
+    "kâr payı",
+    "kâr payını",
+    "profit share",
+    "rate",
+)
+STOCK = _phrases(
+    "bakiye",
+    "bakiyesi",
+    "bakiyesini",
+    "bakiyeleri",
+    "bakiyelerini",
+    "stok",
+    "stoku",
+    "stokunu",
+    "hacim",
+    "hacmi",
+    "hacmini",
+    "balance",
+    "outstanding balance",
+)
 OUTSTANDING = _phrases("stok", "mevcut", "portföy", "outstanding", "existing")
 NEW = _phrases("akım", "yeni", "newly issued", "new loan", "flow")
 EXCLUDED = _phrases("hariç", "kapsam dışı", "excluding", "excluded", "without")
@@ -70,7 +100,13 @@ CURRENCY: tuple[tuple[Currency, tuple[str, ...]], ...] = (
     (
         "try",
         _phrases(
-            "türk lirası", "türk parası", "tl cinsi", "try denominated", "try-denominated", "tp"
+            "türk lirası",
+            "türk parası",
+            "turkish lira",
+            "tl cinsi",
+            "try denominated",
+            "try-denominated",
+            "tp",
         ),
     ),
 )
@@ -170,6 +206,9 @@ class _CandidateIntent:
     inclusion: Inclusion | None
     currency: Currency | None
     rate_measure: RateMeasure | None
+    #: A reviewed TP/YP/TOTAL label: the series is one column of a split aggregate.
+    #: A denomination in a title ("(TL, Akım, %)") is not a component.
+    component: Literal["total", "tp", "yp"] | None
 
 
 def _candidate_intent(item: ReviewedSeries) -> _CandidateIntent:
@@ -177,12 +216,16 @@ def _candidate_intent(item: ReviewedSeries) -> _CandidateIntent:
     text = normalize_search_text(" ".join([record.title, record.description or "", *record.labels]))
     exact_labels = {normalize_search_text(label) for label in record.labels}
     currency: Currency | None
+    component: Literal["total", "tp", "yp"] | None = None
     if "total" in exact_labels:
         currency = "total"
+        component = "total"
     elif "yp" in exact_labels:
         currency = "foreign"
+        component = "yp"
     elif "tp" in exact_labels:
         currency = "try"
+        component = "tp"
     else:
         display_text = normalize_search_text(" ".join([record.title, *record.labels]))
         currency = next(
@@ -207,6 +250,7 @@ def _candidate_intent(item: ReviewedSeries) -> _CandidateIntent:
         inclusion=inclusion,
         currency=currency,
         rate_measure=rate_measure,
+        component=component,
     )
 
 
@@ -231,9 +275,23 @@ def _geography_rank(intent: _QueryIntent, item: ReviewedSeries) -> int:
     return 1 if national else 2
 
 
+def _component_rank(intent: _QueryIntent, candidate: _CandidateIntent) -> int:
+    """An unrequested TP/YP column sits below its aggregate.
+
+    When the question names no currency, the total (or a series that is not a
+    column of a split aggregate) is the default (0) and a reviewed TP/YP column
+    the person did not ask for is demoted (1) - the same rule geography
+    follows. A named currency is handled by the match/conflict count instead;
+    a denomination in a title never makes a series a component.
+    """
+    if intent.currency is None and candidate.component in ("tp", "yp"):
+        return 1
+    return 0
+
+
 def _semantic_key(
     intent: _QueryIntent, item: ReviewedSeries
-) -> tuple[int, int, int, int, int, int]:
+) -> tuple[int, int, int, int, int, int, int, int]:
     candidate = _candidate_intent(item)
     conflicts = 0
     matches = 0
@@ -268,7 +326,32 @@ def _semantic_key(
         base_rank = -item.record.base_year
     elif intent.base_year is not None or intent.base_order is not None:
         base_missing = 1
-    return archive_rank, conflicts, _geography_rank(intent, item), base_missing, base_rank, -matches
+    # Last tiebreak: when no base is named, an index on a newer base is the
+    # default over the same concept's older base (the statistics office moves the
+    # series to the new base and stops the old one). Series without a base year
+    # sit at 0 and are never demoted by it.
+    base_recency = -(item.record.base_year or 0)
+    return (
+        archive_rank,
+        conflicts,
+        _geography_rank(intent, item),
+        _component_rank(intent, candidate),
+        base_missing,
+        base_rank,
+        -matches,
+        base_recency,
+    )
+
+
+def intent_key(query: str, item: ReviewedSeries) -> tuple[int, ...]:
+    """The reviewed-intent order key of one candidate for one query.
+
+    Exposed so search can say whether the first candidate is the unambiguous
+    default for the request: it is when its key is strictly better than the
+    second candidate's. Ties mean the candidates differ on an axis the request
+    did not name, which only the person can settle.
+    """
+    return _semantic_key(_query_intent(query), item)
 
 
 def rerank_by_reviewed_intent[T](

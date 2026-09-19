@@ -28,7 +28,9 @@ _DISCOVERY_FIRST = (
 )
 _DISCOVERY_LAST = (
     "If the request needs clarification, return steps=[] with one clarification reason. "
-    "Never pick top-1 just because it ranks first; use the request and declared semantics."
+    "A candidate's rank alone is never a reason to choose it; each catalog result carries "
+    "a top_candidate field that says whether its first candidate is the unambiguous "
+    "default for the request."
 )
 DISCOVERY_INSTRUCTIONS = (
     _DISCOVERY_FIRST
@@ -46,8 +48,13 @@ CONTINUATION_INSTRUCTIONS = (
     "No further catalog_search, web_search or web_url is allowed in this continuation. "
     "Do not reference discovery steps as numerical results or dependencies. "
     "Catalog presence does not establish prepared availability, period coverage or usable "
-    "semantics. Ranking and similarity scores never resolve ambiguity by themselves. "
-    "Use the original question to distinguish candidates; if insufficient, clarify."
+    "semantics. top_candidate=unambiguous: reviewed metadata leaves one default (total over "
+    "TP/YP columns, national over regions, newest base year, current over archived) - use it "
+    "when its declared semantics fit the question, without asking. ambiguous: settle the "
+    "differing axis (balance/rate, TL/FX, place, base year, scope) from the question's own "
+    "words; clarify, naming that axis, only when the question does not say. none: nothing "
+    "matched. "
+    "Similarity scores never resolve ambiguity; never clarify because a candidate is merely ranked."
 )
 REQUIRED_DISCOVERY_INSTRUCTIONS = (
     "Before reading any new series, you MUST first plan catalog_search only, even if "
@@ -278,6 +285,7 @@ def _catalog_planning_context(output: CatalogSearchOutput) -> dict[str, object]:
         "total_candidates": output.total_candidates,
         "truncated": output.truncated,
         "clarification_required": output.clarification_required,
+        "top_candidate": output.top_candidate,
         "excluded_archived_count": output.excluded_archived_count,
         "untrusted_metadata": True,
         "observation_fetch_authorized": False,
