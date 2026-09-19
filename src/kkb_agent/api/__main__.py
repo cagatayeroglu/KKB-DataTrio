@@ -27,7 +27,7 @@ from kkb_agent.knowledge import KnowledgeStore
 from kkb_agent.llm import KloudeksProvider, ProviderConfig, approved_base_url
 from kkb_agent.tools.searxng import SearxngBackend
 
-MAX_REQUEST_TIMEOUT = 900.0
+MAX_REQUEST_TIMEOUT = 1800.0
 #: Fetched official responses, kept for later conversations (DEC-159).
 ACQUIRED_DIRECTORY = "acquired"
 #: Built vector generations, one immutable directory per catalogue digest.
@@ -144,7 +144,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         catalog_bytes = read_catalog(catalog_path)
         config = literal_config(args.env_file)
         approved_base_url(config.base_url)
-        # Live Kloudeks completions took up to 207 s on 2026-09-15; bounded, not unlimited.
+        # Bounded, not unlimited. Live completions took up to 207 s on 2026-09-15; on
+        # 2026-09-19 the platform decoded 7-11.5 tokens a second, so a 7-8k-token plan
+        # outlived the former 900 s ceiling (4 of 70 calls lost). Attempts only re-ask a
+        # malformed answer (complete_with_repair); a timed-out request is never retried.
         if (
             not math.isfinite(config.request_timeout)
             or not 1 <= config.request_timeout <= MAX_REQUEST_TIMEOUT

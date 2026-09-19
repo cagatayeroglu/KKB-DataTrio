@@ -65,6 +65,8 @@ const stageWords: Record<string, string> = {
 const topCandidateWords: Record<string, string> = {
   unambiguous: "ilk aday net varsayılan",
   ambiguous: "adaylar belirsiz, netleştirme gerekir",
+  unconfirmed:
+    "incelenmiş bir kavram eşleşmedi; adaylar yalnızca yakın komşu, aranan ölçüm bilgi tabanında olmayabilir",
   none: "aday yok",
 };
 const denseFailureWords: Record<string, string> = {
@@ -596,7 +598,26 @@ export function KnowledgePanel({
               <span className={`series-source ${item.origin}`}>
                 {item.origin === "user" ? "KULLANICI" : item.provider}
               </span>
-              <h3>{item.title}</h3>
+              <h3>
+                {item.title}
+                {(() => {
+                  // Entries that share a title (the BDDK housing TP/YP/TOTAL rows, two
+                  // EVDS rates from different bank groups) are told apart by the labels
+                  // they do not share; nothing is kept by hand.
+                  const twins = (listing?.series ?? []).filter(
+                    (other) =>
+                      other.title === item.title &&
+                      other.series_id !== item.series_id,
+                  );
+                  const own = (item.labels ?? []).filter(
+                    (label) =>
+                      !twins.every((other) => other.labels?.includes(label)),
+                  );
+                  return twins.length > 0 && own.length > 0 ? (
+                    <span className="series-variant"> · {own.join(" · ")}</span>
+                  ) : null;
+                })()}
+              </h3>
               <small>{where(item)}</small>
               {(() => {
                 const state = health(item, pool);
@@ -621,6 +642,12 @@ export function KnowledgePanel({
                 owner={owner}
                 busy={busy}
                 act={act}
+                stored={health(item, pool)}
+                vectored={
+                  index && index.configured
+                    ? !index.missing.includes(item.series_id)
+                    : null
+                }
                 onOpenConversation={onOpenConversation}
                 onEdit={async () => {
                   if (!item.slug) return;
@@ -760,6 +787,8 @@ function SeriesDetail({
   owner,
   busy,
   act,
+  stored: held,
+  vectored,
   onEdit,
   onOpenConversation,
 }: {
@@ -767,6 +796,10 @@ function SeriesDetail({
   owner: string;
   busy: boolean;
   act: (work: () => Promise<unknown>) => Promise<void>;
+  /** The window the store really holds, when the catalogue record declares none. */
+  stored: ReturnType<typeof health>;
+  /** Whether the vectors in use cover this entry; null when none are configured. */
+  vectored: boolean | null;
   onEdit: () => void;
   onOpenConversation?: (id: string) => void;
 }) {
@@ -821,8 +854,15 @@ function SeriesDetail({
         <div>
           <dt>Kapsam</dt>
           <dd>
-            {item.coverage_start ?? "?"} – {item.coverage_end ?? "?"}
-            {item.observations !== null ? ` · ${item.observations} gözlem` : ""}
+            {held
+              ? `${held.first ? `${held.first} – ` : ""}${held.last}${
+                  held.observations !== null
+                    ? ` · ${held.observations} gözlem`
+                    : ""
+                }`
+              : item.fetchable
+                ? "Havuzda yok; ilk kullanımda resmî kaynağından alınır"
+                : "Havuzda gözlem yok"}
           </dd>
         </div>
         <div>
@@ -831,6 +871,48 @@ function SeriesDetail({
             {item.origin === "user"
               ? "Senin beyanın; incelenmedi"
               : "İncelenmiş katalog kaydı"}
+          </dd>
+        </div>
+        {item.description && (
+          <div>
+            <dt>Açıklama</dt>
+            <dd>{item.description}</dd>
+          </div>
+        )}
+        {item.labels && item.labels.length > 0 && (
+          <div>
+            <dt>Etiketler</dt>
+            <dd>{item.labels.join(" · ")}</dd>
+          </div>
+        )}
+        {item.reviewed_aliases && item.reviewed_aliases.length > 0 && (
+          <div>
+            <dt>İncelenmiş eş anlamlılar</dt>
+            <dd>{item.reviewed_aliases.join(", ")}</dd>
+          </div>
+        )}
+        {item.reviewer_note && (
+          <div>
+            <dt>İnceleyenin notu</dt>
+            <dd>{item.reviewer_note}</dd>
+          </div>
+        )}
+        <div>
+          <dt>Arama</dt>
+          <dd>
+            {item.search_text
+              ? vectored === null
+                ? "Kelime aramasında; anlam vektörleri yapılandırılmamış"
+                : vectored
+                  ? "Kelime aramasında ve anlam vektörlerinde"
+                  : "Kelime aramasında; anlam vektörü eksik (vektörleri yeniden üret)"
+              : "Aranan katalogda değil (arşivli)"}
+            {item.search_text && (
+              <details className="search-text">
+                <summary>Aramanın okuduğu metin</summary>
+                <p>{item.search_text}</p>
+              </details>
+            )}
           </dd>
         </div>
         {uses && uses.uses.length > 0 && (
@@ -879,13 +961,20 @@ function SeriesDetail({
             />
           </label>
           <label>
-            Not
+            Senin açıklaman (aramaya girer)
             <textarea
               value={note}
               maxLength={1000}
               onChange={(e) => setNote(e.target.value)}
+              placeholder="Bu seriyi kendi sözlerinle anlat; soruda bu sözler geçince bulunur"
             />
           </label>
+          <p className="helper">
+            Eş anlamlılar birebir eşleşir (soruda aynen geçerse seri doğrudan
+            bulunur); açıklama kelime ve anlam aramasına girer. İkisi de
+            incelenmiş metne eklenir, onu değiştirmez. Kaydettikten sonra anlam
+            araması için vektörleri yeniden üret.
+          </p>
           <div className="feedback-actions">
             <Button
               size="sm"

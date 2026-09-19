@@ -4,6 +4,7 @@ The fixture is deliberately not financial (monthly hospital admissions) and its
 headers state no unit, the common case for an uploaded spreadsheet.
 """
 
+import json
 from datetime import date
 
 import pytest
@@ -252,9 +253,12 @@ def test_a_unit_written_in_the_question_is_recorded_as_the_users(served):
 
 
 def test_an_earlier_upload_is_read_again_in_a_later_turn_without_reattaching(served):
+    # The first turn is a plain reply, so it spends exactly one scripted response. It used
+    # to be a refused SQL whose unused writer text happened to be absorbed by the next
+    # turn's schema repair; with DEC-167 a refused plan is planned again instead.
+    first = json.dumps({"question": "Önce başka bir şey soralım.", "steps": [], "reply": "Olur."})
     runner, client, sid, headers = served(
-        step("a", "lakehouse", sql="SELECT 1 AS x"),
-        "İlk tur.",
+        first,
         table_step(document="belge_1"),
         "Tablo hazır.",
     )

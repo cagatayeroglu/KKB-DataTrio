@@ -40,6 +40,7 @@ from kkb_agent.catalog.hybrid import CatalogDenseStage, search_hybrid_catalog
 from kkb_agent.catalog.mappings import ReviewedSnapshot
 from kkb_agent.catalog.records import CatalogRecord, CatalogStatus
 from kkb_agent.catalog.search import CatalogSearchArguments, search_catalog
+from kkb_agent.catalog.vectors import catalog_documents
 from kkb_agent.core import (
     Aggregation,
     CumulativeKind,
@@ -306,8 +307,39 @@ class KnowledgeService:
         return KnowledgeList(
             catalog_digest=catalog.content_sha256,
             reviewed_digest=self._reviewed.content_sha256,
-            series=tuple(entries),
+            series=tuple(self._with_search_text(entries, catalog)),
         )
+
+    def _with_search_text(
+        self, entries: list[KnowledgeSeries], catalog: ReviewedSnapshot
+    ) -> list[KnowledgeSeries]:
+        """Each entry with what search reads for it, from the catalogue a turn searches now."""
+        try:
+            indexed = {item.series_id: item.text for item in catalog_documents(catalog)}
+        except ValueError:
+            indexed = {}
+        reviewed = {item.record.series_id: item for item in self._reviewed.series}
+        aliases: dict[str, set[str]] = {}
+        for concept in self._reviewed.concepts:
+            for series_id in concept.candidate_series_ids:
+                aliases.setdefault(series_id, set()).update(a.original for a in concept.aliases)
+        enriched = []
+        for entry in entries:
+            item = reviewed.get(entry.series_id)
+            enriched.append(
+                entry.model_copy(
+                    update={
+                        "description": (
+                            item.record.description if item is not None else entry.description
+                        ),
+                        "labels": item.record.labels if item is not None else (),
+                        "reviewed_aliases": tuple(sorted(aliases.get(entry.series_id, ()))),
+                        "reviewer_note": item.note if item is not None else None,
+                        "search_text": indexed.get(entry.series_id),
+                    }
+                )
+            )
+        return enriched
 
     def _reviewed_entry(
         self,
@@ -374,6 +406,7 @@ class KnowledgeService:
             version=item.version,
             slug=item.slug,
             updated_at=item.created_at,
+            description=item.description,
         )
 
     def dataset(self, owner_token: str, slug: str) -> DatasetDetail:

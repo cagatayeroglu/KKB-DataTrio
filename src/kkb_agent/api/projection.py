@@ -5,7 +5,8 @@ from __future__ import annotations
 import re
 from uuid import UUID, uuid5
 
-from kkb_agent.agent.discovery import CLARIFICATION_TEXT
+from kkb_agent.agent.discovery import CLARIFICATION_TEXT, MISSING_SERIES_ROUTES
+from kkb_agent.agent.executor import ExecutionOutcome
 from kkb_agent.agent.loop import Answered
 from kkb_agent.agent.presentation import display_value
 from kkb_agent.agent.verifier import AnswerStatus
@@ -18,6 +19,8 @@ from kkb_agent.api.contracts import (
     Result,
     unavailable_proof,
 )
+from kkb_agent.catalog.mappings import ReviewedSeries
+from kkb_agent.catalog.search import CatalogSearchOutput
 from kkb_agent.core import AnalyticalResult
 
 
@@ -98,6 +101,73 @@ def project_result(
     )
 
 
+#: How many catalogue entries a clarification lists; the search itself returns at most ten.
+MAX_LISTED_CANDIDATES = 6
+_FREQUENCY_WORDS = {
+    "daily": "günlük",
+    "business_day": "iş günü",
+    "weekly": "haftalık",
+    "twice_monthly": "ayda iki",
+    "monthly": "aylık",
+    "quarterly": "üç aylık",
+    "semiannual": "altı aylık",
+    "annual": "yıllık",
+}
+_KIND_WORDS = {"stock": "bakiye (stok)", "flow": "akım", "rate": "oran", "index": "endeks"}
+_SCALE_WORDS = {"thousand": "bin", "million": "milyon", "billion": "milyar"}
+
+
+def _candidate_line(series: ReviewedSeries) -> str:
+    """One catalogue entry as a person reads it: what it is, who publishes it, how it is kept."""
+    record = series.record
+    # The three BDDK housing components share a title; the label tells them apart.
+    component = next((label for label in record.labels if label in ("TP", "YP", "TOTAL")), None)
+    name = record.title + (f" [{component}]" if component else "")
+    if series.geography:
+        name += f" ({series.geography})"
+    publisher = record.group.publisher if record.group and record.group.publisher else None
+    source = record.provider + (
+        f"/{publisher}" if publisher and publisher != record.provider else ""
+    )
+    unit = " ".join(part for part in (_SCALE_WORDS.get(record.scale.value), record.unit) if part)
+    facts = [
+        source,
+        _FREQUENCY_WORDS.get(record.frequency.value),
+        unit or None,
+        _KIND_WORDS.get(record.stock_flow.value),
+    ]
+    return f"- {name} — " + ", ".join(fact for fact in facts if fact)
+
+
+def clarification_text(reason: str, outcome: ExecutionOutcome) -> str:
+    """The fixed clarification sentence, then what this turn's catalogue search really found.
+
+    A bare "several series fit" or "not found" left the person guessing what exists
+    (DEC-172). The lines come from reviewed catalogue records this turn's own searches
+    returned, in their order; nothing here is model text and no figure is quoted.
+    """
+    text = CLARIFICATION_TEXT[reason]
+    if reason not in ("ambiguous_series", "missing_series"):
+        return text
+    seen: dict[str, str] = {}
+    for item in outcome.results:
+        if item.tool != "catalog_search" or not isinstance(item.output, CatalogSearchOutput):
+            continue
+        for candidate in item.output.candidates:
+            seen.setdefault(candidate.series.record.series_id, _candidate_line(candidate.series))
+    lines = list(seen.values())[:MAX_LISTED_CANDIDATES]
+    if lines:
+        heading = (
+            "Bilgi tabanındaki uygun kayıtlar:"
+            if reason == "ambiguous_series"
+            else "Bilgi tabanındaki en yakın kayıtlar (istediğiniz ölçüm bunlar olmayabilir):"
+        )
+        text = "\n".join([text, heading, *lines])
+    if reason == "missing_series":
+        text = "\n".join([text, MISSING_SERIES_ROUTES])
+    return text
+
+
 def project_answer(
     answered: Answered,
     *,
@@ -117,7 +187,7 @@ def project_answer(
     if gate.status is AnswerStatus.ABSTAINED:
         reason = answered.planned.plan.clarification
         text = (
-            CLARIFICATION_TEXT[reason]
+            safe_text(clarification_text(reason, answered.outcome), secrets=secrets)
             if reason is not None
             else (
                 "Bu soru için doğrulanabilir bir sonuç üretilemedi. "

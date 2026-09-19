@@ -47,13 +47,17 @@ from kkb_agent.analytics.table_series import (
 from kkb_agent.analytics.table_series import METHOD as ADD_SERIES_METHOD
 from kkb_agent.analytics.table_shape import (
     ALIGN_METHOD,
+    CHANGE_FORMULAS,
+    CHANGE_METHOD,
     FILTER_METHOD,
     REBASE_FORMULA,
     REBASE_METHOD,
+    ChangedColumn,
     ShapedTable,
     TableShapeRefused,
     align_periods,
     filter_periods,
+    period_change,
     rebase_index,
 )
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
@@ -330,6 +334,43 @@ class RebaseArguments(BaseModel):
     new_base: float = Field(strict=True, gt=0, description="Explicit new index level, usually 100")
 
 
+class ChangeArguments(BaseModel):
+    """Period-over-period change of one column already in the table."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation: Literal["change"] = Field(
+        description=(
+            "change: add the period-over-period change of one column (month over month for a "
+            "monthly table, day over day for a daily one), keeping every existing column. It "
+            "answers how much a value rose or fell each period and which period moved most"
+        )
+    )
+    source: str = Field(pattern=r"^[A-Za-z0-9_.:-]{1,64}$", description=_SOURCE_UNCHANGED)
+    column: str = Field(
+        min_length=1,
+        max_length=400,
+        description=(
+            "The column's exact label (a fetched series' label is its series_id); a "
+            "one-column table is used as is"
+        ),
+    )
+    kind: Literal["difference", "percent"] = Field(
+        description=(
+            "difference: value minus the earlier value, in the column's unit (points for a "
+            "rate or an index). percent: percentage change from the earlier value; not for a "
+            "rate column"
+        )
+    )
+    lag: int = Field(
+        default=1,
+        ge=1,
+        le=12,
+        description="Periods back to compare with: 1 for the previous period, 12 for a year "
+        "earlier on monthly data",
+    )
+
+
 class AlignArguments(BaseModel):
     """Select an exact shared or anchored period spine from existing cells."""
 
@@ -384,6 +425,7 @@ class TableTransformArguments(
             | ResampleArguments
             | JoinTableArguments
             | RebaseArguments
+            | ChangeArguments
             | AlignArguments
             | FilterArguments,
             Field(discriminator="operation"),
@@ -403,6 +445,7 @@ class DocumentTableTransformArguments(
             | AddDocumentColumnArguments
             | JoinTableArguments
             | RebaseArguments
+            | ChangeArguments
             | AlignArguments
             | FilterArguments,
             Field(discriminator="operation"),
@@ -417,6 +460,7 @@ _METHODS = {
     "resample": RESAMPLE_METHOD,
     "to_flow": TO_FLOW_METHOD,
     "rebase": REBASE_METHOD,
+    "change": CHANGE_METHOD,
 }
 
 
@@ -526,7 +570,14 @@ def make_table_transform_tool(
         requested_column: str | None = None
         refusal: AnalyticalResult | None = None
         if isinstance(
-            selected, (DeflateArguments, ResampleArguments, ToFlowArguments, RebaseArguments)
+            selected,
+            (
+                DeflateArguments,
+                ResampleArguments,
+                ToFlowArguments,
+                RebaseArguments,
+                ChangeArguments,
+            ),
         ):
             try:
                 label, resolution = _column_of(source, selected.column)
@@ -712,6 +763,9 @@ def make_table_transform_tool(
             "table direction comparison can use; series-based tools still read original series. "
             "A column the store does "
             "not declare cumulative is refused rather than differenced. "
+            "change adds the period-over-period change of one column (kind=difference in the "
+            "column's unit, or kind=percent; lag=12 for a year earlier on monthly data) and "
+            "marks the periods with the largest rise and fall; a period after a gap stays empty. "
             "resample adds a monthly copy of a weekly column by the series' declared "
             "aggregation (state week_assignment), so a weekly rate can then be joined with "
             "monthly tables. "
@@ -754,11 +808,19 @@ def make_table_transform_tool(
 
 
 def _closed_transform(
-    arguments: RebaseArguments | AlignArguments | FilterArguments,
+    arguments: RebaseArguments | ChangeArguments | AlignArguments | FilterArguments,
     source: AnalyticalResult,
 ) -> AnalyticalResult:
     """Apply one no-I/O operation and preserve the source as a separate artifact."""
     try:
+        if isinstance(arguments, ChangeArguments):
+            return _changed(
+                arguments,
+                source,
+                period_change(
+                    source, column_label=arguments.column, kind=arguments.kind, lag=arguments.lag
+                ),
+            )
         if isinstance(arguments, RebaseArguments):
             rebased = rebase_index(
                 source,
@@ -795,11 +857,72 @@ def _closed_transform(
             tool="table_transform",
             method={
                 "rebase": REBASE_METHOD,
+                "change": CHANGE_METHOD,
                 "align": ALIGN_METHOD,
                 "filter": FILTER_METHOD,
             }[arguments.operation],
             reason=str(error),
         )
+
+
+def _changed(
+    arguments: ChangeArguments, source: AnalyticalResult, changed: ChangedColumn
+) -> AnalyticalResult:
+    refs, previous = _prior_evidence(source)
+    parameters = dict(source.parameters)
+    parameters.update({"source": arguments.source, "change": changed.transformation.parameters})
+    # Period ends only, never a second copy of a value: the writer quotes the change
+    # column's own cell for these periods, and the gate binds it there.
+    highlighted: dict[str, JsonValue] = {}
+    known = source.parameters.get("highlighted_periods")
+    if isinstance(known, dict):
+        highlighted.update(known)
+    if changed.largest_increase:
+        highlighted[f"{changed.label} is largest"] = [
+            end.isoformat() for end in changed.largest_increase
+        ]
+    if changed.largest_decrease:
+        highlighted[f"{changed.label} is smallest"] = [
+            end.isoformat() for end in changed.largest_decrease
+        ]
+    parameters["highlighted_periods"] = highlighted
+    return AnalyticalResult(
+        result_id=(
+            f"table_transform:change:{arguments.source}:{arguments.column}:"
+            f"{arguments.kind}:{arguments.lag}"
+        ),
+        kind=source.kind,
+        status=ResultStatus.COMPUTED,
+        tool="table_transform",
+        method=CHANGE_METHOD,
+        values=[*source.values, *changed.values],
+        coverage=source.coverage,
+        parameters=parameters,
+        samples=source.samples,
+        evidence=ResultEvidence(
+            input_refs=refs,
+            transformations=[*previous, changed.transformation],
+            sources=list(source.evidence.sources) if source.evidence is not None else [],
+        ),
+        warnings=list(source.warnings),
+        limitations=[
+            *source.limitations,
+            f"Only {changed.label} is new ({CHANGE_FORMULAS[arguments.kind]}); a period whose "
+            "predecessor is missing has no change value, and existing columns are unchanged",
+        ],
+        unresolved_semantics=list(
+            dict.fromkeys(
+                [
+                    *source.unresolved_semantics,
+                    *(
+                        [f"{changed.label}: unit and scale are unresolved, as in its column"]
+                        if any(value.semantics_are_unresolved for value in changed.values)
+                        else []
+                    ),
+                ]
+            )
+        ),
+    )
 
 
 def _prior_evidence(source: AnalyticalResult) -> tuple[list[str], list[TransformationRecord]]:

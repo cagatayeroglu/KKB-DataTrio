@@ -227,6 +227,7 @@ def test_required_discovery_repairs_bypass_then_continues_once(rig):
     "operation, extra, requires",
     [
         ("filter", {"start_period": "2021-01-31"}, False),
+        ("change", {"column": "amount", "kind": "percent"}, False),
         ("rebase", {"column": "index", "reference_period": "2021-01-31", "new_base": 100.0}, False),
         ("align", {"join": "inner", "columns": ["index", "amount"]}, False),
         ("add_series", {"series_id": "new"}, True),

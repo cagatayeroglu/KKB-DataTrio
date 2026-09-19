@@ -140,7 +140,7 @@ def test_a_declared_unit_must_be_written_by_the_user_in_a_known_vocabulary(quest
         {"value_columns": ["Kapanış"]},
         {"period_column": "Ay", "value_columns": ["Kapanış"], "column": "Kapanış", "row": "x"},
         {"period_column": "Ay", "value_columns": ["Kapanış", "Kapanış"]},
-        {"period_column": "Ay", "value_columns": [f"C{i}" for i in range(7)]},
+        {"period_column": "Ay", "value_columns": [f"C{i}" for i in range(13)]},
         {"period_column": "Ay", "value_columns": []},
     ],
 )

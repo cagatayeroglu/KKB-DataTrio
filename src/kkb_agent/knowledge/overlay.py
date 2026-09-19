@@ -121,16 +121,36 @@ def effective_snapshot(
     active = [item for item in datasets if item.status == "active"]
     known = {s.record.series_id for s in reviewed.series}
     relevant = [note for note in notes if note.series_id in known]
-    if not active and not any(note.archived or note.aliases for note in relevant):
+    if not active and not any(note.archived or note.aliases or note.note for note in relevant):
         return reviewed
 
     archived = {note.series_id for note in relevant if note.archived}
+    # A person's description of a reviewed series is searched like its reviewed text: by
+    # words at once, by meaning once the vectors are built again (DEC-171). It is appended
+    # and labelled, never a replacement for the reviewed description.
+    described = {
+        note.series_id: note.note.strip()
+        for note in relevant
+        if note.note and note.note.strip() and not note.archived
+    }
+
+    def with_description(item: ReviewedSeries) -> ReviewedSeries:
+        added = described.get(item.record.series_id)
+        if added is None:
+            return item
+        joined = " ".join(
+            part for part in (item.record.description, f"Kullanıcı açıklaması: {added}") if part
+        )
+        return item.model_copy(
+            update={"record": item.record.model_copy(update={"description": joined})}
+        )
+
     series = [
         item.model_copy(
             update={"record": item.record.model_copy(update={"status": CatalogStatus.ARCHIVED})}
         )
         if item.record.series_id in archived
-        else item
+        else with_description(item)
         for item in reviewed.series
     ]
     series.extend(_dataset_series(item) for item in active)
@@ -151,7 +171,10 @@ def effective_snapshot(
     state = json.dumps(
         {
             "datasets": [[i.series_id, i.content_sha256()] for i in active],
-            "notes": [[n.series_id, n.version, n.archived, list(n.aliases)] for n in relevant],
+            "notes": [
+                [n.series_id, n.version, n.archived, list(n.aliases), n.note or ""]
+                for n in relevant
+            ],
         },
         sort_keys=True,
     ).encode()

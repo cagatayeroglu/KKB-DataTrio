@@ -697,3 +697,44 @@ def test_a_url_becomes_a_session_document_then_a_persisted_dataset(tmp_path):
     finally:
         store.close()
         knowledge.close()
+
+
+def test_the_listing_shows_what_search_reads_for_every_entry(api):
+    """Arda (2026-09-19): empty alias/description inputs looked like an empty index."""
+    key = {"X-KKB-Owner-Token": owner(api)}
+    api.post("/v1/knowledge/datasets", json=manual(description="Aylık kart harcaması"), headers=key)
+    series = {s["series_id"]: s for s in api.get("/v1/knowledge", headers=key).json()["series"]}
+    total = series[TOTAL]
+    assert total["description"] and total["labels"] and total["reviewed_aliases"]
+    assert "konut kredisi bakiyesi" in total["reviewed_aliases"]
+    # The exact indexed and embedded text: title, description, labels, semantics, aliases.
+    assert (
+        "tuketici kredileri" in total["search_text"] and "stock flow stock" in total["search_text"]
+    )
+    assert total["aliases"] == [] and total["note"] is None  # the person's own inputs are empty
+    mine = series["USER:kart_harcamalari.v1"]
+    assert mine["description"] == "Aylık kart harcaması"
+    assert "kart harcamasi" in mine["search_text"] and mine["reviewed_aliases"] == []
+
+
+def test_a_person_s_description_of_a_reviewed_series_is_searched(api):
+    key = {"X-KKB-Owner-Token": owner(api)}
+    before = api.get("/v1/knowledge", headers=key).json()
+    assert before["catalog_digest"] == before["reviewed_digest"]
+    nothing = api.get("/v1/knowledge/search", params={"q": "ipotekli finansman"}, headers=key)
+    assert nothing.json()["hits"] == []
+    saved = api.post(
+        f"/v1/knowledge/series/{TOTAL}/notes",
+        json={"archived": False, "note": "Bankaların ipotekli finansman alacakları toplamı"},
+        headers=key,
+    )
+    assert saved.status_code == 200, saved.text
+    after = api.get("/v1/knowledge", headers=key).json()
+    # The description is part of the catalogue a turn searches: its digest changes, so the
+    # page knows the vectors no longer cover it until they are built again.
+    assert after["catalog_digest"] != after["reviewed_digest"]
+    entry = next(item for item in after["series"] if item["series_id"] == TOTAL)
+    assert "ipotekli finansman" in entry["search_text"]
+    assert entry["description"].startswith("Reviewed")  # the reviewed text itself is unchanged
+    found = api.get("/v1/knowledge/search", params={"q": "ipotekli finansman"}, headers=key)
+    assert [hit["series_id"] for hit in found.json()["hits"]][:1] == [TOTAL]

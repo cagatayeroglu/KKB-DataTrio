@@ -352,8 +352,10 @@ def test_hybrid_results_carry_the_top_candidate_signal(setup):
     assert named.top_candidate == "unambiguous"
     assert ids(named)[0].startswith("BDDK:selector:v1:fb2bf2c7")
     generic = search_hybrid_catalog(snapshot, CatalogSearchArguments(query="konut"), dense)
-    assert generic.top_candidate == "ambiguous" and generic.clarification_required
+    assert generic.top_candidate == "unconfirmed" and generic.clarification_required
+    # The dense stage always returns its nearest neighbours. Without a reviewed concept they
+    # are never a default (DEC-172: this assertion used to accept "unambiguous").
     nothing = search_hybrid_catalog(
         snapshot, CatalogSearchArguments(query="zzzx unfamiliar wording"), dense
     )
-    assert nothing.candidates and nothing.top_candidate in {"ambiguous", "unambiguous"}
+    assert nothing.candidates and nothing.top_candidate == "unconfirmed"

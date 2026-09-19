@@ -546,6 +546,15 @@ class KnowledgeSeries(ContractModel):
     updated_at: AwareDatetime | None = None
     #: When the series was last fetched from its reviewed source (DEC-159).
     acquired_at: AwareDatetime | None = None
+    #: What catalog search reads for this entry, read-only on the page. The alias and
+    #: description inputs there are a person's additions; empty inputs never meant an
+    #: empty index (DEC-171): the reviewed description, labels and aliases, the
+    #: reviewer's note, and the exact text that is indexed and embedded.
+    description: str | None = None
+    labels: tuple[str, ...] = ()
+    reviewed_aliases: tuple[str, ...] = ()
+    reviewer_note: str | None = None
+    search_text: str | None = None
 
 
 class KnowledgeList(ContractModel):
@@ -591,7 +600,7 @@ class SearchTrial(ContractModel):
     embedding_model: str | None = None
     input_policy_id: str | None = None
     #: Whether the first candidate is the unambiguous default for the question.
-    top_candidate: Literal["unambiguous", "ambiguous", "none"] = "none"
+    top_candidate: Literal["unambiguous", "ambiguous", "unconfirmed", "none"] = "none"
 
 
 class PromptPart(ContractModel):
