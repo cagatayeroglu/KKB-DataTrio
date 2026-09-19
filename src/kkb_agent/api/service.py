@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import secrets
 import threading
 import time
@@ -931,7 +932,7 @@ class AnalysisService:
                     except Exception:
                         # The owner can retry deletion; no failed cleanup may
                         # reopen a deleted conversation or erase its trace.
-                        pass
+                        logging.getLogger(__name__).warning("deleted_session_cleanup_failed")
 
     def close(self) -> None:
         with self._lock:

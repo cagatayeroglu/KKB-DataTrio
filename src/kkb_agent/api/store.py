@@ -424,11 +424,15 @@ class ConversationStore:
         self, conversation_id: str, *, include_deleted: bool = False
     ) -> Conversation | None:
         with self._lock:
-            row = self._connection.execute(
-                "SELECT * FROM conversations WHERE conversation_id = ?"
-                + ("" if include_deleted else " AND deleted_at IS NULL"),
-                [conversation_id],
-            ).fetchone()
+            if include_deleted:
+                row = self._connection.execute(
+                    "SELECT * FROM conversations WHERE conversation_id = ?", [conversation_id]
+                ).fetchone()
+            else:
+                row = self._connection.execute(
+                    "SELECT * FROM conversations WHERE conversation_id = ? AND deleted_at IS NULL",
+                    [conversation_id],
+                ).fetchone()
         return None if row is None else self._conversation(row)
 
     @staticmethod
