@@ -90,6 +90,7 @@ class KnowledgeService:
         dense: CatalogDenseStage | None = None,
         rebuild_index: Callable[[ReviewedSnapshot], CatalogDenseStage] | None = None,
         install_index: Callable[[CatalogDenseStage], None] | None = None,
+        reopen_index: Callable[[ReviewedSnapshot], CatalogDenseStage | None] | None = None,
     ) -> None:
         self._knowledge = knowledge
         self._dense = dense
@@ -97,6 +98,7 @@ class KnowledgeService:
         # so it runs on its own thread and one at a time; reading never does.
         self._rebuild = rebuild_index
         self._install = install_index
+        self._reopen = reopen_index
         self._building = threading.Lock()
         self._build_thread: threading.Thread | None = None
         self._built_at: datetime | None = None
@@ -245,6 +247,33 @@ class KnowledgeService:
             built_at=self._built_at,
             last_error=self._build_error,
         )
+
+    def restore_generation(self) -> bool:
+        """At startup: reuse the generation already built for the catalogue in use now.
+
+        Generations are kept on disk by catalogue digest, yet a restart installed only
+        the reviewed one. With any knowledge-base entry present, discovery then fell
+        back to words alone until someone pressed the rebuild button again, although
+        nothing needed building (live 2026-09-19, after both restarts of the day).
+        Opening a generation calls no model; one that does not exist is never built
+        here, and a generation that fails to open leaves the reviewed one in use.
+        """
+        if self._reopen is None:
+            return False
+        catalog = self._effective()
+        if self._dense is not None and self._dense.index.snapshot_sha256 == catalog.content_sha256:
+            return False
+        try:
+            stage = self._reopen(catalog)
+        except Exception as error:
+            self._build_error = type(error).__name__
+            return False
+        if stage is None or stage.index.snapshot_sha256 != catalog.content_sha256:
+            return False
+        if self._install is not None:
+            self._install(stage)
+        self._dense = stage
+        return True
 
     def rebuild(self, owner_token: str) -> VectorIndexStatus:
         """Build the vectors again for the catalogue in use now, with the same profile.

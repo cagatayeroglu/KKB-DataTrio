@@ -535,6 +535,37 @@ def test_the_vectors_can_be_built_again_for_a_catalogue_the_knowledge_base_chang
                 "/v1/knowledge/search", params={"q": "kart harcaması"}, headers=key
             ).json()
             assert trial["retrieval_mode"] == "hybrid" and trial["dense_status"] == "success"
+
+            # A restart starts from the reviewed generation again. The one built above is on
+            # disk for this very catalogue, so it is reopened: no build, no model call.
+            def reopen(catalog):
+                directory = generations / catalog.content_sha256
+                if not (directory / "catalog-manifest.json").exists():
+                    return None
+                return CatalogDenseStage(
+                    LocalCatalogIndex.open(directory, catalog, profile),
+                    embedding.query_embedder(
+                        provider, embedding.RUNTIME_QUERY_POLICY, origin="kloudeks"
+                    ),
+                )
+
+            installed = []
+            restarted = KnowledgeService(
+                knowledge,
+                store,
+                runner.catalog,
+                prepared=frozenset(item.series_id for item in runner.status.series),
+                dense=dense,
+                rebuild_index=lambda catalog: pytest.fail("a restart must not build"),
+                install_index=installed.append,
+                reopen_index=reopen,
+            )
+            assert restarted.index_status(key["X-KKB-Owner-Token"]).covers_catalog is False
+            assert restarted.restore_generation() is True
+            status = restarted.index_status(key["X-KKB-Owner-Token"])
+            assert status.covers_catalog and status.missing == ()
+            assert [stage.index.snapshot_sha256 for stage in installed] == [after["catalog_sha256"]]
+            assert restarted.restore_generation() is False  # already in use
     finally:
         store.close()
         knowledge.close()

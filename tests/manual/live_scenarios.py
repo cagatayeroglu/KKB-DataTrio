@@ -6,7 +6,8 @@ may fetch EVDS/BDDK/web data. Start the API on its own port with its own state r
 
     python tests/manual/live_scenarios.py <suite> --state-root <dir> [--port 8001] [--budget 60]
 
-Suites: chain, rerun, external, upload, edge, e1, analytics, jury, kb, cancel, missing. Each suite
+Suites: chain, rerun, external, upload, edge, e1, analytics, causality, jury, kb, cancel,
+missing. Each suite
 opens one new conversation. `kb` first saves two cumulative datasets to the knowledge base
 of the served state root and builds the vectors again; `cancel` stops its first turn.
 The model-call budget is counted from stored trace events (planner calls and writer
@@ -125,6 +126,15 @@ SUITES: dict[str, list[tuple[str, str, dict[str, object]]]] = {
             {},
         ),
         ("A4-deflate-no-base", "Toplam konut kredisi bakiyesini enflasyondan arındır.", {}),
+    ],
+    # A3 alone: the provider timed out on it twice, so it is re-run without its neighbours.
+    "causality": [
+        (
+            "A3-causality",
+            "2021–2025 aylık veride konut kredisi faiz oranı, toplam konut kredisi bakiyesindeki "
+            "değişimi önceliyor mu? Gecikmeli ilişkiye bak.",
+            {},
+        ),
     ],
     # The organizer's URL cases (kick-off deck): the gold transactions PDF and BIST ALL daily.
     "jury": [
