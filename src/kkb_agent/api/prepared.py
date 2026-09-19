@@ -140,6 +140,14 @@ _NEW_QUESTION_PREFIXES = (
 #: Words a message must reach, while asking something of its own, before it reads
 #: as a new request rather than an answer to the pending clarification.
 _NEW_QUESTION_WORDS = 6
+#: An answer to a clarification is one short clause ("BDDK verisini kullan.", "BDDK
+#: Aylık Bülten toplam bakiyeyi Mayıs-Haziran 2026 dönemi için kullan."). A longer
+#: message made of several clauses states a request of its own even without a
+#: question mark: the E1 trace (2026-09-19) merged "2021-2025 konut kredisi bakiyesini
+#: aylık getir, TÜFE ile ... arındır." into an unrelated pending clarification and
+#: clarified again. Beyond `_REPLY_HARD_MAX_WORDS` any message is a request.
+_REPLY_MAX_WORDS = 9
+_REPLY_HARD_MAX_WORDS = 14
 
 
 def _is_cancellation(question: str) -> bool:
@@ -158,7 +166,8 @@ def _is_new_question(
 
     An answer to a clarification is short and declarative ("aylık olsun", "TCMB
     verisi"). A message that asks something of its own, at the length of a real
-    request, is a new question however the previous turn ended. A caller may still
+    request, is a new question however the previous turn ended - whether it ends
+    in a question mark or states the request as an instruction. A caller may still
     state `is_continuation`; this decides only when it did not, and the decision
     is recorded in the turn's trace rather than left to a control the person has
     to operate.
@@ -168,7 +177,11 @@ def _is_new_question(
         return True
     if selection is not None and pending.selection is not None and selection != pending.selection:
         return True
-    return q.endswith("?") and len(q.split()) >= _NEW_QUESTION_WORDS
+    words = len(q.split())
+    if q.endswith("?") and words >= _NEW_QUESTION_WORDS:
+        return True
+    clauses = 1 + q.count(",") + q.count(";")
+    return words > _REPLY_HARD_MAX_WORDS or (words > _REPLY_MAX_WORDS and clauses > 1)
 
 
 def _format_clarification_prompt(original: str, clarifications: tuple[str, ...]) -> str:
