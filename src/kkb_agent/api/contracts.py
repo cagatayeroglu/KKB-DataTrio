@@ -405,7 +405,7 @@ class StoredMessage(ContractModel):
     turn_id: Reference
     role: Literal["user", "assistant"]
     text: Text
-    status: AnswerStatus | None = None
+    status: AnswerStatus | Literal["queued", "running", "completed", "failed"] | None = None
     result_ref: Reference | None = None
     result_version: Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{64}$")] | None = None
     document_ref: Reference | None = None

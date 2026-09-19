@@ -168,6 +168,26 @@ def answer_digest(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
+def _stored_message_status(
+    role: Literal["user", "assistant"], status: str | None
+) -> AnswerStatus | Literal["queued", "running", "completed", "failed"] | None:
+    """Project old/unknown rows safely without losing the surrounding conversation."""
+    if role == "user":
+        if status == "queued":
+            return "queued"
+        if status == "running":
+            return "running"
+        if status == "completed":
+            return "completed"
+        if status == "failed":
+            return "failed"
+        return None
+    try:
+        return AnswerStatus(status) if status is not None else None
+    except ValueError:
+        return None
+
+
 class AnalysisService:
     """No implicit expiration/deletion/restart recovery or retries.
 
@@ -228,6 +248,21 @@ class AnalysisService:
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="kkb-analysis")
         self._busy = False
         self._closed = False
+
+    def _make_session_room(self, *, keep: str | None = None) -> None:
+        """Evict only an idle process-local handle; the owned store stays intact."""
+        if len(self._sessions) < MAX_SESSIONS:
+            return
+        if self._store is None:
+            raise ServiceError("capacity", 429)
+        for identity, session in self._sessions.items():
+            if identity == keep or session.cancels or session.uploads_inflight:
+                continue
+            if any(turn.state in ("queued", "running") for turn in session.turns.values()):
+                continue
+            del self._sessions[identity]
+            return
+        raise ServiceError("capacity", 429)
 
     def health(self) -> Health:
         with self._lock:
@@ -341,8 +376,7 @@ class AnalysisService:
         with self._lock:
             if self._closed:
                 raise ServiceError("unavailable", 503)
-            if len(self._sessions) >= MAX_SESSIONS:
-                raise ServiceError("capacity", 429)
+            self._make_session_room()
             session_id, token = uuid4().hex, secrets.token_urlsafe(32)
             if self._store is not None:
                 owner = self._store.owner_by_token(owner_token) if owner_token else None
@@ -372,6 +406,9 @@ class AnalysisService:
         expected = session.token_digest if session else bytes(32)
         valid = secrets.compare_digest(supplied, expected)
         if session is not None and valid:
+            # Dict insertion order is the idle-handle LRU; access refreshes recency.
+            self._sessions.pop(session_id)
+            self._sessions[session_id] = session
             return session
         # After a restart the conversation is in the store, not in memory: its own
         # token or its owner's key reopens it, an id on its own never does.
@@ -379,7 +416,11 @@ class AnalysisService:
             session_id, token=token, owner_token=token
         ):
             if session is None:
+                self._make_session_room(keep=session_id)
                 session = _Session(bytes(32))
+                self._sessions[session_id] = session
+            else:
+                self._sessions.pop(session_id)
                 self._sessions[session_id] = session
             for document in self._store.documents(session_id):
                 session.documents.add(document.document_ref)
@@ -462,7 +503,7 @@ class AnalysisService:
                     turn_id=message.turn_id,
                     role=message.role,
                     text=message.text,
-                    status=AnswerStatus(message.status) if message.status else None,
+                    status=_stored_message_status(message.role, message.status),
                     result_ref=message.result_ref,
                     result_version=message.result_version,
                     document_ref=message.document_ref,
@@ -783,7 +824,9 @@ class AnalysisService:
             if question.document_ref is not None and question.document_ref not in session.documents:
                 # Unknown, foreign and never-admitted references are indistinguishable.
                 raise ServiceError("invalid_document", 422)
-            if len(session.turns) >= MAX_TURNS:
+            if len(session.turns) >= MAX_TURNS or (
+                self._store is not None and self._store.turn_count(session_id) >= MAX_TURNS
+            ):
                 raise ServiceError("capacity", 429)
             if self._busy:
                 raise ServiceError("busy", 409)
@@ -799,6 +842,15 @@ class AnalysisService:
             cancel = session.cancels[turn_id] = CancelToken()
             self._busy = True
             try:
+                if self._store is not None:
+                    self._store.append_message(
+                        session_id,
+                        turn_id=turn_id,
+                        role="user",
+                        text=question.question,
+                        status="queued",
+                        document_ref=question.document_ref,
+                    )
                 self._executor.submit(
                     self._run,
                     session_id,
@@ -809,7 +861,7 @@ class AnalysisService:
                     question.document_ref,
                     cancel,
                 )
-            except RuntimeError:
+            except Exception:
                 self._busy = False
                 del session.turns[turn_id]
                 del session.requests[question.request_id]
@@ -923,6 +975,10 @@ class AnalysisService:
         error: ErrorCode | None = None
         try:
             self._transition(session_id, turn_id, "running", start)
+            if self._store is not None:
+                self._store.append_message(
+                    session_id, turn_id=turn_id, role="user", text=question, status="running"
+                )
             checkpoint("start")
             chosen = self._session_settings(session_id)
             extra: dict[str, object] = {"is_continuation": is_continuation}
@@ -970,6 +1026,14 @@ class AnalysisService:
                 )
                 self._busy = False
                 self._sessions[session_id].cancels.pop(turn_id, None)
+                if self._store is not None:
+                    self._store.append_message(
+                        session_id,
+                        turn_id=turn_id,
+                        role="user",
+                        text=question,
+                        status="failed" if error else "completed",
+                    )
                 if self._store is not None and self._store.is_deleted(session_id):
                     try:
                         self._clean_deleted(session_id)

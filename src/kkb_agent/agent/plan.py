@@ -49,6 +49,7 @@ class AnalyticalPlan(BaseModel):
     question: str = Field(min_length=1)
     steps: list[PlanStep]
     clarification: ClarificationReason | None = None
+    clarification_text: str | None = Field(default=None, min_length=1, max_length=1500)
     reply: str | None = Field(default=None, min_length=1, max_length=MAX_REPLY_CHARS)
 
     @model_validator(mode="after")
@@ -58,6 +59,8 @@ class AnalyticalPlan(BaseModel):
             raise ValueError(
                 "Provide exactly one of: executable steps, a clarification reason, or a reply"
             )
+        if self.clarification_text is not None and self.clarification is None:
+            raise ValueError("clarification_text requires a clarification reason")
         return self
 
     def fingerprint(self) -> str:

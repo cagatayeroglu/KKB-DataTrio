@@ -14,12 +14,14 @@ from pydantic import ValidationError
 from test_catalog_continuation import CATALOG, QUESTION, TOTAL, proposal, seed_prepared
 
 from kkb_agent.agent import Session, ToolRegistry, Workspace
+from kkb_agent.agent.cancellation import checkpoint
 from kkb_agent.agent.loop import PlanningFailed
 from kkb_agent.agent.verifier import AnswerStatus, OmittedSentence
 from kkb_agent.api.app import create_app
 from kkb_agent.api.contracts import MAX_BODY_BYTES, MAX_SESSIONS, MAX_TURNS, Answer, Question
 from kkb_agent.api.projection import OutputRefused, project_answer, safe_text
 from kkb_agent.api.service import AnalysisService, ServiceError
+from kkb_agent.api.store import ConversationStore
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
 from kkb_agent.catalog.mappings import load_reviewed_snapshot
 from kkb_agent.lakehouse import open_lakehouse
@@ -275,6 +277,79 @@ def test_session_turn_capacity_and_shutdown_without_silent_eviction():
     with pytest.raises(ServiceError, match="unavailable"):
         service.create_session()
     assert len(service._sessions) == MAX_SESSIONS
+
+
+def test_persisted_idle_sessions_evict_but_active_one_does_not(tmp_path):
+    store = ConversationStore(tmp_path / "history.sqlite")
+    _, owner_token = store.create_owner()
+    entered, release = threading.Event(), threading.Event()
+
+    def run(session_id, turn_id, text, *, is_continuation):
+        entered.set()
+        assert release.wait(5)
+        return quiet_answer()
+
+    service = AnalysisService(run, mode="scripted", store=store)
+    try:
+        sessions = [service.create_session(owner_token) for _ in range(MAX_SESSIONS)]
+        active = service.submit(sessions[0].session_id, sessions[0].token, question())
+        assert entered.wait(2)
+        ninth = service.create_session(owner_token)
+        assert ninth.session_id in service._sessions
+        assert sessions[0].session_id in service._sessions
+        assert sessions[1].session_id not in service._sessions
+        assert store.conversation(sessions[1].session_id) is not None
+        service.conversation(sessions[1].session_id, sessions[1].token)
+        assert sessions[1].session_id in service._sessions
+        release.set()
+        assert finished(service, sessions[0], active).state == "completed"
+    finally:
+        release.set()
+        service.close()
+        store.close()
+
+
+def test_failed_and_cancelled_user_prompts_are_persisted_at_admission(tmp_path):
+    store = ConversationStore(tmp_path / "history.sqlite")
+    _, owner_token = store.create_owner()
+    entered, release = threading.Event(), threading.Event()
+
+    def run(session_id, turn_id, text, *, is_continuation):
+        if text == "failed prompt":
+            raise TransportError("synthetic timeout")
+        entered.set()
+        assert release.wait(5)
+        checkpoint("after wait")
+        return quiet_answer()
+
+    service = AnalysisService(run, mode="scripted", store=store)
+    try:
+        session = service.create_session(owner_token)
+        failed = finished(
+            service,
+            session,
+            service.submit(session.session_id, session.token, question("failed prompt")),
+        )
+        assert failed.error == "provider_failed"
+        saved = store.messages(session.session_id)
+        assert [(item.role, item.text, item.status) for item in saved] == [
+            ("user", "failed prompt", "failed")
+        ]
+        turn = service.submit(session.session_id, session.token, question("cancelled prompt"))
+        assert entered.wait(2)
+        assert store.messages(session.session_id)[-1].status == "running"
+        service.cancel(session.session_id, session.token, turn.turn_id)
+        release.set()
+        cancelled = finished(service, session, turn)
+        assert cancelled.error == "cancelled"
+        assert [(item.text, item.status) for item in store.messages(session.session_id)] == [
+            ("failed prompt", "failed"),
+            ("cancelled prompt", "failed"),
+        ]
+    finally:
+        release.set()
+        service.close()
+        store.close()
 
 
 @pytest.fixture

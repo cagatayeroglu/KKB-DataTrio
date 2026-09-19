@@ -263,6 +263,7 @@ export function Workspace() {
     atEnd = useRef(true),
     transcriptFor = useRef<string | null>(null),
     hiddenDeleted = useRef<Set<string>>(new Set()),
+    pickedClarification = useRef<string | null>(null),
     input = useRef<HTMLTextAreaElement>(null),
     picker = useRef<HTMLInputElement>(null),
     imagePicker = useRef<HTMLInputElement>(null);
@@ -383,6 +384,7 @@ export function Workspace() {
     setSelected(null);
     setAttachment(null);
     setQuestion("");
+    pickedClarification.current = null;
     setIssue(storageIssue);
     setChatMenu(false);
     atEnd.current = true;
@@ -489,6 +491,7 @@ export function Workspace() {
       setPendingIndex(null);
       setAttachment(null);
       setQuestion("");
+      pickedClarification.current = null;
       // A reopened conversation keeps its tables: each published one is read
       // back from its receipt on the server, so it comes with the same reference
       // and version the messages recorded - whichever process produced it.
@@ -890,19 +893,19 @@ export function Workspace() {
         );
         return;
       }
-      // No table is pinned from here: the planner is shown every table this
-      // conversation published, and whether a message continues the previous
-      // request is the agent's reading, not a control the person operates.
+      // An offered card is an explicit continuation. Free text remains the
+      // harness's decision unless the person changed the card's drafted text.
       const entry = draftRequest(
         text,
         undefined,
-        undefined,
+        pickedClarification.current === text.trim() ? true : undefined,
         attachment ?? undefined,
       );
       const next = { ...state, turns: [...state.turns, entry] };
       record(next);
       setItems((old) => [...old, entry]);
       setQuestion("");
+      pickedClarification.current = null;
       setAttachment(null);
       recoveries.current = [next.turns.length - 1];
       setPendingIndex(next.turns.length - 1);
@@ -1376,6 +1379,10 @@ export function Workspace() {
                                         accepted: "Kontrolden geçti",
                                         qualified: "Sınırlı yanıt",
                                         abstained: "Netleştirme gerekli",
+                                        queued: "Bekliyor",
+                                        running: "Çalışıyor",
+                                        completed: "Tamamlandı",
+                                        failed: "Başarısız",
                                       }[message.status]}
                                 </span>
                               </div>
@@ -1478,7 +1485,10 @@ export function Workspace() {
                               {item.turn.answer.selection && (
                                 <SeriesChoiceCard
                                   selection={item.turn.answer.selection}
-                                  onPick={setQuestion}
+                                  onPick={(picked) => {
+                                    pickedClarification.current = picked;
+                                    setQuestion(picked);
+                                  }}
                                 />
                               )}
                               {item.turn.answer.notices.length > 0 && (
@@ -1647,6 +1657,7 @@ export function Workspace() {
                       className="chip"
                       title={example.question}
                       onClick={() => {
+                        pickedClarification.current = null;
                         setQuestion(example.question);
                         input.current?.focus();
                       }}
@@ -1714,7 +1725,10 @@ export function Workspace() {
                     );
                   }}
                   value={question}
-                  onChange={(e) => setQuestion(e.target.value)}
+                  onChange={(e) => {
+                    pickedClarification.current = null;
+                    setQuestion(e.target.value);
+                  }}
                   placeholder={
                     pending
                       ? "Analiz sürüyor; bitince devam edebilirsin"
