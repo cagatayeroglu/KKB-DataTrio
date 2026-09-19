@@ -172,3 +172,27 @@ def test_a_title_denomination_is_not_a_component(snapshot):
     assert order.index(BDDK_TOTAL) < order.index(BDDK_TP) and order.index(BDDK_TOTAL) < order.index(
         BDDK_YP
     )
+
+
+def test_a_publisher_named_in_reviewed_labels_is_a_valid_source_filter(snapshot):
+    """Live R2 (2026-09-19): source="TÜİK" emptied the CPI search; TÜİK is in the labels."""
+    output = search_catalog(
+        snapshot, CatalogSearchArguments(query="TÜFE genel endeks", source="TÜİK")
+    )
+    assert output.status == "MATCH" and output.top_candidate == "unambiguous"
+    assert output.candidates[0].series.record.series_id == "EVDS:TP.TUKFIY2025.GENEL"
+    assert {c.series.record.series_id for c in output.candidates} == {
+        "EVDS:TP.TUKFIY2025.GENEL",
+        "EVDS:TP.GENENDEKS.T1",
+    }
+    provider = search_catalog(
+        snapshot, CatalogSearchArguments(query="TÜFE genel endeks", source="EVDS")
+    )
+    assert [c.series.record.series_id for c in provider.candidates] == [
+        c.series.record.series_id for c in output.candidates
+    ]
+    # A filter that names neither the provider nor a publisher still empties the result.
+    wrong = search_catalog(
+        snapshot, CatalogSearchArguments(query="TÜFE genel endeks", source="BDDK")
+    )
+    assert wrong.status == "FILTERED_OUT" and not wrong.candidates

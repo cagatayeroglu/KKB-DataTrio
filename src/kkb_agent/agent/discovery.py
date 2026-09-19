@@ -53,7 +53,8 @@ CONTINUATION_INSTRUCTIONS = (
     "when its declared semantics fit the question, without asking. ambiguous: settle the "
     "differing axis (balance/rate, TL/FX, place, base year, scope) from the question's own "
     "words; clarify, naming that axis, only when the question does not say. none: nothing "
-    "matched. "
+    "matched. The same defaults govern a choice among prepared identities the discovery did "
+    "not rank; a series described as a cross-check is never the default. "
     "Similarity scores never resolve ambiguity; never clarify because a candidate is merely ranked."
 )
 REQUIRED_DISCOVERY_INSTRUCTIONS = (

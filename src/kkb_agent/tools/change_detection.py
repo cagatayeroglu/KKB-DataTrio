@@ -49,6 +49,7 @@ from kkb_agent.core import (
     TransformationRecord,
 )
 from kkb_agent.core import WeeklyAnchor as Anchor
+from kkb_agent.ingest.prepared_series import prepared_series_coverage
 from kkb_agent.lakehouse.alignment import AlignmentError, WeekAssignment, to_monthly
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.lakehouse.records import Observation
@@ -360,8 +361,10 @@ def make_change_detection_tool(
         "depends_on. Otherwise use a published source name. No new series is fetched."
     )
     if names:
-        description += " Prepared series (series_id: meaning): " + "; ".join(
-            f"{sid}: {name}" for sid, name in names.items()
+        coverage = prepared_series_coverage(connection)
+        description += " Prepared series (series_id: meaning [stored window]): " + "; ".join(
+            f"{sid}: {name}" + (f" [{coverage[sid]}]" if sid in coverage else "")
+            for sid, name in names.items()
         )
     return ToolSpec(
         name="change_detection",

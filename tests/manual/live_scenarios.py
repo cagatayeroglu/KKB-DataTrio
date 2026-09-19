@@ -90,6 +90,23 @@ SUITES: dict[str, list[tuple[str, str, dict[str, object]]]] = {
             {},
         ),
     ],
+    # DEC-165 / E1: the question that abstained in one live run and was accepted with a
+    # false sentence in another, then two follow-ups that lean on the reviewed defaults
+    # (national KFE without a place named; co-movement over the published table).
+    "e1": [
+        (
+            "E1-deflate-monthly",
+            "2021–2025 konut kredisi bakiyesini aylık getir, TÜFE ile Aralık 2025 fiyatlarına "
+            "göre enflasyondan arındır.",
+            {},
+        ),
+        ("E1b-add-kfe", "Bu tabloya konut fiyat endeksini de ekle.", {}),
+        (
+            "E1c-comovement",
+            "Reel konut kredisi bakiyesi ile konut fiyat endeksi aynı yönde mi hareket etmiş?",
+            {},
+        ),
+    ],
     "edge": [
         ("X1-ambiguous", "Kredi ne kadar arttı?", {}),
         ("X2-clarify-answer", "2025 yılı, toplam konut kredisi", {}),
@@ -136,6 +153,14 @@ def main() -> int:
     headers = {"X-KKB-Session-Token": made["token"]}
     print(json.dumps({"session": sid}), flush=True)
     out = args.state_root / "live-results.jsonl"
+    # Full turn payloads (answer text, notices, result cells) for independent
+    # recomputation afterwards, and the tokens so traces/results can be re-read.
+    turns_dir = args.state_root / "live-turns"
+    turns_dir.mkdir(parents=True, exist_ok=True)
+    (turns_dir / f"session-{sid}.json").write_text(
+        json.dumps({"session_id": sid, "owner_token": owner, "token": made["token"]}),
+        encoding="utf-8",
+    )
 
     for label, question, extra in SUITES[args.suite]:
         if model_calls(args.state_root) >= args.budget:
@@ -161,6 +186,9 @@ def main() -> int:
                 if turn["state"] in ("completed", "failed"):
                     break
                 time.sleep(2)
+            (turns_dir / f"{label}_{turn_id}.json").write_text(
+                json.dumps(turn, ensure_ascii=False, indent=1), encoding="utf-8"
+            )
             answer = turn.get("answer") or {}
             assert isinstance(answer, dict)
             result = answer.get("result") or {}
