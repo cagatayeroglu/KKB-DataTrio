@@ -61,7 +61,8 @@ def _table_behaviour(table: dict[str, object]) -> str | None:
     (two thirds of its measured rows) has no family, and none of its rows is supported.
     """
     rows = table["rows"]
-    assert isinstance(rows, dict)
+    if not isinstance(rows, dict):  # Not an assert: asserts vanish under -O.
+        raise TypeError("a listed table's rows must be a mapping")
     measured = [entry["resets"] for entry in rows.values() if entry["resets"] in _BEHAVIOUR]
     for behaviour in _BEHAVIOUR:
         if measured and measured.count(behaviour) * 3 >= len(rows) * 2:
