@@ -357,8 +357,8 @@ def make_change_detection_tool(
         "third column moves in the selected direction. It keeps all table values and adds "
         "explicit counts, without identifying a causal effect. Use exact column labels and "
         "explicit driver_direction/target_direction. For a table made by an earlier step "
-        "(such as table_transform add_series), use input_step and declare that step in "
-        "depends_on. Otherwise use a published source name. No new series is fetched."
+        "(such as table_transform add_series), name that step as input_step or source and "
+        "declare it in depends_on. Otherwise use a published source name. No new series is fetched."
     )
     if names:
         coverage = prepared_series_coverage(connection)
