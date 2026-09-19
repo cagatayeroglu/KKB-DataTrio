@@ -800,6 +800,12 @@ Confirmed team priority refinement, explicitly requested by Çağatay after M3-0
 - Rejected: raising the fetch deadlines (a bound is a memory and time guard, and one retry covers a stall); retrying inside `safe_fetch` (its contract authorizes no retries; the caller that owns the turn does).
 - Tests: `test_address_outline.py` — a script that times out once is read again, the endpoint is outlined and the log shows two tries without any address text; a refused media type is not retried and the empty outline says nothing is listed.
 
+### DEC-170 — No `knowledge_inventory` tool: what the agent knows is answered as a reply
+
+- Status: CONFIRMED team decision, 2026-09-19, by Arda (implemented with Claude Code), closing the open question of whether "Hangi verileri biliyorsun?" needs a tool of its own ([DEC-135](#dec-135--planner-actions-and-mandatory-correctness-harness) fixes the tool names, so adding one needs a recorded reason).
+- Evidence: live A1 (2026-09-19, `analytics` suite): "Hangi verileri biliyorsun, neyle çalışabilirim?" was answered in one planner call as a `reply` — the prepared pool's families (BDDK housing balances TP/YP/total, TÜİK CPI and its divisions, TCMB house price index, EVDS consumer/housing/personal/vehicle/commercial loan rates), catalog search, web addresses, uploads and the available operations — with no tool run and nothing published. The planner reads the reviewed prepared names (and, since DEC-166, each series' stored window) in the tool descriptions; the knowledge page lists every series with its state for a person who wants the full inventory.
+- Decision: no new tool. A listing tool would return exactly what the descriptions already carry, cost a second model call to narrate it, and widen the fixed tool surface for no new authority. If the knowledge base grows beyond what a description can carry, the bounded place to extend is `catalog_search` (it already lists candidates by meaning), not a new name.
+
 ## Proposed decisions
 
 Candidates below are not approved selections. Compare options in a bounded task; do not silently promote a proposal to CONFIRMED.
