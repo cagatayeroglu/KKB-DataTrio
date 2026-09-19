@@ -187,3 +187,62 @@ def test_every_delegated_fetch_is_bound_to_the_page_origin():
     bound = dict(delegated)
     assert bound[PAGE_URL] is False  # the address a person wrote is not delegated
     assert all(value for url, value in bound.items() if url != PAGE_URL)
+
+
+class Flaky(Site):
+    """The first read of chosen addresses times out; the second succeeds."""
+
+    def __init__(self, pages, flaky, code="TIMEOUT"):
+        super().__init__(pages)
+        self.flaky, self.code = set(flaky), code
+
+    def __call__(self, request):
+        url = request.url.get_secret_value()
+        if url in self.flaky:
+            self.flaky.discard(url)
+            self.requests.append(url)
+            return FetchFailure(source_ref=request.source_ref, code=self.code)
+        return super().__call__(request)
+
+
+def test_a_transient_read_is_asked_once_more_and_the_log_says_so():
+    """Live BIST turn (2026-09-19): one failed read emptied the outline without a trace."""
+    base = "https://www.borsa.example.tr"
+    script = f"{base}/file/js/app.js?v=1"
+    served = Flaky(site().pages, {script})
+    cache = TurnFetchCache(served)
+    note = address_outline((PAGE_URL,), cache)
+    payload = json.loads(note[note.index("{") :])
+    assert payload["pages"][0]["data_endpoints"][0]["name"] == "endpoint_1"
+    assert served.requests.count(script) == 2
+    retried = [entry for entry in cache.log if entry["attempts"] == 2]
+    assert retried == [
+        {
+            "source": retried[0]["source"],
+            "kind": "script",
+            "status": "ok",
+            "code": None,
+            "attempts": 2,
+            "bytes": len(SCRIPT),
+        }
+    ]
+    assert {entry["kind"] for entry in cache.log} == {"page", "script", "data"}
+    assert not any("borsa" in str(value) for entry in cache.log for value in entry.values())
+
+
+def test_a_refused_type_is_not_retried_and_an_empty_outline_says_nothing_is_listed():
+    base = "https://www.borsa.example.tr"
+    script = f"{base}/file/js/app.js?v=1"
+    pages = dict(site().pages)
+    pages[script] = (SCRIPT, "text/plain")  # not a script type: CONTENT_TYPE, permanent
+    served = Site(pages)
+    cache = TurnFetchCache(served)
+    note = address_outline((PAGE_URL,), cache)
+    payload = json.loads(note[note.index("{") :])
+    assert payload["pages"][0] == {"address": "as written in the question", "nothing_listed": True}
+    assert "never guess column names" in note
+    assert served.requests.count(script) == 1
+    failed = [entry for entry in cache.log if entry["status"] == "failed"]
+    assert [(entry["kind"], entry["code"], entry["attempts"]) for entry in failed] == [
+        ("script", "CONTENT_TYPE", 1)
+    ]

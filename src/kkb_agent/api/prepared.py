@@ -939,6 +939,7 @@ class PreparedRunner:
                     history_turns=len(self._history.get(session_id, ())),
                     addresses=len(addresses),
                     address_outline_bytes=len(address_note.encode()) if address_note else 0,
+                    address_reads=list(turn_fetch.log) if turn_fetch is not None else [],
                     document_outline=document_note is not None,
                 )
                 started = time.monotonic()
