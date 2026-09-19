@@ -38,6 +38,11 @@ def test_independent_question_does_not_inherit_istanbul_prose_but_reference_does
         "2021-2025 Türkiye konut kredisi bakiyesi nedir?"
     )
     assert not any("İstanbul" in item.content for item in independent.seen[0])
+    assert not any(previous[0][0] in item.content for item in independent.seen[0])
+    assert not any(
+        item.content.startswith("Earlier turns of this conversation")
+        for item in independent.seen[0]
+    )
 
     followup = scripted(proposal(clarification="unsupported_request"))
     Session(followup, ToolRegistry(), history=previous).plan("Aynı tabloya KFE ekle")
