@@ -60,8 +60,8 @@ CONTINUATION_INSTRUCTIONS = (
 REQUIRED_DISCOVERY_INSTRUCTIONS = (
     "Before reading any new series, you MUST first plan catalog_search only, even if "
     "a reviewed series identity is already visible. Search separately for each needed "
-    "measure. Direct analysis is permitted only for table_transform rebase/align/filter/"
-    "join_table/to_flow/resample "
+    "measure. Direct analysis is permitted only for table_transform rebase/change/align/"
+    "filter/join_table/to_flow/resample "
     "or change_detection table_co_movement over existing workspace columns. Adding a "
     "series or deflating needs discovery of the added series or price index first. "
     "Clarification without tools is still permitted."
@@ -90,7 +90,7 @@ def required_discovery_instructions(
         "for them again. "
         "Before reading any series NOT listed above, you MUST first plan catalog_search "
         "only, searching separately for each needed measure. Direct analysis is also "
-        "permitted for table_transform rebase/align/filter/join_table/to_flow/resample "
+        "permitted for table_transform rebase/change/align/filter/join_table/to_flow/resample "
         "or change_detection table_co_movement over existing workspace columns. "
         "Clarification without tools is still permitted."
     )
@@ -140,6 +140,7 @@ def needs_series_discovery(plan: ValidatedPlan, proven: frozenset[str] = frozens
     workspace_operations = {
         "table_transform": {
             "rebase",
+            "change",
             "align",
             "filter",
             "add_document_column",

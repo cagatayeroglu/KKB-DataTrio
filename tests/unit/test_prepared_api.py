@@ -231,7 +231,9 @@ def test_unprepared_catalog_candidate_refuses_without_fetching(pool, tmp_path):
     prepared = runner(pool, tmp_path, provider)
     answer = prepared(uuid4().hex, uuid4().hex, QUESTION)
     assert answer.status.value == "abstained" and answer.result is None
-    assert len(provider.seen) == 1
+    # DEC-167: the tool's refusal is fed back once. The exhausted script stands in for a
+    # provider that cannot answer the repair, and the refusal stands - still nothing fetched.
+    assert len(provider.seen) == 2
 
 
 def test_source_changes_after_startup_do_not_change_immutable_runtime_seed(pool, tmp_path):

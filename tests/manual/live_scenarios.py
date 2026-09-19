@@ -6,7 +6,9 @@ may fetch EVDS/BDDK/web data. Start the API on its own port with its own state r
 
     python tests/manual/live_scenarios.py <suite> --state-root <dir> [--port 8001] [--budget 60]
 
-Suites: chain, rerun, external, upload, edge. Each suite opens one new conversation.
+Suites: chain, rerun, external, upload, edge, e1, analytics, jury, kb, cancel. Each suite
+opens one new conversation. `kb` first saves two cumulative datasets to the knowledge base
+of the served state root and builds the vectors again; `cancel` stops its first turn.
 The model-call budget is counted from stored trace events (planner calls and writer
 calls) and checked before every turn. Results are appended as JSON lines to
 <state-root>/live-results.jsonl; read the full traces with dump_traces.py.
@@ -107,6 +109,64 @@ SUITES: dict[str, list[tuple[str, str, dict[str, object]]]] = {
             {},
         ),
     ],
+    # The scenario-matrix cells the reference turns do not reach.
+    "analytics": [
+        ("A1-inventory", "Hangi verileri biliyorsun, neyle çalışabilirim?", {}),
+        (
+            "A2-anomaly",
+            "2021–2025 döneminde yeni kullandırılan konut kredisi faiz oranında aykırı "
+            "(olağandışı) haftalar var mı?",
+            {},
+        ),
+        (
+            "A3-causality",
+            "2021–2025 aylık veride konut kredisi faiz oranı, toplam konut kredisi bakiyesindeki "
+            "değişimi önceliyor mu? Gecikmeli ilişkiye bak.",
+            {},
+        ),
+        ("A4-deflate-no-base", "Toplam konut kredisi bakiyesini enflasyondan arındır.", {}),
+    ],
+    # The organizer's URL cases (kick-off deck): the gold transactions PDF and BIST ALL daily.
+    "jury": [
+        (
+            "J1-gold-pdf",
+            "https://www.borsaistanbul.com/dosyalar/kmtp/veriler/kmp_au.pdf belgesindeki altın "
+            "işlemleri tablosunu oku ve içindeki dönemleri ve sütunları özetle.",
+            {},
+        ),
+        (
+            "J2-xtumy-monthly",
+            "https://www.borsaistanbul.com/endeks/xtumy sayfasındaki BIST TÜM endeksinin günlük "
+            "kapanışlarından 2025 yılı ay sonu değerlerini tablo olarak çıkar.",
+            {},
+        ),
+        ("J3-xtumy-change", "Bu tabloda aylık yüzde değişimi hesapla.", {}),
+    ],
+    # Knowledge base: cumulative datasets -> vectors rebuilt -> found by meaning -> to_flow.
+    "kb": [
+        (
+            "K1-yearly-reset",
+            "Bilgi tabanındaki sektör net kârı (yıl içi kümülatif) serisini 2024–2025 için aylık "
+            "akıma çevir.",
+            {"kb_datasets": True, "rebuild_index": True},
+        ),
+        (
+            "K2-since-inception",
+            "Bilgi tabanındaki başlangıçtan beri kümülatif konut satışları serisini aylık akıma "
+            "çevir.",
+            {},
+        ),
+        ("K3-by-meaning", "Bankaların dönem kazancı 2025'te aylık olarak nasıl seyretti?", {}),
+    ],
+    "cancel": [
+        (
+            "C1-cancelled",
+            "2021–2025 konut kredisi bakiyesini aylık getir, TÜFE ile Aralık 2025 fiyatlarına "
+            "göre enflasyondan arındır.",
+            {"cancel_after": 25},
+        ),
+        ("C2-after-cancel", "2025 yılında toplam konut kredisi bakiyesi ne kadar değişti?", {}),
+    ],
     "edge": [
         ("X1-ambiguous", "Kredi ne kadar arttı?", {}),
         ("X2-clarify-answer", "2025 yılı, toplam konut kredisi", {}),
@@ -122,6 +182,51 @@ UPLOAD_CSV = (
     + "\n".join(f"2025-{m:02d};{1000 + 37 * m + (m % 3) * 11}" for m in range(1, 13))
     + "\n"
 ).encode()
+
+
+#: Hand-made monthly flows; the cumulative columns below are their running totals, so the
+#: expected to_flow output is these numbers exactly (January of a yearly-reset series is the
+#: month itself; the first month of a since-inception series has no predecessor).
+KB_FLOWS = [30.0, 32.0, 35.0, 33.0, 36.0, 38.0, 40.0, 39.0, 41.0, 43.0, 45.0, 47.0]
+MONTH_ENDS = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
+
+def kb_datasets() -> list[dict[str, object]]:
+    yearly: list[dict[str, object]] = []
+    inception: list[dict[str, object]] = []
+    running = 0.0
+    for year, bump in ((2024, 0.0), (2025, 10.0)):
+        within = 0.0
+        for month, flow in enumerate(KB_FLOWS, 1):
+            within += flow + bump
+            running += flow + bump
+            day = MONTH_ENDS[month - 1] - (1 if (year, month) == (2025, 2) else 0)
+            end = f"{year}-{month:02d}-{day:02d}"
+            yearly.append({"period_end": end, "value": within})
+            inception.append({"period_end": end, "value": running})
+    common = {"unit": "TRY", "scale": "million", "frequency": "monthly", "stock_flow": "flow"}
+    return [
+        {
+            **common,
+            "slug": "sektor_net_kari_kumulatif",
+            "title": "Bankacılık sektörü net kârı (yıl içi kümülatif)",
+            "description": "Aylık bülten gelir tablosu; her yıl Ocak ayında sıfırlanan kümülatif",
+            "cumulative": "yearly_reset",
+            "aggregation": "last",
+            "aliases": ["sektör net kârı", "yıl içi kümülatif net kâr"],
+            "observations": yearly,
+        },
+        {
+            **common,
+            "slug": "kumulatif_konut_satislari",
+            "title": "Konut satışları tutarı (başlangıçtan beri kümülatif)",
+            "description": "Paylaşım başından beri biriken toplam; sıfırlanmaz",
+            "cumulative": "since_inception",
+            "aggregation": "last",
+            "aliases": ["kümülatif konut satışları", "başlangıçtan beri konut satışları"],
+            "observations": inception,
+        },
+    ]
 
 
 def model_calls(state_root: Path) -> int:
@@ -167,6 +272,36 @@ def main() -> int:
             print("BUDGET REACHED", flush=True)
             break
         body: dict[str, object] = {"request_id": uuid.uuid4().hex, "question": question}
+        if extra.get("kb_datasets"):
+            for dataset in kb_datasets():
+                saved = client.post(
+                    "/v1/knowledge/datasets", json=dataset, headers={"X-KKB-Owner-Token": owner}
+                )
+                print(json.dumps({"dataset": dataset["slug"], "status": saved.status_code}))
+                if saved.status_code != 201:
+                    print(saved.text[:400], flush=True)
+        if extra.get("rebuild_index"):
+            key = {"X-KKB-Owner-Token": owner}
+            started = client.post("/v1/knowledge/index", json={}, headers=key)
+            print(json.dumps({"rebuild": started.status_code}), flush=True)
+            waited = time.monotonic()
+            index: dict[str, object] = {}
+            while time.monotonic() - waited < 1800:
+                index = client.get("/v1/knowledge/index", headers=key).json()
+                if not index.get("rebuilding"):
+                    break
+                time.sleep(5)
+            print(
+                json.dumps(
+                    {
+                        "covers_catalog": index.get("covers_catalog"),
+                        "series_vectored": index.get("series_vectored"),
+                        "series_total": index.get("series_total"),
+                        "seconds": round(time.monotonic() - waited, 1),
+                    }
+                ),
+                flush=True,
+            )
         if extra.get("attach"):
             admitted = client.post(
                 f"/v1/sessions/{sid}/documents",
@@ -181,10 +316,22 @@ def main() -> int:
             turn_id = sent.json()["turn_id"]
             started = time.monotonic()
             turn: dict[str, object] = {}
+            cancel_after = extra.get("cancel_after")
+            cancelled = False
             while time.monotonic() - started < args.turn_timeout:
                 turn = client.get(f"/v1/sessions/{sid}/turns/{turn_id}", headers=headers).json()
-                if turn["state"] in ("completed", "failed"):
+                if turn["state"] in ("completed", "failed", "cancelled"):
                     break
+                if (
+                    isinstance(cancel_after, int)
+                    and not cancelled
+                    and time.monotonic() - started >= cancel_after
+                ):
+                    stop = client.post(
+                        f"/v1/sessions/{sid}/turns/{turn_id}/cancel", json={}, headers=headers
+                    )
+                    print(json.dumps({"cancel": stop.status_code}), flush=True)
+                    cancelled = True
                 time.sleep(2)
             (turns_dir / f"{label}_{turn_id}.json").write_text(
                 json.dumps(turn, ensure_ascii=False, indent=1), encoding="utf-8"

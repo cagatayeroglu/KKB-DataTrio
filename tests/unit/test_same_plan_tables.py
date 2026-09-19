@@ -153,3 +153,54 @@ def test_a_wrong_label_on_a_table_with_several_columns_names_them(pool):
     assert result.status is ToolStatus.SUCCESS and result.output.status is ResultStatus.ABSTAINED
     assert "the table's columns are:" in result.output.reason
     assert "EVDS:TP.KTF12" in result.output.reason and "BDDK:selector" in result.output.reason
+
+
+def test_change_adds_a_month_over_month_column_and_marks_the_largest_moves(pool):
+    """Live U2 (2026-09-19): "Harcama en çok hangi ayda arttı?" had no tool to answer it."""
+    from test_co_movement import CREDIT, MONTHS, TOTAL_ID
+
+    from kkb_agent.agent.verifier import result_faults
+    from kkb_agent.tools.table_transform import TableTransformArguments
+
+    lake, workspace = pool
+    arguments = TableTransformArguments.model_validate(
+        {"operation": "change", "source": PUBLISHED, "column": TOTAL_ID, "kind": "percent"}
+    )
+    result = transform_tool(lake, workspace).run(arguments, ExecutionContext("turn")).output
+    assert result.status is ResultStatus.COMPUTED, result.reason
+    label = f"{TOTAL_ID} % change (lag 1)"
+    added = {v.period.end: v.value for v in result.values if v.label == label}
+    expected = {
+        end: (now / before - 1) * 100
+        for end, now, before in zip(MONTHS[1:], CREDIT[1:], CREDIT[:-1], strict=True)
+    }
+    assert added == pytest.approx(expected)
+    source = workspace.value_of(PUBLISHED)
+    assert result.values[: len(source.values)] == source.values
+    highlighted = result.parameters["highlighted_periods"]
+    assert highlighted[f"{label} is largest"] == [MONTHS[2].isoformat()]  # 990 -> 1010
+    assert highlighted[f"{label} is smallest"] == [MONTHS[1].isoformat()]  # 1000 -> 990
+    assert result.evidence.transformations[-1].operation == "change"
+    assert result_faults({"change": result}, lake.connection) == {}
+
+
+def test_a_change_turn_needs_no_discovery_and_publishes(pool):
+    from test_co_movement import TOTAL_ID
+
+    lake, workspace = pool
+    step = {
+        "step_id": "aylik_degisim",
+        "tool": "table_transform",
+        "arguments": {
+            "operation": "change",
+            "source": PUBLISHED,
+            "column": TOTAL_ID,
+            "kind": "difference",
+        },
+    }
+    question = "Konut kredisi bakiyesi en çok hangi ayda arttı?"
+    provider = scripted(json.dumps({"question": question, "steps": [step]}), "Tablo hazırlandı.")
+    session = Session(provider, registry_for(pool), require_series_discovery=True)
+    answered = session.answer(question, lake.connection, workspace=workspace, remember="degisim")
+    assert answered.answer.status is AnswerStatus.ACCEPTED, answered.answer
+    assert workspace.names() == ["degisim", PUBLISHED]

@@ -879,7 +879,18 @@ class Session:
                 prompt_bytes=sum(len(item.content.encode()) for item in messages),
             )
             span.describe(prompt_outline(messages))
-            completion = self.provider.complete(messages, model=self.model, schema=AnalyticalPlan)
+            try:
+                completion = self.provider.complete(
+                    messages, model=self.model, schema=AnalyticalPlan
+                )
+            except SchemaViolation as error:
+                # What the model got wrong, after the provider's own repair attempts. Without
+                # it a failed planning call cannot be explained afterwards: live U2
+                # (2026-09-19) spent 486 s and left only "SchemaViolation" behind.
+                span.describe(
+                    prompt_outline(messages) + "\n\nSchema violation: " + str(error)[:4000]
+                )
+                raise
             span.set(model=completion.model, provider_attempts=completion.attempts)
             _record_cost(span, completion)
             parent = span.sequence

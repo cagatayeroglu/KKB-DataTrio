@@ -9,6 +9,7 @@ from kkb_agent.analytics.table_shape import (
     TableShapeRefused,
     align_periods,
     filter_periods,
+    period_change,
     rebase_index,
 )
 from kkb_agent.core import (
@@ -198,3 +199,89 @@ def test_shape_changes_fail_closed(case):
         )
     with pytest.raises(TableShapeRefused):
         call()
+
+
+def by_end(values):
+    return {value.period.end: value.value for value in values}
+
+
+def test_change_adds_differences_and_percentages_by_hand():
+    """untouched = 1, 2, 3: differences 1 and 1; percentages 100 and 50."""
+    difference = period_change(source(), column_label="untouched", kind="difference")
+    assert by_end(difference.values) == {MONTHS[1]: 1.0, MONTHS[2]: 1.0}
+    assert difference.label == "untouched change (lag 1)"
+    assert {(v.unit, v.scale, v.measure) for v in difference.values} == {
+        ("TRY", Scale.MILLION, StockFlow.STOCK)
+    }
+    percent = period_change(source(), column_label="untouched", kind="percent")
+    assert by_end(percent.values) == {MONTHS[1]: 100.0, MONTHS[2]: 50.0}
+    assert percent.label == "untouched % change (lag 1)"
+    assert {(v.unit, v.scale, v.measure) for v in percent.values} == {
+        ("percent", Scale.ONE, StockFlow.RATE)
+    }
+    assert percent.largest_increase == MONTHS[1] and percent.largest_decrease is None
+    record = percent.transformation
+    assert record.operation == "change" and record.parameters["fill"] == "none"
+    assert record.parameters["periods_without_predecessor"] == 1
+
+
+def test_an_index_changes_in_index_points_and_a_gap_is_never_bridged():
+    index = period_change(source(), column_label="index", kind="difference")
+    assert by_end(index.values) == {MONTHS[1]: 20.0, MONTHS[2]: 20.0}
+    assert {(v.unit, v.scale) for v in index.values} == {("index point", Scale.ONE)}
+    # "amount" has January and March only: March's predecessor is two months away.
+    with pytest.raises(TableShapeRefused, match="no period with a usable predecessor"):
+        period_change(source(), column_label="amount", kind="difference")
+
+
+def test_change_refuses_what_it_cannot_state():
+    table = source()
+    rate = table.model_copy(
+        update={
+            "values": [
+                value.model_copy(
+                    update={"unit": "percent", "scale": Scale.ONE, "measure": StockFlow.RATE}
+                )
+                if value.label == "untouched"
+                else value
+                for value in table.values
+            ]
+        }
+    )
+    with pytest.raises(TableShapeRefused, match="use kind=difference"):
+        period_change(rate, column_label="untouched", kind="percent")
+    points = period_change(rate, column_label="untouched", kind="difference")
+    assert {v.unit for v in points.values} == {"percentage point"}
+    with pytest.raises(TableShapeRefused, match="No values are labelled"):
+        period_change(table, column_label="absent", kind="difference")
+    with pytest.raises(TableShapeRefused, match="too few rows"):
+        period_change(table, column_label="untouched", kind="difference", lag=3)
+    with pytest.raises(TableShapeRefused, match="lag must be"):
+        period_change(table, column_label="untouched", kind="difference", lag=13)
+    once = table.model_copy(
+        update={
+            "values": [
+                *table.values,
+                *period_change(table, column_label="untouched", kind="percent").values,
+            ]
+        }
+    )
+    with pytest.raises(TableShapeRefused, match="already holds that change column"):
+        period_change(once, column_label="untouched", kind="percent")
+
+
+def test_a_nonpositive_predecessor_leaves_the_percentage_empty():
+    table = source()
+    zeroed = table.model_copy(
+        update={
+            "values": [
+                value.model_copy(update={"value": 0.0})
+                if value.label == "untouched" and value.period.end == MONTHS[0]
+                else value
+                for value in table.values
+            ]
+        }
+    )
+    percent = period_change(zeroed, column_label="untouched", kind="percent")
+    assert by_end(percent.values) == {MONTHS[2]: 50.0}
+    assert percent.transformation.parameters["periods_with_nonpositive_predecessor"] == 1
