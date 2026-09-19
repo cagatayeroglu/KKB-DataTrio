@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import secrets
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from dataclasses import dataclass, field
-from typing import Literal, Protocol
+from typing import Literal, Protocol, get_args
 from uuid import uuid4
+
+from pydantic import ValidationError
 
 from kkb_agent.agent.cancellation import (
     CancelToken,
@@ -50,6 +53,8 @@ from kkb_agent.api.contracts import (
     SessionCreated,
     SettingsUpdate,
     StoredMessage,
+    TraceConversationList,
+    TraceConversationSummary,
     TraceStep,
     TraceStepFull,
     Turn,
@@ -64,6 +69,8 @@ from kkb_agent.api.store import (
     StoreError,
 )
 from kkb_agent.llm.provider import ProviderError
+
+RUN_ERROR_CODES = frozenset(get_args(ErrorCode))
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +118,10 @@ class StoredResultReader(Protocol):
     def __call__(self, session_id: str, turn_id: str) -> Result: ...
 
 
+class SessionCleaner(Protocol):
+    def __call__(self, session_id: str) -> None: ...
+
+
 @dataclass(frozen=True, slots=True)
 class SelectedResult:
     """Server-resolved publication identity; workspace validity is checked by its runner."""
@@ -149,6 +160,7 @@ class _Session:
     documents: set[str] = field(default_factory=set)
     #: One cancel flag per admitted turn, read at the turn's checkpoints.
     cancels: dict[str, CancelToken] = field(default_factory=dict)
+    uploads_inflight: int = 0
 
 
 def answer_digest(text: str) -> str:
@@ -183,6 +195,7 @@ class AnalysisService:
         web_url: bool = False,
         model: str | None = None,
         stored_result: StoredResultReader | None = None,
+        session_cleanup: SessionCleaner | None = None,
     ):
         if mode not in ("kloudeks", "scripted"):
             raise ValueError("An explicit execution mode is required")
@@ -208,6 +221,7 @@ class AnalysisService:
         self._model = model
         # A published table read back from its receipt, after any restart.
         self._stored_result = stored_result
+        self._session_cleanup = session_cleanup
         self._mode = mode
         self._sessions: dict[str, _Session] = {}
         self._lock = threading.RLock()
@@ -351,6 +365,8 @@ class AnalysisService:
     def _owned(self, session_id: str, token: str) -> _Session:
         if self._closed:
             raise ServiceError("unavailable", 503)
+        if self._store is not None and self._store.conversation(session_id) is None:
+            raise ServiceError("not_found", 404)
         session = self._sessions.get(session_id)
         supplied = hashlib.sha256(token.encode()).digest()
         expected = session.token_digest if session else bytes(32)
@@ -410,6 +426,30 @@ class AnalysisService:
             )
         )
 
+    def trace_conversations(
+        self, owner_token: str, *, archived: bool = False, search: str | None = None
+    ) -> TraceConversationList:
+        """Owner-only trace index, including deleted chats that retain runs."""
+        owner = self._owner(owner_token)
+        if self._store is None:  # pragma: no cover - _owner refuses without a store
+            raise ServiceError("unavailable", 503)
+        return TraceConversationList(
+            conversations=tuple(
+                TraceConversationSummary(
+                    conversation_id=item.conversation_id,
+                    title=item.title,
+                    archived=item.archived,
+                    created_at=item.created_at,
+                    updated_at=item.updated_at,
+                    turns=self._store.turn_count(item.conversation_id),
+                    deleted=deleted,
+                )
+                for item, deleted in self._store.list_trace_conversations(
+                    owner, archived=archived, search=search
+                )
+            )
+        )
+
     def conversation(self, session_id: str, token: str) -> ConversationDetail:
         summary = self._reading(session_id, token)
         if self._store is None:  # pragma: no cover - _reading refuses without a store
@@ -460,15 +500,21 @@ class AnalysisService:
 
     def runs(self, session_id: str, token: str) -> RunList:
         """Every run of this conversation, newest first; opening one runs nothing."""
-        self._reading(session_id, token)
+        self._trace_access(session_id, token)
         if self._store is None:  # pragma: no cover - _reading refuses without a store
             raise ServiceError("unavailable", 503)
-        return RunList(
-            runs=tuple(self._run_summary(item, events=0) for item in self._store.runs(session_id))
-        )
+        summaries: list[RunSummary] = []
+        for item in self._store.runs(session_id):
+            try:
+                summaries.append(self._run_summary(item, events=0))
+            except ValidationError:
+                # Preserve the row in SQLite, but do not let one damaged legacy
+                # contract make every other run unreadable.
+                continue
+        return RunList(runs=tuple(summaries))
 
     def run(self, session_id: str, run_id: str, token: str) -> RunDetail:
-        self._reading(session_id, token)
+        self._trace_access(session_id, token)
         if self._store is None:  # pragma: no cover - _reading refuses without a store
             raise ServiceError("unavailable", 503)
         found = self._store.run_of(session_id, run_id)
@@ -494,7 +540,7 @@ class AnalysisService:
 
     def run_step(self, session_id: str, run_id: str, sequence: int, token: str) -> TraceStepFull:
         """One step's recorded text in full: every prompt, output and tool return."""
-        self._reading(session_id, token)
+        self._trace_access(session_id, token)
         if self._store is None:  # pragma: no cover - _reading refuses without a store
             raise ServiceError("unavailable", 503)
         if self._store.run_of(session_id, run_id) is None:
@@ -508,6 +554,14 @@ class AnalysisService:
 
     @staticmethod
     def _run_summary(item: StoredRun, *, events: int) -> RunSummary:
+        # Historical stores may contain exception prose (including provider
+        # details). Never return it or let one row invalidate the entire list.
+        if item.error is None or item.error in RUN_ERROR_CODES:
+            error = item.error
+        elif item.error.startswith(("ProviderError", "TransportError")):
+            error = "provider_failed"
+        else:
+            error = "internal_error"
         return RunSummary.model_validate(
             {
                 "run_id": item.run_id,
@@ -515,7 +569,7 @@ class AnalysisService:
                 "question": item.question,
                 "status": item.status,
                 "answer_status": item.answer_status,
-                "error": item.error,
+                "error": error,
                 "result_ref": item.result_ref,
                 "duration_ms": item.duration_ms,
                 "started_at": item.started_at,
@@ -590,6 +644,64 @@ class AnalysisService:
         self._store.update_conversation(session_id, title=update.title, archived=update.archived)
         return self._reading(session_id, token)
 
+    def _trace_access(self, session_id: str, token: str) -> None:
+        """A deleted chat is closed normally, but its retained traces stay owned."""
+        if self._store is None:
+            raise ServiceError("unavailable", 503)
+        if not self._store.opens(session_id, token=token, owner_token=token, include_deleted=True):
+            raise ServiceError("not_found", 404)
+
+    def _clean_deleted(self, session_id: str) -> None:
+        """Called only after the analysis and any upload for this session have stopped."""
+        if self._store is None:
+            return
+        if self._session_cleanup is not None:
+            self._session_cleanup(session_id)
+        self._store.clear_session_artifacts(session_id)
+        self._sessions.pop(session_id, None)
+
+    def delete_conversation(self, session_id: str, owner_token: str) -> bool:
+        """Owner-key-only soft delete. Running work is cancelled and cleaned on exit."""
+        with self._lock:
+            if self._store is None:
+                raise ServiceError("unavailable", 503)
+            if self._session_cleanup is None:
+                # A deletion cannot succeed while leaving upload/lakehouse files
+                # behind merely because a caller omitted the cleanup binding.
+                raise ServiceError("unavailable", 503)
+            if not self._store.opens(
+                session_id, token=None, owner_token=owner_token, include_deleted=True
+            ):
+                raise ServiceError("not_found", 404)
+            session = self._sessions.get(session_id)
+            if session is not None and session.uploads_inflight:
+                raise ServiceError("busy", 409)
+            self._store.soft_delete(session_id)
+            if session is not None:
+                for flag in session.cancels.values():
+                    flag.cancel()
+                if session.cancels:
+                    return True
+            try:
+                self._clean_deleted(session_id)
+            except Exception:
+                raise ServiceError("unavailable", 503) from None
+            return True
+
+    def delete_runs(self, session_id: str, owner_token: str) -> int:
+        """A separate, irreversible owner-only action; soft deletion never calls it."""
+        with self._lock:
+            if self._store is None:
+                raise ServiceError("unavailable", 503)
+            if not self._store.opens(
+                session_id, token=None, owner_token=owner_token, include_deleted=True
+            ):
+                raise ServiceError("not_found", 404)
+            session = self._sessions.get(session_id)
+            if session is not None and session.cancels:
+                raise ServiceError("busy", 409)
+            return self._store.delete_runs(session_id)
+
     def admit_document(
         self, session_id: str, token: str, media_type: str, content: bytes
     ) -> DocumentAdmitted:
@@ -603,9 +715,14 @@ class AnalysisService:
                 raise ServiceError("unavailable", 503)
             if len(session.documents) >= MAX_DOCUMENTS:
                 raise ServiceError("capacity", 429)
-        admitted = DocumentAdmitted.model_validate(
-            self._document_store(session_id, media_type, content).model_dump()
-        )
+            session.uploads_inflight += 1
+        try:
+            admitted = DocumentAdmitted.model_validate(
+                self._document_store(session_id, media_type, content).model_dump()
+            )
+        finally:
+            with self._lock:
+                session.uploads_inflight -= 1
         with self._lock:
             session = self._owned(session_id, token)
             session.documents.add(admitted.document_ref)
@@ -626,9 +743,14 @@ class AnalysisService:
                 raise ServiceError("unavailable", 503)
             if len(session.documents) >= MAX_DOCUMENTS:
                 raise ServiceError("capacity", 429)
-        admitted = DocumentAdmitted.model_validate(
-            self._url_document_store(session_id, url).model_dump()
-        )
+            session.uploads_inflight += 1
+        try:
+            admitted = DocumentAdmitted.model_validate(
+                self._url_document_store(session_id, url).model_dump()
+            )
+        finally:
+            with self._lock:
+                session.uploads_inflight -= 1
         with self._lock:
             session = self._owned(session_id, token)
             session.documents.add(admitted.document_ref)
@@ -848,6 +970,13 @@ class AnalysisService:
                 )
                 self._busy = False
                 self._sessions[session_id].cancels.pop(turn_id, None)
+                if self._store is not None and self._store.is_deleted(session_id):
+                    try:
+                        self._clean_deleted(session_id)
+                    except Exception:
+                        # The owner can retry deletion; no failed cleanup may
+                        # reopen a deleted conversation or erase its trace.
+                        logging.getLogger(__name__).warning("deleted_session_cleanup_failed")
 
     def close(self) -> None:
         with self._lock:

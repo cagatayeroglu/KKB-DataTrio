@@ -18,6 +18,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from kkb_agent.api.contracts import (
     MAX_BODY_BYTES,
     MAX_DOCUMENT_BYTES,
+    ConversationDeleted,
     ConversationDetail,
     ConversationList,
     ConversationSummary,
@@ -41,6 +42,7 @@ from kkb_agent.api.contracts import (
     Result,
     RunDetail,
     RunList,
+    RunsDeleted,
     RuntimeSettings,
     SearchTrial,
     SeriesIdentity,
@@ -51,6 +53,7 @@ from kkb_agent.api.contracts import (
     SessionCreated,
     SettingsUpdate,
     Slug,
+    TraceConversationList,
     TraceStepFull,
     Turn,
     VectorIndexStatus,
@@ -73,6 +76,7 @@ MAX_KNOWLEDGE_BODY_BYTES = 1024 * 1024
 #: The two routes with a query string: listing a browser's own conversations, and
 #: trying a question against its own catalogue.
 LIST_ROUTE = re.compile(r"/v1/conversations\Z")
+TRACE_LIST_ROUTE = re.compile(r"/v1/trace-conversations\Z")
 SEARCH_ROUTE = re.compile(r"/v1/knowledge/search\Z")
 MAX_QUERY_BYTES = 1024
 #: Methods that may carry a body; a body anywhere else is refused.
@@ -142,7 +146,9 @@ class LocalBoundary:
                 return
             query = scope.get("query_string") or b""
             queried = scope["method"] == "GET" and bool(
-                LIST_ROUTE.fullmatch(scope["path"]) or SEARCH_ROUTE.fullmatch(scope["path"])
+                LIST_ROUTE.fullmatch(scope["path"])
+                or TRACE_LIST_ROUTE.fullmatch(scope["path"])
+                or SEARCH_ROUTE.fullmatch(scope["path"])
             )
             if (query and not (queried and len(query) <= MAX_QUERY_BYTES)) or any(
                 len(headers.get(key, [])) > 1
@@ -304,9 +310,22 @@ def create_app(
     ) -> ConversationList:
         return service.conversations(owner, archived=archived, search=search)
 
+    @app.get("/v1/trace-conversations", response_model=TraceConversationList)
+    def trace_conversations(
+        owner: OwnerToken,
+        archived: bool = False,
+        search: Annotated[str | None, Query(max_length=120)] = None,
+    ) -> TraceConversationList:
+        return service.trace_conversations(owner, archived=archived, search=search)
+
     @app.get("/v1/conversations/{session_id}", response_model=ConversationDetail)
     def conversation(session_id: Reference, token: Token) -> ConversationDetail:
         return service.conversation(session_id, token)
+
+    @app.delete("/v1/conversations/{session_id}", response_model=ConversationDeleted)
+    def delete_conversation(session_id: Reference, owner: OwnerToken) -> ConversationDeleted:
+        service.delete_conversation(session_id, owner)
+        return ConversationDeleted()
 
     @app.get("/v1/conversations/{session_id}/results/{turn_id}", response_model=Result)
     def stored_result(session_id: Reference, turn_id: Reference, token: Token) -> Result:
@@ -316,6 +335,10 @@ def create_app(
     @app.get("/v1/conversations/{session_id}/runs", response_model=RunList)
     def runs(session_id: Reference, token: Token) -> RunList:
         return service.runs(session_id, token)
+
+    @app.delete("/v1/conversations/{session_id}/runs", response_model=RunsDeleted)
+    def delete_runs(session_id: Reference, owner: OwnerToken) -> RunsDeleted:
+        return RunsDeleted(deleted_runs=service.delete_runs(session_id, owner))
 
     @app.get("/v1/conversations/{session_id}/runs/{run_id}", response_model=RunDetail)
     def run(session_id: Reference, run_id: Reference, token: Token) -> RunDetail:

@@ -1,12 +1,13 @@
 """The conversation store: owned, restart-safe metadata; no analytical values."""
 
+import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
 
-from kkb_agent.api.store import DATABASE_NAME, ConversationStore, StoreError
+from kkb_agent.api.store import DATABASE_NAME, SCHEMA, ConversationStore, StoreError
 
 
 @pytest.fixture
@@ -137,3 +138,55 @@ def test_documents_and_publications_are_read_back_after_reopening(tmp_path):
         assert reopened.conversation(conversation_id).title == "Yeni sohbet"
     finally:
         reopened.close()
+
+
+def test_old_conversation_schema_migrates_and_soft_delete_filters_every_list(tmp_path):
+    path = tmp_path / DATABASE_NAME
+    with sqlite3.connect(path) as legacy:
+        legacy.executescript(
+            SCHEMA.replace(
+                "    updated_at      TEXT NOT NULL,\n    deleted_at      TEXT\n",
+                "    updated_at      TEXT NOT NULL\n",
+            )
+        )
+    store = ConversationStore(path)
+    try:
+        owner_id, owner_token, sid, token = conversation(store, title="Eski kredi sohbeti")
+        store.append_message(sid, turn_id=uuid4().hex, role="user", text="Konut kredisi")
+        assert store.opens(sid, token=token, owner_token=None)
+        store.soft_delete(sid)
+        assert store.is_deleted(sid)
+        assert store.conversation(sid) is None
+        assert not store.opens(sid, token=token, owner_token=owner_token)
+        assert store.opens(sid, token=token, owner_token=None, include_deleted=True)
+        assert store.list_conversations(owner_id) == []
+        assert store.list_conversations(owner_id, archived=True) == []
+        assert store.list_conversations(owner_id, search="kredi") == []
+        assert [m.text for m in store.messages(sid)] == ["Konut kredisi"]
+    finally:
+        store.close()
+
+
+def test_restart_finalizes_only_preexisting_unfinished_runs(tmp_path):
+    path = tmp_path / DATABASE_NAME
+    first = ConversationStore(path)
+    _, _, sid, _ = conversation(first)
+    old_run, new_run = uuid4().hex, uuid4().hex
+    first.start_run(sid, run_id=old_run, turn_id=uuid4().hex, question="Eski tur")
+    first.close()
+
+    restarted = ConversationStore(path)
+    try:
+        (interrupted,) = restarted.runs(sid)
+        assert interrupted.run_id == old_run
+        assert interrupted.status == "failed" and interrupted.error == "interrupted"
+        assert interrupted.ended_at is not None
+        assert interrupted.duration_ms >= 0
+        assert interrupted.ended_at >= interrupted.started_at
+
+        restarted.start_run(sid, run_id=new_run, turn_id=uuid4().hex, question="Yeni tur")
+        fresh = {run.run_id: run for run in restarted.runs(sid)}[new_run]
+        assert fresh.status == "running" and fresh.ended_at is None
+        assert fresh.error is None
+    finally:
+        restarted.close()

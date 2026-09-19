@@ -7,6 +7,7 @@ import io
 import json
 import os
 import re
+import shutil
 import threading
 import time
 from collections.abc import Callable, Iterator, Sequence
@@ -22,7 +23,7 @@ from pydantic import Field, JsonValue, SecretStr
 
 from kkb_agent.agent import Session, ToolRegistry, Workspace
 from kkb_agent.agent.cancellation import TurnCancelled
-from kkb_agent.agent.loop import MAX_HISTORY_TURNS
+from kkb_agent.agent.loop import MAX_HISTORY_TURNS, PlanningFailed
 from kkb_agent.agent.observer import Tracer
 from kkb_agent.agent.selection import SelectedTable, SelectionError
 from kkb_agent.agent.verifier import AnswerStatus
@@ -554,6 +555,39 @@ class PreparedRunner:
                 )
         self._history[session_id] = list(self._store.history(session_id, MAX_HISTORY_TURNS))
 
+    def delete_session(self, session_id: str) -> None:
+        """Remove only one server-issued session's files after its turn has stopped.
+
+        The prepared seed and shared acquisition/directory roots are never targets.
+        The caller must have authorized the deletion and ensured no turn uses this
+        session; the runner lock also refuses a concurrent execution.
+        """
+        if not _IDENTIFIER.fullmatch(session_id):
+            raise PreparedError("invalid_runtime_identity")
+        if not self._lock.acquire(blocking=False):
+            raise PreparedError("concurrent_runtime_refused")
+        try:
+            target = self.run_root / session_id
+            if target.is_symlink() or not target.resolve().is_relative_to(self.run_root):
+                raise PreparedError("linked_path_refused")
+            if target.exists():
+                if not target.is_dir():
+                    raise PreparedError("session_path_invalid")
+                shutil.rmtree(target)
+            with self._documents_lock:
+                for key in tuple(self._documents):
+                    if key[0] == session_id:
+                        del self._documents[key]
+            self._turns.pop(session_id, None)
+            self._pending_clarifications.pop(session_id, None)
+            self._history.pop(session_id, None)
+            self._proven.pop(session_id, None)
+            for key in tuple(self._publications):
+                if key[0] == session_id:
+                    del self._publications[key]
+        finally:
+            self._lock.release()
+
     def admit_document_from_url(self, session_id: str, url: str) -> DocumentAdmitted:
         """Fetch a tabular document at a user-written address and admit it like an upload.
 
@@ -1053,13 +1087,20 @@ class PreparedRunner:
                             run_id,
                             status="cancelled" if cancelled else "failed",
                             duration_ms=max(0, round((time.monotonic() - started) * 1000)),
-                            # A provider failure keeps its curated category, status
-                            # included ("Kloudeks rejected the request (400)"); every
-                            # other failure is named by type only, never by text.
+                            # Run summaries are a strict public contract. Keep only
+                            # fixed categories, never provider/exception prose.
                             error=(
-                                f"{type(failure).__name__}: {failure}"
+                                "cancelled"
+                                if cancelled
+                                else "provider_failed"
                                 if isinstance(failure, ProviderError)
-                                else type(failure).__name__
+                                else "planning_failed"
+                                if isinstance(failure, PlanningFailed)
+                                else "output_limit"
+                                if isinstance(failure, OutputRefused)
+                                else failure.code
+                                if isinstance(failure, ServiceError)
+                                else "internal_error"
                             ),
                             events=tracer.events,
                         )

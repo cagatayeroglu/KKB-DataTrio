@@ -11,16 +11,22 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
+  deleteConversationRuns,
   describeError,
-  listConversations,
+  listTraceConversations,
   listFeedback,
   listRuns,
   openConversation,
   openRun,
   openRunStep,
 } from "@/lib/client";
+import {
+  modelCallLabel,
+  runReadMessage,
+  type RunReadState,
+} from "@/lib/trace-summary";
 import type {
-  ConversationSummary,
+  TraceConversationSummary,
   Feedback,
   RunDetail,
   RunSummary,
@@ -326,13 +332,9 @@ function RunView({
     URL.revokeObjectURL(link.href);
   }
 
-  // One count per model call: a planning call, or the writer's own call. The
-  // plan it returned and the draft it wrote are records of that call, not calls.
-  const model = detail?.steps.filter(
-    (step) =>
-      (step.stage === "planning" && step.name !== "planner.output") ||
-      step.name === "writer.call",
-  ).length;
+  // Call spans appear only after completion. Never label a running first call
+  // "0 model calls" merely because the provider has not returned yet.
+  const model = detail ? modelCallLabel(run.status, detail.steps) : "";
   const tools = detail?.steps.filter((step) => step.stage === "tool").length;
 
   return (
@@ -347,7 +349,7 @@ function RunView({
           · {run.answer_status ?? run.status}
           {run.error ? ` · hata: ${run.error}` : ""}
           {detail &&
-            ` · ${detail.steps.length} adım · ${model} model çağrısı · ${tools} araç adımı`}
+            ` · ${detail.steps.length} adım · ${model} · ${tools} araç adımı`}
         </p>
       </header>
       {answer && (
@@ -473,7 +475,9 @@ export function TracesPage({
 }) {
   const [archived, setArchived] = useState(false);
   const [search, setSearch] = useState("");
-  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [conversations, setConversations] = useState<
+    TraceConversationSummary[]
+  >([]);
   const [chosen, setChosen] = useState<string | null>(
     initialConversation ?? null,
   );
@@ -482,46 +486,85 @@ export function TracesPage({
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [ratings, setRatings] = useState<Feedback[]>([]);
   const [issue, setIssue] = useState("");
+  const [runsState, setRunsState] = useState<RunReadState>("loading");
+  const [retry, setRetry] = useState(0);
+  const [listRevision, setListRevision] = useState(0);
+  const [listError, setListError] = useState(false);
+  const chosenDeleted =
+    conversations.find((item) => item.conversation_id === chosen)?.deleted ??
+    false;
+
+  async function removeRuns() {
+    if (
+      !chosen ||
+      !window.confirm(
+        "Bu sohbetin tüm işlem kayıtları kalıcı olarak silinsin mi? Bu işlem geri alınamaz; sohbet ve tablolar korunur.",
+      )
+    )
+      return;
+    try {
+      await deleteConversationRuns(chosen, owner);
+      setRuns([]);
+      setRun(null);
+      setConversations((old) =>
+        old.filter((item) => item.conversation_id !== chosen),
+      );
+      setChosen(null);
+      setListRevision((old) => old + 1);
+      setIssue("");
+    } catch (error) {
+      setIssue(describeError(error));
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
     const timer = setTimeout(async () => {
       try {
-        const listed = await listConversations(owner, {
+        const listed = await listTraceConversations(owner, {
           archived,
           search: search.trim() || undefined,
         });
         if (cancelled) return;
+        setListError(false);
+        setIssue("");
         setConversations(listed.conversations);
-        setChosen(
-          (current) =>
-            current ?? listed.conversations[0]?.conversation_id ?? null,
+        setChosen((current) =>
+          listed.conversations.some((item) => item.conversation_id === current)
+            ? current
+            : (listed.conversations[0]?.conversation_id ?? null),
         );
       } catch (error) {
-        if (!cancelled) setIssue(describeError(error));
+        if (!cancelled) {
+          setListError(true);
+          setIssue(describeError(error));
+        }
       }
     }, 250);
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [owner, archived, search]);
+  }, [owner, archived, search, listRevision]);
 
   useEffect(() => {
-    if (!chosen) return;
+    if (!chosen) {
+      setRuns([]);
+      setRun(null);
+      setRunsState("ready");
+      return;
+    }
     let cancelled = false;
     setRuns([]);
     setRun(null);
+    setRunsState("loading");
     setAnswers({});
     setRatings([]);
     void (async () => {
       try {
-        // The browser's key opens its own conversations' records; no second secret.
-        const [listed, detail, feedback] = await Promise.all([
-          listRuns(chosen, owner),
-          openConversation(chosen, owner),
-          listFeedback(chosen, owner).catch(() => ({ feedback: [] })),
-        ]);
+        // The trace index can contain deleted chats: their normal GET is still
+        // forbidden, but their retained runs remain owner-readable.
+        const listed = await listRuns(chosen, owner);
         if (cancelled) return;
         setRuns(listed.runs);
         setRun(
@@ -531,23 +574,32 @@ export function TracesPage({
             listed.runs[0]?.run_id ??
             null,
         );
-        setAnswers(
-          Object.fromEntries(
-            detail.messages
-              .filter((message) => message.role === "assistant")
-              .map((message) => [message.turn_id, message.text]),
-          ),
-        );
-        setRatings(feedback.feedback);
+        setRunsState("ready");
         setIssue("");
-      } catch (error) {
-        if (!cancelled) setIssue(describeError(error));
+        if (!chosenDeleted) {
+          const [detail, feedback] = await Promise.all([
+            openConversation(chosen, owner).catch(() => null),
+            listFeedback(chosen, owner).catch(() => ({ feedback: [] })),
+          ]);
+          if (cancelled) return;
+          if (detail)
+            setAnswers(
+              Object.fromEntries(
+                detail.messages
+                  .filter((message) => message.role === "assistant")
+                  .map((message) => [message.turn_id, message.text]),
+              ),
+            );
+          setRatings(feedback.feedback);
+        }
+      } catch {
+        if (!cancelled) setRunsState("error");
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [chosen, owner, initialTurn]);
+  }, [chosen, owner, initialTurn, retry, chosenDeleted]);
 
   const current = runs.find((item) => item.run_id === run);
   return (
@@ -591,17 +643,41 @@ export function TracesPage({
               onClick={() => setChosen(item.conversation_id)}
             >
               <span>{item.title}</span>
+              {item.deleted && (
+                <small className="trace-deleted">Silinmiş sohbet</small>
+              )}
               <small>
                 {new Date(item.updated_at).toLocaleString("tr-TR")} ·{" "}
                 {item.turns} soru
               </small>
             </button>
           ))}
-          {conversations.length === 0 && (
+          {listError && (
+            <div className="chat-empty">
+              Sohbetler okunamadı — yeniden dene
+              <button
+                type="button"
+                className="trace-retry"
+                onClick={() => setListRevision((old) => old + 1)}
+              >
+                Yeniden dene
+              </button>
+            </div>
+          )}
+          {conversations.length === 0 && !listError && (
             <p className="chat-empty">Sohbet yok.</p>
           )}
         </nav>
         <nav className="traces-column" aria-label="Turlar">
+          {chosen && runs.length > 0 && (
+            <button
+              type="button"
+              className="trace-delete"
+              onClick={() => void removeRuns()}
+            >
+              Bu sohbetin işlem kayıtlarını kalıcı sil
+            </button>
+          )}
           {runs.map((item) => {
             const rated = ratings.filter((r) => r.turn_id === item.turn_id);
             return (
@@ -622,8 +698,30 @@ export function TracesPage({
               </button>
             );
           })}
-          {chosen && runs.length === 0 && (
-            <p className="chat-empty">Bu sohbette kayıtlı işlem yok.</p>
+          {chosen && runsState === "error" && (
+            <div className="chat-empty">
+              {runReadMessage(runsState, runs.length)}
+              <button
+                type="button"
+                className="trace-retry"
+                onClick={() => {
+                  setRetry((old) => old + 1);
+                  setListRevision((old) => old + 1);
+                }}
+              >
+                Yeniden dene
+              </button>
+            </div>
+          )}
+          {chosen && runsState === "loading" && (
+            <p className="chat-empty">
+              {runReadMessage(runsState, runs.length)}
+            </p>
+          )}
+          {chosen && runsState === "ready" && runs.length === 0 && (
+            <p className="chat-empty">
+              {runReadMessage(runsState, runs.length)}
+            </p>
           )}
         </nav>
         <div className="traces-main">

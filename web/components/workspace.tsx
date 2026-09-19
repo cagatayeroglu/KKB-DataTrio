@@ -39,12 +39,15 @@ import {
 } from "@/components/knowledge-panel";
 import { preparedTitle } from "@/lib/table";
 import { noticeText } from "@/lib/language";
+import { clarificationPickText } from "@/lib/clarification";
+import { hasUnrecordedRun, keepSubmittedPrompts } from "@/lib/chat-state";
 import {
   api,
   ApiError,
   DOCUMENT_ACCEPT,
   admissionRejection,
   cancelTurn,
+  deleteConversation,
   draftRequest,
   publishedResult,
   restoredSelection,
@@ -53,6 +56,7 @@ import {
   describeError,
   usableOwner,
   listConversations,
+  listRuns,
   readSettings,
   readPrompts,
   saveSettings,
@@ -184,13 +188,7 @@ function SeriesChoiceCard({
                 <button
                   type="button"
                   title="Soru kutusuna bu kaydı kullanan bir istek yazar"
-                  onClick={() =>
-                    onPick(
-                      asking
-                        ? `${entry.title} (${entry.detail})`
-                        : `Aynı isteği bu kez şu kayıtla yap: ${entry.title} (${entry.detail})`,
-                    )
-                  }
+                  onClick={() => onPick(clarificationPickText(entry, asking))}
                 >
                   {entry.title}
                 </button>
@@ -264,7 +262,7 @@ export function Workspace() {
     chatEnd = useRef<HTMLDivElement>(null),
     atEnd = useRef(true),
     transcriptFor = useRef<string | null>(null),
-    shownCount = useRef(0),
+    hiddenDeleted = useRef<Set<string>>(new Set()),
     input = useRef<HTMLTextAreaElement>(null),
     picker = useRef<HTMLInputElement>(null),
     imagePicker = useRef<HTMLInputElement>(null);
@@ -331,7 +329,12 @@ export function Workspace() {
         archived: showArchived,
         search: chatSearch.trim() || undefined,
       });
-      if (mounted.current) setConversations(listed.conversations);
+      if (mounted.current)
+        setConversations(
+          listed.conversations.filter(
+            (item) => !hiddenDeleted.current.has(item.conversation_id),
+          ),
+        );
     } catch (error) {
       if (mounted.current) setIssue(describeError(error));
     }
@@ -352,14 +355,17 @@ export function Workspace() {
   }
   function startChat() {
     if (busyRef.current || pending || !ready) return;
+    resetChat();
+  }
+  function resetChat() {
     // Starting or opening a chat is a move to the studio: the page follows the
     // choice instead of leaving the person on a page that does not show it.
     setPanel(null);
+    let storageIssue = "";
     try {
       clearSession(sessionStorage);
     } catch (error) {
-      setIssue(describeError(error));
-      return;
+      storageIssue = describeError(error);
     }
     generation.current++;
     saved.current = null;
@@ -371,10 +377,15 @@ export function Workspace() {
     setConversationId(null);
     setRatings({});
     setPendingIndex(null);
+    busyRef.current = false;
+    setBusy(false);
+    setStopping(false);
     setSelected(null);
     setAttachment(null);
     setQuestion("");
-    setIssue("");
+    setIssue(storageIssue);
+    setChatMenu(false);
+    atEnd.current = true;
   }
   /** The tables a stored conversation published, read back from their receipts. */
   async function restoreTables(
@@ -436,16 +447,20 @@ export function Workspace() {
   }, [ownerToken, conversationId]);
   async function openChat(id: string) {
     if (busyRef.current || pending || !ready || !ownerToken) return;
+    const beforeOpen = generation.current;
     setPanel(null);
     setIssue("");
     try {
       const detail = await openConversation(id, ownerToken);
-      if (!mounted.current) return;
+      if (!mounted.current || generation.current !== beforeOpen) return;
       generation.current++;
+      const epoch = generation.current;
+      const active = () => mounted.current && generation.current === epoch;
       recoveries.current = [];
       transcriptFor.current = id;
+      atEnd.current = true;
       // The owner key opens this conversation's turn routes too; no second secret.
-      record({
+      const reopened: Saved = {
         session: {
           api_version: 1,
           session_id: id,
@@ -453,12 +468,13 @@ export function Workspace() {
           survives_restart: true,
         },
         turns: [],
-      });
+      };
+      record(reopened);
       setConversationId(id);
       setTranscript(detail.messages);
       try {
         const rated = await listFeedback(id, ownerToken);
-        if (mounted.current)
+        if (active())
           setRatings(
             Object.fromEntries(
               rated.feedback.map((item) => [item.turn_id, item]),
@@ -467,6 +483,7 @@ export function Workspace() {
       } catch {
         // Ratings are supporting information; a chat still opens without them.
       }
+      if (!active()) return;
       setItems([]);
       setSelected(null);
       setPendingIndex(null);
@@ -489,7 +506,7 @@ export function Workspace() {
           }
         }),
       );
-      if (mounted.current) {
+      if (active()) {
         const kept = restored.filter(
           (entry): entry is { turnId: string; result: Result } =>
             Boolean(entry),
@@ -499,6 +516,43 @@ export function Workspace() {
         // they were already looking at when they left.
         const newest = kept.at(-1)?.result.result_ref;
         if (newest) setSelected(newest);
+      }
+      // An in-flight turn is not yet a stored message. A reopened chat still
+      // needs its server-issued turn identity for polling and cancellation.
+      const listed = await listRuns(id, ownerToken).catch(() => null);
+      if (!active()) return;
+      const running = listed?.runs.find((run) => run.status === "running");
+      // Completion may race the first conversation read. Re-read only if a run
+      // finished after that snapshot, so its prompt and answer never disappear.
+      if (
+        !running &&
+        listed &&
+        hasUnrecordedRun(listed.runs, detail.messages)
+      ) {
+        const fresh = await openConversation(id, ownerToken);
+        if (!active()) return;
+        setTranscript(fresh.messages);
+        const freshTables = await restoreTables(id, fresh.messages, ownerToken);
+        if (!active()) return;
+        setRestoredTables(freshTables);
+        setSelected(freshTables.at(-1)?.result.result_ref ?? null);
+      }
+      if (running) {
+        const turn = await readTurn(reopened.session, running.turn_id).catch(
+          () => null,
+        );
+        if (active() && turn && ["queued", "running"].includes(turn.state)) {
+          const entry = {
+            request_id: turn.request_id,
+            turn_id: turn.turn_id,
+            question: running.question,
+            turn,
+          };
+          record({ ...reopened, turns: [entry] });
+          setItems([entry]);
+          recoveries.current = [0];
+          void watch(0, false);
+        }
       }
     } catch (error) {
       if (mounted.current) setIssue(describeError(error));
@@ -521,6 +575,26 @@ export function Workspace() {
     try {
       await updateConversation(id, ownerToken, { archived });
       if (id === conversationId && archived) startChat();
+      await refreshConversations();
+    } catch (error) {
+      setIssue(describeError(error));
+    }
+  }
+  async function deleteChat(id: string) {
+    if (!ownerToken) return;
+    if (
+      !window.confirm(
+        "Bu sohbet silinsin mi? Sohbet ve yüklenen belgeler kaldırılır; işlem kayıtları korunur.",
+      )
+    )
+      return;
+    try {
+      await deleteConversation(id, ownerToken);
+      hiddenDeleted.current.add(id);
+      setConversations((old) =>
+        old.filter((item) => item.conversation_id !== id),
+      );
+      if (id === conversationId) resetChat();
       await refreshConversations();
     } catch (error) {
       setIssue(describeError(error));
@@ -553,10 +627,28 @@ export function Workspace() {
     setPendingIndex(index);
     setIssue("");
     try {
-      let turn = canAdmit
-        ? await admit(state, index)
-        : await readTurn(state.session, entry.turn_id!, entry.request_id);
+      const deadline = Date.now() + 60 * 60 * 1000;
+      let turn: Turn;
+      for (;;) {
+        try {
+          turn = canAdmit
+            ? await admit(state, index)
+            : await readTurn(state.session, entry.turn_id!, entry.request_id);
+          break;
+        } catch (error) {
+          if (
+            !(error instanceof ApiError) ||
+            !["connection", "unavailable"].includes(error.code) ||
+            Date.now() > deadline
+          )
+            throw error;
+          if (active()) setIssue((old) => old || describeError(error));
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          if (!active()) return;
+        }
+      }
       if (!active()) return;
+      setIssue("");
       const next = {
         ...state,
         turns: state.turns.map((entry, i) =>
@@ -567,7 +659,6 @@ export function Workspace() {
       update(index, turn, true);
       // A turn is several model calls and one call may run for its whole request
       // timeout; the turn keeps running server-side either way, so keep watching it.
-      const deadline = Date.now() + 60 * 60 * 1000;
       while (turn.state !== "completed" && turn.state !== "failed") {
         if (Date.now() > deadline) {
           setIssue(
@@ -577,8 +668,20 @@ export function Workspace() {
         }
         await new Promise((resolve) => setTimeout(resolve, 1000));
         if (!active()) return;
-        turn = await readTurn(next.session, turn.turn_id, entry.request_id);
+        try {
+          turn = await readTurn(next.session, turn.turn_id, entry.request_id);
+        } catch (error) {
+          if (
+            error instanceof ApiError &&
+            ["connection", "unavailable"].includes(error.code)
+          ) {
+            if (active()) setIssue((old) => old || describeError(error));
+            continue;
+          }
+          throw error;
+        }
         if (!active()) return;
+        setIssue("");
         update(index, turn, true);
       }
       recovered(index);
@@ -647,15 +750,18 @@ export function Workspace() {
           } catch (error) {
             if (!active()) return;
             if (error instanceof ApiError && error.status === 404) {
-              // The server no longer has this tab's session (restarted, or a new
-              // state root). Broken turns would only mislead: start clean and say so.
+              // Keep the exact submitted prompt visible even when the server
+              // lost this turn. The person can reopen stored history or start
+              // another chat; silently removing the prompt suggests it was
+              // never sent.
               try {
                 clearSession(sessionStorage);
               } catch {
                 // Nothing stored to clear.
               }
               saved.current = null;
-              setItems([]);
+              recoveries.current = [];
+              setItems((old) => keepSubmittedPrompts(old));
               setPendingIndex(null);
               setSelected(null);
               setIssue(errorText.session_gone);
@@ -685,6 +791,10 @@ export function Workspace() {
         recoveries.current = resume;
         setPendingIndex(resume[0] ?? null);
         setReady(true);
+        // A refresh/navigation return must resume observing the same request,
+        // never silently leave a live turn behind a manual recovery button.
+        if (resume.length > 0)
+          void watch(resume[0], !stored.turns[resume[0]].turn_id);
       })();
     } else setReady(true);
     return () => {
@@ -728,12 +838,18 @@ export function Workspace() {
   });
   useEffect(() => {
     const body = chatEnd.current?.parentElement;
-    if (!body || !items.length) return;
-    // A question just asked, or another conversation opened, always shows its end.
-    const changed = items.length !== shownCount.current;
-    shownCount.current = items.length;
-    if (changed || atEnd.current) body.scrollTop = body.scrollHeight;
-  }, [items, busy]);
+    if (body && atEnd.current) body.scrollTop = body.scrollHeight;
+  }, [items, transcript, restoredTables, busy, conversationId]);
+  useEffect(() => {
+    const body = chatEnd.current?.parentElement;
+    const content = body?.querySelector(".messages");
+    if (!body || !content || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (atEnd.current) body.scrollTop = body.scrollHeight;
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [items.length, transcript.length, conversationId]);
   async function attach(file: File | undefined) {
     if (!file || !uploads || busyRef.current || pending || !ready) return;
     busyRef.current = true;
@@ -804,7 +920,7 @@ export function Workspace() {
   async function stop() {
     const state = saved.current;
     const turnId =
-      pendingIndex === null ? undefined : items[pendingIndex]?.turn?.turn_id;
+      pendingIndex === null ? undefined : state?.turns[pendingIndex]?.turn_id;
     if (!state || !turnId) return;
     setStopping(true);
     try {
@@ -1036,6 +1152,15 @@ export function Workspace() {
                           <Archive size={12} />
                         )}
                       </button>
+                      <button
+                        type="button"
+                        className="chat-delete"
+                        aria-label="Sohbeti sil"
+                        title="Sohbeti sil; işlem kayıtlarını koru"
+                        onClick={() => void deleteChat(item.conversation_id)}
+                      >
+                        <Trash2 size={12} />
+                      </button>
                     </>
                   )}
                 </div>
@@ -1134,13 +1259,23 @@ export function Workspace() {
                     <button
                       type="button"
                       role="menuitem"
-                      className="danger"
                       onClick={() => {
                         setChatMenu(false);
                         void archiveChat(conversationId, true);
                       }}
                     >
-                      <Trash2 size={13} /> Sohbeti sil (arşive taşı)
+                      <Archive size={13} /> Sohbeti arşivle
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="danger"
+                      onClick={() => {
+                        setChatMenu(false);
+                        void deleteChat(conversationId);
+                      }}
+                    >
+                      <Trash2 size={13} /> Sohbeti sil
                     </button>
                   </div>
                 )}
@@ -1752,7 +1887,10 @@ export function Workspace() {
                         type="button"
                         size="sm"
                         variant="outline"
-                        disabled={stopping}
+                        disabled={
+                          stopping ||
+                          !saved.current?.turns[pendingIndex]?.turn_id
+                        }
                         title="Çalışan model isteği bitince, bir sonraki adımdan önce durur."
                         onClick={() => void stop()}
                       >
