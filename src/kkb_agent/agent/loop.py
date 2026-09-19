@@ -212,7 +212,7 @@ MAX_HISTORY_CHARS = 700
 _PRIOR_REFERENCE = re.compile(
     r"\b(?:bu\s+(?:tablo\w*|sonu\w*|seri\w*|veri\w*)|buna|bunun|"
     r"aynı\s+(?:tablo\w*|seri\w*|sonu\w*)|önceki\s+(?:tablo\w*|sonu\w*|cevab\w*|cevap\w*)|"
-    r"az\s+önceki|tablodaki|(?:ilk|ikinci|üçüncü|son|eski)\s+"
+    r"az\s+önceki|tablodaki|tablo\w*\s+bozmadan|(?:ilk|ikinci|üçüncü|son|eski)\s+"
     r"(?:analiz\w*\s+)?tablo\w*)\b",
     re.I,
 )
