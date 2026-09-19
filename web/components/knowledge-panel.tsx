@@ -61,6 +61,12 @@ const stageWords: Record<string, string> = {
   dense: "ANLAM",
   both: "İKİSİ",
 };
+/** Whether the first candidate is the default the question leaves (DEC-165). */
+const topCandidateWords: Record<string, string> = {
+  unambiguous: "ilk aday net varsayılan",
+  ambiguous: "adaylar belirsiz, netleştirme gerekir",
+  none: "aday yok",
+};
 const denseFailureWords: Record<string, string> = {
   snapshot_mismatch:
     "Vektörler bu kataloğu kapsamıyor: bilgi tabanı değişmiş, yeniden vektörlemek gerekiyor.",
@@ -478,6 +484,12 @@ export function KnowledgePanel({
               : " · tek seri seçilebilir"}
             {" · "}
             {retrievalWords[trial.retrieval_mode]}
+            {trial.top_candidate && (
+              <>
+                {" · "}
+                {topCandidateWords[trial.top_candidate]}
+              </>
+            )}
           </p>
           {trial.retrieval_mode === "lexical_degraded" && (
             <p className="helper">

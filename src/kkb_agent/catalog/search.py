@@ -6,6 +6,7 @@ log(1+(N-df+.5)/(df+.5)) IDF; no stemming/stopwords or holdout tuning.
 """
 
 from collections import Counter
+from collections.abc import Sequence
 from math import log
 from typing import Literal
 
@@ -13,13 +14,21 @@ from pydantic import Field, StrictBool, StrictInt, StrictStr, field_validator
 
 from kkb_agent.catalog.mappings import Concept, ReviewedSeries, ReviewedSnapshot
 from kkb_agent.catalog.normalization import normalize_search_text
-from kkb_agent.catalog.ranking import rerank_by_reviewed_intent
+from kkb_agent.catalog.ranking import intent_key, rerank_by_reviewed_intent
 from kkb_agent.catalog.records import MAX_CATALOG_CONCEPTS, MAX_CATALOG_SERIES, CatalogStatus
 from kkb_agent.core import Frequency
 from kkb_agent.core.models import ContractModel
 
 SearchMethod = Literal["reviewed_alias", "reviewed_phrase", "bm25", "dense"]
 SearchStatus = Literal["MATCH", "PARTIAL", "UNRESOLVED", "NO_MATCH", "FILTERED_OUT"]
+#: Whether the first candidate is the default the request leaves. "unambiguous":
+#: the reviewed-intent order puts it strictly first (the aggregate over TP/YP
+#: components, the national series over regions, the current over the archived)
+#: and every shown candidate shares a reviewed concept or family with it;
+#: "ambiguous": candidates tie on an axis the request did not name, or span
+#: unrelated concepts; "none": nothing was found. Deterministic, from reviewed
+#: metadata only; the planner still checks declared semantics against the question.
+TopCandidate = Literal["unambiguous", "ambiguous", "none"]
 
 
 class CatalogSearchArguments(ContractModel):
@@ -73,6 +82,7 @@ class CatalogSearchOutput(ContractModel):
     snapshot_version: str
     snapshot_sha256: str
     retrieval_version: Literal["m13-04-lexical-v1", "m13-05-combined-v1"] = "m13-04-lexical-v1"
+    top_candidate: TopCandidate = "none"
     retrieval_mode: Literal["lexical_only", "hybrid", "lexical_degraded"] = "lexical_only"
     combination_policy: Literal[
         "lexical-v1", "reviewed-match-order-v1", "alternating-archive-tier-v1"
@@ -134,6 +144,19 @@ def eligible_catalog_series(
         )
         and (args.frequency is None or s.record.frequency is args.frequency)
     )
+
+
+def top_candidate_signal(query: str, candidates: Sequence[CatalogCandidate]) -> TopCandidate:
+    """See `TopCandidate`: strictly first by reviewed intent, within one concept or family."""
+    if not candidates:
+        return "none"
+    if len(candidates) == 1:
+        return "unambiguous"
+    first, second = (intent_key(query, c.series) for c in candidates[:2])
+    if not first < second:
+        return "ambiguous"
+    groups = [set(c.concept_ids) | set(c.family_ids) for c in candidates]
+    return "unambiguous" if set.intersection(*groups) else "ambiguous"
 
 
 def search_catalog(
@@ -200,22 +223,24 @@ def search_catalog(
         status = "FILTERED_OUT"
     else:
         status = "NO_MATCH"
+    candidates = tuple(
+        CatalogCandidate(
+            series=s,
+            concept_ids=tuple(sorted(c.concept_id for c in concepts_by_id[s.record.series_id])),
+            family_ids=tuple(
+                sorted({f for c in concepts_by_id[s.record.series_id] for f in c.family_ids})
+            ),
+            rank=i + 1,
+            bm25_score=scores[s.record.series_id],
+            matched_terms=tuple(sorted(query_terms & documents[s.record.series_id].keys())),
+            method=method,
+        )
+        for i, s in enumerate(ranked[: args.max_results])
+    )
     return CatalogSearchOutput(
         status=status,
-        candidates=tuple(
-            CatalogCandidate(
-                series=s,
-                concept_ids=tuple(sorted(c.concept_id for c in concepts_by_id[s.record.series_id])),
-                family_ids=tuple(
-                    sorted({f for c in concepts_by_id[s.record.series_id] for f in c.family_ids})
-                ),
-                rank=i + 1,
-                bm25_score=scores[s.record.series_id],
-                matched_terms=tuple(sorted(query_terms & documents[s.record.series_id].keys())),
-                method=method,
-            )
-            for i, s in enumerate(ranked[: args.max_results])
-        ),
+        candidates=candidates,
+        top_candidate=top_candidate_signal(args.query, candidates),
         concepts=tuple(
             ConceptMatch(
                 concept_id=c.concept_id,
