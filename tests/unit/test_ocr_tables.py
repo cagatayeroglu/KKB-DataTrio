@@ -210,7 +210,11 @@ def test_served_ocr_table_is_published_with_an_ocr_proof(tmp_path):
     fetch = FakeFetch(build([Page()]), PDF)
     ocr = FakeOcr()
     runner, _ = runtime(tmp_path, scripted(_table_plan(), "Tablo hazır."), fetch=fetch)
-    runner._document_ocr = ocr
+    # As the constructor wires it: the outline the planner reads and the tool's own read
+    # of the same page share one model call (DEC-179).
+    from kkb_agent.pdf_ocr import CachedOcr
+
+    runner._document_ocr = CachedOcr(ocr)
     sid = uuid4().hex
 
     answer = runner(sid, uuid4().hex, f"{URL} taranmış belgesinden aylık tablo oluştur.")

@@ -3134,10 +3134,9 @@ svg {
   position: relative;
 }
 .model-options {
-  position: absolute;
-  left: 0;
-  bottom: calc(100% + 8px);
-  z-index: 30;
+  /* Fixed to the viewport: the composer clips what is positioned inside it. */
+  position: fixed;
+  z-index: 60;
   width: 300px;
   margin: 0;
   padding: 6px;

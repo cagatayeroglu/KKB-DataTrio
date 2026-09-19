@@ -13,9 +13,11 @@ after it adds up to the table's total row (`_document_value.total_checked`).
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import math
 import re
+import threading
 from collections.abc import Sequence
 from html.parser import HTMLParser
 from typing import Protocol
@@ -41,6 +43,36 @@ class OcrProvider(Protocol):
 
 class OcrError(ValueError):
     """Only fixed local codes, never provider/document text."""
+
+
+class CachedOcr:
+    """One OCR call per page image per process (DEC-179).
+
+    A page without a text layer is read twice in a turn: once for the outline that tells the
+    planner which headers exist, once by the tool that reads the column. The model is asked
+    once; the second read gets the same completion. Keys are digests of the exact image
+    bytes, only complete answers are kept, and the oldest entries leave first.
+    """
+
+    def __init__(self, provider: OcrProvider, *, capacity: int = 64) -> None:
+        self._provider = provider
+        self._capacity = capacity
+        self._kept: dict[str, Completion] = {}
+        self._lock = threading.Lock()
+
+    def ocr(self, images: Sequence[bytes]) -> Completion:
+        key = hashlib.sha256(b"\0".join(hashlib.sha256(i).digest() for i in images)).hexdigest()
+        with self._lock:
+            kept = self._kept.get(key)
+        if kept is not None:
+            return kept
+        result = self._provider.ocr(images)
+        if result.finish_reason == "stop":
+            with self._lock:
+                self._kept[key] = result
+                while len(self._kept) > self._capacity:
+                    self._kept.pop(next(iter(self._kept)))
+        return result
 
 
 def render_pages(content: bytes, pages: list[dict[str, object]]) -> None:
