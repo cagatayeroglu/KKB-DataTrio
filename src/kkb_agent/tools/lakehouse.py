@@ -132,18 +132,36 @@ class SeriesRead(BaseModel):
             raise ValueError("give last, or start/end, not both")
         return self
 
-    def statement(self, since: dict[str, date] | None = None) -> str:
+    def statement(
+        self, since: dict[str, date] | None = None, valued: frozenset[str] = frozenset()
+    ) -> str:
         """The one direct-column SELECT this read stands for; ids cannot carry a quote.
 
-        `since` is each series' first period end when `last` was asked: the tool reads it
-        from the store itself, so it is never a date the planner wrote.
+        `since` is each series' first period end when `last` was asked, and `valued` names
+        the series read without their empty periods (a daily series lists every weekend and
+        holiday as a period without a value). The tool reads both from the store itself, so
+        neither is something the planner wrote.
         """
-        if since is not None:
+        if since is not None or valued:
+            bounds = [
+                *([f"o.period_end >= DATE '{self.start.isoformat()}'"] if self.start else []),
+                *([f"o.period_end <= DATE '{self.end.isoformat()}'"] if self.end else []),
+            ]
             each = " OR ".join(
-                f"(o.series_id = '{identity}' AND o.period_end >= "
-                f"DATE '{since[identity].isoformat()}')"
-                if identity in since
-                else f"o.series_id = '{identity}'"
+                "("
+                + " AND ".join(
+                    [
+                        f"o.series_id = '{identity}'",
+                        *(
+                            [f"o.period_end >= DATE '{since[identity].isoformat()}'"]
+                            if since is not None and identity in since
+                            else []
+                        ),
+                        *(bounds if since is None else []),
+                        *(["o.value IS NOT NULL"] if identity in valued else []),
+                    ]
+                )
+                + ")"
                 for identity in self.series
             )
             return (
@@ -396,8 +414,18 @@ def make_lakehouse_tool(
                     ).fetchone()
                     if found_at is not None:
                         since[identity] = found_at[0]
+            # A daily series lists every weekend and holiday as a period without a value;
+            # those rows say nothing and would use up the places a result has.
+            valued = frozenset(
+                row[0]
+                for row in connection.execute(
+                    "SELECT series_id FROM silver_series WHERE frequency IN "
+                    "('daily', 'business_day')"
+                ).fetchall()
+                if row[0] in arguments.series
+            )
             arguments = LakehouseArguments(
-                sql=arguments.statement(since), purpose=arguments.purpose
+                sql=arguments.statement(since, valued), purpose=arguments.purpose
             )
             rows = max(max_rows, SERIES_READ_MAX_ROWS)
         if not isinstance(arguments, LakehouseArguments):  # pragma: no cover

@@ -304,6 +304,13 @@ def test_a_typed_read_says_what_each_series_is(catalogue, lake, tmp_path):
         tool.arguments.model_validate({"series": [DOLLAR], "last": 5}),
         ExecutionContext(question="q"),
     )
+    # Weekends are periods without a value in the store; a read of a daily series skips them.
+    assert [v.period.end.weekday() < 5 for v in result.output.result.values] == [True] * 5
+    assert [v.period.end for v in result.output.result.values][-1] == TODAY
+    whole = tool.run(
+        tool.arguments.model_validate({"series": [DOLLAR]}), ExecutionContext(question="q")
+    )
+    assert len(whole.output.result.values) == 29 and not whole.output.truncated
     names = result.output.result.parameters["series_names"]
     assert list(names) == [DOLLAR] and "ABD Doları" in names[DOLLAR]
     assert "daily" in names[DOLLAR] and "TRY" in names[DOLLAR]
