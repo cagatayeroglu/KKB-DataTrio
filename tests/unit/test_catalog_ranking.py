@@ -101,3 +101,74 @@ def test_naming_a_city_promotes_its_regional_series_above_the_national_one(snaps
     ):
         output = result(snapshot, f"{city} konut fiyat endeksi")
         assert output.candidates[0].series.record.series_id == series_id
+
+
+BDDK_TOTAL = "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66"
+BDDK_TP = "BDDK:selector:v1:388f6263c2bd73dafb71579bf74f6756be7d74976a400b5d00798d506d521eb0"
+BDDK_YP = "BDDK:selector:v1:fb2bf2c7a47d0399251e6e46f55f09c7e7d8c85612f44096f66470744774d4d2"
+
+
+@pytest.mark.parametrize(
+    ("query", "series_id"),
+    [
+        # DEC-165: the aggregate is the default over its TP/YP columns when no currency is named.
+        ("konut kredisi bakiyesi", BDDK_TOTAL),
+        # E1 (2026-09-19): the inflected Turkish noun still carries the balance intent.
+        ("2021-2025 konut kredisi bakiyesini aylık getir", BDDK_TOTAL),
+        # A named currency picks the column instead.
+        ("döviz cinsi konut kredisi bakiyesi", BDDK_YP),
+        ("TP konut kredisi bakiyesi", BDDK_TP),
+        # National over regions when no place is named; the regions share the concept.
+        ("konut fiyat endeksi", "EVDS:TP.KFE.TR"),
+        # One candidate is its own default.
+        ("İstanbul konut fiyat endeksi", "EVDS:TP.KFE.TR10"),
+        # The newest base is the default when none is named; the old base stays reachable.
+        ("TÜFE genel endeks", "EVDS:TP.TUKFIY2025.GENEL"),
+        ("eski baz yıllı genel TÜFE serisi", "EVDS:TP.GENENDEKS.T1"),
+    ],
+)
+def test_reviewed_defaults_make_the_first_candidate_unambiguous(snapshot, query, series_id):
+    output = result(snapshot, query)
+    assert output.candidates[0].series.record.series_id == series_id
+    assert output.top_candidate == "unambiguous"
+    assert output.clarification_required  # The flag is unchanged; the signal sits beside it.
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "bölgesel konut fiyat endeksi serileri",  # which province: the regions tie
+        "ihtiyaç kredisi faizini göster",  # KMH dahil / hariç: the two scopes tie
+        "konut",  # balances, rates, prices and a CPI division: no shared concept
+        "konut kredisi",  # balance or rate: the question does not say
+    ],
+)
+def test_ties_on_an_axis_the_question_did_not_name_stay_ambiguous(snapshot, query):
+    output = result(snapshot, query)
+    assert len(output.candidates) > 1 and output.top_candidate == "ambiguous"
+
+
+def test_no_candidates_means_no_top_candidate(snapshot):
+    output = result(snapshot, "zzzx unfamiliar wording")
+    assert output.status == "NO_MATCH" and output.top_candidate == "none"
+
+
+def test_inflected_intent_words_are_read_as_their_stem(snapshot):
+    """ "faizini"/"bakiyesini" carry the same intent as "faiz"/"bakiye" (E1 finding)."""
+    rates = result(snapshot, "ihtiyaç kredisi faizini göster")
+    assert all(c.series.record.stock_flow.value == "rate" for c in rates.candidates[:3])
+    balance = result(snapshot, "konut kredisi bakiyesini getir")
+    assert balance.candidates[0].series.record.series_id == BDDK_TOTAL
+    assert balance.candidates[0].series.record.stock_flow.value == "stock"
+
+
+def test_a_title_denomination_is_not_a_component(snapshot):
+    """EVDS "(TL, Akım, %)" titles are denominations; only TP/YP labels are columns."""
+    output = result(snapshot, "ihtiyaç kredisi faizi")
+    first = output.candidates[0].series.record
+    assert first.series_id in {"EVDS:TP.KTF10", "EVDS:TP.KTF101"}
+    output = result(snapshot, "konut kredisi bakiyesi")
+    order = [c.series.record.series_id for c in output.candidates]
+    assert order.index(BDDK_TOTAL) < order.index(BDDK_TP) and order.index(BDDK_TOTAL) < order.index(
+        BDDK_YP
+    )

@@ -368,9 +368,11 @@ def test_a_question_can_be_tried_against_the_catalogue_without_running_a_turn(ap
     body = found.json()
     assert body["query"] == "konut kredisi" and body["total_candidates"] >= 1
     assert all(hit["series_id"] for hit in body["hits"])
+    assert body["top_candidate"] == "ambiguous"  # balance or rate: the question does not say
 
     nothing = client.get("/v1/knowledge/search", params={"q": "zzz kayıt yok"}, headers=key)
     assert nothing.status_code == 200 and nothing.json()["hits"] == []
+    assert nothing.json()["top_candidate"] == "none"
 
     assert client.get("/v1/knowledge/search", params={"q": "x"}).status_code == 422
     assert client.get("/v1/knowledge/search", params={"q": ""}, headers=key).status_code == 422

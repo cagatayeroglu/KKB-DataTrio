@@ -150,6 +150,7 @@ class KnowledgeService:
             dense_failure=found.dense_failure,
             embedding_model=self._dense.index.profile.model if self._dense is not None else None,
             input_policy_id=found.input_policy_id,
+            top_candidate=found.top_candidate,
             hits=tuple(
                 SearchHit(
                     series_id=candidate.series.record.series_id,

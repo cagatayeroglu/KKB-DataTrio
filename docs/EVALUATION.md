@@ -227,6 +227,19 @@ the end of the month, and whether producing a table additionally requires `table
 continuation prompt carries roughly 26 KB of tool schemas, of which `change_detection`'s description
 is about 5 KB on its own, so this is also the first place to look for the S7 timeout.
 
+### E1 trace review — one question, two outcomes (2026-09-19)
+
+Two live runs of the same reference-shaped question — "2021–2025 konut kredisi bakiyesini aylık getir, TÜFE ile Aralık 2025 fiyatlarına göre enflasyondan arındır." — were read event by event from the served store (`data/processed/api-runs/arda-dev/conversations.sqlite`): the 22:46 run abstained ("İstenen veri serisi bulunamadı"), the 17:39 run was ACCEPTED. Neither outcome was correct, and neither was the model's fault; the findings and the permanent fixes are recorded in [DEC-165](DECISIONS.md#dec-165--the-catalog-says-whether-its-first-candidate-is-the-default-a-plan-may-chain-a-fetch-and-a-transform-a-plan-that-did-not-run-whole-is-never-accepted).
+
+| # | Trace evidence | Root cause (harness side) | Fix | Regression |
+| --- | --- | --- | --- | --- |
+| 1 | 22:46 `turn.received` carried `pending_clarification=true, clarification=merged`; the planner's prompt read "Orijinal istek: konut kredilerini istanbulda … / Açıklama: 2021–2025 …" and searched İstanbul | A new question had to end in "?"; a Turkish imperative request of twelve words was read as a reply | length-and-clause rule; planner told that a clarification that is a complete request replaces the original | `test_new_question_detection.py` |
+| 2 | 17:39 plan `lakehouse(fetch_housing)` → `table_transform.deflate(source="fetch_housing")`; validation passed, the deflate step failed `workspace_reference` | `source` resolved published tables only; the validator did not know the workspace names | validator checks names against published tables and the plan's steps, requires the edge; tool reads a declared step's result | `test_same_plan_tables.py` |
+| 3 | 17:39 `workspace.not_published` with `completed=false`, yet the writer wrote "değerler … enflasyondan arındırılmıştır" and the gate returned ACCEPTED (seven numbers bound to the raw balances) | the writer never learned a step had failed; the gate can only check numbers | writer receives the incomplete steps; an answer over an incomplete plan is QUALIFIED with the steps named | `test_incomplete_plan.py` |
+| 4 | both runs: every `catalog_search` output carried `clarification_required=true` and the "untrusted metadata" warning; the accepted run's planner picked the total, the abstained run's asked | the flag is always true by design and the instructions forbade picking the top candidate for its rank; the choice was left to the model | deterministic `top_candidate` signal, aggregate/national/newest-base defaults, inflected intent words, instructions that clarify only for a real gap | `test_catalog_ranking.py`, `test_hybrid_catalog.py`, `test_catalog_continuation.py`, `test_knowledge_api.py` |
+
+Independent recomputation of the 17:39 figures was not possible: the deflation never ran, so there was no adjusted series to check. The fixed code has not yet been exercised live; the reference three-turn run on a server restarted on this revision is the next evaluation step (E2), followed by the scenario matrix with independent recomputation (E3–E7).
+
 ### M6-25 organizer Turn 1 live run (2026-09-14)
 
 Owner-authorized runs of `python -m kkb_agent.live_check --prepared-root data/processed/lakehouse` ask the organizer's Turn 1 question through Kloudeks (Qwen planner and writer) over a private copy of the prepared pool; the copy keeps runtime lineage, execution evidence and workspace writes out of the prepared root. Offline tests use the same path with a scripted provider ([test_co_movement](../tests/unit/test_co_movement.py)).

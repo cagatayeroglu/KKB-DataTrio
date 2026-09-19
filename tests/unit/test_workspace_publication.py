@@ -174,7 +174,9 @@ def test_unsuccessful_turn_leaves_all_workspace_tables_unchanged(space, monkeypa
         expected = AnswerStatus.ACCEPTED
     elif case in ("failed_step", "partial_step"):
         later = ToolStatus.FAILURE if case == "failed_step" else ToolStatus.PARTIAL
-        expected = AnswerStatus.ACCEPTED  # Existing answer behavior stays unchanged.
+        # DEC-165: every figure binds, but a plan that did not run whole is QUALIFIED,
+        # with the missing step named; publication stays refused as before.
+        expected = AnswerStatus.QUALIFIED
     elif case == "noncomputed":
         candidate = AnalyticalResult(
             result_id="abstention",
@@ -211,7 +213,7 @@ def test_writer_and_verifier_get_preview_but_real_workspace_changes_only_after_g
     original_gate = loop.gate_answer
     phases = []
 
-    def draft(self, question, available):
+    def draft(self, question, available, **_):
         phases.append("writer")
         assert snapshot(space) == before
         assert set(available) == {"table", "other"}
@@ -291,7 +293,7 @@ def test_changed_workspace_rejects_old_preview_without_overwriting_new_state(spa
 
 
 def test_writer_side_workspace_change_is_not_overwritten(space, monkeypatch):
-    def draft(self, question, available):
+    def draft(self, question, available, **_):
         space.record("table", ArtifactKind.VALUE, result(300.0))
         return "table: 999 TL."
 

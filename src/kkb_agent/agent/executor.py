@@ -14,6 +14,7 @@ downstream is reported as not run, rather than being skipped silently.
 from __future__ import annotations
 
 import json
+from collections.abc import Collection
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from typing import TYPE_CHECKING
@@ -24,7 +25,7 @@ from pydantic_core import to_jsonable_python
 from kkb_agent.agent.cancellation import checkpoint
 from kkb_agent.agent.observer import Tracer
 from kkb_agent.agent.plan import AnalyticalPlan, ClarificationReason, PlanStep
-from kkb_agent.agent.registry import ArgumentsRejected, RegistryError, ToolRegistry
+from kkb_agent.agent.registry import ArgumentsRejected, RegistryError, TableInput, ToolRegistry
 
 if TYPE_CHECKING:
     from kkb_agent.agent.selection import SelectedTable
@@ -128,9 +129,20 @@ class ExecutionOutcome:
 
 
 def validate_plan(
-    plan: AnalyticalPlan, registry: ToolRegistry, *, budget: Budget = DEFAULT_BUDGET
+    plan: AnalyticalPlan,
+    registry: ToolRegistry,
+    *,
+    budget: Budget = DEFAULT_BUDGET,
+    known_tables: Collection[str] | None = None,
 ) -> ValidatedPlan:
-    """Decide whether a proposed plan may run, and in what order."""
+    """Decide whether a proposed plan may run, and in what order.
+
+    `known_tables` are the workspace names a table argument may refer to. When
+    given, every table a step names must be one of them or an earlier step of
+    this plan that produces a table, declared in `depends_on`; a name that is
+    neither is refused here with the published names, instead of failing at
+    run time after the fetch already succeeded (E1 trace, 2026-09-19).
+    """
     if len(plan.steps) > budget.max_steps:
         raise PlanRejected(
             f"Plan has {len(plan.steps)} steps; the budget allows {budget.max_steps}",
@@ -138,6 +150,7 @@ def validate_plan(
         )
 
     seen: set[str] = set()
+    tools_by_id: dict[str, str] = {}
     for step in plan.steps:
         if step.step_id in seen:
             raise PlanRejected(
@@ -145,6 +158,7 @@ def validate_plan(
                 category=RejectionCategory.STRUCTURE,
             )
         seen.add(step.step_id)
+        tools_by_id[step.step_id] = step.tool
 
     validated: dict[str, ValidatedStep] = {}
     for step in plan.steps:
@@ -163,6 +177,10 @@ def validate_plan(
                 str(error),
                 category=RejectionCategory.TOOL_ARGUMENTS,
             ) from error
+        if known_tables is not None and spec.table_input is not None:
+            _check_table_names(
+                step, spec.table_input(arguments), known_tables, tools_by_id, registry
+            )
         required = spec.required_steps(arguments) if spec.required_steps is not None else ()
         for reference in required:
             if reference not in step.depends_on:
@@ -204,6 +222,46 @@ def validate_plan(
     return ValidatedPlan(
         plan.question, tuple(_ordered(plan, validated)), plan.clarification, plan.reply
     )
+
+
+def _check_table_names(
+    step: PlanStep,
+    table: TableInput | None,
+    known_tables: Collection[str],
+    tools_by_id: dict[str, str],
+    registry: ToolRegistry,
+) -> None:
+    """Every table a step names is a published result or a declared earlier step."""
+    if table is None:
+        return
+    for name in (table.source, *table.others):
+        if name is None:
+            continue
+        if name == step.step_id:
+            raise PlanRejected(
+                f"Step {step.step_id!r} cannot use itself as its table",
+                category=RejectionCategory.DEPENDENCIES,
+            )
+        if name in tools_by_id:
+            if registry.get(tools_by_id[name]).discovery_only:
+                raise PlanRejected(
+                    f"Step {step.step_id!r} uses discovery step {name!r} as a table; "
+                    "discovery output is metadata, not a table",
+                    category=RejectionCategory.DEPENDENCIES,
+                )
+            if name not in step.depends_on:
+                raise PlanRejected(
+                    f"Step {step.step_id!r} uses step {name!r} as its table; "
+                    f"declare {name!r} in depends_on",
+                    category=RejectionCategory.DEPENDENCIES,
+                )
+        elif name not in known_tables:
+            published = ", ".join(sorted(known_tables)) or "none"
+            raise PlanRejected(
+                f"Step {step.step_id!r} names table {name!r}, which is neither a published "
+                f"result nor an earlier step of this plan. Published results: {published}",
+                category=RejectionCategory.TOOL_ARGUMENTS,
+            )
 
 
 def _ordered(plan: AnalyticalPlan, validated: dict[str, ValidatedStep]) -> list[ValidatedStep]:
