@@ -885,6 +885,15 @@ Confirmed team priority refinement, explicitly requested by Çağatay after M3-0
 - Not decided here: describing a picture that carries no text (a bare chart) with the chat model's image input. It would be model-written text about pixels, which the answer gate cannot verify; it needs its own decision on how such text is shown.
 - Tests: `test_image_document.py` (9: pixel-exact page, reduction, refusals by signature and decoder, upload admission, OCR text and table from a picture, no OCR means NO_TEXT_LAYER, the upload route), web `client.test.ts`/`proxy.test.ts`.
 
+### DEC-180 — `web_search` runs over the operator's own SearXNG on this machine
+
+- Status: CONFIRMED team decision, 2026-09-19, by Arda ("web search için onay veriyorum … açık kaynak, yarışmaya uyuyorsa ekleyelim"). Completes the live half of [DEC-134](#dec-134--provider-neutral-web-search-with-mandatory-live-acceptance) and [DEC-158](#dec-158--searxng-as-the-web_search-backend-and-search-results-shown-as-a-fixed-list).
+- Finding: `web_search` is one of the six tools the organizer names, and it had no backend that answers. Public SearXNG instances refuse JSON or time out, and keyless HTML endpoints answer a program with a bot challenge (measured 2026-09-19: six public instances, none usable; DuckDuckGo HTML: HTTP 202 challenge). DEC-158 already foresaw the fix: "a loopback instance would need its own reviewed exception".
+- Decision: the operator runs SearXNG (open source, AGPL-3.0, no account, no key; a metasearch service, not a language model) as a container bound to `127.0.0.1`, with `json` enabled in its `search.formats`. `--searxng-url http://127.0.0.1:PORT --searxng-loopback` wires `tools.searxng.loopback_fetch` as that backend's transport. It connects only to a literal loopback host over plain HTTP with an explicit port, follows no redirect, keeps the backend's deadline and byte ceiling, accepts only JSON, and returns the same fixed failure codes. `safe_fetch` is unchanged: every address a question, a page or a search result names is still refused when it is loopback or private. The planner supplies a query, never an address; results stay untrusted discovery metadata and never authorize `web_url`.
+- Licence: SearXNG is called over HTTP and neither modified nor distributed, so AGPL places no condition on this repository.
+- Live, 2026-09-19: the documented container answered through `SearxngBackend(..., fetch=loopback_fetch)` with 20 hits for "TCMB politika faizi kararı" (tcmb.gov.tr first).
+- Tests: `test_searxng.py` (a stub server on loopback is read; a non-loopback host, https and a missing port are refused before any connection).
+
 ## Proposed decisions
 
 Candidates below are not approved selections. Compare options in a bounded task; do not silently promote a proposal to CONFIRMED.

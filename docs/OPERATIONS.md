@@ -186,6 +186,17 @@ through OCR whenever `KLOUDEKS_OCR_MODEL` names the DEC-129 OCR model, and
 from table columns that add up to the table's total row (DEC-149). Every OCR
 request is a live model call inside an approved plan.
 
+**Local search instance (DEC-180), the supported way to have `web_search` answer.** With Docker running:
+
+```bash
+mkdir -p data/processed/searxng
+# settings.yml: use_default_settings: true; search.formats: [html, json]; server.secret_key: <random>; server.limiter: false
+docker run -d --name datatrio_searxng --restart unless-stopped -p 127.0.0.1:8888:8080 \
+  -v "$PWD/data/processed/searxng/settings.yml:/etc/searxng/settings.yml:ro" searxng/searxng:latest
+```
+
+then start the API with `--searxng-url http://127.0.0.1:8888 --searxng-loopback`. The flag reads that one loopback address only; `safe_fetch` still refuses loopback for every address a question or a page names.
+
 `--searxng-url https://search.example.org` (DEC-158) registers `web_search` over
 that SearXNG instance's JSON API (enable `json` in its `search.formats`). The
 request goes through `safe_fetch`, which refuses loopback and private addresses,

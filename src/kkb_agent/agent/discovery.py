@@ -150,7 +150,8 @@ def needs_series_discovery(plan: ValidatedPlan, proven: frozenset[str] = frozens
     This is an execution admission rule, not a keyword guess about the question.
     Unknown/new tool operations conservatively require discovery. `web_url` reads
     a document, not a catalog series; its own rule admits only an address the user
-    wrote, so the catalog cannot and need not authorize it.
+    wrote, so the catalog cannot and need not authorize it. `web_search` returns
+    untrusted page metadata and names no series at all.
 
     A step also passes when every catalog identity it names is already `proven` —
     the catalog returned it earlier in this same conversation, so searching for it
@@ -171,8 +172,11 @@ def needs_series_discovery(plan: ValidatedPlan, proven: frozenset[str] = frozens
         },
         "change_detection": {"table_co_movement"},
     }
+    # `web_search` reads no catalogue series either: it returns a list of pages. Without this
+    # exemption the rule refused every search plan and sent the planner to catalog_search,
+    # which cannot answer "search the web" (live W1, 2026-09-19).
     return any(
-        step.step.tool not in ("catalog_search", "web_url")
+        step.step.tool not in ("catalog_search", "web_url", "web_search")
         and step.arguments.model_dump().get("operation")
         not in workspace_operations.get(step.step.tool, set())
         and not _already_proven(step, proven)

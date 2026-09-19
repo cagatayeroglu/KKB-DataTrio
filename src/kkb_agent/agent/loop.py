@@ -166,6 +166,12 @@ SYSTEM_PROMPT = (
     "schema. Use only the tools listed below, with only their declared arguments. "
     "Use as few steps as the question needs: do not add a step to fetch values that "
     "another planned step already returns. "
+    # Live 2026-09-19 (and a teammate's trace): the validator refused plans with two sibling
+    # final calculations, and the planner spent a whole extra round (2-14 minutes) on it.
+    "One turn answers and publishes ONE final result: plan so that exactly one step is "
+    "final. A second calculation must depend on the first (depends_on, reading its result) "
+    "or be expressed inside one combined operation; never leave two independent final "
+    "calculations side by side. "
     "When a prompt contains both an original request and a user clarification "
     "(e.g. 'Orijinal istek:' and 'Açıklama:'), preserve the original request's date "
     "range, filters, and intent unless the user's clarification explicitly specifies "
