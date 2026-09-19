@@ -211,6 +211,7 @@ export function Workspace() {
     [loading, setLoading] = useState(true),
     [connectionError, setConnectionError] = useState("");
   const [modelMenu, setModelMenu] = useState(false);
+  const [modelMenuAt, setModelMenuAt] = useState({ left: 0, bottom: 0 });
   const [question, setQuestion] = useState(""),
     [items, setItems] = useState<Item[]>([]),
     [busy, setBusy] = useState(false),
@@ -1661,7 +1662,16 @@ export function Workspace() {
                         aria-haspopup="listbox"
                         aria-expanded={modelMenu}
                         title="Yanıtları üreten model"
-                        onClick={() => setModelMenu((open) => !open)}
+                        onClick={(e) => {
+                          // The composer clips its children, so the menu is placed on the
+                          // viewport from the button's own box instead of inside it.
+                          const box = e.currentTarget.getBoundingClientRect();
+                          setModelMenuAt({
+                            left: box.left,
+                            bottom: window.innerHeight - box.top + 8,
+                          });
+                          setModelMenu((open) => !open);
+                        }}
                         onBlur={(e) => {
                           if (
                             !e.currentTarget.parentElement?.contains(
@@ -1679,6 +1689,10 @@ export function Workspace() {
                           className="model-options"
                           role="listbox"
                           aria-label="Model"
+                          style={{
+                            left: modelMenuAt.left,
+                            bottom: modelMenuAt.bottom,
+                          }}
                         >
                           {/* The deployment serves one planner/writer model; the list grows
                               when the server reports more. */}
