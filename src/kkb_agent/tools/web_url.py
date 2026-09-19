@@ -224,7 +224,7 @@ class WebUrlArguments(BaseModel):
             min_length=1,
             max_length=MAX_VALUE_COLUMNS,
             description=(
-                "With period_column: the headers of up to six value columns, as the user named "
+                "With period_column: the headers of up to twelve value columns, as the user named "
                 "them; each becomes a table column labelled by that name"
             ),
         )
@@ -693,8 +693,8 @@ def make_web_url_tool(
             "rectangular tables; no JavaScript or CSS rendering. When the data sits behind a "
             "link on the page the user gave (a PDF or spreadsheet), give follow with that "
             "link's visible text or file name; only same-site links are followed. Image "
-            "addresses are not supported. To build a monthly table that later "
-            "turns can use, give period_column and up to six value_columns instead of column and "
+            "addresses are not supported. To build a monthly table that later turns can use, "
+            "give period_column and up to twelve value_columns instead of column and "
             "row: months must be explicit, one row per month. A value header should state its unit "
             "in parentheses; a column without one is kept with its unit unresolved (its figures "
             "are never quoted) unless the user wrote the unit in the question (column_units). A "

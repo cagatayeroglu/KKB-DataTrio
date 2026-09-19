@@ -30,6 +30,16 @@ REBASE_METHOD: Final = "rebase-index-v1"
 ALIGN_METHOD: Final = "align-exact-periods-v1"
 FILTER_METHOD: Final = "filter-period-range-v1"
 REBASE_FORMULA: Final = "new_index = old_index / old_index_reference * new_base"
+CHANGE_METHOD: Final = "period-change-v1"
+CHANGE_FORMULAS: Final = {
+    "difference": "change[t] = value[t] - value[t - lag]",
+    "percent": "change[t] = (value[t] / value[t - lag] - 1) * 100",
+}
+#: A difference of rates is in points and of an index in index points (the convention
+#: `compare` and `co_movement` already use); a percent change is a plain percentage.
+PERCENTAGE_POINT: Final = "percentage point"
+INDEX_POINT: Final = "index point"
+ChangeKind = Literal["difference", "percent"]
 
 PeriodKey = tuple[date, date, Frequency, str | None]
 
@@ -51,6 +61,16 @@ class RebasedColumn:
     values: tuple[ResultValue, ...]
     transformation: TransformationRecord
     label: str
+
+
+@dataclass(frozen=True, slots=True)
+class ChangedColumn:
+    values: tuple[ResultValue, ...]
+    transformation: TransformationRecord
+    label: str
+    #: Every period end that shares the largest rise (or fall): a tie is several answers.
+    largest_increase: tuple[date, ...]
+    largest_decrease: tuple[date, ...]
 
 
 def _key(value: ResultValue) -> PeriodKey:
@@ -172,6 +192,163 @@ def rebase_index(
         output_ref=label,
     )
     return RebasedColumn(values, transformation, label)
+
+
+def _steps_apart(earlier: Period, later: Period) -> int | None:
+    """How many reporting periods separate two cells, or None when the calendar cannot say.
+
+    A trading-day or irregular column has no fixed spacing, so its predecessor is the
+    previous observation; every other frequency must be exactly `lag` periods apart, and a
+    gap is left empty rather than bridged.
+    """
+    months = (later.end.year - earlier.end.year) * 12 + (later.end.month - earlier.end.month)
+    days = (later.end - earlier.end).days
+    frequency = later.frequency
+    if frequency is Frequency.MONTHLY:
+        return months
+    if frequency is Frequency.QUARTERLY:
+        return months // 3 if months % 3 == 0 else -1
+    if frequency is Frequency.SEMIANNUAL:
+        return months // 6 if months % 6 == 0 else -1
+    if frequency is Frequency.ANNUAL:
+        return later.end.year - earlier.end.year
+    if frequency is Frequency.WEEKLY:
+        return days // 7 if days % 7 == 0 else -1
+    if frequency is Frequency.DAILY:
+        return days
+    return None
+
+
+def period_change(
+    source: AnalyticalResult,
+    *,
+    column_label: str,
+    kind: ChangeKind,
+    lag: int = 1,
+) -> ChangedColumn:
+    """Add the period-over-period change of one column; every existing cell is kept.
+
+    `difference` is value[t] - value[t-lag] in the column's own unit (points for a rate or
+    an index); `percent` is (value[t] / value[t-lag] - 1) * 100 and needs a positive
+    predecessor, so it is refused for a rate (its change is read in points) and left empty
+    where the predecessor is zero or negative. A period whose predecessor is missing - the
+    first `lag` rows, or the row after a gap - gets no value: nothing is bridged.
+
+    A column whose unit a document did not state is still a column of numbers: its percent
+    change is a plain percentage, and its difference carries the same unresolved unit the
+    column has (live J3, 2026-09-19: the BIST endpoint's `clval` states no unit).
+    """
+    if source.status is not ResultStatus.COMPUTED:
+        raise TableShapeRefused("The source table is not computed")
+    if not 1 <= lag <= 12:
+        raise TableShapeRefused("lag must be between 1 and 12 periods")
+    column = [value for value in source.values if value.label == column_label]
+    if not column:
+        raise TableShapeRefused(f"No values are labelled {column_label!r}")
+    if len(column) <= lag:
+        raise TableShapeRefused(
+            f"{column_label} has too few rows for a change over {lag} period(s)"
+        )
+    frequencies: set[Frequency] = set()
+    seen: set[PeriodKey] = set()
+    cells: list[tuple[ResultValue, Period]] = []
+    for value in column:
+        if value.period is None or value.period.frequency is Frequency.UNKNOWN:
+            raise TableShapeRefused(f"{column_label} is not a period column")
+        if not isfinite(value.value):
+            raise TableShapeRefused(f"{column_label} holds a non-finite value")
+        key = _key(value)
+        if key in seen:
+            raise TableShapeRefused(f"{column_label} has duplicate periods")
+        seen.add(key)
+        frequencies.add(value.period.frequency)
+        cells.append((value, value.period))
+    if len(frequencies) != 1:
+        raise TableShapeRefused(f"{column_label} mixes period frequencies")
+    first = column[0]
+    if kind == "percent" and first.measure is StockFlow.RATE:
+        raise TableShapeRefused(
+            f"{column_label} is a rate; its change is read in points - use kind=difference"
+        )
+    label = (
+        f"{column_label} change (lag {lag})"
+        if kind == "difference"
+        else f"{column_label} % change (lag {lag})"
+    )
+    if any(value.label == label for value in source.values):
+        raise TableShapeRefused("The source table already holds that change column")
+    unit: str | None
+    scale: Scale | None
+    measure: StockFlow | None
+    if kind == "percent":
+        unit, scale, measure = "percent", Scale.ONE, StockFlow.RATE
+    elif first.measure is StockFlow.RATE:
+        unit, scale, measure = PERCENTAGE_POINT, Scale.ONE, first.measure
+    elif first.measure is StockFlow.INDEX:
+        unit, scale, measure = INDEX_POINT, Scale.ONE, first.measure
+    else:
+        unit, scale, measure = first.unit, first.scale, first.measure
+    ordered = sorted(cells, key=lambda cell: cell[1].end)
+    changed: list[ResultValue] = []
+    gaps = 0
+    undefined = 0
+    for position, (value, period) in enumerate(ordered):
+        if position < lag:
+            continue
+        earlier, earlier_period = ordered[position - lag]
+        apart = _steps_apart(earlier_period, period)
+        if apart is not None and apart != lag:
+            gaps += 1
+            continue
+        if kind == "percent":
+            if earlier.value <= 0:
+                undefined += 1
+                continue
+            amount = (value.value / earlier.value - 1) * 100
+        else:
+            amount = value.value - earlier.value
+        changed.append(
+            value.model_copy(
+                update={
+                    "label": label,
+                    "value": amount,
+                    "unit": unit,
+                    "scale": scale,
+                    "measure": measure,
+                }
+            )
+        )
+    if not changed:
+        raise TableShapeRefused(f"{column_label} has no period with a usable predecessor")
+    top = max(item.value for item in changed)
+    bottom = min(item.value for item in changed)
+    rising = tuple(
+        item.period.end for item in changed if item.period is not None and item.value == top > 0
+    )
+    falling = tuple(
+        item.period.end for item in changed if item.period is not None and item.value == bottom < 0
+    )
+    transformation = TransformationRecord(
+        operation="change",
+        parameters={
+            "formula": CHANGE_FORMULAS[kind],
+            "column": column_label,
+            "kind": kind,
+            "lag": lag,
+            "periods_without_predecessor": lag + gaps,
+            "periods_with_nonpositive_predecessor": undefined,
+            "fill": "none",
+        },
+        input_refs=[source.result_id, column_label],
+        output_ref=label,
+    )
+    return ChangedColumn(
+        tuple(changed),
+        transformation,
+        label,
+        rising,
+        falling,
+    )
 
 
 def align_periods(

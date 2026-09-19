@@ -26,9 +26,13 @@ SearchStatus = Literal["MATCH", "PARTIAL", "UNRESOLVED", "NO_MATCH", "FILTERED_O
 #: components, the national series over regions, the current over the archived)
 #: and every shown candidate shares a reviewed concept or family with it;
 #: "ambiguous": candidates tie on an axis the request did not name, or span
-#: unrelated concepts; "none": nothing was found. Deterministic, from reviewed
-#: metadata only; the planner still checks declared semantics against the question.
-TopCandidate = Literal["unambiguous", "ambiguous", "none"]
+#: unrelated concepts; "unconfirmed": no reviewed concept matched the wording, so
+#: every candidate is only a neighbour by shared words or by meaning and the
+#: catalogue may not hold the requested measure at all (DEC-172: "dolar kuru" found
+#: one USD loan-rate series and called it the unambiguous default); "none": nothing
+#: was found. Deterministic, from reviewed metadata only; the planner still checks
+#: declared semantics against the question.
+TopCandidate = Literal["unambiguous", "ambiguous", "unconfirmed", "none"]
 
 
 class CatalogSearchArguments(ContractModel):
@@ -110,17 +114,41 @@ class CatalogSearchOutput(ContractModel):
     analytical_evidence: Literal[False] = False
 
 
+#: Shortest final alias word that may carry a suffix: "tufe" + "yi", never "tl" + "ref".
+_MIN_SUFFIXED_STEM = 4
+
+
+def _phrase_in(alias: str, words: list[str]) -> bool:
+    """A reviewed alias as whole words of the query; its last word may carry suffixes.
+
+    Turkish inflects the head of a noun phrase, which is its last word: "konut kredisi
+    faizi" is asked as "konut kredisi faizini göster" or "... faizinin seyri". Whole-word
+    matching alone missed every such question, so a request the catalogue holds looked
+    no different from one it does not (DEC-172). Earlier words stay exact.
+    """
+    wanted = alias.split()
+    last = wanted[-1]
+    for start in range(len(words) - len(wanted) + 1):
+        window = words[start : start + len(wanted)]
+        if window[:-1] == wanted[:-1] and (
+            window[-1] == last or (len(last) >= _MIN_SUFFIXED_STEM and window[-1].startswith(last))
+        ):
+            return True
+    return False
+
+
 def _concept_matches(snapshot: ReviewedSnapshot, key: str) -> tuple[list[Concept], SearchMethod]:
     exact = [c for c in snapshot.concepts if any(a.normalized == key for a in c.aliases)]
     if exact:
         return exact, "reviewed_alias"
     # Longest contained phrase wins over its generic substring; identical alias
     # collisions and disjoint concepts remain sets, not last-write-wins entries.
+    words = key.split()
     phrases = {
         a.normalized
         for c in snapshot.concepts
         for a in c.aliases
-        if f" {a.normalized} " in f" {key} "
+        if a.normalized and _phrase_in(a.normalized, words)
     }
     maximal = {p for p in phrases if not any(p != q and f" {p} " in f" {q} " for q in phrases)}
     return [c for c in snapshot.concepts if any(a.normalized in maximal for a in c.aliases)], (
@@ -168,10 +196,18 @@ def eligible_catalog_series(
     )
 
 
-def top_candidate_signal(query: str, candidates: Sequence[CatalogCandidate]) -> TopCandidate:
-    """See `TopCandidate`: strictly first by reviewed intent, within one concept or family."""
+def top_candidate_signal(
+    query: str, candidates: Sequence[CatalogCandidate], *, reviewed_match: bool
+) -> TopCandidate:
+    """See `TopCandidate`: strictly first by reviewed intent, within one concept or family.
+
+    `reviewed_match` says a reviewed alias or phrase matched the query. Without one the
+    candidates are neighbours, however few or however near, and none is a default.
+    """
     if not candidates:
         return "none"
+    if not reviewed_match:
+        return "unconfirmed"
     if len(candidates) == 1:
         return "unambiguous"
     first, second = (intent_key(query, c.series) for c in candidates[:2])
@@ -262,7 +298,7 @@ def search_catalog(
     return CatalogSearchOutput(
         status=status,
         candidates=candidates,
-        top_candidate=top_candidate_signal(args.query, candidates),
+        top_candidate=top_candidate_signal(args.query, candidates, reviewed_match=bool(matches)),
         concepts=tuple(
             ConceptMatch(
                 concept_id=c.concept_id,

@@ -137,10 +137,15 @@ shell code, interpolate variables or change process environment. File values
 take precedence over corresponding environment values. Without this flag,
 existing process variables are used; `.env` is not loaded implicitly.
 The existing approved Kloudeks host check is mandatory; local service request
-timeout must be finite and 1–900 seconds, with 1–3 provider attempts configured.
-The 2026-09-15 live rehearsal measured single completions up to 207 s, so a
-120 s timeout fails real turns; set `KLOUDEKS_REQUEST_TIMEOUT=600` and prefer
-`KLOUDEKS_MAX_ATTEMPTS=1` (a timed-out completion is not retried silently).
+timeout must be finite and 1–1800 seconds, with 1–3 provider attempts configured.
+Recommended for the served API: `KLOUDEKS_REQUEST_TIMEOUT=1800` and
+`KLOUDEKS_MAX_ATTEMPTS=3`. Measured on 2026-09-19 over 70 live calls: median 88 s,
+slowest finished call 880 s, decode 7–11.5 tokens a second, so a 7–8k-token plan
+did not finish inside the former 900 s ceiling (4 calls lost). An attempt is only
+a re-ask of a malformed answer with the fault fed back (`complete_with_repair`);
+a timed-out or failed request is never retried, so three attempts never multiply
+the timeout, and one attempt lets a single malformed plan fail the whole turn.
+The page polls a running turn for an hour and can re-read its state afterwards.
 
 <a id="prepared_api-start-only-when-model-requests-are-authorized"></a>
 
@@ -474,8 +479,10 @@ For an owner-authorized live rehearsal with a hard request ceiling, run
 `tests/manual/live_client.py` (same prepared runner/service as `--serve`,
 `--max-model-requests N` between 1 and 15, `KLOUDEKS_MAX_ATTEMPTS=1` required) and
 compare answers with `python tests/manual/organizer_oracle.py data/processed/lakehouse`.
-The timeout must be finite and between 1 and 900 seconds. Each run needs separate
-bounded model-request authorization; these flags do not themselves grant permission.
+That rehearsal client keeps its own stricter rule (one attempt, timeout 1–900 s) so its
+request ceiling counts every provider call; give it its own settings file when the served
+API's file uses three attempts. Each run needs separate bounded model-request
+authorization; these flags do not themselves grant permission.
 
 Embedding is disabled by default. To rehearse hybrid discovery, supply all three:
 `--catalog-index <matching-generation>`, `--max-embedding-requests N` (1–15), and

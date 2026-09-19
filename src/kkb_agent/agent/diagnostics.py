@@ -16,5 +16,7 @@ from kkb_agent.agent.executor import RejectionCategory
 class PlanAttempt:
     phase: Literal["initial", "continuation"]
     attempt: int  # 1-based, bounded by max_plan_repairs + 1
-    outcome: Literal["accepted", "rejected", "repeated_plan", "provider_schema_error"]
+    outcome: Literal[
+        "accepted", "rejected", "repeated_plan", "provider_schema_error", "refused_at_runtime"
+    ]
     category: RejectionCategory | None = None  # only for rejected / repeated_plan

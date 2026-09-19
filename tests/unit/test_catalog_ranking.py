@@ -139,7 +139,6 @@ def test_reviewed_defaults_make_the_first_candidate_unambiguous(snapshot, query,
     [
         "bölgesel konut fiyat endeksi serileri",  # which province: the regions tie
         "ihtiyaç kredisi faizini göster",  # KMH dahil / hariç: the two scopes tie
-        "konut",  # balances, rates, prices and a CPI division: no shared concept
         "konut kredisi",  # balance or rate: the question does not say
     ],
 )
@@ -196,3 +195,45 @@ def test_a_publisher_named_in_reviewed_labels_is_a_valid_source_filter(snapshot)
         snapshot, CatalogSearchArguments(query="TÜFE genel endeks", source="BDDK")
     )
     assert wrong.status == "FILTERED_OUT" and not wrong.candidates
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "konut",  # a bare word names no reviewed concept: balances, rates, prices, a CPI division
+        "ihtiyaç kredisi bakiyesi",  # the catalogue holds that loan's rate, not its balance
+        "dolar kuru",  # one USD loan-rate series shares a word; it was called the default
+        "toplam mevduat",
+        "sanayi üretim endeksi",
+    ],
+)
+def test_neighbours_without_a_reviewed_concept_are_unconfirmed_never_a_default(snapshot, query):
+    """DEC-172: shared words are not a match, however few or however near the candidates."""
+    output = result(snapshot, query)
+    assert output.candidates and output.status == "PARTIAL"
+    assert output.top_candidate == "unconfirmed"
+    assert all(candidate.method == "bm25" for candidate in output.candidates)
+
+
+@pytest.mark.parametrize(
+    ("query", "signal"),
+    [
+        ("konut kredisi bakiyesinin seyri", "unambiguous"),
+        ("TÜFE'yi getir", "unambiguous"),
+        ("konut kredisi faizlerindeki değişim", "ambiguous"),
+    ],
+)
+def test_an_inflected_reviewed_phrase_is_still_a_reviewed_match(snapshot, query, signal):
+    """Turkish inflects the last word of a noun phrase; the reviewed alias still names it."""
+    output = result(snapshot, query)
+    assert output.candidates[0].method == "reviewed_phrase"
+    assert output.top_candidate == signal
+
+
+def test_a_short_alias_word_takes_no_suffix(snapshot):
+    from kkb_agent.catalog.search import _phrase_in
+
+    assert _phrase_in("konut kredisi", "konut kredisinin faizi".split())
+    assert _phrase_in("tufe", ["tufeyi", "getir"])
+    assert not _phrase_in("kfe", ["kfeler"])  # three letters: exact only
+    assert not _phrase_in("konut kredisi", "konutlar kredisi".split())  # only the head inflects

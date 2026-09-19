@@ -75,7 +75,7 @@ from kkb_agent.tools import (
     make_web_url_tool,
 )
 from kkb_agent.tools._document_column import ColumnRefused, read_month_values
-from kkb_agent.tools._document_library import document_name, document_outline
+from kkb_agent.tools._document_library import describe_document, document_name, document_outline
 from kkb_agent.tools._document_value import as_of, grids
 from kkb_agent.tools.web_search import SearchBackend
 from kkb_agent.tools.web_url import Fetcher, addresses_in, read_attachment
@@ -146,6 +146,11 @@ _NEW_QUESTION_WORDS = 6
 #: question mark: the E1 trace (2026-09-19) merged "2021-2025 konut kredisi bakiyesini
 #: aylık getir, TÜFE ile ... arındır." into an unrelated pending clarification and
 #: clarified again. Beyond `_REPLY_HARD_MAX_WORDS` any message is a request.
+#: Shown with an abstention when a read of the question's address was lost after every attempt.
+ADDRESS_UNREAD_NOTICE = (
+    "Sorudaki adresin bazı kaynakları bu turda okunamadı (zaman aşımı ya da bağlantı hatası). "
+    "Aynı soruyu yeniden sormak sonucu değiştirebilir."
+)
 _REPLY_MAX_WORDS = 9
 _REPLY_HARD_MAX_WORDS = 14
 
@@ -834,7 +839,7 @@ class PreparedRunner:
                 )
                 addresses = addresses_in(question)
                 address_note = (
-                    address_outline(addresses, turn_fetch)
+                    address_outline(addresses, turn_fetch, describe_document)
                     if turn_fetch is not None and addresses
                     else None
                 )
@@ -939,6 +944,7 @@ class PreparedRunner:
                     history_turns=len(self._history.get(session_id, ())),
                     addresses=len(addresses),
                     address_outline_bytes=len(address_note.encode()) if address_note else 0,
+                    address_reads=list(turn_fetch.log) if turn_fetch is not None else [],
                     document_outline=document_note is not None,
                 )
                 started = time.monotonic()
@@ -951,6 +957,7 @@ class PreparedRunner:
                     proven_series=frozenset(self._proven.get(session_id, ())),
                     repair_period_wording=True,
                     repair_unmatched_numbers=True,
+                    repair_runtime_refusals=True,
                     documents_note=document_note,
                     address_note=address_note,
                     tracer=tracer,
@@ -1006,6 +1013,16 @@ class PreparedRunner:
                         else None
                     ),
                 )
+                if (
+                    answer.status is AnswerStatus.ABSTAINED
+                    and turn_fetch is not None
+                    and turn_fetch.transient_failures()
+                ):
+                    # "Check the data coverage" is the wrong advice when the page's own
+                    # script or data did not arrive; asking again may simply work.
+                    answer = answer.model_copy(
+                        update={"notices": (*answer.notices, ADDRESS_UNREAD_NOTICE)}
+                    )
                 # How the turn ended, in the trace itself: an abstention or a
                 # clarification never reaches the answer gate, so without this the
                 # record stops at the last plan and never says what was shown.
