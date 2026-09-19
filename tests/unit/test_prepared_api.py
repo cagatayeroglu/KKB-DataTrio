@@ -366,7 +366,7 @@ def test_check_command_never_constructs_provider_or_listener(pool, monkeypatch, 
         ("KLOUDEKS_BASE_URL", "https://api.openai.com/v1"),
         ("KLOUDEKS_REQUEST_TIMEOUT", "nan"),
         ("KLOUDEKS_REQUEST_TIMEOUT", "99999"),
-        ("KLOUDEKS_REQUEST_TIMEOUT", "901"),
+        ("KLOUDEKS_REQUEST_TIMEOUT", "1801"),
         ("KLOUDEKS_REQUEST_TIMEOUT", "0"),
         ("KLOUDEKS_MAX_ATTEMPTS", "99"),
         ("KLOUDEKS_API_KEY", ""),
@@ -383,11 +383,12 @@ def test_bad_settings_are_redacted_and_never_start_service(
     assert str(pool) not in report and "canary" not in report
 
 
+@pytest.mark.parametrize("seconds", ["600", "1800"])
 def test_measured_slow_completion_timeout_is_accepted_without_a_model_call(
-    pool, monkeypatch, capsys
+    pool, monkeypatch, capsys, seconds
 ):
     set_config(monkeypatch)
-    monkeypatch.setenv("KLOUDEKS_REQUEST_TIMEOUT", "600")
+    monkeypatch.setenv("KLOUDEKS_REQUEST_TIMEOUT", seconds)
     monkeypatch.setattr(
         cli, "KloudeksProvider", lambda *a: pytest.fail("provider should not be built")
     )

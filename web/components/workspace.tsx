@@ -433,7 +433,9 @@ export function Workspace() {
       };
       record(next);
       update(index, turn, true);
-      const deadline = Date.now() + 10 * 60 * 1000;
+      // A turn is several model calls and one call may run for its whole request
+      // timeout; the turn keeps running server-side either way, so keep watching it.
+      const deadline = Date.now() + 60 * 60 * 1000;
       while (turn.state !== "completed" && turn.state !== "failed") {
         if (Date.now() > deadline) {
           setIssue(
