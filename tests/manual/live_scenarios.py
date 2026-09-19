@@ -6,7 +6,7 @@ may fetch EVDS/BDDK/web data. Start the API on its own port with its own state r
 
     python tests/manual/live_scenarios.py <suite> --state-root <dir> [--port 8001] [--budget 60]
 
-Suites: chain, rerun, external, upload, edge, e1, analytics, jury, kb, cancel. Each suite
+Suites: chain, rerun, external, upload, edge, e1, analytics, jury, kb, cancel, missing. Each suite
 opens one new conversation. `kb` first saves two cumulative datasets to the knowledge base
 of the served state root and builds the vectors again; `cancel` stops its first turn.
 The model-call budget is counted from stored trace events (planner calls and writer
@@ -166,6 +166,15 @@ SUITES: dict[str, list[tuple[str, str, dict[str, object]]]] = {
             {"cancel_after": 25},
         ),
         ("C2-after-cancel", "2025 yılında toplam konut kredisi bakiyesi ne kadar değişti?", {}),
+    ],
+    # Measures the reviewed catalogue does not hold. The honest answer names what is missing
+    # and never substitutes a neighbour (a rate for a balance, another loan type, a loan
+    # rate for an exchange rate); an unnamed source is not a reason to ask which site.
+    "missing": [
+        ("M1-other-loan-balance", "İhtiyaç kredisi bakiyesi son bir yılda nasıl değişti?", {}),
+        ("M2-exchange-rate", "Dolar kuru 2025 yılında aylık olarak nasıl seyretti?", {}),
+        ("M3-source-unnamed", "Konut kredisi verisini 2025 için aylık getir.", {}),
+        ("M4-nothing-near", "Takipteki alacaklar 2025 yılında ne kadar arttı?", {}),
     ],
     "edge": [
         ("X1-ambiguous", "Kredi ne kadar arttı?", {}),
