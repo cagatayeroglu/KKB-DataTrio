@@ -1804,6 +1804,9 @@ svg {
   cursor: pointer;
   padding: 4px 2px;
 }
+.chat-item > .chat-delete {
+  color: #e9a9a1;
+}
 .chat-item input {
   width: 100%;
   border: 1px solid #ffffff33;
@@ -2915,6 +2918,10 @@ svg {
 }
 .chat-menu button.danger {
   color: #9a3b2e;
+}
+.trace-delete {
+  color: #9a3b2e !important;
+  border: 1px solid #9a3b2e !important;
 }
 .chat-rename {
   border: 1px solid var(--accent);

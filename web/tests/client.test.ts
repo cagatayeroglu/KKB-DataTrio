@@ -13,6 +13,8 @@ import {
   describeError,
   documentMediaType,
   uploadDocument,
+  deleteConversation,
+  deleteConversationRuns,
   ApiError,
 } from "../lib/client";
 import { cellSchema, turnSchema, type Saved } from "../lib/contracts";
@@ -98,6 +100,45 @@ test("an admitted turn is recovered by GET without another question submission",
   } finally {
     globalThis.fetch = old;
   }
+});
+test("deletion uses the owner key and keeps soft-delete separate from trace deletion", async () => {
+  const old = globalThis.fetch;
+  const seen: { url: string; method: string; headers: Headers }[] = [];
+  globalThis.fetch = async (url, init) => {
+    seen.push({
+      url: String(url),
+      method: init?.method ?? "GET",
+      headers: new Headers(init?.headers),
+    });
+    return Response.json(
+      seen.length === 1
+        ? { api_version: 1, deleted: true }
+        : { api_version: 1, deleted_runs: 2 },
+    );
+  };
+  try {
+    assert.equal((await deleteConversation(sid, session.token)).deleted, true);
+    assert.equal(
+      (await deleteConversationRuns(sid, session.token)).deleted_runs,
+      2,
+    );
+  } finally {
+    globalThis.fetch = old;
+  }
+  assert.deepEqual(
+    seen.map((item) => item.url),
+    [
+      `/api/kkb/v1/conversations/${sid}`,
+      `/api/kkb/v1/conversations/${sid}/runs`,
+    ],
+  );
+  assert.ok(seen.every((item) => item.method === "DELETE"));
+  assert.ok(
+    seen.every(
+      (item) => item.headers.get("x-kkb-owner-token") === session.token,
+    ),
+  );
+  assert.ok(seen.every((item) => !item.headers.has("x-kkb-session-token")));
 });
 test("session state is validated and storage failure is not ignored", () => {
   const memory = new Map<string, string>();

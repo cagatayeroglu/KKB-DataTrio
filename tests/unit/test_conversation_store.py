@@ -1,12 +1,13 @@
 """The conversation store: owned, restart-safe metadata; no analytical values."""
 
+import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
 
-from kkb_agent.api.store import DATABASE_NAME, ConversationStore, StoreError
+from kkb_agent.api.store import DATABASE_NAME, SCHEMA, ConversationStore, StoreError
 
 
 @pytest.fixture
@@ -137,3 +138,30 @@ def test_documents_and_publications_are_read_back_after_reopening(tmp_path):
         assert reopened.conversation(conversation_id).title == "Yeni sohbet"
     finally:
         reopened.close()
+
+
+def test_old_conversation_schema_migrates_and_soft_delete_filters_every_list(tmp_path):
+    path = tmp_path / DATABASE_NAME
+    with sqlite3.connect(path) as legacy:
+        legacy.executescript(
+            SCHEMA.replace(
+                "    updated_at      TEXT NOT NULL,\n    deleted_at      TEXT\n",
+                "    updated_at      TEXT NOT NULL\n",
+            )
+        )
+    store = ConversationStore(path)
+    try:
+        owner_id, owner_token, sid, token = conversation(store, title="Eski kredi sohbeti")
+        store.append_message(sid, turn_id=uuid4().hex, role="user", text="Konut kredisi")
+        assert store.opens(sid, token=token, owner_token=None)
+        store.soft_delete(sid)
+        assert store.is_deleted(sid)
+        assert store.conversation(sid) is None
+        assert not store.opens(sid, token=token, owner_token=owner_token)
+        assert store.opens(sid, token=token, owner_token=None, include_deleted=True)
+        assert store.list_conversations(owner_id) == []
+        assert store.list_conversations(owner_id, archived=True) == []
+        assert store.list_conversations(owner_id, search="kredi") == []
+        assert [m.text for m in store.messages(sid)] == ["Konut kredisi"]
+    finally:
+        store.close()

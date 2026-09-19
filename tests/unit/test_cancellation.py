@@ -105,6 +105,35 @@ def test_cancelling_a_finished_turn_changes_nothing(launch):
     assert again.json()["state"] == "completed" and again.json()["answer"] is not None
 
 
+def test_deleting_a_running_chat_cancels_then_cleans_without_losing_trace(launch, monkeypatch):
+    held = HeldProvider(proposal(discover()), "never reached")
+    monkeypatch.setattr("test_conversation_persistence.scripted", lambda *r: held)
+    runner, client = launch()
+    owner_token = owner(client)
+    sid, headers, _ = open_conversation(client, owner_token)
+    admitted = client.post(
+        f"/v1/sessions/{sid}/turns",
+        json={"request_id": "e" * 32, "question": "Kredi"},
+        headers=headers,
+    )
+    assert admitted.status_code == 202 and held.entered.wait(10)
+    owner_headers = {"X-KKB-Owner-Token": owner_token}
+    assert client.delete(f"/v1/conversations/{sid}", headers=owner_headers).status_code == 200
+    assert client.get(f"/v1/conversations/{sid}", headers=headers).status_code == 404
+    turn_id = admitted.json()["turn_id"]
+    assert client.get(f"/v1/sessions/{sid}/turns/{turn_id}", headers=headers).status_code == 404
+    assert client.delete(f"/v1/conversations/{sid}/runs", headers=owner_headers).status_code == 409
+    held.release.set()
+
+    deadline = time.monotonic() + 10
+    while (runner.run_root / sid).exists() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert not (runner.run_root / sid).exists()
+    runs = client.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"]
+    assert len(runs) == 1 and runs[0]["status"] == "cancelled"
+    assert held.calls == 1
+
+
 def test_a_stranger_or_an_unknown_turn_cannot_be_cancelled(launch):
     import json
 

@@ -67,7 +67,8 @@ CREATE TABLE IF NOT EXISTS conversations (
     title           TEXT NOT NULL,
     archived        INTEGER NOT NULL DEFAULT 0,
     created_at      TEXT NOT NULL,
-    updated_at      TEXT NOT NULL
+    updated_at      TEXT NOT NULL,
+    deleted_at      TEXT
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -292,6 +293,11 @@ class ConversationStore:
                 "ALTER TABLE feedback ADD COLUMN score INTEGER"
                 " CHECK (score IS NULL OR score BETWEEN 1 AND 5)"
             )
+        conversations = {
+            row["name"] for row in self._connection.execute("PRAGMA table_info(conversations)")
+        }
+        if "deleted_at" not in conversations:
+            self._connection.execute("ALTER TABLE conversations ADD COLUMN deleted_at TEXT")
 
     @property
     def path(self) -> Path:
@@ -366,7 +372,9 @@ class ConversationStore:
         """Whose conversation this is, so a turn can read that owner's settings."""
         with self._lock:
             row = self._connection.execute(
-                "SELECT owner_id FROM conversations WHERE conversation_id = ?", [conversation_id]
+                "SELECT owner_id FROM conversations WHERE conversation_id = ?"
+                " AND deleted_at IS NULL",
+                [conversation_id],
             ).fetchone()
         return str(row["owner_id"]) if row is not None else None
 
@@ -392,7 +400,8 @@ class ConversationStore:
             ):
                 raise StoreError("unknown_owner")
             connection.execute(
-                "INSERT INTO conversations VALUES (?, ?, ?, ?, 0, ?, ?)",
+                "INSERT INTO conversations (conversation_id, owner_id, token_digest, title,"
+                " archived, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?)",
                 [
                     conversation_id,
                     owner_id,
@@ -411,10 +420,14 @@ class ConversationStore:
             _moment(moment),
         )
 
-    def conversation(self, conversation_id: str) -> Conversation | None:
+    def conversation(
+        self, conversation_id: str, *, include_deleted: bool = False
+    ) -> Conversation | None:
         with self._lock:
             row = self._connection.execute(
-                "SELECT * FROM conversations WHERE conversation_id = ?", [conversation_id]
+                "SELECT * FROM conversations WHERE conversation_id = ?"
+                + ("" if include_deleted else " AND deleted_at IS NULL"),
+                [conversation_id],
             ).fetchone()
         return None if row is None else self._conversation(row)
 
@@ -429,13 +442,20 @@ class ConversationStore:
             _moment(row["updated_at"]),
         )
 
-    def opens(self, conversation_id: str, *, token: str | None, owner_token: str | None) -> bool:
+    def opens(
+        self,
+        conversation_id: str,
+        *,
+        token: str | None,
+        owner_token: str | None,
+        include_deleted: bool = False,
+    ) -> bool:
         """Whether this request may open the conversation.
 
         Either the conversation's own token or its owner's key opens it; a
         conversation id alone never does.
         """
-        found = self.conversation(conversation_id)
+        found = self.conversation(conversation_id, include_deleted=include_deleted)
         if found is None:
             return False
         if owner_token is not None and self.owner_of(found.owner_id, owner_token):
@@ -453,14 +473,16 @@ class ConversationStore:
         self, owner_id: str, *, archived: bool = False, search: str | None = None
     ) -> list[Conversation]:
         query = (
-            "SELECT * FROM conversations WHERE owner_id = ? AND archived = ? "
+            "SELECT * FROM conversations WHERE owner_id = ? AND archived = ?"
+            " AND deleted_at IS NULL "
             "ORDER BY updated_at DESC, rowid DESC LIMIT ?"
         )
         parameters: list[object] = [owner_id, int(archived), MAX_LISTED]
         if search:
             needle = f"%{search[:MAX_SEARCH_CHARS].lower()}%"
             query = (
-                "SELECT c.* FROM conversations c WHERE c.owner_id = ? AND c.archived = ? AND ("
+                "SELECT c.* FROM conversations c WHERE c.owner_id = ? AND c.archived = ?"
+                " AND c.deleted_at IS NULL AND ("
                 "lower(c.title) LIKE ? OR EXISTS (SELECT 1 FROM messages m WHERE "
                 "m.conversation_id = c.conversation_id AND lower(m.text) LIKE ?)) "
                 "ORDER BY c.updated_at DESC LIMIT ?"
@@ -476,19 +498,59 @@ class ConversationStore:
         with self._write() as connection:
             if title is not None:
                 connection.execute(
-                    "UPDATE conversations SET title = ?, updated_at = ? WHERE conversation_id = ?",
+                    "UPDATE conversations SET title = ?, updated_at = ? WHERE conversation_id = ?"
+                    " AND deleted_at IS NULL",
                     [title[:MAX_TITLE_CHARS], self._now(), conversation_id],
                 )
             if archived is not None:
                 connection.execute(
                     "UPDATE conversations SET archived = ?, updated_at = ? "
-                    "WHERE conversation_id = ?",
+                    "WHERE conversation_id = ? AND deleted_at IS NULL",
                     [int(archived), self._now(), conversation_id],
                 )
         found = self.conversation(conversation_id)
         if found is None:
             raise StoreError("unknown_conversation")
         return found
+
+    def soft_delete(self, conversation_id: str) -> None:
+        """Hide an owned conversation without erasing its independent run record."""
+        with self._write() as connection:
+            connection.execute(
+                "UPDATE conversations SET deleted_at = COALESCE(deleted_at, ?), updated_at = ?"
+                " WHERE conversation_id = ?",
+                [self._now(), self._now(), conversation_id],
+            )
+
+    def is_deleted(self, conversation_id: str) -> bool:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT deleted_at FROM conversations WHERE conversation_id = ?",
+                [conversation_id],
+            ).fetchone()
+        return row is not None and row["deleted_at"] is not None
+
+    def clear_session_artifacts(self, conversation_id: str) -> None:
+        """Forget document/publication references after their files are gone."""
+        with self._write() as connection:
+            connection.execute("DELETE FROM documents WHERE conversation_id = ?", [conversation_id])
+            connection.execute(
+                "DELETE FROM publications WHERE conversation_id = ?", [conversation_id]
+            )
+            connection.execute(
+                "DELETE FROM result_series WHERE conversation_id = ?", [conversation_id]
+            )
+
+    def delete_runs(self, conversation_id: str) -> int:
+        """Irreversibly remove only this conversation's runs and their trace events."""
+        with self._write() as connection:
+            found = connection.execute(
+                "SELECT run_id FROM runs WHERE conversation_id = ?", [conversation_id]
+            ).fetchall()
+            for row in found:
+                connection.execute("DELETE FROM trace_events WHERE run_id = ?", [row["run_id"]])
+            connection.execute("DELETE FROM runs WHERE conversation_id = ?", [conversation_id])
+        return len(found)
 
     # -- which answers rest on which series (reverse lineage) ------------------
 
@@ -520,7 +582,7 @@ class ConversationStore:
                          ORDER BY m.sequence LIMIT 1) AS question
                   FROM result_series r
                   JOIN conversations c ON c.conversation_id = r.conversation_id
-                 WHERE r.series_id = ? AND c.owner_id = ?
+                 WHERE r.series_id = ? AND c.owner_id = ? AND c.deleted_at IS NULL
                  ORDER BY r.created_at DESC LIMIT ?
                 """,
                 [series_id, owner_id, MAX_LISTED],

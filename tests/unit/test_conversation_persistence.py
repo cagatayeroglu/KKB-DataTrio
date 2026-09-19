@@ -24,7 +24,7 @@ def launch(tmp_path):
     """Start the API over a fixed state root; call it again for a restart."""
     started = []
 
-    def start(*responses):
+    def start(*responses, cleanup=True):
         root = tmp_path.resolve() / "prepared"
         if not root.exists():
             seed(root)
@@ -44,6 +44,7 @@ def launch(tmp_path):
             document_store=runner.admit_document,
             store=store,
             stored_result=runner.published_result,
+            session_cleanup=runner.delete_session if cleanup else None,
         )
         client = TestClient(create_app(service, prepared=runner.status), base_url=BASE)
         client.__enter__()
@@ -221,3 +222,124 @@ def test_two_conversations_keep_their_own_documents_and_tables(launch):
     assert [d["document_ref"] for d in first["documents"]] == [first_document]
     assert [d["document_ref"] for d in second["documents"]] == [second_document]
     assert first["messages"][1]["result_ref"] != second["messages"][1]["result_ref"]
+
+
+def test_soft_delete_hides_chat_but_keeps_trace_and_cleans_session_data(launch):
+    runner, client = launch(table_step(), "Tablo hazır.")
+    owner_token = owner(client)
+    sid, headers, _ = open_conversation(client, owner_token)
+    document = upload(client, sid, headers)
+    completed = ask(client, sid, headers, "Belgeden tablo yap.", document_ref=document)
+    assert completed["answer"]["status"] == "accepted"
+    trace = client.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"]
+    assert trace
+    session_dir = runner.run_root / sid
+    assert session_dir.exists()
+    owner_headers = {"X-KKB-Owner-Token": owner_token}
+
+    deleted = client.delete(f"/v1/conversations/{sid}", headers=owner_headers)
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json()["deleted"] is True
+    assert not session_dir.exists()
+    assert client.get("/v1/conversations", headers=owner_headers).json()["conversations"] == []
+    assert (
+        client.get("/v1/conversations?search=belgeden", headers=owner_headers).json()[
+            "conversations"
+        ]
+        == []
+    )
+    assert client.get(f"/v1/conversations/{sid}", headers=headers).status_code == 404
+    assert client.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"] == trace
+
+    _, reopened = launch()
+    assert reopened.get("/v1/conversations", headers=owner_headers).json()["conversations"] == []
+    assert reopened.get(f"/v1/conversations/{sid}", headers=headers).status_code == 404
+    assert reopened.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"] == trace
+    gone = reopened.delete(f"/v1/conversations/{sid}/runs", headers=owner_headers)
+    assert gone.status_code == 200, gone.text
+    assert gone.json()["deleted_runs"] == len(trace)
+    assert reopened.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"] == []
+
+
+def test_delete_requires_owner_key_is_idempotent_and_keeps_other_chats(launch):
+    _, client = launch(proposal(clarification="unsupported_request"), "-")
+    own = owner(client)
+    sid, headers, _ = open_conversation(client, own)
+    other, other_headers, _ = open_conversation(client, own)
+    stranger = owner(client)
+    owner_headers = {"X-KKB-Owner-Token": own}
+    client.patch(f"/v1/conversations/{sid}", json={"archived": True}, headers=headers)
+    assert client.delete(f"/v1/conversations/{sid}", headers=headers).status_code == 422
+    assert (
+        client.delete(
+            f"/v1/conversations/{sid}", headers={"X-KKB-Owner-Token": stranger}
+        ).status_code
+        == 404
+    )
+    assert client.delete(f"/v1/conversations/{sid}", headers=owner_headers).status_code == 200
+    assert client.delete(f"/v1/conversations/{sid}", headers=owner_headers).status_code == 200
+    assert (
+        client.get("/v1/conversations?archived=true", headers=owner_headers).json()["conversations"]
+        == []
+    )
+    assert client.get(f"/v1/conversations/{other}", headers=other_headers).status_code == 200
+    assert (
+        client.delete(
+            f"/v1/conversations/{other}/runs", headers={"X-KKB-Owner-Token": stranger}
+        ).status_code
+        == 404
+    )
+    assert client.delete(f"/v1/conversations/{other}/runs", headers=owner_headers).json() == {
+        "api_version": 1,
+        "deleted_runs": 0,
+    }
+    assert client.get(f"/v1/conversations/{other}", headers=other_headers).status_code == 200
+
+
+def test_explicit_run_delete_never_soft_deletes_conversation_or_table(launch):
+    _, client = launch(table_step(), "Tablo hazır.")
+    own = owner(client)
+    sid, headers, _ = open_conversation(client, own)
+    document = upload(client, sid, headers)
+    answer = ask(client, sid, headers, "Belgeden tablo yap.", document_ref=document)
+    owner_headers = {"X-KKB-Owner-Token": own}
+    runs = client.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"]
+    assert len(runs) == 1
+    removed = client.delete(f"/v1/conversations/{sid}/runs", headers=owner_headers)
+    assert removed.status_code == 200 and removed.json()["deleted_runs"] == 1
+    assert client.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"] == []
+    detail = client.get(f"/v1/conversations/{sid}", headers=headers).json()
+    assert detail["conversation"]["conversation_id"] == sid
+    assert len(detail["messages"]) == 2
+    assert (
+        client.get(
+            f"/v1/conversations/{sid}/results/{answer['turn_id']}", headers=headers
+        ).status_code
+        == 200
+    )
+
+
+def test_delete_refuses_linked_session_path_without_touching_target(launch, tmp_path):
+    runner, client = launch()
+    own = owner(client)
+    sid, headers, _ = open_conversation(client, own)
+    outside = tmp_path / "unrelated"
+    outside.mkdir()
+    marker = outside / "keep.txt"
+    marker.write_text("keep")
+    linked = runner.run_root / sid
+    linked.symlink_to(outside, target_is_directory=True)
+
+    response = client.delete(f"/v1/conversations/{sid}", headers={"X-KKB-Owner-Token": own})
+    assert response.status_code == 503
+    assert marker.read_text() == "keep" and linked.is_symlink()
+    assert client.get(f"/v1/conversations/{sid}", headers=headers).status_code == 404
+
+
+def test_delete_without_cleanup_binding_fails_closed_and_keeps_chat(launch):
+    _, client = launch(cleanup=False)
+    own = owner(client)
+    sid, headers, _ = open_conversation(client, own)
+    response = client.delete(f"/v1/conversations/{sid}", headers={"X-KKB-Owner-Token": own})
+    assert response.status_code == 503
+    assert client.get(f"/v1/conversations/{sid}", headers=headers).status_code == 200

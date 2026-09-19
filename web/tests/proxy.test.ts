@@ -457,6 +457,25 @@ test("conversation routes pass only with their key, method and bounded query", a
     ).status,
     404,
   );
+  for (const path of [
+    `v1/conversations/${sid}`,
+    `v1/conversations/${sid}/runs`,
+  ]) {
+    const removed = await forward(
+      request(path, "DELETE", { "x-kkb-owner-token": owner }),
+      path.split("/"),
+      transport,
+    );
+    assert.equal(removed.status, 200);
+    assert.equal(seen.at(-1)?.headers.get("X-KKB-Owner-Token"), owner);
+    assert.equal(seen.at(-1)?.headers.get("X-KKB-Session-Token"), null);
+    const denied = await forward(
+      request(path, "DELETE", { "x-kkb-session-token": token }),
+      path.split("/"),
+      transport,
+    );
+    assert.equal(denied.status, 404);
+  }
   assert.equal(
     (
       await forward(

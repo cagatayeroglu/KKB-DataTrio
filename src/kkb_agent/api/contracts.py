@@ -378,6 +378,16 @@ class ConversationList(ContractModel):
     conversations: Annotated[tuple[ConversationSummary, ...], Field(max_length=200)] = ()
 
 
+class ConversationDeleted(ContractModel):
+    api_version: Literal[1] = 1
+    deleted: Literal[True] = True
+
+
+class RunsDeleted(ContractModel):
+    api_version: Literal[1] = 1
+    deleted_runs: Annotated[int, Field(strict=True, ge=0)]
+
+
 class StoredMessage(ContractModel):
     sequence: Annotated[int, Field(strict=True, ge=1)]
     turn_id: Reference

@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
+  deleteConversationRuns,
   describeError,
   listConversations,
   listFeedback,
@@ -19,6 +20,7 @@ import {
   openRun,
   openRunStep,
 } from "@/lib/client";
+import { modelCallLabel } from "@/lib/trace-summary";
 import type {
   ConversationSummary,
   Feedback,
@@ -326,13 +328,9 @@ function RunView({
     URL.revokeObjectURL(link.href);
   }
 
-  // One count per model call: a planning call, or the writer's own call. The
-  // plan it returned and the draft it wrote are records of that call, not calls.
-  const model = detail?.steps.filter(
-    (step) =>
-      (step.stage === "planning" && step.name !== "planner.output") ||
-      step.name === "writer.call",
-  ).length;
+  // Call spans appear only after completion. Never label a running first call
+  // "0 model calls" merely because the provider has not returned yet.
+  const model = detail ? modelCallLabel(run.status, detail.steps) : "";
   const tools = detail?.steps.filter((step) => step.stage === "tool").length;
 
   return (
@@ -347,7 +345,7 @@ function RunView({
           · {run.answer_status ?? run.status}
           {run.error ? ` · hata: ${run.error}` : ""}
           {detail &&
-            ` · ${detail.steps.length} adım · ${model} model çağrısı · ${tools} araç adımı`}
+            ` · ${detail.steps.length} adım · ${model} · ${tools} araç adımı`}
         </p>
       </header>
       {answer && (
@@ -483,6 +481,24 @@ export function TracesPage({
   const [ratings, setRatings] = useState<Feedback[]>([]);
   const [issue, setIssue] = useState("");
 
+  async function removeRuns() {
+    if (
+      !chosen ||
+      !window.confirm(
+        "Bu sohbetin tüm işlem kayıtları kalıcı olarak silinsin mi? Bu işlem geri alınamaz; sohbet ve tablolar korunur.",
+      )
+    )
+      return;
+    try {
+      await deleteConversationRuns(chosen, owner);
+      setRuns([]);
+      setRun(null);
+      setIssue("");
+    } catch (error) {
+      setIssue(describeError(error));
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
     const timer = setTimeout(async () => {
@@ -602,6 +618,15 @@ export function TracesPage({
           )}
         </nav>
         <nav className="traces-column" aria-label="Turlar">
+          {chosen && runs.length > 0 && (
+            <button
+              type="button"
+              className="trace-delete"
+              onClick={() => void removeRuns()}
+            >
+              Bu sohbetin işlem kayıtlarını sil
+            </button>
+          )}
           {runs.map((item) => {
             const rated = ratings.filter((r) => r.turn_id === item.turn_id);
             return (

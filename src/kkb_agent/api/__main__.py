@@ -296,6 +296,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 web_url=args.enable_web_url,
                 model=config.planner_model,
                 stored_result=runner.published_result,
+                session_cleanup=runner.delete_session,
             )
             rebuild = reopen = None
             if index is not None:

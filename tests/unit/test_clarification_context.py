@@ -13,6 +13,7 @@ from kkb_agent.api import prepared as prepared_module
 from kkb_agent.api.app import create_app
 from kkb_agent.api.prepared import PreparedRunner, open_lakehouse
 from kkb_agent.api.service import AnalysisService, SelectedResult
+from kkb_agent.api.store import ConversationStore
 from kkb_agent.llm import scripted
 
 
@@ -662,3 +663,49 @@ def test_naming_an_offered_entry_answers_the_clarification_at_any_length():
     assert _is_new_question(picked, None, bare) is True
     unrelated = "Şimdi de TÜFE'nin 2024 yılındaki aylık değişimini, yıllık ortalamasıyla göster."
     assert _is_new_question(unrelated, None, pending) is True
+
+
+def test_card_choice_is_merged_in_actual_trace_but_unrelated_question_replaces(pool, tmp_path):
+    """The browser's card format must bind to an actual offered catalogue title."""
+    provider = scripted(
+        proposal(discover("d1")),
+        proposal(clarification="ambiguous_series"),
+        proposal(discover("d2")),
+        proposal(calculate("a1")),
+        "Nisan'dan Haziran 2026'ya konut kredisi stoğu 50 milyon TL arttı.",
+        proposal(discover("d3")),
+        proposal(clarification="ambiguous_series"),
+        proposal(discover("d4")),
+        proposal(calculate("a2", start="2026-05-31")),
+        "Mayıs 2026'dan Haziran 2026'ya konut kredisi stoğu 30 milyon TL arttı.",
+    )
+    store = ConversationStore(tmp_path / "history.sqlite")
+    owner, _ = store.create_owner()
+    sid = uuid4().hex
+    store.create_conversation(owner_id=owner, conversation_id=sid, token="x" * 43, title="Test")
+    prepared = PreparedRunner(
+        provider, pool, tmp_path / "runtime", catalog_bytes=CATALOG.read_bytes(), store=store
+    )
+    try:
+        original = "Nisan-Haziran 2026 konut kredisi bakiyesini göster."
+        first = prepared(sid, uuid4().hex, original)
+        assert first.status.value == "abstained"
+        assert first.selection and first.selection.others
+        picked = first.selection.others[0]
+        card_text = f"{picked.title} ({picked.detail})"
+        assert prepared(sid, uuid4().hex, card_text).status.value == "accepted"
+        assert f"Orijinal istek: {original}" in provider.seen[-1][-1].content
+        assert f"Açıklama: {card_text}" in provider.seen[-1][-1].content
+        merged = store.events(store.runs(sid)[0].run_id)
+        received = next(event for event in merged if event.name == "turn.received")
+        assert received.attributes["clarification"] == "merged"
+
+        assert prepared(sid, uuid4().hex, original).status.value == "abstained"
+        fresh = "Mayıs-Haziran 2026 konut kredisi bakiyesi ne kadar arttı?"
+        assert prepared(sid, uuid4().hex, fresh).status.value == "accepted"
+        replaced = store.events(store.runs(sid)[0].run_id)
+        received = next(event for event in replaced if event.name == "turn.received")
+        assert received.attributes["clarification"] == "replaced"
+        assert provider.seen[-1][-1].content == fresh
+    finally:
+        store.close()

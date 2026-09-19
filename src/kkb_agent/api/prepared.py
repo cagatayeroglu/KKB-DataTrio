@@ -7,6 +7,7 @@ import io
 import json
 import os
 import re
+import shutil
 import threading
 import time
 from collections.abc import Callable, Iterator, Sequence
@@ -553,6 +554,39 @@ class PreparedRunner:
                     document.admitted_at,
                 )
         self._history[session_id] = list(self._store.history(session_id, MAX_HISTORY_TURNS))
+
+    def delete_session(self, session_id: str) -> None:
+        """Remove only one server-issued session's files after its turn has stopped.
+
+        The prepared seed and shared acquisition/directory roots are never targets.
+        The caller must have authorized the deletion and ensured no turn uses this
+        session; the runner lock also refuses a concurrent execution.
+        """
+        if not _IDENTIFIER.fullmatch(session_id):
+            raise PreparedError("invalid_runtime_identity")
+        if not self._lock.acquire(blocking=False):
+            raise PreparedError("concurrent_runtime_refused")
+        try:
+            target = self.run_root / session_id
+            if target.is_symlink() or not target.resolve().is_relative_to(self.run_root):
+                raise PreparedError("linked_path_refused")
+            if target.exists():
+                if not target.is_dir():
+                    raise PreparedError("session_path_invalid")
+                shutil.rmtree(target)
+            with self._documents_lock:
+                for key in tuple(self._documents):
+                    if key[0] == session_id:
+                        del self._documents[key]
+            self._turns.pop(session_id, None)
+            self._pending_clarifications.pop(session_id, None)
+            self._history.pop(session_id, None)
+            self._proven.pop(session_id, None)
+            for key in tuple(self._publications):
+                if key[0] == session_id:
+                    del self._publications[key]
+        finally:
+            self._lock.release()
 
     def admit_document_from_url(self, session_id: str, url: str) -> DocumentAdmitted:
         """Fetch a tabular document at a user-written address and admit it like an upload.

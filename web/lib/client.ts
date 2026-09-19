@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   conversationDetailSchema,
+  conversationDeletedSchema,
   conversationListSchema,
   conversationSummarySchema,
   documentAdmittedSchema,
@@ -15,6 +16,7 @@ import {
   ownerSchema,
   resultSchema,
   runDetailSchema,
+  runsDeletedSchema,
   runtimeSettingsSchema,
   searchTrialSchema,
   traceStepFullSchema,
@@ -182,6 +184,27 @@ export function openConversation(conversationId: string, token: string) {
     conversationDetailSchema,
     {},
     token,
+  );
+}
+export function deleteConversation(conversationId: string, ownerToken: string) {
+  return api(
+    `conversations/${conversationId}`,
+    conversationDeletedSchema,
+    { method: "DELETE" },
+    undefined,
+    ownerToken,
+  );
+}
+export function deleteConversationRuns(
+  conversationId: string,
+  ownerToken: string,
+) {
+  return api(
+    `conversations/${conversationId}/runs`,
+    runsDeletedSchema,
+    { method: "DELETE" },
+    undefined,
+    ownerToken,
   );
 }
 export function rateAnswer(

@@ -18,6 +18,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from kkb_agent.api.contracts import (
     MAX_BODY_BYTES,
     MAX_DOCUMENT_BYTES,
+    ConversationDeleted,
     ConversationDetail,
     ConversationList,
     ConversationSummary,
@@ -41,6 +42,7 @@ from kkb_agent.api.contracts import (
     Result,
     RunDetail,
     RunList,
+    RunsDeleted,
     RuntimeSettings,
     SearchTrial,
     SeriesIdentity,
@@ -308,6 +310,11 @@ def create_app(
     def conversation(session_id: Reference, token: Token) -> ConversationDetail:
         return service.conversation(session_id, token)
 
+    @app.delete("/v1/conversations/{session_id}", response_model=ConversationDeleted)
+    def delete_conversation(session_id: Reference, owner: OwnerToken) -> ConversationDeleted:
+        service.delete_conversation(session_id, owner)
+        return ConversationDeleted()
+
     @app.get("/v1/conversations/{session_id}/results/{turn_id}", response_model=Result)
     def stored_result(session_id: Reference, turn_id: Reference, token: Token) -> Result:
         # A published table read back from its receipt; nothing is recomputed.
@@ -316,6 +323,10 @@ def create_app(
     @app.get("/v1/conversations/{session_id}/runs", response_model=RunList)
     def runs(session_id: Reference, token: Token) -> RunList:
         return service.runs(session_id, token)
+
+    @app.delete("/v1/conversations/{session_id}/runs", response_model=RunsDeleted)
+    def delete_runs(session_id: Reference, owner: OwnerToken) -> RunsDeleted:
+        return RunsDeleted(deleted_runs=service.delete_runs(session_id, owner))
 
     @app.get("/v1/conversations/{session_id}/runs/{run_id}", response_model=RunDetail)
     def run(session_id: Reference, run_id: Reference, token: Token) -> RunDetail:
