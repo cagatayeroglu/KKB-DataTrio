@@ -546,8 +546,10 @@ def render_result(result: AnalyticalResult, ambiguous: frozenset[int] = frozense
             # With nothing listed, the live writer read "only highlights below" as
             # "the question is not covered" and said so beside a 24-row table
             # (trace 2026-09-18). The table is the answer to a request for values.
+            # The writer copies this phrase into a Turkish sentence; "from .. to .." came out
+            # as English words between two dates (live M3, 2026-09-19).
             coverage = (
-                f" from {result.coverage.start.isoformat()} to {result.coverage.end.isoformat()}"
+                f" ({result.coverage.start.isoformat()}..{result.coverage.end.isoformat()})"
                 if result.coverage is not None
                 else ""
             )

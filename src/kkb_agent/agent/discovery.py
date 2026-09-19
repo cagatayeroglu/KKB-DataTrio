@@ -62,7 +62,12 @@ CONTINUATION_INSTRUCTIONS = (
     "an exchange rate). none: nothing matched; answer missing_series. tier=listed: the "
     "source's own directory lists the series and it is fetched on first use; it is as "
     "usable as a reviewed one when its title and kind are the requested measure, and a "
-    "listed row stands for its total unless the question names TL or FX. "
+    "listed row stands for its total unless the question names TL or FX. When several "
+    "listed candidates ARE the requested measure and differ only in a variant the question "
+    "does not name (buying or selling quotation, banknote or transfer rate, a maturity "
+    "bucket), use the first of them instead of asking: the reader is shown which entry was "
+    "used and the other candidates, and switches with one sentence. Clarify when the "
+    "candidates are different measures, never because variants exist. "
     "The same defaults govern a choice among prepared identities the discovery did "
     "not rank; a series described as a cross-check is never the default. "
     "Similarity scores never resolve ambiguity; never clarify because a candidate is merely ranked."
@@ -133,6 +138,10 @@ def proven_identities(outcome: ExecutionOutcome) -> frozenset[str]:
         for candidate in item.output.candidates:
             found.add(candidate.series.record.series_id)
     return frozenset(found)
+
+
+#: Identities a rejection names; a plan rarely carries more.
+MAX_NAMED_UNPROVEN = 8
 
 
 def needs_series_discovery(plan: ValidatedPlan, proven: frozenset[str] = frozenset()) -> bool:
@@ -241,8 +250,23 @@ def validate_discovery_phase(
                 category=RejectionCategory.DISCOVERY_RULE,
             )
     elif require_series_discovery and needs_series_discovery(plan, proven_series):
+        # Live E2 (2026-09-19): told only that "new series require a search", the planner
+        # searched for one of the two measures it needed and then called the other missing.
+        unproven = sorted(
+            {
+                identity
+                for step in plan.steps
+                for identity in (declared_series_identities(step.arguments) or ())
+                if identity not in proven_series
+            }
+        )
+        named = f" ({', '.join(unproven[:MAX_NAMED_UNPROVEN])})" if unproven else ""
         raise PlanRejected(
-            "New series require a catalog_search phase before analysis",
+            "New series require a catalog_search phase before analysis"
+            + named
+            + ". Plan only catalog_search steps now: one query for EACH measure the question "
+            f"needs that no search of this conversation returned (up to {MAX_DISCOVERY_QUERIES} "
+            "in this one round), because the next round cannot search again",
             category=RejectionCategory.DISCOVERY_RULE,
         )
 

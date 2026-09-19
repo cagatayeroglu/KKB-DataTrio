@@ -20,6 +20,14 @@ class FileKind(StrEnum):
     XLSX = "xlsx"
     PDF = "pdf"
     HTML = "html"
+    #: Pictures (DEC-179). They are admitted and then *are* a one-page PDF: no loader, tool
+    #: or stored document ever has one of these kinds.
+    PNG = "png"
+    JPG = "jpg"
+    JPEG = "jpeg"
+
+
+IMAGE_KINDS = frozenset({FileKind.PNG, FileKind.JPG, FileKind.JPEG})
 
 
 class RejectionCode(StrEnum):
@@ -105,7 +113,11 @@ MIME_TYPES = {
     FileKind.XLSX: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     FileKind.PDF: "application/pdf",
     FileKind.HTML: "text/html",
+    FileKind.PNG: "image/png",
+    FileKind.JPG: "image/jpeg",
+    FileKind.JPEG: "image/jpeg",
 }
+IMAGE_MEDIA_TYPES: tuple[str, ...] = ("image/png", "image/jpeg")
 
 
 @dataclass(frozen=True)
@@ -259,6 +271,12 @@ def admit_upload(
             raise AdmissionError(RejectionCode.FORMAT_MISMATCH)
     elif kind == FileKind.PDF:
         _check_pdf_header(content)
+    elif kind in IMAGE_KINDS:
+        # Decoded once in a terminated worker and wrapped as a single page; from here on
+        # the picture is a scanned PDF and takes that path, OCR included (DEC-179).
+        from kkb_agent.image_document import image_to_pdf
+
+        return AdmittedFile(FileKind.PDF, image_to_pdf(content, kind.value, limits))
     else:
         try:
             _check_xlsx_envelope(content, limits)

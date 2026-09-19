@@ -7,6 +7,8 @@ export const DOCUMENT_TYPES = new Set([
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   "application/pdf",
   "text/html",
+  "image/png",
+  "image/jpeg",
 ]);
 export const RESPONSE_LIMIT = 1024 * 1024;
 /** DEC-157: the one JSON body allowed past 16 KiB, a knowledge-base dataset. */

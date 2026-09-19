@@ -370,7 +370,7 @@ test("document uploads refuse other types, sizes, methods and missing tokens", a
   const cases: [Request, number][] = [
     [
       documentRequest(
-        { "content-type": "image/png", "x-kkb-session-token": token },
+        { "content-type": "image/gif", "x-kkb-session-token": token },
         small,
       ),
       415,

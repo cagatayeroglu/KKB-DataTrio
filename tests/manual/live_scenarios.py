@@ -164,6 +164,32 @@ SUITES: dict[str, list[tuple[str, str, dict[str, object]]]] = {
             {},
         ),
     ],
+    # DEC-177 again, as a person would continue: the clarification is answered with the entry
+    # the page offers, then two new measures are asked for in one question.
+    "evds2": [
+        ("E1-dollar-recent", "Dolar kurunun son 3 aydaki seyrini göster.", {}),
+        (
+            "E1b-dollar-chosen",
+            "(USD) ABD Doları (Döviz Alış) (Döviz Kurları, EVDS/TCMB, günlük, TRY, bakiye (stok))",
+            {},
+        ),
+        (
+            "E2-dollar-vs-housing",
+            "2024–2025 için dolar döviz alış kurunun aylık ortalamasını ve toplam konut kredisi "
+            "bakiyesini aynı tabloda göster.",
+            {},
+        ),
+        ("E6-unemployment", "İşsizlik oranı 2025'te nasıl değişti?", {}),
+    ],
+    # DEC-179: a picture of a table attached to the question, read by the OCR model.
+    "image": [
+        (
+            "I1-table-picture",
+            "Ekteki görseldeki tabloda aylara göre altın işlem miktarlarını çıkar; toplam satırı "
+            "ayların toplamına eşit mi?",
+            {"attach_image": True},
+        ),
+    ],
     # A3 alone: the provider timed out on it twice, so it is re-run without its neighbours.
     "causality": [
         (
@@ -285,6 +311,39 @@ def kb_datasets() -> list[dict[str, object]]:
     ]
 
 
+def table_png() -> bytes:
+    """A small bordered table as a PNG, the kind of screenshot a person attaches."""
+    import io
+
+    from PIL import Image, ImageDraw, ImageFont
+
+    try:
+        font = ImageFont.truetype("arial.ttf", 30)
+    except OSError:
+        font = ImageFont.load_default(size=30)
+    rows = [
+        ("Ay", "Altın (kg)", "Gümüş (kg)"),
+        ("Ocak 2026", "1.250", "830"),
+        ("Şubat 2026", "1.410", "905"),
+        ("Mart 2026", "1.175", "760"),
+        ("Toplam", "3.835", "2.495"),
+    ]
+    image = Image.new("RGB", (1100, 520), "white")
+    draw = ImageDraw.Draw(image)
+    draw.text((40, 25), "Kıymetli Madenler Piyasası - İşlem Miktarları", font=font, fill="black")
+    top, widths, height = 100, (380, 320, 320), 70
+    for r, row in enumerate(rows):
+        x = 40
+        for c, cell in enumerate(row):
+            box = [x, top + r * height, x + widths[c], top + (r + 1) * height]
+            draw.rectangle(box, outline="black", width=2)
+            draw.text((x + 16, top + r * height + 18), cell, font=font, fill="black")
+            x += widths[c]
+    output = io.BytesIO()
+    image.save(output, format="PNG")
+    return output.getvalue()
+
+
 def fetch_json(client: httpx.Client, path: str, headers: dict[str, str]) -> dict[str, object]:
     """A polling GET that survives the server closing an idle keep-alive connection."""
     for attempt in range(6):
@@ -372,6 +431,14 @@ def main() -> int:
                 ),
                 flush=True,
             )
+        if extra.get("attach_image"):
+            # DEC-179: a picture of a table, drawn here, through the ordinary upload route.
+            admitted = client.post(
+                f"/v1/sessions/{sid}/documents",
+                content=table_png(),
+                headers={**headers, "Content-Type": "image/png"},
+            )
+            body["document_ref"] = admitted.json()["document_ref"]
         if extra.get("attach"):
             admitted = client.post(
                 f"/v1/sessions/{sid}/documents",
