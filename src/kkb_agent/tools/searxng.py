@@ -32,6 +32,8 @@ from urllib.parse import urlencode, urlsplit
 from pydantic import SecretStr
 
 from kkb_agent.ingest.safe_fetch import (
+    FetchCode,
+    FetchFailure,
     FetchLimits,
     FetchOutcome,
     FetchRequest,
@@ -47,6 +49,62 @@ Fetch = Callable[..., FetchOutcome]
 
 class SearxngRefused(ValueError):
     """The configured instance address is not one this adapter will call."""
+
+
+#: The only hosts the loopback exception (DEC-180) will ever connect to.
+LOOPBACK_HOSTS: Final = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def loopback_fetch(request: FetchRequest, *, limits: FetchLimits) -> FetchOutcome:
+    """Read the operator's own SearXNG on this machine (DEC-180).
+
+    `safe_fetch` refuses loopback for every address a question or a page can name, and
+    that stays so. This function is not a general fetcher: it is wired only by the
+    launcher's `--searxng-loopback`, it connects only to a literal loopback host over plain
+    HTTP, follows no redirect, keeps the caller's deadline and byte ceiling, and accepts
+    only a JSON answer. The planner never supplies the address; it supplies a query.
+    """
+    import http.client
+
+    parts = urlsplit(request.url.get_secret_value())
+    if parts.scheme != "http" or parts.hostname not in LOOPBACK_HOSTS or parts.port is None:
+        return FetchFailure(source_ref=request.source_ref, code=FetchCode.BLOCKED_DESTINATION)
+    connection = http.client.HTTPConnection(
+        parts.hostname, parts.port, timeout=min(limits.connect_seconds, limits.total_seconds)
+    )
+    try:
+        connection.request(
+            "GET",
+            parts.path + ("?" + parts.query if parts.query else ""),
+            headers={"Accept": "application/json", "User-Agent": "kkb-agent-search"},
+        )
+        connection.sock.settimeout(min(limits.read_seconds, limits.total_seconds))
+        response = connection.getresponse()
+        if not 200 <= response.status <= 299:
+            return FetchFailure(source_ref=request.source_ref, code=FetchCode.HTTP_FAILURE)
+        media_type = (response.getheader("Content-Type") or "").split(";", 1)[0].strip().lower()
+        if media_type not in request.accepted_media_types:
+            return FetchFailure(source_ref=request.source_ref, code=FetchCode.CONTENT_TYPE)
+        content = response.read(limits.max_response_bytes + 1)
+        if len(content) > limits.max_response_bytes:
+            return FetchFailure(source_ref=request.source_ref, code=FetchCode.SIZE_LIMIT)
+        return FetchSuccess(
+            source_ref=request.source_ref,
+            content=content,
+            media_type=media_type,
+            http_status=response.status,
+        )
+    except TimeoutError:
+        return FetchFailure(source_ref=request.source_ref, code=FetchCode.TIMEOUT)
+    except (OSError, http.client.HTTPException):
+        return FetchFailure(source_ref=request.source_ref, code=FetchCode.TRANSPORT_FAILURE)
+    finally:
+        connection.close()
+
+
+def is_loopback_instance(url: str) -> bool:
+    parts = urlsplit(url)
+    return parts.scheme == "http" and parts.hostname in LOOPBACK_HOSTS and parts.port is not None
 
 
 def _instance(url: str) -> str:
