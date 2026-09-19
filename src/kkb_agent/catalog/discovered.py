@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import threading
 from collections.abc import Callable
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -27,7 +28,9 @@ from kkb_agent.ingest.evds_directory import (
     SERIES_LIST_LIMITS,
     ListedGroup,
     declare_series,
+    directory_request,
     listed_groups,
+    parse_directory,
     parse_series_list,
     series_list_request,
 )
@@ -65,6 +68,21 @@ def listed_entry(series: ReviewedEvdsSeries) -> ReviewedSeries:
     )
 
 
+#: Datagroups a refresh found in EVDS's live directory that the pinned listing lacks.
+SUPPLEMENT_NAME = "_directory.json"
+
+
+@dataclass(frozen=True, slots=True)
+class DirectoryRefresh:
+    """What one refresh found; titles are the source's own, counts are of datagroups."""
+
+    listed: int
+    added: tuple[ListedGroup, ...]
+    withdrawn: int
+    reopened: int
+    failed: int
+
+
 class DiscoveredStore:
     """Series lists of the datagroups a search has opened, one JSON file per datagroup."""
 
@@ -77,13 +95,102 @@ class DiscoveredStore:
         self._directory = Path(directory)
         self._directory.mkdir(parents=True, exist_ok=True)
         self._fetch = fetch or (lambda request: safe_fetch(request, limits=SERIES_LIST_LIMITS))
-        self._groups = {group.code: group for group in listed_groups()}
+        self._pinned = {group.code: group for group in listed_groups()}
+        self._groups = dict(self._pinned)
         self._lock = threading.Lock()
         self._cache: dict[str, tuple[ReviewedEvdsSeries, ...]] = {}
+        for group in self._read_supplement():
+            self._groups.setdefault(group.code, group)
+
+    def _read_supplement(self) -> tuple[ListedGroup, ...]:
+        path = self._directory / SUPPLEMENT_NAME
+        if not path.is_file():
+            return ()
+        try:
+            kept = json.loads(path.read_text(encoding="utf-8"))
+            return tuple(ListedGroup(**item) for item in kept["groups"])
+        except (ValueError, KeyError, TypeError, OSError):
+            return ()
+
+    def supplement(self) -> tuple[ListedGroup, ...]:
+        """Datagroups EVDS listed after the pin, found by a refresh; catalogue entries too."""
+        return tuple(
+            group for code, group in sorted(self._groups.items()) if code not in self._pinned
+        )
+
+    def refresh(self) -> DirectoryRefresh | None:
+        """Read EVDS's live directory and the series lists of the datagroups opened so far.
+
+        A datagroup the pin lacks is kept as a supplement and becomes a searchable entry; one
+        the source withdrew is only counted (its pinned entry stays until the next harvest).
+        A failed read changes nothing: None for the directory, the old list for a datagroup.
+        """
+        outcome = self._fetch(directory_request())
+        if not isinstance(outcome, FetchSuccess):
+            return None
+        try:
+            live = parse_directory(outcome.content)
+        except (ValueError, UnicodeDecodeError, AttributeError, TypeError):
+            return None
+        if not live:
+            return None
+        added = tuple(group for group in live if group.code not in self._pinned)
+        codes = {group.code for group in live}
+        reopened = failed = 0
+        with self._lock:
+            (self._directory / SUPPLEMENT_NAME).write_text(
+                json.dumps(
+                    {
+                        "fetched_at": datetime.now(UTC).isoformat(),
+                        "groups": [asdict(group) for group in added],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            self._groups = {**self._pinned, **{group.code: group for group in added}}
+        for code in self.opened_groups():
+            if code not in self._groups:
+                continue
+            if self._reread(code):
+                reopened += 1
+            else:
+                failed += 1
+        return DirectoryRefresh(
+            listed=len(live),
+            added=added,
+            withdrawn=sum(code not in codes for code in self._pinned),
+            reopened=reopened,
+            failed=failed,
+        )
+
+    def _reread(self, group_code: str) -> bool:
+        """Replace one kept series list by a fresh one; the kept one stays if the read fails."""
+        outcome = self._fetch(series_list_request(group_code, listed=frozenset(self._groups)))
+        if not isinstance(outcome, FetchSuccess):
+            return False
+        try:
+            rows, digest = parse_series_list(outcome.content)
+        except (ValueError, UnicodeDecodeError):
+            return False
+        with self._lock:
+            self._path(group_code).write_text(
+                json.dumps(
+                    {
+                        "fetched_at": datetime.now(UTC).isoformat(),
+                        "sha256": digest,
+                        "rows": list(rows),
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            self._cache.pop(group_code, None)
+        return True
 
     def _path(self, group_code: str) -> Path:
         if group_code not in self._groups:
-            raise ValueError("datagroup is not in the pinned EVDS directory")
+            raise ValueError("datagroup is not in the EVDS directory")
         return self._directory / f"{group_code}.json"
 
     def group(self, group_code: str) -> ListedGroup | None:
@@ -110,7 +217,9 @@ class DiscoveredStore:
                 except (ValueError, KeyError, TypeError, OSError):
                     rows = None
             if rows is None and read:
-                outcome = self._fetch(series_list_request(group_code))
+                outcome = self._fetch(
+                    series_list_request(group_code, listed=frozenset(self._groups))
+                )
                 if not isinstance(outcome, FetchSuccess):
                     return ()
                 try:
@@ -139,7 +248,11 @@ class DiscoveredStore:
             return declared
 
     def opened_groups(self) -> tuple[str, ...]:
-        return tuple(sorted(path.stem for path in self._directory.glob("*.json")))
+        return tuple(
+            sorted(
+                path.stem for path in self._directory.glob("*.json") if path.name != SUPPLEMENT_NAME
+            )
+        )
 
     def declared(self) -> tuple[ReviewedEvdsSeries, ...]:
         """Every declared series of every datagroup opened so far; never reads the source."""

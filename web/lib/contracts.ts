@@ -510,6 +510,21 @@ export const vectorIndexSchema = z
   .strict();
 export type VectorIndex = z.infer<typeof vectorIndexSchema>;
 
+// What re-reading the sources' own directories found (DEC-177).
+export const directoryRefreshSchema = z
+  .object({
+    api_version: z.literal(1),
+    evds_listed: z.number().int().min(0).max(10000),
+    added_total: z.number().int().min(0).max(10000),
+    added: z.array(z.string().max(240)).max(20),
+    withdrawn: z.number().int().min(0).max(10000),
+    series_lists_reread: z.number().int().min(0).max(10000),
+    series_lists_failed: z.number().int().min(0).max(10000),
+    catalog_changed: z.boolean(),
+  })
+  .strict();
+export type DirectoryRefresh = z.infer<typeof directoryRefreshSchema>;
+
 /** Reverse lineage: this browser's answers whose proof read the series. */
 export const seriesUsesSchema = z
   .object({

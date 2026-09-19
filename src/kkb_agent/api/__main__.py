@@ -228,13 +228,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             # The editable knowledge base over the reviewed catalog (DEC-157).
             knowledge = KnowledgeStore(args.state_root.absolute() / KNOWLEDGE_NAME)
             # The sources' own listings as a second catalogue tier (DEC-176), unless refused.
-            directory = None if args.no_source_directory else source_directory()
-            # The series lists of the EVDS datagroups a search has opened (DEC-177). Without
-            # official fetching nothing opens a datagroup, so nothing is kept.
+            # The series lists of the EVDS datagroups a search has opened, and the datagroups
+            # a refresh found after the pin (DEC-177). Without official fetching nothing
+            # opens a datagroup, so nothing is kept.
             discovered = (
                 DiscoveredStore(args.state_root.absolute() / DISCOVERED_DIRECTORY)
-                if directory is not None and acquisition_enabled
+                if not args.no_source_directory and acquisition_enabled
                 else None
+            )
+            directory = (
+                None
+                if args.no_source_directory
+                else source_directory(discovered.supplement() if discovered is not None else ())
             )
             runner = PreparedRunner(
                 provider,
@@ -331,6 +336,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 reopen_index=reopen,
                 source_directory=directory,
                 discovered=discovered,
+                install_directory=runner.use_directory,
             )
             # No model call: a generation built before this restart is simply opened.
             knowledge_service.restore_generation()

@@ -90,8 +90,11 @@ class CatalogCandidate(ContractModel):
     cosine_distance: float | None = Field(default=None, ge=-0.000001, le=2.000001)
 
 
-#: Datagroups one search carries for expansion (each unopened one costs one source read).
-MAX_GROUPS = 3
+#: Datagroups one search carries for expansion: a stage's whole budget. Measured on the
+#: live index (2026-09-19) the right datagroup is always among the ten nearest by meaning
+#: and not always among the first three ("ABD doları TL kuru": fourth, behind groups whose
+#: unit is the dollar). An unopened datagroup costs one source read, once per installation.
+MAX_GROUPS = 10
 
 
 class CatalogSearchOutput(ContractModel):

@@ -16,15 +16,13 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+from dataclasses import asdict
 from pathlib import Path
-from typing import Any
 
-URL = "https://evds3.tcmb.gov.tr/igmevdsms-dis/categories/withDatagroups/type=json"
+from kkb_agent.ingest.evds_directory import DIRECTORY_URL, parse_directory
+
+URL = DIRECTORY_URL
 TARGET = Path(__file__).resolve().parents[2] / "src/kkb_agent/ingest/evds_directory_listing.py"
-
-
-def words(value: Any) -> str:
-    return " ".join(str(value or "").split())
 
 
 def main() -> int:
@@ -33,36 +31,8 @@ def main() -> int:
         capture_output=True,
         check=True,
     )
-    categories = json.loads(done.stdout.decode("utf-8"))
-    titles = {item["CATEGORY_ID"]: words(item.get("TOPIC_TITLE_TR")) for item in categories}
-    parents = {item["CATEGORY_ID"]: item.get("UST_CATEGORY_ID") for item in categories}
-
-    def path(category: int) -> str:
-        parts: list[str] = []
-        seen: set[int] = set()
-        current: Any = category
-        while current in titles and current not in seen:
-            seen.add(current)
-            parts.append(titles[current])
-            current = parents.get(current)
-        return " > ".join(reversed(parts))
-
-    groups = []
-    for category in categories:
-        for group in category.get("DATAGROUPS") or []:
-            title = words(group.get("DATAGROUP_TYPE"))
-            groups.append(
-                {
-                    "code": words(group.get("DATAGROUP_CODE")),
-                    "title": title,
-                    "title_eng": words(group.get("DATAGROUP_TYPE_ENG")),
-                    "category": path(category["CATEGORY_ID"]),
-                    "frequency_str": words(group.get("FREQUENCY_STR")),
-                    "data_source": words(group.get("DATASOURCE")),
-                    "unit_text": words(group.get("BIRIMI")),
-                    "archived": "arşiv" in title.lower().replace("ş", "ş"),
-                }
-            )
+    # The same parser a refresh of a running installation uses (DEC-177).
+    groups = [asdict(group) for group in parse_directory(done.stdout)]
     groups.sort(key=lambda item: item["code"])
     payload = {"source": URL, "groups": groups}
     canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))

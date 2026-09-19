@@ -166,7 +166,8 @@ def test_a_kind_word_in_the_question_does_not_push_datagroups_out(catalogue):
     """Probe 2026-09-19: "faizi" ranked ten reviewed credit rates above every deposit group."""
     _, effective = catalogue
     output = found(effective, "mevduat faizi")
-    assert output.groups and all("mevduat" in g.series.record.title.lower() for g in output.groups)
+    assert output.groups and "mevduat" in output.groups[0].series.record.title.lower()
+    assert not any(is_source_group(c.series) for c in output.candidates)
 
 
 def test_a_reviewed_concept_still_bounds_the_result_and_carries_no_datagroup(catalogue):
@@ -421,3 +422,156 @@ def test_a_series_clarification_offers_its_entries_as_choices(tmp_path):
     assert "(USD) ABD Doları (Döviz Alış)" in titles
     # The same entries, in the same order, are the lines of the clarification text.
     assert all(title in answer.text for title in titles)
+
+
+# --- the directory is read again: what the source added becomes searchable ---------------------
+
+
+NEW_GROUP = {
+    "DATAGROUP_CODE": "bie_yenigrup",
+    "DATAGROUP_TYPE": "Yeşil Tahvil İhraçları",
+    "DATAGROUP_TYPE_ENG": "Green Bond Issues",
+    "FREQUENCY_STR": "AYLIK",
+    "DATASOURCE": "TCMB",
+    "BIRIMI": "milyon TL",
+}
+
+
+class DirectorySource(ListSource):
+    """EVDS's live directory (every pinned datagroup plus one new) and any series list."""
+
+    def __init__(self, fail_directory=False):
+        super().__init__()
+        self.fail_directory = fail_directory
+
+    def __call__(self, request):
+        if request.source_ref != "evds:directory":
+            return super().__call__(request)
+        self.requests.append(request.source_ref)
+        if self.fail_directory:
+            return FetchFailure(source_ref=request.source_ref, code=FetchCode.TIMEOUT)
+        from kkb_agent.ingest.evds_directory import listed_groups
+
+        pinned = [
+            {
+                "DATAGROUP_CODE": group.code,
+                "DATAGROUP_TYPE": group.title,
+                "DATAGROUP_TYPE_ENG": group.title_eng,
+                "FREQUENCY_STR": group.frequency_str,
+                "DATASOURCE": group.data_source,
+                "BIRIMI": group.unit_text,
+            }
+            for group in listed_groups()[1:]  # the source withdrew one
+        ]
+        categories = [
+            {"CATEGORY_ID": 1, "TOPIC_TITLE_TR": "PARA VE BANKA", "UST_CATEGORY_ID": None},
+            {
+                "CATEGORY_ID": 2,
+                "TOPIC_TITLE_TR": "SERMAYE PİYASASI",
+                "UST_CATEGORY_ID": 1,
+                "DATAGROUPS": [*pinned, NEW_GROUP],
+            },
+        ]
+        return FetchSuccess(
+            source_ref=request.source_ref,
+            content=json.dumps(categories, ensure_ascii=False).encode(),
+            media_type="application/json",
+            http_status=200,
+        )
+
+
+def test_a_refresh_lists_new_datagroups_and_rereads_the_opened_ones(tmp_path):
+    source = DirectorySource()
+    store = DiscoveredStore(tmp_path / "evds", fetch=source)
+    store.series_of(GROUP)
+    before = source_directory(store.supplement())
+    found = store.refresh()
+    assert [group.code for group in found.added] == ["bie_yenigrup"]
+    assert found.added[0].category == "PARA VE BANKA > SERMAYE PİYASASI"
+    assert (found.withdrawn, found.reopened, found.failed) == (1, 1, 0)
+    assert source.requests == [
+        "evds:serie-list:" + GROUP,
+        "evds:directory",
+        "evds:serie-list:" + GROUP,
+    ]
+    # The new datagroup is a catalogue entry, so the catalogue (and its vectors) changed...
+    after = source_directory(store.supplement())
+    assert after.digest != before.digest and len(after.series) == len(before.series) + 1
+    assert EVDS_GROUP_PREFIX + "bie_yenigrup" in after.ids()
+    # ...it survives a restart, and it can be opened like any pinned datagroup.
+    again = DiscoveredStore(tmp_path / "evds", fetch=(later := DirectorySource()))
+    assert [group.code for group in again.supplement()] == ["bie_yenigrup"]
+    assert again.opened_groups() == (GROUP,)
+    assert again.series_of("bie_yenigrup") != () and later.requests == [
+        "evds:serie-list:bie_yenigrup"
+    ]
+
+
+def test_a_refresh_that_cannot_read_the_directory_changes_nothing(tmp_path):
+    store = DiscoveredStore(tmp_path / "evds", fetch=DirectorySource(fail_directory=True))
+    assert store.refresh() is None and store.supplement() == ()
+    assert source_directory(store.supplement()).digest == source_directory().digest
+
+
+def test_the_knowledge_page_refreshes_the_directory_for_later_turns(tmp_path):
+    from fastapi.testclient import TestClient
+    from test_conversation_persistence import owner
+    from test_document_dataset import BASE
+
+    from kkb_agent.api.app import create_app
+    from kkb_agent.api.knowledge_service import KnowledgeService
+    from kkb_agent.api.service import AnalysisService
+    from kkb_agent.api.store import DATABASE_NAME, ConversationStore
+    from kkb_agent.knowledge import KnowledgeStore
+
+    root = tmp_path.resolve() / "prepared"
+    seed_prepared(root)
+    conversations = ConversationStore(tmp_path.resolve() / "state" / DATABASE_NAME)
+    knowledge = KnowledgeStore(tmp_path.resolve() / "state" / "knowledge.sqlite")
+    discovered = DiscoveredStore(tmp_path / "evds", fetch=DirectorySource())
+    directory = source_directory(discovered.supplement())
+    runner = PreparedRunner(
+        scripted(),
+        root,
+        tmp_path.resolve() / "state" / "runtime",
+        catalog_bytes=CATALOG.read_bytes(),
+        store=conversations,
+        knowledge=knowledge,
+        official=OfficialSources(evds=DailySource()),
+        source_directory=directory,
+        discovered=discovered,
+    )
+    service = KnowledgeService(
+        knowledge,
+        conversations,
+        runner.catalog,
+        prepared=frozenset(item.series_id for item in runner.status.series),
+        acquisition=True,
+        source_directory=directory,
+        discovered=discovered,
+        install_directory=runner.use_directory,
+    )
+    app = create_app(
+        AnalysisService(runner, mode="scripted", store=conversations, knowledge=True),
+        prepared=runner.status,
+        knowledge=service,
+    )
+    with TestClient(app, base_url=BASE) as client:
+        key = {"X-KKB-Owner-Token": owner(client)}
+        assert client.post("/v1/knowledge/directory", json={}).status_code >= 400  # no key
+        found = client.post("/v1/knowledge/directory", json={}, headers=key)
+        assert found.status_code == 200, found.text
+        body = found.json()
+        assert body["added"] == ["Yeşil Tahvil İhraçları"] and body["added_total"] == 1
+        assert body["catalog_changed"] is True and body["withdrawn"] == 1
+        # The trial search (what a turn would search) finds the new datagroup's series.
+        hits = client.get(
+            "/v1/knowledge/search", params={"q": "yeşil tahvil ihraçları"}, headers=key
+        )
+        assert hits.status_code == 200 and hits.json()["hits"], hits.text
+        assert (
+            client.post("/v1/knowledge/directory", json={}, headers=key).json()["catalog_changed"]
+            is False
+        )
+    conversations.close()
+    knowledge.close()

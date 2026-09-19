@@ -21,6 +21,7 @@ from kkb_agent.api.contracts import (
     DatasetDetail,
     DatasetRequest,
     DatasetVersionSummary,
+    DirectoryRefreshResult,
     KnowledgeList,
     KnowledgeSeries,
     SearchHit,
@@ -37,6 +38,7 @@ from kkb_agent.api.contracts import (
 from kkb_agent.api.service import ServiceError
 from kkb_agent.api.store import ConversationStore
 from kkb_agent.catalog.directory import SourceDirectory
+from kkb_agent.catalog.directory import source_directory as build_source_directory
 from kkb_agent.catalog.discovered import DiscoveredStore, listed_entry
 from kkb_agent.catalog.expansion import expand_groups
 from kkb_agent.catalog.hybrid import CatalogDenseStage, search_hybrid_catalog
@@ -96,8 +98,11 @@ class KnowledgeService:
         reopen_index: Callable[[ReviewedSnapshot], CatalogDenseStage | None] | None = None,
         source_directory: SourceDirectory | None = None,
         discovered: DiscoveredStore | None = None,
+        install_directory: Callable[[SourceDirectory], None] | None = None,
     ) -> None:
         self._knowledge = knowledge
+        self._install_directory = install_directory
+        self._refreshing = threading.Lock()
         # The EVDS series lists opened so far; a trial search opens datagroups as a turn does.
         self._discovered = discovered
         self._dense = dense
@@ -321,6 +326,42 @@ class KnowledgeService:
         self._build_thread = threading.Thread(target=run, name="catalog-index", daemon=True)
         self._build_thread.start()
         return self.index_status(owner_token)
+
+    def refresh_directory(self, owner_token: str) -> DirectoryRefreshResult:
+        """Read the sources' own directories again: what is new becomes searchable.
+
+        EVDS's live datagroup directory is compared with the pinned one (one request), and
+        the series lists of the datagroups opened so far are read again (one request each),
+        so a series or a datagroup the source added since is found by the next search. The
+        BDDK bulletin's listing is pinned with measured behaviour and is refreshed by its
+        harvest, not here. Nothing is fetched into a lakehouse and no model is called.
+        """
+        self._author(owner_token)
+        if self._discovered is None or self._directory is None:
+            raise ServiceError("unavailable", 503)
+        if not self._refreshing.acquire(blocking=False):
+            raise ServiceError("busy", 409)
+        try:
+            found = self._discovered.refresh()
+            if found is None:
+                raise ServiceError("unavailable", 503)
+            directory = build_source_directory(self._discovered.supplement())
+            changed = directory.digest != self._directory.digest
+            if changed:
+                self._directory = directory
+                if self._install_directory is not None:
+                    self._install_directory(directory)
+            return DirectoryRefreshResult(
+                evds_listed=found.listed,
+                added_total=len(found.added),
+                added=tuple(group.title[:240] for group in found.added[:20] if group.title),
+                withdrawn=found.withdrawn,
+                series_lists_reread=found.reopened,
+                series_lists_failed=found.failed,
+                catalog_changed=changed,
+            )
+        finally:
+            self._refreshing.release()
 
     def close(self) -> None:
         """Wait for a build in progress so a generation is never left half written."""

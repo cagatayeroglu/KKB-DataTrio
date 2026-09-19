@@ -7,6 +7,7 @@ Values here are synthetic; no network.
 """
 
 import json
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta, timezone
 
 import pytest
@@ -109,6 +110,42 @@ def test_units_and_kinds_follow_a_closed_vocabulary(unit_text, name, summable, e
 )
 def test_what_cannot_be_derived_stays_undeclared(changes, raw):
     assert declare_series(group(**changes), listed(**raw)) is None
+
+
+def test_a_default_the_flags_forbid_is_no_declared_aggregation_not_a_dropped_series():
+    """Live 2026-09-19: DEFAULT_AGG_METHOD=last with every *ABLE flag 0 (labour series)."""
+    flags = {"AVGABLE": 0, "FIRSTABLE": 0, "LASTABLE": 0, "MINABLE": 0, "MAXABLE": 0}
+    labour = group(code="bie_tisguc", title="Temel İşgücü Göstergeleri", unit_text="Bin kişi")
+    labour = replace(labour, frequency_str="AYLIK")
+    people = declare_series(labour, listed("TP.TIG04", "4.İşsiz", default="last", **flags))
+    assert (people.unit, people.scale, people.stock_flow) == (
+        "count",
+        Scale.THOUSAND,
+        StockFlow.STOCK,
+    )
+    assert people.aggregation is Aggregation.UNKNOWN and people.policy.last is False
+    # A "(%)" row of a datagroup counted in persons is a rate, whatever the datagroup says.
+    rate = declare_series(
+        labour, listed("TP.TIG08", "8.İşsizlik oranı (%)", default="last", **flags)
+    )
+    assert (rate.unit, rate.scale, rate.stock_flow) == ("percent", Scale.ONE, StockFlow.RATE)
+
+
+def test_a_price_per_quantity_is_its_own_unit_and_a_level():
+    gold = replace(group(code="bie_mkaltytl", title="Altın Fiyatları", unit_text=""))
+    gram = declare_series(gold, listed("TP.MK.KUL.YTL", "Külçe Altın Satış Fiyatı (TL/Gr)"))
+    assert (gram.unit, gram.stock_flow) == ("TRY/g", StockFlow.STOCK)
+    ounce = declare_series(
+        gold, listed("TP.MK.LON.YTL", "1 Ons Altın Londra Satış Fiyatı (ABD Doları/Ons)")
+    )
+    assert ounce.unit == "USD/oz"
+    dashed = declare_series(
+        replace(gold, unit_text="TL/kg, USD/ons, Euro/ons, TL/gr"),
+        listed("TP.ALTINPIYASA.KAP02", "Altın - Kapanış Fiyatı  - TL/kg", summable=1),
+    )
+    assert (dashed.unit, dashed.stock_flow) == ("TRY/kg", StockFlow.STOCK)
+    # A bare currency in a name is the thing priced, not the unit.
+    assert declare_series(group(), listed()).unit == "TRY"
 
 
 def test_a_reviewed_code_keeps_its_reviewed_declaration():

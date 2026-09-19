@@ -145,6 +145,25 @@ SUITES: dict[str, list[tuple[str, str, dict[str, object]]]] = {
         ),
         ("D4-npl-cards", "Takipteki bireysel kredi kartı alacakları 2025'te ne kadar arttı?", {}),
     ],
+    # DEC-177: measures no catalogue named. The datagroup is found by meaning, opened into the
+    # series EVDS lists under it, one is chosen, fetched on first use and computed. E2 joins a
+    # daily rate (reduced to months) with a monthly balance; E5's series is listed but empty.
+    "evds": [
+        ("E1-dollar-recent", "Dolar kurunun son 3 aydaki seyrini göster.", {}),
+        (
+            "E2-dollar-vs-housing",
+            "2024–2025 için dolar kurunun aylık ortalamasını ve toplam konut kredisi bakiyesini "
+            "aynı tabloda göster.",
+            {},
+        ),
+        ("E3-policy-rate", "TCMB politika faizi 2024 ve 2025'te nasıl değişti?", {}),
+        ("E4-deposit-rate", "TL mevduat faiz oranı son bir yılda nasıl değişti?", {}),
+        (
+            "E5-empty-series",
+            "Almanya merkez bankası politika faiz oranını son beş yıl için getir.",
+            {},
+        ),
+    ],
     # A3 alone: the provider timed out on it twice, so it is re-run without its neighbours.
     "causality": [
         (

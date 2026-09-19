@@ -683,6 +683,14 @@ class PreparedRunner:
             return None
         return self._dense
 
+    def use_directory(self, directory: SourceDirectory) -> None:
+        """Install a refreshed source directory for later turns (DEC-177).
+
+        The running turn keeps the catalogue it started with. The vectors cover the new
+        catalogue only after they are built again; until then discovery says it is lexical.
+        """
+        self._directory = directory
+
     def use_dense(self, stage: CatalogDenseStage) -> None:
         """Install a newly built generation for later turns; the profile may not change.
 

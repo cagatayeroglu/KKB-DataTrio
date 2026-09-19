@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Final
@@ -145,8 +146,8 @@ def _pinned() -> tuple[tuple[ReviewedSeries, ...], tuple[Evidence, ...]]:
     return (*_bddk_series(), *groups), (bddk, evds_evidence())
 
 
-def source_directory() -> SourceDirectory:
-    """Every entry the pinned listings give.
+def source_directory(supplement: Sequence[ListedGroup] = ()) -> SourceDirectory:
+    """Every entry the pinned listings give, plus datagroups a refresh found after the pin.
 
     The series of an opened EVDS datagroup are deliberately not entries here: they arrive
     through `catalog.expansion` and `DiscoveredStore`. The catalogue a vector generation is
@@ -154,5 +155,24 @@ def source_directory() -> SourceDirectory:
     question opened a datagroup.
     """
     series, evidence = _pinned()
-    state = json.dumps({"bddk": DIRECTORY_SHA256, "evds": EVDS_DIRECTORY_SHA256}, sort_keys=True)
-    return SourceDirectory(series, evidence, hashlib.sha256(state.encode()).hexdigest())
+    known = {item.record.series_id for item in series}
+    added = tuple(
+        entry
+        for entry in (_group_entry(group) for group in supplement)
+        if entry.record.series_id not in known
+    )
+    # Without a supplement the digest is that of the pinned listings alone, so a refresh that
+    # finds nothing new never asks for the vectors to be built again.
+    state = json.dumps(
+        {
+            "bddk": DIRECTORY_SHA256,
+            "evds": EVDS_DIRECTORY_SHA256,
+            **(
+                {"supplement": sorted(f"{group.code}|{group.title}" for group in supplement)}
+                if supplement
+                else {}
+            ),
+        },
+        sort_keys=True,
+    )
+    return SourceDirectory((*series, *added), evidence, hashlib.sha256(state.encode()).hexdigest())

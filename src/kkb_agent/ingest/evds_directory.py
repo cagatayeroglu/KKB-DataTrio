@@ -34,6 +34,7 @@ from kkb_agent.ingest.evds_directory_listing import DIRECTORY, DIRECTORY_SHA256
 from kkb_agent.ingest.evds_series import REVIEWED_SERIES, ReviewedEvdsSeries
 from kkb_agent.ingest.safe_fetch import FetchLimits, FetchRequest
 
+DIRECTORY_URL: Final = "https://evds3.tcmb.gov.tr/igmevdsms-dis/categories/withDatagroups/type=json"
 SERIES_LIST_URL: Final = "https://evds3.tcmb.gov.tr/igmevdsms-dis/serieList/fe/type=json&code="
 SERIES_LIST_LIMITS: Final = FetchLimits(
     max_url_chars=256,
@@ -43,6 +44,7 @@ SERIES_LIST_LIMITS: Final = FetchLimits(
     max_redirects=0,
 )
 MAX_LISTED_SERIES: Final = 5000
+MAX_LISTED_GROUPS: Final = 5000
 _GROUP_CODE = re.compile(r"^[A-Za-z0-9_]{2,60}$")
 _SERIES_CODE = re.compile(r"^TP\.[A-Z0-9_.]{1,60}$")
 
@@ -79,6 +81,16 @@ _CURRENCIES: Final = {
 }
 _PERCENT: Final = frozenset({"yüzde", "%", "oran", "net yüzde değişim"})
 _COUNTS: Final = frozenset({"adet", "kişi", "kez", "işlem"})
+#: What a price is quoted per: "TL/Gr", "ABD Doları/Ons", "TL/kg", "TL/Adet".
+_QUANTITIES: Final = {
+    "gr": "g",
+    "gram": "g",
+    "kg": "kg",
+    "ons": "oz",
+    "ton": "t",
+    "adet": "piece",
+}
+_PRICE_CURRENCIES: Final = {**_CURRENCIES, "usd": "USD", "eur": "EUR", "try": "TRY"}
 _BASE = re.compile(r"(?<![0-9])((?:19|20)[0-9]{2})\s*=\s*100(?![0-9])")
 _CUMULATIVE = re.compile(r"k[üu]m[üu]latif|birikimli", re.IGNORECASE)
 
@@ -99,6 +111,65 @@ class ListedGroup:
 
 def listed_groups() -> tuple[ListedGroup, ...]:
     return tuple(ListedGroup(**item) for item in DIRECTORY["groups"])
+
+
+def _words(value: object) -> str:
+    return " ".join(str(value or "").split())
+
+
+def directory_request() -> FetchRequest:
+    """The one fixed-address GET that lists every category and datagroup EVDS publishes."""
+    return FetchRequest(
+        source_ref="evds:directory",
+        url=SecretStr(DIRECTORY_URL),
+        accepted_media_types=("application/json",),
+    )
+
+
+def parse_directory(payload: bytes) -> tuple[ListedGroup, ...]:
+    """Every datagroup of EVDS's own directory, by code; what the harvest pins and a refresh
+    compares. Only what a person browsing "Tüm Seriler" reads is kept: no series, no value."""
+    if not isinstance(payload, bytes) or len(payload) > SERIES_LIST_LIMITS.max_decompressed_bytes:
+        raise ValueError("directory exceeds its budget")
+    categories = json.loads(payload.decode("utf-8"))
+    if not isinstance(categories, list) or not all(isinstance(item, dict) for item in categories):
+        raise ValueError("directory is not an array of categories")
+    titles = {item.get("CATEGORY_ID"): _words(item.get("TOPIC_TITLE_TR")) for item in categories}
+    parents = {item.get("CATEGORY_ID"): item.get("UST_CATEGORY_ID") for item in categories}
+
+    def path(category: object) -> str:
+        parts: list[str] = []
+        seen: set[object] = set()
+        current = category
+        while current in titles and current not in seen:
+            seen.add(current)
+            parts.append(titles[current])
+            current = parents.get(current)
+        return " > ".join(reversed(parts))
+
+    groups: dict[str, ListedGroup] = {}
+    for category in categories:
+        for group in category.get("DATAGROUPS") or []:
+            code = _words(group.get("DATAGROUP_CODE")) if isinstance(group, dict) else ""
+            if not _GROUP_CODE.fullmatch(code):
+                continue
+            title = _words(group.get("DATAGROUP_TYPE"))
+            groups.setdefault(
+                code,
+                ListedGroup(
+                    code=code,
+                    title=title,
+                    title_eng=_words(group.get("DATAGROUP_TYPE_ENG")),
+                    category=path(category.get("CATEGORY_ID")),
+                    frequency_str=_words(group.get("FREQUENCY_STR")),
+                    data_source=_words(group.get("DATASOURCE")),
+                    unit_text=_words(group.get("BIRIMI")),
+                    archived="arşiv" in title.lower(),
+                ),
+            )
+    if len(groups) > MAX_LISTED_GROUPS:
+        raise ValueError("directory lists more datagroups than its budget")
+    return tuple(groups[code] for code in sorted(groups))
 
 
 def _fold(text: str) -> str:
@@ -122,6 +193,10 @@ def _unit_of(text: str) -> _Unit | None:
         return _Unit("index", Scale.ONE, int(base.group(1)) if base else None)
     if folded in _PERCENT:
         return _Unit("percent", Scale.ONE)
+    money, slash, per = folded.partition("/")
+    if slash and money.strip() in _PRICE_CURRENCIES and per.strip() in _QUANTITIES:
+        # A price per quantity is its own unit; it is never added up or compared with money.
+        return _Unit(f"{_PRICE_CURRENCIES[money.strip()]}/{_QUANTITIES[per.strip()]}", Scale.ONE)
     scale_word, _, rest = folded.partition(" ")
     if scale_word in _SCALES and rest:
         if rest in _CURRENCIES:
@@ -146,10 +221,20 @@ def _declared_unit(group: ListedGroup, name: str) -> _Unit | None:
     that is a unit wins, which is how EVDS writes them. A percent sign in the series name
     overrides a datagroup unit that only names the statistic ("Ağırlıklı ortalama").
     """
-    candidates = [group.unit_text]
-    for title in (name, group.title):
-        for text in _parenthesised(title):
-            candidates.extend(piece.strip() for piece in text.split(","))
+    own = [piece.strip() for text in _parenthesised(name) for piece in text.split(",")]
+    # EVDS also writes a unit after a dash: "Altın - Kapanış Fiyatı - TL/kg".
+    own.append(name.rpartition(" - ")[2].strip() if " - " in name else "")
+    stated = [unit for unit in map(_unit_of, own) if unit is not None]
+    # What the series says about itself is more specific than its datagroup's one field: a
+    # "(%)" row of a datagroup counted in "Bin kişi" is a rate (live: "İşsizlik oranı (%)"),
+    # and a price names its own quotation. A bare currency in a name is not taken from it:
+    # "(USD) ABD Doları (Döviz Alış)" is the thing priced, in the datagroup's Turkish lira.
+    specific = next((u for u in stated if u.unit == "percent" or "/" in u.unit), None)
+    if specific is not None:
+        return specific
+    candidates = [group.unit_text, *own]
+    for text in _parenthesised(group.title):
+        candidates.extend(piece.strip() for piece in text.split(","))
     found = [unit for unit in map(_unit_of, candidates) if unit is not None]
     if not found:
         return None
@@ -192,12 +277,28 @@ def declare_series(group: ListedGroup, raw: Mapping[str, JsonValue]) -> Reviewed
         kind = StockFlow.RATE
     elif unit.unit == "index":
         kind = StockFlow.INDEX
+    elif "/" in unit.unit:
+        kind = StockFlow.STOCK  # a quoted price is a level, whatever the summable flag says
     elif summable is None:
         return None
     else:
         kind = StockFlow.FLOW if summable else StockFlow.STOCK
     if kind in (StockFlow.RATE, StockFlow.INDEX) and aggregation is Aggregation.SUM:
         return None  # the source's own flags contradict the unit; leave it undeclared
+    flags = {
+        "sum": summable,
+        "average": _flag(raw, "AVGABLE"),
+        "first": _flag(raw, "FIRSTABLE"),
+        "last": _flag(raw, "LASTABLE"),
+        "min": _flag(raw, "MINABLE"),
+        "max": _flag(raw, "MAXABLE"),
+    }
+    if flags.get(aggregation.value) is False:
+        # The source forbids its own display default (live 2026-09-19: every flag is 0 for the
+        # seasonally adjusted labour series). The series is still read at its own frequency;
+        # it declares no way to be reduced, so a reduction is refused rather than guessed.
+        aggregation = Aggregation.UNKNOWN
+    policy = AggregationPolicy(default=aggregation, **flags)
     english = raw.get("SERIE_NAME_ENG")
     return ReviewedEvdsSeries(
         code=code,
@@ -221,24 +322,20 @@ def declare_series(group: ListedGroup, raw: Mapping[str, JsonValue]) -> Reviewed
         ),
         scale=unit.scale,
         aggregation=aggregation,
-        policy=AggregationPolicy(
-            default=aggregation,
-            sum=summable,
-            average=_flag(raw, "AVGABLE"),
-            first=_flag(raw, "FIRSTABLE"),
-            last=_flag(raw, "LASTABLE"),
-            min=_flag(raw, "MINABLE"),
-            max=_flag(raw, "MAXABLE"),
-        ),
+        policy=policy,
     )
 
 
-def series_list_request(group_code: str) -> FetchRequest:
-    """The one fixed-address GET that lists a datagroup's series; the code is a listed one."""
-    if not _GROUP_CODE.fullmatch(group_code) or group_code not in {
-        item["code"] for item in DIRECTORY["groups"]
-    }:
-        raise ValueError("datagroup is not in the pinned EVDS directory")
+def series_list_request(group_code: str, *, listed: frozenset[str] = frozenset()) -> FetchRequest:
+    """The one fixed-address GET that lists a datagroup's series; the code is a listed one.
+
+    `listed` names datagroups a refresh found in EVDS's live directory after the pin.
+    """
+    if not _GROUP_CODE.fullmatch(group_code) or (
+        group_code not in listed
+        and group_code not in {item["code"] for item in DIRECTORY["groups"]}
+    ):
+        raise ValueError("datagroup is not in the EVDS directory")
     return FetchRequest(
         source_ref="evds:serie-list:" + group_code,
         url=SecretStr(SERIES_LIST_URL + group_code),

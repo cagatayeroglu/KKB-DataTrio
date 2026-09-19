@@ -587,6 +587,23 @@ class KnowledgeList(ContractModel):
     listed_series: Annotated[int, Field(ge=0, le=MAX_CATALOG_SERIES)] = 0
 
 
+class DirectoryRefreshResult(ContractModel):
+    """What re-reading the sources' own directories found (DEC-177); titles are the source's."""
+
+    api_version: Literal[1] = 1
+    #: Datagroups EVDS lists now, and the ones the pinned listing lacked (first titles shown).
+    evds_listed: Annotated[int, Field(strict=True, ge=0, le=MAX_CATALOG_SERIES)]
+    added_total: Annotated[int, Field(strict=True, ge=0, le=MAX_CATALOG_SERIES)]
+    added: Annotated[tuple[Label, ...], Field(max_length=20)] = ()
+    #: Pinned datagroups EVDS no longer lists; they stay until the next harvest.
+    withdrawn: Annotated[int, Field(strict=True, ge=0, le=MAX_CATALOG_SERIES)]
+    #: Series lists of opened datagroups read again, and the ones that could not be.
+    series_lists_reread: Annotated[int, Field(strict=True, ge=0, le=MAX_CATALOG_SERIES)]
+    series_lists_failed: Annotated[int, Field(strict=True, ge=0, le=MAX_CATALOG_SERIES)]
+    #: True when the searched catalogue changed, so its vectors must be built again.
+    catalog_changed: bool
+
+
 class SearchHit(ContractModel):
     """One candidate as discovery would hand it to the planner, without scores."""
 
