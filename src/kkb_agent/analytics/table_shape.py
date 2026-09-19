@@ -68,8 +68,9 @@ class ChangedColumn:
     values: tuple[ResultValue, ...]
     transformation: TransformationRecord
     label: str
-    largest_increase: date | None
-    largest_decrease: date | None
+    #: Every period end that shares the largest rise (or fall): a tie is several answers.
+    largest_increase: tuple[date, ...]
+    largest_decrease: tuple[date, ...]
 
 
 def _key(value: ResultValue) -> PeriodKey:
@@ -319,8 +320,14 @@ def period_change(
         )
     if not changed:
         raise TableShapeRefused(f"{column_label} has no period with a usable predecessor")
-    rising = max(changed, key=lambda item: item.value)
-    falling = min(changed, key=lambda item: item.value)
+    top = max(item.value for item in changed)
+    bottom = min(item.value for item in changed)
+    rising = tuple(
+        item.period.end for item in changed if item.period is not None and item.value == top > 0
+    )
+    falling = tuple(
+        item.period.end for item in changed if item.period is not None and item.value == bottom < 0
+    )
     transformation = TransformationRecord(
         operation="change",
         parameters={
@@ -339,8 +346,8 @@ def period_change(
         tuple(changed),
         transformation,
         label,
-        rising.period.end if rising.period is not None and rising.value > 0 else None,
-        falling.period.end if falling.period is not None and falling.value < 0 else None,
+        rising,
+        falling,
     )
 
 

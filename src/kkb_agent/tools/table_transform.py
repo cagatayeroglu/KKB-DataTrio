@@ -877,10 +877,14 @@ def _changed(
     known = source.parameters.get("highlighted_periods")
     if isinstance(known, dict):
         highlighted.update(known)
-    if changed.largest_increase is not None:
-        highlighted[f"{changed.label} is largest"] = [changed.largest_increase.isoformat()]
-    if changed.largest_decrease is not None:
-        highlighted[f"{changed.label} is smallest"] = [changed.largest_decrease.isoformat()]
+    if changed.largest_increase:
+        highlighted[f"{changed.label} is largest"] = [
+            end.isoformat() for end in changed.largest_increase
+        ]
+    if changed.largest_decrease:
+        highlighted[f"{changed.label} is smallest"] = [
+            end.isoformat() for end in changed.largest_decrease
+        ]
     parameters["highlighted_periods"] = highlighted
     return AnalyticalResult(
         result_id=(

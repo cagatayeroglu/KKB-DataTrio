@@ -219,7 +219,9 @@ def test_change_adds_differences_and_percentages_by_hand():
     assert {(v.unit, v.scale, v.measure) for v in percent.values} == {
         ("percent", Scale.ONE, StockFlow.RATE)
     }
-    assert percent.largest_increase == MONTHS[1] and percent.largest_decrease is None
+    assert percent.largest_increase == (MONTHS[1],) and percent.largest_decrease == ()
+    # A tie is several answers: both months rose by exactly 1.
+    assert difference.largest_increase == (MONTHS[1], MONTHS[2])
     record = percent.transformation
     assert record.operation == "change" and record.parameters["fill"] == "none"
     assert record.parameters["periods_without_predecessor"] == 1
