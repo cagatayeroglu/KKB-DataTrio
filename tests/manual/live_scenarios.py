@@ -229,6 +229,20 @@ def kb_datasets() -> list[dict[str, object]]:
     ]
 
 
+def fetch_json(client: httpx.Client, path: str, headers: dict[str, str]) -> dict[str, object]:
+    """A polling GET that survives the server closing an idle keep-alive connection."""
+    for attempt in range(6):
+        try:
+            body = client.get(path, headers=headers).json()
+            assert isinstance(body, dict)
+            return body
+        except httpx.TransportError:
+            if attempt == 5:
+                raise
+            time.sleep(1 + attempt)
+    raise AssertionError("unreachable")
+
+
 def model_calls(state_root: Path) -> int:
     db = state_root / "conversations.sqlite"
     if not db.exists():
@@ -282,12 +296,12 @@ def main() -> int:
                     print(saved.text[:400], flush=True)
         if extra.get("rebuild_index"):
             key = {"X-KKB-Owner-Token": owner}
-            started = client.post("/v1/knowledge/index", json={}, headers=key)
-            print(json.dumps({"rebuild": started.status_code}), flush=True)
+            rebuild = client.post("/v1/knowledge/index", json={}, headers=key)
+            print(json.dumps({"rebuild": rebuild.status_code}), flush=True)
             waited = time.monotonic()
             index: dict[str, object] = {}
             while time.monotonic() - waited < 1800:
-                index = client.get("/v1/knowledge/index", headers=key).json()
+                index = fetch_json(client, "/v1/knowledge/index", key)
                 if not index.get("rebuilding"):
                     break
                 time.sleep(5)
@@ -319,7 +333,7 @@ def main() -> int:
             cancel_after = extra.get("cancel_after")
             cancelled = False
             while time.monotonic() - started < args.turn_timeout:
-                turn = client.get(f"/v1/sessions/{sid}/turns/{turn_id}", headers=headers).json()
+                turn = fetch_json(client, f"/v1/sessions/{sid}/turns/{turn_id}", headers)
                 if turn["state"] in ("completed", "failed", "cancelled"):
                     break
                 if (
