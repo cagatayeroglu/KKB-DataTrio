@@ -270,3 +270,22 @@ def test_a_step_naming_no_identity_is_not_admitted_by_an_empty_set():
     bare = plan_of(step("some_future_tool", Bare()))
     assert declared_series_identities(Bare()) == frozenset()
     assert needs_series_discovery(bare, frozenset({TOTAL}))
+
+
+def test_the_rejection_names_the_unsearched_series_and_asks_for_every_measure():
+    """Live E2 (2026-09-19): told only that new series need a search, the planner searched for
+    one of the two measures it needed and then called the other one missing."""
+    plan = plan_of(
+        step("change_detection", change(TOTAL), step_id="a"),
+        step("table_transform", deflate(OTHER), step_id="b"),
+    )
+    with pytest.raises(PlanRejected) as refused:
+        validate_discovery_phase(
+            plan,
+            continuation=False,
+            require_series_discovery=True,
+            proven_series=frozenset({TOTAL}),
+        )
+    message = str(refused.value)
+    assert OTHER in message and TOTAL not in message
+    assert "one query for EACH measure" in message

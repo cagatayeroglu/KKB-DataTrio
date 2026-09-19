@@ -135,6 +135,10 @@ def proven_identities(outcome: ExecutionOutcome) -> frozenset[str]:
     return frozenset(found)
 
 
+#: Identities a rejection names; a plan rarely carries more.
+MAX_NAMED_UNPROVEN = 8
+
+
 def needs_series_discovery(plan: ValidatedPlan, proven: frozenset[str] = frozenset()) -> bool:
     """Only existing-column operations and prompt addresses may bypass discovery in hybrid mode.
 
@@ -241,8 +245,23 @@ def validate_discovery_phase(
                 category=RejectionCategory.DISCOVERY_RULE,
             )
     elif require_series_discovery and needs_series_discovery(plan, proven_series):
+        # Live E2 (2026-09-19): told only that "new series require a search", the planner
+        # searched for one of the two measures it needed and then called the other missing.
+        unproven = sorted(
+            {
+                identity
+                for step in plan.steps
+                for identity in (declared_series_identities(step.arguments) or ())
+                if identity not in proven_series
+            }
+        )
+        named = f" ({', '.join(unproven[:MAX_NAMED_UNPROVEN])})" if unproven else ""
         raise PlanRejected(
-            "New series require a catalog_search phase before analysis",
+            "New series require a catalog_search phase before analysis"
+            + named
+            + ". Plan only catalog_search steps now: one query for EACH measure the question "
+            f"needs that no search of this conversation returned (up to {MAX_DISCOVERY_QUERIES} "
+            "in this one round), because the next round cannot search again",
             category=RejectionCategory.DISCOVERY_RULE,
         )
 
