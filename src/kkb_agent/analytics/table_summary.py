@@ -81,7 +81,8 @@ def summarize_column(
         raise SummaryRefused("Summing a stock, rate or index level over periods is not meaningful")
     first_period = selected[0].period
     last_period = selected[-1].period
-    assert first_period is not None and last_period is not None
+    if first_period is None or last_period is None:
+        raise SummaryRefused("The selected column is not a typed period column")
     coverage = Period(
         start=first_period.start,
         end=last_period.end,
