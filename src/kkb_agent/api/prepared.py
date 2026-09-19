@@ -60,6 +60,7 @@ from kkb_agent.ingest.acquisition import (
 from kkb_agent.ingest.address_outline import TurnFetchCache, address_outline
 from kkb_agent.ingest.attached import SOURCE_TYPE as UPLOAD
 from kkb_agent.ingest.attached import Attachment
+from kkb_agent.ingest.evds_load import EvdsLoadCode
 from kkb_agent.ingest.fetched import TABLE_MEDIA_TYPES, source_id_for
 from kkb_agent.ingest.prepared_series import prepared_series_names
 from kkb_agent.ingest.safe_fetch import FetchFailure, FetchRequest, FetchSuccess
@@ -166,6 +167,12 @@ _NEW_QUESTION_WORDS = 6
 SOURCE_UNREACHED_NOTICE = (
     "İstenen seri resmî kaynağında var, ancak kaynak bu turda yanıt vermedi (zaman aşımı ya da "
     "bağlantı hatası). Aynı soruyu yeniden sormak sonucu değiştirebilir; alınan aylar saklandı."
+)
+#: Shown with an abstention when the source lists the series and publishes nothing for it.
+SOURCE_EMPTY_NOTICE = (
+    "İstenen seri resmî kaynağın dizininde var, ancak kaynak bu seri için çekilen yıllarda "
+    "hiç gözlem yayımlamıyor (ör. yayını durdurulmuş bir seri). Aşağıdaki yakın kayıtlardan "
+    "birini seçebilir ya da başka bir dönem/kaynak belirtebilirsiniz."
 )
 ADDRESS_UNREAD_NOTICE = (
     "Sorudaki adresin bazı kaynakları bu turda okunamadı (zaman aşımı ya da bağlantı hatası). "
@@ -1064,6 +1071,18 @@ class PreparedRunner:
                     # The series exists and has a route; the source did not answer this time.
                     answer = answer.model_copy(
                         update={"notices": (*answer.notices, SOURCE_UNREACHED_NOTICE)}
+                    )
+                if (
+                    answer.status is AnswerStatus.ABSTAINED
+                    and acquirer is not None
+                    and any(
+                        item.detail == EvdsLoadCode.NO_OBSERVATIONS.value
+                        for item in acquirer.attempts
+                    )
+                ):
+                    # "Not found" would be untrue: the series is listed, the source is silent.
+                    answer = answer.model_copy(
+                        update={"notices": (*answer.notices, SOURCE_EMPTY_NOTICE)}
                     )
                 if (
                     answer.status is AnswerStatus.ABSTAINED

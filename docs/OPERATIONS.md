@@ -197,8 +197,9 @@ smoke is still required before production search is claimed (DEC-134).
 Official acquisition is on by default (DEC-155, DEC-159); `--no-official-acquisition`
 refuses it. A question that needs a reviewed EVDS series or a reviewed BDDK
 monthly housing selector the prepared pool lacks fetches it through the reviewed
-adapter (EVDS: ten years to the last whole month; BDDK: 24 months ending three
-months back, one request per month), at most three a turn, each shown in the
+adapter (EVDS: ten years to the last whole month, a listed daily or weekly series to
+the clock's day; BDDK: from 2021-01 to three months back, one request per month), at
+most twelve a turn (as many as one typed read may name), each shown in the
 turn's trace as `acquisition.<code>`. Successful raw responses are kept under
 `<state-root>/acquired/` by request fingerprint and replayed through the same
 parser, so later conversations do not refetch within the same month; the

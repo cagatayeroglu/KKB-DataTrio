@@ -12,6 +12,7 @@ import {
   Database,
   ListTree,
   FileText,
+  Image as ImageIcon,
   LoaderCircle,
   MessageSquare,
   Archive,
@@ -209,6 +210,7 @@ export function Workspace() {
   const [ready, setReady] = useState(false),
     [loading, setLoading] = useState(true),
     [connectionError, setConnectionError] = useState("");
+  const [modelMenu, setModelMenu] = useState(false);
   const [question, setQuestion] = useState(""),
     [items, setItems] = useState<Item[]>([]),
     [busy, setBusy] = useState(false),
@@ -262,7 +264,8 @@ export function Workspace() {
     atEnd = useRef(true),
     shownCount = useRef(0),
     input = useRef<HTMLTextAreaElement>(null),
-    picker = useRef<HTMLInputElement>(null);
+    picker = useRef<HTMLInputElement>(null),
+    imagePicker = useRef<HTMLInputElement>(null);
   async function refresh() {
     setLoading(true);
     setConnectionError("");
@@ -1612,6 +1615,32 @@ export function Workspace() {
                             <Plus size={18} />
                           )}
                         </Button>
+                        <input
+                          ref={imagePicker}
+                          type="file"
+                          accept=".png,.jpg,.jpeg,image/png,image/jpeg"
+                          hidden
+                          onChange={(e) => {
+                            void attach(e.target.files?.[0]);
+                            e.target.value = "";
+                          }}
+                        />
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          aria-label="Görsel ekle"
+                          title={
+                            "Görsel ekle (PNG, JPG): tablo ekran görüntüsü, taranmış sayfa. " +
+                            (ocr
+                              ? "Metni ve tabloları OCR ile okunur; yalnız bu sohbette tutulur."
+                              : "Bu sunucuda OCR kapalı olduğu için okunamaz.")
+                          }
+                          disabled={!ready || busy || pending || uploading}
+                          onClick={() => imagePicker.current?.click()}
+                        >
+                          <ImageIcon size={18} />
+                        </Button>
                       </>
                     ) : (
                       <Button
@@ -1625,14 +1654,50 @@ export function Workspace() {
                         <Plus size={18} />
                       </Button>
                     )}
-                    <button
-                      type="button"
-                      className="model-pick"
-                      aria-disabled="true"
-                      title="Şimdilik yalnız bu model kullanılabilir"
-                    >
-                      <Cpu size={14} /> {modelShort}
-                    </button>
+                    <div className="model-menu">
+                      <button
+                        type="button"
+                        className="model-pick"
+                        aria-haspopup="listbox"
+                        aria-expanded={modelMenu}
+                        title="Yanıtları üreten model"
+                        onClick={() => setModelMenu((open) => !open)}
+                        onBlur={(e) => {
+                          if (
+                            !e.currentTarget.parentElement?.contains(
+                              e.relatedTarget as Node | null,
+                            )
+                          )
+                            setModelMenu(false);
+                        }}
+                      >
+                        <Cpu size={14} /> {modelShort}
+                        <ChevronDown size={12} />
+                      </button>
+                      {modelMenu && (
+                        <ul
+                          className="model-options"
+                          role="listbox"
+                          aria-label="Model"
+                        >
+                          {/* The deployment serves one planner/writer model; the list grows
+                              when the server reports more. */}
+                          <li role="option" aria-selected="true">
+                            <button
+                              type="button"
+                              onClick={() => setModelMenu(false)}
+                            >
+                              <Check size={13} /> {modelLabel}
+                            </button>
+                          </li>
+                          <li className="model-note">
+                            Yarışma platformundaki en güçlü sohbet modeli.
+                            Anlamsal arama Qwen3-Embedding-8B, belge ve görsel
+                            okuma Unlimited-OCR ile yapılır.
+                          </li>
+                        </ul>
+                      )}
+                    </div>
                   </div>
                   <div className="composer-right">
                     {pending && (

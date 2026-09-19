@@ -575,3 +575,34 @@ def test_the_knowledge_page_refreshes_the_directory_for_later_turns(tmp_path):
         )
     conversations.close()
     knowledge.close()
+
+
+def test_a_listed_series_the_source_is_silent_about_is_not_called_not_found(tmp_path):
+    """Live E5 (2026-09-19): Germany's policy rate is listed and empty; "bulunamadı" was untrue."""
+    from kkb_agent.api.prepared import SOURCE_EMPTY_NOTICE
+
+    root = tmp_path / "prepared"
+    seed_prepared(root)
+    runner = PreparedRunner(
+        scripted(
+            proposal(
+                {
+                    "step_id": "d",
+                    "tool": "catalog_search",
+                    "arguments": {"query": "döviz kurları euro"},
+                }
+            ),
+            proposal({"step_id": "read", "tool": "lakehouse", "arguments": {"series": [EURO]}}),
+            proposal(clarification="missing_series"),
+        ),
+        root,
+        tmp_path / "runtime",
+        catalog_bytes=CATALOG.read_bytes(),
+        official=OfficialSources(evds=DailySource(empty=True)),
+        clock=lambda: TODAY,
+        source_directory=source_directory(),
+        discovered=DiscoveredStore(tmp_path / "runtime-evds", fetch=ListSource()),
+    )
+    answer = runner(uuid4().hex, uuid4().hex, "Euro kurunu getir.")
+    assert answer.status.value == "abstained"
+    assert SOURCE_EMPTY_NOTICE in answer.notices
