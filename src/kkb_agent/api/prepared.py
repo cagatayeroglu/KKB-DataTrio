@@ -12,6 +12,7 @@ import time
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Literal
 from uuid import uuid4
@@ -72,7 +73,7 @@ from kkb_agent.lakehouse.lineage import Lineage, LineageError
 from kkb_agent.lakehouse.semantics import SemanticsError
 from kkb_agent.lakehouse.store import DATABASE_NAME, SANDBOX, Lakehouse
 from kkb_agent.llm.provider import LLMProvider, ProviderError
-from kkb_agent.pdf_ocr import OcrProvider
+from kkb_agent.pdf_ocr import CachedOcr, OcrProvider
 from kkb_agent.tools import (
     make_anomaly_tool,
     make_catalog_search_tool,
@@ -448,7 +449,7 @@ class PreparedRunner:
         # Operator switch for uploads (M10-04); documents live under this process's state.
         self._document_uploads = document_uploads
         # Operator switch for OCR of PDF pages without text (M7-11, DEC-149).
-        self._document_ocr = document_ocr
+        self._document_ocr = CachedOcr(document_ocr) if document_ocr is not None else None
         # Operator switch for fetching a reviewed official series on first use (DEC-155).
         self._official = (
             replace(official, listed_evds=discovered.lookup)
@@ -884,13 +885,18 @@ class PreparedRunner:
                     if self._web_url_fetch is not None and "web_url" not in chosen.disabled
                     else None
                 )
+                # The outline reads a page without a text layer with the same OCR the tools
+                # use (cached, so the model is asked once per page), unless the turn disabled it.
+                outline_ocr = None if "document_ocr" in chosen.disabled else self._document_ocr
                 addresses = addresses_in(question)
                 address_note = (
-                    address_outline(addresses, turn_fetch, describe_document)
+                    address_outline(
+                        addresses, turn_fetch, partial(describe_document, ocr=outline_ocr)
+                    )
                     if turn_fetch is not None and addresses
                     else None
                 )
-                document_note = document_outline(library, current)
+                document_note = document_outline(library, current, outline_ocr)
                 # A reviewed official series the pool lacks is fetched on first use,
                 # and every attempt is shown in this turn's trace (DEC-155).
                 acquirer = (
