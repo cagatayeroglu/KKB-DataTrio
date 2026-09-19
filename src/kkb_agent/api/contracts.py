@@ -21,7 +21,9 @@ MAX_VALUES = 2048
 #: trace page and a new chat was refused with `capacity` (reported 2026-09-19). A session
 #: holds a few small dictionaries; its lakehouse copy is on disk whatever this number is.
 MAX_SESSIONS = 200
-MAX_TURNS = 24
+#: Turns one conversation takes, failed ones included. A long working chat reached 24; the
+#: planner sees a bounded history and a bounded workspace summary however long the chat is.
+MAX_TURNS = 100
 # M10-04: the one route with a non-JSON body, and its per-session budget.
 MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
 MAX_DOCUMENTS = 4

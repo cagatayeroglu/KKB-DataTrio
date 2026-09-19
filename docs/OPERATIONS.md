@@ -452,7 +452,7 @@ as terminal entries; transport/5xx failures keep the recovery record. Storage
 failures prevent new submission rather than
 losing the recovery record.
 
-The local API admits at most eight sessions and 24 turns per session, with one
+The local API admits at most 200 sessions and 100 turns per session, with one
 analysis worker. Creating a new workspace does not delete old analytical files
 or reclaim server sessions. Polling stops after ten minutes; this is not a
 server-side cancellation. Opening a new workspace with an unresolved request asks

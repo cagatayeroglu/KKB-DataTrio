@@ -162,7 +162,7 @@ class AnalysisService:
     Cancellation is explicit and cooperative (DEC-156): `cancel` raises a turn's
     flag and the turn stops at its next checkpoint, never mid-request.
 
-    Eight sessions, twenty-four turns each, one active turn globally. Admission
+    `MAX_SESSIONS` sessions, `MAX_TURNS` turns each, one active turn globally. Admission
     is atomic; capacity is checked before submitting to the executor, so its
     unbounded internal queue cannot accumulate application jobs.
     """

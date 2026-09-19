@@ -959,7 +959,7 @@ See [client recovery and evidence](OPERATIONS.md#local_client-recovery-and-limit
 
 | Boundary | Limit |
 | --- | --- |
-| Sessions / turns | 200 sessions per process (a reopened or read conversation counts), 24 turns each including failures; no silent eviction |
+| Sessions / turns | 200 sessions per process (a reopened or read conversation counts), 100 turns each including failures; no silent eviction |
 | Execution | One admitted turn globally on a dedicated worker; no application backlog |
 | Question | 4,096 characters and 8 KiB UTF-8; nonblank, no unsupported controls |
 | HTTP body | 16 KiB before JSON parsing including chunked bodies; 5-second read deadline |
