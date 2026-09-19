@@ -27,7 +27,7 @@ from kkb_agent.ingest.safe_fetch import safe_fetch
 from kkb_agent.knowledge import DATABASE_NAME as KNOWLEDGE_NAME
 from kkb_agent.knowledge import KnowledgeStore
 from kkb_agent.llm import KloudeksProvider, ProviderConfig, approved_base_url
-from kkb_agent.tools.searxng import SearxngBackend
+from kkb_agent.tools.searxng import SearxngBackend, is_loopback_instance, loopback_fetch
 
 MAX_REQUEST_TIMEOUT = 1800.0
 #: Fetched official responses, kept for later conversations (DEC-159).
@@ -135,6 +135,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--searxng-loopback",
+        action="store_true",
+        help=(
+            "The --searxng-url instance is the operator's own on this machine "
+            "(http://127.0.0.1:PORT, for example the documented Docker container). Only then "
+            "is that one address read over loopback (DEC-180); every address a question or a "
+            "page names still goes through safe_fetch, which refuses loopback"
+        ),
+    )
+    parser.add_argument(
         "--no-ocr",
         action="store_true",
         help=(
@@ -173,7 +183,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         ocr_enabled = config.ocr_model is not None and not args.no_ocr
         uploads_enabled = not args.no_uploads
         acquisition_enabled = not args.no_official_acquisition
-        search = SearxngBackend(args.searxng_url) if args.searxng_url else None
+        if args.searxng_loopback and not (
+            args.searxng_url and is_loopback_instance(args.searxng_url)
+        ):
+            parser.error("--searxng-loopback needs --searxng-url http://127.0.0.1:PORT")
+        search = None
+        if args.searxng_url:
+            search = (
+                SearxngBackend(args.searxng_url, fetch=loopback_fetch)
+                if args.searxng_loopback
+                else SearxngBackend(args.searxng_url)
+            )
         snapshot = load_reviewed_snapshot(catalog_bytes)
         index = None
         if args.catalog_index is not None:

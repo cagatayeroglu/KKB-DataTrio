@@ -193,3 +193,64 @@ def test_readiness_reports_web_search_only_when_an_instance_is_named(
         command += ["--searxng-url", "https://search.example.org"]
     assert api_cli.main(command) == 0
     assert json.loads(capsys.readouterr().out)["web_search"] is configured
+
+
+# --- DEC-180: the operator's own instance on this machine ----------------------------------------
+
+
+def _serve(handler):
+    import threading
+    from http.server import HTTPServer
+
+    server = HTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def test_the_loopback_exception_reads_only_the_operators_own_instance():
+    import json as _json
+    from http.server import BaseHTTPRequestHandler
+
+    from kkb_agent.ingest.safe_fetch import FetchCode, FetchFailure, FetchLimits, FetchRequest
+    from kkb_agent.tools.searxng import SearxngBackend, is_loopback_instance, loopback_fetch
+    from kkb_agent.tools.web_search import SearchRequest
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802 - the stdlib's name
+            body = _json.dumps(
+                {"results": [{"title": "TCMB faiz kararı", "url": "https://www.tcmb.gov.tr/x"}]}
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = _serve(Handler)
+    try:
+        instance = f"http://127.0.0.1:{server.server_address[1]}"
+        assert is_loopback_instance(instance)
+        reply = SearxngBackend(instance, fetch=loopback_fetch).search(
+            SearchRequest(query="politika faizi", max_results=5)
+        )
+        assert [hit.title for hit in reply.hits] == ["TCMB faiz kararı"]
+    finally:
+        server.shutdown()
+    # Anything but a literal loopback host over plain http is refused before a connection.
+    from pydantic import SecretStr
+
+    for address in ("http://example.org:8080/search", "https://127.0.0.1:8888/search"):
+        refused = loopback_fetch(
+            FetchRequest(
+                source_ref="search:test",
+                url=SecretStr(address),
+                accepted_media_types=("application/json",),
+            ),
+            limits=FetchLimits(),
+        )
+        assert isinstance(refused, FetchFailure) and refused.code is FetchCode.BLOCKED_DESTINATION
+    assert not is_loopback_instance("https://search.example.org")
+    assert not is_loopback_instance("http://127.0.0.1")  # a port is part of the exception
