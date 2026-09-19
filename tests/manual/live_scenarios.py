@@ -185,7 +185,8 @@ SUITES: dict[str, list[tuple[str, str, dict[str, object]]]] = {
     "search": [
         (
             "W1-web-search",
-            "TCMB'nin en son faiz kararını internette ara; bulduğun kaynakları başlıklarıyla listele.",
+            "TCMB'nin en son faiz kararını internette ara; bulduğun kaynakları başlıklarıyla "
+            "listele.",
             {},
         ),
     ],
