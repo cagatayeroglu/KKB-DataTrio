@@ -3,6 +3,7 @@ import {
   conversationDetailSchema,
   conversationDeletedSchema,
   conversationListSchema,
+  traceConversationListSchema,
   conversationSummarySchema,
   documentAdmittedSchema,
   feedbackListSchema,
@@ -173,6 +174,23 @@ export function listConversations(
   return api(
     `conversations${suffix ? `?${suffix}` : ""}`,
     conversationListSchema,
+    {},
+    undefined,
+    ownerToken,
+  );
+}
+/** Trace-only owner index: retained runs stay discoverable after chat deletion. */
+export function listTraceConversations(
+  ownerToken: string,
+  options: { archived?: boolean; search?: string } = {},
+) {
+  const query = new URLSearchParams();
+  if (options.archived) query.set("archived", "true");
+  if (options.search) query.set("search", options.search.slice(0, 120));
+  const suffix = query.toString();
+  return api(
+    `trace-conversations${suffix ? `?${suffix}` : ""}`,
+    traceConversationListSchema,
     {},
     undefined,
     ownerToken,

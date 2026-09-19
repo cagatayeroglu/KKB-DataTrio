@@ -5,6 +5,8 @@ as a restarted process would be, over the same state root.
 """
 
 import json
+import sqlite3
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,6 +19,7 @@ from kkb_agent.api.prepared import PreparedRunner
 from kkb_agent.api.service import AnalysisService
 from kkb_agent.api.store import DATABASE_NAME, ConversationStore
 from kkb_agent.llm import scripted
+from kkb_agent.llm.provider import TransportError
 
 
 @pytest.fixture
@@ -250,15 +253,132 @@ def test_soft_delete_hides_chat_but_keeps_trace_and_cleans_session_data(launch):
     )
     assert client.get(f"/v1/conversations/{sid}", headers=headers).status_code == 404
     assert client.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"] == trace
+    indexed = client.get("/v1/trace-conversations", headers=owner_headers).json()["conversations"]
+    assert [(item["conversation_id"], item["deleted"]) for item in indexed] == [(sid, True)]
+    assert (
+        client.get("/v1/trace-conversations?search=belgeden", headers=owner_headers).json()[
+            "conversations"
+        ]
+        == indexed
+    )
+    assert (
+        client.get("/v1/trace-conversations?archived=true", headers=owner_headers).json()[
+            "conversations"
+        ]
+        == indexed
+    )
+    assert (
+        client.get("/v1/trace-conversations", headers={"X-KKB-Owner-Token": owner(client)}).json()[
+            "conversations"
+        ]
+        == []
+    )
 
     _, reopened = launch()
     assert reopened.get("/v1/conversations", headers=owner_headers).json()["conversations"] == []
     assert reopened.get(f"/v1/conversations/{sid}", headers=headers).status_code == 404
     assert reopened.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"] == trace
+    assert reopened.get("/v1/trace-conversations", headers=owner_headers).json()[
+        "conversations"
+    ][0]["deleted"] is True
     gone = reopened.delete(f"/v1/conversations/{sid}/runs", headers=owner_headers)
     assert gone.status_code == 200, gone.text
     assert gone.json()["deleted_runs"] == len(trace)
     assert reopened.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"] == []
+    assert (
+        reopened.get("/v1/trace-conversations", headers=owner_headers).json()["conversations"] == []
+    )
+
+
+def test_legacy_free_text_run_error_does_not_break_list_or_leak_detail(launch, tmp_path):
+    _, client = launch(table_step(), "Tablo hazır.")
+    own = owner(client)
+    sid, headers, _ = open_conversation(client, own)
+    document = upload(client, sid, headers)
+    ask(client, sid, headers, "Belgeden tablo yap.", document_ref=document)
+    path = tmp_path.resolve() / "state" / DATABASE_NAME
+    legacy_id = uuid4().hex
+    internal_id = uuid4().hex
+    with sqlite3.connect(path) as db:
+        started = db.execute(
+            "SELECT started_at FROM runs WHERE conversation_id = ?", [sid]
+        ).fetchone()[0]
+        db.execute(
+            "INSERT INTO runs VALUES (?, ?, ?, ?, 'failed', NULL, ?, NULL, 12, ?, ?)",
+            [
+                legacy_id,
+                sid,
+                uuid4().hex,
+                "Eski sağlayıcı hatası",
+                "TransportError: Kloudeks request failed (ReadTimeout) secret/path",
+                started,
+                started,
+            ],
+        )
+        db.execute(
+            "INSERT INTO runs VALUES (?, ?, ?, ?, 'unknown', NULL, NULL, NULL, 0, ?, ?)",
+            [uuid4().hex, sid, uuid4().hex, "Bozuk durum", started, started],
+        )
+        db.execute(
+            "INSERT INTO runs VALUES (?, ?, ?, ?, 'failed', NULL, NULL, NULL, 0, ?, ?)",
+            [uuid4().hex, sid, uuid4().hex, "Bozuk tarih", "not-a-date", started],
+        )
+        db.execute(
+            "INSERT INTO runs VALUES (?, ?, ?, ?, 'failed', NULL, ?, NULL, 1, ?, ?)",
+            [
+                internal_id,
+                sid,
+                uuid4().hex,
+                "Eski iç hata",
+                "RuntimeError: private/path",
+                started,
+                started,
+            ],
+        )
+    response = client.get(f"/v1/conversations/{sid}/runs", headers=headers)
+    assert response.status_code == 200, response.text
+    runs = response.json()["runs"]
+    assert len(runs) == 3  # Both malformed rows remain on disk but cannot hide these.
+    assert {run["run_id"]: run["error"] for run in runs}[legacy_id] == "provider_failed"
+    assert {run["run_id"]: run["error"] for run in runs}[internal_id] == "internal_error"
+    assert all(term not in response.text for term in ("ReadTimeout", "secret/path", "private/path"))
+    detail = client.get(f"/v1/conversations/{sid}/runs/{legacy_id}", headers=headers)
+    assert detail.status_code == 200 and detail.json()["run"]["error"] == "provider_failed"
+
+
+def test_new_failed_run_stores_only_structured_provider_error(launch, tmp_path):
+    _, client = launch(TransportError("private transport failure"))
+    own = owner(client)
+    sid, headers, _ = open_conversation(client, own)
+    failed = ask(client, sid, headers, "Sağlayıcı hata testi")
+    assert failed["state"] == "failed" and failed["error"] == "provider_failed"
+    response = client.get(f"/v1/conversations/{sid}/runs", headers=headers)
+    assert response.status_code == 200, response.text
+    assert response.json()["runs"][0]["error"] == "provider_failed"
+    assert "private transport failure" not in response.text
+    with sqlite3.connect(tmp_path.resolve() / "state" / DATABASE_NAME) as db:
+        assert db.execute("SELECT error FROM runs WHERE conversation_id = ?", [sid]).fetchone()[
+            0
+        ] == ("provider_failed")
+
+
+def test_restart_projects_interrupted_run_as_finished_trace(launch, tmp_path):
+    _, client = launch()
+    own = owner(client)
+    sid, headers, _ = open_conversation(client, own)
+    stale_id = uuid4().hex
+    with sqlite3.connect(tmp_path.resolve() / "state" / DATABASE_NAME) as db:
+        db.execute(
+            "INSERT INTO runs VALUES (?, ?, ?, ?, 'running', NULL, NULL, NULL, 0, ?, NULL)",
+            [stale_id, sid, uuid4().hex, "Kesilen tur", "2026-09-19T10:00:00+00:00"],
+        )
+    _, restarted = launch()
+    response = restarted.get(f"/v1/conversations/{sid}/runs", headers=headers)
+    assert response.status_code == 200, response.text
+    (run,) = response.json()["runs"]
+    assert run["run_id"] == stale_id and run["status"] == "failed"
+    assert run["error"] == "interrupted" and run["ended_at"] is not None
+    assert run["duration_ms"] >= 0
 
 
 def test_delete_requires_owner_key_is_idempotent_and_keeps_other_chats(launch):

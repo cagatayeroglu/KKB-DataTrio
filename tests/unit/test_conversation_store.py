@@ -165,3 +165,28 @@ def test_old_conversation_schema_migrates_and_soft_delete_filters_every_list(tmp
         assert [m.text for m in store.messages(sid)] == ["Konut kredisi"]
     finally:
         store.close()
+
+
+def test_restart_finalizes_only_preexisting_unfinished_runs(tmp_path):
+    path = tmp_path / DATABASE_NAME
+    first = ConversationStore(path)
+    _, _, sid, _ = conversation(first)
+    old_run, new_run = uuid4().hex, uuid4().hex
+    first.start_run(sid, run_id=old_run, turn_id=uuid4().hex, question="Eski tur")
+    first.close()
+
+    restarted = ConversationStore(path)
+    try:
+        (interrupted,) = restarted.runs(sid)
+        assert interrupted.run_id == old_run
+        assert interrupted.status == "failed" and interrupted.error == "interrupted"
+        assert interrupted.ended_at is not None
+        assert interrupted.duration_ms >= 0
+        assert interrupted.ended_at >= interrupted.started_at
+
+        restarted.start_run(sid, run_id=new_run, turn_id=uuid4().hex, question="Yeni tur")
+        fresh = {run.run_id: run for run in restarted.runs(sid)}[new_run]
+        assert fresh.status == "running" and fresh.ended_at is None
+        assert fresh.error is None
+    finally:
+        restarted.close()

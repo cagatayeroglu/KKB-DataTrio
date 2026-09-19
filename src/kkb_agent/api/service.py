@@ -10,8 +10,10 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from dataclasses import dataclass, field
-from typing import Literal, Protocol
+from typing import Literal, Protocol, get_args
 from uuid import uuid4
+
+from pydantic import ValidationError
 
 from kkb_agent.agent.cancellation import (
     CancelToken,
@@ -51,6 +53,8 @@ from kkb_agent.api.contracts import (
     SessionCreated,
     SettingsUpdate,
     StoredMessage,
+    TraceConversationList,
+    TraceConversationSummary,
     TraceStep,
     TraceStepFull,
     Turn,
@@ -65,6 +69,8 @@ from kkb_agent.api.store import (
     StoreError,
 )
 from kkb_agent.llm.provider import ProviderError
+
+RUN_ERROR_CODES = frozenset(get_args(ErrorCode))
 
 
 @dataclass(frozen=True, slots=True)
@@ -420,6 +426,30 @@ class AnalysisService:
             )
         )
 
+    def trace_conversations(
+        self, owner_token: str, *, archived: bool = False, search: str | None = None
+    ) -> TraceConversationList:
+        """Owner-only trace index, including deleted chats that retain runs."""
+        owner = self._owner(owner_token)
+        if self._store is None:  # pragma: no cover - _owner refuses without a store
+            raise ServiceError("unavailable", 503)
+        return TraceConversationList(
+            conversations=tuple(
+                TraceConversationSummary(
+                    conversation_id=item.conversation_id,
+                    title=item.title,
+                    archived=item.archived,
+                    created_at=item.created_at,
+                    updated_at=item.updated_at,
+                    turns=self._store.turn_count(item.conversation_id),
+                    deleted=deleted,
+                )
+                for item, deleted in self._store.list_trace_conversations(
+                    owner, archived=archived, search=search
+                )
+            )
+        )
+
     def conversation(self, session_id: str, token: str) -> ConversationDetail:
         summary = self._reading(session_id, token)
         if self._store is None:  # pragma: no cover - _reading refuses without a store
@@ -473,9 +503,15 @@ class AnalysisService:
         self._trace_access(session_id, token)
         if self._store is None:  # pragma: no cover - _reading refuses without a store
             raise ServiceError("unavailable", 503)
-        return RunList(
-            runs=tuple(self._run_summary(item, events=0) for item in self._store.runs(session_id))
-        )
+        summaries: list[RunSummary] = []
+        for item in self._store.runs(session_id):
+            try:
+                summaries.append(self._run_summary(item, events=0))
+            except ValidationError:
+                # Preserve the row in SQLite, but do not let one damaged legacy
+                # contract make every other run unreadable.
+                continue
+        return RunList(runs=tuple(summaries))
 
     def run(self, session_id: str, run_id: str, token: str) -> RunDetail:
         self._trace_access(session_id, token)
@@ -518,6 +554,14 @@ class AnalysisService:
 
     @staticmethod
     def _run_summary(item: StoredRun, *, events: int) -> RunSummary:
+        # Historical stores may contain exception prose (including provider
+        # details). Never return it or let one row invalidate the entire list.
+        if item.error is None or item.error in RUN_ERROR_CODES:
+            error = item.error
+        elif item.error.startswith(("ProviderError", "TransportError")):
+            error = "provider_failed"
+        else:
+            error = "internal_error"
         return RunSummary.model_validate(
             {
                 "run_id": item.run_id,
@@ -525,7 +569,7 @@ class AnalysisService:
                 "question": item.question,
                 "status": item.status,
                 "answer_status": item.answer_status,
-                "error": item.error,
+                "error": error,
                 "result_ref": item.result_ref,
                 "duration_ms": item.duration_ms,
                 "started_at": item.started_at,

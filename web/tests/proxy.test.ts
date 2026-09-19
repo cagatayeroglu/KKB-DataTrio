@@ -446,6 +446,39 @@ test("conversation routes pass only with their key, method and bounded query", a
   assert.match(seen[0].url, /\/v1\/conversations\?archived=true&search=konut$/);
   assert.equal(seen[0].headers.get("X-KKB-Owner-Token"), owner);
 
+  const traceListed = await forward(
+    request("v1/trace-conversations?search=konut", "GET", {
+      "x-kkb-owner-token": owner,
+    }),
+    ["v1", "trace-conversations"],
+    transport,
+  );
+  assert.equal(traceListed.status, 200);
+  assert.match(seen.at(-1)!.url, /\/v1\/trace-conversations\?search=konut$/);
+  assert.equal(seen.at(-1)!.headers.get("X-KKB-Owner-Token"), owner);
+  assert.equal(
+    (
+      await forward(
+        request("v1/trace-conversations", "GET"),
+        ["v1", "trace-conversations"],
+        transport,
+      )
+    ).status,
+    404,
+  );
+  assert.equal(
+    (
+      await forward(
+        request("v1/trace-conversations", "DELETE", {
+          "x-kkb-owner-token": owner,
+        }),
+        ["v1", "trace-conversations"],
+        transport,
+      )
+    ).status,
+    404,
+  );
+
   // Without the key, and with a query nobody offered, nothing is forwarded.
   assert.equal(
     (

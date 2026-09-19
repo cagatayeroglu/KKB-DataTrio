@@ -1,6 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { modelCallLabel } from "../lib/trace-summary";
+import {
+  liveActivityLabel,
+  modelCallLabel,
+  runReadMessage,
+} from "../lib/trace-summary";
+
+test("failed trace reads never look empty or indefinitely starting", () => {
+  assert.equal(runReadMessage("error", 0), "Kayıtlar okunamadı — yeniden dene");
+  assert.equal(runReadMessage("ready", 0), "Bu sohbette kayıtlı işlem yok.");
+  assert.equal(runReadMessage("loading", 0), "Kayıtlar yükleniyor…");
+  assert.equal(runReadMessage("ready", 1), null);
+  assert.match(liveActivityLabel("", true), /yeniden deneniyor/);
+  assert.equal(
+    liveActivityLabel("Plan hazırlanıyor", false),
+    "Plan hazırlanıyor",
+  );
+});
 
 test("a running first planner call is not presented as zero model calls", () => {
   assert.match(

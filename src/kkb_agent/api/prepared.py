@@ -23,7 +23,7 @@ from pydantic import Field, JsonValue, SecretStr
 
 from kkb_agent.agent import Session, ToolRegistry, Workspace
 from kkb_agent.agent.cancellation import TurnCancelled
-from kkb_agent.agent.loop import MAX_HISTORY_TURNS
+from kkb_agent.agent.loop import MAX_HISTORY_TURNS, PlanningFailed
 from kkb_agent.agent.observer import Tracer
 from kkb_agent.agent.selection import SelectedTable, SelectionError
 from kkb_agent.agent.verifier import AnswerStatus
@@ -1087,13 +1087,20 @@ class PreparedRunner:
                             run_id,
                             status="cancelled" if cancelled else "failed",
                             duration_ms=max(0, round((time.monotonic() - started) * 1000)),
-                            # A provider failure keeps its curated category, status
-                            # included ("Kloudeks rejected the request (400)"); every
-                            # other failure is named by type only, never by text.
+                            # Run summaries are a strict public contract. Keep only
+                            # fixed categories, never provider/exception prose.
                             error=(
-                                f"{type(failure).__name__}: {failure}"
+                                "cancelled"
+                                if cancelled
+                                else "provider_failed"
                                 if isinstance(failure, ProviderError)
-                                else type(failure).__name__
+                                else "planning_failed"
+                                if isinstance(failure, PlanningFailed)
+                                else "output_limit"
+                                if isinstance(failure, OutputRefused)
+                                else failure.code
+                                if isinstance(failure, ServiceError)
+                                else "internal_error"
                             ),
                             events=tracer.events,
                         )

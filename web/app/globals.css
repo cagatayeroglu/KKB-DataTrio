@@ -2923,6 +2923,21 @@ svg {
   color: #9a3b2e !important;
   border: 1px solid #9a3b2e !important;
 }
+.traces-column > button .trace-deleted {
+  display: block;
+  color: #9a3b2e;
+  font-weight: 700;
+}
+.trace-retry {
+  display: block;
+  margin-top: 8px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--ink);
+  cursor: pointer;
+}
 .chat-rename {
   border: 1px solid var(--accent);
   border-radius: 8px;

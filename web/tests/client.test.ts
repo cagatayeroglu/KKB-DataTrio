@@ -15,9 +15,16 @@ import {
   uploadDocument,
   deleteConversation,
   deleteConversationRuns,
+  listTraceConversations,
   ApiError,
 } from "../lib/client";
-import { cellSchema, turnSchema, type Saved } from "../lib/contracts";
+import {
+  cellSchema,
+  conversationSummarySchema,
+  traceConversationSummarySchema,
+  turnSchema,
+  type Saved,
+} from "../lib/contracts";
 import { arrange, displayValue, unitLabel, periodLabel } from "../lib/table";
 import { noticeText } from "../lib/language";
 const sid = "1".repeat(32),
@@ -139,6 +146,35 @@ test("deletion uses the owner key and keeps soft-delete separate from trace dele
     ),
   );
   assert.ok(seen.every((item) => !item.headers.has("x-kkb-session-token")));
+});
+test("deleted chats have a trace-only owner index and never satisfy normal chat schema", async () => {
+  const old = globalThis.fetch;
+  const seen: { url: string; headers: Headers }[] = [];
+  const entry = {
+    conversation_id: sid,
+    title: "Silinen test sohbeti",
+    archived: false,
+    created_at: "2026-09-19T10:00:00Z",
+    updated_at: "2026-09-19T10:01:00Z",
+    turns: 1,
+    deleted: true,
+  };
+  globalThis.fetch = async (url, init) => {
+    seen.push({ url: String(url), headers: new Headers(init?.headers) });
+    return Response.json({ api_version: 1, conversations: [entry] });
+  };
+  try {
+    const listed = await listTraceConversations(session.token, {
+      search: "test",
+    });
+    assert.equal(listed.conversations[0].deleted, true);
+  } finally {
+    globalThis.fetch = old;
+  }
+  assert.equal(seen[0].url, "/api/kkb/v1/trace-conversations?search=test");
+  assert.equal(seen[0].headers.get("x-kkb-owner-token"), session.token);
+  assert.ok(traceConversationSummarySchema.safeParse(entry).success);
+  assert.ok(!conversationSummarySchema.safeParse(entry).success);
 });
 test("session state is validated and storage failure is not ignored", () => {
   const memory = new Map<string, string>();

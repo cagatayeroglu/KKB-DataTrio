@@ -53,6 +53,7 @@ from kkb_agent.api.contracts import (
     SessionCreated,
     SettingsUpdate,
     Slug,
+    TraceConversationList,
     TraceStepFull,
     Turn,
     VectorIndexStatus,
@@ -75,6 +76,7 @@ MAX_KNOWLEDGE_BODY_BYTES = 1024 * 1024
 #: The two routes with a query string: listing a browser's own conversations, and
 #: trying a question against its own catalogue.
 LIST_ROUTE = re.compile(r"/v1/conversations\Z")
+TRACE_LIST_ROUTE = re.compile(r"/v1/trace-conversations\Z")
 SEARCH_ROUTE = re.compile(r"/v1/knowledge/search\Z")
 MAX_QUERY_BYTES = 1024
 #: Methods that may carry a body; a body anywhere else is refused.
@@ -144,7 +146,9 @@ class LocalBoundary:
                 return
             query = scope.get("query_string") or b""
             queried = scope["method"] == "GET" and bool(
-                LIST_ROUTE.fullmatch(scope["path"]) or SEARCH_ROUTE.fullmatch(scope["path"])
+                LIST_ROUTE.fullmatch(scope["path"])
+                or TRACE_LIST_ROUTE.fullmatch(scope["path"])
+                or SEARCH_ROUTE.fullmatch(scope["path"])
             )
             if (query and not (queried and len(query) <= MAX_QUERY_BYTES)) or any(
                 len(headers.get(key, [])) > 1
@@ -305,6 +309,14 @@ def create_app(
         search: Annotated[str | None, Query(max_length=120)] = None,
     ) -> ConversationList:
         return service.conversations(owner, archived=archived, search=search)
+
+    @app.get("/v1/trace-conversations", response_model=TraceConversationList)
+    def trace_conversations(
+        owner: OwnerToken,
+        archived: bool = False,
+        search: Annotated[str | None, Query(max_length=120)] = None,
+    ) -> TraceConversationList:
+        return service.trace_conversations(owner, archived=archived, search=search)
 
     @app.get("/v1/conversations/{session_id}", response_model=ConversationDetail)
     def conversation(session_id: Reference, token: Token) -> ConversationDetail:

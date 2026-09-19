@@ -283,6 +283,7 @@ class ConversationStore:
         with self._lock:
             self._connection.executescript(SCHEMA)
             self._migrate()
+            self._interrupt_stale_runs()
 
     def _migrate(self) -> None:
         """Bring a store created by an earlier version up to this schema, in place."""
@@ -298,6 +299,30 @@ class ConversationStore:
         }
         if "deleted_at" not in conversations:
             self._connection.execute("ALTER TABLE conversations ADD COLUMN deleted_at TEXT")
+
+    def _interrupt_stale_runs(self) -> None:
+        """At single-process startup, close attempts left open by the prior process.
+
+        This runs before this store can start a new turn, never during normal
+        reads, so newly admitted runs cannot be mistaken for stale ones.
+        """
+        ended = self._now()
+        rows = self._connection.execute(
+            "SELECT run_id, started_at FROM runs WHERE status = 'running' AND ended_at IS NULL"
+        ).fetchall()
+        for row in rows:
+            try:
+                elapsed = max(
+                    0, round((_moment(ended) - _moment(row["started_at"])).total_seconds() * 1000)
+                )
+            except (TypeError, ValueError):
+                elapsed = 0
+            self._connection.execute(
+                "UPDATE runs SET status = 'failed', error = 'interrupted',"
+                " duration_ms = ?, ended_at = ? WHERE run_id = ?"
+                " AND status = 'running' AND ended_at IS NULL",
+                [elapsed, ended, row["run_id"]],
+            )
 
     @property
     def path(self) -> Path:
@@ -495,6 +520,29 @@ class ConversationStore:
         with self._lock:
             rows = self._connection.execute(query, parameters).fetchall()
         return [self._conversation(row) for row in rows]
+
+    def list_trace_conversations(
+        self, owner_id: str, *, archived: bool = False, search: str | None = None
+    ) -> list[tuple[Conversation, bool]]:
+        """Only chats with retained runs; deleted ones are visible here, not in chat."""
+        query = (
+            "SELECT c.* FROM conversations c WHERE c.owner_id = ?"
+            " AND (c.archived = ? OR c.deleted_at IS NOT NULL)"
+            " AND EXISTS (SELECT 1 FROM runs r WHERE r.conversation_id = c.conversation_id)"
+        )
+        parameters: list[object] = [owner_id, int(archived)]
+        if search:
+            query += (
+                " AND (lower(c.title) LIKE ? OR EXISTS (SELECT 1 FROM messages m WHERE"
+                " m.conversation_id = c.conversation_id AND lower(m.text) LIKE ?))"
+            )
+            needle = f"%{search[:MAX_SEARCH_CHARS].lower()}%"
+            parameters.extend([needle, needle])
+        query += " ORDER BY c.updated_at DESC, c.rowid DESC LIMIT ?"
+        parameters.append(MAX_LISTED)
+        with self._lock:
+            rows = self._connection.execute(query, parameters).fetchall()
+        return [(self._conversation(row), row["deleted_at"] is not None) for row in rows]
 
     def update_conversation(
         self, conversation_id: str, *, title: str | None = None, archived: bool | None = None
@@ -874,21 +922,28 @@ class ConversationStore:
                 "SELECT * FROM runs WHERE conversation_id = ? ORDER BY started_at DESC LIMIT ?",
                 [conversation_id, limit],
             ).fetchall()
-        return [
-            StoredRun(
-                row["run_id"],
-                row["turn_id"],
-                row["question"],
-                row["status"],
-                row["answer_status"],
-                row["error"],
-                row["result_ref"],
-                int(row["duration_ms"]),
-                _moment(row["started_at"]),
-                _moment(row["ended_at"]) if row["ended_at"] else None,
-            )
-            for row in rows
-        ]
+        found: list[StoredRun] = []
+        for row in rows:
+            try:
+                found.append(
+                    StoredRun(
+                        row["run_id"],
+                        row["turn_id"],
+                        row["question"],
+                        row["status"],
+                        row["answer_status"],
+                        row["error"],
+                        row["result_ref"],
+                        int(row["duration_ms"]),
+                        _moment(row["started_at"]),
+                        _moment(row["ended_at"]) if row["ended_at"] else None,
+                    )
+                )
+            except (TypeError, ValueError):
+                # Retain the damaged row on disk for diagnosis; one unreadable
+                # legacy record must not hide every other trace from its owner.
+                continue
+        return found
 
     def run_of(self, conversation_id: str, run_id: str) -> StoredRun | None:
         """One run, only when it belongs to this conversation."""

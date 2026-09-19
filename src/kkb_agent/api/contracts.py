@@ -36,6 +36,7 @@ ErrorCode = Literal[
     "planning_failed",
     "provider_failed",
     "internal_error",
+    "interrupted",
     "output_limit",
     "forbidden",
     "body_too_large",
@@ -376,6 +377,17 @@ class ConversationSummary(ContractModel):
 class ConversationList(ContractModel):
     api_version: Literal[1] = 1
     conversations: Annotated[tuple[ConversationSummary, ...], Field(max_length=200)] = ()
+
+
+class TraceConversationSummary(ConversationSummary):
+    """A run-owning conversation; deleted chats appear only in this trace index."""
+
+    deleted: bool
+
+
+class TraceConversationList(ContractModel):
+    api_version: Literal[1] = 1
+    conversations: Annotated[tuple[TraceConversationSummary, ...], Field(max_length=200)] = ()
 
 
 class ConversationDeleted(ContractModel):
