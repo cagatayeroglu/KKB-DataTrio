@@ -246,3 +246,22 @@ def test_a_refused_type_is_not_retried_and_an_empty_outline_says_nothing_is_list
     assert [(entry["kind"], entry["code"], entry["attempts"]) for entry in failed] == [
         ("script", "CONTENT_TYPE", 1)
     ]
+
+
+def test_a_document_address_is_outlined_with_its_table_headers_like_an_upload():
+    """Live J1 (2026-09-19): a PDF address was read bare because no header was ever shown."""
+    from kkb_agent.tools._document_library import describe_document
+
+    url = "https://www.borsa.example.tr/veriler/altin.csv"
+    content = b"Ay;Hacim (TL);Miktar (KG)\n2026-01;93824;13.8\n2026-02;90534;12.6\n"
+    served = Site({url: (content, "text/csv")})
+    note = address_outline((url,), TurnFetchCache(served), describe_document)
+    payload = json.loads(note[note.index("{") :])
+    (page,) = payload["pages"]
+    assert page["media_type"] == "text/csv"
+    (table,) = page["tables"]
+    assert table["headers"] == ["Ay", "Hacim (TL)", "Miktar (KG)"] and table["rows"] == 2
+    assert "93824" not in note  # headers and counts only, never a value
+    # Without a describer the outline is what it was.
+    bare = address_outline((url,), TurnFetchCache(served))
+    assert "tables" not in json.loads(bare[bare.index("{") :])["pages"][0]

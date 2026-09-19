@@ -75,7 +75,7 @@ from kkb_agent.tools import (
     make_web_url_tool,
 )
 from kkb_agent.tools._document_column import ColumnRefused, read_month_values
-from kkb_agent.tools._document_library import document_name, document_outline
+from kkb_agent.tools._document_library import describe_document, document_name, document_outline
 from kkb_agent.tools._document_value import as_of, grids
 from kkb_agent.tools.web_search import SearchBackend
 from kkb_agent.tools.web_url import Fetcher, addresses_in, read_attachment
@@ -834,7 +834,7 @@ class PreparedRunner:
                 )
                 addresses = addresses_in(question)
                 address_note = (
-                    address_outline(addresses, turn_fetch)
+                    address_outline(addresses, turn_fetch, describe_document)
                     if turn_fetch is not None and addresses
                     else None
                 )

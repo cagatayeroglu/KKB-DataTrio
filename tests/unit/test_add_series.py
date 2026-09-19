@@ -282,6 +282,7 @@ def test_planner_schema_exposes_separate_closed_operation_objects(pool):
         "add_series",
         "join_table",
         "rebase",
+        "change",
         "align",
         "filter",
         "to_flow",

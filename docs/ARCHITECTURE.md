@@ -317,7 +317,7 @@ CURRENTLY IMPLEMENTED: [Session](../src/kkb_agent/agent/loop.py) plans and execu
 The configured prepared hybrid path requires a catalog-only discovery phase before
 new-series reads, including deflation indices and added columns. Enforcement
 uses validated tool operations, not question keywords; existing-column
-`rebase`/`align`/`filter` and `table_co_movement` may proceed directly. Clarification
+`rebase`/`change`/`align`/`filter` and `table_co_movement` may proceed directly. Clarification
 is permitted before discovery. Lexical-only and standalone Session defaults keep
 their explicit prior behavior. The prepared writer permits one extra synthesis
 call only when every omitted-sentence reason is period attribution and the
@@ -396,7 +396,7 @@ CURRENTLY IMPLEMENTED: [ToolSpec / ToolRegistry](../src/kkb_agent/agent/registry
 | `causality` | IMPLEMENTED, bounded scope | Association, lag and Granger precedence with stated limits; not causal identification |
 | `change_detection` | PARTIAL | Period `compare`, monthly `co_movement` over series, and `table_co_movement` over verified table columns (M6-25); breakpoint/trend-break methods remain absent |
 | `catalog_search` | OFFLINE IMPLEMENTED | Natural-language query to bounded ranked trusted CatalogRecord candidates; M13-04 |
-| `table_transform` | PARTIAL | `deflate` and monthly `add_series` preserve the published source table; bounded unary index `rebase`, exact-period `align`, and period-range `filter` are implemented (M2-14/M5-20); `add_document_column` joins one column of a prompt-address table when `--enable-web-url` is on (M7-14); normalize, frequency conversion, table-to-table alignment, and free-form predicates remain absent |
+| `table_transform` | PARTIAL | `deflate` and monthly `add_series` preserve the published source table; bounded unary index `rebase`, exact-period `align`, and period-range `filter` are implemented (M2-14/M5-20); `change` adds the period-over-period difference or percent of one column with the largest moves marked ([DEC-168](DECISIONS.md#dec-168--table_transform-change-period-over-period-difference-or-percent-of-one-column)); `add_document_column` joins one column of a prompt-address table when `--enable-web-url` is on (M7-14); normalize, frequency conversion, table-to-table alignment, and free-form predicates remain absent |
 
 Every additional tool must define closed typed input and output contracts before registration. Query/filter/candidate limits reuse existing metadata enums; unknown or unavailable fields remain explicit. Candidate IDs, labels, unit/scale, frequency, stock/flow/cumulative kind, archive state and aggregation/coverage declarations come from trusted catalog state. Concept families and observation-kind metadata may be returned only when represented by reviewed source-backed contracts; retrieval must not manufacture them. Multiple plausible candidates remain multiple candidates, not a silently authoritative top-1.
 

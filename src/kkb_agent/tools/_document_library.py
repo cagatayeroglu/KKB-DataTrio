@@ -21,6 +21,7 @@ import re
 from collections.abc import Mapping
 from typing import Final
 
+from kkb_agent.core import SourceRef
 from kkb_agent.ingest.attached import Attachment
 from kkb_agent.tools._document_value import _text, grids
 from kkb_agent.tools.web_url import read_attachment
@@ -60,6 +61,22 @@ def _tables(attachment: Attachment, sheet: str | None) -> tuple[list[dict[str, o
             }
         )
     return tables, sheets
+
+
+def describe_document(content: bytes, media_type: str) -> list[dict[str, object]]:
+    """Table locations, header texts and row counts of fetched bytes; no values, no OCR."""
+    attachment = Attachment(
+        content,
+        media_type,
+        SourceRef(source_id="outline:address", source_type="web_url", locator="outline:address"),
+    )
+    tables, sheets = _tables(attachment, None)
+    if sheets and not tables:
+        return [
+            {"sheet_index": index, "tables": _tables(attachment, sheet)[0]}
+            for index, sheet in enumerate(sheets, 1)
+        ]
+    return tables
 
 
 def document_outline(library: Mapping[str, Attachment], current: str | None) -> str | None:
