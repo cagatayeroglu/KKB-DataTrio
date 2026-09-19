@@ -431,7 +431,11 @@ test("an attached document travels with exactly one question", async () => {
   );
   assert.equal(documentMediaType("rapor.pdf"), "application/pdf");
   assert.equal(documentMediaType("sayfa.htm"), "text/html");
-  for (const name of ["makro.xlsm", "resim.png", "csv", "arsiv.csv.zip"])
+  // A picture is read as a one-page scanned document (DEC-179).
+  assert.equal(documentMediaType("ekran.png"), "image/png");
+  assert.equal(documentMediaType("Tarama.JPG"), "image/jpeg");
+  assert.equal(documentMediaType("foto.jpeg"), "image/jpeg");
+  for (const name of ["makro.xlsm", "resim.gif", "csv", "arsiv.csv.zip"])
     assert.equal(documentMediaType(name), undefined);
 
   const admitted = {

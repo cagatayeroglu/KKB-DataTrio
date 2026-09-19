@@ -28,6 +28,8 @@ from kkb_agent.ingest.safe_fetch import FetchSuccess
 from kkb_agent.ingest.url_targets import TargetRejection, validate_url_target
 from kkb_agent.ingestion_policy import (
     DEFAULT_LIMITS,
+    IMAGE_KINDS,
+    IMAGE_MEDIA_TYPES,
     MIME_TYPES,
     AdmissionError,
     AdmissionLimits,
@@ -44,8 +46,11 @@ DOCUMENT_MEDIA_TYPES: tuple[str, ...] = (
     *TABLE_MEDIA_TYPES,
     MIME_TYPES[FileKind.PDF],
     MIME_TYPES[FileKind.HTML],
+    # A picture at an address is read as a one-page scanned document (DEC-179).
+    *IMAGE_MEDIA_TYPES,
 )
-_KINDS = {media_type: kind for kind, media_type in MIME_TYPES.items()}
+_KINDS = {media_type: kind for kind, media_type in MIME_TYPES.items() if kind not in IMAGE_KINDS}
+_IMAGE_KINDS = {"image/png": "png", "image/jpeg": "jpg"}
 
 SOURCE_TYPE = "web_url"
 
@@ -130,6 +135,11 @@ def load_document(
     none still need a declaration, and a declaration contradicting the one
     detected separator is refused as DELIMITER_CONFLICT.
     """
+    if media_type in _IMAGE_KINDS:
+        from kkb_agent.image_document import image_to_pdf
+
+        content = image_to_pdf(content, _IMAGE_KINDS[media_type], limits)
+        media_type = MIME_TYPES[FileKind.PDF]
     kind = _KINDS.get(media_type)
     if kind is None:
         raise AdmissionError(RejectionCode.UNSUPPORTED_FORMAT)

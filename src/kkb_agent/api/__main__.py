@@ -112,7 +112,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         help=(
             "Refuse to fetch a reviewed EVDS series or BDDK selector the prepared pool lacks. "
             "Acquisition is on by default (DEC-155, DEC-159): reviewed routes only, fixed "
-            "windows, at most three a turn, and fetched responses are kept under the state "
+            "windows, at most twelve a turn, and fetched responses are kept under the state "
             "root for later conversations"
         ),
     )

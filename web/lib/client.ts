@@ -605,8 +605,12 @@ const documentTypes: Record<string, string> = {
   pdf: "application/pdf",
   html: "text/html",
   htm: "text/html",
+  // A picture is read as a one-page scanned document: its text and tables come from OCR.
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
 };
-export const DOCUMENT_ACCEPT = ".csv,.xlsx,.pdf,.html,.htm";
+export const DOCUMENT_ACCEPT = ".csv,.xlsx,.pdf,.html,.htm,.png,.jpg,.jpeg";
 
 /** The upload media type follows the file extension only; the server checks the content. */
 export function documentMediaType(name: string) {
