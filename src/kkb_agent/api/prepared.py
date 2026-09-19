@@ -951,6 +951,7 @@ class PreparedRunner:
                     proven_series=frozenset(self._proven.get(session_id, ())),
                     repair_period_wording=True,
                     repair_unmatched_numbers=True,
+                    repair_runtime_refusals=True,
                     documents_note=document_note,
                     address_note=address_note,
                     tracer=tracer,
