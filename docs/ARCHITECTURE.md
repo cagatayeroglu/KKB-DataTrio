@@ -959,7 +959,7 @@ See [client recovery and evidence](OPERATIONS.md#local_client-recovery-and-limit
 
 | Boundary | Limit |
 | --- | --- |
-| Sessions / turns | 8 sessions, 24 turns each including failures; no silent eviction |
+| Sessions / turns | 200 sessions per process (a reopened or read conversation counts), 24 turns each including failures; no silent eviction |
 | Execution | One admitted turn globally on a dedicated worker; no application backlog |
 | Question | 4,096 characters and 8 KiB UTF-8; nonblank, no unsupported controls |
 | HTTP body | 16 KiB before JSON parsing including chunked bodies; 5-second read deadline |
@@ -1094,8 +1094,9 @@ New periods appearing in the original after startup do not silently change
 that process's analyses. Updating data requires a new validated startup;
 automated refresh/version management remains separate. The original and seed
 are never written by the analytical tools. There is no automatic deletion or
-retention claim. At the initial worst-case cap, seed plus eight session copies
-may need approximately nine times the prepared storage, plus derived results;
+retention claim. Every conversation that ran a turn keeps its own copy of the seed
+(about 9-16 MiB with derived results), so the 200-session cap bounds memory, not disk:
+at the cap the copies may need roughly 2-3 GiB;
 the expanded 29-series pool is about 8.13 MiB; the earlier seven-series pool was about 7.26 MiB.
 
 The service's single worker opens/closes a session's connection for each turn.

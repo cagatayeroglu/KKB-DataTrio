@@ -16,7 +16,11 @@ MAX_BODY_BYTES = 16 * 1024
 MAX_QUESTION_BYTES = 8 * 1024
 MAX_RESPONSE_BYTES = 1024 * 1024
 MAX_VALUES = 2048
-MAX_SESSIONS = 8
+#: Conversations one process keeps in reach. A reopened or merely read conversation counts
+#: too and nothing leaves the count before a restart, so eight were used up by browsing the
+#: trace page and a new chat was refused with `capacity` (reported 2026-09-19). A session
+#: holds a few small dictionaries; its lakehouse copy is on disk whatever this number is.
+MAX_SESSIONS = 200
 MAX_TURNS = 24
 # M10-04: the one route with a non-JSON body, and its per-session budget.
 MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
