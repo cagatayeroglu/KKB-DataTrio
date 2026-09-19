@@ -86,6 +86,10 @@ def _describe(item: Mapping[str, Any]) -> str:
         )
     elif "expected" in context:
         text += f" (expected {context['expected']})"
+    elif str(item["type"]) == "value_error" and item.get("msg"):
+        # A model validator's own sentence is the repair; the type code alone is not
+        # (live X4, 2026-09-19: "change_detection: co_movement: value_error").
+        text += f" ({item['msg']})"
     return text
 
 
