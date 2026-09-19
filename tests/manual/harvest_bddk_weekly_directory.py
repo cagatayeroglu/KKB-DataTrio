@@ -25,7 +25,10 @@ from pathlib import Path
 PAGE = "https://www.bddk.org.tr/BultenHaftalik"
 ENDPOINT = "https://www.bddk.org.tr/BultenHaftalik/tr/Home/KiyaslamaJsonGetir"
 TARGET = Path(__file__).resolve().parents[2] / "src/kkb_agent/ingest/bddk_weekly_directory.py"
-TITLE = re.compile(r"^(?P<label>.+) \((?P<currency>[A-Z]{3})\) \[(?P<column>[^\]]+)\] \[(?P<side>[^\]]+)\]$")
+TITLE = re.compile(
+    r"^(?P<label>.+) \((?P<currency>[A-Z]{3})\) \[(?P<column>[^\]]+)\] "
+    r"\[(?P<side>[^\]]+)\]$"
+)
 MENU = re.compile(r"TabloDegistir\('(\d+)'\).*?<span class=\"text\">([^<]+)</span>", re.S)
 MAX_ROWS = 120
 MISSES_END_A_TABLE = 8
