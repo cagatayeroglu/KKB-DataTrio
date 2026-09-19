@@ -2179,6 +2179,11 @@ svg {
 .series-source.user {
   color: var(--muted);
 }
+/* What tells same-titled entries apart (TP / YP / TOTAL), beside the title. */
+.series-variant {
+  font-weight: 500;
+  color: var(--muted);
+}
 .knowledge-detail {
   display: grid;
   gap: 8px;

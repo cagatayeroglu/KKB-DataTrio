@@ -598,7 +598,26 @@ export function KnowledgePanel({
               <span className={`series-source ${item.origin}`}>
                 {item.origin === "user" ? "KULLANICI" : item.provider}
               </span>
-              <h3>{item.title}</h3>
+              <h3>
+                {item.title}
+                {(() => {
+                  // Entries that share a title (the BDDK housing TP/YP/TOTAL rows, two
+                  // EVDS rates from different bank groups) are told apart by the labels
+                  // they do not share; nothing is kept by hand.
+                  const twins = (listing?.series ?? []).filter(
+                    (other) =>
+                      other.title === item.title &&
+                      other.series_id !== item.series_id,
+                  );
+                  const own = (item.labels ?? []).filter(
+                    (label) =>
+                      !twins.every((other) => other.labels?.includes(label)),
+                  );
+                  return twins.length > 0 && own.length > 0 ? (
+                    <span className="series-variant"> · {own.join(" · ")}</span>
+                  ) : null;
+                })()}
+              </h3>
               <small>{where(item)}</small>
               {(() => {
                 const state = health(item, pool);
