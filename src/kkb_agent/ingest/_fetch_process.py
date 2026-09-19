@@ -126,7 +126,9 @@ def fetch_in_process(
         evds = EvdsRequest.model_validate(evds)
         if monthly is not None or request != evds.fetch_request() or limits != EVDS_LIMITS:
             return FetchFailure(source_ref=request.source_ref, code=FetchCode.INVALID_REQUEST)
-        message["evds"] = evds.model_dump(mode="json")
+        # A reviewed request stays the closed {code, window} pair on the wire to the worker;
+        # only a listed series (DEC-177) carries its calendar.
+        message["evds"] = evds.model_dump(mode="json", exclude_none=True)
     payload = json.dumps(message).encode()
     if len(payload) > MAX_INPUT_BYTES:
         return FetchFailure(source_ref=request.source_ref, code=FetchCode.SIZE_LIMIT)

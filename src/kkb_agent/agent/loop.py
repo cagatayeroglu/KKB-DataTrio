@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
+from datetime import date
 from typing import TYPE_CHECKING, Final, Literal
 
 from kkb_agent.agent.cancellation import checkpoint
@@ -346,6 +347,18 @@ def runtime_refusal(outcome: ExecutionOutcome) -> RuntimeRefusal | None:
             if item.tool == "web_url" and item.status is ToolStatus.SUCCESS:
                 return RuntimeRefusal(item.step_id, item.tool, BARE_READ_REASON)
     return None
+
+
+def today_instructions(today: date) -> str:
+    """What day it is, and what a relative period means for data published with a lag."""
+    return (
+        f"Today is {today.isoformat()}. Official series are published with a lag, so a series' "
+        "latest published period is usually earlier than today; stored windows are listed with "
+        "the prepared series. A relative period ('son 3 ay', 'son bir yıl', 'geçen yıl sonundan "
+        "beri') is anchored to the series' latest published period, never to a guessed date: "
+        "read it with lakehouse series=[...] last=N. Name explicit dates only when the question "
+        "does."
+    )
 
 
 def plan_signature(plan: ValidatedPlan) -> str:
@@ -702,6 +715,9 @@ class Session:
     tracer: Tracer | None = None
     #: Reviewed names of the series this lakehouse holds, for describing earlier tables.
     series_names: Mapping[str, str] | None = None
+    #: The operator's clock. Without it "son 3 ay" had no anchor: the live planner wrote
+    #: "What is current date? Not given" and guessed from the prepared windows (DEC-178).
+    today: date | None = None
 
     def plan(self, question: str, workspace: Workspace | None = None) -> Planned:
         """Obtain a plan the registry will accept, or fail with the reasons why.
@@ -731,6 +747,8 @@ class Session:
             Message(Role.SYSTEM, SYSTEM_PROMPT + "\n\n" + schema_instructions(AnalyticalPlan)),
             Message(Role.SYSTEM, self._tools_prompt(continuation=discovery is not None)),
         ]
+        if self.today is not None:
+            messages.append(Message(Role.SYSTEM, today_instructions(self.today)))
         if self.catalog_continuation:
             messages.append(
                 Message(

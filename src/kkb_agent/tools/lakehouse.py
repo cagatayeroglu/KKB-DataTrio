@@ -102,6 +102,16 @@ class SeriesRead(BaseModel):
     end: date | None = Field(
         default=None, description="Latest period end, inclusive; omit for the whole stored window"
     )
+    last: int | None = Field(
+        default=None,
+        ge=1,
+        le=SERIES_READ_MAX_ROWS,
+        description=(
+            "Instead of start/end: the latest N published periods of each series, counted from "
+            "its last stored value. Use it for 'son 3 ay', 'son bir yıl' and the like, so no date "
+            "is guessed; a change over the last year of a monthly series needs 13"
+        ),
+    )
     purpose: str = Field(default="", max_length=500)
 
     @model_validator(mode="after")
@@ -110,10 +120,28 @@ class SeriesRead(BaseModel):
             raise ValueError("series must name each id once")
         if self.start is not None and self.end is not None and self.start > self.end:
             raise ValueError("start must not be after end")
+        if self.last is not None and (self.start is not None or self.end is not None):
+            raise ValueError("give last, or start/end, not both")
         return self
 
-    def statement(self) -> str:
-        """The one direct-column SELECT this read stands for; ids cannot carry a quote."""
+    def statement(self, since: dict[str, date] | None = None) -> str:
+        """The one direct-column SELECT this read stands for; ids cannot carry a quote.
+
+        `since` is each series' first period end when `last` was asked: the tool reads it
+        from the store itself, so it is never a date the planner wrote.
+        """
+        if since is not None:
+            each = " OR ".join(
+                f"(o.series_id = '{identity}' AND o.period_end >= "
+                f"DATE '{since[identity].isoformat()}')"
+                if identity in since
+                else f"o.series_id = '{identity}'"
+                for identity in self.series
+            )
+            return (
+                "SELECT o.series_id, o.period_start, o.period_end, o.value "  # nosec B608
+                f"FROM silver_observations o WHERE {each} ORDER BY o.series_id, o.period_end"
+            )
         wanted = ", ".join(f"'{identity}'" for identity in self.series)
         where = [f"o.series_id IN ({wanted})"]
         if self.start is not None:
@@ -337,7 +365,22 @@ def make_lakehouse_tool(
                     error_category="series_unknown",
                     warnings=("Series cannot be read: " + "; ".join(refused),),
                 )
-            arguments = LakehouseArguments(sql=arguments.statement(), purpose=arguments.purpose)
+            since = None
+            if arguments.last is not None:
+                # The Nth latest published period of each series, read here: the harness's
+                # own bounded lookup, not part of the statement the planner asked for.
+                since = {}
+                for identity in arguments.series:
+                    found_at = connection.execute(
+                        "SELECT period_end FROM silver_observations WHERE series_id = ? AND "
+                        "value IS NOT NULL ORDER BY period_end DESC LIMIT 1 OFFSET ?",
+                        [identity, arguments.last - 1],
+                    ).fetchone()
+                    if found_at is not None:
+                        since[identity] = found_at[0]
+            arguments = LakehouseArguments(
+                sql=arguments.statement(since), purpose=arguments.purpose
+            )
             rows = max(max_rows, SERIES_READ_MAX_ROWS)
         if not isinstance(arguments, LakehouseArguments):  # pragma: no cover
             raise TypeError("lakehouse received arguments it did not declare")
@@ -422,7 +465,8 @@ def _describe(readable: Iterable[str]) -> str:
     return (
         # nosec B608 - prose, never executed; the marker sits on the flagged line.
         "Read stored series. To fetch catalogue series as a table, give series=[ids] with "
-        "optional start/end dates and no sql: the tool writes the query, each series becomes "
+        "optional start/end dates, or last=N for the latest N published periods, and no sql: "
+        "the tool writes the query, each series becomes "
         "a column labelled by its id, and a reviewed series the store lacks is fetched from "
         "its official source first. Use sql only for what that cannot express: "
         "run one read-only SELECT over the analysis tables. "  # nosec B608

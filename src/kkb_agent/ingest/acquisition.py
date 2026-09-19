@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
@@ -46,7 +47,7 @@ from kkb_agent.ingest.bddk_monthly_request import MonthlyRange, MonthlyRequest, 
 from kkb_agent.ingest.evds_load import EvdsLoadCode, EvdsLoadError, ingest_series
 from kkb_agent.ingest.evds_request import EvdsRequest, EvdsWindow, fetch_series
 from kkb_agent.ingest.evds_series import REVIEWED_SERIES
-from kkb_agent.ingest.safe_fetch import FetchOutcome, FetchSuccess
+from kkb_agent.ingest.safe_fetch import FetchCode, FetchFailure, FetchOutcome, FetchSuccess
 
 if TYPE_CHECKING:  # pragma: no cover
     from duckdb import DuckDBPyConnection
@@ -67,6 +68,38 @@ BDDK_MAX_MONTHS: Final = 120
 BDDK_LAG_MONTHS: Final = 3
 #: Acquisitions one turn may start. Each is live traffic to a public source.
 MAX_ATTEMPTS_PER_TURN: Final = 3
+
+
+#: A read that may succeed when asked once more; a refused destination or type will not.
+TRANSIENT_FETCH_CODES: Final = frozenset(
+    {FetchCode.TIMEOUT, FetchCode.TRANSPORT_FAILURE, FetchCode.DNS_FAILURE}
+)
+#: Reads of one request within one acquisition. A BDDK series is one request a month from
+#: 2021-01: sixty-six in a row, and one transient failure among them used to fail the whole
+#: batch and with it the turn (live D1, 2026-09-19; the same sixty-six succeeded when asked
+#: again). The adapters themselves still never retry.
+FETCH_ATTEMPTS: Final = 3
+
+
+def patient[R](
+    retrieve: Callable[[R], FetchOutcome], pause: Callable[[float], None] = time.sleep
+) -> Callable[[R], FetchOutcome]:
+    """`retrieve`, asking the very same request again after a transient failure."""
+
+    def wrapped(request: R) -> FetchOutcome:
+        outcome = retrieve(request)
+        attempts = 1
+        while (
+            isinstance(outcome, FetchFailure)
+            and outcome.code in TRANSIENT_FETCH_CODES
+            and attempts < FETCH_ATTEMPTS
+        ):
+            pause(0.5 * attempts)
+            outcome = retrieve(request)
+            attempts += 1
+        return outcome
+
+    return wrapped
 
 
 class AcquisitionCode(StrEnum):
@@ -264,6 +297,8 @@ class OfficialSources:
     evds: Callable[[EvdsRequest], FetchOutcome] = fetch_series
     bddk: Callable[[MonthlyRequest], FetchOutcome] = fetch_monthly
     store: AcquisitionStore | None = None
+    #: The wait before a transient failure is asked again; a test passes a no-op.
+    pause: Callable[[float], None] = time.sleep
 
 
 @dataclass(slots=True)
@@ -322,10 +357,11 @@ class TurnAcquirer:
     def _evds(self, series_id: str, code: str) -> Acquisition:
         window = acquisition_window(self.today)
         calls = self._live()
+        asked = patient(self.sources.evds, self.sources.pause)
         retrieve = (
-            self.sources.store.cached(self.sources.evds, calls)  # type: ignore[arg-type]
+            self.sources.store.cached(asked, calls)  # type: ignore[arg-type]
             if self.sources.store is not None
-            else self.sources.evds
+            else asked
         )
         try:
             loaded = ingest_series(self.lake, code, window, retrieve=retrieve)
@@ -357,10 +393,11 @@ class TurnAcquirer:
         end_month = date(last.year + (last.month == 12), last.month % 12 + 1, 1)
         end = date.fromordinal(end_month.toordinal() - 1)
         calls = self._live()
+        asked = patient(self.sources.bddk, self.sources.pause)
         retrieve = (
-            self.sources.store.cached(self.sources.bddk, calls)  # type: ignore[arg-type]
+            self.sources.store.cached(asked, calls)  # type: ignore[arg-type]
             if self.sources.store is not None
-            else self.sources.bddk
+            else asked
         )
         try:
             loaded = ingest_monthly(self.lake, selector, window, retrieve=retrieve)

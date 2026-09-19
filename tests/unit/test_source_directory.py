@@ -482,3 +482,68 @@ def test_the_inspector_checks_a_fetched_listed_series_against_its_entry(lake):
     )
     assert inspector.inspect(lake.connection, PERSONAL.internal_id()).status == "consistent"
     assert inspector.inspect(lake.connection, NET_PROFIT.internal_id()).status == "consistent"
+
+
+# --- a source that stumbles ---------------------------------------------------------------------
+
+
+class StumblingSource(TableSource):
+    """Times out on chosen requests (by position), like the bulletin did once in sixty-six."""
+
+    def __init__(self, fail_at=(), always=False):
+        super().__init__()
+        self.fail_at, self.always = set(fail_at), always
+
+    def __call__(self, request):
+        from kkb_agent.ingest.safe_fetch import FetchCode, FetchFailure
+
+        position = len(self.requests) + 1
+        if self.always or position in self.fail_at:
+            self.requests.append(request)
+            return FetchFailure(
+                source_ref=request.fetch_request().source_ref, code=FetchCode.TIMEOUT
+            )
+        return super().__call__(request)
+
+
+def test_one_transient_failure_among_the_months_is_asked_again_not_fatal(lake):
+    """Live D1 (2026-09-19): one failed request of sixty-six failed the batch and the turn."""
+    source, waits = StumblingSource(fail_at={2}), []
+    acquirer = TurnAcquirer(lake, TODAY, sources=OfficialSources(bddk=source, pause=waits.append))
+    outcome = acquirer.acquire(PERSONAL.internal_id())
+    assert outcome.code is AcquisitionCode.ACQUIRED and outcome.observations == 3
+    assert len(source.requests) == 4 and waits == [0.5]
+
+
+def test_a_source_that_stays_down_is_said_to_the_person(tmp_path):
+    root = tmp_path / "prepared"
+    seed_prepared(root)
+    source = StumblingSource(always=True)
+    read = {
+        "step_id": "fetch",
+        "tool": "lakehouse",
+        "arguments": {"series": [PERSONAL.internal_id()]},
+    }
+    runner = PreparedRunner(
+        scripted(
+            proposal(
+                {
+                    "step_id": "d",
+                    "tool": "catalog_search",
+                    "arguments": {"query": "ihtiyaç kredisi bakiyesi"},
+                }
+            ),
+            proposal(read),
+            proposal(clarification="missing_series"),
+        ),
+        root,
+        tmp_path / "runtime",
+        catalog_bytes=CATALOG.read_bytes(),
+        official=OfficialSources(bddk=source, pause=lambda _: None),
+        clock=lambda: TODAY,
+        source_directory=source_directory(),
+    )
+    answer = runner(uuid4().hex, uuid4().hex, "İhtiyaç kredisi bakiyesini aylık getir.")
+    assert answer.status.value == "abstained" and answer.result is None
+    assert len(source.requests) == 3  # three attempts at the first month, then the batch stops
+    assert any("kaynak bu turda yanıt vermedi" in notice for notice in answer.notices)

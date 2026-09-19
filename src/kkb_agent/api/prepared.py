@@ -49,7 +49,12 @@ from kkb_agent.catalog.mappings import (
 )
 from kkb_agent.core import AnalyticalResult, SourceRef
 from kkb_agent.core.models import ContractModel
-from kkb_agent.ingest.acquisition import AcquiringInspector, OfficialSources, TurnAcquirer
+from kkb_agent.ingest.acquisition import (
+    AcquiringInspector,
+    AcquisitionCode,
+    OfficialSources,
+    TurnAcquirer,
+)
 from kkb_agent.ingest.address_outline import TurnFetchCache, address_outline
 from kkb_agent.ingest.attached import SOURCE_TYPE as UPLOAD
 from kkb_agent.ingest.attached import Attachment
@@ -148,6 +153,11 @@ _NEW_QUESTION_WORDS = 6
 #: aylık getir, TÜFE ile ... arındır." into an unrelated pending clarification and
 #: clarified again. Beyond `_REPLY_HARD_MAX_WORDS` any message is a request.
 #: Shown with an abstention when a read of the question's address was lost after every attempt.
+#: Shown with an abstention when an official series could not be fetched after every attempt.
+SOURCE_UNREACHED_NOTICE = (
+    "İstenen seri resmî kaynağında var, ancak kaynak bu turda yanıt vermedi (zaman aşımı ya da "
+    "bağlantı hatası). Aynı soruyu yeniden sormak sonucu değiştirebilir; alınan aylar saklandı."
+)
 ADDRESS_UNREAD_NOTICE = (
     "Sorudaki adresin bazı kaynakları bu turda okunamadı (zaman aşımı ya da bağlantı hatası). "
     "Aynı soruyu yeniden sormak sonucu değiştirebilir."
@@ -975,6 +985,7 @@ class PreparedRunner:
                     tools_required=bool(addresses_in(question)) or document_ref is not None,
                     # Named from this turn's catalog, knowledge-base entries included.
                     series_names=series_display_names(catalog),
+                    today=self._clock(),
                 )
                 try:
                     answered = session.answer(
@@ -1017,6 +1028,17 @@ class PreparedRunner:
                         else None
                     ),
                 )
+                if (
+                    answer.status is AnswerStatus.ABSTAINED
+                    and acquirer is not None
+                    and any(
+                        item.code is AcquisitionCode.RETRIEVAL_FAILED for item in acquirer.attempts
+                    )
+                ):
+                    # The series exists and has a route; the source did not answer this time.
+                    answer = answer.model_copy(
+                        update={"notices": (*answer.notices, SOURCE_UNREACHED_NOTICE)}
+                    )
                 if (
                     answer.status is AnswerStatus.ABSTAINED
                     and turn_fetch is not None
