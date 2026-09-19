@@ -278,9 +278,12 @@ def test_soft_delete_hides_chat_but_keeps_trace_and_cleans_session_data(launch):
     assert reopened.get("/v1/conversations", headers=owner_headers).json()["conversations"] == []
     assert reopened.get(f"/v1/conversations/{sid}", headers=headers).status_code == 404
     assert reopened.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"] == trace
-    assert reopened.get("/v1/trace-conversations", headers=owner_headers).json()[
-        "conversations"
-    ][0]["deleted"] is True
+    assert (
+        reopened.get("/v1/trace-conversations", headers=owner_headers).json()["conversations"][0][
+            "deleted"
+        ]
+        is True
+    )
     gone = reopened.delete(f"/v1/conversations/{sid}/runs", headers=owner_headers)
     assert gone.status_code == 200, gone.text
     assert gone.json()["deleted_runs"] == len(trace)
