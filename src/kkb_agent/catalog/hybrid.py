@@ -8,10 +8,11 @@ from dataclasses import dataclass
 from typing import Literal, get_args
 
 from kkb_agent.catalog.lance_index import LocalCatalogIndex
-from kkb_agent.catalog.mappings import ReviewedSnapshot
+from kkb_agent.catalog.mappings import ReviewedSnapshot, is_source_group
 from kkb_agent.catalog.normalization import normalize_query_text
 from kkb_agent.catalog.ranking import rerank_by_reviewed_intent
 from kkb_agent.catalog.search import (
+    MAX_GROUPS,
     CatalogCandidate,
     CatalogSearchArguments,
     CatalogSearchOutput,
@@ -96,6 +97,9 @@ def search_hybrid_catalog(
         }
         # Exact/longest reviewed phrases cannot expand into a merely nearby concept.
         eligible = {sid: item for sid, item in eligible.items() if sid in mapped}
+    # Datagroups are searched by meaning in their own lane (DEC-177), never among series.
+    containers = {sid: item for sid, item in eligible.items() if is_source_group(item)}
+    eligible = {sid: item for sid, item in eligible.items() if sid not in containers}
     if not eligible:
         return lexical_result("skipped_no_eligible")
     try:
@@ -121,8 +125,43 @@ def search_hybrid_catalog(
             )
         ):
             raise ValueError("invalid dense identities or ranks")
+        group_hits = (
+            dense.index.search(query, eligible_ids=frozenset(containers), limit=MAX_GROUPS)
+            if containers
+            else []
+        )
+        if any(hit.series_id not in containers for hit in group_hits):
+            raise ValueError("invalid dense group identities")
     except Exception:
         return lexical_result("failed", "index_failed")
+    # Meaning first, then words: a datagroup title rarely shares the question's inflection.
+    group_order: list[str] = []
+    for group_id in [h.series_id for h in group_hits] + [
+        c.series.record.series_id for c in lexical.groups
+    ]:
+        if group_id not in group_order:
+            group_order.append(group_id)
+    lexical_groups = {c.series.record.series_id: c for c in lexical.groups}
+    dense_groups = {h.series_id: h for h in group_hits}
+    groups = [
+        CatalogCandidate(
+            series=containers[gid],
+            concept_ids=(),
+            family_ids=(),
+            rank=rank,
+            bm25_score=lexical_groups[gid].bm25_score if gid in lexical_groups else None,
+            matched_terms=lexical_groups[gid].matched_terms if gid in lexical_groups else (),
+            method=lexical_groups[gid].method if gid in lexical_groups else "dense",
+            retrieval_sources=("lexical", "dense")
+            if gid in lexical_groups and gid in dense_groups
+            else (("lexical",) if gid in lexical_groups else ("dense",)),
+            lexical_rank=lexical_groups[gid].rank if gid in lexical_groups else None,
+            dense_rank=dense_groups[gid].rank if gid in dense_groups else None,
+            cosine_distance=dense_groups[gid].cosine_distance if gid in dense_groups else None,
+        )
+        for rank, gid in enumerate(group_order[:MAX_GROUPS], start=1)
+        if gid in containers
+    ]
     lexical_by_id = {c.series.record.series_id: c for c in lexical.candidates}
     dense_by_id = {h.series_id: h for h in hits}
     lexical_ids = [c.series.record.series_id for c in lexical.candidates]
@@ -175,6 +214,7 @@ def search_hybrid_catalog(
             **lexical.model_dump(),
             **metadata,
             "candidates": [c.model_dump() for c in candidates],
+            "groups": [c.model_dump() for c in groups],
             "top_candidate": top_candidate_signal(
                 args.query, candidates, reviewed_match=bool(lexical.concepts)
             ),

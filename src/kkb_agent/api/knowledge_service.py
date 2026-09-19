@@ -37,8 +37,10 @@ from kkb_agent.api.contracts import (
 from kkb_agent.api.service import ServiceError
 from kkb_agent.api.store import ConversationStore
 from kkb_agent.catalog.directory import SourceDirectory
+from kkb_agent.catalog.discovered import DiscoveredStore, listed_entry
+from kkb_agent.catalog.expansion import expand_groups
 from kkb_agent.catalog.hybrid import CatalogDenseStage, search_hybrid_catalog
-from kkb_agent.catalog.mappings import ReviewedSnapshot
+from kkb_agent.catalog.mappings import ReviewedSeries, ReviewedSnapshot
 from kkb_agent.catalog.records import CatalogRecord, CatalogStatus
 from kkb_agent.catalog.search import CatalogSearchArguments, search_catalog
 from kkb_agent.catalog.vectors import catalog_documents
@@ -93,8 +95,11 @@ class KnowledgeService:
         install_index: Callable[[CatalogDenseStage], None] | None = None,
         reopen_index: Callable[[ReviewedSnapshot], CatalogDenseStage | None] | None = None,
         source_directory: SourceDirectory | None = None,
+        discovered: DiscoveredStore | None = None,
     ) -> None:
         self._knowledge = knowledge
+        # The EVDS series lists opened so far; a trial search opens datagroups as a turn does.
+        self._discovered = discovered
         self._dense = dense
         # Building a generation calls the embedding model once per catalogue entry,
         # so it runs on its own thread and one at a time; reading never does.
@@ -146,6 +151,8 @@ class KnowledgeService:
             if self._dense is not None
             else search_catalog(catalog, arguments)
         )
+        if self._directory is not None:
+            found = expand_groups(query, found, self._discovered if self._acquisition else None)
         return SearchTrial(
             query=query,
             status=str(found.status),
@@ -354,6 +361,14 @@ class KnowledgeService:
             if item.record.series_id not in known
             and (item.record.series_id in fetched or item.record.series_id in notes)
         )
+        # EVDS series a search opened and a turn then fetched (DEC-177).
+        entries.extend(
+            self._reviewed_entry(
+                item.record, None, fetched.get(item.record.series_id), origin="listed"
+            )
+            for item in self._opened()
+            if item.record.series_id not in known and item.record.series_id in fetched
+        )
         entries.extend(self._dataset_entry(item) for item in datasets)
         return KnowledgeList(
             catalog_digest=catalog.content_sha256,
@@ -361,6 +376,11 @@ class KnowledgeService:
             series=tuple(self._with_search_text(entries, catalog)),
             listed_series=sum(item.record.series_id not in known for item in listed),
         )
+
+    def _opened(self) -> tuple[ReviewedSeries, ...]:
+        if self._discovered is None:
+            return ()
+        return tuple(listed_entry(series) for series in self._discovered.declared())
 
     def _with_search_text(
         self, entries: list[KnowledgeSeries], catalog: ReviewedSnapshot
@@ -374,6 +394,8 @@ class KnowledgeService:
         if self._directory is not None:
             for listed in self._directory.series:
                 reviewed.setdefault(listed.record.series_id, listed)
+        for opened in self._opened():
+            reviewed.setdefault(opened.record.series_id, opened)
         aliases: dict[str, set[str]] = {}
         for concept in self._reviewed.concepts:
             for series_id in concept.candidate_series_ids:

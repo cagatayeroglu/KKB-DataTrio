@@ -20,6 +20,7 @@ from kkb_agent.api.service import AnalysisService
 from kkb_agent.api.store import DATABASE_NAME as STORE_NAME
 from kkb_agent.api.store import ConversationStore
 from kkb_agent.catalog.directory import source_directory
+from kkb_agent.catalog.discovered import DiscoveredStore
 from kkb_agent.catalog.mappings import ReviewedSnapshot, load_reviewed_snapshot
 from kkb_agent.ingest.acquisition import AcquisitionStore, OfficialSources
 from kkb_agent.ingest.safe_fetch import safe_fetch
@@ -31,6 +32,8 @@ from kkb_agent.tools.searxng import SearxngBackend
 MAX_REQUEST_TIMEOUT = 1800.0
 #: Fetched official responses, kept for later conversations (DEC-159).
 ACQUIRED_DIRECTORY = "acquired"
+#: EVDS series lists read from the source's own directory, one file per datagroup (DEC-177).
+DISCOVERED_DIRECTORY = "directory/evds"
 #: Built vector generations, one immutable directory per catalogue digest.
 GENERATIONS_DIRECTORY = "catalog-index"
 
@@ -226,6 +229,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             knowledge = KnowledgeStore(args.state_root.absolute() / KNOWLEDGE_NAME)
             # The sources' own listings as a second catalogue tier (DEC-176), unless refused.
             directory = None if args.no_source_directory else source_directory()
+            # The series lists of the EVDS datagroups a search has opened (DEC-177). Without
+            # official fetching nothing opens a datagroup, so nothing is kept.
+            discovered = (
+                DiscoveredStore(args.state_root.absolute() / DISCOVERED_DIRECTORY)
+                if directory is not None and acquisition_enabled
+                else None
+            )
             runner = PreparedRunner(
                 provider,
                 root,
@@ -241,6 +251,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 knowledge=knowledge,
                 search_backend=search,
                 source_directory=directory,
+                discovered=discovered,
             )
             service = AnalysisService(
                 runner,
@@ -319,6 +330,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 install_index=runner.use_dense,
                 reopen_index=reopen,
                 source_directory=directory,
+                discovered=discovered,
             )
             # No model call: a generation built before this restart is simply opened.
             knowledge_service.restore_generation()

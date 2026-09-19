@@ -44,6 +44,7 @@ class Evidence(ContractModel):
 #: Evidence ids of entries a source's own directory lists start with this (DEC-176): such an
 #: entry is found and fetched like any other, and was never reviewed one by one.
 DIRECTORY_EVIDENCE_PREFIX = "directory:"
+SOURCE_GROUP_INFIX = ":group:"
 
 
 class ReviewedSeries(ContractModel):
@@ -229,6 +230,15 @@ def lookup_alias(
 def is_listed_series(series: ReviewedSeries) -> bool:
     """True for an entry of the sources' own directory, false for a reviewed or user entry."""
     return any(item.startswith(DIRECTORY_EVIDENCE_PREFIX) for item in series.evidence_ids)
+
+
+def is_source_group(series: ReviewedSeries) -> bool:
+    """True for a directory entry that stands for a source's datagroup, not for a series.
+
+    Any source may list such containers as `<PROVIDER>:group:<code>`. Search finds them by
+    meaning and ranks them apart from series; `catalog.expansion` opens them into series.
+    """
+    return is_listed_series(series) and SOURCE_GROUP_INFIX in series.record.series_id
 
 
 def load_reviewed_snapshot(data: bytes) -> ReviewedSnapshot:

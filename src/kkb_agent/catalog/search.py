@@ -17,6 +17,7 @@ from kkb_agent.catalog.mappings import (
     ReviewedSeries,
     ReviewedSnapshot,
     is_listed_series,
+    is_source_group,
 )
 from kkb_agent.catalog.normalization import normalize_search_text
 from kkb_agent.catalog.ranking import intent_key, rerank_by_reviewed_intent
@@ -89,9 +90,17 @@ class CatalogCandidate(ContractModel):
     cosine_distance: float | None = Field(default=None, ge=-0.000001, le=2.000001)
 
 
+#: Datagroups one search carries for expansion (each unopened one costs one source read).
+MAX_GROUPS = 3
+
+
 class CatalogSearchOutput(ContractModel):
     status: SearchStatus
     candidates: tuple[CatalogCandidate, ...] = Field(default=(), max_length=10)
+    #: Source datagroups found for the query (DEC-177). They are containers, not series: no
+    #: plan can read one, so they never sit among `candidates`. `catalog.expansion` replaces
+    #: them by their series, or drops them, before a planner sees the result.
+    groups: tuple[CatalogCandidate, ...] = Field(default=(), max_length=MAX_GROUPS)
     concepts: tuple[ConceptMatch, ...] = Field(default=(), max_length=MAX_CATALOG_CONCEPTS)
     total_candidates: int = Field(ge=0, le=MAX_CATALOG_SERIES)
     truncated: bool
@@ -298,11 +307,15 @@ def search_catalog(
             s.record.series_id,
         )
     )
+    # Datagroups declare no kind, unit or currency, so the reviewed-intent order would push
+    # every one of them below any series that does. They keep their own relevance order.
+    found_groups = [s for s in ranked if is_source_group(s)][:MAX_GROUPS]
+    ranked = [s for s in ranked if not is_source_group(s)]
     ranked = rerank_by_reviewed_intent(args.query, ranked, reviewed_series=lambda item: item)
     ranked = one_per_listed_row(ranked, reviewed_series=lambda item: item)
     unresolved = any(c.unresolved for c in matches)
     status: SearchStatus
-    if ranked:
+    if ranked or found_groups:
         # Token overlap can surface useful candidates, but only a reviewed
         # alias/phrase establishes that the requested concept is represented.
         status = "PARTIAL" if unresolved or not matches else "MATCH"
@@ -329,6 +342,18 @@ def search_catalog(
     return CatalogSearchOutput(
         status=status,
         candidates=candidates,
+        groups=tuple(
+            CatalogCandidate(
+                series=s,
+                concept_ids=(),
+                family_ids=(),
+                rank=i + 1,
+                bm25_score=scores[s.record.series_id],
+                matched_terms=tuple(sorted(query_terms & documents[s.record.series_id].keys())),
+                method=method,
+            )
+            for i, s in enumerate(found_groups)
+        ),
         top_candidate=top_candidate_signal(args.query, candidates, reviewed_match=bool(matches)),
         concepts=tuple(
             ConceptMatch(

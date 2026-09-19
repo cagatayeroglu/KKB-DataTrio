@@ -72,6 +72,9 @@ _ROOT_KEYS = {
 
 class EvdsLoadCode(StrEnum):
     RESPONSE_INVALID = "RESPONSE_INVALID"
+    #: A well-formed answer without a single row: the source lists the series but publishes
+    #: nothing for it in the window (a discontinued series, for one).
+    NO_OBSERVATIONS = "NO_OBSERVATIONS"
     RETRIEVAL_FAILED = "RETRIEVAL_FAILED"
     VERSION_CONFLICT = "VERSION_CONFLICT"
     MATERIALIZATION_FAILED = "MATERIALIZATION_FAILED"
@@ -243,6 +246,8 @@ def parse_fe(payload: bytes, request: EvdsRequest) -> ParsedSeries:
             raise ValueError("Inconsistent item count")
         if len(items) > MAX_ITEMS:
             raise ValueError("Too many items")
+        if not items and not reviewed:
+            raise EvdsLoadError(EvdsLoadCode.NO_OBSERVATIONS)
         keys = {"Tarih", "UNIXTIME", response_key}
         if series.frequency is Frequency.WEEKLY:
             keys.add("YEARWEEK")
@@ -284,6 +289,8 @@ def parse_fe(payload: bytes, request: EvdsRequest) -> ParsedSeries:
         if ends != expected if reviewed else (not ends or ends != expected[: len(ends)]):
             raise ValueError("Periods differ from the requested calendar")
         return ParsedSeries(tuple(kept), excluded)
+    except EvdsLoadError:
+        raise
     except (ValueError, TypeError, KeyError, OverflowError, RecursionError, OSError):
         raise EvdsLoadError(EvdsLoadCode.RESPONSE_INVALID) from None
 

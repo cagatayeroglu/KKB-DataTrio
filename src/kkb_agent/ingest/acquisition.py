@@ -41,12 +41,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final, Protocol
 
 from kkb_agent.catalog.inspection import PreparedSeriesInspector, SeriesInspection
+from kkb_agent.core import Frequency
 from kkb_agent.ingest.bddk_monthly import BddkSelector, MonthlyPeriod, supported_selectors
 from kkb_agent.ingest.bddk_monthly_load import MonthlyLoadCode, MonthlyLoadError, ingest_monthly
 from kkb_agent.ingest.bddk_monthly_request import MonthlyRange, MonthlyRequest, fetch_monthly
 from kkb_agent.ingest.evds_load import EvdsLoadCode, EvdsLoadError, ingest_series
 from kkb_agent.ingest.evds_request import EvdsRequest, EvdsWindow, fetch_series
-from kkb_agent.ingest.evds_series import REVIEWED_SERIES
+from kkb_agent.ingest.evds_series import REVIEWED_SERIES, ReviewedEvdsSeries
 from kkb_agent.ingest.safe_fetch import FetchCode, FetchFailure, FetchOutcome, FetchSuccess
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -66,8 +67,12 @@ BDDK_MAX_MONTHS: Final = 120
 #: Months before the clock's month the BDDK window ends. The bulletin is published
 #: with a lag; a month not yet published would fail the whole batch, never fill it.
 BDDK_LAG_MONTHS: Final = 3
-#: Acquisitions one turn may start. Each is live traffic to a public source.
-MAX_ATTEMPTS_PER_TURN: Final = 3
+#: Listed calendars whose window runs to the clock's day instead of the last whole month.
+_DATED_TO_TODAY: Final = frozenset({Frequency.DAILY, Frequency.BUSINESS_DAY, Frequency.WEEKLY})
+#: Acquisitions one turn may start. Each is live traffic to a public source, so there is a
+#: ceiling; it is the number of series one typed read may name, so that a single question
+#: comparing that many new series is never cut short by the fetch budget.
+MAX_ATTEMPTS_PER_TURN: Final = 12
 
 
 #: A read that may succeed when asked once more; a refused destination or type will not.
@@ -100,6 +105,26 @@ def patient[R](
         return outcome
 
     return wrapped
+
+
+#: What the planner is told when a fetch on first use did not store a series. Fixed text:
+#: never a source's words, and each one says what can still be done.
+UNREAD_REASONS: Final = {
+    "unreached": (
+        "the official source could not be reached after several attempts; do not replace it "
+        "with a different series, say that the source did not answer"
+    ),
+    "budget": (
+        "this turn already fetched as many new series as one turn may; read the ones fetched "
+        "so far and leave the rest to a following question"
+    ),
+    "no_route": "no adapter can fetch this identity",
+    "empty": (
+        "the source lists this series but publishes no observation for it in the fetched "
+        "years; choose another candidate or say that the source has no data for it"
+    ),
+    "refused": "the source's answer did not pass the loader's checks, so nothing was stored",
+}
 
 
 class AcquisitionCode(StrEnum):
@@ -299,6 +324,9 @@ class OfficialSources:
     store: AcquisitionStore | None = None
     #: The wait before a transient failure is asked again; a test passes a no-op.
     pause: Callable[[float], None] = time.sleep
+    #: Operator wiring (DEC-177): the declaration of a series EVDS's own directory listed,
+    #: by catalogue id. Without it only the reviewed registry has a route.
+    listed_evds: Callable[[str], ReviewedEvdsSeries | None] | None = None
 
 
 @dataclass(slots=True)
@@ -321,6 +349,13 @@ class TurnAcquirer:
         if tried is not None:
             return tried  # One attempt per series per turn, whatever it returned.
         code, selector = reviewed_code(series_id), reviewed_selector(series_id)
+        listed = (
+            self.sources.listed_evds(series_id)
+            if code is None and selector is None and self.sources.listed_evds is not None
+            else None
+        )
+        if listed is not None:
+            code = listed.code
         if code is None and selector is None:
             outcome = Acquisition(
                 series_id,
@@ -336,7 +371,7 @@ class TurnAcquirer:
         else:
             try:
                 outcome = (
-                    self._evds(series_id, code)
+                    self._evds(series_id, code, listed)
                     if code is not None
                     else self._bddk(series_id, selector)  # type: ignore[arg-type]
                 )
@@ -354,8 +389,14 @@ class TurnAcquirer:
     def _live(self) -> list[bool]:
         return []
 
-    def _evds(self, series_id: str, code: str) -> Acquisition:
+    def _evds(
+        self, series_id: str, code: str, listed: ReviewedEvdsSeries | None = None
+    ) -> Acquisition:
         window = acquisition_window(self.today)
+        if listed is not None and listed.frequency in _DATED_TO_TODAY:
+            # A month must be whole, a day or a week need not be: a question about the
+            # last few days is answered from the days the source has published so far.
+            window = EvdsWindow(start=window.start, end=self.today)
         calls = self._live()
         asked = patient(self.sources.evds, self.sources.pause)
         retrieve = (
@@ -364,7 +405,7 @@ class TurnAcquirer:
             else asked
         )
         try:
-            loaded = ingest_series(self.lake, code, window, retrieve=retrieve)
+            loaded = ingest_series(self.lake, code, window, retrieve=retrieve, listed=listed)
         except EvdsLoadError as error:
             return Acquisition(
                 series_id,
@@ -436,6 +477,24 @@ class AcquiringInspector(PreparedSeriesInspector):
         # Deliberately not re-validating a snapshot: the inner inspector owns it.
         self._inner = inner
         self._acquirer = acquirer
+
+    def name_of(self, series_id: str) -> str | None:
+        return self._inner.name_of(series_id)
+
+    def why_unread(self, series_id: str) -> str | None:
+        """What this turn's fetch of the series ended in, as a fixed sentence for the planner."""
+        tried = next((a for a in self._acquirer.attempts if a.series_id == series_id), None)
+        if tried is None or tried.stored:
+            return None
+        if tried.code is AcquisitionCode.RETRIEVAL_FAILED:
+            return UNREAD_REASONS["unreached"]
+        if tried.code is AcquisitionCode.BUDGET_EXHAUSTED:
+            return UNREAD_REASONS["budget"]
+        if tried.code is AcquisitionCode.NO_REVIEWED_ROUTE:
+            return UNREAD_REASONS["no_route"]
+        if tried.detail == EvdsLoadCode.NO_OBSERVATIONS.value:
+            return UNREAD_REASONS["empty"]
+        return UNREAD_REASONS["refused"]
 
     def inspect(self, connection: DuckDBPyConnection, series_id: str) -> SeriesInspection:
         found = self._inner.inspect(connection, series_id)

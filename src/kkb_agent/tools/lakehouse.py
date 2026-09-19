@@ -39,7 +39,15 @@ from datetime import date
 from typing import TYPE_CHECKING, Annotated, Any
 
 import duckdb
-from pydantic import BaseModel, ConfigDict, Field, RootModel, StringConstraints, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    RootModel,
+    StringConstraints,
+    model_validator,
+)
 
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
 from kkb_agent.agent.registry import ToolSpec
@@ -343,7 +351,16 @@ def make_lakehouse_tool(
         if isinstance(arguments, LakehouseRequest):
             arguments = arguments.root
         rows = max_rows
+        meanings: dict[str, JsonValue] = {}
         if isinstance(arguments, SeriesRead):
+            # The writer names a series by its meaning, so the result carries what the
+            # catalogue says each identity is (live trace 2026-09-19: a bare id cost the
+            # writer 3,899 reasoning tokens).
+            if inspector is not None:
+                for identity in arguments.series:
+                    meaning = inspector.name_of(identity)
+                    if meaning is not None:
+                        meanings[identity] = meaning
             # Inspecting first is what lets a reviewed series the store lacks be fetched
             # (DEC-155/159): as SQL, such a read only ever "returned no rows".
             refused = [
@@ -353,6 +370,7 @@ def make_lakehouse_tool(
                     if found.unknown_fields or found.mismatch_fields
                     else ""
                 )
+                + (f" - {reason}" if (reason := inspector.why_unread(identity)) else "")
                 for identity in arguments.series
                 if inspector is not None
                 and (found := inspector.inspect(connection, identity)).status != "consistent"
@@ -403,7 +421,11 @@ def make_lakehouse_tool(
             connection=connection,
             result_id=_result_id(arguments, None),
             tables=tables,
-            parameters={"purpose": arguments.purpose, "max_rows": rows},
+            parameters={
+                "purpose": arguments.purpose,
+                "max_rows": rows,
+                **({"series_names": meanings} if meanings else {}),
+            },
             snapshots=snapshots,
             inspector=inspector,
         )

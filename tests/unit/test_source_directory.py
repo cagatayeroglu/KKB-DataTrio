@@ -309,7 +309,9 @@ def test_the_directory_is_a_second_tier_and_never_replaces_a_reviewed_entry(cata
     assert not is_listed_series(kept) and "Reviewed" in kept.record.description
     listed = [item for item in effective.series if is_listed_series(item)]
     assert len(listed) == len(source_directory().series)
-    assert all(item.evidence_ids == (BDDK_EVIDENCE_ID,) for item in listed)
+    bddk = [item for item in listed if item.record.provider == "BDDK"]
+    assert len(bddk) == len(supported_selectors()) - 3  # the housing trio stays reviewed
+    assert all(item.evidence_ids == (BDDK_EVIDENCE_ID,) for item in bddk)
     assert BDDK_EVIDENCE_ID in {item.evidence_id for item in effective.evidence}
 
 
