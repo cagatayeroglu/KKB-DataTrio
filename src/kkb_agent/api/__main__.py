@@ -19,6 +19,7 @@ from kkb_agent.api.prepared import PreparedRunner, _local, inspect_pool, read_ca
 from kkb_agent.api.service import AnalysisService
 from kkb_agent.api.store import DATABASE_NAME as STORE_NAME
 from kkb_agent.api.store import ConversationStore
+from kkb_agent.catalog.directory import source_directory
 from kkb_agent.catalog.mappings import ReviewedSnapshot, load_reviewed_snapshot
 from kkb_agent.ingest.acquisition import AcquisitionStore, OfficialSources
 from kkb_agent.ingest.safe_fetch import safe_fetch
@@ -110,6 +111,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             "Acquisition is on by default (DEC-155, DEC-159): reviewed routes only, fixed "
             "windows, at most three a turn, and fetched responses are kept under the state "
             "root for later conversations"
+        ),
+    )
+    parser.add_argument(
+        "--no-source-directory",
+        action="store_true",
+        help=(
+            "Search only the reviewed catalogue. By default the sources' own pinned listings "
+            "(DEC-176: the BDDK monthly bulletin's tables and rows) are a second catalogue "
+            "tier, searched after the reviewed one and fetched on first use by the same "
+            "adapters. The vectors must be built once for the larger catalogue"
         ),
     )
     parser.add_argument(
@@ -213,6 +224,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             official = OfficialSources(store=acquired) if acquisition_enabled else None
             # The editable knowledge base over the reviewed catalog (DEC-157).
             knowledge = KnowledgeStore(args.state_root.absolute() / KNOWLEDGE_NAME)
+            # The sources' own listings as a second catalogue tier (DEC-176), unless refused.
+            directory = None if args.no_source_directory else source_directory()
             runner = PreparedRunner(
                 provider,
                 root,
@@ -227,6 +240,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 official=official,
                 knowledge=knowledge,
                 search_backend=search,
+                source_directory=directory,
             )
             service = AnalysisService(
                 runner,
@@ -304,6 +318,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 rebuild_index=rebuild,
                 install_index=runner.use_dense,
                 reopen_index=reopen,
+                source_directory=directory,
             )
             # No model call: a generation built before this restart is simply opened.
             knowledge_service.restore_generation()

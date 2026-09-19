@@ -523,8 +523,9 @@ class KnowledgeSeries(ContractModel):
     series_id: SeriesIdentity
     title: str
     provider: str
-    #: reviewed: from the reviewed catalog; user: declared by a person here.
-    origin: Literal["reviewed", "user"]
+    #: reviewed: from the reviewed catalog; listed: from a source's own directory, never
+    #: reviewed one by one (DEC-176); user: declared by a person here.
+    origin: Literal["reviewed", "listed", "user"]
     status: Literal["active", "archived", "unknown"]
     #: Stored in the prepared pool every conversation starts from.
     prepared: bool
@@ -563,6 +564,9 @@ class KnowledgeList(ContractModel):
     catalog_digest: str
     reviewed_digest: str
     series: Annotated[tuple[KnowledgeSeries, ...], Field(max_length=MAX_CATALOG_SERIES)] = ()
+    #: Entries of the sources' own directory that search finds and turns fetch on first use.
+    #: Only the ones a person annotated or a turn fetched are in `series`.
+    listed_series: Annotated[int, Field(ge=0, le=MAX_CATALOG_SERIES)] = 0
 
 
 class SearchHit(ContractModel):

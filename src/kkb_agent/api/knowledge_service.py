@@ -36,6 +36,7 @@ from kkb_agent.api.contracts import (
 )
 from kkb_agent.api.service import ServiceError
 from kkb_agent.api.store import ConversationStore
+from kkb_agent.catalog.directory import SourceDirectory
 from kkb_agent.catalog.hybrid import CatalogDenseStage, search_hybrid_catalog
 from kkb_agent.catalog.mappings import ReviewedSnapshot
 from kkb_agent.catalog.records import CatalogRecord, CatalogStatus
@@ -91,6 +92,7 @@ class KnowledgeService:
         rebuild_index: Callable[[ReviewedSnapshot], CatalogDenseStage] | None = None,
         install_index: Callable[[CatalogDenseStage], None] | None = None,
         reopen_index: Callable[[ReviewedSnapshot], CatalogDenseStage | None] | None = None,
+        source_directory: SourceDirectory | None = None,
     ) -> None:
         self._knowledge = knowledge
         self._dense = dense
@@ -99,6 +101,7 @@ class KnowledgeService:
         self._rebuild = rebuild_index
         self._install = install_index
         self._reopen = reopen_index
+        self._directory = source_directory
         self._building = threading.Lock()
         self._build_thread: threading.Thread | None = None
         self._built_at: datetime | None = None
@@ -176,7 +179,7 @@ class KnowledgeService:
         datasets = self._knowledge.datasets(include_archived=True)
         notes = list({note.series_id: note for note in self._knowledge.notes()}.values())
         return effective_snapshot(
-            self._reviewed, [d for d in datasets if d.status == "active"], notes
+            self._reviewed, [d for d in datasets if d.status == "active"], notes, self._directory
         )
 
     def uses(self, owner_token: str, series_id: str) -> SeriesUses:
@@ -323,7 +326,10 @@ class KnowledgeService:
         datasets = self._knowledge.datasets(include_archived=True)
         notes = {note.series_id: note for note in self._knowledge.notes()}
         catalog = effective_snapshot(
-            self._reviewed, [d for d in datasets if d.status == "active"], list(notes.values())
+            self._reviewed,
+            [d for d in datasets if d.status == "active"],
+            list(notes.values()),
+            self._directory,
         )
         fetched = self._acquisitions() if self._acquisitions is not None else {}
         entries = [
@@ -332,11 +338,28 @@ class KnowledgeService:
             )
             for item in self._reviewed.series
         ]
+        # The sources' own directory is hundreds of entries; the page lists the ones a
+        # person has touched or a turn has fetched, and counts the rest (DEC-176). Every
+        # one of them is found by the trial search above the list.
+        listed = self._directory.series if self._directory is not None else ()
+        known = {item.record.series_id for item in self._reviewed.series}
+        entries.extend(
+            self._reviewed_entry(
+                item.record,
+                notes.get(item.record.series_id),
+                fetched.get(item.record.series_id),
+                origin="listed",
+            )
+            for item in listed
+            if item.record.series_id not in known
+            and (item.record.series_id in fetched or item.record.series_id in notes)
+        )
         entries.extend(self._dataset_entry(item) for item in datasets)
         return KnowledgeList(
             catalog_digest=catalog.content_sha256,
             reviewed_digest=self._reviewed.content_sha256,
             series=tuple(self._with_search_text(entries, catalog)),
+            listed_series=sum(item.record.series_id not in known for item in listed),
         )
 
     def _with_search_text(
@@ -348,6 +371,9 @@ class KnowledgeService:
         except ValueError:
             indexed = {}
         reviewed = {item.record.series_id: item for item in self._reviewed.series}
+        if self._directory is not None:
+            for listed in self._directory.series:
+                reviewed.setdefault(listed.record.series_id, listed)
         aliases: dict[str, set[str]] = {}
         for concept in self._reviewed.concepts:
             for series_id in concept.candidate_series_ids:
@@ -375,6 +401,8 @@ class KnowledgeService:
         record: CatalogRecord,
         note: SeriesNote | None,
         fetched: dict[str, object] | None = None,
+        *,
+        origin: Literal["reviewed", "listed"] = "reviewed",
     ) -> KnowledgeSeries:
         archived = note is not None and note.archived
         fetched_at = fetched.get("fetched_at") if fetched is not None else None
@@ -382,7 +410,7 @@ class KnowledgeService:
             series_id=record.series_id,
             title=record.title,
             provider=record.provider,
-            origin="reviewed",
+            origin=origin,
             status=(
                 "archived"
                 if archived or record.status is CatalogStatus.ARCHIVED

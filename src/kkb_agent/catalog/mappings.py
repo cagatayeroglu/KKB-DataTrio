@@ -27,7 +27,10 @@ from kkb_agent.core.models import ContractModel
 Text = Annotated[str, StringConstraints(strict=True, min_length=1, max_length=1024)]
 Digest = Annotated[str, StringConstraints(strict=True, pattern=r"^[0-9a-f]{64}$")]
 Revision = Annotated[str, StringConstraints(strict=True, pattern=r"^[0-9a-f]{40}$")]
-MAX_SNAPSHOT_BYTES = 256 * 1024
+#: A memory bound on catalogue bytes, not a catalogue size: the series ceiling is
+#: MAX_CATALOG_SERIES. With the sources' own directory applied (DEC-176) a catalogue is a
+#: few hundred entries of about a kilobyte each; 256 KiB held only the reviewed 37.
+MAX_SNAPSHOT_BYTES = 16 * 1024 * 1024
 
 
 class Evidence(ContractModel):
@@ -36,6 +39,11 @@ class Evidence(ContractModel):
     revision: Revision
     file_sha256: Digest
     section: Text
+
+
+#: Evidence ids of entries a source's own directory lists start with this (DEC-176): such an
+#: entry is found and fetched like any other, and was never reviewed one by one.
+DIRECTORY_EVIDENCE_PREFIX = "directory:"
 
 
 class ReviewedSeries(ContractModel):
@@ -216,6 +224,11 @@ def lookup_alias(
         and (len(matches) > 1 or any(c.clarification_required for c in matches) or bool(excluded)),
         excluded_archived_ids=tuple(sorted(excluded)),
     )
+
+
+def is_listed_series(series: ReviewedSeries) -> bool:
+    """True for an entry of the sources' own directory, false for a reviewed or user entry."""
+    return any(item.startswith(DIRECTORY_EVIDENCE_PREFIX) for item in series.evidence_ids)
 
 
 def load_reviewed_snapshot(data: bytes) -> ReviewedSnapshot:

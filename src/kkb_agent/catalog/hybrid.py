@@ -16,6 +16,7 @@ from kkb_agent.catalog.search import (
     CatalogSearchArguments,
     CatalogSearchOutput,
     eligible_catalog_series,
+    one_per_listed_row,
     search_catalog,
     top_candidate_signal,
 )
@@ -145,6 +146,7 @@ def search_hybrid_catalog(
     order = rerank_by_reviewed_intent(
         args.query, order, reviewed_series=lambda series_id: eligible[series_id]
     )
+    order = one_per_listed_row(order, reviewed_series=lambda series_id: eligible[series_id])
     candidates = []
     for rank, sid in enumerate(order[: args.max_results], start=1):
         lex = lexical_by_id.get(sid)

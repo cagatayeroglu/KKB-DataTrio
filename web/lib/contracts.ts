@@ -586,7 +586,8 @@ export const knowledgeSeriesSchema = z
     series_id: z.string().max(200),
     title: z.string().max(1024),
     provider: z.string().max(200),
-    origin: z.enum(["reviewed", "user"]),
+    // listed: from a source's own directory, never reviewed one by one (DEC-176).
+    origin: z.enum(["reviewed", "listed", "user"]),
     status: z.enum(["active", "archived", "unknown"]),
     prepared: z.boolean(),
     fetchable: z.boolean(),
@@ -620,6 +621,8 @@ export const knowledgeListSchema = z
     reviewed_digest: z.string().regex(/^[a-f0-9]{64}$/),
     // Mirrors MAX_CATALOG_SERIES: a guard against a malformed body, not a catalog size.
     series: z.array(knowledgeSeriesSchema).max(10000),
+    // Directory entries search finds and turns fetch on first use; absent on an older server.
+    listed_series: z.number().int().min(0).max(10000).optional(),
   })
   .strict();
 export const datasetDetailSchema = z

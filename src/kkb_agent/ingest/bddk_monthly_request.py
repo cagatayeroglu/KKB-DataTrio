@@ -89,6 +89,20 @@ class MonthlyRequest(ContractModel):
         ).encode()
         return hashlib.sha256(payload).hexdigest()
 
+    def wire_fingerprint(self) -> str:
+        """What is actually asked of the source: the form, not the row read out of the reply.
+
+        One response carries every row and component of a table for a month, so kept
+        bytes are keyed by this (DEC-176): the second series of a table costs no request.
+        """
+        checked = MonthlyRequest.model_validate(self)
+        payload = json.dumps(
+            {"schema": "bddk-monthly-wire-v1", "form": checked.form_body().decode("ascii")},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+        return hashlib.sha256(payload).hexdigest()
+
     def fetch_request(self) -> FetchRequest:
         return FetchRequest(
             source_ref="bddk:monthly:" + self.fingerprint(),

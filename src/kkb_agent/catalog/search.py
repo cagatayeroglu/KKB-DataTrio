@@ -6,13 +6,18 @@ log(1+(N-df+.5)/(df+.5)) IDF; no stemming/stopwords or holdout tuning.
 """
 
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from math import log
 from typing import Literal
 
 from pydantic import Field, StrictBool, StrictInt, StrictStr, field_validator
 
-from kkb_agent.catalog.mappings import Concept, ReviewedSeries, ReviewedSnapshot
+from kkb_agent.catalog.mappings import (
+    Concept,
+    ReviewedSeries,
+    ReviewedSnapshot,
+    is_listed_series,
+)
 from kkb_agent.catalog.normalization import normalize_search_text
 from kkb_agent.catalog.ranking import intent_key, rerank_by_reviewed_intent
 from kkb_agent.catalog.records import MAX_CATALOG_CONCEPTS, MAX_CATALOG_SERIES, CatalogStatus
@@ -196,6 +201,31 @@ def eligible_catalog_series(
     )
 
 
+def one_per_listed_row[T](
+    ordered: Sequence[T], *, reviewed_series: Callable[[T], ReviewedSeries]
+) -> list[T]:
+    """Keep the first component of each listed row; reviewed entries are all kept.
+
+    A listed BDDK row exists as TP, YP and Toplam, three entries with one title. Ten
+    results would otherwise be three rows, three times each. The reviewed-intent order
+    has already put first the component the question names, or the total when it names
+    none, so the first of each row is the one to show. Reviewed series are untouched:
+    their components are told apart by reviewed concepts and defaults (DEC-165).
+    """
+    seen: set[tuple[str, str | None, str]] = set()
+    kept: list[T] = []
+    for item in ordered:
+        series = reviewed_series(item)
+        if is_listed_series(series):
+            record = series.record
+            row = (record.provider, record.group.group_id if record.group else None, record.title)
+            if row in seen:
+                continue
+            seen.add(row)
+        kept.append(item)
+    return kept
+
+
 def top_candidate_signal(
     query: str, candidates: Sequence[CatalogCandidate], *, reviewed_match: bool
 ) -> TopCandidate:
@@ -269,6 +299,7 @@ def search_catalog(
         )
     )
     ranked = rerank_by_reviewed_intent(args.query, ranked, reviewed_series=lambda item: item)
+    ranked = one_per_listed_row(ranked, reviewed_series=lambda item: item)
     unresolved = any(c.unresolved for c in matches)
     status: SearchStatus
     if ranked:

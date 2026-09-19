@@ -149,6 +149,10 @@ The page polls a running turn for an hour and can re-read its state afterwards.
 
 <a id="prepared_api-start-only-when-model-requests-are-authorized"></a>
 
+### The sources' own directory (DEC-176)
+
+`--serve` applies the BDDK monthly bulletin's pinned listing as a second catalogue tier unless `--no-source-directory` is given. The reviewed `--catalog-index` generation covers only the reviewed catalogue, so after the first start open "Veri ve bilgi tabanı" and press "Yeniden vektörle" once (678 entries, about a minute); the generation is kept under `<state-root>/generations/` and reopened at every restart. Until then discovery is by words only and the page says so. To refresh the listing itself run `python tests/manual/harvest_bddk_directory.py` (58 public requests, one a second) and review the diff of `src/kkb_agent/ingest/bddk_monthly_directory.py` in a PR.
+
 ### Start only when model requests are authorized
 
 ```powershell

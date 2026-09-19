@@ -39,6 +39,7 @@ from kkb_agent.api.projection import OutputRefused, project_answer, project_resu
 from kkb_agent.api.proof import build_proof
 from kkb_agent.api.service import SelectedResult, ServiceError, TurnSettings
 from kkb_agent.api.store import DEFAULT_TITLE, ConversationStore
+from kkb_agent.catalog.directory import SourceDirectory
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
 from kkb_agent.catalog.mappings import (
     MAX_SNAPSHOT_BYTES,
@@ -401,8 +402,11 @@ class PreparedRunner:
         clock: Callable[[], date] = lambda: datetime.now(UTC).date(),
         knowledge: KnowledgeStore | None = None,
         search_backend: SearchBackend | None = None,
+        source_directory: SourceDirectory | None = None,
     ):
         self._catalog = load_reviewed_snapshot(catalog_bytes)
+        # Operator switch (DEC-176): the sources' own listings as a second catalogue tier.
+        self._directory = source_directory
         self._catalog_bytes = catalog_bytes
         # Optional operator-built index generation; without it discovery stays lexical.
         if catalog_dense is not None and (
@@ -1103,9 +1107,11 @@ class PreparedRunner:
         observations. A version already present is left as it is.
         """
         if self._knowledge is None:
-            return self._catalog, []
+            return effective_snapshot(self._catalog, [], [], self._directory), []
         datasets = self._knowledge.datasets(include_archived=False)
-        catalog = effective_snapshot(self._catalog, datasets, self._knowledge.notes())
+        catalog = effective_snapshot(
+            self._catalog, datasets, self._knowledge.notes(), self._directory
+        )
         loaded: list[str] = []
         for item in datasets:
             present = lake.connection.execute(

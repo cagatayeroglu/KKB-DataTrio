@@ -40,7 +40,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final, Protocol
 
 from kkb_agent.catalog.inspection import PreparedSeriesInspector, SeriesInspection
-from kkb_agent.ingest.bddk_monthly import BddkSelector, MonthlyPeriod
+from kkb_agent.ingest.bddk_monthly import BddkSelector, MonthlyPeriod, supported_selectors
 from kkb_agent.ingest.bddk_monthly_load import MonthlyLoadCode, MonthlyLoadError, ingest_monthly
 from kkb_agent.ingest.bddk_monthly_request import MonthlyRange, MonthlyRequest, fetch_monthly
 from kkb_agent.ingest.evds_load import EvdsLoadCode, EvdsLoadError, ingest_series
@@ -56,8 +56,12 @@ if TYPE_CHECKING:  # pragma: no cover
 EVDS_PREFIX: Final = "EVDS:"
 #: Years of EVDS history one acquisition covers, ending at the clock's date.
 WINDOW_YEARS: Final = 10
-#: Months of BDDK bulletin one acquisition covers (one request per month).
-BDDK_MONTHS: Final = 24
+#: First month of BDDK bulletin an acquisition covers (one request per month): the start of
+#: the period the product is prepared for (DEC-137), so a fetched series spans what the
+#: prepared ones span. Two years (the first policy) answered "2021-2025" with half the years.
+BDDK_FIRST_MONTH: Final = (2021, 1)
+#: The request contract's own ceiling; the window never asks for more months than this.
+BDDK_MAX_MONTHS: Final = 120
 #: Months before the clock's month the BDDK window ends. The bulletin is published
 #: with a lag; a month not yet published would fail the whole batch, never fill it.
 BDDK_LAG_MONTHS: Final = 3
@@ -107,9 +111,10 @@ def acquisition_window(today: date, years: int = WINDOW_YEARS) -> EvdsWindow:
 
 
 def bddk_window(today: date) -> MonthlyRange:
-    """The operator's fixed BDDK window: `BDDK_MONTHS` ending `BDDK_LAG_MONTHS` ago."""
+    """The operator's fixed BDDK window: `BDDK_FIRST_MONTH` to `BDDK_LAG_MONTHS` ago."""
     last = today.year * 12 + today.month - 1 - BDDK_LAG_MONTHS
-    first = last - BDDK_MONTHS + 1
+    first = max(BDDK_FIRST_MONTH[0] * 12 + BDDK_FIRST_MONTH[1] - 1, last - BDDK_MAX_MONTHS + 1)
+    first = min(first, last)  # a clock before the first month still asks for one month
     return MonthlyRange(
         start=MonthlyPeriod(year=first // 12, month=first % 12 + 1),
         end=MonthlyPeriod(year=last // 12, month=last % 12 + 1),
@@ -143,8 +148,14 @@ REVIEWED_SELECTORS: Final = {
 }
 
 
+#: Every selector the monthly adapter accepts, by catalogue id: the reviewed housing rows
+#: and the supported rows of the bulletin's own listing (DEC-176).
+ROUTED_SELECTORS: Final = {selector.internal_id(): selector for selector in supported_selectors()}
+
+
 def reviewed_selector(series_id: str) -> BddkSelector | None:
-    return REVIEWED_SELECTORS.get(series_id)
+    """The monthly selector a catalogue id names, when the adapter accepts it."""
+    return ROUTED_SELECTORS.get(series_id)
 
 
 def has_reviewed_route(series_id: str) -> bool:
@@ -181,13 +192,20 @@ class AcquisitionStore:
         """`retrieve`, answering from kept responses; appends whether each call was live."""
 
         def wrapped(request: _Fingerprinted) -> FetchOutcome:
-            path = self._path(request.fingerprint())
+            # Kept by what was asked of the source, when the request can say so: one BDDK
+            # table response serves every row and component read out of it.
+            wire = getattr(request, "wire_fingerprint", None)
+            path = self._path(wire() if callable(wire) else request.fingerprint())
             with self._lock:
                 if path.is_file():
                     kept = json.loads(path.read_text(encoding="utf-8"))
                     source.append(False)
+                    # The kept bytes answer this request: another row of the same BDDK table
+                    # shares the wire response, and the loader checks the reply against the
+                    # request it made, so the reply carries this request's own reference.
+                    asked = getattr(request.fetch_request(), "source_ref", kept["source_ref"])
                     return FetchSuccess(
-                        source_ref=kept["source_ref"],
+                        source_ref=asked,
                         content=bytes.fromhex(kept["content"]),
                         media_type=kept["media_type"],
                         http_status=kept["http_status"],

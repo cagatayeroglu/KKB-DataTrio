@@ -13,6 +13,7 @@ from kkb_agent.agent.executor import (
     ValidatedPlan,
     ValidatedStep,
 )
+from kkb_agent.catalog.mappings import is_listed_series
 from kkb_agent.catalog.search import CatalogCandidate, CatalogSearchOutput
 from kkb_agent.core import declared_series_identities
 
@@ -58,7 +59,10 @@ CONTINUATION_INSTRUCTIONS = (
     "amount): use the one that IS the requested measure; if several could be, clarify "
     "ambiguous_series; if none is, answer missing_series. A different subject or kind is "
     "never a substitute (a loan rate for a loan balance, another loan type, a loan rate for "
-    "an exchange rate). none: nothing matched; answer missing_series. "
+    "an exchange rate). none: nothing matched; answer missing_series. tier=listed: the "
+    "source's own directory lists the series and it is fetched on first use; it is as "
+    "usable as a reviewed one when its title and kind are the requested measure, and a "
+    "listed row stands for its total unless the question names TL or FX. "
     "The same defaults govern a choice among prepared identities the discovery did "
     "not rank; a series described as a cross-check is never the default. "
     "Similarity scores never resolve ambiguity; never clarify because a candidate is merely ranked."
@@ -340,4 +344,7 @@ def _candidate_planning_context(candidate: CatalogCandidate) -> dict[str, object
         },
         "concept_ids": candidate.concept_ids,
         "family_ids": candidate.family_ids,
+        # reviewed: checked one by one. listed: from the source's own directory, fetched on
+        # first use, semantics from the source's fields (DEC-176).
+        "tier": "listed" if is_listed_series(reviewed) else "reviewed",
     }

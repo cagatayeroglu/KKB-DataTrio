@@ -143,7 +143,7 @@ def test_component_fingerprints_distinct_but_form_is_same():
     "field,value",
     [
         ("table", 3),
-        ("row", 1),
+        ("row", 7),  # listed, never measured (all zeros): the listing leaves it unsupported
         ("bank_group", 10002),
         ("presentation_currency", "USD"),
         ("geography", "34"),

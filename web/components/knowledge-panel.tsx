@@ -146,6 +146,10 @@ function health(item: KnowledgeSeries, pool?: Dataset | null) {
 function where(item: KnowledgeSeries) {
   if (item.status === "archived") return "Arşivde";
   if (item.origin === "user") return "Kullanıcı beyanı";
+  if (item.origin === "listed")
+    return item.prepared || item.acquired_at
+      ? "Kaynak dizininden · çekildi"
+      : "Kaynak dizininden · ilk kullanımda çekilir";
   if (item.prepared) return "Hazır havuzda";
   if (item.acquired_at)
     return `Kaynaktan çekildi · ${new Date(item.acquired_at).toLocaleString("tr-TR")}`;
@@ -388,6 +392,12 @@ export function KnowledgePanel({
         <span>
           <strong>{counts.user}</strong> eklediğin veri seti
         </span>
+        {listing && (listing.listed_series ?? 0) > 0 && (
+          <span title="Resmî kaynağın kendi dizininden gelen kayıtlar. Aşağıdaki deneme aramasında bulunur, bir soruda ilk kullanıldığında kaynağından çekilir; çekilen ya da not düştüğün kayıtlar listede görünür.">
+            <strong>{listing.listed_series}</strong> kaynak dizini kaydı
+            (aranır, ilk kullanımda çekilir)
+          </span>
+        )}
         <span>
           {listing
             ? listing.catalog_digest === listing.reviewed_digest
@@ -870,7 +880,9 @@ function SeriesDetail({
           <dd>
             {item.origin === "user"
               ? "Senin beyanın; incelenmedi"
-              : "İncelenmiş katalog kaydı"}
+              : item.origin === "listed"
+                ? "Kaynağın kendi dizini; birim ve tür kaynağın alanlarından, tek tek incelenmedi"
+                : "İncelenmiş katalog kaydı"}
           </dd>
         </div>
         {item.description && (

@@ -7,7 +7,7 @@ may fetch EVDS/BDDK/web data. Start the API on its own port with its own state r
     python tests/manual/live_scenarios.py <suite> --state-root <dir> [--port 8001] [--budget 60]
 
 Suites: chain, rerun, external, upload, edge, e1, analytics, causality, jury, kb, cancel,
-missing. Each suite
+missing, directory. Each suite
 opens one new conversation. `kb` first saves two cumulative datasets to the knowledge base
 of the served state root and builds the vectors again; `cancel` stops its first turn.
 The model-call budget is counted from stored trace events (planner calls and writer
@@ -126,6 +126,24 @@ SUITES: dict[str, list[tuple[str, str, dict[str, object]]]] = {
             {},
         ),
         ("A4-deflate-no-base", "Toplam konut kredisi bakiyesini enflasyondan arındır.", {}),
+    ],
+    # DEC-176: measures only the BDDK bulletin's own listing knows. Each is found by search,
+    # fetched from the bulletin on first use (2021-01 onwards) and computed like any series;
+    # D3 is an official year-to-date total turned into monthly amounts.
+    "directory": [
+        ("D1-personal-loans", "İhtiyaç kredisi bakiyesi son bir yılda nasıl değişti?", {}),
+        (
+            "D2-cards-real",
+            "Bireysel kredi kartı bakiyesini 2024–2025 için aylık getir ve TÜFE ile Aralık 2025 "
+            "fiyatlarına göre enflasyondan arındır.",
+            {},
+        ),
+        (
+            "D3-net-profit-flow",
+            "Bankacılık sektörünün dönem net kârını 2025 yılı için aylık tutara çevir.",
+            {},
+        ),
+        ("D4-npl-cards", "Takipteki bireysel kredi kartı alacakları 2025'te ne kadar arttı?", {}),
     ],
     # A3 alone: the provider timed out on it twice, so it is re-run without its neighbours.
     "causality": [
