@@ -122,3 +122,34 @@ def test_a_turn_fetches_and_transforms_in_one_plan_and_publishes_the_result(pool
     published = workspace.value_of("tufe_haziran_bazli")
     assert published.evidence.transformations[-1].operation == "rebase"
     assert workspace.names() == [PUBLISHED, "tufe_haziran_bazli"]
+
+
+def test_a_one_column_fetched_table_is_used_when_the_planner_names_a_column_it_could_not_see(
+    pool,
+):
+    """Live E1 (2026-09-19): the planner wrote column="value" for a lakehouse step's table."""
+    lake, workspace = pool
+    steps = [
+        fetch(),
+        {
+            **rebase("fetch", ["fetch"]),
+            "arguments": {**rebase("fetch")["arguments"], "column": "value"},
+        },
+    ]
+    provider = scripted(json.dumps({"question": QUESTION, "steps": steps}), "Tablo hazırlandı.")
+    answered = Session(provider, registry_for(pool)).answer(
+        QUESTION, lake.connection, workspace=workspace, remember="tufe_bazli_value"
+    )
+    assert answered.answer.status is AnswerStatus.ACCEPTED, answered.answer
+    published = workspace.value_of("tufe_bazli_value")
+    assert published.parameters["column_resolution"] == {"requested": "value", "used": CPI_ID}
+    assert any("its only column" in warning for warning in published.warnings)
+    assert published.evidence.transformations[-1].operation == "rebase"
+
+
+def test_a_wrong_label_on_a_table_with_several_columns_names_them(pool):
+    lake, workspace = pool
+    result = transform_tool(lake, workspace).run(transform(column="value"), ExecutionContext("t"))
+    assert result.status is ToolStatus.SUCCESS and result.output.status is ResultStatus.ABSTAINED
+    assert "the table's columns are:" in result.output.reason
+    assert "EVDS:TP.KTF12" in result.output.reason and "BDDK:selector" in result.output.reason
