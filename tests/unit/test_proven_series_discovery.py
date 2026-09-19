@@ -289,3 +289,14 @@ def test_the_rejection_names_the_unsearched_series_and_asks_for_every_measure():
     message = str(refused.value)
     assert OTHER in message and TOTAL not in message
     assert "one query for EACH measure" in message
+
+
+def test_a_web_search_plan_needs_no_catalogue_discovery():
+    """Live W1 (2026-09-19): the rule refused every web_search plan, so the tool never ran."""
+    from kkb_agent.tools.web_search import SearchRequest
+
+    plan = plan_of(step("web_search", SearchRequest(query="TCMB faiz kararı")))
+    assert not needs_series_discovery(plan)
+    validate_discovery_phase(
+        plan, continuation=False, require_series_discovery=True, proven_series=frozenset()
+    )
