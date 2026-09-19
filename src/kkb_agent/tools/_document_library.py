@@ -23,6 +23,7 @@ from typing import Final
 
 from kkb_agent.core import SourceRef
 from kkb_agent.ingest.attached import Attachment
+from kkb_agent.pdf_ocr import OcrProvider
 from kkb_agent.tools._document_value import _text, grids
 from kkb_agent.tools.web_url import read_attachment
 
@@ -45,8 +46,10 @@ def _header(value: object) -> str:
     return _CONTROL.sub(" ", _text(value)).strip()[:MAX_HEADER_CHARS]
 
 
-def _tables(attachment: Attachment, sheet: str | None) -> tuple[list[dict[str, object]], list[str]]:
-    read = read_attachment(attachment, sheet=sheet)
+def _tables(
+    attachment: Attachment, sheet: str | None, ocr: OcrProvider | None = None
+) -> tuple[list[dict[str, object]], list[str]]:
+    read = read_attachment(attachment, sheet=sheet, ocr=ocr)
     output = read.output
     sheets = list(output.sheets[:MAX_SHEETS])
     if read.failure is not None:
@@ -63,14 +66,20 @@ def _tables(attachment: Attachment, sheet: str | None) -> tuple[list[dict[str, o
     return tables, sheets
 
 
-def describe_document(content: bytes, media_type: str) -> list[dict[str, object]]:
-    """Table locations, header texts and row counts of fetched bytes; no values, no OCR."""
+def describe_document(
+    content: bytes, media_type: str, ocr: OcrProvider | None = None
+) -> list[dict[str, object]]:
+    """Table locations, header texts and row counts of fetched bytes; no values.
+
+    With the operator's `ocr`, a page without a text layer (a scan, a picture) is outlined
+    from what the OCR model reads, so the planner names real headers instead of guessing.
+    """
     attachment = Attachment(
         content,
         media_type,
         SourceRef(source_id="outline:address", source_type="web_url", locator="outline:address"),
     )
-    tables, sheets = _tables(attachment, None)
+    tables, sheets = _tables(attachment, None, ocr)
     if sheets and not tables:
         return [
             {"sheet_index": index, "tables": _tables(attachment, sheet)[0]}
@@ -79,13 +88,19 @@ def describe_document(content: bytes, media_type: str) -> list[dict[str, object]
     return tables
 
 
-def document_outline(library: Mapping[str, Attachment], current: str | None) -> str | None:
-    """A bounded JSON outline of every document in the conversation, or None."""
+def document_outline(
+    library: Mapping[str, Attachment], current: str | None, ocr: OcrProvider | None = None
+) -> str | None:
+    """A bounded JSON outline of every document in the conversation, or None.
+
+    Live 2026-09-19 (a picture of a table): outlined without OCR, a page with no text layer
+    showed the planner no header at all; it invented a column name and the read failed.
+    """
     if not library:
         return None
     documents: list[dict[str, object]] = []
     for name, attachment in list(library.items())[:MAX_DOCUMENTS]:
-        tables, sheets = _tables(attachment, None)
+        tables, sheets = _tables(attachment, None, ocr)
         entry: dict[str, object] = {
             "name": name,
             "media_type": attachment.media_type,

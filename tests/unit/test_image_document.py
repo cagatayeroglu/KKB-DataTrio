@@ -153,3 +153,28 @@ def test_the_upload_route_takes_a_picture_and_stores_the_page(tmp_path):
         )
         assert broken.status_code == 422
     store.close()
+
+
+def test_the_planners_outline_of_a_picture_names_the_headers_ocr_read():
+    """Live I1 (2026-09-19): outlined without OCR, a picture showed the planner no header; it
+    invented a column name and the read failed with COLUMN_NOT_FOUND."""
+    from kkb_agent.ingest.attached import Attachment
+    from kkb_agent.pdf_ocr import CachedOcr
+    from kkb_agent.tools._document_library import document_outline
+
+    table = (
+        "<table><tr><td>Ay</td><td>Altın (kg)</td></tr><tr><td>Ocak 2026</td><td>10</td></tr>"
+        "<tr><td>Şubat 2026</td><td>15</td></tr><tr><td>Toplam</td><td>25</td></tr></table>"
+    )
+    model = FakeOcr(text=table)
+    ocr = CachedOcr(model)
+    page = admit_upload(io.BytesIO(picture()), filename="t.png", content_type="image/png")
+    library = {"belge_1": Attachment(page.content, "application/pdf", SOURCE)}
+    assert '"headers": []' in document_outline(library, "belge_1") or "Altın" not in (
+        document_outline(library, "belge_1") or ""
+    )
+    outlined = document_outline(library, "belge_1", ocr)
+    assert "Altın (kg)" in outlined and '"Ay"' in outlined
+    # The tool's later read of the same page costs no second model call.
+    document_outline(library, "belge_1", ocr)
+    assert len(model.calls) == 1
