@@ -53,7 +53,9 @@ def make_catalog_search_tool(
             "Does not fetch observation values or produce verified analytical claims. "
             "Preserves unresolved concepts, ambiguity and unknown metadata; top-1 is not truth. "
             "Archived records are excluded unless include_archived=true. "
-            "source filters provider and frequency filters declared native frequency. "
+            "source filters by provider (EVDS, BDDK) or a publisher the reviewed labels name "
+            "(TÜİK, TCMB); frequency filters declared native frequency; a filter that matches "
+            "nothing returns FILTERED_OUT with no candidates, so omit filters when unsure. "
             + (
                 "Uses configured lexical and local dense candidate stages; "
                 "failures are explicitly degraded. "

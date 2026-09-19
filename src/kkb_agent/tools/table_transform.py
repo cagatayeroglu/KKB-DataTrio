@@ -123,7 +123,10 @@ class DeflateArguments(BaseModel):
     column: str = Field(
         min_length=1,
         max_length=400,
-        description="The column's exact label in that result",
+        description=(
+            "The column's exact label in that result. A table fetched by a lakehouse step of "
+            "this plan labels each column by its series_id; a one-column table is used as is"
+        ),
     )
     index_series_id: SeriesId = Field(
         min_length=1, max_length=200, description="A registered monthly price index series"
@@ -315,7 +318,14 @@ class RebaseArguments(BaseModel):
 
     operation: Literal["rebase"]
     source: str = Field(pattern=r"^[A-Za-z0-9_.:-]{1,64}$", description=_SOURCE_UNCHANGED)
-    column: str = Field(min_length=1, max_length=400)
+    column: str = Field(
+        min_length=1,
+        max_length=400,
+        description=(
+            "The index column's exact label (a fetched series' label is its series_id); a "
+            "one-column table is used as is"
+        ),
+    )
     reference_period: date = Field(description="Existing period end that becomes the new base")
     new_base: float = Field(strict=True, gt=0, description="Explicit new index level, usually 100")
 
@@ -402,6 +412,39 @@ class DocumentTableTransformArguments(
     """The same operations plus `add_document_column`, offered only with a fetch boundary."""
 
 
+_METHODS = {
+    "deflate": METHOD,
+    "resample": RESAMPLE_METHOD,
+    "to_flow": TO_FLOW_METHOD,
+    "rebase": REBASE_METHOD,
+}
+
+
+class ColumnUnknown(ValueError):
+    """The requested column is not in the table and the table has several."""
+
+
+def _column_of(source: AnalyticalResult, requested: str) -> tuple[str, str | None]:
+    """The label the request names, or a one-column table's only label.
+
+    A same-plan step's table has labels the planner could not read when it planned:
+    a lakehouse fetch labels each column by series_id, and the live E1 turn
+    (2026-09-19) asked to deflate column 'value'. With one column there is nothing
+    to choose, so it is used and the resolution is recorded on the result. Several
+    columns must be named exactly; the refusal lists them.
+    """
+    labels = list(dict.fromkeys(value.label for value in source.values))
+    if requested in labels:
+        return requested, None
+    if len(labels) == 1:
+        return labels[0], (
+            f"Column {requested!r} is not in the table; its only column {labels[0]!r} was used"
+        )
+    raise ColumnUnknown(
+        f"No values are labelled {requested!r}; the table's columns are: " + "; ".join(labels)
+    )
+
+
 def _table_input(arguments: BaseModel) -> TableInput | None:
     if isinstance(arguments, (TableTransformArguments, DocumentTableTransformArguments)):
         selected = arguments.root
@@ -479,7 +522,30 @@ def make_table_transform_tool(
             return resolved
         source, origin = resolved
         inputs = [canonical({origin: selected.source, "result": source.model_dump(mode="json")})]
-        if isinstance(selected, (DeflateArguments, AddSeriesArguments)):
+        resolution: str | None = None
+        requested_column: str | None = None
+        refusal: AnalyticalResult | None = None
+        if isinstance(
+            selected, (DeflateArguments, ResampleArguments, ToFlowArguments, RebaseArguments)
+        ):
+            try:
+                label, resolution = _column_of(source, selected.column)
+            except ColumnUnknown as error:
+                refusal = AnalyticalResult(
+                    result_id=f"table_transform:{selected.operation}:{selected.source}",
+                    kind=ResultKind.SERIES,
+                    status=ResultStatus.ABSTAINED,
+                    tool="table_transform",
+                    method=_METHODS[selected.operation],
+                    reason=str(error),
+                )
+            else:
+                if label != selected.column:
+                    requested_column = selected.column
+                    selected = selected.model_copy(update={"column": label})
+        if refusal is not None:
+            result = refusal
+        elif isinstance(selected, (DeflateArguments, AddSeriesArguments)):
             series_id = (
                 selected.series_id
                 if isinstance(selected, AddSeriesArguments)
@@ -581,6 +647,19 @@ def make_table_transform_tool(
                 result = _documented(selected, source, column, document, source_node, csv)
         else:
             result = _closed_transform(selected, source)
+        if resolution is not None and result.status is ResultStatus.COMPUTED:
+            result = result.model_copy(
+                update={
+                    "warnings": [*result.warnings, resolution],
+                    "parameters": {
+                        **result.parameters,
+                        "column_resolution": {
+                            "requested": requested_column,
+                            "used": getattr(selected, "column", None),
+                        },
+                    },
+                }
+            )
         recorded = _recorded_arguments(selected)
         node = None
         if lineage is not None and result.status is ResultStatus.COMPUTED:

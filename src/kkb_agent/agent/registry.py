@@ -12,7 +12,7 @@ is no `shell`, so the plan is rejected before anything runs.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -65,11 +65,32 @@ class ToolSpec:
         try:
             return self.arguments.model_validate(raw)
         except ValidationError as error:
-            locations = "; ".join(
-                ".".join(str(piece) for piece in item["loc"]) + f": {item['type']}"
-                for item in error.errors()
-            )
+            locations = "; ".join(_describe(item) for item in error.errors())
             raise ArgumentsRejected(f"{self.name}: {locations}") from error
+
+
+def _describe(item: Mapping[str, Any]) -> str:
+    """One validation error as a repair instruction, never as a bare type code.
+
+    A wrong `operation` on a discriminated union used to read "table_transform: :
+    union_tag_invalid" (live E1c, 2026-09-19); the planner spent a repair on it. The
+    tags the union accepts are what it needed.
+    """
+    location = ".".join(str(piece) for piece in item["loc"]) or "arguments"
+    text = f"{location}: {item['type']}"
+    context = item.get("ctx") or {}
+    if "expected_tags" in context:
+        text += (
+            f" (operation {context.get('tag')!r} is not one of this tool's operations: "
+            f"{context['expected_tags']})"
+        )
+    elif "expected" in context:
+        text += f" (expected {context['expected']})"
+    elif str(item["type"]) == "value_error" and item.get("msg"):
+        # A model validator's own sentence is the repair; the type code alone is not
+        # (live X4, 2026-09-19: "change_detection: co_movement: value_error").
+        text += f" ({item['msg']})"
+    return text
 
 
 class ToolRegistry:

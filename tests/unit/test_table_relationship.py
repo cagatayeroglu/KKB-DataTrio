@@ -1050,3 +1050,20 @@ def test_explanatory_continuation_keeps_distinct_joint_and_unconditional_counts(
         update={"values": [value for value in source.values if value.label != REAL_LABEL]}
     )
     assert _deflated_columns(nominal_only, arguments).target == "credit"
+
+
+def test_a_same_plan_step_named_as_source_is_read_like_input_step(pool):
+    """Live E1c (2026-09-19): the second co-movement count named the first step as source."""
+    tool = registry_for(pool).get("change_detection")
+    earlier = pool[1].value_of("konut_kredisi_ve_faiz")
+    arguments = args(
+        input_step=None,
+        source="first_count",
+        driver_column="EVDS:TP.KTF12 monthly average (by_end)",
+        driver_direction="down",
+    )
+    result = tool.run(tool.parse(arguments), ExecutionContext("compare", {"first_count": earlier}))
+    assert result.error_category is None, result.warnings
+    assert counts(result.output) == [5, 0, 5, 4, 3, 3]
+    missing = tool.run(tool.parse(arguments), ExecutionContext("compare"))
+    assert missing.error_category == "table_reference"

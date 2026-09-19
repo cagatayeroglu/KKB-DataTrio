@@ -38,7 +38,11 @@ class TableRelationshipArguments(BaseModel):
     source: str | None = Field(
         default=None,
         pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
-        description="Published table name from a previous turn. Use this OR input_step.",
+        description=(
+            "Published table name from a previous turn, or the step_id of an earlier "
+            "table-producing step of this plan (then list it in depends_on). Use this OR "
+            "input_step."
+        ),
     )
     driver_column: str = Field(min_length=1, max_length=400, description="Exact column label")
     target_column: str = Field(
@@ -234,11 +238,18 @@ def run_table_relationship(
     source: object = None
     if arguments.input_step is not None:
         source = context.outputs.get(arguments.input_step)
-    elif workspace is not None and arguments.source is not None:
-        try:
-            source = workspace.value_of(arguments.source)
-        except WorkspaceError:
-            pass
+    elif arguments.source is not None:
+        # A published table first; else an earlier step of this plan named the same
+        # way table_transform accepts it (DEC-166: live E1c, 2026-09-19, chained two
+        # co-movement counts and named the first step as `source`).
+        if workspace is not None:
+            try:
+                source = workspace.value_of(arguments.source)
+            except WorkspaceError:
+                source = None
+        if source is None:
+            produced = context.outputs.get(arguments.source)
+            source = getattr(produced, "result", produced)
     if (
         not isinstance(source, AnalyticalResult)
         or source.status is not ResultStatus.COMPUTED
