@@ -93,6 +93,18 @@ INPUTS = ("silver_series", "silver_observations")
 NOMINAL_LIMITATION = "Values are nominal; no inflation adjustment was applied"
 
 
+#: Every table argument accepts a published result or a step of this plan (DEC-165).
+_SOURCE = (
+    "A published result from an earlier turn, or the step_id of an earlier step in this "
+    "plan that produced a table (then list that step in depends_on)"
+)
+_SOURCE_UNCHANGED = _SOURCE + "; its rows stay unchanged"
+_OTHER = (
+    "Another published result, or an earlier step of this plan such as a fetched or "
+    "uploaded table (then list that step in depends_on)"
+)
+
+
 class DeflateArguments(BaseModel):
     """What the planner may ask for; references only, never table contents."""
 
@@ -106,7 +118,7 @@ class DeflateArguments(BaseModel):
     )
     source: str = Field(
         pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
-        description="Name of a published result from an earlier turn",
+        description=_SOURCE,
     )
     column: str = Field(
         min_length=1,
@@ -146,7 +158,7 @@ class ToFlowArguments(BaseModel):
     )
     source: str = Field(
         pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
-        description="Name of a published result from an earlier turn; its rows stay unchanged",
+        description=_SOURCE_UNCHANGED,
     )
     column: str = Field(
         min_length=1,
@@ -170,7 +182,7 @@ class ResampleArguments(BaseModel):
     )
     source: str = Field(
         pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
-        description="Name of a published result from an earlier turn; its rows stay unchanged",
+        description=_SOURCE_UNCHANGED,
     )
     column: str = Field(
         min_length=1,
@@ -193,7 +205,7 @@ class AddSeriesArguments(BaseModel):
     operation: Literal["add_series"]
     source: str = Field(
         pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
-        description="Name of a published result from an earlier turn; its rows stay unchanged",
+        description=_SOURCE_UNCHANGED,
     )
     series_id: SeriesId = Field(
         min_length=1, max_length=200, description="Registered monthly series to add as a column"
@@ -208,7 +220,7 @@ class AddDocumentColumnArguments(BaseModel):
     operation: Literal["add_document_column"]
     source: str = Field(
         pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
-        description="Name of a published result from an earlier turn; its rows stay unchanged",
+        description=_SOURCE_UNCHANGED,
     )
     url: str | None = Field(
         default=None,
@@ -276,11 +288,11 @@ class JoinTableArguments(BaseModel):
     operation: Literal["join_table"]
     source: str = Field(
         pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
-        description="Published result whose rows stay unchanged (the selected table)",
+        description=_SOURCE_UNCHANGED + " (the selected table)",
     )
     other: str = Field(
         pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
-        description="Another published result from an earlier turn, such as an uploaded table",
+        description=_OTHER,
     )
     columns: tuple[Annotated[str, Field(min_length=1, max_length=400)], ...] | None = Field(
         default=None,
@@ -302,7 +314,7 @@ class RebaseArguments(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     operation: Literal["rebase"]
-    source: str = Field(pattern=r"^[A-Za-z0-9_.:-]{1,64}$")
+    source: str = Field(pattern=r"^[A-Za-z0-9_.:-]{1,64}$", description=_SOURCE_UNCHANGED)
     column: str = Field(min_length=1, max_length=400)
     reference_period: date = Field(description="Existing period end that becomes the new base")
     new_base: float = Field(strict=True, gt=0, description="Explicit new index level, usually 100")
@@ -314,7 +326,7 @@ class AlignArguments(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     operation: Literal["align"]
-    source: str = Field(pattern=r"^[A-Za-z0-9_.:-]{1,64}$")
+    source: str = Field(pattern=r"^[A-Za-z0-9_.:-]{1,64}$", description=_SOURCE_UNCHANGED)
     columns: tuple[str, ...] = Field(min_length=2, max_length=32)
     join: Literal["inner", "left"]
     anchor_column: str | None = None
@@ -336,7 +348,7 @@ class FilterArguments(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     operation: Literal["filter"]
-    source: str = Field(pattern=r"^[A-Za-z0-9_.:-]{1,64}$")
+    source: str = Field(pattern=r"^[A-Za-z0-9_.:-]{1,64}$", description=_SOURCE_UNCHANGED)
     start_period: date | None = None
     end_period: date | None = None
 
@@ -392,7 +404,9 @@ class DocumentTableTransformArguments(
 
 def _table_input(arguments: BaseModel) -> TableInput | None:
     if isinstance(arguments, (TableTransformArguments, DocumentTableTransformArguments)):
-        return TableInput(source=arguments.root.source)
+        selected = arguments.root
+        others = (selected.other,) if isinstance(selected, JoinTableArguments) else ()
+        return TableInput(source=selected.source, others=others)
     return None
 
 
@@ -428,26 +442,43 @@ def make_table_transform_tool(
             warnings=(message,),
         )
 
+    def resolve(
+        name: str, context: ExecutionContext, role: str
+    ) -> tuple[AnalyticalResult, str] | ToolResult:
+        """A table by name: a current published result, else an earlier step of this plan.
+
+        The validator required a same-plan step to be declared in depends_on, so
+        the executor ran it first and its result is in the context (E1, DEC-165).
+        """
+        try:
+            table: AnalyticalResult = workspace.value_of(name)
+            origin = "workspace"
+        except WorkspaceError:
+            produced = context.outputs.get(name)
+            candidate = getattr(produced, "result", produced)
+            if not isinstance(candidate, AnalyticalResult):
+                return failure(
+                    "workspace_reference",
+                    f"No current published result or earlier step of this plan is named {name!r}",
+                )
+            table, origin = candidate, "step"
+        if table.status is not ResultStatus.COMPUTED:
+            return failure("workspace_reference", f"{name!r} holds no computed values")
+        if result_faults({name: table}, connection):
+            return failure("workspace_evidence", f"The {role} table cannot be verified")
+        return table, origin
+
     def run(arguments: BaseModel, context: ExecutionContext) -> ToolResult:
         if not isinstance(
             arguments, (TableTransformArguments, DocumentTableTransformArguments)
         ):  # pragma: no cover
             raise TypeError("table_transform received arguments it did not declare")
         selected = arguments.root
-        try:
-            source = workspace.value_of(selected.source)
-        except WorkspaceError:
-            return failure(
-                "workspace_reference",
-                f"No current published result is named {selected.source!r}",
-            )
-        if source.status is not ResultStatus.COMPUTED:
-            return failure("workspace_reference", f"{selected.source!r} holds no computed values")
-        if result_faults({selected.source: source}, connection):
-            return failure("workspace_evidence", "The source table cannot be verified")
-        inputs = [
-            canonical({"workspace": selected.source, "result": source.model_dump(mode="json")})
-        ]
+        resolved = resolve(selected.source, context, "source")
+        if isinstance(resolved, ToolResult):
+            return resolved
+        source, origin = resolved
+        inputs = [canonical({origin: selected.source, "result": source.model_dump(mode="json")})]
         if isinstance(selected, (DeflateArguments, AddSeriesArguments)):
             series_id = (
                 selected.series_id
@@ -479,21 +510,12 @@ def make_table_transform_tool(
             inputs.append(series.snapshot)
             result = _flowed(selected, source, series.semantics)
         elif isinstance(selected, JoinTableArguments):
-            try:
-                other = workspace.value_of(selected.other)
-            except WorkspaceError:
-                return failure(
-                    "workspace_reference",
-                    f"No current published result is named {selected.other!r}",
-                )
-            if other.status is not ResultStatus.COMPUTED:
-                return failure(
-                    "workspace_reference", f"{selected.other!r} holds no computed values"
-                )
-            if result_faults({selected.other: other}, connection):
-                return failure("workspace_evidence", "The other table cannot be verified")
+            resolved_other = resolve(selected.other, context, "other")
+            if isinstance(resolved_other, ToolResult):
+                return resolved_other
+            other, other_origin = resolved_other
             inputs.append(
-                canonical({"workspace": selected.other, "result": other.model_dump(mode="json")})
+                canonical({other_origin: selected.other, "result": other.model_dump(mode="json")})
             )
             result = _joined(selected, source, other)
         elif isinstance(selected, AddDocumentColumnArguments):

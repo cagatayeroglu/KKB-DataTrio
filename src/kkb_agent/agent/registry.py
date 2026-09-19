@@ -45,6 +45,8 @@ class TableInput:
 
     source: str | None = None
     input_step: str | None = None
+    #: Further tables the step reads by name (a join's other side).
+    others: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
