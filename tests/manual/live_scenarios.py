@@ -181,6 +181,14 @@ SUITES: dict[str, list[tuple[str, str, dict[str, object]]]] = {
         ),
         ("E6-unemployment", "İşsizlik oranı 2025'te nasıl değişti?", {}),
     ],
+    # DEC-180: the search tool over the operator's own SearXNG.
+    "search": [
+        (
+            "W1-web-search",
+            "TCMB'nin en son faiz kararını internette ara; bulduğun kaynakları başlıklarıyla listele.",
+            {},
+        ),
+    ],
     # DEC-179: a picture of a table attached to the question, read by the OCR model.
     "image": [
         (
