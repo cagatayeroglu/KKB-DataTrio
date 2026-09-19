@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import Field
 
-from kkb_agent.catalog.mappings import Digest, ReviewedSnapshot
+from kkb_agent.catalog.mappings import (
+    Digest,
+    ReviewedSeries,
+    ReviewedSnapshot,
+    series_display_name,
+)
 from kkb_agent.catalog.records import CatalogStatus, CoverageRange
 from kkb_agent.core import Aggregation, CumulativeKind, Frequency, Scale, StockFlow, WeeklyAnchor
 from kkb_agent.core.models import ContractModel
@@ -73,12 +79,32 @@ class PreparedSeriesInspector:
     Lakehouse's single-owner connection requirement remains in force.
     """
 
-    def __init__(self, snapshot: ReviewedSnapshot, *, allow_archived: bool = False):
+    def __init__(
+        self,
+        snapshot: ReviewedSnapshot,
+        *,
+        allow_archived: bool = False,
+        late: Callable[[str], ReviewedSeries | None] | None = None,
+    ):
         if type(allow_archived) is not bool:
             raise TypeError("allow_archived must be an operator boolean")
         self._snapshot = ReviewedSnapshot.model_validate(snapshot.model_dump(mode="json"))
         self._series = {s.record.series_id: s for s in self._snapshot.series}
         self._allow_archived = allow_archived
+        # Operator wiring (DEC-177): entries a source's own directory listed after this
+        # snapshot was built, in this very turn. Never model-supplied metadata.
+        self._late = late
+
+    def why_unread(self, series_id: str) -> str | None:
+        """Why a series this inspector refused has no stored values; nothing is fetched here."""
+        return None
+
+    def name_of(self, series_id: str) -> str | None:
+        """What a series is, from its catalogue entry alone; None for an unknown identity."""
+        selected = self._series.get(series_id)
+        if selected is None and self._late is not None:
+            selected = self._late(series_id)
+        return series_display_name(selected) if selected is not None else None
 
     def inspect(self, connection: DuckDBPyConnection, series_id: str) -> SeriesInspection:
         if (
@@ -93,6 +119,8 @@ class PreparedSeriesInspector:
             snapshot_sha256=self._snapshot.content_sha256,
         )
         selected = self._series.get(series_id)
+        if selected is None and self._late is not None:
+            selected = self._late(series_id)
         if selected is None:
             return result
         record = selected.record

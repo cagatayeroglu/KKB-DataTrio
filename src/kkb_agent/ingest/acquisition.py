@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
@@ -40,13 +41,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final, Protocol
 
 from kkb_agent.catalog.inspection import PreparedSeriesInspector, SeriesInspection
-from kkb_agent.ingest.bddk_monthly import BddkSelector, MonthlyPeriod
+from kkb_agent.core import Frequency
+from kkb_agent.ingest.bddk_monthly import BddkSelector, MonthlyPeriod, supported_selectors
 from kkb_agent.ingest.bddk_monthly_load import MonthlyLoadCode, MonthlyLoadError, ingest_monthly
 from kkb_agent.ingest.bddk_monthly_request import MonthlyRange, MonthlyRequest, fetch_monthly
 from kkb_agent.ingest.evds_load import EvdsLoadCode, EvdsLoadError, ingest_series
 from kkb_agent.ingest.evds_request import EvdsRequest, EvdsWindow, fetch_series
-from kkb_agent.ingest.evds_series import REVIEWED_SERIES
-from kkb_agent.ingest.safe_fetch import FetchOutcome, FetchSuccess
+from kkb_agent.ingest.evds_series import REVIEWED_SERIES, ReviewedEvdsSeries
+from kkb_agent.ingest.safe_fetch import FetchCode, FetchFailure, FetchOutcome, FetchSuccess
 
 if TYPE_CHECKING:  # pragma: no cover
     from duckdb import DuckDBPyConnection
@@ -56,13 +58,73 @@ if TYPE_CHECKING:  # pragma: no cover
 EVDS_PREFIX: Final = "EVDS:"
 #: Years of EVDS history one acquisition covers, ending at the clock's date.
 WINDOW_YEARS: Final = 10
-#: Months of BDDK bulletin one acquisition covers (one request per month).
-BDDK_MONTHS: Final = 24
+#: First month of BDDK bulletin an acquisition covers (one request per month): the start of
+#: the period the product is prepared for (DEC-137), so a fetched series spans what the
+#: prepared ones span. Two years (the first policy) answered "2021-2025" with half the years.
+BDDK_FIRST_MONTH: Final = (2021, 1)
+#: The request contract's own ceiling; the window never asks for more months than this.
+BDDK_MAX_MONTHS: Final = 120
 #: Months before the clock's month the BDDK window ends. The bulletin is published
 #: with a lag; a month not yet published would fail the whole batch, never fill it.
 BDDK_LAG_MONTHS: Final = 3
-#: Acquisitions one turn may start. Each is live traffic to a public source.
-MAX_ATTEMPTS_PER_TURN: Final = 3
+#: Listed calendars whose window runs to the clock's day instead of the last whole month.
+_DATED_TO_TODAY: Final = frozenset({Frequency.DAILY, Frequency.BUSINESS_DAY, Frequency.WEEKLY})
+#: Acquisitions one turn may start. Each is live traffic to a public source, so there is a
+#: ceiling; it is the number of series one typed read may name, so that a single question
+#: comparing that many new series is never cut short by the fetch budget.
+MAX_ATTEMPTS_PER_TURN: Final = 12
+
+
+#: A read that may succeed when asked once more; a refused destination or type will not.
+TRANSIENT_FETCH_CODES: Final = frozenset(
+    {FetchCode.TIMEOUT, FetchCode.TRANSPORT_FAILURE, FetchCode.DNS_FAILURE}
+)
+#: Reads of one request within one acquisition. A BDDK series is one request a month from
+#: 2021-01: sixty-six in a row, and one transient failure among them used to fail the whole
+#: batch and with it the turn (live D1, 2026-09-19; the same sixty-six succeeded when asked
+#: again). The adapters themselves still never retry.
+FETCH_ATTEMPTS: Final = 3
+
+
+def patient[R](
+    retrieve: Callable[[R], FetchOutcome], pause: Callable[[float], None] = time.sleep
+) -> Callable[[R], FetchOutcome]:
+    """`retrieve`, asking the very same request again after a transient failure."""
+
+    def wrapped(request: R) -> FetchOutcome:
+        outcome = retrieve(request)
+        attempts = 1
+        while (
+            isinstance(outcome, FetchFailure)
+            and outcome.code in TRANSIENT_FETCH_CODES
+            and attempts < FETCH_ATTEMPTS
+        ):
+            pause(0.5 * attempts)
+            outcome = retrieve(request)
+            attempts += 1
+        return outcome
+
+    return wrapped
+
+
+#: What the planner is told when a fetch on first use did not store a series. Fixed text:
+#: never a source's words, and each one says what can still be done.
+UNREAD_REASONS: Final = {
+    "unreached": (
+        "the official source could not be reached after several attempts; do not replace it "
+        "with a different series, say that the source did not answer"
+    ),
+    "budget": (
+        "this turn already fetched as many new series as one turn may; read the ones fetched "
+        "so far and leave the rest to a following question"
+    ),
+    "no_route": "no adapter can fetch this identity",
+    "empty": (
+        "the source lists this series but publishes no observation for it in the fetched "
+        "years; choose another candidate or say that the source has no data for it"
+    ),
+    "refused": "the source's answer did not pass the loader's checks, so nothing was stored",
+}
 
 
 class AcquisitionCode(StrEnum):
@@ -107,9 +169,10 @@ def acquisition_window(today: date, years: int = WINDOW_YEARS) -> EvdsWindow:
 
 
 def bddk_window(today: date) -> MonthlyRange:
-    """The operator's fixed BDDK window: `BDDK_MONTHS` ending `BDDK_LAG_MONTHS` ago."""
+    """The operator's fixed BDDK window: `BDDK_FIRST_MONTH` to `BDDK_LAG_MONTHS` ago."""
     last = today.year * 12 + today.month - 1 - BDDK_LAG_MONTHS
-    first = last - BDDK_MONTHS + 1
+    first = max(BDDK_FIRST_MONTH[0] * 12 + BDDK_FIRST_MONTH[1] - 1, last - BDDK_MAX_MONTHS + 1)
+    first = min(first, last)  # a clock before the first month still asks for one month
     return MonthlyRange(
         start=MonthlyPeriod(year=first // 12, month=first % 12 + 1),
         end=MonthlyPeriod(year=last // 12, month=last % 12 + 1),
@@ -143,8 +206,14 @@ REVIEWED_SELECTORS: Final = {
 }
 
 
+#: Every selector the monthly adapter accepts, by catalogue id: the reviewed housing rows
+#: and the supported rows of the bulletin's own listing (DEC-176).
+ROUTED_SELECTORS: Final = {selector.internal_id(): selector for selector in supported_selectors()}
+
+
 def reviewed_selector(series_id: str) -> BddkSelector | None:
-    return REVIEWED_SELECTORS.get(series_id)
+    """The monthly selector a catalogue id names, when the adapter accepts it."""
+    return ROUTED_SELECTORS.get(series_id)
 
 
 def has_reviewed_route(series_id: str) -> bool:
@@ -181,13 +250,20 @@ class AcquisitionStore:
         """`retrieve`, answering from kept responses; appends whether each call was live."""
 
         def wrapped(request: _Fingerprinted) -> FetchOutcome:
-            path = self._path(request.fingerprint())
+            # Kept by what was asked of the source, when the request can say so: one BDDK
+            # table response serves every row and component read out of it.
+            wire = getattr(request, "wire_fingerprint", None)
+            path = self._path(wire() if callable(wire) else request.fingerprint())
             with self._lock:
                 if path.is_file():
                     kept = json.loads(path.read_text(encoding="utf-8"))
                     source.append(False)
+                    # The kept bytes answer this request: another row of the same BDDK table
+                    # shares the wire response, and the loader checks the reply against the
+                    # request it made, so the reply carries this request's own reference.
+                    asked = getattr(request.fetch_request(), "source_ref", kept["source_ref"])
                     return FetchSuccess(
-                        source_ref=kept["source_ref"],
+                        source_ref=asked,
                         content=bytes.fromhex(kept["content"]),
                         media_type=kept["media_type"],
                         http_status=kept["http_status"],
@@ -246,6 +322,11 @@ class OfficialSources:
     evds: Callable[[EvdsRequest], FetchOutcome] = fetch_series
     bddk: Callable[[MonthlyRequest], FetchOutcome] = fetch_monthly
     store: AcquisitionStore | None = None
+    #: The wait before a transient failure is asked again; a test passes a no-op.
+    pause: Callable[[float], None] = time.sleep
+    #: Operator wiring (DEC-177): the declaration of a series EVDS's own directory listed,
+    #: by catalogue id. Without it only the reviewed registry has a route.
+    listed_evds: Callable[[str], ReviewedEvdsSeries | None] | None = None
 
 
 @dataclass(slots=True)
@@ -268,6 +349,13 @@ class TurnAcquirer:
         if tried is not None:
             return tried  # One attempt per series per turn, whatever it returned.
         code, selector = reviewed_code(series_id), reviewed_selector(series_id)
+        listed = (
+            self.sources.listed_evds(series_id)
+            if code is None and selector is None and self.sources.listed_evds is not None
+            else None
+        )
+        if listed is not None:
+            code = listed.code
         if code is None and selector is None:
             outcome = Acquisition(
                 series_id,
@@ -283,7 +371,7 @@ class TurnAcquirer:
         else:
             try:
                 outcome = (
-                    self._evds(series_id, code)
+                    self._evds(series_id, code, listed)
                     if code is not None
                     else self._bddk(series_id, selector)  # type: ignore[arg-type]
                 )
@@ -301,16 +389,23 @@ class TurnAcquirer:
     def _live(self) -> list[bool]:
         return []
 
-    def _evds(self, series_id: str, code: str) -> Acquisition:
+    def _evds(
+        self, series_id: str, code: str, listed: ReviewedEvdsSeries | None = None
+    ) -> Acquisition:
         window = acquisition_window(self.today)
+        if listed is not None and listed.frequency in _DATED_TO_TODAY:
+            # A month must be whole, a day or a week need not be: a question about the
+            # last few days is answered from the days the source has published so far.
+            window = EvdsWindow(start=window.start, end=self.today)
         calls = self._live()
+        asked = patient(self.sources.evds, self.sources.pause)
         retrieve = (
-            self.sources.store.cached(self.sources.evds, calls)  # type: ignore[arg-type]
+            self.sources.store.cached(asked, calls)  # type: ignore[arg-type]
             if self.sources.store is not None
-            else self.sources.evds
+            else asked
         )
         try:
-            loaded = ingest_series(self.lake, code, window, retrieve=retrieve)
+            loaded = ingest_series(self.lake, code, window, retrieve=retrieve, listed=listed)
         except EvdsLoadError as error:
             return Acquisition(
                 series_id,
@@ -339,10 +434,11 @@ class TurnAcquirer:
         end_month = date(last.year + (last.month == 12), last.month % 12 + 1, 1)
         end = date.fromordinal(end_month.toordinal() - 1)
         calls = self._live()
+        asked = patient(self.sources.bddk, self.sources.pause)
         retrieve = (
-            self.sources.store.cached(self.sources.bddk, calls)  # type: ignore[arg-type]
+            self.sources.store.cached(asked, calls)  # type: ignore[arg-type]
             if self.sources.store is not None
-            else self.sources.bddk
+            else asked
         )
         try:
             loaded = ingest_monthly(self.lake, selector, window, retrieve=retrieve)
@@ -381,6 +477,24 @@ class AcquiringInspector(PreparedSeriesInspector):
         # Deliberately not re-validating a snapshot: the inner inspector owns it.
         self._inner = inner
         self._acquirer = acquirer
+
+    def name_of(self, series_id: str) -> str | None:
+        return self._inner.name_of(series_id)
+
+    def why_unread(self, series_id: str) -> str | None:
+        """What this turn's fetch of the series ended in, as a fixed sentence for the planner."""
+        tried = next((a for a in self._acquirer.attempts if a.series_id == series_id), None)
+        if tried is None or tried.stored:
+            return None
+        if tried.code is AcquisitionCode.RETRIEVAL_FAILED:
+            return UNREAD_REASONS["unreached"]
+        if tried.code is AcquisitionCode.BUDGET_EXHAUSTED:
+            return UNREAD_REASONS["budget"]
+        if tried.code is AcquisitionCode.NO_REVIEWED_ROUTE:
+            return UNREAD_REASONS["no_route"]
+        if tried.detail == EvdsLoadCode.NO_OBSERVATIONS.value:
+            return UNREAD_REASONS["empty"]
+        return UNREAD_REASONS["refused"]
 
     def inspect(self, connection: DuckDBPyConnection, series_id: str) -> SeriesInspection:
         found = self._inner.inspect(connection, series_id)

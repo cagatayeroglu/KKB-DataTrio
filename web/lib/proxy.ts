@@ -143,6 +143,7 @@ export async function forward(
   const knowledgeList = name === "v1/knowledge";
   const knowledgeSearch = name === "v1/knowledge/search";
   const vectorIndex = name === "v1/knowledge/index";
+  const directoryRefresh = name === "v1/knowledge/directory";
   const datasetSave = name === "v1/knowledge/datasets";
   const dataset = datasetRoute.test(name);
   const datasetStatus = datasetStatusRoute.test(name);
@@ -153,6 +154,7 @@ export async function forward(
     knowledgeList ||
     knowledgeSearch ||
     vectorIndex ||
+    directoryRefresh ||
     datasetSave ||
     dataset ||
     datasetStatus ||
@@ -201,6 +203,7 @@ export async function forward(
         datasetStatus ||
         notes ||
         vectorIndex ||
+        directoryRefresh ||
         (turns && path.length === 4))
     ) &&
     !(request.method === "PATCH" && (conversation || settings))

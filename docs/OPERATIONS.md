@@ -149,6 +149,10 @@ The page polls a running turn for an hour and can re-read its state afterwards.
 
 <a id="prepared_api-start-only-when-model-requests-are-authorized"></a>
 
+### The sources' own directory (DEC-176)
+
+`--serve` applies the sources' own pinned listings as a second catalogue tier unless `--no-source-directory` is given: the BDDK monthly bulletin's supported rows (DEC-176) and every EVDS datagroup (DEC-177; a found datagroup is opened into its series by one public request, kept under `<state-root>/directory/evds/`). The reviewed `--catalog-index` generation covers only the reviewed catalogue, so after the first start open "Veri ve bilgi tabanı" and press "Yeniden vektörle" once (1,356 entries, about seven minutes of embedding calls, measured 2026-09-19); the generation is kept under `<state-root>/generations/` and reopened at every restart. Until then discovery is by words only and the page says so. "Kaynak dizinini yenile" on the same page (`POST /v1/knowledge/directory`) reads EVDS's live directory and the opened datagroups' series lists again: new datagroups become entries (then press "Yeniden vektörle"), new series of an opened datagroup are found by the next search; no model call. To refresh the BDDK listing itself run `python tests/manual/harvest_bddk_directory.py` (58 public requests, one a second) and review the diff of `src/kkb_agent/ingest/bddk_monthly_directory.py` in a PR.
+
 ### Start only when model requests are authorized
 
 ```powershell

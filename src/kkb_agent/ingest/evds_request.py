@@ -21,9 +21,14 @@ from typing import Annotated, Self
 
 from pydantic import ConfigDict, Field, SecretStr, model_validator
 
-from kkb_agent.core import Frequency
+from kkb_agent.core import Frequency, WeeklyAnchor
 from kkb_agent.core.models import ContractModel
-from kkb_agent.ingest.evds_series import ReviewedEvdsSeries, reviewed_series
+from kkb_agent.ingest.evds_series import (
+    REVIEWED_SERIES,
+    ReviewedEvdsSeries,
+    UnreviewedSeries,
+    reviewed_series,
+)
 from kkb_agent.ingest.safe_fetch import FetchLimits, FetchOutcome, FetchRequest
 
 FE_ENDPOINT = "https://evds3.tcmb.gov.tr/igmevdsms-dis/fe"
@@ -64,16 +69,68 @@ class EvdsWindow(ContractModel):
         return self
 
 
+#: The calendars EVDS publishes that the loader reads: native frequency, the client's
+#: request code and the weekly anchor (EVDS_SERIES_METADATA; DEC-177 for the last four).
+CALENDARS: frozenset[tuple[Frequency, int, WeeklyAnchor | None]] = frozenset(
+    {
+        (Frequency.DAILY, 1, None),
+        (Frequency.BUSINESS_DAY, 2, None),
+        (Frequency.WEEKLY, 3, WeeklyAnchor.FRIDAY),
+        (Frequency.WEEKLY, 3, WeeklyAnchor.WEDNESDAY),
+        (Frequency.MONTHLY, 5, None),
+        (Frequency.QUARTERLY, 6, None),
+        (Frequency.ANNUAL, 8, None),
+    }
+)
+
+
+class ListedCalendar(ContractModel):
+    """What a series listed by EVDS's own directory needs on the wire and for its periods.
+
+    A reviewed series reads these from the registry. A listed one (DEC-177) carries them in
+    the request, because the fetch worker is another process and revalidates what it is
+    sent without any state of this one. Only the published combinations are accepted.
+    """
+
+    model_config = ConfigDict(frozen=True)
+    frequency: Frequency
+    request_frequency: Annotated[int, Field(strict=True, ge=1, le=8)]
+    anchor: WeeklyAnchor | None = None
+
+    @model_validator(mode="after")
+    def published(self) -> Self:
+        if (self.frequency, self.request_frequency, self.anchor) not in CALENDARS:
+            raise ValueError("Not a calendar EVDS publishes or this loader reads")
+        return self
+
+
 class EvdsRequest(ContractModel):
     """Serialized across the fixed worker boundary and revalidated there."""
 
     model_config = ConfigDict(frozen=True)
     code: SeriesCode
     window: EvdsWindow
+    #: Present exactly when the code is outside the reviewed registry.
+    listed: ListedCalendar | None = None
+
+    def calendar(self) -> ListedCalendar:
+        """The reviewed calendar of a reviewed code, else the one the request carries."""
+        if self.code in REVIEWED_SERIES:
+            series = REVIEWED_SERIES[self.code]
+            return ListedCalendar(
+                frequency=series.frequency,
+                request_frequency=series.request_frequency,
+                anchor=series.anchor,
+            )
+        if self.listed is None:
+            raise UnreviewedSeries("EVDS series is outside the reviewed registry")
+        return self.listed
 
     @model_validator(mode="after")
     def supported(self) -> Self:
-        series = reviewed_series(self.code)
+        if self.code in REVIEWED_SERIES and self.listed is not None:
+            raise ValueError("A reviewed series uses its reviewed calendar")
+        series = self.calendar()
         if series.frequency is Frequency.MONTHLY and (
             self.window.start.day != 1
             or self.window.end.day
@@ -104,11 +161,11 @@ class EvdsRequest(ContractModel):
 
     def json_body(self) -> bytes:
         checked = EvdsRequest.model_validate(self)
-        series = reviewed_series(checked.code)
+        series = checked.calendar()
         body = json.dumps(
             {
                 "type": "json",
-                "series": series.code,
+                "series": checked.code,
                 "aggregationTypes": "avg",
                 "formulas": "0",
                 "startDate": _evds_date(checked.window.start),

@@ -21,6 +21,19 @@ REQUIRED_SEMANTICS = ("unit", "scale", "frequency", "observation", "cumulative")
 
 #: Units this project understands. Extend with a decision, not in passing.
 KNOWN_UNITS = frozenset({"TRY", "USD", "EUR", "XAU", "percent", "index", "count", "ratio"})
+#: DEC-177: a quoted price is money per quantity ("TRY/g", "USD/oz"). It is a unit of its own:
+#: never summed with money, never deflated as an amount, only compared with the same unit.
+PRICE_CURRENCIES = frozenset({"TRY", "USD", "EUR"})
+PRICE_QUANTITIES = frozenset({"g", "kg", "oz", "t", "piece"})
+
+
+def known_unit(unit: str) -> bool:
+    """A unit of the closed set, or a price of one of its currencies per a listed quantity."""
+    if unit in KNOWN_UNITS:
+        return True
+    money, slash, quantity = unit.partition("/")
+    return bool(slash) and money in PRICE_CURRENCIES and quantity in PRICE_QUANTITIES
+
 
 _MONTHS_PER_PERIOD = {
     Frequency.MONTHLY: 1,
@@ -65,7 +78,7 @@ class SeriesSemantics:
     base_year: int | None = None
 
     def __post_init__(self) -> None:
-        if self.unit not in KNOWN_UNITS:
+        if not known_unit(self.unit):
             raise SemanticsError(f"Unrecognized unit: {self.unit!r}")
         if self.frequency is Frequency.WEEKLY and self.anchor is None:
             raise SemanticsError("A weekly series must name the weekday its period ends on")

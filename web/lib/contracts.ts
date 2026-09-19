@@ -173,6 +173,14 @@ export const resultSchema = z
       result.proof.steps[0].result_version === result.version,
     "Proof must describe this exact result version",
   );
+const seriesChoiceSchema = z
+  .object({
+    series_id: z.string().min(1).max(200),
+    title: z.string().min(1).max(400),
+    detail: z.string().max(400),
+  })
+  .strict();
+
 export const turnSchema = z
   .object({
     api_version: z.literal(1),
@@ -186,6 +194,16 @@ export const turnSchema = z
         omitted_claims: z.number().int().nonnegative(),
         notices: z.array(bounded).max(16),
         result: resultSchema.nullable(),
+        // Which catalogue entries the turn used without a reviewed match, and what else
+        // the same search showed (DEC-177). Absent on turns stored before it existed.
+        selection: z
+          .object({
+            chosen: z.array(seriesChoiceSchema).max(12),
+            others: z.array(seriesChoiceSchema).max(10),
+          })
+          .strict()
+          .nullable()
+          .optional(),
       })
       .strict()
       .nullable(),
@@ -492,6 +510,21 @@ export const vectorIndexSchema = z
   .strict();
 export type VectorIndex = z.infer<typeof vectorIndexSchema>;
 
+// What re-reading the sources' own directories found (DEC-177).
+export const directoryRefreshSchema = z
+  .object({
+    api_version: z.literal(1),
+    evds_listed: z.number().int().min(0).max(10000),
+    added_total: z.number().int().min(0).max(10000),
+    added: z.array(z.string().max(240)).max(20),
+    withdrawn: z.number().int().min(0).max(10000),
+    series_lists_reread: z.number().int().min(0).max(10000),
+    series_lists_failed: z.number().int().min(0).max(10000),
+    catalog_changed: z.boolean(),
+  })
+  .strict();
+export type DirectoryRefresh = z.infer<typeof directoryRefreshSchema>;
+
 /** Reverse lineage: this browser's answers whose proof read the series. */
 export const seriesUsesSchema = z
   .object({
@@ -586,7 +619,8 @@ export const knowledgeSeriesSchema = z
     series_id: z.string().max(200),
     title: z.string().max(1024),
     provider: z.string().max(200),
-    origin: z.enum(["reviewed", "user"]),
+    // listed: from a source's own directory, never reviewed one by one (DEC-176).
+    origin: z.enum(["reviewed", "listed", "user"]),
     status: z.enum(["active", "archived", "unknown"]),
     prepared: z.boolean(),
     fetchable: z.boolean(),
@@ -620,6 +654,8 @@ export const knowledgeListSchema = z
     reviewed_digest: z.string().regex(/^[a-f0-9]{64}$/),
     // Mirrors MAX_CATALOG_SERIES: a guard against a malformed body, not a catalog size.
     series: z.array(knowledgeSeriesSchema).max(10000),
+    // Directory entries search finds and turns fetch on first use; absent on an older server.
+    listed_series: z.number().int().min(0).max(10000).optional(),
   })
   .strict();
 export const datasetDetailSchema = z

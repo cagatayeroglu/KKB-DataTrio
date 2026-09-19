@@ -21,6 +21,7 @@ from kkb_agent.api.contracts import (
     DatasetDetail,
     DatasetRequest,
     DatasetVersionSummary,
+    DirectoryRefreshResult,
     KnowledgeList,
     KnowledgeSeries,
     SearchHit,
@@ -36,8 +37,12 @@ from kkb_agent.api.contracts import (
 )
 from kkb_agent.api.service import ServiceError
 from kkb_agent.api.store import ConversationStore
+from kkb_agent.catalog.directory import SourceDirectory
+from kkb_agent.catalog.directory import source_directory as build_source_directory
+from kkb_agent.catalog.discovered import DiscoveredStore, listed_entry
+from kkb_agent.catalog.expansion import expand_groups
 from kkb_agent.catalog.hybrid import CatalogDenseStage, search_hybrid_catalog
-from kkb_agent.catalog.mappings import ReviewedSnapshot
+from kkb_agent.catalog.mappings import ReviewedSeries, ReviewedSnapshot
 from kkb_agent.catalog.records import CatalogRecord, CatalogStatus
 from kkb_agent.catalog.search import CatalogSearchArguments, search_catalog
 from kkb_agent.catalog.vectors import catalog_documents
@@ -91,14 +96,22 @@ class KnowledgeService:
         rebuild_index: Callable[[ReviewedSnapshot], CatalogDenseStage] | None = None,
         install_index: Callable[[CatalogDenseStage], None] | None = None,
         reopen_index: Callable[[ReviewedSnapshot], CatalogDenseStage | None] | None = None,
+        source_directory: SourceDirectory | None = None,
+        discovered: DiscoveredStore | None = None,
+        install_directory: Callable[[SourceDirectory], None] | None = None,
     ) -> None:
         self._knowledge = knowledge
+        self._install_directory = install_directory
+        self._refreshing = threading.Lock()
+        # The EVDS series lists opened so far; a trial search opens datagroups as a turn does.
+        self._discovered = discovered
         self._dense = dense
         # Building a generation calls the embedding model once per catalogue entry,
         # so it runs on its own thread and one at a time; reading never does.
         self._rebuild = rebuild_index
         self._install = install_index
         self._reopen = reopen_index
+        self._directory = source_directory
         self._building = threading.Lock()
         self._build_thread: threading.Thread | None = None
         self._built_at: datetime | None = None
@@ -143,6 +156,8 @@ class KnowledgeService:
             if self._dense is not None
             else search_catalog(catalog, arguments)
         )
+        if self._directory is not None:
+            found = expand_groups(query, found, self._discovered if self._acquisition else None)
         return SearchTrial(
             query=query,
             status=str(found.status),
@@ -176,7 +191,7 @@ class KnowledgeService:
         datasets = self._knowledge.datasets(include_archived=True)
         notes = list({note.series_id: note for note in self._knowledge.notes()}.values())
         return effective_snapshot(
-            self._reviewed, [d for d in datasets if d.status == "active"], notes
+            self._reviewed, [d for d in datasets if d.status == "active"], notes, self._directory
         )
 
     def uses(self, owner_token: str, series_id: str) -> SeriesUses:
@@ -312,6 +327,42 @@ class KnowledgeService:
         self._build_thread.start()
         return self.index_status(owner_token)
 
+    def refresh_directory(self, owner_token: str) -> DirectoryRefreshResult:
+        """Read the sources' own directories again: what is new becomes searchable.
+
+        EVDS's live datagroup directory is compared with the pinned one (one request), and
+        the series lists of the datagroups opened so far are read again (one request each),
+        so a series or a datagroup the source added since is found by the next search. The
+        BDDK bulletin's listing is pinned with measured behaviour and is refreshed by its
+        harvest, not here. Nothing is fetched into a lakehouse and no model is called.
+        """
+        self._author(owner_token)
+        if self._discovered is None or self._directory is None:
+            raise ServiceError("unavailable", 503)
+        if not self._refreshing.acquire(blocking=False):
+            raise ServiceError("busy", 409)
+        try:
+            found = self._discovered.refresh()
+            if found is None:
+                raise ServiceError("unavailable", 503)
+            directory = build_source_directory(self._discovered.supplement())
+            changed = directory.digest != self._directory.digest
+            if changed:
+                self._directory = directory
+                if self._install_directory is not None:
+                    self._install_directory(directory)
+            return DirectoryRefreshResult(
+                evds_listed=found.listed,
+                added_total=len(found.added),
+                added=tuple(group.title[:240] for group in found.added[:20] if group.title),
+                withdrawn=found.withdrawn,
+                series_lists_reread=found.reopened,
+                series_lists_failed=found.failed,
+                catalog_changed=changed,
+            )
+        finally:
+            self._refreshing.release()
+
     def close(self) -> None:
         """Wait for a build in progress so a generation is never left half written."""
         thread = self._build_thread
@@ -323,7 +374,10 @@ class KnowledgeService:
         datasets = self._knowledge.datasets(include_archived=True)
         notes = {note.series_id: note for note in self._knowledge.notes()}
         catalog = effective_snapshot(
-            self._reviewed, [d for d in datasets if d.status == "active"], list(notes.values())
+            self._reviewed,
+            [d for d in datasets if d.status == "active"],
+            list(notes.values()),
+            self._directory,
         )
         fetched = self._acquisitions() if self._acquisitions is not None else {}
         entries = [
@@ -332,12 +386,42 @@ class KnowledgeService:
             )
             for item in self._reviewed.series
         ]
+        # The sources' own directory is hundreds of entries; the page lists the ones a
+        # person has touched or a turn has fetched, and counts the rest (DEC-176). Every
+        # one of them is found by the trial search above the list.
+        listed = self._directory.series if self._directory is not None else ()
+        known = {item.record.series_id for item in self._reviewed.series}
+        entries.extend(
+            self._reviewed_entry(
+                item.record,
+                notes.get(item.record.series_id),
+                fetched.get(item.record.series_id),
+                origin="listed",
+            )
+            for item in listed
+            if item.record.series_id not in known
+            and (item.record.series_id in fetched or item.record.series_id in notes)
+        )
+        # EVDS series a search opened and a turn then fetched (DEC-177).
+        entries.extend(
+            self._reviewed_entry(
+                item.record, None, fetched.get(item.record.series_id), origin="listed"
+            )
+            for item in self._opened()
+            if item.record.series_id not in known and item.record.series_id in fetched
+        )
         entries.extend(self._dataset_entry(item) for item in datasets)
         return KnowledgeList(
             catalog_digest=catalog.content_sha256,
             reviewed_digest=self._reviewed.content_sha256,
             series=tuple(self._with_search_text(entries, catalog)),
+            listed_series=sum(item.record.series_id not in known for item in listed),
         )
+
+    def _opened(self) -> tuple[ReviewedSeries, ...]:
+        if self._discovered is None:
+            return ()
+        return tuple(listed_entry(series) for series in self._discovered.declared())
 
     def _with_search_text(
         self, entries: list[KnowledgeSeries], catalog: ReviewedSnapshot
@@ -348,6 +432,11 @@ class KnowledgeService:
         except ValueError:
             indexed = {}
         reviewed = {item.record.series_id: item for item in self._reviewed.series}
+        if self._directory is not None:
+            for listed in self._directory.series:
+                reviewed.setdefault(listed.record.series_id, listed)
+        for opened in self._opened():
+            reviewed.setdefault(opened.record.series_id, opened)
         aliases: dict[str, set[str]] = {}
         for concept in self._reviewed.concepts:
             for series_id in concept.candidate_series_ids:
@@ -375,6 +464,8 @@ class KnowledgeService:
         record: CatalogRecord,
         note: SeriesNote | None,
         fetched: dict[str, object] | None = None,
+        *,
+        origin: Literal["reviewed", "listed"] = "reviewed",
     ) -> KnowledgeSeries:
         archived = note is not None and note.archived
         fetched_at = fetched.get("fetched_at") if fetched is not None else None
@@ -382,7 +473,7 @@ class KnowledgeService:
             series_id=record.series_id,
             title=record.title,
             provider=record.provider,
-            origin="reviewed",
+            origin=origin,
             status=(
                 "archived"
                 if archived or record.status is CatalogStatus.ARCHIVED
