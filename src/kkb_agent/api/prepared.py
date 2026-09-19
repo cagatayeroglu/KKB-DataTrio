@@ -115,6 +115,9 @@ class PendingClarification:
     clarifications: tuple[str, ...] = ()
     selection: SelectedResult | None = None
     document_ref: str | None = None
+    #: Titles of the catalogue entries the clarification offered; a message naming one of
+    #: them answers it.
+    offered: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,6 +209,13 @@ def _is_new_question(
     to operate.
     """
     q = question.strip().lower()
+    # A teammate's trace and live E1b (2026-09-19): the entry picked from the offered list
+    # ("Konut Kredisi (TL, Akım, %) (Kredi Faiz Oranları (Akım), EVDS/..., haftalık, ...)")
+    # is long and full of commas, so the length rule below called it a new question and
+    # the pending request was dropped. Naming an offered entry is the answer, at any length.
+    named = " ".join(q.split())
+    if any(" ".join(title.lower().split()) in named for title in pending.offered if title):
+        return False
     if any(q.startswith(prefix) for prefix in _NEW_QUESTION_PREFIXES):
         return True
     if selection is not None and pending.selection is not None and selection != pending.selection:
@@ -1152,6 +1162,10 @@ class PreparedRunner:
                         clarifications=accumulated,
                         selection=sel,
                         document_ref=effective_document,
+                        offered=tuple(
+                            item.title
+                            for item in (answer.selection.others if answer.selection else ())
+                        ),
                     )
                 if self._store is not None:
                     self._store.finish_run(

@@ -3175,14 +3175,17 @@ button,
 [role="button"],
 .model-pick {
   transition:
-    transform 90ms ease,
+    filter 90ms ease,
     background-color 120ms ease,
     box-shadow 120ms ease,
     opacity 120ms ease;
 }
+/* No movement and no resizing: a control that shrinks or shifts under the pointer between
+   press and release loses the click at its edge (reported 2026-09-19: "buttons do not
+   work"). The press is shown by shade alone. */
 button:not(:disabled):active,
 [role="button"]:not([aria-disabled="true"]):active {
-  transform: scale(0.95);
+  filter: brightness(0.9);
 }
 button:not(:disabled):focus-visible {
   outline: 2px solid var(--accent);
@@ -3196,6 +3199,6 @@ button:not(:disabled):focus-visible {
   }
   button:not(:disabled):active,
   [role="button"]:not([aria-disabled="true"]):active {
-    transform: none;
+    filter: none;
   }
 }
