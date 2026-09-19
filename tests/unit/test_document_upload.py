@@ -97,7 +97,9 @@ def test_without_the_switch_there_is_no_upload(tmp_path):
 @pytest.mark.parametrize(
     ("content", "media_type", "status", "code"),
     [
-        (CSV, "image/png", 415, "invalid_request"),
+        # A picture type is accepted since DEC-179; bytes that are not that picture are not.
+        (CSV, "image/png", 422, "document_rejected"),
+        (CSV, "image/gif", 415, "invalid_request"),
         (CSV, "application/json", 415, "invalid_request"),
         (CSV, "application/octet-stream", 415, "invalid_request"),
         (b"\x00\x01binary\x00", CSV_TYPE, 422, "document_rejected"),

@@ -13,7 +13,7 @@ from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Literal
 from uuid import uuid4
 
 import duckdb
@@ -63,7 +63,7 @@ from kkb_agent.ingest.attached import Attachment
 from kkb_agent.ingest.fetched import TABLE_MEDIA_TYPES, source_id_for
 from kkb_agent.ingest.prepared_series import prepared_series_names
 from kkb_agent.ingest.safe_fetch import FetchFailure, FetchRequest, FetchSuccess
-from kkb_agent.ingestion_policy import MIME_TYPES, AdmissionError, admit_upload
+from kkb_agent.ingestion_policy import MIME_TYPES, AdmissionError, FileKind, admit_upload
 from kkb_agent.knowledge import KnowledgeStore, effective_snapshot
 from kkb_agent.lakehouse import open_lakehouse
 from kkb_agent.lakehouse.gold import GoldError, gold_from_result, persist_gold
@@ -128,6 +128,13 @@ class _Document:
 
 
 _UPLOAD_KINDS = {media_type: kind for kind, media_type in MIME_TYPES.items()}
+#: What a stored document can be. A picture is stored as the page it was wrapped into.
+_STORED_FORMATS: dict[FileKind, Literal["csv", "xlsx", "pdf", "html"]] = {
+    FileKind.CSV: "csv",
+    FileKind.XLSX: "xlsx",
+    FileKind.PDF: "pdf",
+    FileKind.HTML: "html",
+}
 #: A user-written https address; the bound keeps a stray field out of the fetcher.
 _WEB_ADDRESS = re.compile(r"https://[^\s<>\"'`]{1,2000}")
 
@@ -574,6 +581,8 @@ class PreparedRunner:
             )
         except AdmissionError:
             raise ServiceError("document_rejected", 422) from None
+        # A picture is admitted as the one-page document it was wrapped into (DEC-179).
+        kind, media_type = admitted.kind, MIME_TYPES[admitted.kind]
         digest = hashlib.sha256(admitted.content).hexdigest()
         with self._documents_lock:
             if sum(1 for owner, _ in self._documents if owner == session_id) >= MAX_DOCUMENTS:
@@ -614,7 +623,7 @@ class PreparedRunner:
             )
         return DocumentAdmitted(
             document_ref=reference,
-            document_format=kind.value,
+            document_format=_STORED_FORMATS[kind],
             bytes=len(admitted.content),
             sha256=digest,
         )

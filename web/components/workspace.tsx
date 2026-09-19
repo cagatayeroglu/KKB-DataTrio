@@ -1519,14 +1519,28 @@ export function Workspace() {
               >
                 {dragging && (
                   <div className="composer-drop" aria-hidden="true">
-                    <FileText size={16} /> Belgeyi buraya bırak · CSV, Excel,
-                    PDF, HTML
+                    <FileText size={16} /> Belgeyi ya da görseli buraya bırak ·
+                    CSV, Excel, PDF, HTML, PNG, JPG
                   </div>
                 )}
                 <textarea
                   ref={input}
                   rows={1}
                   aria-label="Finansal sorunuz"
+                  onPaste={(e) => {
+                    // A pasted screenshot is attached like a dropped file; pasted text is text.
+                    const file = Array.from(e.clipboardData.files).find(
+                      (item) => item.type.startsWith("image/"),
+                    );
+                    if (!uploads || !file) return;
+                    e.preventDefault();
+                    const extension = file.type === "image/png" ? "png" : "jpg";
+                    void attach(
+                      new File([file], `pano.${extension}`, {
+                        type: file.type,
+                      }),
+                    );
+                  }}
                   value={question}
                   onChange={(e) => setQuestion(e.target.value)}
                   placeholder={
@@ -1584,8 +1598,9 @@ export function Workspace() {
                           variant="ghost"
                           aria-label="Belge ekle"
                           title={
-                            "CSV, Excel, PDF veya HTML ekle ya da sürükleyip bırak " +
-                            "(en fazla 10 MiB). Taranmış PDF " +
+                            "CSV, Excel, PDF, HTML ya da görsel (PNG, JPG) ekle; " +
+                            "sürükleyip bırakabilir ya da ekran görüntüsünü " +
+                            "yapıştırabilirsin (en fazla 10 MiB). Taranmış PDF ve görseller " +
                             (ocr ? "OCR ile okunur." : "için OCR kapalı.")
                           }
                           disabled={!ready || busy || pending || uploading}
