@@ -266,12 +266,30 @@ class Result(ContractModel):
     proof: Proof = Field(default_factory=unavailable_proof)
 
 
+class SeriesChoice(ContractModel):
+    """One catalogue entry as a person reads it: what it is and how it is kept; never a value."""
+
+    series_id: Annotated[str, StringConstraints(strict=True, min_length=1, max_length=200)]
+    title: Annotated[str, StringConstraints(strict=True, min_length=1, max_length=400)]
+    detail: Annotated[str, StringConstraints(strict=True, max_length=400)]
+
+
+class SeriesSelection(ContractModel):
+    """Which entries a turn used although no reviewed concept named them, and what else was
+    near (DEC-177); on a clarification, `chosen` is empty and `others` are the entries to
+    choose from. Written by code from the turn's own searches and plan, never by a model."""
+
+    chosen: Annotated[tuple[SeriesChoice, ...], Field(max_length=12)] = ()
+    others: Annotated[tuple[SeriesChoice, ...], Field(max_length=10)] = ()
+
+
 class Answer(ContractModel):
     status: AnswerStatus
     text: Text
     omitted_claims: Annotated[int, Field(strict=True, ge=0)]
     notices: Annotated[tuple[Text, ...], Field(max_length=16)] = ()
     result: Result | None = None
+    selection: SeriesSelection | None = None
 
 
 class Event(ContractModel):

@@ -354,3 +354,70 @@ def test_a_served_question_on_a_series_no_catalogue_named_is_answered(tmp_path):
     assert len(lists.requests) <= MAX_GROUPS and len(source.requests) == 1
     assert [cell.unit for cell in answer.result.cells] == ["TRY"] * 5
     assert answer.result.cells[-1].value == pytest.approx(30.10)
+    # The person is told which entry was picked among neighbours, in words, and what else
+    # the search showed; none of it is model text.
+    (picked,) = answer.selection.chosen
+    assert picked.series_id == DOLLAR and picked.title == "(USD) ABD Doları (Döviz Alış)"
+    assert picked.detail == "Döviz Kurları, EVDS/TCMB, günlük, TRY, bakiye (stok)"
+    others = [item.title for item in answer.selection.others]
+    assert "(USD) ABD Doları (Döviz Satış)" in others and picked.title not in others
+    assert all(not item.title.startswith("EVDS:") for item in answer.selection.others)
+
+
+def test_a_reviewed_match_needs_no_selection_note(tmp_path):
+    from test_catalog_continuation import TOTAL
+
+    root = tmp_path / "prepared"
+    seed_prepared(root)
+    runner = PreparedRunner(
+        scripted(
+            proposal(
+                {
+                    "step_id": "d",
+                    "tool": "catalog_search",
+                    "arguments": {"query": "toplam konut kredisi bakiyesi"},
+                }
+            ),
+            proposal({"step_id": "r", "tool": "lakehouse", "arguments": {"series": [TOTAL]}}),
+            "Tabloda serinin değerleri yer alıyor.",
+        ),
+        root,
+        tmp_path / "runtime",
+        catalog_bytes=CATALOG.read_bytes(),
+        clock=lambda: TODAY,
+        source_directory=source_directory(),
+    )
+    answer = runner(uuid4().hex, uuid4().hex, "Konut kredisi serisini getir.")
+    assert answer.status.value == "accepted", answer
+    assert answer.selection is None  # a reviewed concept named the series: nothing to disclose
+
+
+def test_a_series_clarification_offers_its_entries_as_choices(tmp_path):
+    root = tmp_path / "prepared"
+    seed_prepared(root)
+    runner = PreparedRunner(
+        scripted(
+            proposal(
+                {
+                    "step_id": "d",
+                    "tool": "catalog_search",
+                    "arguments": {"query": "döviz kurları dolar"},
+                }
+            ),
+            proposal(clarification="ambiguous_series"),
+        ),
+        root,
+        tmp_path / "runtime",
+        catalog_bytes=CATALOG.read_bytes(),
+        official=OfficialSources(evds=DailySource()),
+        clock=lambda: TODAY,
+        source_directory=source_directory(),
+        discovered=DiscoveredStore(tmp_path / "runtime-evds", fetch=ListSource()),
+    )
+    answer = runner(uuid4().hex, uuid4().hex, "Dolar kurunu getir.")
+    assert answer.status.value == "abstained"
+    assert answer.selection.chosen == () and len(answer.selection.others) >= 3
+    titles = [item.title for item in answer.selection.others]
+    assert "(USD) ABD Doları (Döviz Alış)" in titles
+    # The same entries, in the same order, are the lines of the clarification text.
+    assert all(title in answer.text for title in titles)

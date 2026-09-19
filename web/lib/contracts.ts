@@ -173,6 +173,14 @@ export const resultSchema = z
       result.proof.steps[0].result_version === result.version,
     "Proof must describe this exact result version",
   );
+const seriesChoiceSchema = z
+  .object({
+    series_id: z.string().min(1).max(200),
+    title: z.string().min(1).max(400),
+    detail: z.string().max(400),
+  })
+  .strict();
+
 export const turnSchema = z
   .object({
     api_version: z.literal(1),
@@ -186,6 +194,16 @@ export const turnSchema = z
         omitted_claims: z.number().int().nonnegative(),
         notices: z.array(bounded).max(16),
         result: resultSchema.nullable(),
+        // Which catalogue entries the turn used without a reviewed match, and what else
+        // the same search showed (DEC-177). Absent on turns stored before it existed.
+        selection: z
+          .object({
+            chosen: z.array(seriesChoiceSchema).max(12),
+            others: z.array(seriesChoiceSchema).max(10),
+          })
+          .strict()
+          .nullable()
+          .optional(),
       })
       .strict()
       .nullable(),
