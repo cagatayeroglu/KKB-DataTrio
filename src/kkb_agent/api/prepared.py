@@ -499,7 +499,7 @@ class PreparedRunner:
         # catalog itself. Held in memory: after a restart it starts empty, so the turn
         # simply searches again, which is the previous behaviour and never less safe.
         self._proven: dict[str, set[str]] = {}
-        self._lock = threading.RLock()
+        self._lock = threading.Lock()
 
     def __call__(
         self,
@@ -881,7 +881,7 @@ class PreparedRunner:
         if not self._lock.acquire(blocking=False):
             raise PreparedError("concurrent_runtime_refused")
         try:
-            self._restore(session_id, turn_id)
+            self._restore_locked(session_id, turn_id)
             if session_id in self._turns:
                 self._turns[session_id] = self._turns.pop(session_id)
             pending = self._pending_clarifications.get(session_id)
@@ -1444,7 +1444,7 @@ class PreparedRunner:
         if not self._lock.acquire(blocking=False):
             raise ServiceError("busy", 409)
         try:
-            self._restore(session_id)
+            self._restore_locked(session_id)
             publication = self._publications.get((session_id, turn_id))
             if publication is None:
                 raise ServiceError("not_found", 404)
