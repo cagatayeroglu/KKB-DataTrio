@@ -1,6 +1,6 @@
 """M10-04 slice 2: a monthly analytical table built from one document table.
 
-`web_url` table mode turns a period column and up to six value columns of a
+`web_url` table mode turns a period column and up to twelve value columns of a
 fetched or uploaded document into a result that is published like any other
 table, so later turns can select it. The rules are the strict document-column
 rules (M7-14, DEC-145/146), with one decision of their own (Eray, 2026-09-17):
@@ -69,7 +69,10 @@ from kkb_agent.tools._document_value import (
 
 SNAPSHOT_KIND = "document_table_v1"
 METHOD = "document-table-v1"
-MAX_VALUE_COLUMNS = 6
+#: The published-result ceiling (2048 cells) is the real bound; twelve columns keep fourteen
+#: years of months under it. Six left out part of an official table (the Borsa Istanbul gold
+#: transactions PDF has ten value columns; live J1, 2026-09-19).
+MAX_VALUE_COLUMNS = 12
 
 
 #: Where a column's unit and scale came from.

@@ -354,3 +354,51 @@ def test_check_reports_the_switch_without_fetching(pool, monkeypatch, capsys):
     assert cli.main(command) == 0
     assert json.loads(capsys.readouterr().out)["web_url"] is False
     assert URL not in capsys.readouterr().out
+
+
+def test_a_bare_read_is_planned_again_once_and_the_typed_read_publishes(pool, tmp_path):
+    """Live J1/J2 (2026-09-19): a bare read expected a second planning round; there is none."""
+    fetch = FakeFetch(CSV)
+    provider = scripted(plan(selection=False), plan(), DRAFT)
+    prepared = served(pool, tmp_path, provider, fetch)
+    session_id, turn = ask(prepared)
+
+    assert turn["state"] == "completed", turn
+    assert turn["answer"]["status"] == "accepted" and turn["answer"]["text"] == DRAFT
+    assert len(provider.seen) == 3
+    first, second = provider.seen[0], provider.seen[1]
+    assert any("no later planning round" in message.content for message in first)
+    assert "gives the answer nothing" in second[-1].content
+    assert published_names(prepared, session_id) == ["analiz_1"]
+    assert len(fetch.requests) == 1  # the turn's one read of the address is reused
+
+
+def test_an_address_without_a_table_is_planned_again_with_the_refusal_named(pool, tmp_path):
+    # A merged header cell is not a rectangular table: the loader refuses the page itself.
+    page = b'<table><tr><th colspan="2">Endeks</th></tr><tr><td>1</td><td>2</td></tr></table>'
+    fetch = FakeFetch(page, media_type="text/html")
+    provider = scripted(
+        plan(selection=False),
+        json.dumps({"question": QUESTION, "steps": [], "clarification": "unsupported_request"}),
+    )
+    prepared = served(pool, tmp_path, provider, fetch)
+    session_id, turn = ask(prepared)
+
+    assert turn["state"] == "completed", turn
+    assert turn["answer"]["status"] == "abstained" and turn["answer"]["result"] is None
+    assert "karşılanamıyor" in turn["answer"]["text"]
+    assert len(provider.seen) == 2
+    assert "UNSUPPORTED_TABLE" in provider.seen[1][-1].content
+    assert "follow=<its name>" in provider.seen[1][-1].content
+    assert published_names(prepared, session_id) == []
+
+
+def test_an_abstention_after_a_lost_read_says_the_address_could_not_be_read(pool, tmp_path):
+    fetch = FakeFetch(code=FetchCode.TIMEOUT)
+    provider = scripted(plan(), DRAFT)
+    prepared = served(pool, tmp_path, provider, fetch)
+    _, turn = ask(prepared)
+
+    assert turn["state"] == "completed", turn
+    assert turn["answer"]["status"] == "abstained"
+    assert any("okunamadı" in notice for notice in turn["answer"]["notices"])

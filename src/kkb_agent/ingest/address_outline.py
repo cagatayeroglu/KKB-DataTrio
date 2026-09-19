@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Final
@@ -68,6 +69,9 @@ _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}")
 _TRANSIENT: Final = frozenset(
     {FetchCode.TIMEOUT, FetchCode.TRANSPORT_FAILURE, FetchCode.DNS_FAILURE}
 )
+#: Reads of one address in one turn. Live J2 (2026-09-19): the one script that names the
+#: BIST data endpoint timed out twice in a row and the turn had nothing to read.
+MAX_FETCH_ATTEMPTS: Final = 3
 
 
 @dataclass
@@ -81,16 +85,23 @@ class TurnFetchCache:
     #: for the trace: an outline that silently lost its only data endpoint to one failed
     #: read left the live BIST turn (2026-09-19) guessing column names, with no evidence why.
     log: list[dict[str, JsonValue]] = field(default_factory=list)
+    #: The wait before asking again; a test passes a no-op.
+    pause: Callable[[float], None] = time.sleep
 
     def __call__(self, request: FetchRequest) -> FetchOutcome:
         key = (request.url.get_secret_value(), tuple(request.accepted_media_types))
         if key not in self.seen:
             outcome = self.fetch(request)
             attempts = 1
-            if isinstance(outcome, FetchFailure) and outcome.code in _TRANSIENT:
-                # The same bounded, checked GET once more; never a different address.
+            while (
+                isinstance(outcome, FetchFailure)
+                and outcome.code in _TRANSIENT
+                and attempts < MAX_FETCH_ATTEMPTS
+            ):
+                # The same bounded, checked GET again; never a different address.
+                self.pause(0.5 * attempts)
                 outcome = self.fetch(request)
-                attempts = 2
+                attempts += 1
             self.seen[key] = outcome
             accepted = request.accepted_media_types
             self.log.append(
@@ -110,6 +121,11 @@ class TurnFetchCache:
                 }
             )
         return self.seen[key]
+
+    def transient_failures(self) -> int:
+        """Reads this turn lost to a timeout or a connection fault after every attempt."""
+        lost = {code.value for code in _TRANSIENT}
+        return sum(1 for entry in self.log if entry["status"] == "failed" and entry["code"] in lost)
 
     def get(
         self, url: str, media_types: tuple[str, ...], *, stay_within_origin: bool = False
@@ -156,6 +172,7 @@ def outline_address(
     url: str, cache: TurnFetchCache, describe: DocumentDescriber | None = None
 ) -> dict[str, object] | None:
     """The outline of one user-written address, or None when it is not a readable page."""
+    lost_before = cache.transient_failures()
     page = cache.get(url, (*DOCUMENT_MEDIA_TYPES,))
     if page is None:
         return None
@@ -215,6 +232,10 @@ def outline_address(
         # Said outright, so the planner reads the page's own HTML or asks, and never
         # invents a period or value column for an endpoint it was not shown.
         outline["nothing_listed"] = True
+    if unread := cache.transient_failures() - lost_before:
+        # An empty or short listing that lost a script or a data read is not the page's
+        # whole offer; said, so neither the planner nor the person takes it for one.
+        outline["unread_resources"] = unread
     return outline
 
 
@@ -245,5 +266,8 @@ def address_outline(
         "list their header texts, and one cell is read with column=<header> and row=<row "
         "label>. A page marked "
         "nothing_listed offers no document link or data endpoint: read it only for a table in "
-        "its own HTML, and never guess column names. " + payload
+        "its own HTML, and never guess column names. unread_resources counts page scripts or "
+        "data that could not be read this time, so the listing may be incomplete. The read is "
+        "planned once, in this plan: no later planning round sees what a read returned, and a "
+        "read that names no follow target, columns or cell publishes nothing. " + payload
     )

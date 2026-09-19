@@ -210,10 +210,11 @@ def test_a_transient_read_is_asked_once_more_and_the_log_says_so():
     base = "https://www.borsa.example.tr"
     script = f"{base}/file/js/app.js?v=1"
     served = Flaky(site().pages, {script})
-    cache = TurnFetchCache(served)
+    cache = TurnFetchCache(served, pause=lambda _: None)
     note = address_outline((PAGE_URL,), cache)
     payload = json.loads(note[note.index("{") :])
     assert payload["pages"][0]["data_endpoints"][0]["name"] == "endpoint_1"
+    assert "unread_resources" not in payload["pages"][0] and cache.transient_failures() == 0
     assert served.requests.count(script) == 2
     retried = [entry for entry in cache.log if entry["attempts"] == 2]
     assert retried == [
@@ -265,3 +266,37 @@ def test_a_document_address_is_outlined_with_its_table_headers_like_an_upload():
     # Without a describer the outline is what it was.
     bare = address_outline((url,), TurnFetchCache(served))
     assert "tables" not in json.loads(bare[bare.index("{") :])["pages"][0]
+
+
+class Down(Site):
+    """Chosen addresses time out on every read."""
+
+    def __init__(self, pages, down):
+        super().__init__(pages)
+        self.down = set(down)
+
+    def __call__(self, request):
+        url = request.url.get_secret_value()
+        if url in self.down:
+            self.requests.append(url)
+            return FetchFailure(source_ref=request.source_ref, code="TIMEOUT")
+        return super().__call__(request)
+
+
+def test_a_read_lost_after_every_attempt_is_said_in_the_outline():
+    """Live J2 (2026-09-19): the endpoint script timed out twice; the outline looked complete."""
+    base = "https://www.borsa.example.tr"
+    script = f"{base}/file/js/app.js?v=1"
+    served = Down(site().pages, {script})
+    waits = []
+    cache = TurnFetchCache(served, pause=waits.append)
+    note = address_outline((PAGE_URL,), cache)
+    payload = json.loads(note[note.index("{") :])
+    assert payload["pages"][0] == {
+        "address": "as written in the question",
+        "nothing_listed": True,
+        "unread_resources": 1,
+    }
+    assert served.requests.count(script) == 3 and waits == [0.5, 1.0]
+    assert cache.transient_failures() == 1
+    assert "the listing may be incomplete" in note and "planned once" in note

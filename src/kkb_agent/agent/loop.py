@@ -287,6 +287,20 @@ INCOMPLETE_LIMITATION: Final = (
 ARGUMENT_FAILURES: Final = frozenset(
     {"workspace_reference", "table_reference", "series_unknown", "sql_rejected", "needs_input"}
 )
+#: web_url refusals a corrected plan can answer: the address itself held no readable table
+#: (the data sits behind a listed link or endpoint), or the document was not admitted.
+DOCUMENT_REFUSALS: Final = frozenset({"not_admitted"})
+DOCUMENT_REFUSAL_HINT: Final = (
+    "; if the address or document outline lists a document link or a data endpoint, read "
+    "that with follow=<its name>, otherwise return a clarification"
+)
+#: Live J1/J2 (2026-09-19): the planner read an address bare, expecting a second planning
+#: round to see the content. There is none, so the turn published nothing and abstained.
+BARE_READ_REASON: Final = (
+    "the document was read, but a read that names no follow target, no period_column with "
+    "value_columns and no column with row gives the answer nothing, and no planning round "
+    "sees what a read returned; name them from the address or document outline"
+)
 RUNTIME_REFUSAL_FEEDBACK: Final = (
     "That plan ran and step {step} ({tool}) refused it at run time: {reason}. Nothing was "
     "published. Propose a corrected plan that fixes exactly this; steps that succeeded will "
@@ -311,21 +325,26 @@ def runtime_refusal(outcome: ExecutionOutcome) -> RuntimeRefusal | None:
     label, a refused SQL), or a typed result the tool returned ABSTAINED with its
     reason. Environmental failures are not repairable by planning again.
     """
+    typed = False
     for item in outcome.results:
         if item.status is ToolStatus.FAILURE:
+            reason = "; ".join(item.warnings) or str(item.error_category)
             if item.error_category in ARGUMENT_FAILURES:
-                reason = "; ".join(item.warnings) or str(item.error_category)
                 return RuntimeRefusal(item.step_id, item.tool, reason)
+            if item.tool == "web_url" and item.error_category in DOCUMENT_REFUSALS:
+                return RuntimeRefusal(item.step_id, item.tool, reason + DOCUMENT_REFUSAL_HINT)
             return None
         if item.status is not ToolStatus.SUCCESS:
             continue
         candidate = getattr(item.output, "result", item.output)
-        if (
-            isinstance(candidate, AnalyticalResult)
-            and candidate.status is ResultStatus.ABSTAINED
-            and candidate.reason
-        ):
-            return RuntimeRefusal(item.step_id, item.tool, candidate.reason)
+        if isinstance(candidate, AnalyticalResult):
+            typed = True
+            if candidate.status is ResultStatus.ABSTAINED and candidate.reason:
+                return RuntimeRefusal(item.step_id, item.tool, candidate.reason)
+    if not typed:
+        for item in outcome.results:
+            if item.tool == "web_url" and item.status is ToolStatus.SUCCESS:
+                return RuntimeRefusal(item.step_id, item.tool, BARE_READ_REASON)
     return None
 
 
