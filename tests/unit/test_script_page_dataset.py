@@ -116,6 +116,9 @@ def test_index_page_endpoint_becomes_a_monthly_table_joined_with_prepared_data(r
     assert cells["2025-07-31"] == expected["2025-07"]
     assert cells["2026-06-30"] == expected["2026-06"]
     assert len(cells) == 13  # July 2025 .. July 2026; July 2026 ended before retrieval
+    assert {cell["unit"] for cell in table["cells"]} == {None}
+    assert {cell["scale"] for cell in table["cells"]} == {"unknown"}
+    assert {cell["measure"] for cell in table["cells"]} == {"unknown"}
     limitations = " ".join(table["proof"]["limitations"])
     assert "last daily observation" in limitations
 
@@ -138,6 +141,38 @@ def test_index_page_endpoint_becomes_a_monthly_table_joined_with_prepared_data(r
         selected_result_id=second["answer"]["result"]["result_ref"],
     )
     assert third["answer"]["status"] == "accepted", third
+
+
+@pytest.mark.parametrize("code", ["XTUMY", "XU100"])
+def test_reviewed_borsa_index_close_has_points_not_currency_and_keeps_proof(runtime, code):
+    official = "https://www.borsaistanbul.com"
+    page_url = f"{official}/endeks/{code.lower()}"
+    endpoint = f"{official}/graphic.php?veriTuru=endeks-graphic&indexCode={code}"
+    rows = [
+        {"indexName": code, "clval": 1000.0 + day, "hisTs": date(2026, month, day).isoformat()}
+        for month in (1, 2, 3)
+        for day in (1, 2)
+    ]
+    fetch = Site(
+        {
+            page_url: (PAGE, "text/html"),
+            f"{official}/file/js/app.js?v=1": (SCRIPT, "application/javascript"),
+            endpoint: (json.dumps({"data": rows}).encode(), "application/json"),
+        }
+    )
+    _, client, sid, headers = runtime(fetch, endpoint_table(url=page_url), "Endeks tablosu hazır.")
+    answer = ask(client, sid, headers, f"{page_url} endeksinin ay sonu kapanışlarını göster.")
+    assert answer["answer"]["status"] == "accepted", answer
+    table = answer["answer"]["result"]
+    assert {cell["unit"] for cell in table["cells"]} == {"index_points"}
+    assert {cell["scale"] for cell in table["cells"]} == {"one"}
+    assert {cell["measure"] for cell in table["cells"]} == {"index"}
+    assert all("currency" not in cell and cell["unit"] != "TRY" for cell in table["cells"])
+    # JSON endpoint proof is partial in the existing API projection, but its
+    # verified execution/lineage step must not disappear with the new mapping.
+    assert table["proof"]["availability"] == "partial"
+    assert table["proof"]["steps"][0]["producer"] == "web_url"
+    assert not table["proof"]["unresolved_semantics"]
 
 
 def test_the_monthly_rule_must_come_from_the_question(runtime):

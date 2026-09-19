@@ -60,9 +60,13 @@ from kkb_agent.analytics.table_shape import (
     period_change,
     rebase_index,
 )
+from kkb_agent.analytics.table_summary import METHOD as SUMMARY_METHOD
+from kkb_agent.analytics.table_summary import SummaryRefused, summarize_column
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
 from kkb_agent.core import (
     AnalyticalResult,
+    Frequency,
+    Period,
     ResultEvidence,
     ResultKind,
     ResultStatus,
@@ -181,16 +185,18 @@ class ResampleArguments(BaseModel):
 
     operation: Literal["resample"] = Field(
         description=(
-            "resample: add a monthly copy of one weekly or daily column, reduced by the "
+            "resample: produce a monthly-only table from one weekly or daily column, "
+            "reduced by the "
             "aggregation the store declares for that series (a rate or an exchange rate "
-            "averaged, a flow summed, a stock at its last period), keeping every existing "
-            "column unchanged; then join_table can put it beside monthly tables. A monthly "
+            "averaged, a flow summed, a stock at its last period); the weekly/daily source "
+            "remains upstream in lineage, not mixed into this table. join_table can put "
+            "the monthly result beside other monthly tables. A monthly "
             "column is never spread onto weeks or days"
         )
     )
     source: str = Field(
         pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
-        description=_SOURCE_UNCHANGED,
+        description=_SOURCE,
     )
     column: str = Field(
         min_length=1,
@@ -206,6 +212,33 @@ class ResampleArguments(BaseModel):
             "column: a day lies in one month"
         ),
     )
+
+
+class SummarizeArguments(BaseModel):
+    """One scalar aggregate of a typed period column, never model arithmetic."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation: Literal["summarize"] = Field(
+        description=(
+            "summarize one existing table column as mean, sum, min, max, first, last or count"
+        )
+    )
+    source: str = Field(pattern=r"^[A-Za-z0-9_.:-]{1,64}$", description=_SOURCE)
+    column: str = Field(min_length=1, max_length=400, description="Exact target column label")
+    aggregation: Literal["mean", "sum", "min", "max", "first", "last", "count"]
+    start_period: date | None = None
+    end_period: date | None = None
+
+    @model_validator(mode="after")
+    def bounded_range(self) -> Self:
+        if (
+            self.start_period is not None
+            and self.end_period is not None
+            and self.start_period > self.end_period
+        ):
+            raise ValueError("start_period must not be after end_period")
+        return self
 
 
 class AddSeriesArguments(BaseModel):
@@ -427,6 +460,7 @@ class TableTransformArguments(
             | AddSeriesArguments
             | ToFlowArguments
             | ResampleArguments
+            | SummarizeArguments
             | JoinTableArguments
             | RebaseArguments
             | ChangeArguments
@@ -446,6 +480,7 @@ class DocumentTableTransformArguments(
             | AddSeriesArguments
             | ToFlowArguments
             | ResampleArguments
+            | SummarizeArguments
             | AddDocumentColumnArguments
             | JoinTableArguments
             | RebaseArguments
@@ -462,6 +497,7 @@ class DocumentTableTransformArguments(
 _METHODS = {
     "deflate": METHOD,
     "resample": RESAMPLE_METHOD,
+    "summarize": SUMMARY_METHOD,
     "to_flow": TO_FLOW_METHOD,
     "rebase": REBASE_METHOD,
     "change": CHANGE_METHOD,
@@ -578,6 +614,7 @@ def make_table_transform_tool(
             (
                 DeflateArguments,
                 ResampleArguments,
+                SummarizeArguments,
                 ToFlowArguments,
                 RebaseArguments,
                 ChangeArguments,
@@ -623,6 +660,8 @@ def make_table_transform_tool(
                 return failure("series_unknown", str(error))
             inputs.append(series.snapshot)
             result = _resampled(selected, source, series.semantics)
+        elif isinstance(selected, SummarizeArguments):
+            result = _summarized(selected, source)
         elif isinstance(selected, ToFlowArguments):
             try:
                 series = read_series(connection, selected.column, inspector=inspector)
@@ -770,10 +809,15 @@ def make_table_transform_tool(
             "change adds the period-over-period change of one column (kind=difference in the "
             "column's unit, or kind=percent; lag=12 for a year earlier on monthly data) and "
             "marks the periods with the largest rise and fall; a period after a gap stays empty. "
-            "resample adds a monthly copy of a weekly or daily column by the series' declared "
+            "resample produces a monthly-only table from a weekly or daily column "
+            "by the series' declared "
             "aggregation (state week_assignment for a weekly one), so a weekly rate or a daily "
             "exchange rate can then be joined with monthly tables; a monthly column is never "
             "spread onto weeks or days. "
+            "summarize computes a typed mean, sum, minimum, maximum, first, last or period "
+            "count from one existing column, optionally within an inclusive date range. "
+            "Use it for scalar questions such as 'ortalaması ne'; do not use raw SQL to "
+            "recompute a published table. Sum is refused for stocks, rates and indices. "
             "rebase adds an explicitly based copy of an existing index column. align selects "
             "existing exact periods using inner or explicitly anchored-left policy. join_table "
             "adds the monthly columns of another published result (for example a table built "
@@ -1197,7 +1241,7 @@ def _resampled(
     source: AnalyticalResult,
     semantics: SeriesSemantics,
 ) -> AnalyticalResult:
-    """The source table with a monthly copy of one weekly column."""
+    """A single-frequency monthly result; raw rows remain in upstream evidence."""
     result_id = f"table_transform:resample:{arguments.source}:{arguments.column}"
     column = [value for value in source.values if value.label == arguments.column]
     try:
@@ -1229,16 +1273,30 @@ def _resampled(
             "their monthly value rests on fewer weeks or days and the coverage is recorded"
         )
     previous = source.evidence.transformations if source.evidence is not None else []
+    if not reduced.values:
+        return AnalyticalResult(
+            result_id=result_id,
+            kind=ResultKind.SERIES,
+            status=ResultStatus.INSUFFICIENT,
+            tool="table_transform",
+            method=RESAMPLE_METHOD,
+            reason="No monthly value could be produced from the source column",
+        )
+    monthly_coverage = Period(
+        start=min(value.period.start for value in reduced.values if value.period is not None),
+        end=max(value.period.end for value in reduced.values if value.period is not None),
+        frequency=Frequency.MONTHLY,
+    )
     return AnalyticalResult(
         result_id=result_id,
         kind=source.kind,
         status=ResultStatus.COMPUTED,
         tool="table_transform",
         method=RESAMPLE_METHOD,
-        values=[*source.values, *reduced.values],
-        coverage=source.coverage,
+        values=list(reduced.values),
+        coverage=monthly_coverage,
         parameters=parameters,
-        samples=source.samples,
+        samples=None,
         evidence=ResultEvidence(
             input_refs=[
                 *(
@@ -1254,9 +1312,62 @@ def _resampled(
         limitations=[
             *source.limitations,
             f"{reduced.label} is a monthly reduction by the series' declared aggregation; "
-            "the column it came from is unchanged beside it",
+            "the original finer-frequency column remains in upstream evidence",
         ],
         unresolved_semantics=list(source.unresolved_semantics),
+    )
+
+
+def _summarized(arguments: SummarizeArguments, source: AnalyticalResult) -> AnalyticalResult:
+    result_id = (
+        f"table_transform:summarize:{arguments.source}:{arguments.column}:{arguments.aggregation}"
+    )
+    try:
+        summary = summarize_column(
+            source,
+            column_label=arguments.column,
+            aggregation=arguments.aggregation,
+            start_period=arguments.start_period,
+            end_period=arguments.end_period,
+        )
+    except SummaryRefused as error:
+        return AnalyticalResult(
+            result_id=result_id,
+            kind=ResultKind.LEVEL,
+            status=ResultStatus.ABSTAINED,
+            tool="table_transform",
+            method=SUMMARY_METHOD,
+            reason=str(error),
+        )
+    previous = source.evidence.transformations if source.evidence is not None else []
+    refs = (
+        [source.evidence.lineage_node]
+        if source.evidence is not None and source.evidence.lineage_node
+        else [source.result_id]
+    )
+    return AnalyticalResult(
+        result_id=result_id,
+        kind=ResultKind.LEVEL,
+        status=ResultStatus.COMPUTED,
+        tool="table_transform",
+        method=SUMMARY_METHOD,
+        values=list(summary.values),
+        coverage=summary.coverage,
+        samples=summary.samples,
+        parameters={
+            "source": arguments.source,
+            "column": arguments.column,
+            "aggregation": arguments.aggregation,
+            "start_period": arguments.start_period.isoformat() if arguments.start_period else None,
+            "end_period": arguments.end_period.isoformat() if arguments.end_period else None,
+        },
+        evidence=ResultEvidence(
+            input_refs=refs,
+            transformations=[*previous, summary.transformation],
+            sources=list(source.evidence.sources) if source.evidence is not None else [],
+        ),
+        warnings=list(source.warnings),
+        limitations=list(source.limitations),
     )
 
 

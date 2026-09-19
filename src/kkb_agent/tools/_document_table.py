@@ -49,6 +49,7 @@ from kkb_agent.core import (
     StockFlow,
     TransformationRecord,
 )
+from kkb_agent.ingest.bist_index_semantics import ReviewedMetric
 from kkb_agent.lakehouse.result_evidence import canonical
 from kkb_agent.tools._document_column import (
     _DOTTED_DAY,
@@ -279,17 +280,21 @@ def read_daily_table(
     as_of: date | None,
     is_series: Callable[[str], bool] = lambda label: False,
     declared_units: Mapping[str, tuple[str, Scale]] | None = None,
+    reviewed_metrics: Mapping[str, ReviewedMetric] | None = None,
 ) -> DocumentTable:
     """A monthly table from daily rows, reduced by a rule the user asked for.
 
     Every period cell must be one calendar day, once. A month is kept only when
     it has ended by the retrieval date: a running month's "last" value is not a
     month-end value. The rule, the days behind every month and the months left
-    out are recorded; nothing is filled.
+    out are recorded; nothing is filled. Source-declared header semantics take
+    priority over a reviewed source-specific metric, then a question-declared
+    unit; unknown columns remain unknown.
     """
     if rule not in DAILY_RULES:
         raise ColumnRefused("UNSUPPORTED_AGGREGATION")
     declared = dict(declared_units or {})
+    reviewed = dict(reviewed_metrics or {})
     found: list[tuple[Grid, int]] = []
     for grid in tables:
         periods = [
@@ -345,11 +350,21 @@ def read_daily_table(
         header = _text(grid.headers[index])
         unit, scale = header_semantics(header)
         source: str | None = UNIT_FROM_HEADER
+        metric = reviewed.get(label) if header == label else None
+        measure = document_measure(unit, scale)
         if unit is None or scale is Scale.UNKNOWN:
             unit, scale, source = None, Scale.UNKNOWN, None
-            if label in declared:
+            if metric is not None:
+                unit, scale, measure, source = (
+                    metric.unit,
+                    metric.scale,
+                    metric.measure,
+                    metric.source,
+                )
+            elif label in declared:
                 (unit, scale), source = declared[label], UNIT_FROM_QUESTION
-        elif label in declared and declared[label] != (unit, scale):
+                measure = document_measure(unit, scale)
+        if label in declared and (unit, scale) != declared[label]:
             skipped.append((label, "UNIT_CONFLICT"))
             continue
         read: list[tuple[date, float | None, str]] = []
@@ -391,7 +406,7 @@ def read_daily_table(
                 index + 1,
                 unit,
                 scale,
-                document_measure(unit, scale),
+                measure,
                 tuple(read),
                 source,
             )

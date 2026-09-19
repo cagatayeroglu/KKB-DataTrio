@@ -76,6 +76,39 @@ def test_clarification_inherits_original_request_context(pool, tmp_path):
     assert "Açıklama: " + q2 in last_user_prompt
 
 
+def test_pending_clarification_survives_runner_restart(pool, tmp_path):
+    state = tmp_path / "state"
+    store = ConversationStore(tmp_path / "history.sqlite")
+    owner_id, _ = store.create_owner()
+    sid = uuid4().hex
+    store.create_conversation(owner_id=owner_id, conversation_id=sid, token="x" * 43, title="Test")
+    first = PreparedRunner(
+        scripted(proposal(discover("d1")), proposal(clarification="ambiguous_series")),
+        pool,
+        state,
+        catalog_bytes=CATALOG.read_bytes(),
+        store=store,
+    )
+    original = "Nisan-Haziran 2026 konut kredisi bakiyesini göster."
+    assert first(sid, uuid4().hex, original).status.value == "abstained"
+    assert store.pending_clarification(sid) is not None
+
+    provider = scripted(
+        proposal(discover("d2")),
+        proposal(calculate("a1")),
+        "Nisan'dan Haziran 2026'ya konut kredisi stoğu 50 milyon TL arttı.",
+    )
+    restarted = PreparedRunner(
+        provider, pool, state, catalog_bytes=CATALOG.read_bytes(), store=store
+    )
+    answer = "BDDK Aylık Bülten toplam bakiyeyi kullan."
+    assert restarted(sid, uuid4().hex, answer).status.value == "accepted"
+    assert f"Orijinal istek: {original}" in provider.seen[-1][-1].content
+    assert f"Açıklama: {answer}" in provider.seen[-1][-1].content
+    assert store.pending_clarification(sid) is None
+    store.close()
+
+
 def test_explicit_clarification_overrides_original_date_range(pool, tmp_path):
     """User clarification providing an explicit new date range overrides the original request."""
     provider = scripted(
@@ -658,9 +691,18 @@ def test_naming_an_offered_entry_answers_the_clarification_at_any_length():
     )
     assert _is_new_question(picked, None, pending) is False
     assert _is_new_question("konut kredisi (tl, akım, %) olsun", None, pending) is False
-    # Without an offered entry in it, the same long message is still a request of its own.
+    # Length and commas alone are not evidence of a new intent.
     bare = PendingClarification(original_question="2021-2025 konut kredisi faizi")
-    assert _is_new_question(picked, None, bare) is True
+    assert _is_new_question(picked, None, bare) is False
+    assert (
+        _is_new_question(
+            "EVDS'deki yeni kullandırılan konut kredilerinin haftalık akım faiz oranını, "
+            "toplam kredi bakiyesiyle karıştırmadan kullan.",
+            None,
+            bare,
+        )
+        is False
+    )
     unrelated = "Şimdi de TÜFE'nin 2024 yılındaki aylık değişimini, yıllık ortalamasıyla göster."
     assert _is_new_question(unrelated, None, pending) is True
 

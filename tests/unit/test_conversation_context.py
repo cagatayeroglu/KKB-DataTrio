@@ -18,7 +18,7 @@ import pytest
 from test_catalog_continuation import CATALOG, TOTAL, proposal, seed_prepared
 from test_series_inspection import CPI, SQL
 
-from kkb_agent.agent import Workspace
+from kkb_agent.agent import Session, ToolRegistry, Workspace
 from kkb_agent.api.prepared import PreparedRunner, open_lakehouse
 from kkb_agent.catalog.mappings import load_reviewed_snapshot
 from kkb_agent.core import SourceRef
@@ -29,6 +29,24 @@ from kkb_agent.llm.provider import Role
 #: The figures the tables hold; none of them may appear in a planner prompt.
 CREDIT_VALUES = (100.0, 120.0, 150.0)
 CPI_VALUES = (100.0, 110.0, 120.0)
+
+
+def test_independent_question_does_not_inherit_istanbul_prose_but_reference_does():
+    previous = (("İstanbul konut kredilerini göster.", "İstanbul tablosu hazır."),)
+    independent = scripted(proposal(clarification="unsupported_request"))
+    Session(independent, ToolRegistry(), history=previous).plan(
+        "2021-2025 Türkiye konut kredisi bakiyesi nedir?"
+    )
+    assert not any("İstanbul" in item.content for item in independent.seen[0])
+    assert not any(previous[0][0] in item.content for item in independent.seen[0])
+    assert not any(
+        item.content.startswith("Earlier turns of this conversation")
+        for item in independent.seen[0]
+    )
+
+    followup = scripted(proposal(clarification="unsupported_request"))
+    Session(followup, ToolRegistry(), history=previous).plan("Aynı tabloya KFE ekle")
+    assert any("İstanbul" in item.content for item in followup.seen[0])
 
 
 @pytest.fixture
@@ -190,9 +208,9 @@ def test_the_planner_is_given_names_and_coverage_but_never_the_figures(pool, tmp
         assert runner(sid, uuid4().hex, question).status.value == "accepted"
 
     prompts = workspace_prompts(provider)
-    assert prompts, "later turns must be told which tables exist"
+    assert len(prompts) == 1, "only the explicit follow-up receives old table metadata"
     last = prompts[-1]
-    assert "analiz_1" in last and "analiz_2" in last
+    assert "analiz_1" in last and "analiz_2" not in last
     assert "coverage 2026-04-01..2026-06-30" in last
     assert "column labels:" in last
     # No published figure is in the prompt, in any shape a model could read. 100 is
@@ -213,7 +231,7 @@ def test_context_stays_bounded_as_the_conversation_gets_long(pool, tmp_path):
         provider, pool, tmp_path / "runtime", catalog_bytes=CATALOG.read_bytes()
     )
     sid = uuid4().hex
-    questions = [f"Soru {index}: nasıl gidiyor?" for index in range(10)]
+    questions = [f"Önceki cevap için soru {index}: nasıl gidiyor?" for index in range(10)]
     for question in questions:
         assert runner(sid, uuid4().hex, question).status.value == "accepted"
 
@@ -268,8 +286,8 @@ def test_an_earlier_table_is_described_by_its_reviewed_series_name(pool, tmp_pat
         provider, pool, tmp_path / "runtime", catalog_bytes=CATALOG.read_bytes()
     )
     sid = uuid4().hex
-    for _ in range(2):
-        assert runner(sid, uuid4().hex, "Konut kredisi tablosunu getir.").status.value == "accepted"
+    for question in ("Konut kredisi tablosunu getir.", "Önceki tabloyu bir daha getir."):
+        assert runner(sid, uuid4().hex, question).status.value == "accepted"
 
     (outline,) = workspace_prompts(provider)
     # Generated from the catalog record: its TOTAL label tells the components apart.

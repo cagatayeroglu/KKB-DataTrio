@@ -370,7 +370,17 @@ export const storedMessageSchema = z
     turn_id: ref,
     role: z.enum(["user", "assistant"]),
     text: bounded,
-    status: z.enum(["accepted", "qualified", "abstained"]).nullable(),
+    status: z
+      .enum([
+        "accepted",
+        "qualified",
+        "abstained",
+        "queued",
+        "running",
+        "completed",
+        "failed",
+      ])
+      .nullable(),
     result_ref: ref.nullable(),
     result_version: digest.nullable(),
     document_ref: ref.nullable(),

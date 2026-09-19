@@ -205,13 +205,33 @@ def series_selection(
     )
 
 
-def clarification_text(reason: str, outcome: ExecutionOutcome) -> str:
-    """The fixed clarification sentence, then what this turn's catalogue search really found.
+def clarification_text(
+    reason: str,
+    outcome: ExecutionOutcome,
+    proposed: str | None = None,
+    *,
+    secrets: tuple[str, ...] = (),
+) -> str:
+    """Prefer a safe specific question; retain the deterministic catalogue fallback.
 
     A bare "several series fit" or "not found" left the person guessing what exists
     (DEC-172). The lines come from reviewed catalogue records this turn's own searches
     returned, in their order; nothing here is model text and no figure is quoted.
     """
+    # Planner prose is not evidence. A numeric statement, locator or causal claim
+    # in it cannot be bound by the ordinary answer verifier, so do not show it.
+    # This intentionally rejects even a harmless date rather than certifying an
+    # unverified figure in a clarification.
+    if proposed is not None:
+        specific = proposed.strip()
+        if (
+            specific
+            and not re.search(
+                r"\d|https?://|\b(?:nedeniyle|sebebiyle|yol açt[ıi])\b", specific, re.I
+            )
+            and "[gizli bilgi kaldırıldı]" not in safe_text(specific, limit=1500, secrets=secrets)
+        ):
+            return specific
     text = CLARIFICATION_TEXT[reason]
     if reason not in ("ambiguous_series", "missing_series"):
         return text
@@ -278,7 +298,15 @@ def project_answer(
     if gate.status is AnswerStatus.ABSTAINED:
         reason = answered.planned.plan.clarification
         text = (
-            safe_text(clarification_text(reason, answered.outcome), secrets=secrets)
+            safe_text(
+                clarification_text(
+                    reason,
+                    answered.outcome,
+                    answered.planned.plan.clarification_text,
+                    secrets=secrets,
+                ),
+                secrets=secrets,
+            )
             if reason is not None
             else (
                 "Bu soru için doğrulanabilir bir sonuç üretilemedi. "

@@ -85,6 +85,11 @@ CREATE TABLE IF NOT EXISTS messages (
     PRIMARY KEY (conversation_id, sequence)
 );
 
+CREATE TABLE IF NOT EXISTS pending_clarifications (
+    conversation_id TEXT PRIMARY KEY REFERENCES conversations(conversation_id),
+    payload         TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS documents (
     conversation_id TEXT NOT NULL REFERENCES conversations(conversation_id),
     document_ref    TEXT NOT NULL,
@@ -652,6 +657,39 @@ class ConversationStore:
 
     # -- messages -------------------------------------------------------------
 
+    def pending_clarification(self, conversation_id: str) -> dict[str, object] | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT payload FROM pending_clarifications WHERE conversation_id = ?",
+                [conversation_id],
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            payload = json.loads(row["payload"])
+        except (TypeError, ValueError):
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    def set_pending_clarification(
+        self, conversation_id: str, payload: dict[str, object] | None
+    ) -> None:
+        with self._write() as connection:
+            if payload is None:
+                connection.execute(
+                    "DELETE FROM pending_clarifications WHERE conversation_id = ?",
+                    [conversation_id],
+                )
+            else:
+                encoded = json.dumps(payload, ensure_ascii=False)
+                if len(encoded) > 16_384:
+                    raise StoreError("pending_clarification_too_large")
+                connection.execute(
+                    "INSERT INTO pending_clarifications(conversation_id, payload) VALUES (?, ?) "
+                    "ON CONFLICT(conversation_id) DO UPDATE SET payload = excluded.payload",
+                    [conversation_id, encoded],
+                )
+
     def append_message(
         self,
         conversation_id: str,
@@ -751,11 +789,12 @@ class ConversationStore:
                 question = None
         return pairs[-limit:]
 
-    def turn_count(self, conversation_id: str) -> int:
+    def turn_count(self, conversation_id: str, exclude_turn_id: str | None = None) -> int:
         with self._lock:
             row = self._connection.execute(
-                "SELECT COUNT(DISTINCT turn_id) AS turns FROM messages WHERE conversation_id = ?",
-                [conversation_id],
+                "SELECT COUNT(DISTINCT turn_id) AS turns FROM messages "
+                "WHERE conversation_id = ? AND (? IS NULL OR turn_id <> ?)",
+                [conversation_id, exclude_turn_id, exclude_turn_id],
             ).fetchone()
         return int(row["turns"])
 
