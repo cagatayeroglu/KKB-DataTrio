@@ -39,7 +39,15 @@ from datetime import date
 from typing import TYPE_CHECKING, Annotated, Any
 
 import duckdb
-from pydantic import BaseModel, ConfigDict, Field, RootModel, StringConstraints, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    RootModel,
+    StringConstraints,
+    model_validator,
+)
 
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
 from kkb_agent.agent.registry import ToolSpec
@@ -102,6 +110,16 @@ class SeriesRead(BaseModel):
     end: date | None = Field(
         default=None, description="Latest period end, inclusive; omit for the whole stored window"
     )
+    last: int | None = Field(
+        default=None,
+        ge=1,
+        le=SERIES_READ_MAX_ROWS,
+        description=(
+            "Instead of start/end: the latest N published periods of each series, counted from "
+            "its last stored value. Use it for 'son 3 ay', 'son bir yıl' and the like, so no date "
+            "is guessed; a change over the last year of a monthly series needs 13"
+        ),
+    )
     purpose: str = Field(default="", max_length=500)
 
     @model_validator(mode="after")
@@ -110,10 +128,46 @@ class SeriesRead(BaseModel):
             raise ValueError("series must name each id once")
         if self.start is not None and self.end is not None and self.start > self.end:
             raise ValueError("start must not be after end")
+        if self.last is not None and (self.start is not None or self.end is not None):
+            raise ValueError("give last, or start/end, not both")
         return self
 
-    def statement(self) -> str:
-        """The one direct-column SELECT this read stands for; ids cannot carry a quote."""
+    def statement(
+        self, since: dict[str, date] | None = None, valued: frozenset[str] = frozenset()
+    ) -> str:
+        """The one direct-column SELECT this read stands for; ids cannot carry a quote.
+
+        `since` is each series' first period end when `last` was asked, and `valued` names
+        the series read without their empty periods (a daily series lists every weekend and
+        holiday as a period without a value). The tool reads both from the store itself, so
+        neither is something the planner wrote.
+        """
+        if since is not None or valued:
+            bounds = [
+                *([f"o.period_end >= DATE '{self.start.isoformat()}'"] if self.start else []),
+                *([f"o.period_end <= DATE '{self.end.isoformat()}'"] if self.end else []),
+            ]
+            each = " OR ".join(
+                "("
+                + " AND ".join(
+                    [
+                        f"o.series_id = '{identity}'",
+                        *(
+                            [f"o.period_end >= DATE '{since[identity].isoformat()}'"]
+                            if since is not None and identity in since
+                            else []
+                        ),
+                        *(bounds if since is None else []),
+                        *(["o.value IS NOT NULL"] if identity in valued else []),
+                    ]
+                )
+                + ")"
+                for identity in self.series
+            )
+            return (
+                "SELECT o.series_id, o.period_start, o.period_end, o.value "  # nosec B608
+                f"FROM silver_observations o WHERE {each} ORDER BY o.series_id, o.period_end"
+            )
         wanted = ", ".join(f"'{identity}'" for identity in self.series)
         where = [f"o.series_id IN ({wanted})"]
         if self.start is not None:
@@ -315,7 +369,16 @@ def make_lakehouse_tool(
         if isinstance(arguments, LakehouseRequest):
             arguments = arguments.root
         rows = max_rows
+        meanings: dict[str, JsonValue] = {}
         if isinstance(arguments, SeriesRead):
+            # The writer names a series by its meaning, so the result carries what the
+            # catalogue says each identity is (live trace 2026-09-19: a bare id cost the
+            # writer 3,899 reasoning tokens).
+            if inspector is not None:
+                for identity in arguments.series:
+                    meaning = inspector.name_of(identity)
+                    if meaning is not None:
+                        meanings[identity] = meaning
             # Inspecting first is what lets a reviewed series the store lacks be fetched
             # (DEC-155/159): as SQL, such a read only ever "returned no rows".
             refused = [
@@ -325,6 +388,7 @@ def make_lakehouse_tool(
                     if found.unknown_fields or found.mismatch_fields
                     else ""
                 )
+                + (f" - {reason}" if (reason := inspector.why_unread(identity)) else "")
                 for identity in arguments.series
                 if inspector is not None
                 and (found := inspector.inspect(connection, identity)).status != "consistent"
@@ -337,7 +401,32 @@ def make_lakehouse_tool(
                     error_category="series_unknown",
                     warnings=("Series cannot be read: " + "; ".join(refused),),
                 )
-            arguments = LakehouseArguments(sql=arguments.statement(), purpose=arguments.purpose)
+            since = None
+            if arguments.last is not None:
+                # The Nth latest published period of each series, read here: the harness's
+                # own bounded lookup, not part of the statement the planner asked for.
+                since = {}
+                for identity in arguments.series:
+                    found_at = connection.execute(
+                        "SELECT period_end FROM silver_observations WHERE series_id = ? AND "
+                        "value IS NOT NULL ORDER BY period_end DESC LIMIT 1 OFFSET ?",
+                        [identity, arguments.last - 1],
+                    ).fetchone()
+                    if found_at is not None:
+                        since[identity] = found_at[0]
+            # A daily series lists every weekend and holiday as a period without a value;
+            # those rows say nothing and would use up the places a result has.
+            valued = frozenset(
+                row[0]
+                for row in connection.execute(
+                    "SELECT series_id FROM silver_series WHERE frequency IN "
+                    "('daily', 'business_day')"
+                ).fetchall()
+                if row[0] in arguments.series
+            )
+            arguments = LakehouseArguments(
+                sql=arguments.statement(since, valued), purpose=arguments.purpose
+            )
             rows = max(max_rows, SERIES_READ_MAX_ROWS)
         if not isinstance(arguments, LakehouseArguments):  # pragma: no cover
             raise TypeError("lakehouse received arguments it did not declare")
@@ -360,7 +449,11 @@ def make_lakehouse_tool(
             connection=connection,
             result_id=_result_id(arguments, None),
             tables=tables,
-            parameters={"purpose": arguments.purpose, "max_rows": rows},
+            parameters={
+                "purpose": arguments.purpose,
+                "max_rows": rows,
+                **({"series_names": meanings} if meanings else {}),
+            },
             snapshots=snapshots,
             inspector=inspector,
         )
@@ -422,7 +515,8 @@ def _describe(readable: Iterable[str]) -> str:
     return (
         # nosec B608 - prose, never executed; the marker sits on the flagged line.
         "Read stored series. To fetch catalogue series as a table, give series=[ids] with "
-        "optional start/end dates and no sql: the tool writes the query, each series becomes "
+        "optional start/end dates, or last=N for the latest N published periods, and no sql: "
+        "the tool writes the query, each series becomes "
         "a column labelled by its id, and a reviewed series the store lacks is fetched from "
         "its official source first. Use sql only for what that cannot express: "
         "run one read-only SELECT over the analysis tables. "  # nosec B608

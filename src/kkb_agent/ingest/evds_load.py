@@ -25,15 +25,20 @@ from enum import StrEnum
 
 from pydantic import JsonValue
 
-from kkb_agent.core import Frequency, SourceRef
+from kkb_agent.core import Frequency, SourceRef, WeeklyAnchor
 from kkb_agent.ingest.evds_request import (
     EVDS_LIMITS,
     FE_ENDPOINT,
     EvdsRequest,
     EvdsWindow,
+    ListedCalendar,
     fetch_series,
 )
-from kkb_agent.ingest.evds_series import ReviewedEvdsSeries, reviewed_series, series_semantics
+from kkb_agent.ingest.evds_series import (
+    REVIEWED_SERIES,
+    ReviewedEvdsSeries,
+    series_semantics,
+)
 from kkb_agent.ingest.safe_fetch import FetchFailure, FetchOutcome, FetchSuccess
 from kkb_agent.lakehouse.lineage import EdgeKind, NodeKind, node_id
 from kkb_agent.lakehouse.records import Observation
@@ -42,6 +47,8 @@ from kkb_agent.lakehouse.store import Lakehouse
 
 PARSER_VERSION = "evds-fe-json-v1"
 SEMANTIC_VERSION = "evds-reviewed-v1"
+#: Declared from the source's own directory fields, not reviewed one by one (DEC-177).
+LISTED_SEMANTIC_VERSION = "evds-listed-v1"
 MANIFEST_VERSION = "evds-fe-batch-v1"
 TRANSFORMATION = (
     "native-frequency;decimal-string-to-double;label-date-equals-unixtime-utc+3;"
@@ -65,6 +72,9 @@ _ROOT_KEYS = {
 
 class EvdsLoadCode(StrEnum):
     RESPONSE_INVALID = "RESPONSE_INVALID"
+    #: A well-formed answer without a single row: the source lists the series but publishes
+    #: nothing for it in the window (a discontinued series, for one).
+    NO_OBSERVATIONS = "NO_OBSERVATIONS"
     RETRIEVAL_FAILED = "RETRIEVAL_FAILED"
     VERSION_CONFLICT = "VERSION_CONFLICT"
     MATERIALIZATION_FAILED = "MATERIALIZATION_FAILED"
@@ -114,16 +124,40 @@ def _invalid_constant(_value: str) -> JsonValue:
     raise ValueError("Non-JSON numeric constant")
 
 
-def _label_date(series: ReviewedEvdsSeries, label: JsonValue) -> date:
+def _label_date(series: ListedCalendar, label: JsonValue) -> date:
+    """The first day the label names: a day, a month, a quarter ("2024-1Ç") or a year."""
+    if series.frequency is Frequency.ANNUAL:
+        # The source writes a year as a JSON number; a string of four digits is the same year.
+        if type(label) is int:
+            year = label
+        elif isinstance(label, str) and re.fullmatch(r"[0-9]{4}", label):
+            year = int(label)
+        else:
+            raise ValueError("Invalid annual label")
+        if not 1900 <= year <= 2100:
+            raise ValueError("Invalid annual label")
+        return date(year, 1, 1)
     if not isinstance(label, str):
         raise ValueError("Invalid date label")
     if series.frequency is Frequency.MONTHLY:
         if not re.fullmatch(r"[0-9]{4}-[0-9]{2}", label):
             raise ValueError("Invalid monthly label")
         return date(int(label[:4]), int(label[5:]), 1)
+    if series.frequency is Frequency.QUARTERLY:
+        if not re.fullmatch(r"[0-9]{4}-[1-4]Ç", label):
+            raise ValueError("Invalid quarterly label")
+        return date(int(label[:4]), 3 * int(label[5]) - 2, 1)
     if not re.fullmatch(r"[0-9]{2}-[0-9]{2}-[0-9]{4}", label):
-        raise ValueError("Invalid weekly label")
+        raise ValueError("Invalid day label")
     return date(int(label[6:]), int(label[3:5]), int(label[:2]))
+
+
+def _stamp_date(series: ListedCalendar, label: date) -> date:
+    """The day `UNIXTIME` names for a label. Only a Wednesday week differs from its label:
+    the source stamps it with that week's Friday (measured 2026-09-19, `TP.D1TOP`)."""
+    if series.frequency is Frequency.WEEKLY and series.anchor is WeeklyAnchor.WEDNESDAY:
+        return label + timedelta(days=2)
+    return label
 
 
 def _value(raw: JsonValue) -> float | None:
@@ -134,19 +168,30 @@ def _value(raw: JsonValue) -> float | None:
     return float(raw)
 
 
-def _period(series: ReviewedEvdsSeries, label: date) -> tuple[date, date]:
-    if series.frequency is Frequency.MONTHLY:
-        end = (label.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
-        return period_bounds(Frequency.MONTHLY, end)
+_MONTHS = {Frequency.MONTHLY: 1, Frequency.QUARTERLY: 3, Frequency.ANNUAL: 12}
+
+
+def _period(series: ListedCalendar | ReviewedEvdsSeries, label: date) -> tuple[date, date]:
+    months = _MONTHS.get(series.frequency)
+    if months is not None:
+        index = label.year * 12 + label.month - 1 + months
+        end = date(index // 12, index % 12 + 1, 1) - timedelta(days=1)
+        return period_bounds(series.frequency, end)
+    if series.frequency in (Frequency.DAILY, Frequency.BUSINESS_DAY):
+        return period_bounds(series.frequency, label)
     return period_bounds(Frequency.WEEKLY, label, anchor=series.anchor)
 
 
-def expected_period_ends(series: ReviewedEvdsSeries, window: EvdsWindow) -> tuple[date, ...]:
+def expected_period_ends(
+    series: ListedCalendar | ReviewedEvdsSeries, window: EvdsWindow
+) -> tuple[date, ...]:
     """Generated from the calendar alone, never from the rows a response supplies."""
     window = EvdsWindow.model_validate(window)
     ends: list[date] = []
-    if series.frequency is Frequency.MONTHLY:
-        cursor = window.start.replace(day=1)
+    months = _MONTHS.get(series.frequency)
+    if months is not None:
+        first = window.start.month - (window.start.month - 1) % months
+        cursor = window.start.replace(month=first, day=1)
         while True:
             _, end = _period(series, cursor)
             if end > window.end:
@@ -154,6 +199,14 @@ def expected_period_ends(series: ReviewedEvdsSeries, window: EvdsWindow) -> tupl
             if end >= window.start:
                 ends.append(end)
             cursor = end + timedelta(days=1)
+        return tuple(ends)
+    if series.frequency in (Frequency.DAILY, Frequency.BUSINESS_DAY):
+        cursor = window.start
+        while cursor <= window.end:
+            # The source lists every weekday of a business-day series; a holiday is a null.
+            if series.frequency is Frequency.DAILY or cursor.weekday() < 5:
+                ends.append(cursor)
+            cursor += timedelta(days=1)
         return tuple(ends)
     if series.anchor is None:  # pragma: no cover - the reviewed registry forbids it.
         raise ValueError("Weekly series without an anchor")
@@ -173,7 +226,9 @@ def parse_fe(payload: bytes, request: EvdsRequest) -> ParsedSeries:
     The kept periods must equal the independently generated calendar exactly.
     """
     request = EvdsRequest.model_validate(request)
-    series = reviewed_series(request.code)
+    series = request.calendar()
+    response_key = request.code.replace(".", "_")
+    reviewed = request.code in REVIEWED_SERIES
     try:
         if not isinstance(payload, bytes) or len(payload) > EVDS_LIMITS.max_decompressed_bytes:
             raise ValueError("Response budget")
@@ -191,7 +246,9 @@ def parse_fe(payload: bytes, request: EvdsRequest) -> ParsedSeries:
             raise ValueError("Inconsistent item count")
         if len(items) > MAX_ITEMS:
             raise ValueError("Too many items")
-        keys = {"Tarih", "UNIXTIME", series.response_key}
+        if not items and not reviewed:
+            raise EvdsLoadError(EvdsLoadCode.NO_OBSERVATIONS)
+        keys = {"Tarih", "UNIXTIME", response_key}
         if series.frequency is Frequency.WEEKLY:
             keys.add("YEARWEEK")
         kept: list[Observation] = []
@@ -207,7 +264,9 @@ def parse_fe(payload: bytes, request: EvdsRequest) -> ParsedSeries:
             seconds = stamp["$numberLong"]
             if not isinstance(seconds, str) or not _UNIXTIME.fullmatch(seconds):
                 raise ValueError("Invalid UNIXTIME")
-            if datetime.fromtimestamp(int(seconds), _SOURCE_DAY).date() != label:
+            if datetime.fromtimestamp(int(seconds), _SOURCE_DAY).date() != _stamp_date(
+                series, label
+            ):
                 raise ValueError("Label and UNIXTIME disagree")
             if "YEARWEEK" in raw and (
                 not isinstance(raw["YEARWEEK"], str) or not _YEARWEEK.fullmatch(raw["YEARWEEK"])
@@ -217,14 +276,21 @@ def parse_fe(payload: bytes, request: EvdsRequest) -> ParsedSeries:
                 raise ValueError("Rows are not strictly increasing")
             previous = label
             start, end = _period(series, label)
-            value = _value(raw[series.response_key])
+            value = _value(raw[response_key])
             if not request.window.start <= end <= request.window.end:
                 excluded += 1
                 continue
             kept.append(Observation(start, end, value))
-        if tuple(o.period_end for o in kept) != expected_period_ends(series, request.window):
+        ends = tuple(o.period_end for o in kept)
+        expected = expected_period_ends(series, request.window)
+        # A reviewed series must fill its calendar exactly, as before. A listed one may
+        # stop early: the source omits periods it has not published yet (a quarter, a
+        # year). It may never skip a period inside, add one, or come back empty.
+        if ends != expected if reviewed else (not ends or ends != expected[: len(ends)]):
             raise ValueError("Periods differ from the requested calendar")
         return ParsedSeries(tuple(kept), excluded)
+    except EvdsLoadError:
+        raise
     except (ValueError, TypeError, KeyError, OverflowError, RecursionError, OSError):
         raise EvdsLoadError(EvdsLoadCode.RESPONSE_INVALID) from None
 
@@ -275,15 +341,36 @@ def ingest_series(
     window: EvdsWindow,
     *,
     retrieve: Callable[[EvdsRequest], FetchOutcome] = fetch_series,
+    listed: ReviewedEvdsSeries | None = None,
 ) -> EvdsMaterialization:
     """One validated dataset or explicit refusal; identical repeats are no-ops.
 
     retrieve is trusted application/test injection, never a serialized tool arg.
     Current silver permits one immutable batch per series. A different window,
     response hash or parser/semantic contract returns VERSION_CONFLICT.
+
+    `listed` is trusted application input too: a series declared from EVDS's own directory
+    (DEC-177), used only when the code is outside the reviewed registry. A reviewed code
+    always takes its reviewed declaration, whatever is passed.
     """
-    request = EvdsRequest(code=code, window=EvdsWindow.model_validate(window))
-    series = request.series
+    declared = None if code in REVIEWED_SERIES else listed
+    if declared is not None and declared.code != code:
+        raise EvdsLoadError(EvdsLoadCode.RETRIEVAL_FAILED)
+    request = EvdsRequest(
+        code=code,
+        window=EvdsWindow.model_validate(window),
+        listed=(
+            ListedCalendar(
+                frequency=declared.frequency,
+                request_frequency=declared.request_frequency,
+                anchor=declared.anchor,
+            )
+            if declared is not None
+            else None
+        ),
+    )
+    series = declared if declared is not None else request.series
+    semantic_version = LISTED_SEMANTIC_VERSION if declared is not None else SEMANTIC_VERSION
     semantics = series_semantics(series)
     try:
         outcome = retrieve(request)
@@ -325,7 +412,7 @@ def ingest_series(
         "raw_artifact_id": artifact.artifact_id,
         "excluded_outside_window": parsed.excluded_outside_window,
         "parser": PARSER_VERSION,
-        "semantics": SEMANTIC_VERSION,
+        "semantics": semantic_version,
         "transformation": TRANSFORMATION,
         "observations_sha256": _observations_sha256(parsed.observations),
     }

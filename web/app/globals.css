@@ -3074,3 +3074,57 @@ svg {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* Which catalogue entry an answer used when no reviewed match named one (DEC-177). */
+.series-choice {
+  margin: 10px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+  background: var(--surface-2, rgba(0, 0, 0, 0.02));
+  font-size: 13px;
+}
+.series-choice-head {
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+.series-choice-head span {
+  font-weight: 400;
+  color: var(--muted);
+}
+.series-choice ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+.series-choice li {
+  display: grid;
+  gap: 1px;
+}
+.series-choice li span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.series-choice details {
+  margin-top: 8px;
+}
+.series-choice summary {
+  cursor: pointer;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.series-choice button {
+  all: unset;
+  cursor: pointer;
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+.series-choice button:hover,
+.series-choice button:focus-visible {
+  color: var(--accent);
+}

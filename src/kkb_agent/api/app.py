@@ -24,6 +24,7 @@ from kkb_agent.api.contracts import (
     ConversationUpdate,
     DatasetDetail,
     DatasetRequest,
+    DirectoryRefreshResult,
     DocumentAdmitted,
     DocumentFromUrl,
     Error,
@@ -417,6 +418,11 @@ def create_app(
     def knowledge_reindex(owner: OwnerToken) -> VectorIndexStatus:
         # Accepted, not done: building calls the embedding model once per entry.
         return _knowledge().rebuild(owner)
+
+    @app.post("/v1/knowledge/directory", response_model=DirectoryRefreshResult)
+    def knowledge_directory(owner: OwnerToken) -> DirectoryRefreshResult:
+        # Reads the sources' own listings again; no model call, nothing stored in a lakehouse.
+        return _knowledge().refresh_directory(owner)
 
     @app.get("/v1/knowledge/datasets/{slug}", response_model=DatasetDetail)
     def knowledge_dataset(slug: Slug, owner: OwnerToken) -> DatasetDetail:

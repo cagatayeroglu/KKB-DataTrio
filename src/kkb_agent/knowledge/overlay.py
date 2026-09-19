@@ -14,6 +14,10 @@ the reviewed one without changing any reviewed declaration:
 With an empty knowledge base the reviewed snapshot is returned unchanged, same
 object and same digest, so nothing downstream (dense index, inspector, proofs)
 can tell the difference.
+
+When the operator enables it, the sources' own directory (DEC-176) is applied the same
+way: its entries are appended after the reviewed series, never in place of one, and a
+person can archive, alias or describe them like any other entry.
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ import json
 from collections.abc import Sequence
 from typing import Final
 
+from kkb_agent.catalog.directory import SourceDirectory
 from kkb_agent.catalog.mappings import (
     Alias,
     Concept,
@@ -116,12 +121,23 @@ def effective_snapshot(
     reviewed: ReviewedSnapshot,
     datasets: Sequence[DatasetVersion],
     notes: Sequence[SeriesNote],
+    directory: SourceDirectory | None = None,
 ) -> ReviewedSnapshot:
     """The reviewed snapshot with the knowledge base applied, or itself when there is none."""
     active = [item for item in datasets if item.status == "active"]
     known = {s.record.series_id for s in reviewed.series}
+    listed = (
+        [item for item in directory.series if item.record.series_id not in known]
+        if directory is not None
+        else []
+    )
+    known |= {item.record.series_id for item in listed}
     relevant = [note for note in notes if note.series_id in known]
-    if not active and not any(note.archived or note.aliases or note.note for note in relevant):
+    if (
+        not listed
+        and not active
+        and not any(note.archived or note.aliases or note.note for note in relevant)
+    ):
         return reviewed
 
     archived = {note.series_id for note in relevant if note.archived}
@@ -151,7 +167,7 @@ def effective_snapshot(
         )
         if item.record.series_id in archived
         else with_description(item)
-        for item in reviewed.series
+        for item in (*reviewed.series, *listed)
     ]
     series.extend(_dataset_series(item) for item in active)
 
@@ -170,6 +186,7 @@ def effective_snapshot(
 
     state = json.dumps(
         {
+            **({"directory": directory.digest} if directory is not None and listed else {}),
             "datasets": [[i.series_id, i.content_sha256()] for i in active],
             "notes": [
                 [n.series_id, n.version, n.archived, list(n.aliases), n.note or ""]
@@ -186,12 +203,18 @@ def effective_snapshot(
         section="User datasets, archive flags and aliases; not reviewed.",
     )
     body = reviewed.model_dump(mode="json", exclude={"content_sha256"})
+    listed_evidence = (
+        [item.model_dump(mode="json") for item in directory.evidence]
+        if directory is not None and listed
+        else []
+    )
     body.update(
         snapshot_version=f"{reviewed.snapshot_version}+kb.{evidence.file_sha256[:12]}",
         review_note=(
             f"{reviewed.review_note} Knowledge base applied; user entries are not reviewed."
+            + (" Source directory applied; listed entries are not reviewed." if listed else "")
         ),
-        evidence=[*body["evidence"], evidence.model_dump(mode="json")],
+        evidence=[*body["evidence"], *listed_evidence, evidence.model_dump(mode="json")],
         series=[item.model_dump(mode="json") for item in series],
         concepts=[item.model_dump(mode="json") for item in concepts],
     )

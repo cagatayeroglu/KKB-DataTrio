@@ -266,12 +266,30 @@ class Result(ContractModel):
     proof: Proof = Field(default_factory=unavailable_proof)
 
 
+class SeriesChoice(ContractModel):
+    """One catalogue entry as a person reads it: what it is and how it is kept; never a value."""
+
+    series_id: Annotated[str, StringConstraints(strict=True, min_length=1, max_length=200)]
+    title: Annotated[str, StringConstraints(strict=True, min_length=1, max_length=400)]
+    detail: Annotated[str, StringConstraints(strict=True, max_length=400)]
+
+
+class SeriesSelection(ContractModel):
+    """Which entries a turn used although no reviewed concept named them, and what else was
+    near (DEC-177); on a clarification, `chosen` is empty and `others` are the entries to
+    choose from. Written by code from the turn's own searches and plan, never by a model."""
+
+    chosen: Annotated[tuple[SeriesChoice, ...], Field(max_length=12)] = ()
+    others: Annotated[tuple[SeriesChoice, ...], Field(max_length=10)] = ()
+
+
 class Answer(ContractModel):
     status: AnswerStatus
     text: Text
     omitted_claims: Annotated[int, Field(strict=True, ge=0)]
     notices: Annotated[tuple[Text, ...], Field(max_length=16)] = ()
     result: Result | None = None
+    selection: SeriesSelection | None = None
 
 
 class Event(ContractModel):
@@ -523,8 +541,9 @@ class KnowledgeSeries(ContractModel):
     series_id: SeriesIdentity
     title: str
     provider: str
-    #: reviewed: from the reviewed catalog; user: declared by a person here.
-    origin: Literal["reviewed", "user"]
+    #: reviewed: from the reviewed catalog; listed: from a source's own directory, never
+    #: reviewed one by one (DEC-176); user: declared by a person here.
+    origin: Literal["reviewed", "listed", "user"]
     status: Literal["active", "archived", "unknown"]
     #: Stored in the prepared pool every conversation starts from.
     prepared: bool
@@ -563,6 +582,26 @@ class KnowledgeList(ContractModel):
     catalog_digest: str
     reviewed_digest: str
     series: Annotated[tuple[KnowledgeSeries, ...], Field(max_length=MAX_CATALOG_SERIES)] = ()
+    #: Entries of the sources' own directory that search finds and turns fetch on first use.
+    #: Only the ones a person annotated or a turn fetched are in `series`.
+    listed_series: Annotated[int, Field(ge=0, le=MAX_CATALOG_SERIES)] = 0
+
+
+class DirectoryRefreshResult(ContractModel):
+    """What re-reading the sources' own directories found (DEC-177); titles are the source's."""
+
+    api_version: Literal[1] = 1
+    #: Datagroups EVDS lists now, and the ones the pinned listing lacked (first titles shown).
+    evds_listed: Annotated[int, Field(strict=True, ge=0, le=MAX_CATALOG_SERIES)]
+    added_total: Annotated[int, Field(strict=True, ge=0, le=MAX_CATALOG_SERIES)]
+    added: Annotated[tuple[Label, ...], Field(max_length=20)] = ()
+    #: Pinned datagroups EVDS no longer lists; they stay until the next harvest.
+    withdrawn: Annotated[int, Field(strict=True, ge=0, le=MAX_CATALOG_SERIES)]
+    #: Series lists of opened datagroups read again, and the ones that could not be.
+    series_lists_reread: Annotated[int, Field(strict=True, ge=0, le=MAX_CATALOG_SERIES)]
+    series_lists_failed: Annotated[int, Field(strict=True, ge=0, le=MAX_CATALOG_SERIES)]
+    #: True when the searched catalogue changed, so its vectors must be built again.
+    catalog_changed: bool
 
 
 class SearchHit(ContractModel):

@@ -10,7 +10,7 @@ import re
 import threading
 import time
 from collections.abc import Callable, Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
@@ -39,6 +39,9 @@ from kkb_agent.api.projection import OutputRefused, project_answer, project_resu
 from kkb_agent.api.proof import build_proof
 from kkb_agent.api.service import SelectedResult, ServiceError, TurnSettings
 from kkb_agent.api.store import DEFAULT_TITLE, ConversationStore
+from kkb_agent.catalog.directory import SourceDirectory
+from kkb_agent.catalog.discovered import DiscoveredStore
+from kkb_agent.catalog.expansion import expand_groups
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
 from kkb_agent.catalog.mappings import (
     MAX_SNAPSHOT_BYTES,
@@ -48,7 +51,12 @@ from kkb_agent.catalog.mappings import (
 )
 from kkb_agent.core import AnalyticalResult, SourceRef
 from kkb_agent.core.models import ContractModel
-from kkb_agent.ingest.acquisition import AcquiringInspector, OfficialSources, TurnAcquirer
+from kkb_agent.ingest.acquisition import (
+    AcquiringInspector,
+    AcquisitionCode,
+    OfficialSources,
+    TurnAcquirer,
+)
 from kkb_agent.ingest.address_outline import TurnFetchCache, address_outline
 from kkb_agent.ingest.attached import SOURCE_TYPE as UPLOAD
 from kkb_agent.ingest.attached import Attachment
@@ -147,6 +155,11 @@ _NEW_QUESTION_WORDS = 6
 #: aylık getir, TÜFE ile ... arındır." into an unrelated pending clarification and
 #: clarified again. Beyond `_REPLY_HARD_MAX_WORDS` any message is a request.
 #: Shown with an abstention when a read of the question's address was lost after every attempt.
+#: Shown with an abstention when an official series could not be fetched after every attempt.
+SOURCE_UNREACHED_NOTICE = (
+    "İstenen seri resmî kaynağında var, ancak kaynak bu turda yanıt vermedi (zaman aşımı ya da "
+    "bağlantı hatası). Aynı soruyu yeniden sormak sonucu değiştirebilir; alınan aylar saklandı."
+)
 ADDRESS_UNREAD_NOTICE = (
     "Sorudaki adresin bazı kaynakları bu turda okunamadı (zaman aşımı ya da bağlantı hatası). "
     "Aynı soruyu yeniden sormak sonucu değiştirebilir."
@@ -401,8 +414,14 @@ class PreparedRunner:
         clock: Callable[[], date] = lambda: datetime.now(UTC).date(),
         knowledge: KnowledgeStore | None = None,
         search_backend: SearchBackend | None = None,
+        source_directory: SourceDirectory | None = None,
+        discovered: DiscoveredStore | None = None,
     ):
         self._catalog = load_reviewed_snapshot(catalog_bytes)
+        # Operator switch (DEC-176): the sources' own listings as a second catalogue tier.
+        self._directory = source_directory
+        # The EVDS series lists opened so far (DEC-177); without it datagroups stay hidden.
+        self._discovered = discovered
         self._catalog_bytes = catalog_bytes
         # Optional operator-built index generation; without it discovery stays lexical.
         if catalog_dense is not None and (
@@ -417,7 +436,11 @@ class PreparedRunner:
         # Operator switch for OCR of PDF pages without text (M7-11, DEC-149).
         self._document_ocr = document_ocr
         # Operator switch for fetching a reviewed official series on first use (DEC-155).
-        self._official = official
+        self._official = (
+            replace(official, listed_evds=discovered.lookup)
+            if official is not None and discovered is not None
+            else official
+        )
         self._clock = clock
         # The editable knowledge base layered over the reviewed catalog (DEC-157).
         self._knowledge = knowledge
@@ -659,6 +682,14 @@ class PreparedRunner:
         if self._dense is None or self._dense.index.snapshot_sha256 != catalog.content_sha256:
             return None
         return self._dense
+
+    def use_directory(self, directory: SourceDirectory) -> None:
+        """Install a refreshed source directory for later turns (DEC-177).
+
+        The running turn keeps the catalogue it started with. The vectors cover the new
+        catalogue only after they are built again; until then discovery says it is lexical.
+        """
+        self._directory = directory
 
     def use_dense(self, stage: CatalogDenseStage) -> None:
         """Install a newly built generation for later turns; the profile may not change.
@@ -971,6 +1002,7 @@ class PreparedRunner:
                     tools_required=bool(addresses_in(question)) or document_ref is not None,
                     # Named from this turn's catalog, knowledge-base entries included.
                     series_names=series_display_names(catalog),
+                    today=self._clock(),
                 )
                 try:
                     answered = session.answer(
@@ -1013,6 +1045,17 @@ class PreparedRunner:
                         else None
                     ),
                 )
+                if (
+                    answer.status is AnswerStatus.ABSTAINED
+                    and acquirer is not None
+                    and any(
+                        item.code is AcquisitionCode.RETRIEVAL_FAILED for item in acquirer.attempts
+                    )
+                ):
+                    # The series exists and has a route; the source did not answer this time.
+                    answer = answer.model_copy(
+                        update={"notices": (*answer.notices, SOURCE_UNREACHED_NOTICE)}
+                    )
                 if (
                     answer.status is AnswerStatus.ABSTAINED
                     and turn_fetch is not None
@@ -1103,9 +1146,11 @@ class PreparedRunner:
         observations. A version already present is left as it is.
         """
         if self._knowledge is None:
-            return self._catalog, []
+            return effective_snapshot(self._catalog, [], [], self._directory), []
         datasets = self._knowledge.datasets(include_archived=False)
-        catalog = effective_snapshot(self._catalog, datasets, self._knowledge.notes())
+        catalog = effective_snapshot(
+            self._catalog, datasets, self._knowledge.notes(), self._directory
+        )
         loaded: list[str] = []
         for item in datasets:
             present = lake.connection.execute(
@@ -1300,7 +1345,11 @@ class PreparedRunner:
     ) -> ToolRegistry:
         fetch = turn_fetch if turn_fetch is not None else self._web_url_fetch
         catalog = catalog if catalog is not None else self._catalog
-        inspector = PreparedSeriesInspector(catalog)
+        # A datagroup is opened only when its series could then be fetched this turn.
+        opened = self._discovered if acquirer is not None else None
+        inspector = PreparedSeriesInspector(
+            catalog, late=opened.entry if opened is not None else None
+        )
         if acquirer is not None:
             inspector = AcquiringInspector(inspector, acquirer)
         # Existing code-reviewed names only. Free catalog/source metadata belongs
@@ -1320,6 +1369,11 @@ class PreparedRunner:
                 # to the catalogue whose digest it carries, reviewed or with the
                 # knowledge base applied. Otherwise discovery stays lexical.
                 dense=self._dense_for(catalog),
+                expand=(
+                    (lambda query, output: expand_groups(query, output, opened))
+                    if self._directory is not None
+                    else None
+                ),
             )
         )
         registry.register(make_lakehouse_tool(connection, lineage=lineage, inspector=inspector))

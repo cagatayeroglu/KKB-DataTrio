@@ -67,6 +67,11 @@ class ReviewedEvdsSeries:
     anchor: WeeklyAnchor | None = None
     base_year: int | None = None
     note: str = ""
+    #: Every reviewed series is published in plain units and averaged; a series declared
+    #: from the source's own directory (DEC-177) carries what its datagroup and flags say.
+    scale: Scale = Scale.ONE
+    aggregation: Aggregation = Aggregation.AVERAGE
+    policy: AggregationPolicy | None = None
 
     @property
     def series_id(self) -> str:
@@ -291,11 +296,11 @@ def reviewed_series(code: str) -> ReviewedEvdsSeries:
 def series_semantics(series: ReviewedEvdsSeries) -> SeriesSemantics:
     semantics = SeriesSemantics(
         unit=series.unit,
-        scale=Scale.ONE,
+        scale=series.scale,
         frequency=series.frequency,
         observation=series.stock_flow,
         cumulative=CumulativeKind.NONE,
-        aggregation=Aggregation.AVERAGE,
+        aggregation=series.aggregation,
         anchor=series.anchor,
         base_year=series.base_year,
     )
@@ -325,11 +330,11 @@ def catalog_record(series: ReviewedEvdsSeries) -> CatalogRecord:
             publisher=series.data_source,
         ),
         unit=series.unit,
-        scale=Scale.ONE,
+        scale=series.scale,
         frequency=series.frequency,
         weekly_anchor=series.anchor,
         stock_flow=series.stock_flow,
         cumulative=CumulativeKind.NONE,
-        aggregation=_AVERAGE_NOT_SUM,
+        aggregation=series.policy or _AVERAGE_NOT_SUM,
         base_year=series.base_year,
     )

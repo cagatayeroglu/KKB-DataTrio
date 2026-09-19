@@ -24,6 +24,7 @@ import {
   openDataset,
   readIndex,
   rebuildIndex,
+  refreshDirectory,
   seriesUses,
   trySearch,
   parseDatedRows,
@@ -146,6 +147,10 @@ function health(item: KnowledgeSeries, pool?: Dataset | null) {
 function where(item: KnowledgeSeries) {
   if (item.status === "archived") return "Arşivde";
   if (item.origin === "user") return "Kullanıcı beyanı";
+  if (item.origin === "listed")
+    return item.prepared || item.acquired_at
+      ? "Kaynak dizininden · çekildi"
+      : "Kaynak dizininden · ilk kullanımda çekilir";
   if (item.prepared) return "Hazır havuzda";
   if (item.acquired_at)
     return `Kaynaktan çekildi · ${new Date(item.acquired_at).toLocaleString("tr-TR")}`;
@@ -196,6 +201,43 @@ export function KnowledgePanel({
   const [index, setIndex] = useState<VectorIndex | null>(null);
   //: A friendly next-step note (not an error), cleared by the next action.
   const [hint, setHint] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+  /** Read the sources' own listings again (DEC-177) and say what changed, in words. */
+  async function refreshSources() {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      const found = await refreshDirectory(owner);
+      const parts = [
+        `EVDS şu an ${found.evds_listed} veri grubu listeliyor.`,
+        found.added_total > 0
+          ? `${found.added_total} yeni veri grubu kataloğa eklendi: ${found.added.join("; ")}${found.added_total > found.added.length ? " …" : ""}.`
+          : "Yeni veri grubu yok.",
+        found.series_lists_reread > 0
+          ? `Daha önce açılan ${found.series_lists_reread} veri grubunun seri listesi yeniden okundu.`
+          : "",
+        found.series_lists_failed > 0
+          ? `${found.series_lists_failed} seri listesi okunamadı; eski hâli duruyor.`
+          : "",
+        found.withdrawn > 0
+          ? `${found.withdrawn} kayıtlı veri grubu kaynakta artık listelenmiyor.`
+          : "",
+        found.catalog_changed
+          ? 'Katalog değişti: anlamsal aramanın yeni kayıtları görmesi için "Yeniden vektörle" düğmesine bas.'
+          : "",
+      ];
+      setHint(parts.filter(Boolean).join(" "));
+      setIssue("");
+      if (found.catalog_changed) {
+        setListing(await listKnowledge(owner));
+        setIndex(await readIndex(owner));
+      }
+    } catch (error) {
+      setIssue(describeError(error));
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   /**
    * The knowledge base as a file that can be imported again: the listing plus
@@ -388,6 +430,28 @@ export function KnowledgePanel({
         <span>
           <strong>{counts.user}</strong> eklediğin veri seti
         </span>
+        {listing && (listing.listed_series ?? 0) > 0 && (
+          <span title="Resmî kaynağın kendi dizininden gelen kayıtlar. Aşağıdaki deneme aramasında bulunur, bir soruda ilk kullanıldığında kaynağından çekilir; çekilen ya da not düştüğün kayıtlar listede görünür.">
+            <strong>{listing.listed_series}</strong> kaynak dizini kaydı
+            (aranır, ilk kullanımda çekilir)
+          </span>
+        )}
+        {listing && (listing.listed_series ?? 0) > 0 && (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={refreshing}
+            title="EVDS'nin güncel veri grubu dizinini ve daha önce açılan grupların seri listelerini kaynağından yeniden okur. Yeni eklenen veri grupları ve seriler aramaya girer. Model çağrılmaz."
+            onClick={() => void refreshSources()}
+          >
+            {refreshing ? (
+              <LoaderCircle size={13} className="spin" />
+            ) : (
+              <RefreshCw size={13} />
+            )}
+            {refreshing ? "Dizin okunuyor" : "Kaynak dizinini yenile"}
+          </Button>
+        )}
         <span>
           {listing
             ? listing.catalog_digest === listing.reviewed_digest
@@ -870,7 +934,9 @@ function SeriesDetail({
           <dd>
             {item.origin === "user"
               ? "Senin beyanın; incelenmedi"
-              : "İncelenmiş katalog kaydı"}
+              : item.origin === "listed"
+                ? "Kaynağın kendi dizini; birim ve tür kaynağın alanlarından, tek tek incelenmedi"
+                : "İncelenmiş katalog kaydı"}
           </dd>
         </div>
         {item.description && (

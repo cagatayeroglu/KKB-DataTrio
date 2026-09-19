@@ -19,6 +19,8 @@ from kkb_agent.api.prepared import PreparedRunner, _local, inspect_pool, read_ca
 from kkb_agent.api.service import AnalysisService
 from kkb_agent.api.store import DATABASE_NAME as STORE_NAME
 from kkb_agent.api.store import ConversationStore
+from kkb_agent.catalog.directory import source_directory
+from kkb_agent.catalog.discovered import DiscoveredStore
 from kkb_agent.catalog.mappings import ReviewedSnapshot, load_reviewed_snapshot
 from kkb_agent.ingest.acquisition import AcquisitionStore, OfficialSources
 from kkb_agent.ingest.safe_fetch import safe_fetch
@@ -30,6 +32,8 @@ from kkb_agent.tools.searxng import SearxngBackend
 MAX_REQUEST_TIMEOUT = 1800.0
 #: Fetched official responses, kept for later conversations (DEC-159).
 ACQUIRED_DIRECTORY = "acquired"
+#: EVDS series lists read from the source's own directory, one file per datagroup (DEC-177).
+DISCOVERED_DIRECTORY = "directory/evds"
 #: Built vector generations, one immutable directory per catalogue digest.
 GENERATIONS_DIRECTORY = "catalog-index"
 
@@ -110,6 +114,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             "Acquisition is on by default (DEC-155, DEC-159): reviewed routes only, fixed "
             "windows, at most three a turn, and fetched responses are kept under the state "
             "root for later conversations"
+        ),
+    )
+    parser.add_argument(
+        "--no-source-directory",
+        action="store_true",
+        help=(
+            "Search only the reviewed catalogue. By default the sources' own pinned listings "
+            "(DEC-176: the BDDK monthly bulletin's tables and rows) are a second catalogue "
+            "tier, searched after the reviewed one and fetched on first use by the same "
+            "adapters. The vectors must be built once for the larger catalogue"
         ),
     )
     parser.add_argument(
@@ -213,6 +227,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             official = OfficialSources(store=acquired) if acquisition_enabled else None
             # The editable knowledge base over the reviewed catalog (DEC-157).
             knowledge = KnowledgeStore(args.state_root.absolute() / KNOWLEDGE_NAME)
+            # The sources' own listings as a second catalogue tier (DEC-176), unless refused.
+            # The series lists of the EVDS datagroups a search has opened, and the datagroups
+            # a refresh found after the pin (DEC-177). Without official fetching nothing
+            # opens a datagroup, so nothing is kept.
+            discovered = (
+                DiscoveredStore(args.state_root.absolute() / DISCOVERED_DIRECTORY)
+                if not args.no_source_directory and acquisition_enabled
+                else None
+            )
+            directory = (
+                None
+                if args.no_source_directory
+                else source_directory(discovered.supplement() if discovered is not None else ())
+            )
             runner = PreparedRunner(
                 provider,
                 root,
@@ -227,6 +255,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 official=official,
                 knowledge=knowledge,
                 search_backend=search,
+                source_directory=directory,
+                discovered=discovered,
             )
             service = AnalysisService(
                 runner,
@@ -304,6 +334,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 rebuild_index=rebuild,
                 install_index=runner.use_dense,
                 reopen_index=reopen,
+                source_directory=directory,
+                discovered=discovered,
+                install_directory=runner.use_directory,
             )
             # No model call: a generation built before this restart is simply opened.
             knowledge_service.restore_generation()

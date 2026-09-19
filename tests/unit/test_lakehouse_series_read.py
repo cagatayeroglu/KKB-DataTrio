@@ -196,3 +196,38 @@ def test_a_served_turn_reads_a_series_outside_the_pool_by_identity(seed_pool, tm
     assert answer.status.value == "accepted", answer
     assert len(source.requests) == 1
     assert answer.result is not None and len(answer.result.cells) == 3
+
+
+def test_last_reads_the_latest_published_periods_without_a_date_from_the_planner(pool):  # noqa: F811
+    """DEC-178: "son 3 ay" is anchored to the series' last stored value, never a guessed day."""
+    lake_, _ = pool
+    tool = make_lakehouse_tool(lake_.connection, lineage=lake_.lineage)
+    whole = run(tool, {"series": [CPI_ID]}).output.result.values
+    latest = run(tool, {"series": [CPI_ID], "last": 3})
+    assert latest.status is ToolStatus.SUCCESS, latest.warnings
+    assert [(v.period, v.value) for v in latest.output.result.values] == [
+        (v.period, v.value) for v in whole[-3:]
+    ]
+    # Each series counts from its own last value; more than is stored is simply all of it.
+    both = run(tool, {"series": [CPI_ID, TOTAL_ID], "last": 2}).output.result.values
+    assert [v.label for v in both].count(CPI_ID) == [v.label for v in both].count(TOTAL_ID) == 2
+    assert len(run(tool, {"series": [CPI_ID], "last": 500}).output.result.values) == len(whole)
+    with pytest.raises((ValidationError, ValueError)):
+        tool.parse({"series": [CPI_ID], "last": 3, "start": "2021-01-01"})
+
+
+def test_the_planner_is_told_what_day_it_is(seed_pool, tmp_path):
+    """Live D1 (2026-09-19): "What is current date? Not given" - 5,600 tokens of guessing."""
+    from datetime import date as day
+
+    provider = scripted(proposal(clarification="unsupported_request"))
+    runner = PreparedRunner(
+        provider,
+        seed_pool,
+        tmp_path / "runtime",
+        catalog_bytes=CATALOG.read_bytes(),
+        clock=lambda: day(2026, 9, 19),
+    )
+    runner(uuid4().hex, uuid4().hex, "Son 3 ayda konut kredisi bakiyesi nasıl değişti?")
+    system = "\n".join(m.content for m in provider.seen[0] if m.role.value == "system")
+    assert "Today is 2026-09-19." in system and "last=N" in system

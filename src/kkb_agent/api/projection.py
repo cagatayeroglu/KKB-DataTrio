@@ -17,6 +17,8 @@ from kkb_agent.api.contracts import (
     Cell,
     Proof,
     Result,
+    SeriesChoice,
+    SeriesSelection,
     unavailable_proof,
 )
 from kkb_agent.catalog.mappings import ReviewedSeries
@@ -103,6 +105,8 @@ def project_result(
 
 #: How many catalogue entries a clarification lists; the search itself returns at most ten.
 MAX_LISTED_CANDIDATES = 6
+#: The neighbours shown beside a chosen entry: everything else one search returned.
+MAX_OTHER_CANDIDATES = 9
 _FREQUENCY_WORDS = {
     "daily": "günlük",
     "business_day": "iş günü",
@@ -117,8 +121,8 @@ _KIND_WORDS = {"stock": "bakiye (stok)", "flow": "akım", "rate": "oran", "index
 _SCALE_WORDS = {"thousand": "bin", "million": "milyon", "billion": "milyar"}
 
 
-def _candidate_line(series: ReviewedSeries) -> str:
-    """One catalogue entry as a person reads it: what it is, who publishes it, how it is kept."""
+def _candidate_words(series: ReviewedSeries) -> tuple[str, str]:
+    """One catalogue entry as a person reads it: its name, and who publishes it and how."""
     record = series.record
     # The three BDDK housing components share a title; the label tells them apart.
     component = next((label for label in record.labels if label in ("TP", "YP", "TOTAL")), None)
@@ -129,14 +133,76 @@ def _candidate_line(series: ReviewedSeries) -> str:
     source = record.provider + (
         f"/{publisher}" if publisher and publisher != record.provider else ""
     )
+    # A datagroup says what a bare series title leaves out ("TOPLAM" of which table?).
+    family = (
+        record.group.group_title
+        if record.group and record.group.group_title and record.group.group_title != record.title
+        else None
+    )
     unit = " ".join(part for part in (_SCALE_WORDS.get(record.scale.value), record.unit) if part)
     facts = [
+        family,
         source,
         _FREQUENCY_WORDS.get(record.frequency.value),
         unit or None,
         _KIND_WORDS.get(record.stock_flow.value),
     ]
-    return f"- {name} — " + ", ".join(fact for fact in facts if fact)
+    return name, ", ".join(fact for fact in facts if fact)
+
+
+def _candidate_line(series: ReviewedSeries) -> str:
+    name, facts = _candidate_words(series)
+    return f"- {name} — {facts}"
+
+
+def _named(value: object, found: set[str]) -> None:
+    if isinstance(value, str):
+        found.add(value)
+    elif isinstance(value, dict):
+        for item in value.values():
+            _named(item, found)
+    elif isinstance(value, list | tuple):
+        for item in value:
+            _named(item, found)
+
+
+def series_selection(
+    answered: Answered, *, secrets: tuple[str, ...] = ()
+) -> SeriesSelection | None:
+    """The neighbour candidates this turn's plan went on to use, and the ones it left.
+
+    A search without a reviewed match returns neighbours and the planner judges them by their
+    declared title and kind. The person is told which entry that judgement picked and what
+    else the same search showed, so a wrong pick is one sentence away from being corrected.
+    Nothing here is model text: the entries are this turn's own search results and the choice
+    is read from the identities the executed plan names.
+    """
+    named: set[str] = set()
+    for validated in answered.planned.plan.steps:
+        if validated.step.tool != "catalog_search":
+            _named(validated.step.arguments, named)
+    chosen: dict[str, SeriesChoice] = {}
+    others: dict[str, SeriesChoice] = {}
+    for item in answered.outcome.results:
+        if item.tool != "catalog_search" or not isinstance(item.output, CatalogSearchOutput):
+            continue
+        if item.output.top_candidate == "unambiguous":
+            continue
+        for candidate in item.output.candidates:
+            identity = candidate.series.record.series_id
+            name, facts = _candidate_words(candidate.series)
+            choice = SeriesChoice(
+                series_id=identity,
+                title=safe_text(name, limit=400, secrets=secrets),
+                detail=safe_text(facts, limit=400, secrets=secrets),
+            )
+            (chosen if identity in named else others).setdefault(identity, choice)
+    if not chosen:
+        return None
+    left = [item for identity, item in others.items() if identity not in chosen]
+    return SeriesSelection(
+        chosen=tuple(chosen.values())[:12], others=tuple(left)[:MAX_OTHER_CANDIDATES]
+    )
 
 
 def clarification_text(reason: str, outcome: ExecutionOutcome) -> str:
@@ -166,6 +232,31 @@ def clarification_text(reason: str, outcome: ExecutionOutcome) -> str:
     if reason == "missing_series":
         text = "\n".join([text, MISSING_SERIES_ROUTES])
     return text
+
+
+def clarification_choices(
+    answered: Answered, *, secrets: tuple[str, ...] = ()
+) -> SeriesSelection | None:
+    """The entries a series clarification lists, as choices a person can pick with one click."""
+    if answered.planned.plan.clarification not in ("ambiguous_series", "missing_series"):
+        return None
+    seen: dict[str, SeriesChoice] = {}
+    for item in answered.outcome.results:
+        if item.tool != "catalog_search" or not isinstance(item.output, CatalogSearchOutput):
+            continue
+        for candidate in item.output.candidates:
+            name, facts = _candidate_words(candidate.series)
+            seen.setdefault(
+                candidate.series.record.series_id,
+                SeriesChoice(
+                    series_id=candidate.series.record.series_id,
+                    title=safe_text(name, limit=400, secrets=secrets),
+                    detail=safe_text(facts, limit=400, secrets=secrets),
+                ),
+            )
+    if not seen:
+        return None
+    return SeriesSelection(others=tuple(seen.values())[:MAX_LISTED_CANDIDATES])
 
 
 def project_answer(
@@ -221,6 +312,11 @@ def project_answer(
         omitted_claims=len(gate.omitted),
         notices=tuple(notices),
         result=result,
+        selection=(
+            series_selection(answered, secrets=secrets)
+            if gate.status is not AnswerStatus.ABSTAINED
+            else clarification_choices(answered, secrets=secrets)
+        ),
     )
     if len(answer.model_dump_json().encode()) > MAX_RESPONSE_BYTES - 4096:
         raise OutputRefused("output_limit")

@@ -290,7 +290,10 @@ def test_planner_schema_exposes_separate_closed_operation_objects(pool):
     }
     definitions = schema["$defs"]
     # A weekly-to-monthly reduction always states which month a straddling week joins.
-    assert "week_assignment" in definitions["ResampleArguments"]["required"]
+    # A daily column needs no week assignment (DEC-177); a weekly one without it is refused
+    # at run time, never defaulted (test_resample).
+    assert "week_assignment" in definitions["ResampleArguments"]["properties"]
+    assert "week_assignment" not in definitions["ResampleArguments"]["required"]
     assert set(definitions["AddSeriesArguments"]["required"]) == {
         "operation",
         "source",

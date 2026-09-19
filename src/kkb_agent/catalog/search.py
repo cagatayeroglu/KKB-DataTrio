@@ -6,13 +6,19 @@ log(1+(N-df+.5)/(df+.5)) IDF; no stemming/stopwords or holdout tuning.
 """
 
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from math import log
 from typing import Literal
 
 from pydantic import Field, StrictBool, StrictInt, StrictStr, field_validator
 
-from kkb_agent.catalog.mappings import Concept, ReviewedSeries, ReviewedSnapshot
+from kkb_agent.catalog.mappings import (
+    Concept,
+    ReviewedSeries,
+    ReviewedSnapshot,
+    is_listed_series,
+    is_source_group,
+)
 from kkb_agent.catalog.normalization import normalize_search_text
 from kkb_agent.catalog.ranking import intent_key, rerank_by_reviewed_intent
 from kkb_agent.catalog.records import MAX_CATALOG_CONCEPTS, MAX_CATALOG_SERIES, CatalogStatus
@@ -84,9 +90,20 @@ class CatalogCandidate(ContractModel):
     cosine_distance: float | None = Field(default=None, ge=-0.000001, le=2.000001)
 
 
+#: Datagroups one search carries for expansion: a stage's whole budget. Measured on the
+#: live index (2026-09-19) the right datagroup is always among the ten nearest by meaning
+#: and not always among the first three ("ABD doları TL kuru": fourth, behind groups whose
+#: unit is the dollar). An unopened datagroup costs one source read, once per installation.
+MAX_GROUPS = 10
+
+
 class CatalogSearchOutput(ContractModel):
     status: SearchStatus
     candidates: tuple[CatalogCandidate, ...] = Field(default=(), max_length=10)
+    #: Source datagroups found for the query (DEC-177). They are containers, not series: no
+    #: plan can read one, so they never sit among `candidates`. `catalog.expansion` replaces
+    #: them by their series, or drops them, before a planner sees the result.
+    groups: tuple[CatalogCandidate, ...] = Field(default=(), max_length=MAX_GROUPS)
     concepts: tuple[ConceptMatch, ...] = Field(default=(), max_length=MAX_CATALOG_CONCEPTS)
     total_candidates: int = Field(ge=0, le=MAX_CATALOG_SERIES)
     truncated: bool
@@ -196,6 +213,31 @@ def eligible_catalog_series(
     )
 
 
+def one_per_listed_row[T](
+    ordered: Sequence[T], *, reviewed_series: Callable[[T], ReviewedSeries]
+) -> list[T]:
+    """Keep the first component of each listed row; reviewed entries are all kept.
+
+    A listed BDDK row exists as TP, YP and Toplam, three entries with one title. Ten
+    results would otherwise be three rows, three times each. The reviewed-intent order
+    has already put first the component the question names, or the total when it names
+    none, so the first of each row is the one to show. Reviewed series are untouched:
+    their components are told apart by reviewed concepts and defaults (DEC-165).
+    """
+    seen: set[tuple[str, str | None, str]] = set()
+    kept: list[T] = []
+    for item in ordered:
+        series = reviewed_series(item)
+        if is_listed_series(series):
+            record = series.record
+            row = (record.provider, record.group.group_id if record.group else None, record.title)
+            if row in seen:
+                continue
+            seen.add(row)
+        kept.append(item)
+    return kept
+
+
 def top_candidate_signal(
     query: str, candidates: Sequence[CatalogCandidate], *, reviewed_match: bool
 ) -> TopCandidate:
@@ -268,10 +310,15 @@ def search_catalog(
             s.record.series_id,
         )
     )
+    # Datagroups declare no kind, unit or currency, so the reviewed-intent order would push
+    # every one of them below any series that does. They keep their own relevance order.
+    found_groups = [s for s in ranked if is_source_group(s)][:MAX_GROUPS]
+    ranked = [s for s in ranked if not is_source_group(s)]
     ranked = rerank_by_reviewed_intent(args.query, ranked, reviewed_series=lambda item: item)
+    ranked = one_per_listed_row(ranked, reviewed_series=lambda item: item)
     unresolved = any(c.unresolved for c in matches)
     status: SearchStatus
-    if ranked:
+    if ranked or found_groups:
         # Token overlap can surface useful candidates, but only a reviewed
         # alias/phrase establishes that the requested concept is represented.
         status = "PARTIAL" if unresolved or not matches else "MATCH"
@@ -298,6 +345,18 @@ def search_catalog(
     return CatalogSearchOutput(
         status=status,
         candidates=candidates,
+        groups=tuple(
+            CatalogCandidate(
+                series=s,
+                concept_ids=(),
+                family_ids=(),
+                rank=i + 1,
+                bm25_score=scores[s.record.series_id],
+                matched_terms=tuple(sorted(query_terms & documents[s.record.series_id].keys())),
+                method=method,
+            )
+            for i, s in enumerate(found_groups)
+        ),
         top_candidate=top_candidate_signal(args.query, candidates, reviewed_match=bool(matches)),
         concepts=tuple(
             ConceptMatch(

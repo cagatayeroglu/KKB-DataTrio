@@ -21,6 +21,7 @@ import {
   runListSchema,
   sessionSchema,
   turnSchema,
+  directoryRefreshSchema,
   vectorIndexSchema,
   seriesUsesSchema,
   promptPartsSchema,
@@ -238,6 +239,16 @@ export function trySearch(owner: string, query: string) {
 }
 export function readIndex(owner: string) {
   return api("knowledge/index", vectorIndexSchema, {}, undefined, owner);
+}
+export function refreshDirectory(owner: string) {
+  // Reads the sources' own listings again; no model call.
+  return api(
+    "knowledge/directory",
+    directoryRefreshSchema,
+    { method: "POST", body: "{}" },
+    undefined,
+    owner,
+  );
 }
 export function rebuildIndex(owner: string) {
   // Accepted, not finished: the build embeds every catalogue entry again.

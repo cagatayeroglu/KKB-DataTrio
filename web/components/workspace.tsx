@@ -83,6 +83,9 @@ import {
   type PromptParts,
 } from "@/lib/contracts";
 
+// How close to the end of the conversation still counts as reading its end.
+const END_TOLERANCE_PX = 80;
+
 const examples = [
   {
     tag: "KARŞILAŞTIR",
@@ -138,6 +141,68 @@ const capabilityRows = [
 ];
 
 type Item = Saved["turns"][number] & { turn?: Turn };
+type SeriesChoiceEntry = { series_id: string; title: string; detail: string };
+
+/** Which catalogue entry an answer used, or which ones a clarification offers (DEC-177). */
+function SeriesChoiceCard({
+  selection,
+  onPick,
+}: {
+  selection: { chosen: SeriesChoiceEntry[]; others: SeriesChoiceEntry[] };
+  onPick: (text: string) => void;
+}) {
+  const asking = selection.chosen.length === 0;
+  return (
+    <div className="series-choice">
+      {!asking && (
+        <>
+          <p className="series-choice-head">
+            Kullanılan seri
+            <span> · hazır eşleşme yoktu, arama sonuçlarından seçildi</span>
+          </p>
+          <ul>
+            {selection.chosen.map((entry) => (
+              <li key={entry.series_id}>
+                <strong>{entry.title}</strong>
+                <span>{entry.detail}</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {selection.others.length > 0 && (
+        <details open={asking}>
+          <summary>
+            {asking
+              ? "Birini seçin: soru kutusuna yazılır, gönderdiğinizde istek o kayıtla sürer"
+              : `Aramada çıkan diğer yakın kayıtlar (${selection.others.length}) — başka birini kastettiyseniz seçin`}
+          </summary>
+          <ul>
+            {selection.others.map((entry) => (
+              <li key={entry.series_id}>
+                <button
+                  type="button"
+                  title="Soru kutusuna bu kaydı kullanan bir istek yazar"
+                  onClick={() =>
+                    onPick(
+                      asking
+                        ? `${entry.title} (${entry.detail})`
+                        : `Aynı isteği bu kez şu kayıtla yap: ${entry.title} (${entry.detail})`,
+                    )
+                  }
+                >
+                  {entry.title}
+                </button>
+                <span>{entry.detail}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  );
+}
+
 export function Workspace() {
   const [health, setHealth] = useState<Health | null>(null),
     [dataset, setDataset] = useState<Dataset | null>(null);
@@ -194,6 +259,8 @@ export function Workspace() {
     generation = useRef(0),
     recoveries = useRef<number[]>([]),
     chatEnd = useRef<HTMLDivElement>(null),
+    atEnd = useRef(true),
+    shownCount = useRef(0),
     input = useRef<HTMLTextAreaElement>(null),
     picker = useRef<HTMLInputElement>(null);
   async function refresh() {
@@ -580,11 +647,27 @@ export function Workspace() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [history, showArchived, chatSearch]);
+  // The conversation follows new content only while the reader is at its end. Every poll
+  // replaces `items`, and jumping to the end each time threw a reader who had scrolled up
+  // to an earlier table back down while the agent was still working.
   useEffect(() => {
-    if (items.length) {
-      const body = chatEnd.current?.parentElement;
-      if (body) body.scrollTop = body.scrollHeight;
-    }
+    const body = chatEnd.current?.parentElement;
+    if (!body) return;
+    const onScroll = () => {
+      atEnd.current =
+        body.scrollHeight - body.scrollTop - body.clientHeight <
+        END_TOLERANCE_PX;
+    };
+    body.addEventListener("scroll", onScroll, { passive: true });
+    return () => body.removeEventListener("scroll", onScroll);
+  });
+  useEffect(() => {
+    const body = chatEnd.current?.parentElement;
+    if (!body || !items.length) return;
+    // A question just asked, or another conversation opened, always shows its end.
+    const changed = items.length !== shownCount.current;
+    shownCount.current = items.length;
+    if (changed || atEnd.current) body.scrollTop = body.scrollHeight;
   }, [items, busy]);
   async function attach(file: File | undefined) {
     if (!file || !uploads || busyRef.current || pending || !ready) return;
@@ -1192,6 +1275,12 @@ export function Workspace() {
                               <p className="answer-text">
                                 {item.turn.answer.text}
                               </p>
+                              {item.turn.answer.selection && (
+                                <SeriesChoiceCard
+                                  selection={item.turn.answer.selection}
+                                  onPick={setQuestion}
+                                />
+                              )}
                               {item.turn.answer.notices.length > 0 && (
                                 <details
                                   className="notice-details"

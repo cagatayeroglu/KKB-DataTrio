@@ -175,16 +175,17 @@ class ToFlowArguments(BaseModel):
 
 
 class ResampleArguments(BaseModel):
-    """Reducing a weekly column onto months by the series' declared aggregation."""
+    """Reducing a weekly or daily column onto months by the series' declared aggregation."""
 
     model_config = ConfigDict(extra="forbid")
 
     operation: Literal["resample"] = Field(
         description=(
-            "resample: add a monthly copy of one weekly column, reduced by the aggregation the "
-            "store declares for that series (a rate averaged, a flow summed, a stock at its "
-            "last week), keeping every existing column unchanged; then join_table can put it "
-            "beside monthly tables"
+            "resample: add a monthly copy of one weekly or daily column, reduced by the "
+            "aggregation the store declares for that series (a rate or an exchange rate "
+            "averaged, a flow summed, a stock at its last period), keeping every existing "
+            "column unchanged; then join_table can put it beside monthly tables. A monthly "
+            "column is never spread onto weeks or days"
         )
     )
     source: str = Field(
@@ -194,13 +195,16 @@ class ResampleArguments(BaseModel):
     column: str = Field(
         min_length=1,
         max_length=400,
-        description="The weekly column's exact label in that result; it is a series id",
+        description="The weekly or daily column's exact label in that result; it is a series id",
     )
-    week_assignment: Literal["by_end", "by_majority"] = Field(
+    week_assignment: Literal["by_end", "by_majority"] | None = Field(
+        default=None,
         description=(
-            "Which month a week spanning two months belongs to: by_end, the month its last "
-            "day falls in (how sources label a week), or by_majority, where most of its days fell"
-        )
+            "Required for a weekly column, and never defaulted: which month a week spanning "
+            "two months belongs to - by_end, the month its last day falls in (how sources "
+            "label a week), or by_majority, where most of its days fell. Omit it for a daily "
+            "column: a day lies in one month"
+        ),
     )
 
 
@@ -766,9 +770,10 @@ def make_table_transform_tool(
             "change adds the period-over-period change of one column (kind=difference in the "
             "column's unit, or kind=percent; lag=12 for a year earlier on monthly data) and "
             "marks the periods with the largest rise and fall; a period after a gap stays empty. "
-            "resample adds a monthly copy of a weekly column by the series' declared "
-            "aggregation (state week_assignment), so a weekly rate can then be joined with "
-            "monthly tables. "
+            "resample adds a monthly copy of a weekly or daily column by the series' declared "
+            "aggregation (state week_assignment for a weekly one), so a weekly rate or a daily "
+            "exchange rate can then be joined with monthly tables; a monthly column is never "
+            "spread onto weeks or days. "
             "rebase adds an explicitly based copy of an existing index column. align selects "
             "existing exact periods using inner or explicitly anchored-left policy. join_table "
             "adds the monthly columns of another published result (for example a table built "
@@ -1200,7 +1205,11 @@ def _resampled(
             column,
             semantics,
             column_label=arguments.column,
-            assignment=WeekAssignment(arguments.week_assignment),
+            assignment=(
+                WeekAssignment(arguments.week_assignment)
+                if arguments.week_assignment is not None
+                else None
+            ),
         )
     except ResampleRefused as error:
         return AnalyticalResult(
@@ -1216,8 +1225,8 @@ def _resampled(
     warnings = list(source.warnings)
     if reduced.incomplete:
         warnings.append(
-            f"{len(reduced.incomplete)} month(s) did not see every week they expected; "
-            "their monthly value rests on fewer weeks and the coverage is recorded"
+            f"{len(reduced.incomplete)} month(s) did not see every period they expected; "
+            "their monthly value rests on fewer weeks or days and the coverage is recorded"
         )
     previous = source.evidence.transformations if source.evidence is not None else []
     return AnalyticalResult(
@@ -1245,7 +1254,7 @@ def _resampled(
         limitations=[
             *source.limitations,
             f"{reduced.label} is a monthly reduction by the series' declared aggregation; "
-            "the weekly column it came from is unchanged beside it",
+            "the column it came from is unchanged beside it",
         ],
         unresolved_semantics=list(source.unresolved_semantics),
     )

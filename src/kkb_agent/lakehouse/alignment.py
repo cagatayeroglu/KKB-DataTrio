@@ -96,6 +96,11 @@ _REDUCERS: dict[Aggregation, Callable[[list[float]], float]] = {
 }
 
 
+def reducer_for(aggregation: Aggregation) -> Callable[[list[float]], float] | None:
+    """How several source periods become one, by a declared aggregation; None when unknown."""
+    return _REDUCERS.get(aggregation)
+
+
 def assign_month(period_start: date, period_end: date, policy: WeekAssignment) -> date:
     """Month-end of the target period this source period is reduced into."""
     if policy is WeekAssignment.BY_END:
