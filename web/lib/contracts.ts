@@ -603,6 +603,12 @@ export const knowledgeSeriesSchema = z
     slug: z.string().max(40).nullable(),
     updated_at: moment.nullable(),
     acquired_at: moment.nullable(),
+    // What catalogue search reads for the entry (DEC-171); absent on an older server.
+    description: z.string().max(8192).nullable().optional(),
+    labels: z.array(z.string().max(1024)).max(40).optional(),
+    reviewed_aliases: z.array(z.string().max(400)).max(400).optional(),
+    reviewer_note: z.string().max(8192).nullable().optional(),
+    search_text: z.string().max(16384).nullable().optional(),
   })
   .strict();
 export const knowledgeListSchema = z

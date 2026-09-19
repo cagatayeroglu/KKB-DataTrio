@@ -3047,3 +3047,25 @@ svg {
   flex: 1;
   min-width: 0;
 }
+
+/* Knowledge detail: the text catalogue search reads, folded away until asked for. */
+.search-text {
+  margin-top: 6px;
+}
+.search-text summary {
+  cursor: pointer;
+  color: var(--muted-foreground, #6b7280);
+  font-size: 12px;
+}
+.search-text p {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(127, 127, 127, 0.08);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.5;
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
