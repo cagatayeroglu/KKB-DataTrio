@@ -906,7 +906,18 @@ def _changed(
             f"Only {changed.label} is new ({CHANGE_FORMULAS[arguments.kind]}); a period whose "
             "predecessor is missing has no change value, and existing columns are unchanged",
         ],
-        unresolved_semantics=list(source.unresolved_semantics),
+        unresolved_semantics=list(
+            dict.fromkeys(
+                [
+                    *source.unresolved_semantics,
+                    *(
+                        [f"{changed.label}: unit and scale are unresolved, as in its column"]
+                        if any(value.semantics_are_unresolved for value in changed.values)
+                        else []
+                    ),
+                ]
+            )
+        ),
     )
 
 

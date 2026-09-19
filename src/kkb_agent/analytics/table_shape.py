@@ -232,6 +232,10 @@ def period_change(
     predecessor, so it is refused for a rate (its change is read in points) and left empty
     where the predecessor is zero or negative. A period whose predecessor is missing - the
     first `lag` rows, or the row after a gap - gets no value: nothing is bridged.
+
+    A column whose unit a document did not state is still a column of numbers: its percent
+    change is a plain percentage, and its difference carries the same unresolved unit the
+    column has (live J3, 2026-09-19: the BIST endpoint's `clval` states no unit).
     """
     if source.status is not ResultStatus.COMPUTED:
         raise TableShapeRefused("The source table is not computed")
@@ -250,8 +254,6 @@ def period_change(
     for value in column:
         if value.period is None or value.period.frequency is Frequency.UNKNOWN:
             raise TableShapeRefused(f"{column_label} is not a period column")
-        if value.unit is None or value.scale is None:
-            raise TableShapeRefused(f"{column_label} has no declared unit and scale")
         if not isfinite(value.value):
             raise TableShapeRefused(f"{column_label} holds a non-finite value")
         key = _key(value)

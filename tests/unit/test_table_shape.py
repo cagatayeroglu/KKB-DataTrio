@@ -285,3 +285,24 @@ def test_a_nonpositive_predecessor_leaves_the_percentage_empty():
     percent = period_change(zeroed, column_label="untouched", kind="percent")
     assert by_end(percent.values) == {MONTHS[2]: 50.0}
     assert percent.transformation.parameters["periods_with_nonpositive_predecessor"] == 1
+
+
+def test_a_column_without_a_stated_unit_still_has_a_percent_change():
+    """Live J3 (2026-09-19): the BIST endpoint's `clval` states no unit; percent needs none."""
+    table = source()
+    unitless = table.model_copy(
+        update={
+            "values": [
+                value.model_copy(update={"unit": None, "scale": None, "measure": None})
+                if value.label == "untouched"
+                else value
+                for value in table.values
+            ]
+        }
+    )
+    percent = period_change(unitless, column_label="untouched", kind="percent")
+    assert by_end(percent.values) == {MONTHS[1]: 100.0, MONTHS[2]: 50.0}
+    assert {(v.unit, v.scale) for v in percent.values} == {("percent", Scale.ONE)}
+    difference = period_change(unitless, column_label="untouched", kind="difference")
+    assert by_end(difference.values) == {MONTHS[1]: 1.0, MONTHS[2]: 1.0}
+    assert {(v.unit, v.scale) for v in difference.values} == {(None, None)}
