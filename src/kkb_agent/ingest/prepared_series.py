@@ -66,3 +66,22 @@ def prepared_series_names(connection: DuckDBPyConnection) -> dict[str, str]:
         row[0] for row in connection.execute("SELECT series_id FROM silver_series").fetchall()
     }
     return {sid: name for sid, name in sorted(reviewed_series_names().items()) if sid in registered}
+
+
+def prepared_series_coverage(connection: DuckDBPyConnection) -> dict[str, str]:
+    """The window of non-null observations each stored series holds ("2021-01..2026-06").
+
+    Shown beside a series' meaning in the tool descriptions the planner reads, so it
+    never has to guess whether a series covers the table it is transforming (live
+    R2, 2026-09-19: the planner doubted the 2025-based CPI covered 2024 and chose
+    the 2003-based cross-check series instead). Never part of a display name.
+    """
+    rows = connection.execute(
+        "SELECT series_id, min(period_end), max(period_end) FROM silver_observations "
+        "WHERE value IS NOT NULL GROUP BY series_id ORDER BY series_id"
+    ).fetchall()
+    return {
+        str(row[0]): f"{row[1]:%Y-%m}..{row[2]:%Y-%m}"
+        for row in rows
+        if row[1] is not None and row[2] is not None
+    }

@@ -32,7 +32,11 @@ from kkb_agent.ingest.bddk_monthly_load import ingest_monthly
 from kkb_agent.ingest.bddk_monthly_request import MonthlyRange
 from kkb_agent.ingest.evds_load import ingest_series
 from kkb_agent.ingest.evds_request import EvdsWindow
-from kkb_agent.ingest.prepared_series import prepared_series_names, reviewed_series_names
+from kkb_agent.ingest.prepared_series import (
+    prepared_series_coverage,
+    prepared_series_names,
+    reviewed_series_names,
+)
 from kkb_agent.ingest.safe_fetch import FetchSuccess
 from kkb_agent.lakehouse import open_lakehouse
 from kkb_agent.lakehouse.records import Observation
@@ -553,3 +557,12 @@ def test_writer_reads_summaries_and_highlighted_periods_but_the_gate_sees_everyt
     assert "transitions where" not in writer_prompt
     # Narrowing the writer's view does not narrow verification.
     assert answered.answer.status is AnswerStatus.ACCEPTED
+
+
+def test_the_planner_reads_each_prepared_series_stored_window_beside_its_meaning(lake):
+    """Live R2 (2026-09-19): the planner doubted the 2025-based CPI covered 2024."""
+    names = prepared_series_names(lake.connection)
+    assert prepared_series_coverage(lake.connection)[TOTAL_ID] == "2021-01..2021-06"
+    assert "kapsam" not in names[TOTAL_ID]  # display names stay clean
+    tool = make_change_detection_tool(lake.connection, lineage=lake.lineage, series_names=names)
+    assert f"{TOTAL_ID}: {names[TOTAL_ID]} [2021-01..2021-06]" in tool.description

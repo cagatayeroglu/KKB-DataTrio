@@ -34,7 +34,16 @@ TopCandidate = Literal["unambiguous", "ambiguous", "none"]
 class CatalogSearchArguments(ContractModel):
     query: StrictStr = Field(min_length=1, max_length=512, repr=False)
     max_results: StrictInt = Field(default=10, ge=1, le=10)
-    source: StrictStr | None = Field(default=None, min_length=1, max_length=64)
+    source: StrictStr | None = Field(
+        default=None,
+        min_length=1,
+        max_length=64,
+        description=(
+            "Provider (EVDS, BDDK) or a publisher the reviewed title/labels name (TÜİK, "
+            "TCMB). Omit when unsure: a filter that matches nothing returns FILTERED_OUT "
+            "with no candidates"
+        ),
+    )
     frequency: Frequency | None = None
     include_archived: StrictBool = False
 
@@ -130,6 +139,22 @@ def _terms(item: ReviewedSeries, concepts: list[Concept]) -> Counter[str]:
     return Counter(normalize_search_text(text).split())
 
 
+def source_matches(item: ReviewedSeries, source: str) -> bool:
+    """`source` names the provider (EVDS, BDDK) or a publisher the reviewed text names.
+
+    A CPI series is provided by EVDS and published by TÜİK, and the reviewed
+    labels say so; a planner that filters by the publisher it read in a title
+    must not empty the result (live R2, 2026-09-19: `source="TÜİK"` returned
+    FILTERED_OUT and the planner fell back to the cross-check series).
+    """
+    wanted = normalize_search_text(source)
+    record = item.record
+    if normalize_search_text(record.provider) == wanted:
+        return True
+    named = normalize_search_text(" ".join([record.title, *record.labels]))
+    return f" {wanted} " in f" {named} "
+
+
 def eligible_catalog_series(
     snapshot: ReviewedSnapshot, args: CatalogSearchArguments
 ) -> tuple[ReviewedSeries, ...]:
@@ -138,10 +163,7 @@ def eligible_catalog_series(
         s
         for s in snapshot.series
         if (args.include_archived or s.record.status is not CatalogStatus.ARCHIVED)
-        and (
-            args.source is None
-            or normalize_search_text(s.record.provider) == normalize_search_text(args.source)
-        )
+        and (args.source is None or source_matches(s, args.source))
         and (args.frequency is None or s.record.frequency is args.frequency)
     )
 

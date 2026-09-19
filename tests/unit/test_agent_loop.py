@@ -136,6 +136,46 @@ class TestValidationDecidesWhatMayRun:
         with pytest.raises(PlanRejected, match="seri"):
             validate_plan(plan, registry())
 
+    def test_a_wrong_operation_on_a_union_names_the_operations(self):
+        """Live E1c (2026-09-19): "table_transform: : union_tag_invalid" cost a repair."""
+        from typing import Annotated, Literal
+
+        from pydantic import RootModel
+
+        class Deflate(BaseModel):
+            operation: Literal["deflate"]
+
+        class Rebase(BaseModel):
+            operation: Literal["rebase"]
+
+        class Operations(RootModel[Annotated[Deflate | Rebase, Field(discriminator="operation")]]):
+            pass
+
+        spec = ToolSpec("lakehouse", "x", Operations, lakehouse_run)
+        with pytest.raises(ArgumentsRejected) as caught:
+            spec.parse({"operation": "table_co_movement"})
+        message = str(caught.value)
+        assert "'table_co_movement' is not one of this tool's operations" in message
+        assert "'deflate'" in message and "'rebase'" in message
+
+    def test_a_model_validator_sentence_reaches_the_planner(self):
+        """Live X4 (2026-09-19): "change_detection: co_movement: value_error" said nothing."""
+        from pydantic import model_validator
+
+        class Window(BaseModel):
+            start: int
+            end: int
+
+            @model_validator(mode="after")
+            def ordered(self):
+                if self.end < self.start:
+                    raise ValueError("end must not precede start")
+                return self
+
+        spec = ToolSpec("lakehouse", "x", Window, lakehouse_run)
+        with pytest.raises(ArgumentsRejected, match="end must not precede start"):
+            spec.parse({"start": 5, "end": 1})
+
     def test_an_unknown_dependency_is_refused(self):
         plan = AnalyticalPlan.model_validate_json(
             plan_json(
