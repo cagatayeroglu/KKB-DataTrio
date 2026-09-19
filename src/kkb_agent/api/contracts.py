@@ -600,7 +600,7 @@ class SearchTrial(ContractModel):
     embedding_model: str | None = None
     input_policy_id: str | None = None
     #: Whether the first candidate is the unambiguous default for the question.
-    top_candidate: Literal["unambiguous", "ambiguous", "none"] = "none"
+    top_candidate: Literal["unambiguous", "ambiguous", "unconfirmed", "none"] = "none"
 
 
 class PromptPart(ContractModel):

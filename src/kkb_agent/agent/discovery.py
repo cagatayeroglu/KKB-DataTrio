@@ -52,8 +52,14 @@ CONTINUATION_INSTRUCTIONS = (
     "TP/YP columns, national over regions, newest base year, current over archived) - use it "
     "when its declared semantics fit the question, without asking. ambiguous: settle the "
     "differing axis (balance/rate, TL/FX, place, base year, scope) from the question's own "
-    "words; clarify, naming that axis, only when the question does not say. none: nothing "
-    "matched. The same defaults govern a choice among prepared identities the discovery did "
+    "words; clarify, naming that axis, only when the question does not say. unconfirmed: no "
+    "reviewed concept matched the wording, so the candidates are neighbours by words or "
+    "meaning, not matches. Judge each by its declared title and kind (balance, rate, index, "
+    "amount): use the one that IS the requested measure; if several could be, clarify "
+    "ambiguous_series; if none is, answer missing_series. A different subject or kind is "
+    "never a substitute (a loan rate for a loan balance, another loan type, a loan rate for "
+    "an exchange rate). none: nothing matched; answer missing_series. "
+    "The same defaults govern a choice among prepared identities the discovery did "
     "not rank; a series described as a cross-check is never the default. "
     "Similarity scores never resolve ambiguity; never clarify because a candidate is merely ranked."
 )
@@ -100,7 +106,9 @@ WEB_ADDRESS_INSTRUCTIONS = (
     "A web address written in the question is read with web_url, or its table column is "
     "added to a published table with table_transform add_document_column, directly and "
     "without catalog_search. Series from the prepared pool still need discovery first; a "
-    "discovery continuation cannot read a web address."
+    "discovery continuation cannot read a web address. Plan the read completely now: name "
+    "follow and period_column/value_columns (or column and row) from the address outline. A "
+    "read without them publishes nothing, and no later planning round sees what it returned."
 )
 
 
@@ -170,12 +178,18 @@ def _already_proven(step: ValidatedStep, proven: frozenset[str]) -> bool:
     return named is not None and bool(named) and named <= proven
 
 
+#: After a clarification: how a person brings data the knowledge base does not hold.
+MISSING_SERIES_ROUTES = (
+    "Bu veriyi getirmek için: resmî sayfanın adresini soruya yazabilir, dosya yükleyebilir "
+    "ya da Bilgi tabanı > Yeni veri ile ekleyebilirsiniz."
+)
 CLARIFICATION_TEXT = {
     "ambiguous_series": (
         "Birden fazla veri serisi uygun görünüyor. Hangi ölçümü istediğinizi netleştirin."
     ),
     "missing_series": (
-        "İstenen veri serisi bulunamadı. Kullanılacak seriyi veya veri kaynağını belirtin."
+        "İstenen veri serisi bilgi tabanında bulunamadı. Kullanılacak seriyi veya veri "
+        "kaynağını belirtin."
     ),
     "unresolved_semantics": (
         "Verinin anlamı yeterince açık değil. İstenen ölçümü, birimi veya dönemi netleştirin."

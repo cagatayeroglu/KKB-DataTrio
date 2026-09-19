@@ -65,6 +65,8 @@ const stageWords: Record<string, string> = {
 const topCandidateWords: Record<string, string> = {
   unambiguous: "ilk aday net varsayılan",
   ambiguous: "adaylar belirsiz, netleştirme gerekir",
+  unconfirmed:
+    "incelenmiş bir kavram eşleşmedi; adaylar yalnızca yakın komşu, aranan ölçüm bilgi tabanında olmayabilir",
   none: "aday yok",
 };
 const denseFailureWords: Record<string, string> = {

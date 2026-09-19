@@ -615,3 +615,28 @@ def test_a_pending_clarification_is_read_without_the_person_stating_it(pool, tmp
     standing = provider.seen[-1][-1].content
     assert standing == fresh  # Neither merged into the pending request nor repeated.
     assert sid not in prepared._pending_clarifications
+
+
+def test_a_clarification_lists_what_the_catalogue_search_found(pool, tmp_path):
+    """DEC-172: "several series fit" and "not found" said nothing about what exists."""
+    provider = scripted(
+        proposal(discover("d1")),
+        proposal(clarification="ambiguous_series"),
+        proposal(discover("d2")),
+        proposal(clarification="missing_series"),
+    )
+    prepared = runner(pool, tmp_path, provider)
+    sid = uuid4().hex
+    asked = prepared(sid, uuid4().hex, "Konut kredisi ne kadar arttı?")
+    assert asked.status.value == "abstained" and asked.result is None
+    lines = asked.text.split("\n")
+    assert lines[0].startswith("Birden fazla veri serisi uygun görünüyor")
+    assert lines[1] == "Bilgi tabanındaki uygun kayıtlar:"
+    assert 1 <= len(lines[2:]) <= 6 and all(line.startswith("- ") for line in lines[2:])
+    assert any("BDDK" in line and "aylık" in line and "bakiye (stok)" in line for line in lines[2:])
+    question = "Yepyeni bir soru: taşıt kredisi bakiyesi 2025'te ne oldu?"
+    missing = prepared(sid, uuid4().hex, question)
+    assert missing.status.value == "abstained"
+    assert "bilgi tabanında bulunamadı" in missing.text
+    assert "en yakın kayıtlar (istediğiniz ölçüm bunlar olmayabilir)" in missing.text
+    assert missing.text.rstrip().endswith("Bilgi tabanı > Yeni veri ile ekleyebilirsiniz.")

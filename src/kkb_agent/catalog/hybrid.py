@@ -173,7 +173,9 @@ def search_hybrid_catalog(
             **lexical.model_dump(),
             **metadata,
             "candidates": [c.model_dump() for c in candidates],
-            "top_candidate": top_candidate_signal(args.query, candidates),
+            "top_candidate": top_candidate_signal(
+                args.query, candidates, reviewed_match=bool(lexical.concepts)
+            ),
             # Dense/BM25 proximity without a reviewed concept is a candidate for
             # clarification, not evidence that the requested intent is mapped.
             "status": "PARTIAL"

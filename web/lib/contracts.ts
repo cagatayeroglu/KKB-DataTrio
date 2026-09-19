@@ -460,7 +460,9 @@ export const searchTrialSchema = z
       .nullable(),
     embedding_model: z.string().max(200).nullable(),
     input_policy_id: z.string().max(120).nullable(),
-    top_candidate: z.enum(["unambiguous", "ambiguous", "none"]).optional(),
+    top_candidate: z
+      .enum(["unambiguous", "ambiguous", "unconfirmed", "none"])
+      .optional(),
   })
   .strict();
 export type SearchTrial = z.infer<typeof searchTrialSchema>;
