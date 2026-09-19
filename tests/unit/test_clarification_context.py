@@ -640,3 +640,25 @@ def test_a_clarification_lists_what_the_catalogue_search_found(pool, tmp_path):
     assert "bilgi tabanında bulunamadı" in missing.text
     assert "en yakın kayıtlar (istediğiniz ölçüm bunlar olmayabilir)" in missing.text
     assert missing.text.rstrip().endswith("Bilgi tabanı > Yeni veri ile ekleyebilirsiniz.")
+
+
+def test_naming_an_offered_entry_answers_the_clarification_at_any_length():
+    """A teammate's trace and live E1b (2026-09-19): the entry picked from the offered list is
+    long and full of commas; the length rule called it a new question and dropped the request."""
+    from kkb_agent.api.prepared import PendingClarification, _is_new_question
+
+    offered = ("Konut Kredisi (TL, Akım, %)", "Konut Kredisi (TL, Stok, %)")
+    pending = PendingClarification(
+        original_question="2021-2025 konut kredisi faizi", offered=offered
+    )
+    picked = (
+        "Konut Kredisi (TL, Akım, %) (Kredi Faiz Oranları (Akım), EVDS/Mevduat, Kalkınma ve "
+        "Yatırım Bankaları, haftalık, percent, oran)"
+    )
+    assert _is_new_question(picked, None, pending) is False
+    assert _is_new_question("konut kredisi (tl, akım, %) olsun", None, pending) is False
+    # Without an offered entry in it, the same long message is still a request of its own.
+    bare = PendingClarification(original_question="2021-2025 konut kredisi faizi")
+    assert _is_new_question(picked, None, bare) is True
+    unrelated = "Şimdi de TÜFE'nin 2024 yılındaki aylık değişimini, yıllık ortalamasıyla göster."
+    assert _is_new_question(unrelated, None, pending) is True
