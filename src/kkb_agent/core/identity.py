@@ -18,7 +18,8 @@ an unmarked *opaque* field would only ever make the rule stricter, never looser.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Annotated, get_args, get_origin, get_type_hints
+from types import UnionType
+from typing import Annotated, Union, get_args, get_origin, get_type_hints
 
 from pydantic import BaseModel
 
@@ -37,9 +38,20 @@ class OpaqueSeriesReference:
 SeriesId = Annotated[str, SeriesIdentity()]
 
 
-def _markers(annotation: object) -> tuple[object, ...]:
+def _markers(annotation: object, _depth: int = 0) -> tuple[object, ...]:
+    """Markers on the annotation, on a member of its union, or on the element of its list.
+
+    `SeriesId | None` and `list[SeriesId]` carry the marker one level down. Reading only
+    the outer annotation left an optional identity (a co-movement driver) uncounted, so a
+    plan naming an unproven driver beside a proven series could skip discovery.
+    """
+    if _depth > 4:  # pragma: no cover - argument annotations do not nest this deep
+        return ()
     if get_origin(annotation) is Annotated:
-        return get_args(annotation)[1:]
+        inner, *markers = get_args(annotation)
+        return (*markers, *_markers(inner, _depth + 1))
+    if get_origin(annotation) in (Union, UnionType, list, tuple):
+        return tuple(m for arg in get_args(annotation) for m in _markers(arg, _depth + 1))
     return ()
 
 
@@ -73,6 +85,8 @@ def declared_series_identities(arguments: BaseModel, _depth: int = 0) -> frozens
         if any(isinstance(marker, SeriesIdentity) for marker in markers):
             if isinstance(value, str) and value:
                 found.add(value)
+            elif isinstance(value, (list, tuple)):
+                found.update(item for item in value if isinstance(item, str) and item)
             continue
         if isinstance(value, BaseModel):
             nested = declared_series_identities(value, _depth + 1)

@@ -247,7 +247,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 model=config.planner_model,
                 stored_result=runner.published_result,
             )
-            rebuild = None
+            rebuild = reopen = None
             if index is not None:
                 from kkb_agent.catalog.embedding import (
                     RUNTIME_QUERY_POLICY,
@@ -260,6 +260,18 @@ def main(argv: Sequence[str] | None = None) -> int:
 
                 generations = args.state_root.absolute() / GENERATIONS_DIRECTORY
 
+                def reopen(catalog: ReviewedSnapshot) -> CatalogDenseStage | None:
+                    """The generation already on disk for exactly this catalogue, if any."""
+                    directory = generations / catalog.content_sha256
+                    if not (directory / "catalog-manifest.json").exists():
+                        return None
+                    return CatalogDenseStage(
+                        LocalCatalogIndex.open(
+                            directory, catalog, profile_for(RUNTIME_QUERY_POLICY, "kloudeks")
+                        ),
+                        query_embedder(provider, RUNTIME_QUERY_POLICY, origin="kloudeks"),
+                    )
+
                 def rebuild(catalog: ReviewedSnapshot) -> CatalogDenseStage:
                     """A generation for exactly this catalogue, with the configured profile.
 
@@ -267,17 +279,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                     so an earlier one is reopened instead of embedded again, and a
                     failed build never damages the one in use.
                     """
-                    profile = profile_for(RUNTIME_QUERY_POLICY, "kloudeks")
-                    directory = generations / catalog.content_sha256
-                    if not (directory / "catalog-manifest.json").exists():
-                        vectors = embed_catalog(
-                            provider, catalog, RUNTIME_QUERY_POLICY, origin="kloudeks"
-                        )
-                        build_catalog_index(directory, catalog, vectors)
-                    return CatalogDenseStage(
-                        LocalCatalogIndex.open(directory, catalog, profile),
-                        query_embedder(provider, RUNTIME_QUERY_POLICY, origin="kloudeks"),
+                    existing = reopen(catalog)
+                    if existing is not None:
+                        return existing
+                    vectors = embed_catalog(
+                        provider, catalog, RUNTIME_QUERY_POLICY, origin="kloudeks"
                     )
+                    build_catalog_index(generations / catalog.content_sha256, catalog, vectors)
+                    built = reopen(catalog)
+                    if built is None:  # pragma: no cover - the build above wrote it
+                        raise ValueError("generation was not written")
+                    return built
 
             knowledge_service = KnowledgeService(
                 knowledge,
@@ -291,7 +303,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 dense=dense,
                 rebuild_index=rebuild,
                 install_index=runner.use_dense,
+                reopen_index=reopen,
             )
+            # No model call: a generation built before this restart is simply opened.
+            knowledge_service.restore_generation()
             app = create_app(
                 service, port=args.port, prepared=runner.status, knowledge=knowledge_service
             )
