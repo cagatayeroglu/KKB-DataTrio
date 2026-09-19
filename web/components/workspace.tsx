@@ -263,6 +263,7 @@ export function Workspace() {
     recoveries = useRef<number[]>([]),
     chatEnd = useRef<HTMLDivElement>(null),
     atEnd = useRef(true),
+    transcriptFor = useRef<string | null>(null),
     shownCount = useRef(0),
     input = useRef<HTMLTextAreaElement>(null),
     picker = useRef<HTMLInputElement>(null),
@@ -363,6 +364,7 @@ export function Workspace() {
     generation.current++;
     saved.current = null;
     recoveries.current = [];
+    transcriptFor.current = null;
     setItems([]);
     setTranscript([]);
     setRestoredTables([]);
@@ -374,6 +376,64 @@ export function Workspace() {
     setQuestion("");
     setIssue("");
   }
+  /** The tables a stored conversation published, read back from their receipts. */
+  async function restoreTables(
+    id: string,
+    messages: StoredMessage[],
+    token: string,
+  ) {
+    const published = messages.filter((message) => message.result_ref);
+    const restored = await Promise.all(
+      published.map(async (message) => {
+        try {
+          return {
+            turnId: message.turn_id,
+            result: await storedResult(id, message.turn_id, token),
+          };
+        } catch {
+          // Busy (a turn is running) or gone: the message says so in place.
+          return undefined;
+        }
+      }),
+    );
+    return restored.filter(
+      (entry): entry is { turnId: string; result: Result } => Boolean(entry),
+    );
+  }
+  // Leaving the studio for another page and coming back remounts this component: the turns
+  // of this tab come back from sessionStorage, but the conversation's EARLIER messages live
+  // on the server. Without this they vanished, and with them the clarification being
+  // answered (reported 2026-09-19). Messages of this tab's own turns are left to `items`.
+  useEffect(() => {
+    if (!ownerToken || !conversationId) return;
+    if (transcriptFor.current === conversationId) return;
+    transcriptFor.current = conversationId;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const detail = await openConversation(conversationId, ownerToken);
+        if (cancelled || !mounted.current) return;
+        const local = new Set(
+          (saved.current?.turns ?? [])
+            .map((entry) => entry.turn_id)
+            .filter(Boolean),
+        );
+        const earlier = detail.messages.filter(
+          (message) => !local.has(message.turn_id),
+        );
+        setTranscript(earlier);
+        const kept = await restoreTables(conversationId, earlier, ownerToken);
+        if (!cancelled && mounted.current) setRestoredTables(kept);
+      } catch {
+        // A chat still works without its earlier messages; the sidebar can reopen it.
+        transcriptFor.current = null;
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ownerToken, conversationId]);
   async function openChat(id: string) {
     if (busyRef.current || pending || !ready || !ownerToken) return;
     setPanel(null);
@@ -383,6 +443,7 @@ export function Workspace() {
       if (!mounted.current) return;
       generation.current++;
       recoveries.current = [];
+      transcriptFor.current = id;
       // The owner key opens this conversation's turn routes too; no second secret.
       record({
         session: {
@@ -1242,7 +1303,7 @@ export function Workspace() {
                       </div>
                     );
                   })}
-                  {items.map((item, index) => (
+                  {items.map((item) => (
                     <div className="turn-pair" key={item.request_id}>
                       <div className="msg user">
                         <div className="bubble">{item.question}</div>
@@ -1331,34 +1392,6 @@ export function Workspace() {
                                   />
                                 </div>
                               )}
-                              {item.turn.answer.status === "abstained" &&
-                                index === items.length - 1 &&
-                                !pending && (
-                                  <form
-                                    className="clarify-reply"
-                                    onSubmit={(event) => {
-                                      event.preventDefault();
-                                      const reply = new FormData(
-                                        event.currentTarget,
-                                      )
-                                        .get("reply")
-                                        ?.toString()
-                                        .trim();
-                                      if (reply) void submit(reply);
-                                    }}
-                                  >
-                                    <input
-                                      name="reply"
-                                      aria-label="Netleştirme cevabın"
-                                      placeholder="Kısa cevabını yaz — orijinal istek korunur"
-                                      maxLength={300}
-                                      disabled={busy}
-                                    />
-                                    <Button size="sm" disabled={busy}>
-                                      Netleştir ve devam et
-                                    </Button>
-                                  </form>
-                                )}
                               {history &&
                                 conversationId &&
                                 ownerToken &&
