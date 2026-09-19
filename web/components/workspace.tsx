@@ -3,27 +3,26 @@ import { useEffect, useRef, useState } from "react";
 import {
   Activity,
   ArrowRight,
-  ArrowUpRight,
+  ArrowUp,
+  Cpu,
+  Share2,
+  Trash2,
   Check,
   ChevronDown,
   Database,
   ListTree,
   FileText,
-  Layers3,
   LoaderCircle,
   MessageSquare,
   Archive,
   ArchiveRestore,
   MessagesSquare,
-  Paperclip,
   Pencil,
   Plus,
   Search,
   RefreshCw,
-  Send,
   Settings2,
   ShieldCheck,
-  Sparkles,
   Square,
   Table2,
   X,
@@ -62,6 +61,7 @@ import {
   openConversation,
   updateConversation,
   readTurn,
+  storedResult,
   saveSession,
   uploadDocument,
   validQuestion,
@@ -78,6 +78,7 @@ import {
   type Saved,
   type StoredMessage,
   type Turn,
+  type Result,
   type RuntimeSettings,
   type PromptParts,
 } from "@/lib/contracts";
@@ -159,12 +160,17 @@ export function Workspace() {
   // Conversations that outlive this tab: the browser's own key lists and reopens them.
   const [prompts, setPrompts] = useState<PromptParts | null>(null),
     [openPrompt, setOpenPrompt] = useState<string | null>(null);
+  // Header chrome for the open chat: its menu, an inline rename, the copy flash.
+  const [chatMenu, setChatMenu] = useState(false),
+    [headerRenaming, setHeaderRenaming] = useState(false),
+    [copied, setCopied] = useState(false);
   const [ownerToken, setOwnerToken] = useState<string | null>(null),
     [conversations, setConversations] = useState<ConversationSummary[]>([]),
     [conversationId, setConversationId] = useState<string | null>(null),
     [transcript, setTranscript] = useState<StoredMessage[]>([]),
-    [restoredResult, setRestoredResult] = useState<string | null>(null),
-    [restoredTurns, setRestoredTurns] = useState<Turn[]>([]),
+    [restoredTables, setRestoredTables] = useState<
+      { turnId: string; result: Result }[]
+    >([]),
     [chatSearch, setChatSearch] = useState(""),
     [showArchived, setShowArchived] = useState(false),
     [renaming, setRenaming] = useState<string | null>(null),
@@ -288,8 +294,7 @@ export function Workspace() {
     recoveries.current = [];
     setItems([]);
     setTranscript([]);
-    setRestoredResult(null);
-    setRestoredTurns([]);
+    setRestoredTables([]);
     setConversationId(null);
     setRatings({});
     setPendingIndex(null);
@@ -330,45 +335,37 @@ export function Workspace() {
       } catch {
         // Ratings are supporting information; a chat still opens without them.
       }
-      const answered = [...detail.messages]
-        .reverse()
-        .find((message) => message.result_ref);
-      setRestoredResult(answered?.result_ref ?? null);
       setItems([]);
       setSelected(null);
       setPendingIndex(null);
       setAttachment(null);
       setQuestion("");
-      // A reopened conversation keeps its tables: the turns that published one
-      // are read back, so the results pane and follow-ups work as they did.
+      // A reopened conversation keeps its tables: each published one is read
+      // back from its receipt on the server, so it comes with the same reference
+      // and version the messages recorded - whichever process produced it.
       const published = detail.messages.filter((message) => message.result_ref);
       const restored = await Promise.all(
         published.map(async (message) => {
           try {
-            return await readTurn(
-              {
-                api_version: 1,
-                session_id: id,
-                token: ownerToken,
-                survives_restart: true,
-              },
-              message.turn_id,
-            );
+            return {
+              turnId: message.turn_id,
+              result: await storedResult(id, message.turn_id, ownerToken),
+            };
           } catch {
-            // A turn the server no longer serves simply has no table here.
+            // Busy (a turn is running) or gone: the message says so in place.
             return undefined;
           }
         }),
       );
       if (mounted.current) {
-        const kept = restored.filter((turn): turn is Turn => Boolean(turn));
-        setRestoredTurns(kept);
+        const kept = restored.filter(
+          (entry): entry is { turnId: string; result: Result } =>
+            Boolean(entry),
+        );
+        setRestoredTables(kept);
         // The newest table opens with the conversation; nobody re-selects what
         // they were already looking at when they left.
-        const newest = kept
-          .map((turn) => publishedResult(turn)?.result_ref)
-          .filter((ref): ref is string => Boolean(ref))
-          .at(-1);
+        const newest = kept.at(-1)?.result.result_ref;
         if (newest) setSelected(newest);
       }
     } catch (error) {
@@ -393,18 +390,6 @@ export function Workspace() {
       await updateConversation(id, ownerToken, { archived });
       if (id === conversationId && archived) startChat();
       await refreshConversations();
-    } catch (error) {
-      setIssue(describeError(error));
-    }
-  }
-  function chooseResult(ref: string) {
-    const chosen = analyses.find((item) => item.ref === ref);
-    if (!ready || busyRef.current || pending || !chosen || !saved.current)
-      return;
-    try {
-      record({ ...saved.current, view_result_id: ref });
-      setSelected(ref);
-      setIssue("");
     } catch (error) {
       setIssue(describeError(error));
     }
@@ -681,52 +666,22 @@ export function Workspace() {
       setStopping(false);
     }
   }
-  function resetView() {
-    if (busyRef.current || !ready) return;
-    if (
-      pending &&
-      !window.confirm(
-        "Bekleyen isteğin kurtarma kaydı bu sekmeden kaldırılacak. Sunucudaki işlem iptal edilmez. Yeni çalışma açılsın mı?",
-      )
-    )
-      return;
-    try {
-      clearSession(sessionStorage);
-    } catch (error) {
-      setIssue(describeError(error));
-      return;
-    }
-    generation.current++;
-    saved.current = null;
-    recoveries.current = [];
-    setItems([]);
-    setPendingIndex(null);
-    setSelected(null);
-    setIssue("");
-    setQuestion("");
-  }
   /**
    * Every table this conversation has published, oldest first: the ones read
    * back when it was reopened, then this tab's own turns. One list, so a
    * reopened conversation shows its results and follow-ups can cite them.
    */
   const analyses = [
-    ...restoredTurns.flatMap((turn) => {
-      const published = publishedResult(turn);
-      return published
-        ? [
-            {
-              ref: published.result_ref,
-              result: published,
-              question: transcript.find(
-                (message) =>
-                  message.turn_id === turn.turn_id && message.role === "user",
-              )?.text,
-              answer: turn.answer?.text,
-            },
-          ]
-        : [];
-    }),
+    ...restoredTables.map(({ turnId, result }) => ({
+      ref: result.result_ref,
+      result,
+      question: transcript.find(
+        (message) => message.turn_id === turnId && message.role === "user",
+      )?.text,
+      answer: transcript.find(
+        (message) => message.turn_id === turnId && message.role === "assistant",
+      )?.text,
+    })),
     ...items.flatMap((item) => {
       const published = publishedResult(item.turn);
       return published
@@ -741,8 +696,6 @@ export function Workspace() {
         : [];
     }),
   ];
-  const chosen = analyses.find((item) => item.ref === selected);
-  const result = chosen?.result;
   // Tables this conversation published, this tab's turns and the reopened ones:
   // what the agent may reach for without being pointed at it.
   // Documents this conversation uploaded, offered to the knowledge-base form.
@@ -759,7 +712,6 @@ export function Workspace() {
         label: `Belge ${index + 1}`,
       }))
     : [];
-  const contextTables = analyses.length;
   function sourceLabel(reference?: string) {
     if (!reference) return "Serbest soru";
     const index = analyses.findIndex((entry) => entry.ref === reference);
@@ -767,7 +719,54 @@ export function Workspace() {
       ? `Kaynak tablo: Analiz ${index + 1}`
       : "Kaynak tablo yüklenemedi";
   }
-  const current = items.at(-1)?.turn;
+  const activeChat = conversations.find(
+    (item) => item.conversation_id === conversationId,
+  );
+  const currentTitle =
+    activeChat?.title ??
+    (items[0]?.question ? items[0].question.slice(0, 60) : "Yeni sohbet");
+  function formatWhen(iso?: string) {
+    if (!iso) return "";
+    const date = new Date(iso);
+    const time = date.toLocaleTimeString("tr-TR", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    return date.toDateString() === new Date().toDateString()
+      ? `Bugün ${time}`
+      : `${date.toLocaleDateString("tr-TR", { day: "numeric", month: "long" })} ${time}`;
+  }
+  const currentWhen = formatWhen(activeChat?.updated_at);
+  const modelLabel = loading
+    ? "Bağlanıyor"
+    : !health
+      ? "Servis kapalı"
+      : (health.model ??
+        (health.execution_mode === "scripted" ? "Prova modeli" : "Kloudeks"));
+  const modelShort = modelLabel.split("/").pop() ?? modelLabel;
+  /** The table a stored message published, when this process still serves it. */
+  const restoredTable = (ref: string | null | undefined) =>
+    ref
+      ? restoredTables.find((t) => t.result.result_ref === ref)?.result
+      : undefined;
+  async function shareConversation() {
+    const lines: string[] = [];
+    for (const message of transcript)
+      lines.push(
+        `${message.role === "user" ? "Soru" : "Cevap"}: ${message.text}`,
+      );
+    for (const item of items) {
+      lines.push(`Soru: ${item.question}`);
+      if (item.turn?.answer) lines.push(`Cevap: ${item.turn.answer.text}`);
+    }
+    try {
+      await navigator.clipboard.writeText(lines.join("\n\n"));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setIssue("Panoya kopyalanamadı; tarayıcı izin vermedi.");
+    }
+  }
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -802,15 +801,18 @@ export function Workspace() {
                 aria-label="Sohbetlerde ara"
               />
             </label>
-            <button
-              type="button"
-              className={`chat-toggle ${showArchived ? "on" : ""}`}
-              aria-pressed={showArchived}
-              onClick={() => setShowArchived((value) => !value)}
-            >
-              <Archive size={13} />
-              {showArchived ? "Arşiv · açık" : "Arşiv"}
-            </button>
+            <div className="chat-section">
+              <span>Sohbetler</span>
+              <button
+                type="button"
+                className={`chat-toggle ${showArchived ? "on" : ""}`}
+                aria-pressed={showArchived}
+                onClick={() => setShowArchived((value) => !value)}
+              >
+                <Archive size={13} />
+                {showArchived ? "Arşiv · açık" : "Arşiv"}
+              </button>
+            </div>
             <div className="chat-items">
               {conversations.length === 0 && (
                 <p className="chat-empty">
@@ -926,27 +928,105 @@ export function Workspace() {
       </aside>
       <main className="main-shell">
         <header className="topbar">
-          <div>
-            <span className="breadcrumb">Çalışma alanı</span>
-            <span className="slash">/</span>
-            <strong>
-              {panel === "data"
-                ? "Veri ve bilgi tabanı"
-                : panel === "traces"
-                  ? "İşlem kayıtları"
-                  : panel === "settings"
-                    ? "Çalışma ayarları"
-                    : "Analiz stüdyosu"}
-            </strong>
+          <div className="topbar-left">
+            {panel === null ? (
+              <div className="chat-heading-wrap">
+                {headerRenaming && conversationId ? (
+                  <input
+                    autoFocus
+                    className="chat-rename"
+                    defaultValue={currentTitle}
+                    maxLength={120}
+                    aria-label="Sohbet adı"
+                    onBlur={(event) => {
+                      setHeaderRenaming(false);
+                      void renameChat(conversationId, event.target.value);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        setHeaderRenaming(false);
+                        void renameChat(
+                          conversationId,
+                          event.currentTarget.value,
+                        );
+                      }
+                      if (event.key === "Escape") setHeaderRenaming(false);
+                    }}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    className="chat-heading"
+                    aria-haspopup="menu"
+                    aria-expanded={chatMenu}
+                    disabled={!conversationId}
+                    onClick={() => setChatMenu((value) => !value)}
+                  >
+                    <strong>{currentTitle}</strong>
+                    {currentWhen && (
+                      <small title="Son etkinlik">{currentWhen}</small>
+                    )}
+                    {conversationId && <ChevronDown size={14} />}
+                  </button>
+                )}
+                {chatMenu && conversationId && (
+                  <div className="chat-menu" role="menu">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setChatMenu(false);
+                        setHeaderRenaming(true);
+                      }}
+                    >
+                      <Pencil size={13} /> Yeniden adlandır
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="danger"
+                      onClick={() => {
+                        setChatMenu(false);
+                        void archiveChat(conversationId, true);
+                      }}
+                    >
+                      <Trash2 size={13} /> Sohbeti sil (arşive taşı)
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <strong>
+                {panel === "data"
+                  ? "Veri ve bilgi tabanı"
+                  : panel === "traces"
+                    ? "İşlem kayıtları"
+                    : "Çalışma ayarları"}
+              </strong>
+            )}
           </div>
           <div className="topbar-right">
-            <span className={`connection ${health ? "online" : "offline"}`}>
+            {panel === null && (transcript.length > 0 || items.length > 0) && (
+              <button
+                type="button"
+                className="chip-button"
+                title="Sohbeti soru-cevap metni olarak panoya kopyala"
+                onClick={() => void shareConversation()}
+              >
+                {copied ? <Check size={14} /> : <Share2 size={14} />}{" "}
+                {copied ? "Kopyalandı" : "Paylaş"}
+              </button>
+            )}
+            <span
+              className={`connection ${health ? "online" : "offline"}`}
+              title={
+                health
+                  ? "Bağlı model; hesaplar araçlarla yapılır, cevaplar kontrol edilir."
+                  : "Yerel servise ulaşılamıyor."
+              }
+            >
               <i />
-              {loading
-                ? "Bağlanıyor"
-                : health
-                  ? "Yerel servis hazır"
-                  : "Servis kapalı"}
+              {modelLabel}
             </span>
           </div>
         </header>
@@ -960,19 +1040,7 @@ export function Workspace() {
           </div>
         )}
         {panel === null ? (
-          <>
-            <section className="page-heading">
-              <div>
-                <h1>Analiz stüdyosu</h1>
-              </div>
-              <Button
-                variant="outline"
-                onClick={resetView}
-                disabled={busy || !ready}
-              >
-                <Plus size={16} /> Yeni çalışma
-              </Button>
-            </section>
+          <section className="studio" aria-label="Sohbet">
             {connectionError && (
               <div className="connection-alert" role="status">
                 <span>{connectionError}</span>
@@ -986,138 +1054,139 @@ export function Workspace() {
                 </Button>
               </div>
             )}
-            <div className="analysis-grid">
-              <section className="conversation-card">
-                <div className="card-heading">
-                  <span>
-                    <Sparkles size={17} /> Analist
-                  </span>
-                  <span className="mini-tag">
-                    {health?.execution_mode === "scripted"
-                      ? "PROVA"
-                      : "KLOUDEKS"}
-                  </span>
+            <div className="thread">
+              {!items.length && !transcript.length ? (
+                <div className="hero">
+                  <div className="hero-mark" aria-hidden="true">
+                    <i />
+                    <i />
+                    <i />
+                  </div>
+                  <h1>Ne öğrenmek istersin?</h1>
+                  <p>
+                    Resmî serilerden, araçlarla hesaplanmış ve her sayısı
+                    kanıtlı cevaplar.
+                  </p>
                 </div>
-                <div className="conversation-body">
-                  {!items.length && !transcript.length ? (
-                    <div className="welcome">
-                      <div className="welcome-symbol">
-                        <Layers3 size={27} />
-                      </div>
-                      <div className="suggestions">
-                        {examples.map((example) => (
-                          <button
-                            key={example.tag}
-                            onClick={() => {
-                              setQuestion(example.question);
-                              input.current?.focus();
-                            }}
-                          >
-                            <small>{example.tag}</small>
-                            <span>
-                              {example.title}
-                              <ArrowRight size={15} />
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="messages">
-                      {transcript.map((message) => (
-                        <div
-                          key={`stored-${message.sequence}`}
-                          className={`chat-row ${message.role === "user" ? "user" : "agent"} stored`}
-                        >
+              ) : (
+                <div className="messages">
+                  {transcript.map((message) => {
+                    const table = restoredTable(message.result_ref);
+                    return (
+                      <div
+                        key={`stored-${message.sequence}`}
+                        className={`msg ${message.role === "user" ? "user" : "agent"}`}
+                      >
+                        {message.role === "user" ? (
+                          <div className="bubble">{message.text}</div>
+                        ) : (
                           <div className="bubble">
-                            {message.role === "assistant" && (
-                              <div className="answer-label">
-                                <span className="small-brand">
-                                  <Layers3 size={13} />
-                                </span>{" "}
-                                DATATRIO{" "}
-                                {message.status && (
-                                  <span className={`verdict ${message.status}`}>
-                                    {message.status === "accepted" &&
-                                    !message.result_ref
-                                      ? "Yanıt"
-                                      : {
-                                          accepted: "Kontrolden geçti",
-                                          qualified: "Sınırlı yanıt",
-                                          abstained: "Netleştirme gerekli",
-                                        }[message.status]}
-                                  </span>
-                                )}
+                            {message.status && (
+                              <div className="answer-meta">
+                                <span className={`verdict ${message.status}`}>
+                                  {message.status === "accepted" &&
+                                  !message.result_ref
+                                    ? "Yanıt"
+                                    : {
+                                        accepted: "Kontrolden geçti",
+                                        qualified: "Sınırlı yanıt",
+                                        abstained: "Netleştirme gerekli",
+                                      }[message.status]}
+                                </span>
                               </div>
                             )}
-                            <p
-                              className={
-                                message.role === "user" ? "" : "answer-text"
-                              }
-                            >
-                              {message.text}
-                            </p>
-                            {message.result_ref && (
-                              <p className="notice">
-                                Bu turda yayımlanan tablo
-                                {message.result_ref === restoredResult
-                                  ? " (sohbetin son tablosu)"
-                                  : ""}
-                                .
-                              </p>
-                            )}
-                            {message.role === "assistant" && history && (
-                              <button
-                                type="button"
-                                className="trace-link"
-                                onClick={() => openTrace(message.turn_id)}
+                            <p className="answer-text">{message.text}</p>
+                            {table ? (
+                              <div
+                                className={`inline-result ${table.result_ref === selected ? "newest" : ""}`}
                               >
-                                <Activity size={14} /> İşlem ayrıntıları
-                              </button>
+                                <div className="inline-result-head">
+                                  <Table2 size={14} /> Tablo ·{" "}
+                                  {table.cells.length} kayıtlı değer
+                                  {table.result_ref === selected && (
+                                    <span className="pill">son tablo</span>
+                                  )}
+                                </div>
+                                <ResultTable
+                                  key={table.result_ref}
+                                  result={table}
+                                  dataset={dataset}
+                                  context={{
+                                    question: transcript.find(
+                                      (m) =>
+                                        m.turn_id === message.turn_id &&
+                                        m.role === "user",
+                                    )?.text,
+                                    answer: message.text,
+                                  }}
+                                />
+                              </div>
+                            ) : (
+                              message.result_ref && (
+                                <p className="notice">
+                                  Bu turda bir tablo yayımlandı; sunucu yeniden
+                                  başladığı için burada yeniden gösterilemiyor.
+                                </p>
+                              )
+                            )}
+                            {history && conversationId && ownerToken && (
+                              <div className="answer-actions">
+                                <AnswerFeedback
+                                  conversationId={conversationId}
+                                  token={ownerToken}
+                                  turnId={message.turn_id}
+                                  saved={ratings[message.turn_id]}
+                                  onSaved={(stored) =>
+                                    setRatings((current) => ({
+                                      ...current,
+                                      [stored.turn_id]: stored,
+                                    }))
+                                  }
+                                  onOpenTrace={(runId) =>
+                                    openTrace(message.turn_id, runId)
+                                  }
+                                />
+                              </div>
                             )}
                           </div>
-                        </div>
-                      ))}
-                      {items.map((item, index) => (
-                        <article className="turn" key={item.request_id}>
-                          <div className="question-label">
-                            SEN{" "}
-                            <span>{String(index + 1).padStart(2, "0")}</span>
-                          </div>
-                          <p className="user-question">{item.question}</p>
-                          {item.document_format && (
-                            <p className="request-source">
-                              <FileText size={12} /> Ekli belge:{" "}
-                              {item.document_format.toUpperCase()}
-                            </p>
-                          )}
-                          {item.selected_result_id && (
-                            <p className="request-source">
-                              {sourceLabel(item.selected_result_id)}
-                            </p>
-                          )}
-                          <div className="answer-label">
-                            <span className="small-brand">
-                              <Layers3 size={13} />
-                            </span>{" "}
-                            DATATRIO{" "}
-                            {item.turn?.answer && (
-                              <span
-                                className={`verdict ${item.turn.answer.status}`}
-                              >
-                                {item.turn.answer.status === "accepted" &&
-                                !item.turn.answer.result
-                                  ? "Yanıt"
-                                  : {
-                                      accepted: "Kontrolden geçti",
-                                      qualified: "Sınırlı yanıt",
-                                      abstained: "Netleştirme gerekli",
-                                    }[item.turn.answer.status]}
-                              </span>
-                            )}
-                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {items.map((item, index) => (
+                    <div className="turn-pair" key={item.request_id}>
+                      <div className="msg user">
+                        <div className="bubble">{item.question}</div>
+                        {item.document_format && (
+                          <p className="request-source">
+                            <FileText size={12} /> Ekli belge:{" "}
+                            {item.document_format.toUpperCase()}
+                          </p>
+                        )}
+                        {item.selected_result_id && (
+                          <p className="request-source">
+                            {sourceLabel(item.selected_result_id)}
+                          </p>
+                        )}
+                      </div>
+                      <div className="msg agent">
+                        <div className="bubble">
                           {item.turn?.answer ? (
                             <>
+                              <div className="answer-meta">
+                                <span
+                                  className={`verdict ${item.turn.answer.status}`}
+                                >
+                                  {item.turn.answer.status === "accepted" &&
+                                  !item.turn.answer.result
+                                    ? "Yanıt"
+                                    : {
+                                        accepted: "Kontrolden geçti",
+                                        qualified: "Sınırlı yanıt",
+                                        abstained: "Netleştirme gerekli",
+                                      }[item.turn.answer.status]}
+                                </span>
+                              </div>
                               <p className="answer-text">
                                 {item.turn.answer.text}
                               </p>
@@ -1142,6 +1211,30 @@ export function Workspace() {
                                   {item.turn.answer.omitted_claims}{" "}
                                   desteklenmeyen ifade yanıta alınmadı.
                                 </p>
+                              )}
+                              {item.turn.answer.result && (
+                                <div
+                                  className={`inline-result ${item.turn.answer.result.result_ref === selected ? "newest" : ""}`}
+                                >
+                                  <div className="inline-result-head">
+                                    <Table2 size={14} /> Tablo ·{" "}
+                                    {item.turn.answer.result.cells.length}{" "}
+                                    kayıtlı değer
+                                    {item.turn.answer.result.result_ref ===
+                                      selected && (
+                                      <span className="pill">son tablo</span>
+                                    )}
+                                  </div>
+                                  <ResultTable
+                                    key={item.turn.answer.result.result_ref}
+                                    result={item.turn.answer.result}
+                                    dataset={dataset}
+                                    context={{
+                                      question: item.question,
+                                      answer: item.turn.answer.text,
+                                    }}
+                                  />
+                                </div>
                               )}
                               {item.turn.answer.status === "abstained" &&
                                 index === items.length - 1 &&
@@ -1176,61 +1269,24 @@ export function Workspace() {
                                 ownerToken &&
                                 item.turn.turn_id &&
                                 item.turn.state === "completed" && (
-                                  <AnswerFeedback
-                                    conversationId={conversationId}
-                                    token={ownerToken}
-                                    turnId={item.turn.turn_id}
-                                    saved={ratings[item.turn.turn_id]}
-                                    onSaved={(stored) =>
-                                      setRatings((current) => ({
-                                        ...current,
-                                        [stored.turn_id]: stored,
-                                      }))
-                                    }
-                                    onOpenTrace={(runId) =>
-                                      openTrace(undefined, runId)
-                                    }
-                                  />
+                                  <div className="answer-actions">
+                                    <AnswerFeedback
+                                      conversationId={conversationId}
+                                      token={ownerToken}
+                                      turnId={item.turn.turn_id}
+                                      saved={ratings[item.turn.turn_id]}
+                                      onSaved={(stored) =>
+                                        setRatings((current) => ({
+                                          ...current,
+                                          [stored.turn_id]: stored,
+                                        }))
+                                      }
+                                      onOpenTrace={(runId) =>
+                                        openTrace(item.turn?.turn_id, runId)
+                                      }
+                                    />
+                                  </div>
                                 )}
-                              {history &&
-                                conversationId &&
-                                item.turn.turn_id && (
-                                  <button
-                                    type="button"
-                                    className="trace-link"
-                                    onClick={() =>
-                                      openTrace(item.turn?.turn_id)
-                                    }
-                                  >
-                                    <Activity size={14} /> İşlem ayrıntıları
-                                  </button>
-                                )}
-                              {item.turn.answer.result && (
-                                <button
-                                  className={`result-link ${selected === item.turn.answer.result.result_ref ? "selected" : ""}`}
-                                  onClick={() =>
-                                    chooseResult(
-                                      item.turn!.answer!.result!.result_ref,
-                                    )
-                                  }
-                                  disabled={!ready || busy || pending}
-                                >
-                                  <Table2 size={17} />
-                                  <span>
-                                    Analiz{" "}
-                                    {analyses.findIndex(
-                                      (entry) =>
-                                        entry.ref ===
-                                        item.turn!.answer!.result!.result_ref,
-                                    ) + 1}
-                                    <small>
-                                      {item.turn.answer.result.cells.length}{" "}
-                                      kayıtlı değer
-                                    </small>
-                                  </span>
-                                  <ArrowUpRight size={16} />
-                                </button>
-                              )}
                             </>
                           ) : item.turn?.state === "failed" ||
                             item.admission_error ? (
@@ -1242,11 +1298,12 @@ export function Workspace() {
                               ] ?? errorText.internal_error}
                             </p>
                           ) : (
-                            <p className="working">
-                              <LoaderCircle
-                                size={15}
-                                className={busy ? "spin" : ""}
-                              />
+                            <div className="thinking" aria-live="polite">
+                              <span className="pulse" aria-hidden="true">
+                                <i />
+                                <i />
+                                <i />
+                              </span>
                               {busy ? (
                                 item.turn?.state === "running" ? (
                                   history &&
@@ -1280,324 +1337,241 @@ export function Workspace() {
                                     <Activity size={14} /> Canlı izle
                                   </button>
                                 )}
-                            </p>
+                            </div>
                           )}
-                        </article>
-                      ))}
+                        </div>
+                      </div>
                     </div>
-                  )}
-                  <div ref={chatEnd} />
+                  ))}
                 </div>
-                {issue && (
-                  <div className="request-issue" role="alert">
-                    <p>{issue}</p>
-                    {pending && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={busy}
-                        onClick={() => void watch(pendingIndex ?? 0, true)}
-                      >
-                        <RefreshCw size={14} /> Aynı isteğin durumunu al
-                      </Button>
-                    )}
-                  </div>
-                )}
-                {pending && !busy && !issue && (
-                  <div className="request-issue">
+              )}
+              <div ref={chatEnd} />
+            </div>
+            <div className="composer-wrap">
+              {issue && (
+                <div className="request-issue" role="alert">
+                  <p>{issue}</p>
+                  {pending && (
                     <Button
-                      variant="outline"
                       size="sm"
+                      variant="outline"
+                      disabled={busy}
                       onClick={() => void watch(pendingIndex ?? 0, true)}
                     >
-                      Bekleyen isteğe devam et
+                      <RefreshCw size={14} /> Aynı isteğin durumunu al
                     </Button>
+                  )}
+                </div>
+              )}
+              {pending && !busy && !issue && (
+                <div className="request-issue">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void watch(pendingIndex ?? 0, true)}
+                  >
+                    Bekleyen isteğe devam et
+                  </Button>
+                </div>
+              )}
+              {!items.length && !transcript.length && (
+                <div className="chips" role="list">
+                  {examples.map((example) => (
+                    <button
+                      key={example.tag}
+                      type="button"
+                      role="listitem"
+                      className="chip"
+                      title={example.question}
+                      onClick={() => {
+                        setQuestion(example.question);
+                        input.current?.focus();
+                      }}
+                    >
+                      {example.title}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <form
+                className={dragging ? "composer dragging" : "composer"}
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void submit();
+                }}
+                onDragEnter={(e) => {
+                  if (!uploads || !e.dataTransfer.types.includes("Files"))
+                    return;
+                  e.preventDefault();
+                  setDragging(true);
+                }}
+                onDragOver={(e) => {
+                  if (!uploads || !e.dataTransfer.types.includes("Files"))
+                    return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect =
+                    !ready || busy || pending || uploading ? "none" : "copy";
+                }}
+                onDragLeave={(e) => {
+                  // Leaving for a child element is not leaving the drop zone.
+                  if (!e.currentTarget.contains(e.relatedTarget as Node | null))
+                    setDragging(false);
+                }}
+                onDrop={(e) => {
+                  if (!uploads || !e.dataTransfer.types.includes("Files"))
+                    return;
+                  e.preventDefault();
+                  setDragging(false);
+                  // One document per question; the same admission checks as the picker.
+                  void attach(e.dataTransfer.files[0]);
+                }}
+              >
+                {dragging && (
+                  <div className="composer-drop" aria-hidden="true">
+                    <FileText size={16} /> Belgeyi buraya bırak · CSV, Excel,
+                    PDF, HTML
                   </div>
                 )}
-                <form
-                  className={dragging ? "composer dragging" : "composer"}
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    void submit();
-                  }}
-                  onDragEnter={(e) => {
-                    if (!uploads || !e.dataTransfer.types.includes("Files"))
-                      return;
-                    e.preventDefault();
-                    setDragging(true);
-                  }}
-                  onDragOver={(e) => {
-                    if (!uploads || !e.dataTransfer.types.includes("Files"))
-                      return;
-                    e.preventDefault();
-                    e.dataTransfer.dropEffect =
-                      !ready || busy || pending || uploading ? "none" : "copy";
-                  }}
-                  onDragLeave={(e) => {
-                    // Leaving for a child element is not leaving the drop zone.
-                    if (
-                      !e.currentTarget.contains(e.relatedTarget as Node | null)
-                    )
-                      setDragging(false);
-                  }}
-                  onDrop={(e) => {
-                    if (!uploads || !e.dataTransfer.types.includes("Files"))
-                      return;
-                    e.preventDefault();
-                    setDragging(false);
-                    // One document per question; the same admission checks as the picker.
-                    void attach(e.dataTransfer.files[0]);
-                  }}
-                >
-                  {dragging && (
-                    <div className="composer-drop" aria-hidden="true">
-                      <FileText size={16} /> Belgeyi buraya bırak · CSV, Excel,
-                      PDF, HTML
-                    </div>
-                  )}
-                  {/* What this turn carries, stated rather than switched: the agent
-                    reads the chat and its tables on its own. */}
-                  <div className="selection-context" aria-live="polite">
-                    <span>
-                      {pending
-                        ? "Bekleyen istek sürüyor."
-                        : items.at(-1)?.turn?.answer?.status === "abstained"
-                          ? "Son cevap netleştirme istedi: kısa bir yanıt yazarsan o isteğe eklenir, kendi başına bir soru yazarsan yeni soru sayılır."
-                          : contextTables > 0
-                            ? `Bu sohbetteki ${contextTables} tablo ve önceki sorular bağlamda; hangisini kullanacağını ajan seçer.`
-                            : ""}
-                    </span>
-                  </div>
-                  <textarea
-                    ref={input}
-                    aria-label="Finansal sorunuz"
-                    value={question}
-                    onChange={(e) => setQuestion(e.target.value)}
-                    placeholder={
-                      items.length
-                        ? "Bu analizi nasıl derinleştirelim?"
+                <textarea
+                  ref={input}
+                  rows={1}
+                  aria-label="Finansal sorunuz"
+                  value={question}
+                  onChange={(e) => setQuestion(e.target.value)}
+                  placeholder={
+                    pending
+                      ? "Analiz sürüyor; bitince devam edebilirsin"
+                      : items.length || transcript.length
+                        ? items.at(-1)?.turn?.answer?.status === "abstained"
+                          ? "Kısa bir cevap netleştirmeye eklenir; soru yazarsan yeni soru sayılır"
+                          : "Devam et…"
                         : "Finansal sorunu yaz…"
+                  }
+                  maxLength={4096}
+                  // Drafting is always allowed; only sending waits for the running
+                  // turn (one turn at a time - the server refuses a second with 409).
+                  onKeyDown={(e) => {
+                    if (
+                      e.key === "Enter" &&
+                      !e.shiftKey &&
+                      !e.nativeEvent.isComposing
+                    ) {
+                      e.preventDefault();
+                      void submit();
                     }
-                    maxLength={4096}
-                    disabled={busy || pending}
-                    onKeyDown={(e) => {
-                      if (
-                        e.key === "Enter" &&
-                        !e.shiftKey &&
-                        !e.nativeEvent.isComposing
-                      ) {
-                        e.preventDefault();
-                        void submit();
-                      }
-                    }}
-                  />
-                  {attachment && (
-                    <div className="composer-attachment" aria-live="polite">
-                      <FileText size={13} /> Ekli belge (sohbette sonraki
-                      sorularda da kullanılabilir):{" "}
-                      {attachment.document_format.toUpperCase()} ·{" "}
-                      {Math.max(1, Math.round(attachment.bytes / 1024))} KB
-                      <button
-                        type="button"
-                        aria-label="Ekli belgeyi kaldır"
-                        disabled={busy || pending}
-                        onClick={() => setAttachment(null)}
-                      >
-                        <X size={12} />
-                      </button>
-                    </div>
-                  )}
-                  <div className="composer-actions">
-                    <span>
-                      {busy ? (
-                        <>
-                          <LoaderCircle size={13} className="spin" /> Çalışıyor
-                        </>
-                      ) : (
-                        <>
-                          Enter gönderir <span>·</span> Shift + Enter yeni satır
-                        </>
-                      )}
-                    </span>
-                    <div className="composer-buttons">
-                      {!uploads && (
-                        // The capability is off in this deployment: say so rather than
-                        // quietly dropping the control.
+                  }}
+                />
+                {attachment && (
+                  <div className="composer-attachment" aria-live="polite">
+                    <FileText size={13} /> Ekli belge:{" "}
+                    {attachment.document_format.toUpperCase()} ·{" "}
+                    {Math.max(1, Math.round(attachment.bytes / 1024))} KB
+                    <button
+                      type="button"
+                      aria-label="Ekli belgeyi kaldır"
+                      disabled={busy || pending}
+                      onClick={() => setAttachment(null)}
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                )}
+                <div className="composer-bar">
+                  <div className="composer-left">
+                    {uploads ? (
+                      <>
+                        <input
+                          ref={picker}
+                          type="file"
+                          accept={DOCUMENT_ACCEPT}
+                          hidden
+                          onChange={(e) => void attach(e.target.files?.[0])}
+                        />
                         <Button
                           type="button"
                           size="icon"
                           variant="ghost"
-                          aria-label="Belge ekleme kapalı"
-                          title="Belge yükleme bu sunucuda kapatılmış (servis --no-uploads ile başlatılmış)."
-                          disabled
+                          aria-label="Belge ekle"
+                          title={
+                            "CSV, Excel, PDF veya HTML ekle ya da sürükleyip bırak " +
+                            "(en fazla 10 MiB). Taranmış PDF " +
+                            (ocr ? "OCR ile okunur." : "için OCR kapalı.")
+                          }
+                          disabled={!ready || busy || pending || uploading}
+                          onClick={() => picker.current?.click()}
                         >
-                          <Paperclip size={17} />
-                        </Button>
-                      )}
-                      {uploads && (
-                        <>
-                          <input
-                            ref={picker}
-                            type="file"
-                            accept={DOCUMENT_ACCEPT}
-                            hidden
-                            onChange={(e) => void attach(e.target.files?.[0])}
-                          />
-                          <Button
-                            type="button"
-                            size="icon"
-                            variant="ghost"
-                            aria-label="Soruya belge ekle"
-                            title={
-                              "CSV, Excel, PDF veya HTML belge ekle ya da sürükleyip bırak " +
-                              "(en fazla 10 MiB). Metin katmanlı PDF okunur; taranmış PDF " +
-                              (ocr ? "OCR ile okunur." : "için OCR kapalı.")
-                            }
-                            disabled={!ready || busy || pending || uploading}
-                            onClick={() => picker.current?.click()}
-                          >
-                            {uploading ? (
-                              <LoaderCircle size={17} className="spin" />
-                            ) : (
-                              <Paperclip size={17} />
-                            )}
-                          </Button>
-                        </>
-                      )}
-                      {pending && (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={stopping}
-                          title="Çalışan model isteği bitince, bir sonraki adımdan önce durur."
-                          onClick={() => void stop()}
-                        >
-                          {stopping ? (
-                            <LoaderCircle size={14} className="spin" />
+                          {uploading ? (
+                            <LoaderCircle size={18} className="spin" />
                           ) : (
-                            <Square size={12} />
-                          )}{" "}
-                          Durdur
+                            <Plus size={18} />
+                          )}
                         </Button>
-                      )}
+                      </>
+                    ) : (
                       <Button
-                        type="submit"
+                        type="button"
                         size="icon"
-                        aria-label="Soruyu gönder"
-                        disabled={
-                          !ready ||
-                          !health ||
-                          !dataset ||
-                          busy ||
-                          pending ||
-                          !validQuestion(question)
-                        }
+                        variant="ghost"
+                        aria-label="Belge ekleme kapalı"
+                        title="Belge yükleme bu sunucuda kapatılmış."
+                        disabled
                       >
-                        <Send size={17} />
+                        <Plus size={18} />
                       </Button>
-                    </div>
+                    )}
+                    <button
+                      type="button"
+                      className="model-pick"
+                      aria-disabled="true"
+                      title="Şimdilik yalnız bu model kullanılabilir"
+                    >
+                      <Cpu size={14} /> {modelShort}
+                    </button>
                   </div>
-                </form>
-                <div className="composer-footnote">
-                  <ShieldCheck size={12} /> Hesaplar araçlarla yapılır, cevaplar
-                  kontrol edilir.
-                </div>
-              </section>
-              <section className="results-card">
-                <div className="card-heading">
-                  <span>
-                    <Table2 size={17} /> Analiz sonuçları
-                  </span>
-                  {analyses.length > 0 ? (
-                    <label className="version-select">
-                      <select
-                        aria-label="Sonuç sürümü"
-                        value={selected ?? ""}
-                        onChange={(e) => chooseResult(e.target.value)}
-                        disabled={!ready || busy || pending}
+                  <div className="composer-right">
+                    {pending && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={stopping}
+                        title="Çalışan model isteği bitince, bir sonraki adımdan önce durur."
+                        onClick={() => void stop()}
                       >
-                        {!chosen && <option value="">Sonuç seç</option>}
-                        {analyses.map((entry, index) => (
-                          <option key={entry.ref} value={entry.ref}>
-                            Analiz {index + 1}
-                            {index === analyses.length - 1
-                              ? " · son sonuç"
-                              : " · önceki sonuç"}
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronDown size={14} />
-                    </label>
-                  ) : (
-                    <span className="mini-tag subtle">ÇALIŞMA TABLOSU</span>
-                  )}
-                </div>
-                {result ? (
-                  <>
-                    <div className="result-intro">
-                      <div>
-                        <span className="result-kicker">YAYIMLANAN SONUÇ</span>
-                        <h2>
-                          Analiz{" "}
-                          {analyses.findIndex(
-                            (entry) => entry.ref === selected,
-                          ) + 1}
-                        </h2>
-                      </div>
-                      <span className="verified-pill">
-                        <Check size={14} /> Kayıtlı tablo
-                      </span>
-                    </div>
-                    <ResultTable
-                      key={result.result_ref}
-                      result={result}
-                      dataset={dataset}
-                      context={{
-                        question: chosen?.question,
-                        answer: chosen?.answer,
-                      }}
-                    />
-                  </>
-                ) : (
-                  <div className="result-empty">
-                    <div className="empty-visual">
-                      <div className="visual-top">
-                        <span />
-                        <span />
-                        <span />
-                      </div>
-                      <div className="visual-grid">
-                        {Array.from({ length: 15 }, (_, i) => (
-                          <i key={i} />
-                        ))}
-                      </div>
-                      <div className="visual-badge">
-                        <ShieldCheck size={23} />
-                      </div>
-                    </div>
-                    <p>Analiz tamamlandığında tablo burada görünür.</p>
+                        {stopping ? (
+                          <LoaderCircle size={14} className="spin" />
+                        ) : (
+                          <Square size={12} />
+                        )}{" "}
+                        Durdur
+                      </Button>
+                    )}
+                    <Button
+                      type="submit"
+                      size="icon"
+                      className="send"
+                      aria-label="Gönder"
+                      disabled={
+                        !ready ||
+                        !health ||
+                        !dataset ||
+                        busy ||
+                        pending ||
+                        !validQuestion(question)
+                      }
+                    >
+                      <ArrowUp size={17} />
+                    </Button>
                   </div>
-                )}
-                <div className="results-bottom">
-                  <span>
-                    <span className="tiny-dot" />{" "}
-                    {result
-                      ? "Değerler yayımlanmış sonuçtan gösteriliyor"
-                      : "Henüz yayımlanmış sonuç yok"}
-                  </span>
-                  <span>DataTrio / 2026</span>
                 </div>
-              </section>
+              </form>
+              <p className="ai-note">
+                DataTrio bir yapay zekâ analistidir: hesaplar araçlarla yapılır
+                ve cevaplar kontrol edilir; önemli kararlarda kaynağı yine de
+                doğrula.
+              </p>
             </div>
-            <footer className="page-footer">
-              <span>
-                {current?.events.length
-                  ? `Son işlem: ${(current.events.at(-1)!.elapsed_ms / 1000).toLocaleString("tr-TR")} sn`
-                  : "Yerel çalışma alanı"}
-              </span>
-            </footer>
-          </>
+          </section>
         ) : (
           <>
             {panel === "traces" && ownerToken && (
@@ -1649,6 +1623,14 @@ export function Workspace() {
                         documents={chatDocuments}
                         pool={dataset}
                         onOpenConversation={(id) => void openChat(id)}
+                        session={
+                          saved.current
+                            ? {
+                                id: saved.current.session.session_id,
+                                token: saved.current.session.token,
+                              }
+                            : null
+                        }
                       />
                     ) : (
                       <>

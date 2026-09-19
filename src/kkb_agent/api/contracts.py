@@ -152,6 +152,12 @@ class ProofSource(ContractModel):
     last_retrieved: AwareDatetime | None
 
 
+class DocumentFromUrl(ContractModel):
+    """A user-written https address to fetch a tabular document from (M-URL-KB)."""
+
+    url: Annotated[str, StringConstraints(strict=True, pattern=r"^https://[^\s<>\"'`]{1,2000}$")]
+
+
 class DocumentAdmitted(ContractModel):
     """What an admitted upload returns; never its filename or content."""
 
@@ -292,6 +298,8 @@ class Health(ContractModel):
     max_sessions: int = MAX_SESSIONS
     max_turns_per_session: int = MAX_TURNS
     max_running_turns: Literal[1] = 1
+    #: The planner model this deployment routes to, shown as the connected model.
+    model: str | None = None
     capabilities: tuple[str, ...] = ("sessions", "questions", "published_values", "turn_events")
 
 

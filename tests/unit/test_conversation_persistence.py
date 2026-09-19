@@ -43,6 +43,7 @@ def launch(tmp_path):
             selected_runner=runner.selected,
             document_store=runner.admit_document,
             store=store,
+            stored_result=runner.published_result,
         )
         client = TestClient(create_app(service, prepared=runner.status), base_url=BASE)
         client.__enter__()
@@ -108,6 +109,27 @@ def test_a_conversation_its_messages_table_and_upload_come_back_after_a_restart(
     assert detail["messages"][1]["result_ref"] == table["result_ref"]
     assert detail["messages"][1]["result_version"] == table["version"]
     assert [(d["name"], d["document_format"]) for d in detail["documents"]] == [("belge_1", "csv")]
+
+    # The table itself comes back from its receipt - same reference, same version,
+    # same cells, proof rebuilt - so the reopened conversation shows what it showed.
+    stored = reopened.get(f"/v1/conversations/{sid}/results/{first['turn_id']}", headers=headers)
+    assert stored.status_code == 200, stored.text
+    assert stored.json()["result_ref"] == table["result_ref"]
+    assert stored.json()["version"] == table["version"]
+    assert [c["value"] for c in stored.json()["cells"]] == [c["value"] for c in table["cells"]]
+    assert stored.json()["proof"]["availability"] in ("available", "unavailable")
+    # The owner's key reads it too; a turn that published nothing is not found.
+    assert (
+        reopened.get(
+            f"/v1/conversations/{sid}/results/{first['turn_id']}",
+            headers={"X-KKB-Session-Token": owner_token},
+        ).status_code
+        == 200
+    )
+    assert (
+        reopened.get(f"/v1/conversations/{sid}/results/{'0' * 32}", headers=headers).status_code
+        == 404
+    )
 
     # The published table is still selectable, and the upload is still readable.
     second = ask(

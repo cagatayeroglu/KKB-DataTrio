@@ -42,6 +42,23 @@ CURRENT = _phrases("güncel", "aktif", "current", "currently updated")
 OLD_BASE = _phrases("eski baz", "eski temel", "old base", "önceki baz")
 NEW_BASE = _phrases("güncel baz", "yeni baz", "latest base", "current base")
 BASE_MARKER = _phrases("baz", "bazlı", "temel yıl", "temel yıllı", "base", "base year")
+#: The one country this catalog covers; a national series is the default when
+#: the question names no place, and a regional variant the person did not ask
+#: for is demoted below it. Reviewed geography, not a hand-kept list of cities.
+NATIONAL = _phrases("türkiye", "turkey", "türkiye geneli", "ulusal", "nationwide")
+#: A query that asks for regional/provincial series generically, without naming
+#: one place: then a regional variant is wanted and the national series is not.
+REGIONAL = _phrases(
+    "bölgesel",
+    "bölge bazında",
+    "il bazında",
+    "iller",
+    "şehir bazında",
+    "regional",
+    "provincial",
+    "by province",
+    "by city",
+)
 INTEREST = _phrases("faiz", "interest")
 PROFIT_SHARE = _phrases("kâr payı", "kar payi", "profit share", "profit-share")
 
@@ -85,6 +102,11 @@ class _QueryIntent:
     archive: ArchiveIntent | None
     base_year: int | None
     base_order: Literal["oldest", "newest"] | None
+    #: The normalized query, so a candidate's reviewed geography can be checked
+    #: against the exact words the person used.
+    text: str
+    #: The query asked for regional series generically (no single place named).
+    regional: bool
 
 
 def _query_intent(query: str) -> _QueryIntent:
@@ -136,6 +158,8 @@ def _query_intent(query: str) -> _QueryIntent:
         archive=archive,
         base_year=years[0] if len(years) == 1 else None,
         base_order=base_order,
+        text=text,
+        regional=_contains(text, REGIONAL),
     )
 
 
@@ -186,7 +210,30 @@ def _candidate_intent(item: ReviewedSeries) -> _CandidateIntent:
     )
 
 
-def _semantic_key(intent: _QueryIntent, item: ReviewedSeries) -> tuple[int, int, int, int, int]:
+def _geography_rank(intent: _QueryIntent, item: ReviewedSeries) -> int:
+    """Where a reviewed geography sits when the question does or does not name it.
+
+    A named geography is always preferred (0). When the query asks for regional
+    series generically ("bölgesel"), a regional variant is wanted (0) and the
+    national series is demoted (2). Otherwise a series with no declared geography
+    or a national series the person did not name is the neutral default (1) - so
+    a national series is never ranked below an ordinary placeless one - and a
+    regional series the person did not ask for is demoted below both (2).
+    """
+    if item.geography is None:
+        return 1
+    place = normalize_search_text(item.geography)
+    if place and place in intent.text:
+        return 0
+    national = _contains(place, NATIONAL)
+    if intent.regional:
+        return 2 if national else 0
+    return 1 if national else 2
+
+
+def _semantic_key(
+    intent: _QueryIntent, item: ReviewedSeries
+) -> tuple[int, int, int, int, int, int]:
     candidate = _candidate_intent(item)
     conflicts = 0
     matches = 0
@@ -221,7 +268,7 @@ def _semantic_key(intent: _QueryIntent, item: ReviewedSeries) -> tuple[int, int,
         base_rank = -item.record.base_year
     elif intent.base_year is not None or intent.base_order is not None:
         base_missing = 1
-    return archive_rank, conflicts, base_missing, base_rank, -matches
+    return archive_rank, conflicts, _geography_rank(intent, item), base_missing, base_rank, -matches
 
 
 def rerank_by_reviewed_intent[T](

@@ -161,6 +161,10 @@ class KloudeksProvider:
                 "messages": _wire_messages(conversation),
                 # Plans and summaries should not change between identical runs.
                 "temperature": 0.0,
+                # A memory/safety ceiling on runaway generation, not a latency
+                # knob: set well above any real plan or answer, so a legitimate
+                # call is never truncated (DEC-161 follow-up).
+                "max_tokens": self._config.max_output_tokens,
             }
             if json_mode:
                 # Opt-in only: Q-K-03 has not confirmed guaranteed JSON output,
@@ -313,21 +317,23 @@ class KloudeksProvider:
 def _wire_messages(conversation: Sequence[Message]) -> list[dict[str, str]]:
     """The conversation in the shape the platform accepts.
 
-    The served chat model rejects a request carrying two system messages (400,
-    observed in M4-15's live run on 2026-09-11), while the product keeps its
-    instructions and its tool list as separate system turns. The leading
-    system turns are joined into one, in order; nothing else changes.
+    The served chat model rejects a request carrying more than one system
+    message, or a system message after a user turn (400, observed in M4-15's
+    live run on 2026-09-11 and again on 2026-09-19 with an attached PDF: the
+    document note travelled as a user turn and the reply instructions as a
+    system turn after it). The product keeps its instructions as separate
+    system turns wherever they are composed; here every system turn is joined,
+    in order, into one leading system message, and the user/assistant turns
+    follow in their own order. Nothing else changes.
     """
-    leading = 0
-    while leading < len(conversation) and conversation[leading].role is Role.SYSTEM:
-        leading += 1
+    system = [message.content for message in conversation if message.role is Role.SYSTEM]
     wire: list[dict[str, str]] = []
-    if leading:
-        joined = "\n\n".join(message.content for message in conversation[:leading])
-        wire.append({"role": Role.SYSTEM.value, "content": joined})
+    if system:
+        wire.append({"role": Role.SYSTEM.value, "content": "\n\n".join(system)})
     wire.extend(
         {"role": message.role.value, "content": message.content}
-        for message in conversation[leading:]
+        for message in conversation
+        if message.role is not Role.SYSTEM
     )
     return wire
 

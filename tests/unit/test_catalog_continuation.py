@@ -133,9 +133,14 @@ def test_catalog_feedback_removes_retrieval_mechanics_but_keeps_planning_semanti
         allow_nan=False,
     )
     assert len(feedback.encode("utf-8")) < len(legacy.encode("utf-8")) * 0.7
-    candidate = payload["results"][0]["candidates"][-1]
+    # Found by identity, not position: DEC-164 ranks the national series first
+    # for a place-free query, and this test is about the fields kept, not the order.
+    candidate = next(
+        c
+        for c in payload["results"][0]["candidates"]
+        if c["series"]["record"]["series_id"] == "EVDS:TP.KFE.TR"
+    )
     record = candidate["series"]["record"]
-    assert record["series_id"] == "EVDS:TP.KFE.TR"
     assert record["frequency"] == "monthly" and record["stock_flow"] == "index"
     assert record["base_year"] == 2023 and candidate["series"]["geography"] == "Türkiye"
     assert "bm25_score" not in candidate and "rank" not in candidate

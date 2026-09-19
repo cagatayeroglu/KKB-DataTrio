@@ -230,12 +230,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                 mode="kloudeks",
                 selected_runner=runner.selected,
                 document_store=runner.admit_document if uploads_enabled else None,
+                url_document_store=(
+                    runner.admit_document_from_url
+                    if uploads_enabled and args.enable_web_url
+                    else None
+                ),
                 store=store,
                 ocr=ocr_enabled,
                 official_acquisition=acquisition_enabled,
                 knowledge=True,
                 web_search=search is not None,
                 web_url=args.enable_web_url,
+                model=config.planner_model,
+                stored_result=runner.published_result,
             )
             rebuild = None
             if index is not None:

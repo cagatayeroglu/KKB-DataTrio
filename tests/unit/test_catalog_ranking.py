@@ -70,3 +70,34 @@ def test_n18_stays_partial_when_lexical_generation_does_not_surface_balance(snap
     output = result(snapshot, "Turkish lira housing loan balance at banks")
     assert output.status == "PARTIAL" and output.clarification_required
     assert not any(c.series.record.provider == "BDDK" for c in output.candidates)
+
+
+def test_a_place_free_query_prefers_the_national_series_over_regional_variants(snapshot):
+    """X4: unqualified "konut fiyat endeksi" should read as Türkiye, not a 4-way ask."""
+    output = result(snapshot, "konut fiyat endeksi")
+    top = [c.series.record.series_id for c in output.candidates]
+    assert top[0] == "EVDS:TP.KFE.TR"
+    # The regional variants stay available, but below the national one.
+    assert {"EVDS:TP.KFE.TR10", "EVDS:TP.KFE.TR31", "EVDS:TP.KFE.TR51"} <= set(top)
+    assert top.index("EVDS:TP.KFE.TR") < min(
+        top.index(sid) for sid in ("EVDS:TP.KFE.TR10", "EVDS:TP.KFE.TR31", "EVDS:TP.KFE.TR51")
+    )
+
+
+def test_asking_for_regional_series_generically_demotes_the_national_one(snapshot):
+    """ "bölgesel konut fiyat endeksi" wants the provincial variants, not Türkiye."""
+    output = result(snapshot, "güncel bölgesel konut fiyat endeksi serileri")
+    top = [c.series.record.series_id for c in output.candidates]
+    regional = {"EVDS:TP.KFE.TR10", "EVDS:TP.KFE.TR31", "EVDS:TP.KFE.TR51"}
+    assert top[0] in regional
+    assert top.index("EVDS:TP.KFE.TR") > max(top.index(sid) for sid in regional)
+
+
+def test_naming_a_city_promotes_its_regional_series_above_the_national_one(snapshot):
+    for city, series_id in (
+        ("İstanbul", "EVDS:TP.KFE.TR10"),
+        ("İzmir", "EVDS:TP.KFE.TR31"),
+        ("Ankara", "EVDS:TP.KFE.TR51"),
+    ):
+        output = result(snapshot, f"{city} konut fiyat endeksi")
+        assert output.candidates[0].series.record.series_id == series_id

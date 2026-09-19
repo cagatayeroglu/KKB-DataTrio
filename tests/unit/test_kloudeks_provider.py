@@ -135,6 +135,8 @@ class TestTheKeyGoesToOneDestination:
         ]
         assert body["temperature"] == 0.0
         assert "response_format" not in body
+        # A memory/safety ceiling, generous enough never to truncate a real call.
+        assert body["max_tokens"] == 16384
 
     def test_leading_system_turns_travel_as_one(self):
         # M4-15's live run: the served model answers 400 to two system
@@ -158,6 +160,34 @@ class TestTheKeyGoesToOneDestination:
             {"role": "assistant", "content": "önceki cevap"},
             {"role": "user", "content": "düzelt"},
         ]
+
+    def test_every_system_turn_is_hoisted_into_one_leading_message(self):
+        # 2026-09-19 live: a PDF-attached turn sent its document note as a user
+        # turn and the reply instructions as a system turn after it; the served
+        # model answered 400. Every system turn now travels first, joined in
+        # order, and only user/assistant turns follow, in theirs.
+        server = Server(chat("ok"))
+        provider(server).complete(
+            [
+                Message(Role.SYSTEM, "talimat"),
+                Message(Role.USER, "belge özeti"),
+                Message(Role.SYSTEM, "cevaplama"),
+                Message(Role.USER, PROMPT),
+            ]
+        )
+        (body,) = server.bodies()
+        roles = [item["role"] for item in body["messages"]]
+        assert roles == ["system", "user", "user"]
+        assert body["messages"][0]["content"] == "talimat" + chr(10) * 2 + "cevaplama"
+        assert [item["content"] for item in body["messages"][1:]] == ["belge özeti", PROMPT]
+
+    def test_a_rejected_request_keeps_its_status_in_the_safe_category(self):
+        # The run record shows "ProviderError: Kloudeks rejected the request (400)"
+        # rather than a bare type name, and never the provider's body.
+        server = Server(httpx.Response(400, json={"error": {"message": "PRIVATE detail"}}))
+        with pytest.raises(ProviderError) as refused:
+            ask(provider(server))
+        assert "(400)" in str(refused.value) and "PRIVATE" not in str(refused.value)
 
     def test_a_turn_without_system_messages_is_sent_as_it_is(self):
         server = Server(chat("ok"))
@@ -538,3 +568,14 @@ class TestWhatACallCost:
         planned, written = server.bodies()
         assert "chat_template_kwargs" not in planned
         assert written["chat_template_kwargs"] == {"enable_thinking": False}
+
+
+def test_a_completion_ceiling_below_a_real_call_is_refused_but_a_generous_one_is_used():
+    """The ceiling guards runaway generation; it may not be set low enough to truncate."""
+    with pytest.raises(ConfigurationError):
+        config(max_output_tokens=1024)
+
+    server = Server(chat("ok"))
+    provider(server, max_output_tokens=20000).complete([Message(Role.USER, PROMPT)])
+    (body,) = server.bodies()
+    assert body["max_tokens"] == 20000
