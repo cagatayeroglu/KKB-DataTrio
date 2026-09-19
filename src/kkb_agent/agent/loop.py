@@ -362,8 +362,11 @@ def today_instructions(today: date) -> str:
         "latest published period is usually earlier than today; stored windows are listed with "
         "the prepared series. A relative period ('son 3 ay', 'son bir yıl', 'geçen yıl sonundan "
         "beri') is anchored to the series' latest published period, never to a guessed date: "
-        "read it with lakehouse series=[...] last=N. Name explicit dates only when the question "
-        "does."
+        "read it with lakehouse series=[...] last=N. N counts periods of the series' OWN "
+        "frequency: three months are last=3 of a monthly series, about 13 of a weekly one and "
+        "about 66 of a daily one (a daily series has some 22 published days a month), so "
+        "convert the span the question names into the series' frequency. Name explicit dates "
+        "only when the question does."
     )
 
 
