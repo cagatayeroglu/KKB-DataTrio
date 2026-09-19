@@ -35,15 +35,16 @@ import hashlib
 import json
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
+from datetime import date
 from typing import TYPE_CHECKING, Annotated, Any
 
 import duckdb
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, RootModel, StringConstraints, model_validator
 
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
 from kkb_agent.agent.registry import ToolSpec
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
-from kkb_agent.core import AnalyticalResult, OpaqueSeriesReference, ResultStatus
+from kkb_agent.core import AnalyticalResult, OpaqueSeriesReference, ResultStatus, SeriesId
 from kkb_agent.database import all_tables
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.lakehouse.result_evidence import _record_execution, canonical
@@ -61,8 +62,70 @@ DEFAULT_READABLE = ("gold_cells", "silver_series", "silver_observations")
 DEFAULT_MAX_ROWS = 500
 
 
+#: Series one typed read may name, and the rows it may return: the published-result
+#: ceiling (2048 cells) is the real bound, so a read is never cut below what can be shown.
+MAX_READ_SERIES = 12
+SERIES_READ_MAX_ROWS = 2048
+
+
 class SqlRejected(ValueError):
     """The query did not pass a gate. The message is safe to show the model."""
+
+
+# DEC-175. Fetching a series is the first step of most plans, and as free SQL it cost the
+# live planner most of its reasoning: which columns to select, how the value column would
+# be labelled, whether an alias is a projection (K1, 2026-09-19: 5,800 reasoning tokens,
+# 853 s, for a two-step plan). Named identities are also what the discovery rule can check,
+# and what lets a reviewed series the store lacks be fetched first. The docstring below is
+# part of the schema the planner reads, so it says only what the planner needs.
+class SeriesRead(BaseModel):
+    """Catalogue series as one table: the tool writes the query, no sql is given."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    series: list[
+        Annotated[
+            SeriesId,
+            StringConstraints(strict=True, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}$"),
+        ]
+    ] = Field(
+        min_length=1,
+        max_length=MAX_READ_SERIES,
+        description=(
+            "Catalogue series ids exactly as catalog_search returned them. Each becomes one "
+            "column of the table, labelled by its id"
+        ),
+    )
+    start: date | None = Field(
+        default=None, description="Earliest period end, inclusive; omit for the whole stored window"
+    )
+    end: date | None = Field(
+        default=None, description="Latest period end, inclusive; omit for the whole stored window"
+    )
+    purpose: str = Field(default="", max_length=500)
+
+    @model_validator(mode="after")
+    def coherent(self) -> SeriesRead:
+        if len(set(self.series)) != len(self.series):
+            raise ValueError("series must name each id once")
+        if self.start is not None and self.end is not None and self.start > self.end:
+            raise ValueError("start must not be after end")
+        return self
+
+    def statement(self) -> str:
+        """The one direct-column SELECT this read stands for; ids cannot carry a quote."""
+        wanted = ", ".join(f"'{identity}'" for identity in self.series)
+        where = [f"o.series_id IN ({wanted})"]
+        if self.start is not None:
+            where.append(f"o.period_end >= DATE '{self.start.isoformat()}'")
+        if self.end is not None:
+            where.append(f"o.period_end <= DATE '{self.end.isoformat()}'")
+        return (
+            "SELECT o.series_id, o.period_start, o.period_end, o.value "  # nosec B608
+            "FROM silver_observations o WHERE "
+            + " AND ".join(where)
+            + " ORDER BY o.series_id, o.period_end"
+        )
 
 
 class LakehouseArguments(BaseModel):
@@ -73,6 +136,10 @@ class LakehouseArguments(BaseModel):
     # SQL can name any series; the admission rule cannot enumerate them from text.
     sql: Annotated[str, OpaqueSeriesReference()] = Field(min_length=1, max_length=8000)
     purpose: str = Field(default="", max_length=500)
+
+
+class LakehouseRequest(RootModel[SeriesRead | LakehouseArguments]):
+    """What the planner may send: series by identity, or one SELECT."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -245,10 +312,37 @@ def make_lakehouse_tool(
         # dispatch, so this is a contract check rather than validation. It is
         # not an assert: asserts vanish under -O, and a runtime guarantee that
         # disappears in production is not a guarantee.
+        if isinstance(arguments, LakehouseRequest):
+            arguments = arguments.root
+        rows = max_rows
+        if isinstance(arguments, SeriesRead):
+            # Inspecting first is what lets a reviewed series the store lacks be fetched
+            # (DEC-155/159): as SQL, such a read only ever "returned no rows".
+            refused = [
+                f"{identity}: {found.status}"
+                + (
+                    f" ({', '.join(found.unknown_fields or found.mismatch_fields)})"
+                    if found.unknown_fields or found.mismatch_fields
+                    else ""
+                )
+                for identity in arguments.series
+                if inspector is not None
+                and (found := inspector.inspect(connection, identity)).status != "consistent"
+            ]
+            if refused:
+                return ToolResult(
+                    ToolStatus.FAILURE,
+                    step_id="",
+                    tool="lakehouse",
+                    error_category="series_unknown",
+                    warnings=("Series cannot be read: " + "; ".join(refused),),
+                )
+            arguments = LakehouseArguments(sql=arguments.statement(), purpose=arguments.purpose)
+            rows = max(max_rows, SERIES_READ_MAX_ROWS)
         if not isinstance(arguments, LakehouseArguments):  # pragma: no cover
             raise TypeError("lakehouse received arguments it did not declare")
         try:
-            result = run_query(connection, arguments.sql, readable=readable, max_rows=max_rows)
+            result = run_query(connection, arguments.sql, readable=readable, max_rows=rows)
         except SqlRejected as error:
             return ToolResult(
                 ToolStatus.FAILURE,
@@ -266,7 +360,7 @@ def make_lakehouse_tool(
             connection=connection,
             result_id=_result_id(arguments, None),
             tables=tables,
-            parameters={"purpose": arguments.purpose, "max_rows": max_rows},
+            parameters={"purpose": arguments.purpose, "max_rows": rows},
             snapshots=snapshots,
             inspector=inspector,
         )
@@ -287,7 +381,7 @@ def make_lakehouse_tool(
                 {
                     "sql_sha256": _statement_digest(arguments.sql),
                     "purpose": arguments.purpose,
-                    "max_rows": max_rows,
+                    "max_rows": rows,
                 }
             ),
             inputs=snapshots,
@@ -295,7 +389,7 @@ def make_lakehouse_tool(
         )
         warnings = tuple(typed.warnings)
         if result.truncated:
-            warnings = (f"Result truncated to {max_rows} rows; narrow the query", *warnings)
+            warnings = (f"Result truncated to {rows} rows; narrow the query", *warnings)
         if typed.status is not ResultStatus.COMPUTED and typed.reason is not None:
             # The query ran, so this is not a failure. It is a successful call
             # that established no measurement, and the model has to be told
@@ -313,7 +407,7 @@ def make_lakehouse_tool(
     return ToolSpec(
         name="lakehouse",
         description=_describe(readable),
-        arguments=LakehouseArguments,
+        arguments=LakehouseRequest,
         run=run,
     )
 
@@ -327,7 +421,11 @@ def _describe(readable: Iterable[str]) -> str:
     # applied to the model's statement, not this string.
     return (
         # nosec B608 - prose, never executed; the marker sits on the flagged line.
-        "Run one read-only SELECT over the analysis tables. "  # nosec B608
+        "Read stored series. To fetch catalogue series as a table, give series=[ids] with "
+        "optional start/end dates and no sql: the tool writes the query, each series becomes "
+        "a column labelled by its id, and a reviewed series the store lacks is fetched from "
+        "its official source first. Use sql only for what that cannot express: "
+        "run one read-only SELECT over the analysis tables. "  # nosec B608
         f"Readable tables: {', '.join(sorted(readable))}. "
         "Only SELECT is accepted; no table functions, no writes, no other tables."
         " Measurements require direct columns: select o.series_id, o.period_start,"
