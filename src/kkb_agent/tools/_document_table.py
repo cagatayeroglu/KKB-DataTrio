@@ -401,7 +401,8 @@ def read_daily_table(
             continue
         columns.append(
             TableColumn(
-                label,
+                # A reviewed source names its own column; "clval" told a reader nothing.
+                metric.title if metric is not None and metric.title else label,
                 header,
                 index + 1,
                 unit,
