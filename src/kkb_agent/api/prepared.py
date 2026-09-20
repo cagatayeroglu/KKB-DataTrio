@@ -673,6 +673,20 @@ class PreparedRunner:
         kind, media_type = admitted.kind, MIME_TYPES[admitted.kind]
         digest = hashlib.sha256(admitted.content).hexdigest()
         with self._documents_lock:
+            # The same bytes are the same document. A client timeout that the server
+            # completed anyway, a retried address and re-attaching a file that was
+            # taken off the question all used to spend one of `MAX_DOCUMENTS`, so
+            # four tries at one table refused the fifth (findings F2-upl-5, F4-bt-3).
+            # Returning the reference already admitted keeps every receipt that cites
+            # it valid, because what it points at is byte-identical.
+            for (owner, known), stored in self._documents.items():
+                if owner == session_id and stored.sha256 == digest and stored.kind == kind.value:
+                    return DocumentAdmitted(
+                        document_ref=known,
+                        document_format=_STORED_FORMATS[kind],
+                        bytes=stored.size,
+                        sha256=digest,
+                    )
             if sum(1 for owner, _ in self._documents if owner == session_id) >= MAX_DOCUMENTS:
                 raise ServiceError("capacity", 429)
             reference = uuid4().hex

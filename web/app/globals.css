@@ -1807,6 +1807,41 @@ svg {
 .chat-item > .chat-delete {
   color: #e9a9a1;
 }
+/* The row asks before it disappears: text, a red confirm, a way out (finding J-5). */
+.chat-confirm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  width: 100%;
+  padding: 4px 2px 4px 7px;
+  font-size: 11px;
+  color: var(--sidebar-ink);
+}
+.chat-confirm span {
+  flex: 1 1 100%;
+  opacity: 0.85;
+}
+.chat-confirm button {
+  border: 1px solid #ffffff33;
+  border-radius: 6px;
+  background: #ffffff10;
+  color: #eef2f5;
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.chat-confirm button.chat-confirm-yes {
+  border-color: #e9a9a166;
+  color: #f6c3bc;
+}
+.chat-menu-note {
+  margin: 0;
+  padding: 7px 10px 3px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--muted, #6b7785);
+}
 .chat-item input {
   width: 100%;
   border: 1px solid #ffffff33;

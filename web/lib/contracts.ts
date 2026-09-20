@@ -316,12 +316,17 @@ export const savedSchema = z
                 "capacity",
                 "invalid_document",
                 "not_found",
+                "turn_interrupted",
+                "turn_not_sent",
               ])
               .optional(),
           })
           .strict(),
       )
-      .max(24),
+      // This tab's own record, not the server's policy: the per-conversation cap
+      // is the server's (`max_turns_per_session`, 100 here) and a fixed 24 here
+      // made a long chat unreadable after a reload.
+      .max(500),
   })
   .strict();
 export type Saved = z.infer<typeof savedSchema>;

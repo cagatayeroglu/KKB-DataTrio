@@ -262,6 +262,10 @@ export function Workspace() {
   // Header chrome for the open chat: its menu, an inline rename, the copy flash.
   const [chatMenu, setChatMenu] = useState(false),
     [headerRenaming, setHeaderRenaming] = useState(false),
+    //: The chat whose deletion is being confirmed. `window.confirm` blocks the
+    //: page, looks nothing like the rest of it and cannot say what is kept, so the
+    //: row asks in place instead (finding J-5).
+    [confirmDelete, setConfirmDelete] = useState<string | null>(null),
     [copied, setCopied] = useState(false);
   const [ownerToken, setOwnerToken] = useState<string | null>(null),
     [conversations, setConversations] = useState<ConversationSummary[]>([]),
@@ -452,6 +456,7 @@ export function Workspace() {
     pickedClarification.current = null;
     setIssue(storageIssue);
     setChatMenu(false);
+    setConfirmDelete(null);
     atEnd.current = true;
   }
   /** The tables a stored conversation published, read back from their receipts. */
@@ -698,13 +703,8 @@ export function Workspace() {
     }
   }
   async function deleteChat(id: string) {
+    setConfirmDelete(null);
     if (!ownerToken) return;
-    if (
-      !window.confirm(
-        "Bu sohbet silinsin mi? Sohbet ve yüklenen belgeler kaldırılır; işlem kayıtları korunur.",
-      )
-    )
-      return;
     try {
       await deleteConversation(id, ownerToken);
       hiddenDeleted.current.add(id);
@@ -1341,7 +1341,27 @@ export function Workspace() {
                   key={item.conversation_id}
                   className={`chat-item ${item.conversation_id === conversationId ? "active" : ""}`}
                 >
-                  {renaming === item.conversation_id ? (
+                  {confirmDelete === item.conversation_id ? (
+                    <div className="chat-confirm">
+                      <span>
+                        Silinsin mi? Belgeleri de silinir, izleri kalır.
+                      </span>
+                      <button
+                        type="button"
+                        className="chat-confirm-yes"
+                        autoFocus
+                        onClick={() => void deleteChat(item.conversation_id)}
+                      >
+                        Sil
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDelete(null)}
+                      >
+                        Vazgeç
+                      </button>
+                    </div>
+                  ) : renaming === item.conversation_id ? (
                     <input
                       autoFocus
                       defaultValue={item.title}
@@ -1408,7 +1428,7 @@ export function Workspace() {
                         className="chat-delete"
                         aria-label="Sohbeti sil"
                         title="Sohbeti sil; işlem kayıtlarını koru"
-                        onClick={() => void deleteChat(item.conversation_id)}
+                        onClick={() => setConfirmDelete(item.conversation_id)}
                       >
                         <Trash2 size={12} />
                       </button>
@@ -1517,17 +1537,42 @@ export function Workspace() {
                     >
                       <Archive size={13} /> Sohbeti arşivle
                     </button>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="danger"
-                      onClick={() => {
-                        setChatMenu(false);
-                        void deleteChat(conversationId);
-                      }}
-                    >
-                      <Trash2 size={13} /> Sohbeti sil
-                    </button>
+                    {confirmDelete === conversationId ? (
+                      <>
+                        <p className="chat-menu-note">
+                          Sohbet ve yüklediğin belgeler silinir; işlem kayıtları
+                          korunur.
+                        </p>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="danger"
+                          autoFocus
+                          onClick={() => {
+                            setChatMenu(false);
+                            void deleteChat(conversationId);
+                          }}
+                        >
+                          <Trash2 size={13} /> Evet, sil
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => setConfirmDelete(null)}
+                        >
+                          Vazgeç
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="danger"
+                        onClick={() => setConfirmDelete(conversationId)}
+                      >
+                        <Trash2 size={13} /> Sohbeti sil
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -2085,7 +2130,12 @@ export function Workspace() {
                     · {Math.max(1, Math.round(attachment.bytes / 1024))} KB
                     <button
                       type="button"
-                      aria-label="Ekli belgeyi kaldır"
+                      // The document is admitted evidence: taking it off the
+                      // question does not unmake it, and a published table may
+                      // already cite it. Re-attaching the same file is free -
+                      // identical bytes are the same document (finding F2-upl-5).
+                      aria-label="Belgeyi bu sorudan çıkar"
+                      title="Belgeyi bu sorudan çıkarır. Belge sohbetin belgeleri arasında kalır; aynı dosyayı yeniden eklemek belge hakkından düşmez."
                       disabled={busy || pending}
                       onClick={() => {
                         setAttachment(null);

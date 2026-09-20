@@ -7,14 +7,29 @@ export function hasUnrecordedRun(
   return runs.some((run) => !recorded.has(run.turn_id));
 }
 
-/** A known server error must not erase a submitted prompt from the visible turn list. */
+/**
+ * A known server error must not erase a submitted prompt from the visible turn list.
+ *
+ * What it says next to the prompt depends on how far it got: a question the
+ * server never admitted was not run at all, while an admitted turn was cut short
+ * by the restart and left a trace. Marking both "not_found" said "no session"
+ * about a question that never left this tab (finding J-5).
+ */
 export function keepSubmittedPrompts<
-  T extends { turn?: { state: string }; admission_error?: string },
+  T extends {
+    turn?: { state: string };
+    turn_id?: string;
+    admission_error?: string;
+  },
 >(items: T[]): T[] {
   return items.map((item) =>
     item.turn?.state === "completed" || item.turn?.state === "failed"
       ? item
-      : { ...item, admission_error: "not_found" },
+      : {
+          ...item,
+          admission_error:
+            item.turn || item.turn_id ? "turn_interrupted" : "turn_not_sent",
+        },
   );
 }
 

@@ -38,10 +38,46 @@ const valuesRoute =
   /^v1\/knowledge\/series\/[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}\/values$/;
 const usesRoute =
   /^v1\/knowledge\/series\/[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}\/uses$/;
-/** Only the conversation list carries a query, and only these bounded filters. */
-export const SEARCH_QUERY = /^q=[^&]{1,512}$/;
-export const LIST_QUERY =
-  /^(?:archived=(?:true|false)|search=[^&]{0,120})(?:&(?:archived=(?:true|false)|search=[^&]{0,120}))?$/;
+/** The filters the conversation list accepts, measured after decoding. */
+export const LIST_FILTERS = {
+  archived: /^(?:true|false)$/,
+  search: /^[\s\S]{0,120}$/,
+};
+/** The one filter the knowledge search accepts, measured after decoding. */
+export const SEARCH_FILTERS = { q: /^[\s\S]{1,512}$/ };
+/**
+ * A query string carrying only the named filters, each within its own bound.
+ *
+ * The bounds are on the characters the person typed, not on their percent-encoded
+ * form: one Turkish letter encodes to six characters there, so a 20-letter search
+ * was refused with 403 and no explanation (finding F4-vek-1). Anything else about
+ * the query is still refused: an unknown key, a repeated key, a malformed escape,
+ * a control character.
+ */
+export function queryWithin(
+  search: string,
+  filters: Record<string, RegExp>,
+): boolean {
+  if (!search) return false;
+  const seen = new Set<string>();
+  for (const part of search.split("&")) {
+    const at = part.indexOf("=");
+    if (at <= 0) return false;
+    const key = part.slice(0, at);
+    const filter = filters[key];
+    if (!filter || seen.has(key)) return false;
+    seen.add(key);
+    let value: string;
+    try {
+      value = decodeURIComponent(part.slice(at + 1).replace(/\+/g, " "));
+    } catch {
+      return false;
+    }
+    if (CONTROL.test(value) || !filter.test(value)) return false;
+  }
+  return true;
+}
+const CONTROL = /[\u0000-\u001f\u007f]/;
 const hosts = new Set(["127.0.0.1:3000", "localhost:3000"]);
 const tokenPattern = /^[A-Za-z0-9_-]{43}$/;
 const responseHeaders = {
@@ -125,7 +161,9 @@ export async function forward(
     (site !== null && !["same-origin", "none"].includes(site))
   )
     return error("forbidden", 403);
-  if (request.method === "POST" && origin !== `http://${host}`)
+  // Every write states its origin, not only POST: a page from elsewhere must not
+  // be able to rename, archive or delete through this bridge (finding F4-vek-3).
+  if (request.method !== "GET" && origin !== `http://${host}`)
     return error("forbidden", 403);
   const name = path.join("/");
   const publicGet = ["v1/health", "v1/dataset"].includes(name);
@@ -172,8 +210,8 @@ export async function forward(
   const search = new URL(request.url).search.replace(/^\?/, "");
   if (
     search &&
-    !((list || traceList) && LIST_QUERY.test(search)) &&
-    !(knowledgeSearch && SEARCH_QUERY.test(search))
+    !((list || traceList) && queryWithin(search, LIST_FILTERS)) &&
+    !(knowledgeSearch && queryWithin(search, SEARCH_FILTERS))
   )
     return error("forbidden", 403);
   if (

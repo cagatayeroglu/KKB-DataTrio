@@ -16,15 +16,24 @@ test("lost server session keeps submitted prompt and completed entries visible",
   const entries: {
     question: string;
     turn?: { state: string };
-    admission_error?: "not_found";
+    turn_id?: string;
+    admission_error?: string;
   }[] = [
     { question: "pending exact question" },
+    {
+      question: "admitted question",
+      turn_id: "t1",
+      turn: { state: "running" },
+    },
     { question: "trusted earlier question", turn: { state: "completed" } },
   ];
   const visible = keepSubmittedPrompts(entries);
   assert.equal(visible[0].question, "pending exact question");
-  assert.equal(visible[0].admission_error, "not_found");
-  assert.deepEqual(visible[1], entries[1]);
+  // Never admitted: it was not run, so it does not claim a lost session.
+  assert.equal(visible[0].admission_error, "turn_not_sent");
+  // Admitted and cut short: it ran, and its trace says where it stopped.
+  assert.equal(visible[1].admission_error, "turn_interrupted");
+  assert.deepEqual(visible[2], entries[2]);
 });
 
 test("a published table missing from this browser is asked for again, once", () => {

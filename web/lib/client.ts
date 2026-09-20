@@ -800,6 +800,10 @@ export const errorText: Record<string, string> = {
     "Sunucu yeniden başladığı için devam eden tur kayboldu. Sohbet kayıtlarından geri yüklendi ve son soru kutuya yazıldı; göndererek yeniden sorabilirsin.",
   selection_unavailable:
     "Kayıtlı kaynak tablo yüklenemedi. Yeni bir soru gönderebilirsin; ajan kullanılabilir tabloları kendisi seçer.",
+  turn_interrupted:
+    "Bu soru gönderildi ama sunucu yeniden başladığı için tamamlanmadı. İşlem kaydında yarım kalmış olarak duruyor; aynı soruyu yeniden gönderebilirsin.",
+  turn_not_sent:
+    "Bu soru sunucuya ulaşmadı, bu yüzden çalıştırılmadı. Yeniden gönderebilirsin.",
   cancelled:
     "İstek durduruldu. O ana kadar yapılanlar işlem kaydında duruyor; tablo yayımlanmadı.",
   invalid_request:

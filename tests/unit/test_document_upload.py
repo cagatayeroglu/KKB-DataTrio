@@ -22,6 +22,11 @@ CSV = "Ay;Kapanış (Puan)\n2026-04;9000\n2026-05;9100\n2026-06;9200\n".encode()
 CSV_TYPE = "text/csv"
 
 
+def csv_with(close: int) -> bytes:
+    """The same table with one different number: another document, not another copy."""
+    return f"Ay;Kapanış (Puan)\n2026-04;{close:d}\n2026-05;9100\n2026-06;9200\n".encode()
+
+
 @pytest.fixture(autouse=True)
 def no_network(monkeypatch):
     def forbidden(*args, **kwargs):
@@ -153,8 +158,13 @@ def test_token_capacity_and_foreign_references(tmp_path):
         other, other_headers = session(client)
         wrong = {"X-KKB-Session-Token": other_headers["X-KKB-Session-Token"]}
         assert upload(client, sid, wrong).status_code == 404
-        refs = [upload(client, sid, headers).json()["document_ref"] for _ in range(MAX_DOCUMENTS)]
-        extra = upload(client, sid, headers)
+        # Four different tables fill the allowance; the same table again does not.
+        refs = [
+            upload(client, sid, headers, content=csv_with(9000 + step)).json()["document_ref"]
+            for step in range(MAX_DOCUMENTS)
+        ]
+        assert len(set(refs)) == MAX_DOCUMENTS
+        extra = upload(client, sid, headers, content=csv_with(42))
         assert (extra.status_code, extra.json()["error"]) == (429, "capacity")
         for reference in (uuid4().hex, refs[0]):
             target, owner = (sid, headers) if reference != refs[0] else (other, other_headers)
@@ -168,6 +178,29 @@ def test_token_capacity_and_foreign_references(tmp_path):
                 headers=owner,
             )
             assert (response.status_code, response.json()["error"]) == (422, "invalid_document")
+
+
+def test_the_same_bytes_twice_are_one_document(tmp_path):
+    """A client timeout the server completed anyway must not spend an allowance.
+
+    The upload route and `admit_document_from_url` share this path, and the chat
+    re-attaches a file it took off a question, so a retry of an admission that
+    already succeeded answers with the document it already holds instead of
+    writing a second copy (findings F2-upl-5, F4-bt-3).
+    """
+    _, client = runtime(tmp_path)
+    with client:
+        sid, headers = session(client)
+        first = upload(client, sid, headers).json()
+        for _ in range(MAX_DOCUMENTS + 2):
+            again = upload(client, sid, headers)
+            assert again.status_code == 201
+            assert again.json() == first
+        # The allowance is untouched: three more different tables still fit.
+        for step in range(MAX_DOCUMENTS - 1):
+            assert upload(client, sid, headers, content=csv_with(7000 + step)).status_code == 201
+        refused = upload(client, sid, headers, content=csv_with(1234))
+        assert (refused.status_code, refused.json()["error"]) == (429, "capacity")
 
 
 def test_the_attachment_reaches_the_tools_only_when_its_bytes_still_match(tmp_path, monkeypatch):

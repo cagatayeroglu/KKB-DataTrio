@@ -45,6 +45,103 @@ test("invalid proxy timeout refuses dispatch before local transport", async () =
     else process.env.KKB_PROXY_TIMEOUT_MS = prior;
   }
 });
+test("a query is bounded by what was typed, not by its encoding", async () => {
+  const seen: string[] = [];
+  const transport: typeof fetch = async (input) => {
+    seen.push(String(input));
+    return Response.json({});
+  };
+  const key = "A".repeat(43);
+  // 120 Turkish letters are 120 characters and 240 encoded ones; the old bound
+  // refused them with 403 and said nothing about why (finding F4-vek-1).
+  const typed = "ü".repeat(120);
+  const query = new URLSearchParams({ search: typed }).toString();
+  assert.equal(
+    (
+      await forward(
+        request(`v1/conversations?${query}`, "GET", {
+          "x-kkb-owner-token": key,
+        }),
+        ["v1", "conversations"],
+        transport,
+      )
+    ).status,
+    200,
+  );
+  assert.equal(seen.length, 1);
+  // A space travels as "+" and is one character, so this is still within bounds.
+  assert.equal(
+    (
+      await forward(
+        request(
+          `v1/conversations?${new URLSearchParams({
+            search: "konut kredisi " + "a".repeat(106),
+          }).toString()}`,
+          "GET",
+          { "x-kkb-owner-token": key },
+        ),
+        ["v1", "conversations"],
+        transport,
+      )
+    ).status,
+    200,
+  );
+  for (const query of [
+    new URLSearchParams({ search: "ü".repeat(121) }).toString(),
+    new URLSearchParams({ q: "x" }).toString(),
+    "search=a&search=b",
+    "archived=yes",
+    "search=%E0%A4%A",
+    "search=%00",
+  ])
+    assert.equal(
+      (
+        await forward(
+          request(`v1/conversations?${query}`, "GET", {
+            "x-kkb-owner-token": key,
+          }),
+          ["v1", "conversations"],
+          transport,
+        )
+      ).status,
+      403,
+    );
+  assert.equal(seen.length, 2);
+});
+
+test("a write without its own origin is refused whatever its method is", async () => {
+  let calls = 0;
+  const transport: typeof fetch = async () => {
+    calls++;
+    return Response.json({});
+  };
+  const key = "A".repeat(43);
+  const sid = "a".repeat(32);
+  const writes: [string, string, Record<string, string>, string?][] = [
+    [
+      `v1/conversations/${sid}`,
+      "PATCH",
+      {
+        "x-kkb-session-token": "B".repeat(43),
+        "content-type": "application/json",
+      },
+      '{"title":"x"}',
+    ],
+    [`v1/conversations/${sid}`, "DELETE", { "x-kkb-owner-token": key }],
+    [`v1/conversations/${sid}/runs`, "DELETE", { "x-kkb-owner-token": key }],
+  ];
+  for (const [path, method, headers, body] of writes) {
+    const bare = request(path, method, headers, body);
+    bare.headers.delete("origin");
+    assert.equal(
+      (await forward(bare, path.split("/"), transport)).status,
+      403,
+      `${method} ${path}`,
+    );
+  }
+  assert.equal(calls, 0);
+});
+
 function request(
   path = "v1/health",
   method = "GET",
