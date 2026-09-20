@@ -292,6 +292,12 @@ class ConversationStore:
             str(self._path), check_same_thread=False, isolation_level=None
         )
         self._connection.row_factory = sqlite3.Row
+        # SQLite's own lower() is ASCII-only, so "Üretim" did not match "üretim"
+        # and half a Turkish search found nothing (finding D3). Python knows the
+        # letters; casefold also handles I/İ and ß.
+        self._connection.create_function(
+            "tr_lower", 1, lambda text: text.casefold() if isinstance(text, str) else text
+        )
         with self._lock:
             self._connection.executescript(SCHEMA)
             self._migrate()
@@ -520,12 +526,12 @@ class ConversationStore:
         )
         parameters: list[object] = [owner_id, int(archived), MAX_LISTED]
         if search:
-            needle = f"%{search[:MAX_SEARCH_CHARS].lower()}%"
+            needle = f"%{search[:MAX_SEARCH_CHARS].casefold()}%"
             query = (
                 "SELECT c.* FROM conversations c WHERE c.owner_id = ? AND c.archived = ?"
                 " AND c.deleted_at IS NULL AND ("
-                "lower(c.title) LIKE ? OR EXISTS (SELECT 1 FROM messages m WHERE "
-                "m.conversation_id = c.conversation_id AND lower(m.text) LIKE ?)) "
+                "tr_lower(c.title) LIKE ? OR EXISTS (SELECT 1 FROM messages m WHERE "
+                "m.conversation_id = c.conversation_id AND tr_lower(m.text) LIKE ?)) "
                 "ORDER BY c.updated_at DESC LIMIT ?"
             )
             parameters = [owner_id, int(archived), needle, needle, MAX_LISTED]
@@ -545,10 +551,10 @@ class ConversationStore:
         parameters: list[object] = [owner_id, int(archived)]
         if search:
             query += (
-                " AND (lower(c.title) LIKE ? OR EXISTS (SELECT 1 FROM messages m WHERE"
-                " m.conversation_id = c.conversation_id AND lower(m.text) LIKE ?))"
+                " AND (tr_lower(c.title) LIKE ? OR EXISTS (SELECT 1 FROM messages m WHERE"
+                " m.conversation_id = c.conversation_id AND tr_lower(m.text) LIKE ?))"
             )
-            needle = f"%{search[:MAX_SEARCH_CHARS].lower()}%"
+            needle = f"%{search[:MAX_SEARCH_CHARS].casefold()}%"
             parameters.extend([needle, needle])
         query += " ORDER BY c.updated_at DESC, c.rowid DESC LIMIT ?"
         parameters.append(MAX_LISTED)

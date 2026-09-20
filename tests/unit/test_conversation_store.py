@@ -190,3 +190,20 @@ def test_restart_finalizes_only_preexisting_unfinished_runs(tmp_path):
         assert fresh.error is None
     finally:
         restarted.close()
+
+
+def test_search_matches_turkish_letters_in_either_case(store):
+    """SQLite's lower() is ASCII-only, so "Üretim" did not match "üretim" (D3)."""
+    owner = store.create_owner()
+    owner_id, _, first, _ = conversation(store, title="Üretim ve İhracat", owner=owner)
+    conversation(store, title="Konut kredisi", owner=owner)
+
+    assert [
+        item.conversation_id for item in store.list_conversations(owner_id, search="üretim")
+    ] == [first]
+    assert [
+        item.conversation_id for item in store.list_conversations(owner_id, search="ÜRETIM")
+    ] == [first]
+    assert [item.title for item in store.list_conversations(owner_id, search="KONUT")] == [
+        "Konut kredisi"
+    ]

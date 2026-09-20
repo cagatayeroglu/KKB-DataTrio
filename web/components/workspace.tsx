@@ -224,6 +224,9 @@ export function Workspace() {
     [panel, setPanel] = useState<"data" | "traces" | "settings" | null>(null),
     [pendingIndex, setPendingIndex] = useState<number | null>(null),
     [attachment, setAttachment] = useState<DocumentAdmitted | null>(null),
+    //: Bumped when something happened that the sidebar should show: a finished
+    //: turn names a new chat and counts its questions (finding F2-yan-1).
+    [listVersion, setListVersion] = useState(0),
     //: The name of the file the person chose. The server keeps none (it names
     //: documents belge_1, belge_2), and an image is admitted as a one-page PDF,
     //: so without this the badge said "PDF" about a screenshot.
@@ -677,6 +680,8 @@ export function Workspace() {
       (pending) => pending !== index,
     );
     setPendingIndex(recoveries.current[0] ?? null);
+    // The finished turn gave this chat its title and one more question.
+    setListVersion((old) => old + 1);
   }
   // A file dropped anywhere but the composer used to be opened by the browser,
   // which navigated away from the chat and lost the turn in flight. The window
@@ -911,7 +916,6 @@ export function Workspace() {
         const token = await usableOwner(localStorage);
         if (cancelled || !mounted.current) return;
         setOwnerToken(token);
-        await refreshConversations(token);
         await refreshSettings(token);
       } catch (error) {
         if (!cancelled && mounted.current) setIssue(describeError(error));
@@ -921,7 +925,25 @@ export function Workspace() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [history, showArchived, chatSearch]);
+  }, [history]);
+  // The list is its own effect: typing in the search box used to re-read the owner
+  // key, the settings and the prompt parts on every keystroke, and a slow earlier
+  // answer could overwrite a newer one (finding F2-yan-2).
+  useEffect(() => {
+    if (!history || !ownerToken) return;
+    let cancelled = false;
+    const timer = setTimeout(
+      () => {
+        if (!cancelled) void refreshConversations(ownerToken);
+      },
+      chatSearch.trim() ? 250 : 0,
+    );
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [history, ownerToken, showArchived, chatSearch, listVersion]);
   // The conversation follows new content only while the reader is at its end. Every poll
   // replaces `items`, and jumping to the end each time threw a reader who had scrolled up
   // to an earlier table back down while the agent was still working.
@@ -2181,6 +2203,21 @@ export function Workspace() {
                     ? "Veri ve bilgi tabanı"
                     : "Çalışma ayarları"}
                 </h2>
+                {/* Settings and sidebar failures set the same notice as the chat,
+                    but it was drawn only inside the studio: a switch that did not
+                    save snapped back with no word at all (finding F4-2). */}
+                {issue && (
+                  <div className="request-issue" role="alert">
+                    <p>{issue}</p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setIssue("")}
+                    >
+                      Kapat
+                    </Button>
+                  </div>
+                )}
                 {panel === "data" ? (
                   <>
                     <div className="page-stats">
