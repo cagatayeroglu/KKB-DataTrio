@@ -112,17 +112,27 @@ def _table_preview(output: object) -> str | None:
     return _clip("\n".join(lines), MAX_PAGE_CHARS) or None
 
 
-def _pdf_text(document: PdfDocument, pages: int) -> tuple[str, list[int]]:
-    """Text of the first pages, and the numbers of the pages that had none."""
+def _pdf_text(document: PdfDocument, pages: int) -> tuple[str, list[int], str]:
+    """What the first pages hold: their text, which pages are pictures, what OCR read.
+
+    A page with a text layer is a document to read. A page without one is a
+    picture, and OCR over a picture of a chart returns a few axis labels - live
+    2026-09-20 it returned "ovišnje (milyon TL)" for a title reading "bakiyesi
+    (milyon TL)", and the reading built on it said nothing about the chart. So a
+    picture goes to the vision model where there is one, with the OCR text as a
+    hint rather than as the reading.
+    """
     parts: list[str] = []
-    blind: list[int] = []
+    pictures: list[int] = []
+    scanned: list[str] = []
     for page in document.pages[:pages]:
-        text = (page.text if page.has_text else (page.ocr_text or "")).strip()
-        if text:
-            parts.append(f"[sayfa {page.number}]\n{_clip(text, MAX_PAGE_CHARS)}")
-        else:
-            blind.append(page.number)
-    return "\n\n".join(parts), blind
+        if page.has_text and page.text.strip():
+            parts.append(f"[sayfa {page.number}]\n{_clip(page.text, MAX_PAGE_CHARS)}")
+            continue
+        pictures.append(page.number)
+        if page.ocr_text and page.ocr_text.strip():
+            scanned.append(f"[sayfa {page.number}]\n{_clip(page.ocr_text, MAX_PAGE_CHARS)}")
+    return "\n\n".join(parts), pictures, "\n\n".join(scanned)
 
 
 def make_document_read_tool(
@@ -167,17 +177,24 @@ def make_document_read_tool(
             return _failed(DocumentReading("rejected", read.output.code, name, digest))
         document = read.output.document
         text = ""
-        blind: list[int] = []
+        pictures: list[int] = []
+        scanned = ""
         kind: Literal["text", "image", "table", "none"] = "none"
         if isinstance(document, PdfDocument):
-            text, blind = _pdf_text(document, arguments.pages)
+            text, pictures, scanned = _pdf_text(document, arguments.pages)
             kind = "text" if text else "image"
         else:
             preview = _table_preview(read.output)
             if preview:
                 text, kind = preview, "table"
+        # A picture is looked at, not read: the text layer answers only for the
+        # pages that have one, and OCR over a chart is a hint at best.
+        if pictures and vision and not text:
+            kind = "image"
+        elif pictures and not text:
+            text, kind = scanned, "image"
         try:
-            reading = _ask(provider, context.question, text, blind, chosen, vision)
+            reading = _ask(provider, context.question, text, pictures, chosen, vision, scanned)
         except (ProviderError, OcrError):
             return _failed(DocumentReading("rejected", "READ_FAILED", name, digest))
         if not reading:
@@ -204,11 +221,12 @@ def _ask(
     provider: LLMProvider,
     question: str,
     text: str,
-    blind: Sequence[int],
+    pictures: Sequence[int],
     attachment: Attachment,
     vision: bool,
+    scanned: str = "",
 ) -> str:
-    """One model call over what the document handed us."""
+    """One model call over what the document handed us: its text, or its picture."""
     if text:
         from kkb_agent.llm.provider import Message, Role
 
@@ -219,10 +237,14 @@ def _ask(
                 Message(Role.USER, question),
             ]
         ).text
-    if not vision or not blind:
+    if not vision or not pictures:
         return ""
-    images = page_images(attachment.content, list(blind)[:1])
-    return provider.vision(images[0], _IMAGE_PROMPT + question).text
+    images = page_images(attachment.content, list(pictures)[:1])
+    prompt = _IMAGE_PROMPT + question
+    if scanned.strip():
+        # What OCR made of the same page: a hint about the labels, nothing more.
+        prompt += "\n\nOCR bu sayfada şunları okudu (güvenilmez): " + _clip(scanned, 800)
+    return provider.vision(images[0], prompt).text
 
 
 def _read(
