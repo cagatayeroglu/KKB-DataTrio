@@ -305,7 +305,14 @@ class KnowledgeService:
             raise ServiceError("unavailable", 503)
         if not self._building.acquire(blocking=False):
             raise ServiceError("busy", 409)
-        catalog = self._effective()
+        try:
+            catalog = self._effective()
+        except BaseException:
+            # Reading the effective catalogue can fail. The lock was already taken
+            # here, and nothing released it: every later build answered 409 until
+            # the process was restarted (finding F4-bt-11).
+            self._building.release()
+            raise
         build, install = self._rebuild, self._install
 
         def run() -> None:
@@ -323,8 +330,14 @@ class KnowledgeService:
             finally:
                 self._building.release()
 
-        self._build_thread = threading.Thread(target=run, name="catalog-index", daemon=True)
-        self._build_thread.start()
+        thread = threading.Thread(target=run, name="catalog-index", daemon=True)
+        self._build_thread = thread
+        try:
+            thread.start()
+        except BaseException:
+            self._build_thread = None
+            self._building.release()
+            raise
         return self.index_status(owner_token)
 
     def refresh_directory(self, owner_token: str) -> DirectoryRefreshResult:
@@ -658,11 +671,24 @@ class KnowledgeService:
             raise ServiceError("knowledge_rejected", 422) from None
         return self.dataset(owner_token, slug)
 
+    def _annotatable(self) -> set[str]:
+        """Series a note may be attached to: reviewed records and the source directory's.
+
+        `effective_snapshot` already applies notes, synonyms and archive flags to
+        directory records - they are part of the catalogue it builds - but this
+        route accepted reviewed records only, so "Düzenle" on a directory record
+        answered 404 and the page did nothing (finding F4-bt-7).
+        """
+        known = {series.record.series_id for series in self._reviewed.series}
+        if self._directory is not None:
+            known |= self._directory.ids()
+        return known
+
     def annotate(
         self, owner_token: str, series_id: str, request: SeriesNoteRequest
     ) -> SeriesNoteHistory:
         author = self._author(owner_token)
-        if series_id not in {s.record.series_id for s in self._reviewed.series}:
+        if series_id not in self._annotatable():
             raise ServiceError("not_found", 404)
         try:
             self._knowledge.annotate(

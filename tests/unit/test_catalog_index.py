@@ -184,6 +184,35 @@ def test_inconsistent_batch_never_creates_directory(tmp_path, snapshot, profile,
     assert not root.exists()
 
 
+def test_a_build_killed_before_its_manifest_does_not_block_the_next_one(
+    tmp_path, snapshot, profile, vectors
+):
+    """The generation's path is its catalogue digest, so debris blocked it forever.
+
+    A build that is killed between the directory and the manifest leaves
+    something that can never be opened; every later build of that catalogue then
+    refused the existing directory and an operator had to delete it by hand
+    (finding F4-bt-9). The leftovers are renamed, never removed.
+    """
+    root = tmp_path / "generation"
+    root.mkdir()
+    (root / "half-written.lance").write_bytes(b"debris")
+
+    build_catalog_index(root, snapshot, vectors)
+    assert LocalCatalogIndex.open(root, snapshot, profile).snapshot_sha256 == (
+        snapshot.content_sha256
+    )
+    kept = [
+        path
+        for path in tmp_path.iterdir()
+        if path.name.startswith("generation.incomplete-")
+    ]
+    assert len(kept) == 1 and (kept[0] / "half-written.lance").read_bytes() == b"debris"
+
+    # A complete generation is still never overwritten.
+    with pytest.raises(CatalogIndexError, match="NEW_LOCAL_DIRECTORY"):
+        build_catalog_index(root, snapshot, vectors)
+
 def test_old_snapshot_cannot_open_new_index(built, profile):
     root, _ = built
     old = load_reviewed_snapshot((ROOT / "docs/catalog/demo_v1.json").read_bytes())

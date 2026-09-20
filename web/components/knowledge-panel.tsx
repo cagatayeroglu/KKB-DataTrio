@@ -251,7 +251,20 @@ export function KnowledgePanel({
         setIndex(await readIndex(owner));
       }
     } catch (error) {
-      setIssue(describeKnowledgeError(error));
+      if (error instanceof ApiError && error.code === "connection") {
+        // The read is one request per opened datagroup and the server finishes it
+        // whatever this page does, so the outcome is taken from the listing
+        // instead of being reported as a failure (finding F4-bt-12).
+        setIssue("");
+        setHint(
+          "Dizin okuması sürüyor; sunucu tamamlıyor. Sonucu listeden okuyacağım.",
+        );
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        await refresh();
+        setHint(
+          'Dizin okuması sunucuda tamamlandıktan sonra liste tazelendi. Katalog değiştiyse "Yeniden vektörle" gerekir.',
+        );
+      } else setIssue(describeKnowledgeError(error));
     } finally {
       setRefreshing(false);
     }
@@ -781,9 +794,18 @@ export function KnowledgePanel({
                 act={act}
                 stored={health(item, pool)}
                 vectored={
-                  index && index.configured
-                    ? !index.missing.includes(item.series_id)
-                    : null
+                  !index || !index.configured
+                    ? null
+                    : index.missing.includes(item.series_id)
+                      ? false
+                      : // The list of missing entries is clipped, so an entry
+                        // that is not in it is not proof of a vector: with more
+                        // than that many missing, the 51st looked covered
+                        // (finding F4-bt-11).
+                        index.series_total - index.series_vectored >
+                          index.missing.length
+                        ? "unknown"
+                        : true
                 }
                 onOpenConversation={onOpenConversation}
                 onEdit={async () => {
@@ -938,8 +960,11 @@ function SeriesDetail({
   act: (work: () => Promise<unknown>) => Promise<void>;
   /** The window the store really holds, when the catalogue record declares none. */
   stored: ReturnType<typeof health>;
-  /** Whether the vectors in use cover this entry; null when none are configured. */
-  vectored: boolean | null;
+  /**
+   * Whether the vectors in use cover this entry: null when none are configured,
+   * "unknown" when the server's list of missing entries was clipped.
+   */
+  vectored: boolean | "unknown" | null;
   onEdit: () => void;
   onOpenConversation?: (id: string) => void;
 }) {
@@ -1071,9 +1096,11 @@ function SeriesDetail({
             {item.search_text
               ? vectored === null
                 ? "Kelime aramasında; anlam vektörleri yapılandırılmamış"
-                : vectored
-                  ? "Kelime aramasında ve anlam vektörlerinde"
-                  : "Kelime aramasında; anlam vektörü eksik (vektörleri yeniden üret)"
+                : vectored === "unknown"
+                  ? "Kelime aramasında; anlam vektörü durumu bilinmiyor (eksik listesi kırpıldı)"
+                  : vectored
+                    ? "Kelime aramasında ve anlam vektörlerinde"
+                    : "Kelime aramasında; anlam vektörü eksik (vektörleri yeniden üret)"
               : "Aranan katalogda değil (arşivli)"}
             {item.search_text && (
               <details className="search-text">
@@ -1117,8 +1144,16 @@ function SeriesDetail({
           </div>
         )}
       </dl>
-      {item.origin === "reviewed" ? (
+      {item.origin === "reviewed" || item.origin === "listed" ? (
         <div className="knowledge-form">
+          {item.origin === "listed" && (
+            // The overlay treats a directory record like a reviewed one for
+            // notes and synonyms; only the route refused it (finding F4-bt-7).
+            <p className="helper">
+              Bu kayıt kaynağın kendi dizininden geliyor; tek tek incelenmedi.
+              Eş anlamlı ve açıklama eklemek onu aramada bulunur kılar.
+            </p>
+          )}
           <label>
             Eş anlamlılar (virgülle)
             <input

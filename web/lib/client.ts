@@ -270,26 +270,32 @@ export function listKnowledge(owner: string) {
   return api("knowledge", knowledgeListSchema, {}, undefined, owner);
 }
 export function trySearch(owner: string, query: string) {
-  // Reading what discovery would find starts no analysis and stores nothing.
+  // Reading what discovery would find starts no analysis and stores nothing. It
+  // can still read a source's series list and write it to disk, which the default
+  // 12 s did not allow for (finding F4-bt-12); the bridge's own ceiling is 30 s.
   return api(
     `knowledge/search?q=${encodeURIComponent(query.slice(0, 512))}`,
     searchTrialSchema,
     {},
     undefined,
     owner,
+    { timeoutMs: 28000 },
   );
 }
 export function readIndex(owner: string) {
   return api("knowledge/index", vectorIndexSchema, {}, undefined, owner);
 }
 export function refreshDirectory(owner: string) {
-  // Reads the sources' own listings again; no model call.
+  // Reads the sources' own listings again; no model call. One request per opened
+  // datagroup, so it grows with use and outran the default 12 s while the server
+  // kept going (finding F4-bt-12).
   return api(
     "knowledge/directory",
     directoryRefreshSchema,
     { method: "POST", body: "{}" },
     undefined,
     owner,
+    { timeoutMs: 28000 },
   );
 }
 export function rebuildIndex(owner: string) {
