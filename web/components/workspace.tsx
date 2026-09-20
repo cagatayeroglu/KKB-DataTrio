@@ -226,7 +226,9 @@ export function Workspace() {
     [attachment, setAttachment] = useState<DocumentAdmitted | null>(null),
     [dragging, setDragging] = useState(false),
     [uploading, setUploading] = useState(false),
-    [stopping, setStopping] = useState(false);
+    //: The turn a stop was asked for. It stays until that turn reaches a terminal
+    //: state, because the turn stops only after the model call that is out returns.
+    [stopRequestedFor, setStopRequestedFor] = useState<string | null>(null);
   // Conversations that outlive this tab: the browser's own key lists and reopens them.
   const [prompts, setPrompts] = useState<PromptParts | null>(null),
     [openPrompt, setOpenPrompt] = useState<string | null>(null);
@@ -393,7 +395,7 @@ export function Workspace() {
     setPendingIndex(null);
     busyRef.current = false;
     setBusy(false);
-    setStopping(false);
+    setStopRequestedFor(null);
     setSelected(null);
     setAttachment(null);
     setQuestion("");
@@ -668,6 +670,27 @@ export function Workspace() {
       (pending) => pending !== index,
     );
     setPendingIndex(recoveries.current[0] ?? null);
+  }
+  /**
+   * Drop a request the server never admitted, so the composer is usable again.
+   *
+   * A 409 "busy", a connection error or a 5xx left `pending` set with no turn to
+   * cancel, and that blocked sending, opening and starting a chat across reloads
+   * with no way out (finding F2-vazgeç).
+   */
+  function discardPending() {
+    const index = pendingIndex;
+    const state = saved.current;
+    if (index === null || !state || state.turns[index]?.turn_id) return;
+    const turns = state.turns.filter((_, at) => at !== index);
+    record({ ...state, turns });
+    setItems((old) => old.filter((_, at) => at !== index));
+    recoveries.current = [];
+    setPendingIndex(null);
+    busyRef.current = false;
+    setBusy(false);
+    setStopRequestedFor(null);
+    setIssue("");
   }
   async function watch(index: number, canAdmit: boolean) {
     const state = saved.current;
@@ -980,14 +1003,14 @@ export function Workspace() {
     const turnId =
       pendingIndex === null ? undefined : state?.turns[pendingIndex]?.turn_id;
     if (!state || !turnId) return;
-    setStopping(true);
+    setStopRequestedFor(turnId);
     try {
       // Accepted, not immediate: the running turn is polled until it stops.
       await cancelTurn(state.session.session_id, state.session.token, turnId);
     } catch (error) {
+      // The turn keeps running; let the person ask again.
+      setStopRequestedFor(null);
       setIssue(describeError(error));
-    } finally {
-      setStopping(false);
     }
   }
   /**
@@ -1068,6 +1091,17 @@ export function Workspace() {
       : (health.model ??
         (health.execution_mode === "scripted" ? "Prova modeli" : "Kloudeks"));
   const modelShort = modelLabel.split("/").pop() ?? modelLabel;
+  //: A turn of this tab is out: the button is the way to stop it.
+  const pendingTurnId =
+    pendingIndex === null
+      ? undefined
+      : (saved.current?.turns[pendingIndex]?.turn_id ??
+        items[pendingIndex]?.turn?.turn_id);
+  const running = Boolean(pending) || busy;
+  const canStop = Boolean(pendingTurnId);
+  const stopRequested = Boolean(
+    stopRequestedFor && stopRequestedFor === pendingTurnId,
+  );
   /** The table a stored message published, when this process still serves it. */
   const restoredTable = (ref: string | null | undefined) =>
     ref
@@ -1838,6 +1872,12 @@ export function Workspace() {
                   // Drafting is always allowed; only sending waits for the running
                   // turn (one turn at a time - the server refuses a second with 409).
                   onKeyDown={(e) => {
+                    if (e.key === "Escape" && running && !stopRequested) {
+                      e.preventDefault();
+                      if (canStop) void stop();
+                      else discardPending();
+                      return;
+                    }
                     if (
                       e.key === "Enter" &&
                       !e.shiftKey &&
@@ -2006,41 +2046,58 @@ export function Workspace() {
                     </div>
                   </div>
                   <div className="composer-right">
-                    {pending && (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={
-                          stopping ||
-                          !saved.current?.turns[pendingIndex]?.turn_id
-                        }
-                        title="Çalışan model isteği bitince, bir sonraki adımdan önce durur."
-                        onClick={() => void stop()}
-                      >
-                        {stopping ? (
-                          <LoaderCircle size={14} className="spin" />
-                        ) : (
-                          <Square size={12} />
-                        )}{" "}
-                        Durdur
-                      </Button>
-                    )}
+                    {/* One round button: an arrow while idle, a running ring while a
+                        turn is out, and pressing it again asks that turn to stop. The
+                        separate "Durdur" button was a second control for the same
+                        moment, and it went back to normal the instant the request was
+                        accepted, although the turn stops only after the model call
+                        that is out returns. */}
                     <Button
-                      type="submit"
+                      type={running ? "button" : "submit"}
                       size="icon"
-                      className="send"
-                      aria-label="Gönder"
+                      className={
+                        running
+                          ? stopRequested
+                            ? "send stopping"
+                            : "send running"
+                          : "send"
+                      }
+                      aria-label={
+                        running
+                          ? stopRequested
+                            ? "Durduruluyor"
+                            : canStop
+                              ? "Durdur"
+                              : "Bekleyen isteği bırak"
+                          : "Gönder"
+                      }
+                      title={
+                        running
+                          ? stopRequested
+                            ? "Durduruluyor: çalışan model isteği bitince duracak."
+                            : canStop
+                              ? "Çalışan model isteği bitince, bir sonraki adımdan önce durur."
+                              : "Bu istek sunucuya iletilemedi; bırakıp yeniden yazabilirsin."
+                          : undefined
+                      }
                       disabled={
-                        !ready ||
-                        !health ||
-                        !dataset ||
-                        busy ||
-                        pending ||
-                        !validQuestion(question)
+                        running
+                          ? stopRequested
+                          : !ready ||
+                            !health ||
+                            !dataset ||
+                            uploading ||
+                            !validQuestion(question)
+                      }
+                      onClick={
+                        running
+                          ? canStop
+                            ? () => void stop()
+                            : discardPending
+                          : undefined
                       }
                     >
-                      <ArrowUp size={17} />
+                      {running ? <Square size={13} /> : <ArrowUp size={17} />}
                     </Button>
                   </div>
                 </div>

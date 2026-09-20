@@ -3238,3 +3238,40 @@ button:not(:disabled):focus-visible {
 .composer-escape input {
   accent-color: var(--accent);
 }
+
+/* One control for one moment: while a turn is out the send button becomes the
+   stop button. A ring turns around it so "running" is visible without a second
+   widget, and the pressed state only changes shade, never position. */
+.composer .send.running,
+.composer .send.stopping {
+  background: var(--accent-ink);
+  border-color: var(--accent-ink);
+  position: relative;
+}
+.composer .send.running::after,
+.composer .send.stopping::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-top-color: #fff;
+  animation: send-spin 900ms linear infinite;
+}
+.composer .send.stopping {
+  opacity: 0.75;
+}
+.composer .send.stopping::after {
+  animation-duration: 1800ms;
+}
+@keyframes send-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer .send.running::after,
+  .composer .send.stopping::after {
+    animation: none;
+  }
+}
