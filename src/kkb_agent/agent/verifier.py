@@ -39,7 +39,15 @@ from kkb_agent.agent.claim_qualifiers import (
     unit_fault,
 )
 from kkb_agent.agent.literal import exposes_literal_identity, literal_proof, literal_text
-from kkb_agent.core import AnalyticalResult, ClaimKind, ResultStatus, ResultValue, Scale
+from kkb_agent.core import (
+    AnalyticalResult,
+    ClaimKind,
+    Frequency,
+    Period,
+    ResultStatus,
+    ResultValue,
+    Scale,
+)
 from kkb_agent.lakehouse.result_evidence import execution_proof
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -63,6 +71,9 @@ DEFAULT_TOLERANCE = 5e-4
 
 #: Calendar-like integers; attached amount qualifiers disable the exception.
 YEAR_RANGE = range(1900, 2101)
+
+#: A window this long is described in years as well as in its own periods.
+MONTHS_IN_YEAR: Final = 12
 
 
 class Binding(StrEnum):
@@ -528,8 +539,11 @@ def verify_claims(
                 f"{name} declares unresolved semantics: " + "; ".join(result.unresolved_semantics)
             )
 
+    counted = window_counts(named.values())
     verdicts = [
-        _bind_to_results(answer, number, named, disqualified, permitted, tolerance, accept_years)
+        _bind_to_results(
+            answer, number, named, disqualified, permitted, counted, tolerance, accept_years
+        )
         for number in extract_numbers(answer)
     ]
 
@@ -561,12 +575,59 @@ def verify_result(
     return verify_claims(answer, result, connection, **options)  # type: ignore[arg-type]
 
 
+def window_counts(results: Iterable[AnalyticalResult]) -> tuple[float, ...]:
+    """How much data a result rests on, as the harness itself counted it.
+
+    "2021-2025 arasındaki 60 aylık veride …" is a true sentence about the window
+    this analysis covers, and the 60 in it is not a claim about any figure. It is
+    also not a value of any result, so every such sentence was withheld whole and
+    the answer began mid-thought. These counts come from the result's own sample
+    counts and the span of its coverage, so quoting one is quoting the harness.
+
+    They bind only where a year binds: with no amount qualifier attached. "60
+    milyon TL" is a figure and still has to be one of the result's values, even
+    when some window happens to be 60 periods long.
+    """
+    found: set[float] = set()
+    for result in results:
+        if result.samples is not None:
+            found.update(
+                float(count)
+                for count in (
+                    result.samples.used,
+                    result.samples.missing,
+                    result.samples.excluded,
+                )
+                if count
+            )
+        if result.coverage is not None:
+            found.update(_span_counts(result.coverage))
+    return tuple(sorted(found))
+
+
+def _span_counts(period: Period) -> set[float]:
+    """The periods a window holds, and its whole years when it holds a year or more."""
+    months = (period.end.year - period.start.year) * MONTHS_IN_YEAR + (
+        period.end.month - period.start.month + 1
+    )
+    counts: set[float] = set()
+    if period.frequency in (Frequency.DAILY, Frequency.BUSINESS_DAY, Frequency.WEEKLY):
+        days = (period.end - period.start).days + 1
+        counts.add(float(days if period.frequency is not Frequency.WEEKLY else days // 7))
+    if months >= 1:
+        counts.add(float(months))
+    if months >= MONTHS_IN_YEAR:
+        counts.add(float(months // MONTHS_IN_YEAR))
+    return counts
+
+
 def _bind_to_results(
     answer: str,
     number: WrittenNumber,
     named: Mapping[str, AnalyticalResult],
     disqualified: Mapping[str, tuple[str, ...]],
     permitted: Sequence[float],
+    counted: Sequence[float],
     tolerance: float,
     accept_years: bool,
 ) -> NumberVerdict:
@@ -646,6 +707,8 @@ def _bind_to_results(
             ),
         )
     if any(_close(number.value, value, tolerance) for value in permitted):
+        return NumberVerdict(number, Binding.CONTEXT)
+    if not amount_context and any(_close(number.value, value, tolerance) for value in counted):
         return NumberVerdict(number, Binding.CONTEXT)
     return NumberVerdict(number, Binding.UNBOUND)
 
