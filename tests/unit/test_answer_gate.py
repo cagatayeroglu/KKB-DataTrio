@@ -420,8 +420,48 @@ class TestReadableVerifiedFigures:
         context = "\n".join(m.content for m in provider.seen[-1])
         assert "display 4,4472 yüzde" in context
         assert "4.447201536789372" not in context
-        assert "copying each number, unit and scale exactly" in context
+        assert "Copy every number, unit and scale exactly from a display phrase" in context
         assert gate_answer(draft, {"rate": trusted}).status is AnswerStatus.ABSTAINED
+
+
+class TestAPlainTableStillAnswers:
+    def test_the_writer_is_given_each_column_s_first_and_last_period(self):
+        """Live 2026-09-20: twelve monthly balances reached the writer with no
+        figure at all, because every per-period value belongs to the table shown
+        beside the answer. What it wrote said only that a table exists, which the
+        reader was already looking at. Two ends per column cannot be aggregated
+        into a new number the way rows can, and the gate binds them like any
+        other value.
+        """
+        from datetime import date
+
+        from kkb_agent.agent.loop import render_result
+        from kkb_agent.core import Frequency, Period
+
+        months = [
+            Period(
+                start=date(2025, month, 1),
+                end=date(2025, month, 28),
+                frequency=Frequency.MONTHLY,
+            )
+            for month in range(1, 13)
+        ]
+        values = [
+            ResultValue(
+                label="konut",
+                value=1000.0 + index * 10,
+                unit="TRY",
+                scale=Scale.MILLION,
+                period=period,
+            )
+            for index, period in enumerate(months)
+        ]
+        rendered = render_result(result(values=values))
+        quoted = [line for line in rendered.splitlines() if line.startswith("- konut:")]
+        assert len(quoted) == 2
+        assert "2025-01-01..2025-01-28" in quoted[0] and "1.000 milyon TL" in quoted[0]
+        assert "2025-12-01..2025-12-28" in quoted[1] and "1.110 milyon TL" in quoted[1]
+        assert "No value is listed" not in rendered
 
 
 class TestWhatTheWriterIsGiven:
