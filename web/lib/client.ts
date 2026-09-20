@@ -730,6 +730,18 @@ export function draftRequest(
       : {}),
   };
 }
+/**
+ * The server does not know this turn any more, so following it is pointless.
+ *
+ * Turn handles live in the API process and a restart drops them, while the
+ * conversation itself stays in its store. Every other error - a transport
+ * failure, "busy", a 5xx - leaves the turn running server-side, so the caller
+ * keeps polling instead of giving it up (findings F2-restart, F1-5).
+ */
+export function lostTurn(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404;
+}
+
 export function admissionRejection(
   error: unknown,
 ): Saved["turns"][number]["admission_error"] {
@@ -784,6 +796,8 @@ export const errorText: Record<string, string> = {
     "Kaynak tablo bu oturumda kullanılamıyor. Geçerli bir sonuç seçip yeni soru gönderebilirsin.",
   session_gone:
     "Bu sekmedeki oturum sunucuda artık yok (sunucu yeniden başlatılmış olabilir). Yeni bir sohbet açıldı; kayıtlı sohbetler soldaki listede.",
+  session_restored:
+    "Sunucu yeniden başladığı için devam eden tur kayboldu. Sohbet kayıtlarından geri yüklendi ve son soru kutuya yazıldı; göndererek yeniden sorabilirsin.",
   selection_unavailable:
     "Kayıtlı kaynak tablo yüklenemedi. Yeni bir soru gönderebilirsin; ajan kullanılabilir tabloları kendisi seçer.",
   cancelled:

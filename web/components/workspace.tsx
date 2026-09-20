@@ -51,6 +51,7 @@ import {
   ApiError,
   DOCUMENT_ACCEPT,
   admissionRejection,
+  lostTurn,
   cancelTurn,
   deleteConversation,
   draftRequest,
@@ -157,11 +158,17 @@ type SeriesChoiceEntry = { series_id: string; title: string; detail: string };
 function SeriesChoiceCard({
   selection,
   onPick,
+  resolved = false,
 }: {
   selection: { chosen: SeriesChoiceEntry[]; others: SeriesChoiceEntry[] };
   onPick: (text: string) => void;
+  //: A later turn answered this clarification, so its choices are history: they
+  //: are shown, not offered. Picking one used to send an answer to a question
+  //: nobody was waiting on any more (finding F2-kart).
+  resolved?: boolean;
 }) {
   const asking = selection.chosen.length === 0;
+  const settled = asking && resolved;
   return (
     <div className="series-choice">
       {!asking && (
@@ -181,18 +188,25 @@ function SeriesChoiceCard({
         </>
       )}
       {selection.others.length > 0 && (
-        <details open={asking}>
+        <details open={asking && !settled}>
           <summary>
-            {asking
-              ? "Birini seçin: soru kutusuna yazılır, gönderdiğinizde istek o kayıtla sürer"
-              : `Aramada çıkan diğer yakın kayıtlar (${selection.others.length}) — başka birini kastettiyseniz seçin`}
+            {settled
+              ? `Bu netleştirmede sunulan kayıtlar (${selection.others.length}) — yanıtlandı`
+              : asking
+                ? "Birini seçin: soru kutusuna yazılır, gönderdiğinizde istek o kayıtla sürer"
+                : `Aramada çıkan diğer yakın kayıtlar (${selection.others.length}) — başka birini kastettiyseniz seçin`}
           </summary>
           <ul>
             {selection.others.map((entry) => (
               <li key={entry.series_id}>
                 <button
                   type="button"
-                  title="Soru kutusuna bu kaydı kullanan bir istek yazar"
+                  disabled={settled}
+                  title={
+                    settled
+                      ? "Bu netleştirme yanıtlandı; yeni bir soru gönderebilirsin"
+                      : "Soru kutusuna bu kaydı kullanan bir istek yazar"
+                  }
                   onClick={() => onPick(clarificationPickText(entry, asking))}
                 >
                   {entry.title}
@@ -284,6 +298,10 @@ export function Workspace() {
     health?.capabilities.includes("knowledge_base") ?? false;
   const saved = useRef<Saved | null>(null),
     busyRef = useRef(false),
+    //: A chat is being opened. `busyRef` guards a running turn, this guards the
+    //: awaits inside `openChat`: without it a prompt sent meanwhile was dropped by
+    //: the `setItems([])` that follows them, and `busy` stayed on (finding F1-3).
+    opening = useRef(false),
     mounted = useRef(false),
     generation = useRef(0),
     recoveries = useRef<number[]>([]),
@@ -399,7 +417,7 @@ export function Workspace() {
     return next;
   }
   function startChat() {
-    if (busyRef.current || pending || !ready) return;
+    if (busyRef.current || opening.current || pending || !ready) return;
     resetChat();
   }
   function resetChat() {
@@ -528,8 +546,17 @@ export function Workspace() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ownerToken, conversationId]);
-  async function openChat(id: string) {
-    if (busyRef.current || pending || !ready || !ownerToken) return;
+  async function openChat(id: string, options?: { force?: boolean }) {
+    if (!ownerToken) return;
+    // `force` is the restart recovery re-adopting this same conversation: it has
+    // already dropped the turn it was waiting on, so the guards below would only
+    // read their own stale state.
+    if (
+      !options?.force &&
+      (busyRef.current || opening.current || pending || !ready)
+    )
+      return;
+    opening.current = true;
     const beforeOpen = generation.current;
     setPanel(null);
     setIssue("");
@@ -572,7 +599,6 @@ export function Workspace() {
       setSelected(null);
       setPendingIndex(null);
       setAttachment(null);
-      setAttachedName(null);
       setAttachedName(null);
       setQuestion("");
       setAsNewQuestion(false);
@@ -645,6 +671,8 @@ export function Workspace() {
       }
     } catch (error) {
       if (mounted.current) setIssue(describeError(error));
+    } finally {
+      opening.current = false;
     }
   }
   async function renameChat(id: string, title: string) {
@@ -745,6 +773,50 @@ export function Workspace() {
     setStopRequestedFor(null);
     setIssue("");
   }
+  /**
+   * The server forgot this turn: re-adopt the conversation instead of a dead end.
+   *
+   * A turn handle lives in the API process, a conversation lives in its store. A
+   * restart therefore answers 404 for the turn being polled while the chat itself
+   * is still readable with this browser's own key. Before this, `pending` stayed
+   * set with nothing to cancel and nothing to open: sending, opening and starting
+   * a chat were all refused until the tab was reloaded (finding F2-restart).
+   */
+  async function recoverFromRestart(index: number) {
+    const id = saved.current?.session.session_id ?? conversationId;
+    const unanswered = saved.current?.turns[index]?.question ?? "";
+    try {
+      clearSession(sessionStorage);
+    } catch {
+      // Nothing stored to clear.
+    }
+    saved.current = null;
+    recoveries.current = [];
+    setPendingIndex(null);
+    busyRef.current = false;
+    setBusy(false);
+    setStopRequestedFor(null);
+    if (!id || !ownerToken) {
+      // Nothing stored to go back to: the prompts stay on screen, marked as lost.
+      setItems((old) => keepSubmittedPrompts(old));
+      setConversationId(null);
+      setTranscript([]);
+      setPendingOffered([]);
+      setRestoredTables([]);
+      setLostTables([]);
+      transcriptFor.current = null;
+      setSelected(null);
+      setIssue(errorText.session_gone);
+      return;
+    }
+    transcriptFor.current = null;
+    await openChat(id, { force: true });
+    if (!mounted.current) return;
+    // The question the lost turn was carrying comes back in the composer, so
+    // asking it again is one key rather than retyping it.
+    if (unanswered) setQuestion((old) => old || unanswered);
+    setIssue(errorText.session_restored);
+  }
   async function watch(index: number, canAdmit: boolean) {
     const state = saved.current;
     if (!state || !state.turns[index] || busyRef.current) return;
@@ -816,6 +888,10 @@ export function Workspace() {
       recovered(index);
     } catch (error) {
       if (!active()) return;
+      if (lostTurn(error)) {
+        await recoverFromRestart(index);
+        return;
+      }
       const rejection = admissionRejection(error);
       if (rejection && !saved.current?.turns[index].turn_id) {
         try {
@@ -846,6 +922,13 @@ export function Workspace() {
   }
   useEffect(() => {
     mounted.current = true;
+    // Every `if (!active()) return` in `watch` skips the reset in its `finally`, so
+    // a remount used to start with a `busy` nothing could clear: the send button,
+    // "new chat" and the chat list were all dead (finding F1-3).
+    busyRef.current = false;
+    opening.current = false;
+    setBusy(false);
+    setStopRequestedFor(null);
     const epoch = ++generation.current;
     const active = () => mounted.current && generation.current === epoch;
     void refresh();
@@ -878,22 +961,13 @@ export function Workspace() {
             if (!["completed", "failed"].includes(turn.state)) resume.push(i);
           } catch (error) {
             if (!active()) return;
-            if (error instanceof ApiError && error.status === 404) {
-              // Keep the exact submitted prompt visible even when the server
-              // lost this turn. The person can reopen stored history or start
-              // another chat; silently removing the prompt suggests it was
-              // never sent.
-              try {
-                clearSession(sessionStorage);
-              } catch {
-                // Nothing stored to clear.
-              }
-              saved.current = null;
-              recoveries.current = [];
-              setItems((old) => keepSubmittedPrompts(old));
-              setPendingIndex(null);
-              setSelected(null);
-              setIssue(errorText.session_gone);
+            if (lostTurn(error)) {
+              // Keep the exact submitted prompt visible even when the server lost
+              // this turn, and leave no stale conversation behind: the id used to
+              // stay, so the next question opened a new session whose empty
+              // transcript wiped the chat on screen mid-send (finding F2-restart).
+              await recoverFromRestart(i);
+              if (!active()) return;
               setReady(true);
               return;
             }
@@ -997,7 +1071,15 @@ export function Workspace() {
     return () => observer.disconnect();
   }, [items.length, transcript.length, conversationId]);
   async function attach(file: File | undefined) {
-    if (!file || !uploads || busyRef.current || pending || !ready) return;
+    if (
+      !file ||
+      !uploads ||
+      busyRef.current ||
+      opening.current ||
+      pending ||
+      !ready
+    )
+      return;
     busyRef.current = true;
     setUploading(true);
     setIssue("");
@@ -1020,6 +1102,7 @@ export function Workspace() {
     }
     if (
       busyRef.current ||
+      opening.current ||
       pending ||
       !validQuestion(text) ||
       !health ||
@@ -1060,7 +1143,6 @@ export function Workspace() {
       setQuestion("");
       pickedClarification.current = null;
       setAttachment(null);
-      setAttachedName(null);
       setAttachedName(null);
       recoveries.current = [next.turns.length - 1];
       setPendingIndex(next.turns.length - 1);
@@ -1634,14 +1716,20 @@ export function Workspace() {
                               <li key={title}>
                                 <button
                                   type="button"
-                                  onClick={() =>
-                                    setQuestion(
-                                      clarificationPickText(
-                                        { title, detail: "" },
-                                        true,
-                                      ),
-                                    )
-                                  }
+                                  onClick={() => {
+                                    const picked = clarificationPickText(
+                                      { title, detail: "" },
+                                      true,
+                                    );
+                                    // The pick answers the clarification this
+                                    // conversation is waiting on; without this it
+                                    // was sent as a brand-new question and the
+                                    // agent started over (finding F2-kart).
+                                    pickedClarification.current = picked;
+                                    setQuestion(picked);
+                                    setAsNewQuestion(false);
+                                    input.current?.focus();
+                                  }}
                                 >
                                   {title}
                                 </button>
@@ -1652,7 +1740,7 @@ export function Workspace() {
                       </div>
                     </div>
                   )}
-                  {items.map((item) => (
+                  {items.map((item, itemIndex) => (
                     <div className="turn-pair" key={item.request_id}>
                       <div className="msg user">
                         <div className="bubble">{item.question}</div>
@@ -1692,9 +1780,12 @@ export function Workspace() {
                               {item.turn.answer.selection && (
                                 <SeriesChoiceCard
                                   selection={item.turn.answer.selection}
+                                  resolved={itemIndex < items.length - 1}
                                   onPick={(picked) => {
                                     pickedClarification.current = picked;
                                     setQuestion(picked);
+                                    setAsNewQuestion(false);
+                                    input.current?.focus();
                                   }}
                                 />
                               )}

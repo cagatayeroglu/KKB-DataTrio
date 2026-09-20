@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   admit,
   admissionRejection,
+  lostTurn,
   draftRequest,
   publishedResult,
   restoredSelection,
@@ -420,6 +421,20 @@ test("GET recovery checks both request and turn identity", async () => {
   } finally {
     globalThis.fetch = old;
   }
+});
+test("a forgotten turn is a 404 and nothing else", () => {
+  // A restart is the one case where following the turn is pointless: the handle
+  // is gone from the API process while the conversation stays in its store.
+  assert.equal(lostTurn(new ApiError("not_found", 404)), true);
+  for (const error of [
+    new ApiError("busy", 409),
+    new ApiError("capacity", 429),
+    new ApiError("internal_error", 500),
+    new ApiError("unavailable", 503),
+    new ApiError("connection"),
+    new Error("network"),
+  ])
+    assert.equal(lostTurn(error), false);
 });
 test("only explicit admission rejection ends recovery; transport and server errors do not", async () => {
   for (const code of [
