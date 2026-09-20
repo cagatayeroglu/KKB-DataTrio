@@ -435,6 +435,9 @@ class ConversationDetail(ContractModel):
     token: Key | None = None
     messages: Annotated[tuple[StoredMessage, ...], Field(max_length=512)] = ()
     documents: Annotated[tuple[ConversationDocument, ...], Field(max_length=MAX_DOCUMENTS)] = ()
+    #: Titles the pending clarification offered, so a reopened chat can show them
+    #: again instead of leaving the person to retype one (finding F2-netl).
+    pending_offered: Annotated[tuple[Label, ...], Field(max_length=12)] = ()
 
 
 class ConversationUpdate(ContractModel):

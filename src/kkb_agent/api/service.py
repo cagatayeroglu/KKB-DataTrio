@@ -499,8 +499,15 @@ class AnalysisService:
         summary = self._reading(session_id, token)
         if self._store is None:  # pragma: no cover - _reading refuses without a store
             raise ServiceError("unavailable", 503)
+        pending = self._store.pending_clarification(session_id) or {}
+        offered = pending.get("offered")
         return ConversationDetail(
             conversation=summary,
+            pending_offered=tuple(
+                item[:240]
+                for item in (offered if isinstance(offered, list) else [])
+                if isinstance(item, str) and item.strip()
+            )[:12],
             messages=tuple(
                 StoredMessage(
                     sequence=message.sequence,

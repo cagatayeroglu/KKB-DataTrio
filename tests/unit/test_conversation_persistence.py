@@ -560,3 +560,29 @@ def test_identities_the_catalog_vouched_for_survive_a_restart(launch):
     restarted, _ = launch()
     restarted._restore(sid)
     assert restarted._proven.get(sid, set()) == proven
+
+
+def test_a_reopened_conversation_still_offers_the_pending_choices(launch):
+    """The titles the pending clarification offered come back with the conversation.
+
+    They were stored already, but the detail never carried them, so a reopened
+    chat left the person to retype one of them (finding F2-netl).
+    """
+    runner, client = launch(proposal(clarification="ambiguous_series"), "-")
+    owner_token = owner(client)
+    sid, headers, _ = open_conversation(client, owner_token)
+    assert ask(client, sid, headers, "konut kredisi faizi")["answer"]["status"] == "abstained"
+    offered = ["Konut Kredisi (TL, Akım, %)", "Konut Kredisi (TL, Stok, %)"]
+    runner._store.set_pending_clarification(
+        sid,
+        {
+            "original_question": "konut kredisi faizi",
+            "clarifications": [],
+            "selection": None,
+            "document_ref": None,
+            "offered": offered,
+        },
+    )
+
+    detail = client.get(f"/v1/conversations/{sid}", headers=headers).json()
+    assert detail["pending_offered"] == offered

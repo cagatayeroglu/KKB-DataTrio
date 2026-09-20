@@ -240,6 +240,8 @@ export function Workspace() {
     [transcript, setTranscript] = useState<StoredMessage[]>([]),
     //: Receipts this process answered for, and the ones it truly cannot serve.
     [lostTables, setLostTables] = useState<string[]>([]),
+    //: What the clarification this conversation is waiting on offered, for a reopened tab.
+    [pendingOffered, setPendingOffered] = useState<string[]>([]),
     [restoredTables, setRestoredTables] = useState<
       { turnId: string; result: Result }[]
     >([]),
@@ -380,6 +382,7 @@ export function Workspace() {
     transcriptFor.current = null;
     setItems([]);
     setTranscript([]);
+    setPendingOffered([]);
     setRestoredTables([]);
     setLostTables([]);
     setConversationId(null);
@@ -475,6 +478,7 @@ export function Workspace() {
           (message) => !local.has(message.turn_id),
         );
         setTranscript(earlier);
+        setPendingOffered(detail.pending_offered);
         const kept = await restoreTables(conversationId, earlier, ownerToken);
         if (!cancelled && mounted.current) setRestoredTables(kept);
       } catch {
@@ -514,6 +518,7 @@ export function Workspace() {
       record(reopened);
       setConversationId(id);
       setTranscript(detail.messages);
+      setPendingOffered(detail.pending_offered);
       try {
         const rated = await listFeedback(id, ownerToken);
         if (active())
@@ -575,6 +580,7 @@ export function Workspace() {
         const fresh = await openConversation(id, ownerToken);
         if (!active()) return;
         setTranscript(fresh.messages);
+        setPendingOffered(fresh.pending_offered);
         const freshTables = await restoreTables(id, fresh.messages, ownerToken);
         if (!active()) return;
         setRestoredTables(freshTables);
@@ -1488,6 +1494,44 @@ export function Workspace() {
                       </div>
                     );
                   })}
+                  {pendingOffered.length > 0 && items.length === 0 && (
+                    // Reopened in another tab or after a restart: the question the
+                    // agent is waiting on is stored, so its choices are shown again
+                    // instead of leaving the person to retype one (finding F2-netl).
+                    <div className="msg agent">
+                      <div className="bubble">
+                        <div className="series-choice">
+                          <p className="series-choice-head">
+                            Bekleyen netleştirme
+                            <span>
+                              {" "}
+                              · birini seç: soru kutusuna yazılır, gönderince
+                              istek o kayıtla sürer
+                            </span>
+                          </p>
+                          <ul>
+                            {pendingOffered.map((title) => (
+                              <li key={title}>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setQuestion(
+                                      clarificationPickText(
+                                        { title, detail: "" },
+                                        true,
+                                      ),
+                                    )
+                                  }
+                                >
+                                  {title}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   {items.map((item) => (
                     <div className="turn-pair" key={item.request_id}>
                       <div className="msg user">

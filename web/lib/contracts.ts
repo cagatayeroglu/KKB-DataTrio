@@ -407,6 +407,8 @@ export const conversationDetailSchema = z
           .strict(),
       )
       .max(4),
+    // Titles the pending clarification offered, so a reopened chat can show them.
+    pending_offered: z.array(z.string().min(1).max(240)).max(12).default([]),
   })
   .strict();
 export type ConversationSummary = z.infer<typeof conversationSummarySchema>;
