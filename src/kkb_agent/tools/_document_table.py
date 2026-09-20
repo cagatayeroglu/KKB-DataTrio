@@ -510,17 +510,23 @@ def table_result(
     aggregation = table.aggregation or {}
     left_out = aggregation.get("incomplete_months_left_out")
     if isinstance(left_out, list) and left_out:
+        # Named, not counted: the reader could not tell which month was missing, and
+        # a later filter can drop this warning once it excludes those months (L2-4).
+        named = ", ".join(sorted(str(month)[:7] for month in left_out))
         warnings.append(
-            f"{len(left_out)} month(s) not yet ended at retrieval were left out of the monthly rows"
+            f"{len(left_out)} month(s) not yet ended at retrieval were left out of the "
+            f"monthly rows ({named})"
         )
     rules = table.rules
     if rules is not None:
         warnings.extend(rules.warnings())
-    unresolved = [
-        f"{column.label}: the document states no unit or scale"
-        for column in table.columns
-        if column.unit is None
-    ]
+    unresolved = _per_column(
+        [
+            (column.label, "the document states no unit or scale")
+            for column in table.columns
+            if column.unit is None
+        ]
+    )
     location = canonical(table.location)
     return AnalyticalResult(
         result_id=f"web_url:table:{source.source_id}:{location}",
@@ -589,17 +595,37 @@ def table_result(
                 "resampling, filling, currency conversion, inflation adjustment or rebasing was "
                 "applied"
             ),
-            *(f"{column.label}: {measure_limitation(column.measure)}" for column in table.columns),
+            *_per_column(
+                [(column.label, measure_limitation(column.measure)) for column in table.columns]
+            ),
             *(rules.limitations() if rules is not None else ()),
-            *(
-                f"{column.label}: unit and scale are as the user stated them in the question, "
-                "not as the document states them"
-                for column in table.columns
-                if column.unit_source == UNIT_FROM_QUESTION
+            *_per_column(
+                [
+                    (
+                        column.label,
+                        "unit and scale are as the user stated them in the question, not as "
+                        "the document states them",
+                    )
+                    for column in table.columns
+                    if column.unit_source == UNIT_FROM_QUESTION
+                ]
             ),
         ],
         unresolved_semantics=unresolved,
     )
+
+
+def _per_column(notes: Sequence[tuple[str, str]]) -> list[str]:
+    """One line per distinct statement, naming every column it is about.
+
+    Five columns that share one reason produced five near-identical lines in the
+    answer, which read as five different limitations (finding L2-5). The wording
+    for a single column is unchanged.
+    """
+    grouped: dict[str, list[str]] = {}
+    for label, text in notes:
+        grouped.setdefault(text, []).append(label)
+    return [f"{', '.join(labels)}: {text}" for text, labels in grouped.items()]
 
 
 def _month(end: date) -> Period:

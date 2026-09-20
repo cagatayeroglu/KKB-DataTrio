@@ -57,6 +57,7 @@ from kkb_agent.analytics.table_shape import (
     TableShapeRefused,
     align_periods,
     filter_periods,
+    names_only_excluded_months,
     period_change,
     rebase_index,
 )
@@ -1050,6 +1051,12 @@ def _shaped(
             f"{arguments.start_period.isoformat() if arguments.start_period else '-'}:"
             f"{arguments.end_period.isoformat() if arguments.end_period else '-'}"
         )
+    # A narrowed range outlives the warnings about months it no longer holds: they
+    # read as limitations of this table, which they are not (finding L2-4). A warning
+    # that names no month is about the table itself and always travels.
+    inherited = [
+        item for item in source.warnings if not names_only_excluded_months(item, shaped.coverage)
+    ]
     return AnalyticalResult(
         result_id=f"table_transform:{arguments.operation}:{arguments.source}:{identity}",
         kind=source.kind,
@@ -1065,7 +1072,7 @@ def _shaped(
             transformations=[*previous, shaped.transformation],
             sources=list(source.evidence.sources) if source.evidence is not None else [],
         ),
-        warnings=[*source.warnings, *([warning] if shaped.dropped_non_period_values else [])],
+        warnings=[*inherited, *([warning] if shaped.dropped_non_period_values else [])],
         limitations=[
             *source.limitations,
             "Rows were selected by exact existing periods; no value was filled, interpolated, "

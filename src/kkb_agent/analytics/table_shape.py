@@ -9,6 +9,7 @@ old aggregate would no longer describe the result.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -42,6 +43,27 @@ INDEX_POINT: Final = "index point"
 ChangeKind = Literal["difference", "percent"]
 
 PeriodKey = tuple[date, date, Frequency, str | None]
+
+
+#: A month written as YYYY-MM inside a warning, which is how every warning here
+#: names a period it is about.
+_NAMED_MONTH: Final = re.compile(r"\b(\d{4})-(0[1-9]|1[0-2])\b")
+
+
+def names_only_excluded_months(warning: str, coverage: Period) -> bool:
+    """Whether a warning names months and this coverage holds none of them.
+
+    A table filtered to 2025 kept carrying "1 month(s) not yet ended at retrieval
+    were left out" about September 2026, and so did every change computed from it,
+    which read as a limitation of the answer it was not (finding L2-4). A warning
+    that names no month says nothing about a range and always travels.
+    """
+    months = [date(int(year), int(month), 1) for year, month in _NAMED_MONTH.findall(warning)]
+    if not months:
+        return False
+    first = coverage.start.replace(day=1)
+    last = coverage.end.replace(day=1)
+    return all(month < first or month > last for month in months)
 
 
 class TableShapeRefused(ValueError):

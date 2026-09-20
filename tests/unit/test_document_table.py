@@ -76,6 +76,38 @@ def test_table_keeps_usable_columns_and_names_every_skipped_one():
     }
 
 
+def test_columns_that_share_a_reason_share_one_line():
+    """Five columns without a stated unit produced five near-identical lines.
+
+    They read as five different limitations of the answer instead of one fact
+    about the document (finding L2-5).
+    """
+    from datetime import UTC, datetime
+
+    from kkb_agent.ingest.fetched import fetched_source
+    from kkb_agent.tools._document_table import table_result
+
+    headers = ("Ay", "Hacim", "Adet", "Islem")
+    rows = (
+        ("2026-04", "12", "34", "56"),
+        ("2026-05", "13", "35", "57"),
+        ("2026-06", "14", "36", "58"),
+    )
+    table = read_table([grid(rows, headers)], "ay", ["Hacim", "Adet", "Islem"])
+    assert [column.unit for column in table.columns] == [None, None, None]
+    source = fetched_source(
+        "https://data.example.test/t.csv",
+        b"x",
+        retrieved_at=datetime(2026, 7, 1, tzinfo=UTC),
+    )
+    result = table_result(table, source, source_node=None)
+    unresolved = result.unresolved_semantics
+    assert unresolved == ["Hacim, Adet, Islem: the document states no unit or scale"]
+    # The same grouping for the stock/flow statement they all share.
+    measures = [note for note in result.limitations if "stocks, flows, rates" in note]
+    assert len(measures) == 1 and measures[0].startswith("Hacim, Adet, Islem: ")
+
+
 def test_a_column_with_fewer_than_two_values_is_left_out():
     rows = (("2026-04", "1", ""), ("2026-05", "", "2"), ("2026-06", "", "3"))
     table = read_table([grid(rows, ("Ay", "A (TL)", "B (TL)"))], "Ay", ["A", "B"])
