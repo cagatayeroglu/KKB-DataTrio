@@ -160,6 +160,7 @@ CAUSAL = re.compile(r"\b(?:" + "|".join(CAUSAL_PHRASES) + r")\b", re.I)
 #: values). Bounded folded vocabulary, not a parser: "geçiş yok" or "dışlanan
 #: dönem bulunmuyor" describe counts and are deliberately not listed.
 ABSENCE_PHRASES = (
+    r"(?:değer|veri|gözlem|sonuç)\w*\s+eksik\b",
     r"(?:değer|veri|sonuç)\w*\s+(?:bulunm(?:uyor|am)\w*|yok\w*|mevcut\s+değil\w*)",
     r"(?:değer|veri|sonuç)\w*\s+(?:yer\s+)?almi(?:yor|yo)\w*",
     r"hesaplanam\w*",
@@ -169,10 +170,16 @@ ABSENCE_PHRASES = (
     r"(?:cannot|could\s+not)\s+be\s+(?:computed|calculated)",
 )
 ABSENCE = re.compile(r"\b(?:" + "|".join(ABSENCE_PHRASES) + r")", re.I)
+GENERIC_MISSING_SAMPLES = re.compile(r"(?:veri|bazi\s+gözlemler)\s+eksik(?:tir)?\.?", re.I)
 
 
-def absence_fault(text: str) -> str | None:
-    if ABSENCE.search(fold(text)):
+def absence_fault(text: str, *, missing_samples: bool = False) -> str | None:
+    folded = fold(text).strip()
+    # A count of missing observations proves generic partial coverage, never
+    # that a particular month, source or result is absent.
+    if missing_samples and GENERIC_MISSING_SAMPLES.fullmatch(folded):
+        return None
+    if ABSENCE.search(folded):
         return (
             "Unsupported absence claim: computed results are shown; the gate cannot prove absence"
         )

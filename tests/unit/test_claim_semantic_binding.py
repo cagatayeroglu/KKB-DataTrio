@@ -296,6 +296,28 @@ def test_a_denial_in_causal_words_is_withheld_too(connection):
     assert gated.text == "Ocak 2025'te 100 milyon TL."
 
 
+def test_unqualified_missing_data_cannot_contradict_a_complete_result():
+    complete = result().model_copy(update={"samples": SampleCounts(used=3, missing=0)})
+    gated = gate_answer("Ocak 2025'te 100 milyon TL. Veri eksik.", complete)
+    assert gated.status is AnswerStatus.QUALIFIED
+    assert gated.text == "Ocak 2025'te 100 milyon TL."
+
+
+def test_typed_missing_samples_allow_only_generic_coverage_disclosure():
+    partial = result().model_copy(update={"samples": SampleCounts(used=3, missing=2)})
+    supported = gate_answer("Ocak 2025'te 100 milyon TL. Bazı gözlemler eksik.", partial)
+    assert supported.status is AnswerStatus.ACCEPTED
+    unsupported = gate_answer("Ocak 2025'te 100 milyon TL. Mart verisi eksik.", partial)
+    assert unsupported.status is AnswerStatus.QUALIFIED
+    assert unsupported.text == "Ocak 2025'te 100 milyon TL."
+    # An unnamed absence over two results cannot borrow only one result's gap.
+    complete = result().model_copy(update={"samples": SampleCounts(used=3, missing=0)})
+    assert (
+        gate_answer("Veri eksik.", {"partial": partial, "complete": complete}).status
+        is AnswerStatus.ABSTAINED
+    )
+
+
 class TestTheWindowACountDescribes:
     """A sentence about how much data was read is not a claim about a figure."""
 
@@ -398,3 +420,26 @@ class TestACountIsOnlyQuotedAsWhatItIs:
 
         assert verify_claims("2 dönem eksikti; bakiye 100 milyon TL.", gapped).accepted
         assert not verify_claims("57 dönem eksikti; bakiye 100 milyon TL.", gapped).accepted
+
+    def test_count_role_must_belong_to_the_number_not_a_later_conjoined_phrase(self):
+        sample = self._window()
+        wrong = "60 farklı seri ve 60 gözlem incelendi. Bakiye 100 milyon TL oldu."
+        assert not verify_claims(wrong, sample).accepted
+        assert gate_answer(wrong, sample).status is AnswerStatus.QUALIFIED
+
+    def test_preceding_or_following_local_count_role_still_binds(self):
+        sample = self._window()
+        for phrase in (
+            "60 aylık veri ve 60 gözlem incelendi; bakiye 100 milyon TL oldu.",
+            "Gözlem sayısı 60 ve dönem 60 ay; bakiye 100 milyon TL oldu.",
+        ):
+            assert verify_claims(phrase, sample).accepted
+
+    def test_question_number_does_not_make_a_new_financial_claim(self):
+        sample = self._window()
+        # The request may mention 60 months, but the result has no 60% rate.
+        assert not verify_claims("Faiz %60 oldu.", sample).accepted
+
+    @pytest.mark.parametrize("draft", ["İlk 3 dönemde bakiye arttı.", "Seri 3. sırada yer aldı."])
+    def test_ordinal_or_rank_without_typed_evidence_does_not_become_context(self, draft):
+        assert not verify_claims(draft, self._window()).accepted
