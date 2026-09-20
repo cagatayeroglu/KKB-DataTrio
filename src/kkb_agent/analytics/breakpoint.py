@@ -231,11 +231,17 @@ def detect_breakpoints(
             period=coverage,
         )
     ]
+    # Each breakpoint separates the regime before it from the regime after it, so its
+    # shift is measured between those two neighbours. Taking the whole window instead
+    # mixes every other regime into both means: with breakpoints at 24 and 43 over the
+    # housing balance, the second one's "before" contained the first regime as well and
+    # the reported shift was +13,545 where the neighbouring regimes differ by +6,535.
+    edges = [0, *(position for position, _ in found), len(magnitudes)]
     details: list[JsonValue] = []
-    for position, statistic in found:
+    for index, (position, statistic) in enumerate(found):
         observation = changes[position][0]
-        before = magnitudes[:position]
-        after = magnitudes[position:]
+        before = magnitudes[edges[index] : position]
+        after = magnitudes[position : edges[index + 2]]
         shift = fmean(after) - fmean(before)
         values.append(
             ResultValue(
