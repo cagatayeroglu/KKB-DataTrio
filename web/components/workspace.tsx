@@ -240,6 +240,9 @@ export function Workspace() {
     [transcript, setTranscript] = useState<StoredMessage[]>([]),
     //: Receipts this process answered for, and the ones it truly cannot serve.
     [lostTables, setLostTables] = useState<string[]>([]),
+    //: Send the next message as its own question instead of an answer to the
+    //: pending clarification; the harness decides when this is off.
+    [asNewQuestion, setAsNewQuestion] = useState(false),
     //: What the clarification this conversation is waiting on offered, for a reopened tab.
     [pendingOffered, setPendingOffered] = useState<string[]>([]),
     [restoredTables, setRestoredTables] = useState<
@@ -536,6 +539,7 @@ export function Workspace() {
       setPendingIndex(null);
       setAttachment(null);
       setQuestion("");
+      setAsNewQuestion(false);
       pickedClarification.current = null;
       // A reopened conversation keeps its tables: each published one is read
       // back from its receipt on the server, so it comes with the same reference
@@ -933,9 +937,10 @@ export function Workspace() {
     try {
       const state = await session();
       if (!active()) return;
-      if (state.turns.length >= 24) {
+      const turnCap = health?.max_turns_per_session ?? 24;
+      if (state.turns.length >= turnCap) {
         setIssue(
-          "Bu oturum 24 soruluk sınırına ulaştı. Yeni çalışma açabilirsin.",
+          `Bu sohbet ${turnCap} soruluk sınırına ulaştı. Yeni bir sohbet aç: bu sohbetin geçmişi ve tabloları duruyor.`,
         );
         return;
       }
@@ -944,7 +949,11 @@ export function Workspace() {
       const entry = draftRequest(
         text,
         undefined,
-        pickedClarification.current === text.trim() ? true : undefined,
+        pickedClarification.current === text.trim()
+          ? true
+          : asNewQuestion
+            ? false
+            : undefined,
         attachment ?? undefined,
       );
       const next = { ...state, turns: [...state.turns, entry] };
@@ -1853,6 +1862,20 @@ export function Workspace() {
                       <X size={12} />
                     </button>
                   </div>
+                )}
+                {(pendingOffered.length > 0 ||
+                  items.at(-1)?.turn?.answer?.status === "abstained") && (
+                  <label className="composer-escape">
+                    <input
+                      type="checkbox"
+                      checked={asNewQuestion}
+                      disabled={busy || pending}
+                      onChange={(event) =>
+                        setAsNewQuestion(event.target.checked)
+                      }
+                    />
+                    Bekleyen netleştirmeyi bırak, bunu yeni soru olarak gönder
+                  </label>
                 )}
                 <div className="composer-bar">
                   <div className="composer-left">

@@ -3224,3 +3224,17 @@ button:not(:disabled):focus-visible {
     filter: none;
   }
 }
+
+/* Leaving a pending clarification is an explicit choice, not a guess from the
+   message's length: the switch sits with the composer it applies to. */
+.composer-escape {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.composer-escape input {
+  accent-color: var(--accent);
+}
