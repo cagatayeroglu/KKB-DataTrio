@@ -754,6 +754,47 @@ def render_result(result: AnalyticalResult, ambiguous: frozenset[int] = frozense
 ASSUMPTION_LABEL: Final = "Varsayım: "
 
 
+#: What makes a question one about cause. Wider than the vocabulary the gate refuses in
+#: an answer, and deliberately so: these words only decide whether the harness adds a
+#: sentence that is true of every turn, so a false positive costs a redundant line and a
+#: false negative costs the reader the one thing they asked about. "neden" is here bare,
+#: as the Turkish for "why", which `CAUSAL_PHRASES` leaves out because in an answer it is
+#: nearly always part of a denial.
+CAUSE_QUESTION: Final = re.compile(
+    # "sebebi" is "sebep" softened, which the organizer's own third turn writes.
+    r"\b(?:neden\w*|niçin|niye|sebe[pb]\w*|yol\s+aç\w*|kaynaklan\w*|why|cause[sd]?)\b",
+    re.I,
+)
+#: The harness's own answer to a question about cause, added to the draft before gating.
+#:
+#: DEC-120 settled that sixty-odd monthly observations cannot identify a causal effect, so
+#: the gate refuses any sentence of the form "X causes Y". It refuses the denials written in
+#: those same words too - a bounded vocabulary cannot read negation, and trying to would be
+#: how an assertion slips through - which left the reader a gap exactly where the honest
+#: answer belongs. This is that answer, written once, here, in a constant: it names no
+#: series and quotes no figure, so nothing a run supplies can make it untrue.
+#:
+#: It says what it says without using the words the gate refuses, so it goes through the
+#: gate with the rest of the answer rather than around it. `test_cause_question.py` holds
+#: that property: reword this into "sebep oldu" and the tests fail rather than the sentence
+#: quietly disappearing from every answer.
+CAUSE_NOTE: Final = (
+    "Bu analiz bir sebep-sonuç ilişkisi kurmaz. Ölçülen şey, serilerin birlikte hareketi "
+    "ve birbirlerine göre zamanlamasıdır. Enflasyon veya politika faizi gibi ortak "
+    "sürücüler ve incelenen pencerenin kısalığı, birlikte hareketi nedenselliğe "
+    "dönüştürmez. Bu not, modelin değil, sistemin kendi cümlesidir."
+)
+CAUSE_LIMITATION: Final = (
+    "The question asked about cause; association and precedence are what this analysis "
+    "establishes, and the closing note is the harness's own sentence, not the model's"
+)
+
+
+def asks_about_cause(question: str) -> bool:
+    """Whether the reader asked why something happened, rather than what happened."""
+    return CAUSE_QUESTION.search(question) is not None
+
+
 def plan_assumptions(planned: Planned, outcome: ExecutionOutcome) -> tuple[str, ...]:
     """What the plan says it assumed, for the steps that actually ran.
 
@@ -1492,12 +1533,15 @@ class Session:
         )
         if self.tracer is not None and fast_draft is None:
             self.tracer.event("answer", "draft.model", source="model", detail=draft)
-        assumptions = plan_assumptions(planned, outcome)
+        closing = [
+            *plan_assumptions(planned, outcome),
+            *([CAUSE_NOTE] if asks_about_cause(question) else []),
+        ]
 
         def with_assumptions(text: str) -> str:
-            # Appended before gating, never after: a footnote the gate has not read
-            # is a sentence nobody checked.
-            return "\n".join([text, *assumptions]) if assumptions else text
+            # Added before gating, never after: a sentence the gate has not read is a
+            # sentence nobody checked, whoever wrote it.
+            return "\n".join([text, *closing]) if closing else text
 
         answer = self._gated(with_assumptions(draft), available, connection, gate)
         faults = result_faults(
@@ -1661,6 +1705,10 @@ class Session:
             if table is not None and not faults and answer.status is not AnswerStatus.ABSTAINED
             else ()
         )
+        if CAUSE_NOTE in answer.text and CAUSE_LIMITATION not in answer.limitations:
+            # The sentence is in the answer where the reader is; this records for the
+            # proof panel whose sentence it is and why the turn carries one.
+            answer = replace(answer, limitations=(*answer.limitations, CAUSE_LIMITATION))
         return Answered(planned, outcome, results, answer, tables)
 
     def _gated(
