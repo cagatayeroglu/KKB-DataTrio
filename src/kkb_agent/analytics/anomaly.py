@@ -164,7 +164,12 @@ def detect_anomalies(
         # Over half the changes are identical, so MAD collapsed. Fall back to
         # the mean absolute deviation about the same median, which is the
         # published remedy and is zero only when *every* change is identical.
-        spread = (sum(deviations) / len(deviations)) * MEANAD_TO_SIGMA / MAD_TO_SIGMA
+        # The score below is 0.6745 * (value - centre) / spread, so a fallback spread has
+        # to be whatever makes that expression the paper's mean-absolute-deviation score,
+        # (value - centre) / (1.253314 * meanAD). Dividing by MAD_TO_SIGMA instead of
+        # multiplying made the spread 2.198 times too large, which turned the declared
+        # 3.5 cut into 7.7 sigma: a flat rate with three +5 point jumps reported none.
+        spread = (sum(deviations) / len(deviations)) * MEANAD_TO_SIGMA * MAD_TO_SIGMA
         scale_used = "mean absolute deviation about the median (MAD was zero)"
     if spread == 0:
         return _refuse(

@@ -125,6 +125,24 @@ class TestItExaminesChangesNotLevels:
         assert result.status is ResultStatus.COMPUTED
         assert "MAD was zero" in result.parameters["scale_estimator"]
 
+    def test_the_fallback_scale_keeps_the_declared_cut(self):
+        # 21 changes of +100 and three of +1500. The median deviation is zero, so the
+        # fallback decides these, and the mean absolute deviation about the median is
+        # 175: the paper's score for a +1500 change is 1400 / (1.253314 * 175) = 6.4,
+        # well past 3.5. A fallback scale 2.198 times too large scores it 2.9 and
+        # reports nothing at all, which is what this series looked like before.
+        steps = [100.0] * 7 + [1500.0] + [100.0] * 7 + [1500.0] + [100.0] * 7 + [1500.0]
+        level = 1000.0
+        levels = [level]
+        for step in steps:
+            level += step
+            levels.append(level)
+        result = detect(series(*levels))
+
+        assert "MAD was zero" in result.parameters["scale_estimator"]
+        flagged = [v for v in result.values if "change at" in v.label]
+        assert [v.value for v in flagged] == pytest.approx([1500.0, 1500.0, 1500.0])
+
 
 class TestTheCountIsAlwaysReported:
     def test_a_clean_series_reports_zero_rather_than_nothing(self):
