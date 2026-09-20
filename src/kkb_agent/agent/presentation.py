@@ -31,6 +31,9 @@ from kkb_agent.core import (
 )
 
 _SCALES = {Scale.ONE: "", Scale.THOUSAND: "bin", Scale.MILLION: "milyon", Scale.BILLION: "milyar"}
+#: What a price is quoted per, in the words a Turkish reader uses (DEC-177).
+_QUANTITY_WORDS = {"g": "gr", "kg": "kg", "oz": "ons", "t": "ton", "piece": "adet"}
+_CURRENCY_WORDS = {"try": "TL", "usd": "USD", "eur": "EUR"}
 _UNITS = {
     **{unit: unit.upper() for unit in UNITS.values() if len(unit) == 3},
     "try": "TL",
@@ -39,6 +42,16 @@ _UNITS = {
     "basis_points": "baz puan",
     "index_points": "endeks puan",
     "index": "endeks",
+    #: A count is a number of things and the label says what they are, so no unit
+    #: word is added. Without an entry here every cell of a "kişi" or "adet" series
+    #: read "gösterilemiyor" and the writer could not quote one (finding DN-6.4).
+    "count": "",
+    #: A price per quantity: "TRY/g" reads as "TL/gr".
+    **{
+        f"{currency}/{quantity}": f"{currency_word}/{quantity_word}"
+        for currency, currency_word in _CURRENCY_WORDS.items()
+        for quantity, quantity_word in _QUANTITY_WORDS.items()
+    },
     DIMENSIONLESS: DIMENSIONLESS,
 }
 

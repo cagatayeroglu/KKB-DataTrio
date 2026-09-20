@@ -355,6 +355,14 @@ class TestReadableVerifiedFigures:
             ("basis points", Scale.ONE, "12,5 baz puan"),
             ("index points", Scale.ONE, "12,5 endeks puan"),
             ("dimensionless", Scale.ONE, "12,5 dimensionless"),
+            # A count is a number of things; the label says what they are, so the
+            # display adds no unit word. A quoted price is money per quantity
+            # (DEC-177). Neither had a display before (finding DN-6.4).
+            ("count", Scale.ONE, "12,5"),
+            ("count", Scale.THOUSAND, "12,5 bin"),
+            ("TRY/g", Scale.ONE, "12,5 TL/gr"),
+            ("USD/oz", Scale.ONE, "12,5 USD/ons"),
+            ("TRY/piece", Scale.ONE, "12,5 TL/adet"),
         ],
     )
     def test_only_explicit_unit_and_scale_mappings_are_used(self, unit, scale, expected):

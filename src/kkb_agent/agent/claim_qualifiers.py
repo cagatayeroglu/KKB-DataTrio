@@ -61,6 +61,30 @@ UNITS = {
     "basis points": "basis_points",
     "index points": "index_points",
     "endeks puan": "index_points",
+    # A number of things. The label says what they are, so the display adds no unit
+    # word; these spellings exist so a sentence that names them still binds.
+    "kişi": "count",
+    "adet": "count",
+    "işlem": "count",
+    "count": "count",
+    # A quoted price is money per quantity (DEC-177), in both spellings a reader
+    # uses. Series with these units had no display at all (finding DN-6.4).
+    **{
+        spelling: f"{currency.lower()}/{quantity}"
+        for currency, money in (
+            ("TRY", ("tl", "try")),
+            ("USD", ("usd", "dolar")),
+            ("EUR", ("eur", "euro")),
+        )
+        for quantity, words in (
+            ("g", ("gr", "gram", "g")),
+            ("kg", ("kg",)),
+            ("oz", ("ons", "oz")),
+            ("t", ("ton", "t")),
+            ("piece", ("adet",)),
+        )
+        for spelling in (f"{word}/{unit}" for word in money for unit in words)
+    },
 }
 _UNIT_TEXT = "|".join(re.escape(u) for u in sorted(UNITS, key=len, reverse=True))
 UNIT = re.compile(r"(?<!\w)(" + _UNIT_TEXT + r")(?!\w)", re.I)
