@@ -48,7 +48,7 @@ export function ResultChart({
       y: series.y,
       customdata: series.hover,
       // Full name on hover; a literal "%{" in a label must not become a template field.
-      hovertemplate: `${series.name.replace(/%\{/g, "% {")}<br>%{x|%Y-%m}: %{customdata}<extra></extra>`,
+      hovertemplate: `${series.name.replace(/%\{/g, "% {")}<br>%{customdata}<extra></extra>`,
       connectgaps: false,
       yaxis: axis(series.group),
       visible: series.hidden ? "legendonly" : true,
@@ -88,7 +88,18 @@ export function ResultChart({
             plot_bgcolor: "rgba(0,0,0,0)",
             showlegend: true,
             legend: { orientation: "h", y: -0.2 },
-            xaxis: { type: "date", tickformat: "%Y-%m", gridcolor: "#edf1ee" },
+            xaxis: {
+              type: "date",
+              // The label follows the zoom: months at the usual scale, days once a
+              // month or less is in view, years for a long range. A fixed "%Y-%m"
+              // printed the same label on every tick when zoomed in (DN-6.6).
+              tickformatstops: [
+                { dtickrange: [null, 86400000 * 16], value: "%Y-%m-%d" },
+                { dtickrange: [86400000 * 16, 86400000 * 400], value: "%Y-%m" },
+                { dtickrange: [86400000 * 400, null], value: "%Y" },
+              ],
+              gridcolor: "#edf1ee",
+            },
             yaxis: {
               title: { text: shown[0]?.label ?? "" },
               exponentformat: "none",
