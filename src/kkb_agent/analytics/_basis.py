@@ -44,7 +44,7 @@ def scored_on_ratio(
     return all(previous > 0 and value > 0 for _, previous, value in changes)
 
 
-def magnitudes(
+def scored_magnitudes(
     changes: Sequence[tuple[Observation, float, float]], *, ratio: bool
 ) -> list[float]:
     """The comparable quantity each change is scored on."""

@@ -733,6 +733,11 @@ def render_result(result: AnalyticalResult, ambiguous: frozenset[int] = frozense
         lines.append(f"Unresolved: {note}")
     for limitation in result.limitations:
         lines.append(f"Limitation: {limitation}")
+    for warning in result.warnings:
+        # Every analytics module fills these - what an unusual period is and is not,
+        # that a balance's movement is net rather than new lending, how many periods
+        # were left out - and until now the one reader who had to know never saw them.
+        lines.append(f"Caution, to be said in words and without a figure: {warning}")
     return "\n".join(lines)
 
 

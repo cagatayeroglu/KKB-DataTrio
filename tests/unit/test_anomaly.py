@@ -202,7 +202,9 @@ class TestWhatAPeriodIsComparedWith:
 
         result = detect(
             observations,
-            replace(STOCK, observation=StockFlow.INDEX, unit="index", scale=Scale.ONE, base_year=2025),
+            replace(
+                STOCK, observation=StockFlow.INDEX, unit="index", scale=Scale.ONE, base_year=2025
+            ),
         )
         flagged = [v for v in result.values if "change at" in v.label]
 

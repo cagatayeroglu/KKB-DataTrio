@@ -229,9 +229,10 @@ def detect_breakpoints(
     ]
     # Each breakpoint separates the regime before it from the regime after it, so its
     # shift is measured between those two neighbours. Taking the whole window instead
-    # mixes every other regime into both means: with breakpoints at 24 and 43 over the
-    # housing balance, the second one's "before" contained the first regime as well and
-    # the reported shift was +13,545 where the neighbouring regimes differ by +6,535.
+    # mixes every other regime into both means. Measured on the prepared housing
+    # balance, which breaks at 2024-10 and 2025-10: the neighbouring regimes differ by
+    # +8,921 and +6,535 million TRY a month, and the whole window reported +11,722 and
+    # +13,545 - the second one's "before" still held the slow 2021-2024 regime.
     edges = [0, *(position for position, _ in found), len(magnitudes)]
     details: list[JsonValue] = []
     for index, (position, statistic) in enumerate(found):
