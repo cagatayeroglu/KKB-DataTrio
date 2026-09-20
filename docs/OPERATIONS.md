@@ -618,3 +618,30 @@ Catalog retrieval mechanics belong to [CATALOG](CATALOG.md), composition to [ARC
 Preserve version/source vintage, actual coverage and refresh/revision history; do not promise a completed version manager. DEC-135 metadata inspection is mandatory and auto-wired in configured prepared readers/projection; broader inspection, quality and reconciliation remain unfinished. The intended flow must work beyond housing balance/rate, CPI and national KFE over approximately 2021-01–2026-06, without hardcoded series selection.
 
 General research is a separate planner branch: `web_search` (SearXNG compatibility candidate only), then only separately authorized `web_url`. Search results do not grant fetch authority. Crawl4AI is optional future extraction evaluation only. Uploaded CSV/XLSX/PDF and BIST/IMF/other authorized URL documents remain session artifacts; shared storage does not turn them into permanent official series. Prepared datasets are not canned answers or permission for silent fixture substitution. No new user-facing tool or permission flow is implemented here.
+
+<a id="operator_flow-third-party-licences"></a>
+
+### Third-party licences
+
+The demo environment installs 89 Python distributions and every one of them is
+permissive: MIT (including MIT-0 and MIT-CMU), BSD (2- and 3-clause), Apache-2.0,
+the Python Software Foundation licence, and MPL-2.0 for exactly two libraries,
+`certifi` and `pathspec`. MPL-2.0 is file-level copyleft on those libraries' own
+files: using them unmodified as libraries places no obligation on this project's
+sources. `python-dateutil` is dual Apache-2.0/BSD-3-Clause and is used under
+either. No GPL or AGPL package is installed.
+
+SearXNG, the search service behind `web_search`, is AGPL-3.0. It is never
+imported or vendored: the agent calls a SearXNG-compatible HTTP endpoint the
+operator runs or points at. Use over a network boundary creates no licence
+obligation for this code, and the same holds for the Kloudeks model endpoints.
+
+To see the list for an environment, from its virtual environment:
+
+```bash
+python -m pip list --format=freeze | cut -d= -f1 | xargs -n1 python -m pip show | grep -E '^(Name|License)'
+```
+
+This project itself declares no licence: its package metadata says UNKNOWN. That
+is the repository owner's decision to make, not a packaging detail to fill in
+silently.
