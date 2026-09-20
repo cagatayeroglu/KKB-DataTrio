@@ -14,7 +14,8 @@ from datetime import date
 from kkb_agent.core import DIMENSIONLESS, AnalyticalResult, ResultValue, Scale
 
 
-def _fold(text: str) -> str:
+def fold(text: str) -> str:
+    """Case and the dotted/dotless i, removed: the vocabularies match on this."""
     return text.lower().replace("\u0307", "").replace("ı", "i")
 
 
@@ -96,7 +97,7 @@ YEAR_MONTH = re.compile(r"(?<![\w-])(?:19|20)\d{2}-(?:0[1-9]|1[0-2])(?![\w-])")
 #: The period display this system itself writes, e.g. 2021-02-01..2021-02-28.
 DATE_RANGE = re.compile(r"\d{4}-\d{2}-\d{2}\.\.\d{4}-\d{2}-\d{2}")
 MONTHS = {
-    _fold(name): month
+    fold(name): month
     for month, names in enumerate(
         (
             "ocak january",
@@ -171,7 +172,7 @@ ABSENCE = re.compile(r"\b(?:" + "|".join(ABSENCE_PHRASES) + r")", re.I)
 
 
 def absence_fault(text: str) -> str | None:
-    if ABSENCE.search(_fold(text)):
+    if ABSENCE.search(fold(text)):
         return (
             "Unsupported absence claim: computed results are shown; the gate cannot prove absence"
         )
@@ -179,7 +180,7 @@ def absence_fault(text: str) -> str | None:
 
 
 def causal_fault(text: str) -> str | None:
-    if CAUSAL.search(_fold(text)):
+    if CAUSAL.search(fold(text)):
         # Even ResultKind.CAUSALITY is association-only under DEC-120.
         return "Unsupported causal assertion: numeric/association results do not establish cause"
     return None
@@ -189,15 +190,15 @@ def amount_qualifiers(text: str, start: int, end: int) -> tuple[Scale | None, tu
     """Only attached qualifiers; never borrow the next number's scale or unit."""
     suffix = text[end:]
     scale_match = SCALE.match(suffix)
-    scale = SCALE_WORDS[_fold(scale_match[1])] if scale_match else None
+    scale = SCALE_WORDS[fold(scale_match[1])] if scale_match else None
     unit_tail = suffix[scale_match.end() :] if scale_match else suffix
     units = []
     for match in UNIT.finditer(text[:start]):
         if not text[match.end() : start].strip():
-            units.append(UNITS[_fold(match[1])])
+            units.append(UNITS[fold(match[1])])
     trailing = UNIT.match(unit_tail.lstrip())
     if trailing:
-        units.append(UNITS[_fold(trailing[1])])
+        units.append(UNITS[fold(trailing[1])])
     return scale, tuple(units)
 
 
@@ -280,7 +281,7 @@ def identity_fault(
         clause = prefix + clause
     fields = {"series_id": value.label, "result_id": result.result_id, "value_label": value.label}
     for match in EXPLICIT_ID.finditer(clause):
-        if match[2] != fields[_fold(match[1])]:
+        if match[2] != fields[fold(match[1])]:
             return f"Explicit {match[1]} {match[2]!r} conflicts with this result/value identity"
     header = HEADER_ID.match(clause)
     # A plain word before a colon that names nothing known ("Değerlendirme:",
@@ -394,8 +395,8 @@ def comovement_count_identity_fault(
     equal number; without this, the inherited count has no wording that binds it
     and the whole sentence is withheld as ambiguous.
     """
-    folded = _fold(clause)
-    selected = [label for label in COMOVEMENT_COUNT_LABELS.values() if _fold(label) in folded]
+    folded = fold(clause)
+    selected = [label for label in COMOVEMENT_COUNT_LABELS.values() if fold(label) in folded]
     if not selected:
         return None
     expected = comovement_count_display_label(result, value)
@@ -415,8 +416,8 @@ def table_count_identity_fault(
     identifies one of the six final comparison metrics; unrecognised prose
     continues to receive no semantic privilege.
     """
-    folded = _fold(clause)
-    selected = [label for label in TABLE_COUNT_LABELS.values() if _fold(label) in folded]
+    folded = fold(clause)
+    selected = [label for label in TABLE_COUNT_LABELS.values() if fold(label) in folded]
     if not selected:
         return None
     expected = table_count_display_label(result, value)
@@ -489,7 +490,7 @@ def period_fault(
     if any(not period.start.year <= int(m[0]) <= period.end.year for m in years):
         return fault
     for match in months:
-        month = MONTHS[_fold(match[1])]
+        month = MONTHS[fold(match[1])]
         following = YEAR.match(context[match.end() :].lstrip())
         candidate_years = (
             [int(following[0])]
@@ -508,7 +509,7 @@ def period_fault(
 
 def unit_fault(text: str, start: int, end: int, value: ResultValue) -> str | None:
     _, units = amount_qualifiers(text, start, end)
-    actual = UNITS.get(_fold(value.unit or ""), _fold(value.unit or ""))
+    actual = UNITS.get(fold(value.unit or ""), fold(value.unit or ""))
     if any(unit != actual for unit in units):
         return f"Explicit unit/currency {units!r} conflicts with recorded unit {value.unit!r}"
     return None
