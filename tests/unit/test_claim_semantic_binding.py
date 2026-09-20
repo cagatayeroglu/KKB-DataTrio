@@ -19,6 +19,7 @@ from kkb_agent.core import (
     ResultKind,
     ResultStatus,
     ResultValue,
+    SampleCounts,
     Scale,
 )
 from kkb_agent.database import apply_schema
@@ -293,3 +294,61 @@ def test_a_denial_in_causal_words_is_withheld_too(connection):
 
     assert gated.status is AnswerStatus.QUALIFIED
     assert gated.text == "Ocak 2025'te 100 milyon TL."
+
+
+class TestTheWindowACountDescribes:
+    """A sentence about how much data was read is not a claim about a figure."""
+
+    @staticmethod
+    def _five_years(**changes):
+        """A result over 2021-01..2025-12: sixty monthly observations, five years."""
+        return result(
+            period=Period(
+                start=date(2021, 1, 1), end=date(2025, 12, 31), frequency=Frequency.MONTHLY
+            )
+        ).model_copy(
+            update={
+                "coverage": Period(
+                    start=date(2021, 1, 1), end=date(2025, 12, 31), frequency=Frequency.MONTHLY
+                ),
+                "samples": SampleCounts(used=60),
+                **changes,
+            }
+        )
+
+    def test_the_period_count_of_the_window_is_context(self):
+        verdict = verify_claims(
+            "2021-2025 arasındaki 60 aylık veride bakiye 100 milyon TL oldu.", self._five_years()
+        )
+
+        assert verdict.accepted
+        sixty = next(item for item in verdict.numbers if item.number.value == 60.0)
+        assert sixty.binding is Binding.CONTEXT
+
+    def test_the_window_in_whole_years_is_context(self):
+        verdict = verify_claims("Son 5 yılda bakiye 100 milyon TL oldu.", self._five_years())
+
+        assert verdict.accepted
+
+    def test_a_count_the_window_does_not_hold_is_still_unbound(self):
+        verdict = verify_claims("Son 7 yılda bakiye 100 milyon TL oldu.", self._five_years())
+
+        assert not verdict.accepted
+
+    def test_a_window_count_cannot_be_quoted_as_an_amount(self):
+        # 60 is the number of months read. It is not sixty million lira, and a
+        # figure that names a unit still has to be one of the result's values.
+        verdict = verify_claims("Bakiye 60 milyon TL oldu.", self._five_years())
+
+        assert not verdict.accepted
+
+    def test_periods_left_out_are_context_too(self):
+        # The tools now tell the writer how many periods were skipped; saying so
+        # in the answer must not cost the sentence.
+        result_with_gap = self._five_years(samples=SampleCounts(used=57, missing=2, excluded=1))
+        verdict = verify_claims(
+            "2 dönem yayımlanmamıştı ve 1 çift dışlandı; bakiye 100 milyon TL oldu.",
+            result_with_gap,
+        )
+
+        assert verdict.accepted

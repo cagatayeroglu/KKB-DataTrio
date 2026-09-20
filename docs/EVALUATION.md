@@ -415,6 +415,34 @@ only between periods that follow one another therefore leaves the prepared path 
 as it was, and exists for user datasets with an absent row and for daily series, whose
 Friday-to-Monday move was previously dropped as a gap.
 
+### E7 — a plan that says what it settled, live (2026-09-20)
+
+One turn against the M11-INITIATIVE revision, served on port 8011 from its own state
+root (`data/processed/api-runs/claude-m11-initiative`, not in Git) with the repository's
+port 8000 and its state untouched; retrieval hybrid, the 1,869-entry generation copied in
+rather than rebuilt. Real Kloudeks calls. Driver: `tests/manual/live_scenarios.py rerun
+--budget 3`, which stops after the first turn.
+
+R1 "2024 ve 2025 için aylık toplam konut kredisi bakiyesini tablo olarak getir." —
+**ACCEPTED**, 24 cells, 0 withheld sentences, 293.5 s (planner 10.5 s initial, 22.5 s
+continuation).
+
+**What the run shows.** The planner's own reasoning reads "Discovery results:
+top_candidate=unambiguous, the TOTAL component is the default (total over TP/YP
+columns)": it took the reviewed default without asking, which DEC-164/165 already
+allowed. What is new is that it also *said* so. Its plan carried
+`assumption: "Toplam bakiye, TP ve YP bileşenlerini birleştiren TOTAL serisiyle
+alındı."`, recorded in the `planner.output` trace event, and the answer ends with that
+sentence under its harness label. The footnote went through the gate with the rest: the
+first draft was QUALIFIED for combining two observation periods in one sentence, the
+period repair rewrote it, and the second gate accepted the whole answer, footnote
+included.
+
+**Not exercised.** The writer wrote no sentence naming the window's length, so the
+window-count binding of the same revision was not reached live. It stays offline
+evidence: `test_claim_semantic_binding.py`, with a mutation control for the amount-
+qualifier guard.
+
 ### M6-25 organizer Turn 1 live run (2026-09-14)
 
 Owner-authorized runs of `python -m kkb_agent.live_check --prepared-root data/processed/lakehouse` ask the organizer's Turn 1 question through Kloudeks (Qwen planner and writer) over a private copy of the prepared pool; the copy keeps runtime lineage, execution evidence and workspace writes out of the prepared root. Offline tests use the same path with a scripted provider ([test_co_movement](../tests/unit/test_co_movement.py)).
