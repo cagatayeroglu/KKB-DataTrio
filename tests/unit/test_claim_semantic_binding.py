@@ -352,3 +352,49 @@ class TestTheWindowACountDescribes:
         )
 
         assert verdict.accepted
+
+
+class TestACountIsOnlyQuotedAsWhatItIs:
+    """Holding a number is not licence to use it for anything.
+
+    Over a five-year monthly window the harness holds 60 and 5. Binding those on
+    the digits alone accepted "5 dönem yayımlanmamıştı" although nothing was
+    missing, and "60 farklı seri incelendi" although one series was read - true
+    numbers in a false role, which is the sentence a reader would catch.
+    """
+
+    @staticmethod
+    def _window(**changes):
+        period = Period(start=date(2021, 1, 1), end=date(2025, 12, 31), frequency=Frequency.MONTHLY)
+        return result(period=period).model_copy(
+            update={"coverage": period, "samples": SampleCounts(used=60), **changes}
+        )
+
+    @pytest.mark.parametrize(
+        "draft",
+        [
+            "2021-2025 arasındaki 60 aylık veride bakiye 100 milyon TL oldu.",
+            "Son 5 yılda bakiye 100 milyon TL oldu.",
+            "60 gözlem okundu; bakiye 100 milyon TL oldu.",
+        ],
+    )
+    def test_a_count_called_what_it_is_passes(self, draft):
+        assert verify_claims(draft, self._window()).accepted
+
+    @pytest.mark.parametrize(
+        "draft",
+        [
+            "5 dönem yayımlanmamıştı; bakiye 100 milyon TL oldu.",  # 5 is the years
+            "60 farklı seri incelendi; bakiye 100 milyon TL oldu.",  # 60 is the months
+            "Analiz 5 ayı kapsıyor; bakiye 100 milyon TL oldu.",  # 5 is years, not months
+            "5 gözlem okundu; bakiye 100 milyon TL oldu.",  # 60 observations were read
+        ],
+    )
+    def test_the_same_number_in_another_role_is_unbound(self, draft):
+        assert not verify_claims(draft, self._window()).accepted
+
+    def test_periods_read_cannot_be_quoted_as_periods_missing(self):
+        gapped = self._window(samples=SampleCounts(used=57, missing=2, excluded=1))
+
+        assert verify_claims("2 dönem eksikti; bakiye 100 milyon TL.", gapped).accepted
+        assert not verify_claims("57 dönem eksikti; bakiye 100 milyon TL.", gapped).accepted

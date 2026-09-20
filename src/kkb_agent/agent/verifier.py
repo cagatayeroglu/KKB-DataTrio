@@ -30,6 +30,7 @@ from kkb_agent.agent.claim_qualifiers import (
     causal_fault,
     clause_context,
     comovement_count_identity_fault,
+    fold,
     has_amount_context,
     identity_fault,
     is_date_token,
@@ -575,7 +576,52 @@ def verify_result(
     return verify_claims(answer, result, connection, **options)  # type: ignore[arg-type]
 
 
-def window_counts(results: Iterable[AnalyticalResult]) -> tuple[float, ...]:
+#: What a clause has to name before one of the harness's own counts may be quoted in
+#: it. A count that is merely *a* number the harness holds is not a number the sentence
+#: may use for anything: over a five-year monthly window the counts are 60 and 5, and
+#: without this "5 dönem yayımlanmamıştı" was accepted although nothing was missing, and
+#: "60 farklı seri incelendi" although one series was read. Each count now answers only
+#: to its own word, so a true sentence passes and the same digits in the wrong role do
+#: not. The words are matched on folded text, so case and dotted/dotless i do not matter.
+_COUNT_WORDS: Final = {
+    "months": ("ay", "ayda", "ayı", "aylık", "aylar", "aylarda", "month", "months", "monthly"),
+    "years": ("yıl", "yılda", "yılı", "yıllık", "yıllar", "sene", "senede", "year", "years"),
+    "weeks": ("hafta", "haftada", "haftalık", "haftalar", "week", "weeks", "weekly"),
+    "days": ("gün", "günde", "günlük", "günler", "day", "days", "daily"),
+    "used": ("gözlem", "gözlemi", "gözlemle", "gözlemde", "observation", "observations"),
+    "missing": (
+        "eksik",
+        "eksikti",
+        "eksiktir",
+        "yayımlanmamış",
+        "yayımlanmamıştı",
+        "atlanan",
+        "atlandı",
+        "missing",
+    ),
+    "excluded": ("dışlanan", "dışlandı", "çıkarılan", "çıkarıldı", "excluded"),
+}
+#: Folded once here rather than spelled folded above, where a hand-written "dislandi"
+#: for "dışlandı" would silently never match.
+COUNT_WORDS: Final = {
+    role: frozenset(fold(w) for w in words) for role, words in _COUNT_WORDS.items()
+}
+
+
+@dataclass(frozen=True, slots=True)
+class WindowCount:
+    """A quantity the harness counted, and the role a sentence must give it."""
+
+    value: float
+    role: str
+
+    def named_in(self, clause: str) -> bool:
+        """Whether this clause calls the number what it is."""
+        spoken = set(fold(clause).replace("'", " ").split())
+        return bool(spoken & COUNT_WORDS[self.role])
+
+
+def window_counts(results: Iterable[AnalyticalResult]) -> tuple[WindowCount, ...]:
     """How much data a result rests on, as the harness itself counted it.
 
     "2021-2025 arasındaki 60 aylık veride …" is a true sentence about the window
@@ -584,40 +630,43 @@ def window_counts(results: Iterable[AnalyticalResult]) -> tuple[float, ...]:
     the answer began mid-thought. These counts come from the result's own sample
     counts and the span of its coverage, so quoting one is quoting the harness.
 
-    They bind only where a year binds: with no amount qualifier attached. "60
-    milyon TL" is a figure and still has to be one of the result's values, even
-    when some window happens to be 60 periods long.
+    Two things keep that from becoming a licence. A count binds only where a year
+    binds, with no amount qualifier attached, so "60 milyon TL" is still a figure
+    that must be one of the result's values. And it binds only in a clause that
+    names its role, so the months of a window cannot be quoted as a count of
+    series and the periods read cannot be quoted as periods missing.
     """
-    found: set[float] = set()
+    found: set[WindowCount] = set()
     for result in results:
         if result.samples is not None:
             found.update(
-                float(count)
-                for count in (
-                    result.samples.used,
-                    result.samples.missing,
-                    result.samples.excluded,
+                WindowCount(float(count), role)
+                for count, role in (
+                    (result.samples.used, "used"),
+                    (result.samples.missing, "missing"),
+                    (result.samples.excluded, "excluded"),
                 )
                 if count
             )
         if result.coverage is not None:
             found.update(_span_counts(result.coverage))
-    return tuple(sorted(found))
+    return tuple(sorted(found, key=lambda count: (count.value, count.role)))
 
 
-def _span_counts(period: Period) -> set[float]:
+def _span_counts(period: Period) -> set[WindowCount]:
     """The periods a window holds, and its whole years when it holds a year or more."""
     months = (period.end.year - period.start.year) * MONTHS_IN_YEAR + (
         period.end.month - period.start.month + 1
     )
-    counts: set[float] = set()
+    counts: set[WindowCount] = set()
     if period.frequency in (Frequency.DAILY, Frequency.BUSINESS_DAY, Frequency.WEEKLY):
         days = (period.end - period.start).days + 1
-        counts.add(float(days if period.frequency is not Frequency.WEEKLY else days // 7))
+        weekly = period.frequency is Frequency.WEEKLY
+        counts.add(WindowCount(float(days // 7 if weekly else days), "weeks" if weekly else "days"))
     if months >= 1:
-        counts.add(float(months))
+        counts.add(WindowCount(float(months), "months"))
     if months >= MONTHS_IN_YEAR:
-        counts.add(float(months // MONTHS_IN_YEAR))
+        counts.add(WindowCount(float(months // MONTHS_IN_YEAR), "years"))
     return counts
 
 
@@ -627,7 +676,7 @@ def _bind_to_results(
     named: Mapping[str, AnalyticalResult],
     disqualified: Mapping[str, tuple[str, ...]],
     permitted: Sequence[float],
-    counted: Sequence[float],
+    counted: Sequence[WindowCount],
     tolerance: float,
     accept_years: bool,
 ) -> NumberVerdict:
@@ -708,7 +757,9 @@ def _bind_to_results(
         )
     if any(_close(number.value, value, tolerance) for value in permitted):
         return NumberVerdict(number, Binding.CONTEXT)
-    if not amount_context and any(_close(number.value, value, tolerance) for value in counted):
+    if not amount_context and any(
+        _close(number.value, count.value, tolerance) and count.named_in(clause) for count in counted
+    ):
         return NumberVerdict(number, Binding.CONTEXT)
     return NumberVerdict(number, Binding.UNBOUND)
 
