@@ -196,7 +196,12 @@ REPLY_INSTRUCTIONS = (
     "current. A message that needs new, current or recomputed figures, or refers to a web "
     "address or an uploaded document, needs tool steps. After an unrelated message, a later "
     "question about earlier results still refers to the results published earlier in this "
-    "conversation."
+    "conversation. Two messages are never a reply on their own: a message that asks for a "
+    "web search in so many words ('webde ara', 'internette ara') is planned with web_search "
+    "when that tool is listed, because the person asked for the list of pages, not for what "
+    "you already know; and a question outside finance is answered in one sentence that says "
+    "this assistant works on financial data and offers to search the web for it, never from "
+    "your own knowledge of the subject."
 )
 
 #: Header of the bounded conversation history a planner may use to resolve references.
