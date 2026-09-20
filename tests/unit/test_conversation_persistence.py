@@ -10,7 +10,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from test_catalog_continuation import CATALOG, TOTAL, proposal
+from test_catalog_continuation import CATALOG, TOTAL, discover, proposal
 from test_document_dataset import BASE, csv, seed, table_step
 from test_document_table import ask, step, wait_http
 
@@ -537,3 +537,26 @@ def test_a_failure_after_the_answer_still_closes_the_run(launch, monkeypatch):
     runs = client.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"]
     assert [(item["status"], item["error"]) for item in runs] == [("failed", "internal_error")]
     assert runs[0]["ended_at"] and runs[0]["duration_ms"] > 0
+
+
+def test_identities_the_catalog_vouched_for_survive_a_restart(launch):
+    """A reopened conversation does not re-prove what the catalog already returned.
+
+    The runner kept proven identities in memory only; after a restart they were
+    gone and the next question spent a planning round trip on discovery (H4).
+    """
+    runner, client = launch(
+        proposal(discover()),
+        proposal({"step_id": "a", "tool": "lakehouse", "arguments": {"series": [TOTAL]}}),
+        "Tablo hazır.",
+    )
+    owner_token = owner(client)
+    sid, headers, _ = open_conversation(client, owner_token)
+    answered = ask(client, sid, headers, "Toplam konut kredisi bakiyesini göster.")
+    assert answered["answer"]["status"] in ("accepted", "qualified"), answered
+    proven = runner._proven.get(sid, set())
+    assert TOTAL in proven
+
+    restarted, _ = launch()
+    restarted._restore(sid)
+    assert restarted._proven.get(sid, set()) == proven

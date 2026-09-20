@@ -22,7 +22,7 @@ import json
 import secrets
 import sqlite3
 import threading
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -163,6 +163,13 @@ CREATE TABLE IF NOT EXISTS result_series (
     series_id       TEXT NOT NULL,
     created_at      TEXT NOT NULL,
     PRIMARY KEY (conversation_id, turn_id, series_id)
+);
+
+CREATE TABLE IF NOT EXISTS proven_series (
+    conversation_id TEXT NOT NULL REFERENCES conversations(conversation_id),
+    series_id       TEXT NOT NULL,
+    proven_at       TEXT NOT NULL,
+    PRIMARY KEY (conversation_id, series_id)
 );
 
 CREATE INDEX IF NOT EXISTS result_series_by_series ON result_series(series_id, created_at DESC);
@@ -587,6 +594,30 @@ class ConversationStore:
             ).fetchone()
         return row is not None and row["deleted_at"] is not None
 
+    def proven_series(self, conversation_id: str) -> set[str]:
+        """Identities the catalog returned in this conversation, over restarts too.
+
+        Kept so a reopened conversation does not spend a planning round trip
+        proving a series the catalog already vouched for (finding H4).
+        """
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT series_id FROM proven_series WHERE conversation_id = ?",
+                [conversation_id],
+            ).fetchall()
+        return {row["series_id"] for row in rows}
+
+    def add_proven_series(self, conversation_id: str, series_ids: Iterable[str]) -> None:
+        identities = sorted({item for item in series_ids if item})
+        if not identities:
+            return
+        now = self._now()
+        with self._write() as connection:
+            connection.executemany(
+                "INSERT OR IGNORE INTO proven_series VALUES (?, ?, ?)",
+                [(conversation_id, item, now) for item in identities],
+            )
+
     def clear_session_artifacts(self, conversation_id: str) -> None:
         """Forget document/publication references after their files are gone."""
         with self._write() as connection:
@@ -596,6 +627,9 @@ class ConversationStore:
             )
             connection.execute(
                 "DELETE FROM result_series WHERE conversation_id = ?", [conversation_id]
+            )
+            connection.execute(
+                "DELETE FROM proven_series WHERE conversation_id = ?", [conversation_id]
             )
 
     def delete_runs(self, conversation_id: str) -> int:

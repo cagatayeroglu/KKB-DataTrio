@@ -10,7 +10,7 @@ import re
 import shutil
 import threading
 import time
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from functools import partial
@@ -561,6 +561,11 @@ class PreparedRunner:
                     document.admitted_at,
                 )
         self._history[session_id] = list(self._store.history(session_id, MAX_HISTORY_TURNS))
+        # The catalog vouched for these in an earlier turn of this conversation; without
+        # them a reopened chat pays a planning round trip to prove them again (H4).
+        restored_proven = self._store.proven_series(session_id)
+        if restored_proven:
+            self._proven.setdefault(session_id, set()).update(restored_proven)
         saved = self._store.pending_clarification(session_id)
         if saved is not None:
             try:
@@ -1114,11 +1119,11 @@ class PreparedRunner:
                 except Exception as failure:
                     # The catalog vouched for whatever it returned, even if the turn
                     # failed afterwards, so the next turn need not ask again.
-                    self._proven.setdefault(session_id, set()).update(session.newly_proven)
+                    self._remember_proven(session_id, session.newly_proven)
                     self._fail_run(run_id, failure, started=started, tracer=tracer)
                     raise
                 try:
-                    self._proven.setdefault(session_id, set()).update(session.newly_proven)
+                    self._remember_proven(session_id, session.newly_proven)
                     published = workspace.value_of(name) if name in workspace.names() else None
                     answer = project_answer(
                         answered,
@@ -1269,6 +1274,15 @@ class PreparedRunner:
 
         finally:
             self._lock.release()
+
+    def _remember_proven(self, session_id: str, identities: Iterable[str]) -> None:
+        """Keep this conversation's proven identities in memory and in the store."""
+        found = {item for item in identities if item}
+        if not found:
+            return
+        self._proven.setdefault(session_id, set()).update(found)
+        if self._store is not None:
+            self._store.add_proven_series(session_id, found)
 
     def _fail_run(
         self, run_id: str, failure: BaseException, *, started: float, tracer: Tracer
