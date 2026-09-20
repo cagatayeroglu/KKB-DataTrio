@@ -200,6 +200,13 @@ SYSTEM_PROMPT = (
     "final. A second calculation must depend on the first (depends_on, reading its result) "
     "or be expressed inside one combined operation; never leave two independent final "
     "calculations side by side. "
+    # The alternative to stopping is choosing and saying so. Without somewhere to
+    # put the reason, a reader saw the figure and never learned which of two series
+    # produced it, so a defensible choice looked like a silent one.
+    "When you settle something the question left open - which series, which basis, "
+    "which window - say so in that step's `assumption` field: one short Turkish "
+    "sentence, shown under the answer. Choosing and saying so beats asking when the "
+    "defaults or the question's own words support it. "
     "When a prompt contains both an original request and a user clarification "
     "(e.g. 'Orijinal istek:' and 'Açıklama:'), preserve the original request's date "
     "range, filters, and intent unless the user's clarification explicitly specifies "
@@ -739,6 +746,33 @@ def render_result(result: AnalyticalResult, ambiguous: frozenset[int] = frozense
         # were left out - and until now the one reader who had to know never saw them.
         lines.append(f"Caution, to be said in words and without a figure: {warning}")
     return "\n".join(lines)
+
+
+#: A step's assumption, shown to the reader as its own sentence. The label is the
+#: harness's, the sentence is the planner's, and the gate reads both exactly as it
+#: reads the rest of the answer: no figure that is not a computed value, no cause.
+ASSUMPTION_LABEL: Final = "Varsayım: "
+
+
+def plan_assumptions(planned: Planned, outcome: ExecutionOutcome) -> tuple[str, ...]:
+    """What the plan says it assumed, for the steps that actually ran.
+
+    A question rarely settles everything - which of two rate bases, which place,
+    which window - and the alternative to asking is choosing and saying so. The
+    choice belongs to the planner, which is the only part that knows why it chose;
+    before this it had nowhere to put it, so the reader saw a number and no reason.
+
+    A step that did not run has nothing to footnote, and the same sentence written
+    on two steps is said once.
+    """
+    ran = {item.step_id for item in outcome.results if item.status is ToolStatus.SUCCESS}
+    found: list[str] = []
+    for step in planned.plan.steps:
+        note = (step.step.assumption or "").strip()
+        if not note or step.step.step_id not in ran or note in found:
+            continue
+        found.append(note)
+    return tuple(f"{ASSUMPTION_LABEL}{note}" for note in found)
 
 
 def workspace_prompt(
@@ -1458,7 +1492,14 @@ class Session:
         )
         if self.tracer is not None and fast_draft is None:
             self.tracer.event("answer", "draft.model", source="model", detail=draft)
-        answer = self._gated(draft, available, connection, gate)
+        assumptions = plan_assumptions(planned, outcome)
+
+        def with_assumptions(text: str) -> str:
+            # Appended before gating, never after: a footnote the gate has not read
+            # is a sentence nobody checked.
+            return "\n".join([text, *assumptions]) if assumptions else text
+
+        answer = self._gated(with_assumptions(draft), available, connection, gate)
         faults = result_faults(
             {name: available[name]},
             connection,
@@ -1509,7 +1550,7 @@ class Session:
                     category="period" if period_repair else "numeric",
                     detail=rewritten,
                 )
-            answer = self._gated(rewritten, available, connection, gate)
+            answer = self._gated(with_assumptions(rewritten), available, connection, gate)
             repaired.add("period" if period_repair else "numeric")
         # Sound prose that omits this turn's scalar is not a complete answer.
         # Only an already ACCEPTED draft may receive the deterministic sentence;

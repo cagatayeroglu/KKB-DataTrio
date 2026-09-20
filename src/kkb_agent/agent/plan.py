@@ -22,6 +22,10 @@ ClarificationReason = Literal[
 ]
 
 
+#: A footnote, not a paragraph: one sentence saying what the step assumed.
+MAX_ASSUMPTION_CHARS = 200
+
+
 class PlanStep(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=False)
 
@@ -29,6 +33,13 @@ class PlanStep(BaseModel):
     tool: Identifier
     arguments: dict[str, JsonValue] = Field(default_factory=dict)
     depends_on: list[Identifier] = Field(default_factory=list)
+    assumption: str | None = Field(
+        default=None,
+        max_length=MAX_ASSUMPTION_CHARS,
+        # The reason to write one, and when, is in the planner's instructions: this
+        # contract is budgeted in bytes and every schema description is paid for there.
+        description="Optional. One short Turkish sentence: the choice this step settled itself.",
+    )
 
 
 #: A conversational reply is short prose, never a place to carry a data table.
