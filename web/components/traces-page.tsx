@@ -11,8 +11,10 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
+  ApiError,
   deleteConversationRuns,
   describeError,
+  listConversations,
   listTraceConversations,
   listFeedback,
   listRuns,
@@ -541,6 +543,9 @@ export function TracesPage({
   const [retry, setRetry] = useState(0);
   const [listRevision, setListRevision] = useState(0);
   const [listError, setListError] = useState(false);
+  //: This API has no retained-trace index, so the list came from the ordinary
+  //: conversation list and deleted conversations are not in it.
+  const [plainList, setPlainList] = useState(false);
   const chosenDeleted =
     conversations.find((item) => item.conversation_id === chosen)?.deleted ??
     false;
@@ -572,12 +577,31 @@ export function TracesPage({
     let cancelled = false;
     const timer = setTimeout(async () => {
       try {
-        const listed = await listTraceConversations(owner, {
-          archived,
-          search: search.trim() || undefined,
-        });
+        const filters = { archived, search: search.trim() || undefined };
+        let listed;
+        let retained = true;
+        try {
+          listed = await listTraceConversations(owner, filters);
+        } catch (error) {
+          // An API older than this page has no trace index, and its 404 read as
+          // "Oturum bulunamadı. API yeniden başlamış olabilir" - which is about
+          // a session, not about a route that does not exist. The ordinary list
+          // exists in every version; only deleted conversations are missing from
+          // it, and the page says so. A 404 because the key is unknown fails
+          // here too, and is reported as before.
+          if (!(error instanceof ApiError && error.status === 404)) throw error;
+          const plain = await listConversations(owner, filters);
+          listed = {
+            conversations: plain.conversations.map((item) => ({
+              ...item,
+              deleted: false,
+            })),
+          };
+          retained = false;
+        }
         if (cancelled) return;
         setListError(false);
+        setPlainList(!retained);
         setIssue("");
         setConversations(listed.conversations);
         setChosen((current) =>
@@ -725,6 +749,13 @@ export function TracesPage({
           )}
           {conversations.length === 0 && !listError && (
             <p className="chat-empty">Sohbet yok.</p>
+          )}
+          {plainList && (
+            <p className="helper">
+              Bu sunucu sürümü silinmiş sohbetlerin izlerini listelemiyor; liste
+              sohbetlerden okundu. Güncel koddan yeniden başlatınca silinmiş
+              sohbetlerin izleri de burada görünür.
+            </p>
           )}
         </nav>
         <nav className="traces-column" aria-label="Turlar">
