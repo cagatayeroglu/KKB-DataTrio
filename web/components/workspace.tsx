@@ -278,6 +278,12 @@ export function Workspace() {
     [asNewQuestion, setAsNewQuestion] = useState(false),
     //: What the clarification this conversation is waiting on offered, for a reopened tab.
     [pendingOffered, setPendingOffered] = useState<string[]>([]),
+    //: Documents this conversation holds on the server, named as it names them.
+    //: A reopened chat's uploads were invisible to the knowledge-base form,
+    //: which only knew the ones this tab had sent (finding F4-bt-4).
+    [storedDocuments, setStoredDocuments] = useState<
+      { document_ref: string; name: string; document_format: string }[]
+    >([]),
     [restoredTables, setRestoredTables] = useState<
       { turnId: string; result: Result }[]
     >([]),
@@ -344,6 +350,15 @@ export function Workspace() {
   function openTrace(turnId?: string, runId?: string) {
     setTracing({ turnId, runId });
     setPanel("traces");
+  }
+  /** Re-read the prepared pool's own numbers without touching the page's state. */
+  async function refreshPool() {
+    try {
+      const pool = await api("dataset", datasetSchema);
+      if (mounted.current) setDataset(pool);
+    } catch {
+      // The strip keeps the numbers it has; the page's own Yenile can retry.
+    }
   }
   async function refreshSettings(token = ownerToken) {
     if (!token) return;
@@ -441,6 +456,7 @@ export function Workspace() {
     setItems([]);
     setTranscript([]);
     setPendingOffered([]);
+    setStoredDocuments([]);
     setRestoredTables([]);
     setLostTables([]);
     setConversationId(null);
@@ -539,6 +555,7 @@ export function Workspace() {
         );
         setTranscript(earlier);
         setPendingOffered(detail.pending_offered);
+        setStoredDocuments(detail.documents);
         const kept = await restoreTables(conversationId, earlier, ownerToken);
         if (!cancelled && mounted.current) setRestoredTables(kept);
       } catch {
@@ -588,6 +605,7 @@ export function Workspace() {
       setConversationId(id);
       setTranscript(detail.messages);
       setPendingOffered(detail.pending_offered);
+      setStoredDocuments(detail.documents);
       try {
         const rated = await listFeedback(id, ownerToken);
         if (active())
@@ -652,6 +670,7 @@ export function Workspace() {
         if (!active()) return;
         setTranscript(fresh.messages);
         setPendingOffered(fresh.pending_offered);
+        setStoredDocuments(fresh.documents);
         const freshTables = await restoreTables(id, fresh.messages, ownerToken);
         if (!active()) return;
         setRestoredTables(freshTables);
@@ -1207,16 +1226,26 @@ export function Workspace() {
   // Documents this conversation uploaded, offered to the knowledge-base form.
   const chatDocuments: ChatDocument[] = saved.current
     ? [
-        ...new Set(
-          items.flatMap((item) =>
+        ...new Set([
+          // The server's own list first, in its own order: a reopened chat's
+          // uploads are there and this tab's `items` know only their own.
+          ...storedDocuments.map((document) => document.document_ref),
+          ...items.flatMap((item) =>
             item.document_ref ? [item.document_ref] : [],
           ),
-        ),
-      ].map((ref, index) => ({
-        sessionId: saved.current!.session.session_id,
-        ref,
-        label: `Belge ${index + 1}`,
-      }))
+        ]),
+      ].map((ref, index) => {
+        const known = storedDocuments.find(
+          (document) => document.document_ref === ref,
+        );
+        return {
+          sessionId: saved.current!.session.session_id,
+          ref,
+          label: known
+            ? `${known.name.replace("belge_", "Belge ")} · ${known.document_format.toUpperCase()}`
+            : `Belge ${index + 1}`,
+        };
+      })
     : [];
   function sourceLabel(reference?: string) {
     if (!reference) return "Serbest soru";
@@ -2391,12 +2420,17 @@ export function Workspace() {
                     <div className="page-stats">
                       <span>
                         <strong>{dataset?.prepared_identities ?? "—"}</strong>{" "}
-                        hazır seri
+                        hazır seri (havuzda gözlemi olan)
                       </span>
-                      <span>
-                        <strong>{dataset?.catalog_identities ?? "—"}</strong>{" "}
-                        katalog kaydı
-                      </span>
+                      {!knowledgeBase && (
+                        // With the knowledge base on, its own strip states the
+                        // catalogue counts; two strips used to show the same
+                        // number under two names (finding B2).
+                        <span>
+                          <strong>{dataset?.catalog_identities ?? "—"}</strong>{" "}
+                          katalog kaydı
+                        </span>
+                      )}
                       {dataset && (
                         <span>
                           {(dataset.pool_bytes / 1024 / 1024).toLocaleString(
@@ -2420,6 +2454,7 @@ export function Workspace() {
                         owner={ownerToken}
                         documents={chatDocuments}
                         pool={dataset}
+                        onChanged={() => void refreshPool()}
                         onOpenConversation={(id) => void openChat(id)}
                         session={
                           saved.current

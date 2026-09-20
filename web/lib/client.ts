@@ -815,6 +815,47 @@ export const errorText: Record<string, string> = {
     "Bu istek kimliği farklı bir soruya ait. Mevcut isteği tamamla.",
   internal_error: "Analiz tamamlanamadı. Önceki sonuçlar korunuyor.",
 };
+/**
+ * What went wrong in the knowledge base, said in its own words.
+ *
+ * The panel used to borrow the chat's sentences, so a refused record said
+ * "Başka bir analiz devam ediyor" or "Soruyu ve metin uzunluğunu kontrol et",
+ * and a file that was not an export said the browser could not store the
+ * session (finding F4-bt-5).
+ */
+export const knowledgeErrorText: Record<string, string> = {
+  knowledge_rejected:
+    "Kayıt kabul edilmedi. Zorunlu alanları, kimliği ve satır biçimini (dönem;değer) kontrol et.",
+  invalid_request:
+    "Alanlar kabul edilmedi. Ad, kimlik ve açıklama uzunluklarını kontrol et.",
+  invalid_document:
+    "Belge bu sohbette bulunamadı ya da değişmiş. Belgeyi yeniden yükle.",
+  not_found:
+    "Bu kayıt bulunamadı; başka bir yerde değişmiş olabilir. Listeyi tazele.",
+  busy: "Bilgi tabanında başka bir iş sürüyor (vektörleme olabilir). Bitince yeniden dene.",
+  capacity:
+    "Bu sohbetin belge hakkı doldu (4 belge). Yeni bir sohbet aç ya da yüklediğin belgelerden birini kullan.",
+  unavailable:
+    "Yerel servise ulaşılamıyor ya da bu özellik kapalı. API'nin çalıştığını kontrol et.",
+  connection:
+    "Bağlantı kesildi. İşlem sunucuda sürmüş olabilir; listeyi tazeleyip kontrol et.",
+  forbidden:
+    "Yerel bağlantı doğrulanamadı. Arayüzü 127.0.0.1:3000 adresinden aç.",
+  body_too_large: "Dosya ya da satırlar boyut sınırını aşıyor.",
+};
+export function describeKnowledgeError(error: unknown) {
+  if (error instanceof ApiError)
+    return (
+      knowledgeErrorText[error.code] ??
+      errorText[error.code] ??
+      "İşlem tamamlanamadı. Bilgi tabanında değişen bir şey yok."
+    );
+  if (error instanceof SyntaxError)
+    return "Dosya okunamadı: geçerli bir JSON değil. Dışa aktarılan .json dosyasını seç.";
+  if (error instanceof Error && error.name === "ZodError")
+    return "Dosya bu sürümün dışa aktarım biçimine uymuyor.";
+  return "İşlem tamamlanamadı. Bilgi tabanında değişen bir şey yok.";
+}
 export function describeError(error: unknown) {
   return error instanceof ApiError
     ? (errorText[error.code] ??
