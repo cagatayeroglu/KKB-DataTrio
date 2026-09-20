@@ -123,6 +123,14 @@ class SessionCleaner(Protocol):
     def __call__(self, session_id: str) -> None: ...
 
 
+#: What the runner's cleaner raises while another turn holds it. Only that waits for later.
+RUNNER_BUSY = "concurrent_runtime_refused"
+
+
+def _runner_busy(error: Exception) -> bool:
+    return isinstance(error, ValueError) and str(error) == RUNNER_BUSY
+
+
 @dataclass(frozen=True, slots=True)
 class SelectedResult:
     """Server-resolved publication identity; workspace validity is checked by its runner."""
@@ -769,10 +777,16 @@ class AnalysisService:
                     return True
             try:
                 self._clean_deleted(session_id)
-            except Exception:
-                # The conversation is already hidden and its runs are kept. Leaving
-                # the files behind is not a reason to report failure and hand back a
-                # chat the person cannot see any more: finish the removal later.
+            except Exception as error:
+                if not _runner_busy(error):
+                    # A refused path (a link out of the runtime root, something that is
+                    # not a directory) is not a busy runner: nothing is removed, nothing
+                    # is queued to be tried again, and the caller is not told it worked.
+                    raise ServiceError("unavailable", 503) from None
+                # The conversation is already hidden and its runs are kept. A runner
+                # busy with another conversation's turn is not a reason to report
+                # failure and hand back a chat the person cannot see any more: finish
+                # the removal later.
                 self._pending_cleanup.add(session_id)
             return True
 
