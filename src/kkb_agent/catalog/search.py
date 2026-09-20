@@ -391,11 +391,14 @@ def search_catalog(
     query_terms = set(key.split())
     count = len(documents)
     average = sum(sum(d.values()) for d in documents.values()) / count if count else 1.0
+    # Counted once per word of the question, not once per series that carries it: with the
+    # sources' listings in the catalogue that was millions of lookups a search.
+    holders = {term: sum(term in doc for doc in documents.values()) for term in query_terms}
     scores: dict[str, float] = {}
     for sid, doc in documents.items():
         score = 0.0
         for term in sorted(query_terms & doc.keys()):
-            df = sum(term in other for other in documents.values())
+            df = holders[term]
             idf = log(1 + (count - df + 0.5) / (df + 0.5))
             tf = doc[term]
             score += idf * tf * 2.2 / (tf + 1.2 * (0.25 + 0.75 * sum(doc.values()) / average))
