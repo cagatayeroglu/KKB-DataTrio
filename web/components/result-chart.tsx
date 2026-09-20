@@ -88,6 +88,11 @@ export function ResultChart({
             plot_bgcolor: "rgba(0,0,0,0)",
             showlegend: true,
             legend: { orientation: "h", y: -0.2 },
+            // What the reader did to the chart - a zoom, a pan, a legend click -
+            // survives a redraw while it keeps the same key. The studio replaces
+            // `items` every second while a turn runs, and every one of those
+            // renders used to throw the reader back to the full range.
+            uirevision: `${result.result_ref}:${shown.map((group) => group.key).join("|")}`,
             xaxis: {
               type: "date",
               // The label follows the zoom: months at the usual scale, days once a
@@ -108,21 +113,37 @@ export function ResultChart({
               gridcolor: "#edf1ee",
               zeroline: false,
             },
-            yaxis2: {
-              title: { text: shown[1]?.label ?? "" },
-              exponentformat: "none",
-              separatethousands: true,
-              automargin: true,
-              overlaying: "y",
-              side: "right",
-              showgrid: false,
-              zeroline: false,
-            },
+            // Declared only when a second unit group is on screen: an overlaying
+            // axis with nothing on it still reserves its side and shifts the plot.
+            ...(shown.length > 1
+              ? {
+                  yaxis2: {
+                    title: { text: shown[1]?.label ?? "" },
+                    exponentformat: "none",
+                    separatethousands: true,
+                    automargin: true,
+                    overlaying: "y" as const,
+                    side: "right" as const,
+                    showgrid: false,
+                    zeroline: false,
+                  },
+                }
+              : {}),
           }}
           config={{
             displaylogo: false,
             responsive: true,
-            modeBarButtonsToRemove: ["select2d", "lasso2d", "toImage"],
+            // Box and lasso select do nothing on a line chart but leave the
+            // cursor in a selecting mode the reader then has to undo; the image
+            // download would leave a picture with no provenance beside it.
+            modeBarButtonsToRemove: [
+              "select2d",
+              "lasso2d",
+              "toImage",
+              "toggleSpikelines",
+            ],
+            doubleClick: "reset+autosize",
+            scrollZoom: false,
           }}
           style={{ width: "100%" }}
           useResizeHandler
