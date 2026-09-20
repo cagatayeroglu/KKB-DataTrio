@@ -154,6 +154,7 @@ def test_undoing_an_edit_restores_the_catalogue_digest(store):
     edited = effective_snapshot(REVIEWED, store.datasets(), store.notes())
     assert edited.content_sha256 != start.content_sha256
 
+
 def test_archiving_a_reviewed_series_takes_it_out_of_search_and_computation(store):
     before = search_catalog(REVIEWED, CatalogSearchArguments(query="toplam konut kredisi"))
     assert TOTAL in [c.series.record.series_id for c in before.candidates]

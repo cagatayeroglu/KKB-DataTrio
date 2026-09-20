@@ -202,16 +202,13 @@ def test_a_build_killed_before_its_manifest_does_not_block_the_next_one(
     assert LocalCatalogIndex.open(root, snapshot, profile).snapshot_sha256 == (
         snapshot.content_sha256
     )
-    kept = [
-        path
-        for path in tmp_path.iterdir()
-        if path.name.startswith("generation.incomplete-")
-    ]
+    kept = [path for path in tmp_path.iterdir() if path.name.startswith("generation.incomplete-")]
     assert len(kept) == 1 and (kept[0] / "half-written.lance").read_bytes() == b"debris"
 
     # A complete generation is still never overwritten.
     with pytest.raises(CatalogIndexError, match="NEW_LOCAL_DIRECTORY"):
         build_catalog_index(root, snapshot, vectors)
+
 
 def test_old_snapshot_cannot_open_new_index(built, profile):
     root, _ = built
