@@ -113,7 +113,9 @@ CONTINUATION_INSTRUCTIONS = (
 REQUIRED_DISCOVERY_INSTRUCTIONS = (
     "Before reading any new series, you MUST first plan catalog_search only, even if "
     "a reviewed series identity is already visible. Search separately for each needed "
-    "measure. Direct analysis is permitted only for table_transform rebase/change/align/"
+    "measure. A promote_series offer for an admitted document is not a series read and "
+    "may be planned directly. Direct analysis is permitted only for table_transform "
+    "rebase/change/align/"
     "filter/join_table/to_flow/resample/summarize "
     "or change_detection table_co_movement over existing workspace columns. Adding a "
     "series or deflating needs discovery of the added series or price index first. "
@@ -142,7 +144,9 @@ def required_discovery_instructions(
         f"conversation: {listed}. Use them directly in analysis steps; do not search "
         "for them again. "
         "Before reading any series NOT listed above, you MUST first plan catalog_search "
-        "only, searching separately for each needed measure. Direct analysis is also "
+        "only, searching separately for each needed measure. A promote_series offer for "
+        "an admitted document is not a series read and may be planned directly. "
+        "Direct analysis is also "
         "permitted for table_transform rebase/change/align/filter/join_table/to_flow/"
         "resample/summarize "
         "or change_detection table_co_movement over existing workspace columns. "
@@ -184,7 +188,7 @@ MAX_NAMED_UNPROVEN = 8
 
 
 def needs_series_discovery(plan: ValidatedPlan, proven: frozenset[str] = frozenset()) -> bool:
-    """Only existing-column operations and prompt addresses may bypass discovery in hybrid mode.
+    """Non-series actions and existing-column operations may bypass hybrid discovery.
 
     This is an execution admission rule, not a keyword guess about the question.
     Unknown/new tool operations conservatively require discovery. `web_url` reads
@@ -220,8 +224,12 @@ def needs_series_discovery(plan: ValidatedPlan, proven: frozenset[str] = frozens
     # `document_read` names no series either: it reads an admitted document and returns
     # a reading (DEC-181). Without this the rule sent a picture of a chart to
     # catalog_search, which has nothing to find for it (live 2026-09-20).
+    # `promote_series` only proposes a save from an already admitted document;
+    # its registry registration and typed arguments bind it to that conversation.
+    # It does not read a catalog series or write before confirmation (DEC-183).
     return any(
-        step.step.tool not in ("catalog_search", "web_url", "web_search", "document_read")
+        step.step.tool
+        not in ("catalog_search", "web_url", "web_search", "document_read", "promote_series")
         and step.arguments.model_dump().get("operation")
         not in workspace_operations.get(step.step.tool, set())
         and not _already_proven(step, proven)

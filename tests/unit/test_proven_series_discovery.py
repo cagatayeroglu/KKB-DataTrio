@@ -40,6 +40,7 @@ from kkb_agent.tools import make_catalog_search_tool
 from kkb_agent.tools.anomaly import AnomalyArguments
 from kkb_agent.tools.change_detection import ChangeDetectionArguments
 from kkb_agent.tools.lakehouse import LakehouseArguments
+from kkb_agent.tools.promotion import PromoteSeriesArguments
 from kkb_agent.tools.table_transform import TableTransformArguments
 
 OTHER = "EVDS:TP.TUKFIY2025.GENEL"
@@ -82,6 +83,12 @@ def change(series_id=TOTAL):
 def add_series(series_id=TOTAL):
     return TableTransformArguments.model_validate(
         {"operation": "add_series", "source": "analiz_1", "series_id": series_id}
+    )
+
+
+def promotion():
+    return PromoteSeriesArguments(
+        title="Şirket geliri", unit="TL", scale="million", meaning="monthly_total"
     )
 
 
@@ -175,6 +182,17 @@ def test_an_unproven_identity_is_still_refused(rig):  # noqa: F811
         )
 
 
+def test_document_promotion_needs_no_catalog_but_mixed_unproven_read_does():
+    offer = step("promote_series", promotion())
+    validate_discovery_phase(plan_of(offer), continuation=False, require_series_discovery=True)
+    with pytest.raises(PlanRejected, match="Continuation permits"):
+        validate_discovery_phase(plan_of(offer), continuation=True, require_series_discovery=True)
+
+    mixed = plan_of(offer, step("change_detection", change(), step_id="b"))
+    with pytest.raises(PlanRejected, match="catalog_search phase"):
+        validate_discovery_phase(mixed, continuation=False, require_series_discovery=True)
+
+
 def test_one_unproven_identity_among_proven_ones_still_requires_discovery():
     plan = plan_of(
         step("change_detection", change(TOTAL), step_id="a"),
@@ -217,6 +235,7 @@ def test_validate_admits_a_fully_proven_plan_before_any_tool_runs():
 
 def test_instructions_stay_unchanged_when_nothing_is_proven():
     assert required_discovery_instructions(frozenset()) == REQUIRED_DISCOVERY_INSTRUCTIONS
+    assert "promote_series offer for an admitted document" in REQUIRED_DISCOVERY_INSTRUCTIONS
 
 
 def test_instructions_name_the_proven_identities_and_drop_the_contradiction():
@@ -226,6 +245,7 @@ def test_instructions_name_the_proven_identities_and_drop_the_contradiction():
     # visible", which contradicts admitting exactly that plan.
     assert "even if a reviewed series identity is already visible" not in text
     assert "NOT listed above" in text
+    assert "promote_series offer for an admitted document" in text
 
 
 def test_a_failed_catalog_search_proves_nothing_even_with_candidates_attached():
