@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 from test_catalog_continuation import CATALOG, TOTAL, proposal
 from test_document_dataset import BASE, csv, seed, table_step
-from test_document_table import ask, step
+from test_document_table import ask, step, wait_http
 
 from kkb_agent.api.app import create_app
 from kkb_agent.api.prepared import PreparedRunner
@@ -466,3 +466,74 @@ def test_delete_without_cleanup_binding_fails_closed_and_keeps_chat(launch):
     response = client.delete(f"/v1/conversations/{sid}", headers={"X-KKB-Owner-Token": own})
     assert response.status_code == 503
     assert client.get(f"/v1/conversations/{sid}", headers=headers).status_code == 200
+
+
+def test_delete_while_the_runner_is_busy_succeeds_and_cleans_up_later(launch):
+    """A deletion is never reported as a failure because another turn holds the runner.
+
+    The runner is single-turn: removing one conversation's files while a different
+    conversation is mid-turn cannot take the lock, and the caller used to get 503
+    although the chat had already been hidden (finding J-3).
+    """
+    runner, client = launch(table_step(), "Tablo hazır.")
+    owner_token = owner(client)
+    sid, headers, _ = open_conversation(client, owner_token)
+    document = upload(client, sid, headers)
+    assert (
+        ask(client, sid, headers, "Belgeden tablo yap.", document_ref=document)["answer"]["status"]
+        == "accepted"
+    )
+    session_dir = runner.run_root / sid
+    assert session_dir.exists()
+    owner_headers = {"X-KKB-Owner-Token": owner_token}
+
+    # Exactly the state a concurrent turn leaves behind: the runner lock is held.
+    assert runner._lock.acquire(blocking=False)
+    try:
+        deleted = client.delete(f"/v1/conversations/{sid}", headers=owner_headers)
+        assert deleted.status_code == 200, deleted.text
+        assert client.get("/v1/conversations", headers=owner_headers).json()["conversations"] == []
+        assert session_dir.exists()
+    finally:
+        runner._lock.release()
+
+    # Whatever finishes next drains the queue; the trace stays.
+    client.get("/v1/health")
+    other, other_headers, _ = open_conversation(client, owner_token)
+    ask(client, other, other_headers, "selam")
+    assert not session_dir.exists()
+    assert client.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"]
+
+
+def test_a_failure_after_the_answer_still_closes_the_run(launch, monkeypatch):
+    """Publication comes after a good answer, and it is inside the run's lifetime.
+
+    An exception while the table is being written used to leave the row 'running'
+    for ever; only the next start-up sweep closed it (finding A3b).
+    """
+    runner, client = launch(table_step(), "Tablo hazır.")
+    owner_token = owner(client)
+    sid, headers, _ = open_conversation(client, owner_token)
+    document = upload(client, sid, headers)
+    monkeypatch.setattr(
+        runner,
+        "_materialize_gold",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("disk full")),
+    )
+    path = f"/v1/sessions/{sid}/turns"
+    admitted = client.post(
+        path,
+        json={
+            "request_id": uuid4().hex,
+            "question": "Belgeden tablo yap.",
+            "document_ref": document,
+        },
+        headers=headers,
+    )
+    assert admitted.status_code == 202, admitted.text
+    finished = wait_http(client, f"{path}/{admitted.json()['turn_id']}", headers)
+    assert finished["state"] == "failed"
+
+    runs = client.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"]
+    assert [(item["status"], item["error"]) for item in runs] == [("failed", "internal_error")]
+    assert runs[0]["ended_at"] and runs[0]["duration_ms"] > 0
