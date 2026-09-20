@@ -1,9 +1,9 @@
 """Fixed one-request worker, terminated by the parent for DNS/total deadlines.
 
 Not a command runner: the executable/module are constant, input is validated
-JSON on stdin: bounded source GET, the closed reviewed Monthly POST or the closed
-EVDS `fe` POST. stdout contains bounded connection-phase markers and one bounded
-JSON result; stderr is discarded.
+JSON on stdin: bounded source GET, the closed reviewed Monthly POST, the closed Weekly
+POST or the closed EVDS `fe` POST. stdout contains bounded connection-phase markers and
+one bounded JSON result; stderr is discarded.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from urllib.parse import quote, urlsplit, urlunsplit
 
 if TYPE_CHECKING:
     from kkb_agent.ingest.bddk_monthly_request import MonthlyRequest
+    from kkb_agent.ingest.bddk_weekly_request import WeeklyRequest
     from kkb_agent.ingest.evds_request import EvdsRequest
 
 from pydantic import SecretStr
@@ -54,6 +55,7 @@ def fetch_once(
     connecting: Callable[[], None] = lambda: None,
     monthly: MonthlyRequest | None = None,
     evds: EvdsRequest | None = None,
+    weekly: WeeklyRequest | None = None,
 ) -> FetchOutcome:
     """One supervised request lifecycle, including explicitly checked GET hops."""
 
@@ -65,7 +67,7 @@ def fetch_once(
         body = None
         content_type = "application/x-www-form-urlencoded"
         fixed_headers: tuple[tuple[str, str], ...] = ()
-        if monthly is not None and evds is not None:
+        if sum(item is not None for item in (monthly, evds, weekly)) > 1:
             return FetchFailure(source_ref=request.source_ref, code=FetchCode.INVALID_REQUEST)
         if monthly is not None:
             from kkb_agent.ingest.bddk_monthly_request import MONTHLY_LIMITS, MonthlyRequest
@@ -81,8 +83,17 @@ def fetch_once(
             if request != evds.fetch_request() or limits != EVDS_LIMITS:
                 return FetchFailure(source_ref=request.source_ref, code=FetchCode.INVALID_REQUEST)
             body, content_type, fixed_headers = evds.json_body(), "application/json", CLIENT_HEADERS
-        # Only the revalidated fixed Monthly POST gets the pinned BDDK issuer.
-        connection = SourceConnection(request, limits=limits, reviewed_issuer=monthly is not None)
+        if weekly is not None:
+            from kkb_agent.ingest.bddk_weekly_request import WEEKLY_LIMITS, WeeklyRequest
+
+            weekly = WeeklyRequest.model_validate(weekly)
+            if request != weekly.fetch_request() or limits != WEEKLY_LIMITS:
+                return FetchFailure(source_ref=request.source_ref, code=FetchCode.INVALID_REQUEST)
+            body = weekly.form_body()
+        # Only the revalidated fixed BDDK POSTs get the pinned BDDK issuer.
+        connection = SourceConnection(
+            request, limits=limits, reviewed_issuer=monthly is not None or weekly is not None
+        )
         visited = {connection.url.get_secret_value()}
         hops = 0
 
@@ -198,6 +209,11 @@ def main() -> int:
             from kkb_agent.ingest.evds_request import EvdsRequest
 
             evds = EvdsRequest.model_validate(data["evds"])
+        weekly = None
+        if "weekly" in data:
+            from kkb_agent.ingest.bddk_weekly_request import WeeklyRequest
+
+            weekly = WeeklyRequest.model_validate(data["weekly"])
 
         def connected() -> None:
             sys.stdout.buffer.write(CONNECTED)
@@ -210,7 +226,13 @@ def main() -> int:
             sys.stdout.buffer.flush()
 
         result = fetch_once(
-            request, limits, connected, connecting=connecting, monthly=monthly, evds=evds
+            request,
+            limits,
+            connected,
+            connecting=connecting,
+            monthly=monthly,
+            evds=evds,
+            weekly=weekly,
         )
         encoded = result.model_dump(mode="json")
         if isinstance(result, FetchSuccess):

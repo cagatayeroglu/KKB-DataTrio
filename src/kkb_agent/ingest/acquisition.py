@@ -7,9 +7,9 @@ parse and store it. This module is the bridge, and it adds no authority those
 adapters did not already have:
 
 * Only an identity with a reviewed route reaches transport: `EVDS:<code>` for a
-  code in `evds_series.REVIEWED_SERIES`, or a BDDK selector id whose selector is
-  in the reviewed monthly housing scope. The model never supplies an endpoint, a
-  code outside those registries, a window or a header.
+  code in `evds_series.REVIEWED_SERIES`, or a BDDK selector id whose selector the
+  monthly or the weekly bulletin adapter accepts. The model never supplies an
+  endpoint, a code outside those registries, a window or a header.
 * Windows are the operator's fixed policy, not the question's: silver keeps one
   immutable batch per series, so a window chosen per question would make the
   next question's fetch a version conflict.
@@ -45,6 +45,9 @@ from kkb_agent.core import Frequency
 from kkb_agent.ingest.bddk_monthly import BddkSelector, MonthlyPeriod, supported_selectors
 from kkb_agent.ingest.bddk_monthly_load import MonthlyLoadCode, MonthlyLoadError, ingest_monthly
 from kkb_agent.ingest.bddk_monthly_request import MonthlyRange, MonthlyRequest, fetch_monthly
+from kkb_agent.ingest.bddk_weekly import supported_weekly_selectors
+from kkb_agent.ingest.bddk_weekly_load import WeeklyLoadCode, WeeklyLoadError, ingest_weekly
+from kkb_agent.ingest.bddk_weekly_request import FIRST_WEEK, WeeklyRequest, fetch_weekly
 from kkb_agent.ingest.evds_load import EvdsLoadCode, EvdsLoadError, ingest_series
 from kkb_agent.ingest.evds_request import EvdsRequest, EvdsWindow, fetch_series
 from kkb_agent.ingest.evds_series import REVIEWED_SERIES, ReviewedEvdsSeries
@@ -216,8 +219,23 @@ def reviewed_selector(series_id: str) -> BddkSelector | None:
     return ROUTED_SELECTORS.get(series_id)
 
 
+#: Every selector the weekly adapter accepts, by catalogue id (DEC-182).
+ROUTED_WEEKLY_SELECTORS: Final = {
+    selector.internal_id(): selector for selector in supported_weekly_selectors()
+}
+
+
+def weekly_selector(series_id: str) -> BddkSelector | None:
+    """The weekly selector a catalogue id names, when the adapter accepts it."""
+    return ROUTED_WEEKLY_SELECTORS.get(series_id)
+
+
 def has_reviewed_route(series_id: str) -> bool:
-    return reviewed_code(series_id) is not None or reviewed_selector(series_id) is not None
+    return (
+        reviewed_code(series_id) is not None
+        or reviewed_selector(series_id) is not None
+        or weekly_selector(series_id) is not None
+    )
 
 
 class _Fingerprinted(Protocol):
@@ -321,6 +339,7 @@ class OfficialSources:
 
     evds: Callable[[EvdsRequest], FetchOutcome] = fetch_series
     bddk: Callable[[MonthlyRequest], FetchOutcome] = fetch_monthly
+    bddk_weekly: Callable[[WeeklyRequest], FetchOutcome] = fetch_weekly
     store: AcquisitionStore | None = None
     #: The wait before a transient failure is asked again; a test passes a no-op.
     pause: Callable[[float], None] = time.sleep
@@ -349,14 +368,18 @@ class TurnAcquirer:
         if tried is not None:
             return tried  # One attempt per series per turn, whatever it returned.
         code, selector = reviewed_code(series_id), reviewed_selector(series_id)
+        weekly = weekly_selector(series_id)
         listed = (
             self.sources.listed_evds(series_id)
-            if code is None and selector is None and self.sources.listed_evds is not None
+            if code is None
+            and selector is None
+            and weekly is None
+            and self.sources.listed_evds is not None
             else None
         )
         if listed is not None:
             code = listed.code
-        if code is None and selector is None:
+        if code is None and selector is None and weekly is None:
             outcome = Acquisition(
                 series_id,
                 AcquisitionCode.NO_REVIEWED_ROUTE,
@@ -370,11 +393,12 @@ class TurnAcquirer:
             )
         else:
             try:
-                outcome = (
-                    self._evds(series_id, code, listed)
-                    if code is not None
-                    else self._bddk(series_id, selector)  # type: ignore[arg-type]
-                )
+                if code is not None:
+                    outcome = self._evds(series_id, code, listed)
+                elif selector is not None:
+                    outcome = self._bddk(series_id, selector)
+                else:
+                    outcome = self._bddk_weekly(series_id, weekly)  # type: ignore[arg-type]
             except ValueError:
                 # A window or request the reviewed contract refuses is a refusal, never
                 # a crash in the middle of a turn.
@@ -459,6 +483,37 @@ class TurnAcquirer:
             missing_values=loaded.missing_values,
             window_start=start,
             window_end=end,
+            from_store=bool(calls) and not any(calls),
+        )
+
+    def _bddk_weekly(self, series_id: str, selector: BddkSelector) -> Acquisition:
+        """Every week from `FIRST_WEEK` to the latest the source has published by today."""
+        calls = self._live()
+        asked = patient(self.sources.bddk_weekly, self.sources.pause)
+        retrieve = (
+            self.sources.store.cached(asked, calls)  # type: ignore[arg-type]
+            if self.sources.store is not None
+            else asked
+        )
+        try:
+            loaded = ingest_weekly(self.lake, selector, self.today, retrieve=retrieve)
+        except WeeklyLoadError as error:
+            return Acquisition(
+                series_id,
+                AcquisitionCode.RETRIEVAL_FAILED
+                if error.code is WeeklyLoadCode.RETRIEVAL_FAILED
+                else AcquisitionCode.REFUSED,
+                window_start=FIRST_WEEK,
+                window_end=self.today,
+                detail=error.code.value,
+            )
+        return Acquisition(
+            series_id,
+            AcquisitionCode.ALREADY_PRESENT if loaded.already_present else AcquisitionCode.ACQUIRED,
+            observations=loaded.weeks,
+            missing_values=loaded.missing_values,
+            window_start=loaded.first_week,
+            window_end=loaded.last_week,
             from_store=bool(calls) and not any(calls),
         )
 

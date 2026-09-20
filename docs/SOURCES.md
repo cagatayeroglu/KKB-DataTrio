@@ -30,18 +30,15 @@ not new checks or permission to change the evidence.
 
 ## What is covered, and what is not
 
-The demo answers from three prepared families and the EVDS directory:
+The demo answers from the prepared families and the sources' own directories:
 BDDK Monthly Bulletin tables that were reviewed one by one, the four reviewed
-EVDS series, and whatever EVDS's own directory lists, which is searched and
+EVDS series, and whatever the BDDK monthly bulletin, the BDDK weekly bulletin
+([DEC-182](DECISIONS.md)) and EVDS list themselves, which is searched and
 fetched on first use. Everything else is refused by name rather than guessed.
 
-Three things a reader may ask for are deliberately absent:
+Two things a reader may ask for are deliberately absent:
 
-- **BDDK Weekly Bulletin.** The endpoint was measured and its table list
-  collected, but two of its tables (3 and 9) have no reviewed reading yet, and a
-  weekly balance read with the wrong anchor is wrong in a way no gate can catch.
-  Asked for it, the agent says the source is not prepared instead of reading it.
-- **FinTürk (province breakdown).** Same reason: no adapter has been written and
+- **FinTürk (province breakdown).** No adapter has been written and
   reviewed, so there is no identity to cite for a province-level number.
 - **The rest of the Monthly Bulletin layouts** (loans, deposits, sectoral,
   ratios). The ones reviewed are prepared; the others are listed but not read.
