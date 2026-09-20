@@ -64,6 +64,7 @@ from kkb_agent.knowledge import (
 )
 from kkb_agent.lakehouse.records import Observation
 from kkb_agent.lakehouse.semantics import SemanticsError, period_bounds
+from kkb_agent.tools.promotion import PromotionProposal, PromotionReceipt
 
 #: (session_id, document_ref, period_column, value_column, sheet, year) -> monthly
 #: (period end, value) pairs and the document's content digest. Owned by the runner.
@@ -544,6 +545,10 @@ class KnowledgeService:
 
     def dataset(self, owner_token: str, slug: str) -> DatasetDetail:
         self._author(owner_token)
+        return self._detail(slug)
+
+    def _detail(self, slug: str) -> DatasetDetail:
+        """One dataset as the page shows it; the caller has already been authorized."""
         latest = self._knowledge.dataset(slug)
         if latest is None:
             raise ServiceError("not_found", 404)
@@ -631,9 +636,9 @@ class KnowledgeService:
             )
         except SemanticsError:
             raise ServiceError("knowledge_rejected", 422) from None
-        item = DatasetVersion(
+        return self._store_dataset(
+            author,
             slug=request.slug,
-            version=0,
             title=request.title,
             description=request.description,
             unit=request.unit,
@@ -646,18 +651,107 @@ class KnowledgeService:
             anchor=anchor,
             aliases=request.aliases,
             observations=observations,
+            source_kind=source_kind,
+            digest=digest,
+            owner_token=owner_token,
+        )
+
+    def _store_dataset(
+        self,
+        author: str,
+        *,
+        slug: str,
+        title: str,
+        description: str | None,
+        unit: str,
+        scale: Scale,
+        frequency: Frequency,
+        stock_flow: StockFlow,
+        cumulative: CumulativeKind,
+        aggregation: Aggregation,
+        base_year: int | None,
+        anchor: WeeklyAnchor | None,
+        aliases: tuple[str, ...],
+        observations: tuple[Observation, ...],
+        source_kind: str,
+        digest: str | None,
+        owner_token: str | None = None,
+    ) -> DatasetDetail:
+        """The one validated write, shared by the knowledge page and the agent.
+
+        The promotion a conversation offers (DEC-183) saves exactly what this route
+        saves, with the same store, the same refusals and the same versioning, rather
+        than a second implementation or a call back into this application's own HTTP.
+        """
+        item = DatasetVersion(
+            slug=slug,
+            version=0,
+            title=title,
+            description=description,
+            unit=unit,
+            scale=scale,
+            frequency=frequency,
+            stock_flow=stock_flow,
+            cumulative=cumulative,
+            aggregation=aggregation,
+            base_year=base_year,
+            anchor=anchor,
+            aliases=aliases,
+            observations=observations,
             source_kind="upload" if source_kind == "upload" else "manual",
             source_sha256=digest,
             author=author,
         )
-        existing = self._knowledge.dataset(request.slug)
+        existing = self._knowledge.dataset(slug)
         if existing is not None and existing.status == "archived":
             item = replace(item, status="archived")  # editing does not silently restore
         try:
             self._knowledge.save_dataset(item)
         except KnowledgeError:
             raise ServiceError("knowledge_rejected", 422) from None
-        return self.dataset(owner_token, request.slug)
+        return self.dataset(owner_token, slug) if owner_token is not None else self._detail(slug)
+
+    def promote(self, proposal: PromotionProposal) -> PromotionReceipt:
+        """Save a proposal a conversation is holding, as that conversation's own owner.
+
+        The owner is read from the conversation record, never from an argument: a model
+        can name neither an owner nor a session token, and the proposal's session was
+        fixed by the server when the offer was made. Nothing is fetched and nothing is
+        parsed here - the observations were read when the offer was made, and only the
+        document's digest is checked again, by the caller, before this is reached.
+        """
+        author = self._conversations.owner_of_conversation(proposal.session_id)
+        if author is None:
+            raise ServiceError("not_found", 404)
+        try:
+            observations = tuple(
+                Observation(*period_bounds(Frequency.MONTHLY, end), value)
+                for end, value in proposal.observations
+            )
+        except SemanticsError:
+            raise ServiceError("knowledge_rejected", 422) from None
+        detail = self._store_dataset(
+            author,
+            slug=proposal.slug,
+            title=proposal.title,
+            description=None,
+            unit=proposal.unit,
+            scale=Scale(proposal.scale),
+            frequency=Frequency.MONTHLY,
+            stock_flow=StockFlow(proposal.stock_flow),
+            cumulative=CumulativeKind(proposal.cumulative),
+            aggregation=Aggregation(proposal.aggregation),
+            base_year=proposal.base_year,
+            anchor=None,
+            aliases=(),
+            observations=observations,
+            source_kind="upload",
+            digest=proposal.document_sha256,
+        )
+        return PromotionReceipt(
+            series_id=detail.series.series_id,
+            observations=len(detail.observations),
+        )
 
     def set_status(self, owner_token: str, slug: str, *, archived: bool) -> DatasetDetail:
         author = self._author(owner_token)

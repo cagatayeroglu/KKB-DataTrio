@@ -370,6 +370,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 discovered=discovered,
                 install_directory=runner.use_directory,
             )
+            # The one direction back into the runner: the knowledge base's own
+            # validated write, so a conversation's save is the page's save (DEC-183).
+            runner.use_promotion(knowledge_service.promote)
             # No model call: a generation built before this restart is simply opened.
             knowledge_service.restore_generation()
             app = create_app(

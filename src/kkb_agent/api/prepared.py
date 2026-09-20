@@ -10,12 +10,12 @@ import re
 import shutil
 import threading
 import time
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Final, Literal
 from uuid import uuid4
 
 import duckdb
@@ -89,6 +89,11 @@ from kkb_agent.tools import (
 from kkb_agent.tools._document_column import ColumnRefused, read_month_values
 from kkb_agent.tools._document_library import describe_document, document_name, document_outline
 from kkb_agent.tools._document_value import as_of, grids
+from kkb_agent.tools.promotion import (
+    PromotionProposal,
+    PromotionReceipt,
+    make_promote_series_tool,
+)
 from kkb_agent.tools.web_search import SearchBackend
 from kkb_agent.tools.web_url import Fetcher, addresses_in, read_attachment
 
@@ -176,8 +181,110 @@ ADDRESS_UNREAD_NOTICE = (
     "Sorudaki adresin bazı kaynakları bu turda okunamadı (zaman aşımı ya da bağlantı hatası). "
     "Aynı soruyu yeniden sormak sonucu değiştirebilir."
 )
+#: A short message that answers a held save offer with yes. Deliberately a small
+#: closed set rather than a parser: anything else is treated as a new question, so a
+#: message the server cannot read plainly never writes to the knowledge base.
+_CONFIRMATIONS: Final = frozenset(
+    {
+        "evet",
+        "evet.",
+        "tamam",
+        "tamam.",
+        "onaylıyorum",
+        "onaylıyorum.",
+        "onayliyorum",
+        "kaydet",
+        "kaydet.",
+        "olur",
+        "olur.",
+        "yes",
+        "ok",
+        "okay",
+    }
+)
+
+
+def _confirms(question: str) -> bool:
+    """Whether this message is the person saying yes to the offer they were shown."""
+    return " ".join(question.strip().lower().split()) in _CONFIRMATIONS
+
+
 _STANDALONE_QUESTION = re.compile(r"\b(?:ne kadar|nasıl|kaç|nedir|hangi)\b")
 _MULTISTEP_REQUEST = re.compile(r"\b(?:getir|göster|hesapla|arındır|ekle|karşılaştır)\b")
+
+
+def _refused_save(code: str) -> Answer:
+    """A save that could not happen, said plainly and without writing anything."""
+    return Answer(
+        status=AnswerStatus.ABSTAINED,
+        text="Kayıt yapılmadı.",
+        omitted_claims=0,
+        notices=(code,),
+    )
+
+
+def _offer_payload(proposal: PromotionProposal) -> dict[str, object]:
+    """A held offer as plain JSON, so a restart answers the same offer it made."""
+    return {
+        **{
+            field: getattr(proposal, field)
+            for field in (
+                "slug",
+                "title",
+                "unit",
+                "scale",
+                "stock_flow",
+                "aggregation",
+                "cumulative",
+                "base_year",
+                "session_id",
+                "document_ref",
+                "document_sha256",
+                "period_column",
+                "value_column",
+                "sheet",
+                "year",
+                "summary",
+            )
+        },
+        "observations": [[end.isoformat(), value] for end, value in proposal.observations],
+    }
+
+
+def _offer_from_payload(payload: Mapping[str, object]) -> PromotionProposal | None:
+    """The offer a restart found, or None when the row cannot be read as one."""
+    try:
+        rows = payload["observations"]
+        if not isinstance(rows, list):
+            return None
+        observations = tuple(
+            (date.fromisoformat(str(row[0])), None if row[1] is None else float(row[1]))
+            for row in rows
+            if isinstance(row, list) and len(row) == 2
+        )
+        if len(observations) != len(rows):
+            return None
+        return PromotionProposal(
+            slug=str(payload["slug"]),
+            title=str(payload["title"]),
+            unit=str(payload["unit"]),
+            scale=str(payload["scale"]),
+            stock_flow=str(payload["stock_flow"]),
+            aggregation=str(payload["aggregation"]),
+            cumulative=str(payload["cumulative"]),
+            base_year=None if payload["base_year"] is None else int(str(payload["base_year"])),
+            session_id=str(payload["session_id"]),
+            document_ref=str(payload["document_ref"]),
+            document_sha256=str(payload["document_sha256"]),
+            period_column=str(payload["period_column"]),
+            value_column=str(payload["value_column"]),
+            sheet=None if payload["sheet"] is None else str(payload["sheet"]),
+            year=None if payload["year"] is None else int(str(payload["year"])),
+            observations=observations,
+            summary=str(payload["summary"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def _is_cancellation(question: str) -> bool:
@@ -494,6 +601,10 @@ class PreparedRunner:
         self._turns: dict[str, int] = {}
         self._publications: dict[tuple[str, str], _Publication] = {}
         self._pending_clarifications: dict[str, PendingClarification] = {}
+        #: One held save offer per conversation, made by a turn and answered by the
+        #: next message. Never a write: the write happens when the person says yes.
+        self._pending_promotions: dict[str, PromotionProposal] = {}
+        self._promote: Callable[[PromotionProposal], PromotionReceipt] | None = None
         # Bounded (question, shown answer) pairs so a planner can resolve "bu",
         # "önceki cevap" after an unrelated message; analytical state stays in
         # the workspace, never here.
@@ -571,6 +682,11 @@ class PreparedRunner:
         restored_proven = self._store.proven_series(session_id)
         if restored_proven:
             self._proven.setdefault(session_id, set()).update(restored_proven)
+        held = self._store.pending_promotion(session_id)
+        if held is not None:
+            restored = _offer_from_payload(held)
+            if restored is not None:
+                self._pending_promotions[session_id] = restored
         saved = self._store.pending_clarification(session_id)
         if saved is not None:
             try:
@@ -619,8 +735,10 @@ class PreparedRunner:
                         del self._documents[key]
             self._turns.pop(session_id, None)
             self._pending_clarifications.pop(session_id, None)
+            self._pending_promotions.pop(session_id, None)
             if self._store is not None:
                 self._store.set_pending_clarification(session_id, None)
+                self._store.set_pending_promotion(session_id, None)
             self._history.pop(session_id, None)
             self._proven.pop(session_id, None)
             for key in tuple(self._publications):
@@ -665,6 +783,17 @@ class PreparedRunner:
         if not _IDENTIFIER.fullmatch(session_id):
             raise ServiceError("not_found", 404)
         self._restore(session_id)
+        return self._admit_locked(session_id, media_type, content)
+
+    def _admit_locked(self, session_id: str, media_type: str, content: bytes) -> DocumentAdmitted:
+        """The admission itself, for a caller that has already restored the session.
+
+        A turn holds the runner's lock, and `_restore` takes it: calling the public
+        method from inside a turn would wait for a lock the turn itself owns. The
+        checks below are the same ones either way; only the restore is the caller's.
+        """
+        if not self._document_uploads:
+            raise ServiceError("unavailable", 503)
         kind = _UPLOAD_KINDS.get(media_type)
         if kind is None or not content or len(content) > MAX_DOCUMENT_BYTES:
             raise ServiceError("document_rejected", 422)
@@ -799,6 +928,40 @@ class PreparedRunner:
             return None
         return self._dense
 
+    def _keep_read(self, session_id: str, media_type: str, content: bytes) -> None:
+        """Admit the bytes a turn just read from an address, without reading them again.
+
+        Taking an address into the conversation is not keeping it: this is the same
+        admission an upload meets - media type, size, hash, the conversation's document
+        capacity - and the same sha256 dedup, so the same table read twice is one
+        document. Persisting it into the knowledge base still needs the person's word.
+        A refusal here is not the turn's problem: the answer was already read.
+        """
+        try:
+            self._admit_locked(session_id, media_type, content)
+        except (ServiceError, PreparedError):
+            return
+
+    def _offer(self, session_id: str, proposal: PromotionProposal) -> None:
+        """Hold what a turn offered to save, in memory and on disk. No write happens."""
+        self._pending_promotions[session_id] = proposal
+        if self._store is not None:
+            self._store.set_pending_promotion(session_id, _offer_payload(proposal))
+
+    def _drop_offer(self, session_id: str) -> None:
+        self._pending_promotions.pop(session_id, None)
+        if self._store is not None:
+            self._store.set_pending_promotion(session_id, None)
+
+    def use_promotion(self, save: Callable[[PromotionProposal], PromotionReceipt]) -> None:
+        """Bind the knowledge base's own validated write, late, like the dense stage.
+
+        The service is built after this runner because it reads from it; this is the
+        one direction back, and it carries no owner or session token - the proposal
+        already names its conversation and the service resolves its owner itself.
+        """
+        self._promote = save
+
     def use_directory(self, directory: SourceDirectory) -> None:
         """Install a refreshed source directory for later turns (DEC-177).
 
@@ -908,6 +1071,13 @@ class PreparedRunner:
             self._restore_locked(session_id, turn_id)
             if session_id in self._turns:
                 self._turns[session_id] = self._turns.pop(session_id)
+            held = self._pending_promotions.get(session_id)
+            if held is not None:
+                if _confirms(question):
+                    return self._save_offer(session_id, turn_id, held)
+                # Anything but a plain yes leaves the offer behind and is answered as
+                # the question it is. Nothing is written on a message nobody can read.
+                self._drop_offer(session_id)
             pending = self._pending_clarifications.get(session_id)
             effective_question = question
             effective_selection = selection
@@ -1037,6 +1207,8 @@ class PreparedRunner:
                     acquirer=acquirer,
                     catalog=catalog,
                     disabled=chosen.disabled,
+                    session_id=session_id,
+                    references={name: ref for name, (ref, _) in named.items()},
                 )
                 # One run per turn: what ran, with which context, and for how long.
                 run_id = uuid4().hex
@@ -1294,6 +1466,36 @@ class PreparedRunner:
         finally:
             self._lock.release()
 
+    def _save_offer(self, session_id: str, turn_id: str, held: PromotionProposal) -> Answer:
+        """Write the offer the person just approved. Deterministic, start to finish.
+
+        No planner and no writer run, nothing is fetched, and the document is not
+        parsed again: the months were read when the offer was made. What is checked
+        again is the one thing that could have changed underneath it - the document
+        this conversation holds under that reference, and its digest. A save is
+        recorded as a receipt, never as an `AnalyticalResult`: nothing was computed.
+        """
+        self._drop_offer(session_id)
+        if self._promote is None:  # pragma: no cover - the tool is not offered without it
+            raise ServiceError("unavailable", 503)
+        try:
+            attachment = self._attachment(session_id, held.document_ref)
+        except ServiceError:
+            return _refused_save("BELGE_BULUNAMADI")
+        digest = (attachment.source.content_hash or "").removeprefix("sha256:")
+        if not digest or digest != held.document_sha256:
+            return _refused_save("BELGE_DEĞİŞTİ")
+        try:
+            receipt = self._promote(held)
+        except ServiceError:
+            return _refused_save("KAYDEDİLEMEDİ")
+        self._turns[session_id] = self._turns.get(session_id, 0) + 1
+        if self._store is not None:
+            self._store.append_message(
+                session_id, turn_id=turn_id, role="assistant", text=receipt.said()
+            )
+        return Answer(status=AnswerStatus.ACCEPTED, text=receipt.said(), omitted_claims=0)
+
     def _remember_proven(self, session_id: str, identities: Iterable[str]) -> None:
         """Keep this conversation's proven identities in memory and in the store."""
         found = {item for item in identities if item}
@@ -1547,6 +1749,8 @@ class PreparedRunner:
         acquirer: TurnAcquirer | None = None,
         catalog: ReviewedSnapshot | None = None,
         disabled: frozenset[str] = frozenset(),
+        session_id: str | None = None,
+        references: Mapping[str, str] | None = None,
     ) -> ToolRegistry:
         fetch = turn_fetch if turn_fetch is not None else self._web_url_fetch
         catalog = catalog if catalog is not None else self._catalog
@@ -1619,6 +1823,36 @@ class PreparedRunner:
                     ocr=None if "document_ocr" in disabled else self._document_ocr,
                     library=library,
                     endpoints=turn_fetch.endpoints if turn_fetch is not None else None,
+                    keep=(
+                        (
+                            lambda media_type, content: self._keep_read(
+                                session_id, media_type, content
+                            )
+                        )
+                        if session_id is not None and self._document_uploads
+                        else None
+                    ),
+                )
+            )
+        if (
+            (attachment is not None or library)
+            and self._promote is not None
+            and self._knowledge is not None
+            and session_id is not None
+            and "document_upload" not in disabled
+            and "knowledge_base" not in disabled
+        ):
+            # Offered only where there is something to keep and somewhere to keep it:
+            # a turn with no document, or a deployment with no knowledge base, never
+            # sees this tool at all.
+            registry.register(
+                make_promote_series_tool(
+                    session_id=session_id,
+                    attachment=attachment,
+                    library=library or {},
+                    references=references or {},
+                    propose=lambda proposal: self._offer(session_id, proposal),
+                    ocr=None if "document_ocr" in disabled else self._document_ocr,
                 )
             )
         if (attachment is not None or library) and "document_upload" not in disabled:

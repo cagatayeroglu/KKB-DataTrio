@@ -388,6 +388,7 @@ def read_document(
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     follow: str | None = None,
     endpoints: Mapping[str, str] | None = None,
+    keep: Callable[[str, bytes], None] | None = None,
 ) -> DocumentRead:
     """The prompt-address boundary every document reader shares (M7-17, M7-14).
 
@@ -476,6 +477,11 @@ def read_document(
             WebUrlOutput("rejected", error.code.value, source, outcome.media_type), "not_admitted"
         )
 
+    if keep is not None:
+        # The same bytes this turn just read, offered once to the conversation's
+        # documents so that keeping them later costs no second download (DEC-183).
+        # Admission - media type, size, hash, capacity - is unchanged and decides.
+        keep(outcome.media_type, outcome.content)
     return _loaded(loaded, source, outcome.media_type)
 
 
@@ -513,6 +519,7 @@ def make_web_url_tool(
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     library: Mapping[str, Attachment] | None = None,
     endpoints: Mapping[str, str] | None = None,
+    keep: Callable[[str, bytes], None] | None = None,
 ) -> ToolSpec:
     """Bind the tool to a fetch boundary: the real `safe_fetch` unless a test substitutes it.
 
@@ -550,6 +557,7 @@ def make_web_url_tool(
                 clock=clock,
                 follow=arguments.follow,
                 endpoints=endpoints,
+                keep=keep,
             )
         if read.failure is not None:
             return _failed(read.failure, read.output, extra=read.reasons)

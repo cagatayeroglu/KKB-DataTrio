@@ -795,6 +795,25 @@ def asks_about_cause(question: str) -> bool:
     return CAUSE_QUESTION.search(question) is not None
 
 
+#: What the harness says above a save offer, so the person knows what they are
+#: approving and that nothing has been written yet.
+OFFER_LIMITATION: Final = (
+    "A promotion offer writes nothing: the series is saved only if the next message "
+    "approves it, and what is saved is the offer the server is holding"
+)
+
+
+def promotion_offer(outcome: ExecutionOutcome) -> str | None:
+    """The summary a `promote_series` step produced, if one ran and was accepted."""
+    for item in outcome.results:
+        if item.tool != "promote_series" or item.status is not ToolStatus.SUCCESS:
+            continue
+        summary = getattr(item.output, "summary", "")
+        if isinstance(summary, str) and summary.strip():
+            return summary.strip()
+    return None
+
+
 def plan_assumptions(planned: Planned, outcome: ExecutionOutcome) -> tuple[str, ...]:
     """What the plan says it assumed, for the steps that actually ran.
 
@@ -1449,6 +1468,21 @@ class Session:
         incomplete = incomplete_steps(outcome)
         if not results and (listing := search_listing(outcome)) is not None:
             return self._search_answer(planned, outcome, listing, connection, workspace, gate)
+        if (offer := promotion_offer(outcome)) is not None:
+            # A question to the person, computed by code from what the document holds.
+            # Nothing was calculated and nothing was written, so there is no result to
+            # gate and nothing to publish; the save happens on their next message.
+            return Answered(
+                planned,
+                outcome,
+                (),
+                GatedAnswer(
+                    AnswerStatus.QUALIFIED,
+                    offer,
+                    Verdict(True, ()),
+                    limitations=(OFFER_LIMITATION,),
+                ),
+            )
         if not results and (reading := document_reading(outcome)) is not None:
             return self._reading_answer(planned, outcome, reading)
         if not results:
