@@ -348,7 +348,10 @@ def test_a_join_never_shadows_an_existing_column(served):
         "Birleşti.",
     )
     upload(client, sid, headers, csv())
-    upload(client, sid, headers, csv())
+    # Two documents, not two copies: identical bytes are one document, so the
+    # second file differs in its numbers while keeping the same column label -
+    # which is what shadowing is about.
+    upload(client, sid, headers, csv([value + 1 for value in ADMISSIONS]))
     ask(client, sid, headers, "Bir.")
     second = ask(client, sid, headers, "İki.")
     joined = ask(

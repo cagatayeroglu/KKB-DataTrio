@@ -17,7 +17,9 @@ from kkb_agent.catalog.search import (
     CatalogSearchArguments,
     CatalogSearchOutput,
     eligible_catalog_series,
+    named_calendar_first,
     one_per_listed_row,
+    scoped_to_named_calendar,
     search_catalog,
     top_candidate_signal,
 )
@@ -52,6 +54,9 @@ def search_hybrid_catalog(
 ) -> CatalogSearchOutput:
     snapshot = ReviewedSnapshot.model_validate(snapshot)
     args = CatalogSearchArguments.model_validate(arguments)
+    # The same series for both stages: a question naming a finer calendar than its reviewed
+    # concept has is searched among series of that calendar (DEC-182).
+    args, _ = scoped_to_named_calendar(snapshot, args)
     # Equal fixed stage budgets; max_results only truncates the final union.
     stage_args = CatalogSearchArguments.model_validate({**args.model_dump(), "max_results": 10})
     lexical = search_catalog(snapshot, stage_args)
@@ -185,6 +190,10 @@ def search_hybrid_catalog(
     order = rerank_by_reviewed_intent(
         args.query, order, reviewed_series=lambda series_id: eligible[series_id]
     )
+    if not lexical.concepts:
+        order = named_calendar_first(
+            args.query, order, reviewed_series=lambda series_id: eligible[series_id]
+        )
     order = one_per_listed_row(order, reviewed_series=lambda series_id: eligible[series_id])
     candidates = []
     for rank, sid in enumerate(order[: args.max_results], start=1):

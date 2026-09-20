@@ -48,6 +48,7 @@ from kkb_agent.api.contracts import (
     Result,
     RunDetail,
     RunList,
+    RunProgress,
     RunSummary,
     RuntimeSettings,
     SessionCreated,
@@ -122,6 +123,14 @@ class SessionCleaner(Protocol):
     def __call__(self, session_id: str) -> None: ...
 
 
+#: What the runner's cleaner raises while another turn holds it. Only that waits for later.
+RUNNER_BUSY = "concurrent_runtime_refused"
+
+
+def _runner_busy(error: Exception) -> bool:
+    return isinstance(error, ValueError) and str(error) == RUNNER_BUSY
+
+
 @dataclass(frozen=True, slots=True)
 class SelectedResult:
     """Server-resolved publication identity; workspace validity is checked by its runner."""
@@ -194,7 +203,7 @@ class AnalysisService:
     Cancellation is explicit and cooperative (DEC-156): `cancel` raises a turn's
     flag and the turn stops at its next checkpoint, never mid-request.
 
-    Eight sessions, twenty-four turns each, one active turn globally. Admission
+    `MAX_SESSIONS` sessions, `MAX_TURNS` turns each, one active turn globally. Admission
     is atomic; capacity is checked before submitting to the executor, so its
     unbounded internal queue cannot accumulate application jobs.
     """
@@ -244,6 +253,10 @@ class AnalysisService:
         self._session_cleanup = session_cleanup
         self._mode = mode
         self._sessions: dict[str, _Session] = {}
+        #: Deleted conversations whose files could not be removed yet, because the
+        #: single runner was busy with another conversation's turn. Drained after
+        #: every turn and on shutdown; the rows stay hidden meanwhile (finding J-3).
+        self._pending_cleanup: set[str] = set()
         self._lock = threading.RLock()
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="kkb-analysis")
         self._busy = False
@@ -495,8 +508,15 @@ class AnalysisService:
         summary = self._reading(session_id, token)
         if self._store is None:  # pragma: no cover - _reading refuses without a store
             raise ServiceError("unavailable", 503)
+        pending = self._store.pending_clarification(session_id) or {}
+        offered = pending.get("offered")
         return ConversationDetail(
             conversation=summary,
+            pending_offered=tuple(
+                item[:240]
+                for item in (offered if isinstance(offered, list) else [])
+                if isinstance(item, str) and item.strip()
+            )[:12],
             messages=tuple(
                 StoredMessage(
                     sequence=message.sequence,
@@ -547,12 +567,29 @@ class AnalysisService:
         summaries: list[RunSummary] = []
         for item in self._store.runs(session_id):
             try:
-                summaries.append(self._run_summary(item, events=0))
+                summaries.append(self._run_summary(item, events=item.events))
             except ValidationError:
                 # Preserve the row in SQLite, but do not let one damaged legacy
                 # contract make every other run unreadable.
                 continue
         return RunList(runs=tuple(summaries))
+
+    def run_progress(self, session_id: str, run_id: str, token: str) -> RunProgress:
+        """Where a run is now, for a view that polls: status and the newest step."""
+        self._trace_access(session_id, token)
+        if self._store is None:  # pragma: no cover - _trace_access refuses without a store
+            raise ServiceError("unavailable", 503)
+        found = self._store.run_of(session_id, run_id)
+        if found is None:
+            raise ServiceError("not_found", 404)
+        last = self._store.last_event(run_id)
+        return RunProgress(
+            run_id=found.run_id,
+            status=found.status,  # type: ignore[arg-type]
+            steps=last[0] if last else 0,
+            stage=last[1] if last else None,
+            name=last[2] if last else None,
+        )
 
     def run(self, session_id: str, run_id: str, token: str) -> RunDetail:
         self._trace_access(session_id, token)
@@ -701,6 +738,21 @@ class AnalysisService:
         self._store.clear_session_artifacts(session_id)
         self._sessions.pop(session_id, None)
 
+    def _drain_deleted(self) -> None:
+        """Remove the files of conversations deleted while the runner was busy."""
+        with self._lock:
+            waiting = tuple(self._pending_cleanup)
+        for identity in waiting:
+            try:
+                self._clean_deleted(identity)
+            except Exception:
+                # Still busy or still failing: the row stays hidden and the next
+                # turn (or shutdown) tries again. A category, never a path.
+                logging.getLogger(__name__).warning("deleted_session_cleanup_failed")
+                continue
+            with self._lock:
+                self._pending_cleanup.discard(identity)
+
     def delete_conversation(self, session_id: str, owner_token: str) -> bool:
         """Owner-key-only soft delete. Running work is cancelled and cleaned on exit."""
         with self._lock:
@@ -725,8 +777,17 @@ class AnalysisService:
                     return True
             try:
                 self._clean_deleted(session_id)
-            except Exception:
-                raise ServiceError("unavailable", 503) from None
+            except Exception as error:
+                if not _runner_busy(error):
+                    # A refused path (a link out of the runtime root, something that is
+                    # not a directory) is not a busy runner: nothing is removed, nothing
+                    # is queued to be tried again, and the caller is not told it worked.
+                    raise ServiceError("unavailable", 503) from None
+                # The conversation is already hidden and its runs are kept. A runner
+                # busy with another conversation's turn is not a reason to report
+                # failure and hand back a chat the person cannot see any more: finish
+                # the removal later.
+                self._pending_cleanup.add(session_id)
             return True
 
     def delete_runs(self, session_id: str, owner_token: str) -> int:
@@ -1035,12 +1096,8 @@ class AnalysisService:
                         status="failed" if error else "completed",
                     )
                 if self._store is not None and self._store.is_deleted(session_id):
-                    try:
-                        self._clean_deleted(session_id)
-                    except Exception:
-                        # The owner can retry deletion; no failed cleanup may
-                        # reopen a deleted conversation or erase its trace.
-                        logging.getLogger(__name__).warning("deleted_session_cleanup_failed")
+                    self._pending_cleanup.add(session_id)
+                self._drain_deleted()
 
     def close(self) -> None:
         with self._lock:
@@ -1048,3 +1105,5 @@ class AnalysisService:
         # Wait for the already admitted bounded provider call; do not claim that
         # a thread can be cancelled safely. No submitted question is retried.
         self._executor.shutdown(wait=True, cancel_futures=False)
+        # The runner is idle now, so a removal deferred by a busy turn can finish.
+        self._drain_deleted()

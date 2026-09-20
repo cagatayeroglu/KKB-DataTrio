@@ -51,6 +51,11 @@ def test_reviewed_close_mapping_is_typed_and_bound_to_existing_proof(code):
         StockFlow.INDEX,
     )
     assert column.unit_source == f"reviewed Borsa Istanbul {code} index-close mapping"
+    # A reader sees the index, not the site's field name (finding L2-2).
+    assert column.label == (
+        "BIST TÜM kapanış (XTUMY)" if code == "XTUMY" else "BIST 100 kapanış (XU100)"
+    )
+    assert column.header == "clval"
     source = fetched_source(endpoint, payload, retrieved_at=datetime(2026, 3, 1, tzinfo=UTC))
     result = table_result(table, source, source_node="source-node")
     assert result.evidence is not None
@@ -118,3 +123,5 @@ def test_generic_clval_column_stays_unknown():
     column = table.columns[0]
     assert column.unit is None and column.scale is Scale.UNKNOWN
     assert column.measure is StockFlow.UNKNOWN
+    # Without the reviewed mapping the column keeps the name the document used.
+    assert column.label == "clval"

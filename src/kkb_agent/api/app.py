@@ -42,6 +42,7 @@ from kkb_agent.api.contracts import (
     Result,
     RunDetail,
     RunList,
+    RunProgress,
     RunsDeleted,
     RuntimeSettings,
     SearchTrial,
@@ -339,6 +340,11 @@ def create_app(
     @app.delete("/v1/conversations/{session_id}/runs", response_model=RunsDeleted)
     def delete_runs(session_id: Reference, owner: OwnerToken) -> RunsDeleted:
         return RunsDeleted(deleted_runs=service.delete_runs(session_id, owner))
+
+    @app.get("/v1/conversations/{session_id}/runs/{run_id}/progress", response_model=RunProgress)
+    def run_progress(session_id: Reference, run_id: Reference, token: Token) -> RunProgress:
+        # Followed while a turn runs: status and the newest step, no step text.
+        return service.run_progress(session_id, run_id, token)
 
     @app.get("/v1/conversations/{session_id}/runs/{run_id}", response_model=RunDetail)
     def run(session_id: Reference, run_id: Reference, token: Token) -> RunDetail:

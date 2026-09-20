@@ -300,3 +300,39 @@ def test_a_web_search_plan_needs_no_catalogue_discovery():
     validate_discovery_phase(
         plan, continuation=False, require_series_discovery=True, proven_series=frozenset()
     )
+
+
+def test_sql_over_this_conversations_published_tables_needs_no_discovery():
+    """Live B2 (2026-09-20): asking for the mean of a table the agent had just
+    published was refused with "New series require a catalog_search phase", and
+    the round trip cost 111 s. Those rows are already proven; series tables are
+    still behind the rule."""
+    from kkb_agent.tools.lakehouse import LakehouseArguments
+
+    published = plan_of(
+        step(
+            "lakehouse",
+            LakehouseArguments(
+                sql=(
+                    "SELECT AVG(value) FROM gold_cells WHERE result_name = 'analiz_6'"
+                    " AND column_label = 'EVDS:TP.KTF12 monthly average'"
+                ),
+                purpose="Yayımlanmış tablonun ortalaması",
+            ),
+        )
+    )
+    assert not needs_series_discovery(published)
+    validate_discovery_phase(
+        published, continuation=False, require_series_discovery=True, proven_series=frozenset()
+    )
+
+    series = plan_of(
+        step(
+            "lakehouse",
+            LakehouseArguments(
+                sql="SELECT * FROM silver_observations LIMIT 5",
+                purpose="Seri verisi",
+            ),
+        )
+    )
+    assert needs_series_discovery(series)

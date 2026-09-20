@@ -55,9 +55,16 @@ export function chartModel(
       group,
       x: rows.map((row) => row.period!.end),
       y: rows.map((row) => row.values[column.key]?.value ?? null),
+      // The whole period, then the value: a point sits at the period's end, so a
+      // monthly point read as "2021-03" alone and a daily one said nothing about
+      // the range it stands for (finding DN-6.6).
       hover: rows.map((row) => {
         const cell = row.values[column.key];
-        return cell ? plain(displayValue(cell)) : "değer yok";
+        const shown = cell ? plain(displayValue(cell)) : "değer yok";
+        const period = row.period!;
+        return period.start === period.end
+          ? `${period.end} · ${shown}`
+          : `${period.start} – ${period.end} · ${shown}`;
       }),
       hidden: column.label.includes("month-over-month change"),
     };

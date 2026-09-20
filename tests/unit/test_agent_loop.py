@@ -450,3 +450,26 @@ class TestSourceTextCannotAuthorize:
         }
         # Source-derived text never occupies a system turn.
         assert roles == {"user"}
+
+
+def test_reply_instructions_cover_an_asked_for_web_search_and_a_question_outside_finance():
+    """Two messages a reply must not swallow (live findings, 2026-09-20).
+
+    "github nedir webde ara söyle" was answered from the model's own knowledge
+    with web_search listed, and an unrelated question was answered as general
+    knowledge instead of saying what this assistant is for.
+    """
+    assert "webde ara" in REPLY_INSTRUCTIONS
+    assert "web_search" in REPLY_INSTRUCTIONS
+    assert "outside finance" in REPLY_INSTRUCTIONS
+
+
+def test_today_instructions_ask_for_the_period_before_a_change_range():
+    """A 2025-only table cannot show January's change (live finding L2-1)."""
+    from datetime import date
+
+    from kkb_agent.agent.loop import today_instructions
+
+    text = today_instructions(date(2026, 9, 20))
+    assert "period BEFORE the range" in text
+    assert "narrow the table afterwards" in text

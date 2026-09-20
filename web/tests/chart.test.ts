@@ -70,10 +70,11 @@ test("chart plots canonical values per period with gaps and separate unit groups
   const balance = model.series.find((s) => s.name === "balance")!;
   assert.deepEqual(balance.x, ["2021-01-31", "2021-02-28", "2021-03-31"]);
   assert.deepEqual(balance.y, [100.25, null, 300.5]);
+  // The tooltip names the whole period, not only the point's own day.
   assert.deepEqual(balance.hover, [
-    "100.25 gösterim",
-    "değer yok",
-    "300.5 gösterim",
+    "2021-01-01 – 2021-01-31 · 100.25 gösterim",
+    "2021-02-01 – 2021-02-28 · değer yok",
+    "2021-03-01 – 2021-03-31 · 300.5 gösterim",
   ]);
   assert.equal(model.groups.length, 2);
   assert.notEqual(

@@ -10,7 +10,7 @@ import re
 import shutil
 import threading
 import time
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from functools import partial
@@ -80,6 +80,7 @@ from kkb_agent.tools import (
     make_catalog_search_tool,
     make_causality_tool,
     make_change_detection_tool,
+    make_document_read_tool,
     make_lakehouse_tool,
     make_table_transform_tool,
     make_web_search_tool,
@@ -423,6 +424,7 @@ class PreparedRunner:
         web_url_fetch: Fetcher | None = None,
         document_uploads: bool = False,
         document_ocr: OcrProvider | None = None,
+        document_vision: bool = False,
         store: ConversationStore | None = None,
         official: OfficialSources | None = None,
         clock: Callable[[], date] = lambda: datetime.now(UTC).date(),
@@ -463,6 +465,9 @@ class PreparedRunner:
         self._documents: dict[tuple[str, str], _Document] = {}
         self._documents_lock = threading.Lock()
         self._provider = provider
+        # Operator switch for reading a page that has no text layer with the vision
+        # model (DEC-129). Without it such a page is reported unreadable, never guessed.
+        self._vision = document_vision
         self._redactions = redactions
         root, state_root = _local(root), _local(state_root, exists=False)
         if state_root.is_relative_to(root) or root.is_relative_to(state_root):
@@ -561,6 +566,11 @@ class PreparedRunner:
                     document.admitted_at,
                 )
         self._history[session_id] = list(self._store.history(session_id, MAX_HISTORY_TURNS))
+        # The catalog vouched for these in an earlier turn of this conversation; without
+        # them a reopened chat pays a planning round trip to prove them again (H4).
+        restored_proven = self._store.proven_series(session_id)
+        if restored_proven:
+            self._proven.setdefault(session_id, set()).update(restored_proven)
         saved = self._store.pending_clarification(session_id)
         if saved is not None:
             try:
@@ -668,6 +678,20 @@ class PreparedRunner:
         kind, media_type = admitted.kind, MIME_TYPES[admitted.kind]
         digest = hashlib.sha256(admitted.content).hexdigest()
         with self._documents_lock:
+            # The same bytes are the same document. A client timeout that the server
+            # completed anyway, a retried address and re-attaching a file that was
+            # taken off the question all used to spend one of `MAX_DOCUMENTS`, so
+            # four tries at one table refused the fifth (findings F2-upl-5, F4-bt-3).
+            # Returning the reference already admitted keeps every receipt that cites
+            # it valid, because what it points at is byte-identical.
+            for (owner, known), stored in self._documents.items():
+                if owner == session_id and stored.sha256 == digest and stored.kind == kind.value:
+                    return DocumentAdmitted(
+                        document_ref=known,
+                        document_format=_STORED_FORMATS[kind],
+                        bytes=stored.size,
+                        sha256=digest,
+                    )
             if sum(1 for owner, _ in self._documents if owner == session_id) >= MAX_DOCUMENTS:
                 raise ServiceError("capacity", 429)
             reference = uuid4().hex
@@ -1114,176 +1138,204 @@ class PreparedRunner:
                 except Exception as failure:
                     # The catalog vouched for whatever it returned, even if the turn
                     # failed afterwards, so the next turn need not ask again.
-                    self._proven.setdefault(session_id, set()).update(session.newly_proven)
-                    # A failed or cancelled turn is still a run someone can open and read.
-                    cancelled = isinstance(failure, TurnCancelled)
-                    if cancelled:
-                        tracer.event("request", "turn.cancelled", at=str(failure))
+                    self._remember_proven(session_id, session.newly_proven)
+                    self._fail_run(run_id, failure, started=started, tracer=tracer)
+                    raise
+                try:
+                    self._remember_proven(session_id, session.newly_proven)
+                    published = workspace.value_of(name) if name in workspace.names() else None
+                    answer = project_answer(
+                        answered,
+                        turn_id=turn_id,
+                        published=published,
+                        secrets=self._redactions,
+                        proof=(
+                            build_proof(lake.connection, published, secrets=self._redactions)
+                            if published is not None
+                            else None
+                        ),
+                    )
+                    if (
+                        answer.status is AnswerStatus.ABSTAINED
+                        and acquirer is not None
+                        and any(
+                            item.code is AcquisitionCode.RETRIEVAL_FAILED
+                            for item in acquirer.attempts
+                        )
+                    ):
+                        # The series exists and has a route; the source did not answer this time.
+                        answer = answer.model_copy(
+                            update={"notices": (*answer.notices, SOURCE_UNREACHED_NOTICE)}
+                        )
+                    if (
+                        answer.status is AnswerStatus.ABSTAINED
+                        and acquirer is not None
+                        and any(
+                            item.detail == EvdsLoadCode.NO_OBSERVATIONS.value
+                            for item in acquirer.attempts
+                        )
+                    ):
+                        # "Not found" would be untrue: the series is listed, the source is silent.
+                        answer = answer.model_copy(
+                            update={"notices": (*answer.notices, SOURCE_EMPTY_NOTICE)}
+                        )
+                    if (
+                        answer.status is AnswerStatus.ABSTAINED
+                        and turn_fetch is not None
+                        and turn_fetch.transient_failures()
+                    ):
+                        # "Check the data coverage" is the wrong advice when the page's own
+                        # script or data did not arrive; asking again may simply work.
+                        answer = answer.model_copy(
+                            update={"notices": (*answer.notices, ADDRESS_UNREAD_NOTICE)}
+                        )
+                    # How the turn ended, in the trace itself: an abstention or a
+                    # clarification never reaches the answer gate, so without this the
+                    # record stops at the last plan and never says what was shown.
+                    tracer.event(
+                        "answer",
+                        f"turn.{answer.status.value}",
+                        omitted_claims=answer.omitted_claims,
+                        published=answer.result is not None,
+                        clarification=answered.planned.plan.clarification,
+                        detail=answer.text,
+                    )
+                    # Only retain references that survived publication AND projection.
+                    # Bounded by the existing session/turn limits; never rebuild this
+                    # ownership map by scanning arbitrary stored result digests.
+                    if answer.result is not None:
+                        self._materialize_gold(lake, name, published, tracer)
+                        artifact = workspace.resolve(name).artifact_id
+                        self._publications[session_id, turn_id] = _Publication(
+                            SelectedResult(
+                                turn_id, answer.result.result_ref, answer.result.version
+                            ),
+                            name,
+                            artifact,
+                        )
+                        if self._store is not None:
+                            self._store.add_publication(
+                                session_id,
+                                turn_id=turn_id,
+                                name=name,
+                                artifact_id=artifact,
+                                result_ref=answer.result.result_ref,
+                                result_version=answer.result.version,
+                            )
+                    clarification_reason = answered.planned.plan.clarification
+                    if answer.status == AnswerStatus.ACCEPTED:
+                        self._pending_clarifications.pop(session_id, None)
+                        if self._store is not None:
+                            self._store.set_pending_clarification(session_id, None)
+                    elif clarification_reason in (
+                        "ambiguous_series",
+                        "missing_series",
+                        "unresolved_semantics",
+                    ):
+                        if pending is not None and not is_cancel and not is_new_q:
+                            orig_q = pending.original_question
+                            accumulated = pending.clarifications + (question,)
+                            sel = effective_selection
+                        else:
+                            orig_q = question
+                            accumulated = ()
+                            sel = selection
+                        self._pending_clarifications[session_id] = PendingClarification(
+                            original_question=orig_q,
+                            clarifications=accumulated,
+                            selection=sel,
+                            document_ref=effective_document,
+                            offered=tuple(
+                                item.title
+                                for item in (answer.selection.others if answer.selection else ())
+                            ),
+                        )
+                        if self._store is not None:
+                            active = self._pending_clarifications[session_id]
+                            self._store.set_pending_clarification(
+                                session_id,
+                                {
+                                    "original_question": active.original_question,
+                                    "clarifications": list(active.clarifications),
+                                    "selection": (
+                                        {
+                                            "turn_id": active.selection.turn_id,
+                                            "result_ref": active.selection.result_ref,
+                                            "version": active.selection.version,
+                                        }
+                                        if active.selection is not None
+                                        else None
+                                    ),
+                                    "document_ref": active.document_ref,
+                                    "offered": list(active.offered),
+                                },
+                            )
                     if self._store is not None:
                         self._store.finish_run(
                             run_id,
-                            status="cancelled" if cancelled else "failed",
+                            status="completed",
                             duration_ms=max(0, round((time.monotonic() - started) * 1000)),
-                            # Run summaries are a strict public contract. Keep only
-                            # fixed categories, never provider/exception prose.
-                            error=(
-                                "cancelled"
-                                if cancelled
-                                else "provider_failed"
-                                if isinstance(failure, ProviderError)
-                                else "planning_failed"
-                                if isinstance(failure, PlanningFailed)
-                                else "output_limit"
-                                if isinstance(failure, OutputRefused)
-                                else failure.code
-                                if isinstance(failure, ServiceError)
-                                else "internal_error"
-                            ),
+                            answer_status=answer.status.value,
+                            result_ref=answer.result.result_ref if answer.result else None,
                             events=tracer.events,
                         )
+                    turns = self._history.setdefault(session_id, [])
+                    turns.append((question, answer.text))
+                    del turns[:-MAX_HISTORY_TURNS]
+                    self._remember(session_id, turn_id, question, answer, effective_document)
+                    return answer
+                except Exception as failure:
+                    # Publication, proof and gold writing come after a good answer, but
+                    # a failure here still ends the run: without this the row stayed
+                    # 'running' until the next start-up sweep (finding A3b).
+                    self._fail_run(run_id, failure, started=started, tracer=tracer)
                     raise
-                self._proven.setdefault(session_id, set()).update(session.newly_proven)
-                published = workspace.value_of(name) if name in workspace.names() else None
-                answer = project_answer(
-                    answered,
-                    turn_id=turn_id,
-                    published=published,
-                    secrets=self._redactions,
-                    proof=(
-                        build_proof(lake.connection, published, secrets=self._redactions)
-                        if published is not None
-                        else None
-                    ),
-                )
-                if (
-                    answer.status is AnswerStatus.ABSTAINED
-                    and acquirer is not None
-                    and any(
-                        item.code is AcquisitionCode.RETRIEVAL_FAILED for item in acquirer.attempts
-                    )
-                ):
-                    # The series exists and has a route; the source did not answer this time.
-                    answer = answer.model_copy(
-                        update={"notices": (*answer.notices, SOURCE_UNREACHED_NOTICE)}
-                    )
-                if (
-                    answer.status is AnswerStatus.ABSTAINED
-                    and acquirer is not None
-                    and any(
-                        item.detail == EvdsLoadCode.NO_OBSERVATIONS.value
-                        for item in acquirer.attempts
-                    )
-                ):
-                    # "Not found" would be untrue: the series is listed, the source is silent.
-                    answer = answer.model_copy(
-                        update={"notices": (*answer.notices, SOURCE_EMPTY_NOTICE)}
-                    )
-                if (
-                    answer.status is AnswerStatus.ABSTAINED
-                    and turn_fetch is not None
-                    and turn_fetch.transient_failures()
-                ):
-                    # "Check the data coverage" is the wrong advice when the page's own
-                    # script or data did not arrive; asking again may simply work.
-                    answer = answer.model_copy(
-                        update={"notices": (*answer.notices, ADDRESS_UNREAD_NOTICE)}
-                    )
-                # How the turn ended, in the trace itself: an abstention or a
-                # clarification never reaches the answer gate, so without this the
-                # record stops at the last plan and never says what was shown.
-                tracer.event(
-                    "answer",
-                    f"turn.{answer.status.value}",
-                    omitted_claims=answer.omitted_claims,
-                    published=answer.result is not None,
-                    clarification=answered.planned.plan.clarification,
-                    detail=answer.text,
-                )
-                # Only retain references that survived publication AND projection.
-                # Bounded by the existing session/turn limits; never rebuild this
-                # ownership map by scanning arbitrary stored result digests.
-                if answer.result is not None:
-                    self._materialize_gold(lake, name, published, tracer)
-                    artifact = workspace.resolve(name).artifact_id
-                    self._publications[session_id, turn_id] = _Publication(
-                        SelectedResult(turn_id, answer.result.result_ref, answer.result.version),
-                        name,
-                        artifact,
-                    )
-                    if self._store is not None:
-                        self._store.add_publication(
-                            session_id,
-                            turn_id=turn_id,
-                            name=name,
-                            artifact_id=artifact,
-                            result_ref=answer.result.result_ref,
-                            result_version=answer.result.version,
-                        )
-                clarification_reason = answered.planned.plan.clarification
-                if answer.status == AnswerStatus.ACCEPTED:
-                    self._pending_clarifications.pop(session_id, None)
-                    if self._store is not None:
-                        self._store.set_pending_clarification(session_id, None)
-                elif clarification_reason in (
-                    "ambiguous_series",
-                    "missing_series",
-                    "unresolved_semantics",
-                ):
-                    if pending is not None and not is_cancel and not is_new_q:
-                        orig_q = pending.original_question
-                        accumulated = pending.clarifications + (question,)
-                        sel = effective_selection
-                    else:
-                        orig_q = question
-                        accumulated = ()
-                        sel = selection
-                    self._pending_clarifications[session_id] = PendingClarification(
-                        original_question=orig_q,
-                        clarifications=accumulated,
-                        selection=sel,
-                        document_ref=effective_document,
-                        offered=tuple(
-                            item.title
-                            for item in (answer.selection.others if answer.selection else ())
-                        ),
-                    )
-                    if self._store is not None:
-                        active = self._pending_clarifications[session_id]
-                        self._store.set_pending_clarification(
-                            session_id,
-                            {
-                                "original_question": active.original_question,
-                                "clarifications": list(active.clarifications),
-                                "selection": (
-                                    {
-                                        "turn_id": active.selection.turn_id,
-                                        "result_ref": active.selection.result_ref,
-                                        "version": active.selection.version,
-                                    }
-                                    if active.selection is not None
-                                    else None
-                                ),
-                                "document_ref": active.document_ref,
-                                "offered": list(active.offered),
-                            },
-                        )
-                if self._store is not None:
-                    self._store.finish_run(
-                        run_id,
-                        status="completed",
-                        duration_ms=max(0, round((time.monotonic() - started) * 1000)),
-                        answer_status=answer.status.value,
-                        result_ref=answer.result.result_ref if answer.result else None,
-                        events=tracer.events,
-                    )
-                turns = self._history.setdefault(session_id, [])
-                turns.append((question, answer.text))
-                del turns[:-MAX_HISTORY_TURNS]
-                self._remember(session_id, turn_id, question, answer, effective_document)
-                return answer
 
         finally:
             self._lock.release()
+
+    def _remember_proven(self, session_id: str, identities: Iterable[str]) -> None:
+        """Keep this conversation's proven identities in memory and in the store."""
+        found = {item for item in identities if item}
+        if not found:
+            return
+        self._proven.setdefault(session_id, set()).update(found)
+        if self._store is not None:
+            self._store.add_proven_series(session_id, found)
+
+    def _fail_run(
+        self, run_id: str, failure: BaseException, *, started: float, tracer: Tracer
+    ) -> None:
+        """Close a run that ended badly: a failed or cancelled turn is still readable.
+
+        Run summaries are a strict public contract, so only fixed categories are
+        stored here, never provider or exception prose (a free-text error once made
+        the whole run list unreadable).
+        """
+        cancelled = isinstance(failure, TurnCancelled)
+        if cancelled:
+            tracer.event("request", "turn.cancelled", at=str(failure))
+        if self._store is None:
+            return
+        self._store.finish_run(
+            run_id,
+            status="cancelled" if cancelled else "failed",
+            duration_ms=max(0, round((time.monotonic() - started) * 1000)),
+            error=(
+                "cancelled"
+                if cancelled
+                else "provider_failed"
+                if isinstance(failure, ProviderError)
+                else "planning_failed"
+                if isinstance(failure, PlanningFailed)
+                else "output_limit"
+                if isinstance(failure, OutputRefused)
+                else failure.code
+                if isinstance(failure, ServiceError)
+                else "internal_error"
+            ),
+            events=tracer.events,
+        )
 
     def _apply_knowledge(self, lake: Lakehouse) -> tuple[ReviewedSnapshot, list[str]]:
         """This turn's catalog, and the user datasets newly loaded into this session's lake.
@@ -1567,6 +1619,19 @@ class PreparedRunner:
                     ocr=None if "document_ocr" in disabled else self._document_ocr,
                     library=library,
                     endpoints=turn_fetch.endpoints if turn_fetch is not None else None,
+                )
+            )
+        if (attachment is not None or library) and "document_upload" not in disabled:
+            # Meaning from a document that holds no table to compute from: a chart, a
+            # scanned page, a passage. Its output is a reading, never a result, so it
+            # is bound to the same admitted bytes and to nothing else.
+            registry.register(
+                make_document_read_tool(
+                    provider=self._provider,
+                    attachment=attachment,
+                    library=library,
+                    ocr=None if "document_ocr" in disabled else self._document_ocr,
+                    vision=self._vision,
                 )
             )
         return registry

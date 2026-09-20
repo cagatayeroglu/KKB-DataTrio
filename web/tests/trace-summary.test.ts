@@ -38,3 +38,24 @@ test("only completed provider spans count, not plan outputs or rejections", () =
     "2 tamamlanan model çağrısı",
   );
 });
+
+test("a model call in flight is counted, not reported as nothing", () => {
+  const steps = [
+    { stage: "context", name: "context.assembled" },
+    { stage: "model", name: "model.started" },
+  ];
+  assert.equal(modelCallLabel("running", steps), "1. model çağrısı sürüyor");
+  const second = [
+    ...steps,
+    { stage: "planning", name: "planner.initial" },
+    { stage: "model", name: "model.started" },
+  ];
+  assert.equal(
+    modelCallLabel("running", second),
+    "1 tamamlanan model çağrısı · 2. çağrı sürüyor",
+  );
+  assert.equal(
+    modelCallLabel("completed", second),
+    "1 tamamlanan model çağrısı",
+  );
+});

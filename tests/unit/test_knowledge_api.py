@@ -7,9 +7,10 @@ from test_conversation_persistence import open_conversation, owner, upload
 from test_document_dataset import ADMISSIONS, BASE, seed
 
 from kkb_agent.api.app import create_app
+from kkb_agent.api.contracts import SeriesNoteRequest
 from kkb_agent.api.knowledge_service import KnowledgeService
 from kkb_agent.api.prepared import PreparedRunner
-from kkb_agent.api.service import AnalysisService
+from kkb_agent.api.service import AnalysisService, ServiceError
 from kkb_agent.api.store import DATABASE_NAME, ConversationStore
 from kkb_agent.knowledge import KnowledgeStore
 from kkb_agent.llm import scripted
@@ -171,13 +172,52 @@ def test_a_reviewed_series_is_archived_and_annotated_with_its_history(api):
     )
     # Restored: no longer archived; the catalog's own status for it is "unknown".
     assert entry["status"] != "archived" and entry["aliases"] == ["mortgage stoku"]
-    # Only reviewed identities take notes; a user id or unknown id does not.
+    # An identity from neither tier still takes no note.
     assert (
         api.post(
             "/v1/knowledge/series/EVDS:NOPE/notes", json={"archived": True}, headers=key
         ).status_code
         == 404
     )
+
+
+def test_a_source_directory_record_takes_a_note_like_a_reviewed_one(tmp_path):
+    """The overlay applies notes to directory records; the route refused them.
+
+    So the page's own edit form answered 404 and nothing happened, although the
+    counter next to it says these records can be annotated (finding F4-bt-7).
+    """
+    from kkb_agent.catalog.directory import source_directory
+    from kkb_agent.catalog.mappings import load_reviewed_snapshot
+
+    store = ConversationStore(tmp_path / "c.sqlite")
+    knowledge = KnowledgeStore(tmp_path / "k.sqlite")
+    _, token = store.create_owner()
+    directory = source_directory()
+    service = KnowledgeService(
+        knowledge,
+        store,
+        load_reviewed_snapshot(CATALOG.read_bytes()),
+        prepared=frozenset({TOTAL}),
+        source_directory=directory,
+    )
+    try:
+        reviewed = {series.record.series_id for series in service._reviewed.series}
+        listed = sorted(directory.ids() - reviewed)
+        assert listed, "the directory must carry records of its own"
+        history = service.annotate(
+            token,
+            listed[0],
+            SeriesNoteRequest(archived=False, aliases=("kendi adım",), note="Bunu ben adlandırdım"),
+        )
+        assert [v.aliases for v in history.history] == [("kendi adım",)]
+        entry = next(item for item in service.listing(token).series if item.series_id == listed[0])
+        assert entry.aliases == ("kendi adım",) and entry.origin == "listed"
+        with pytest.raises(ServiceError):
+            service.annotate(token, "EVDS:NOPE", SeriesNoteRequest(archived=True))
+    finally:
+        store.close()
+        knowledge.close()
 
 
 @pytest.mark.parametrize(

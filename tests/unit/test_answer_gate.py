@@ -121,6 +121,7 @@ def producer_fixture_for_sentence_tests(request, monkeypatch):
         TestAnUnsupportedSentenceIsWithheld,
         TestTheWithheldSentenceCanBeDiagnosedWithoutItsText,
         TestAbstention,
+        TestTheInterpretationParagraph,
     }:
         return
     house = request.getfixturevalue("house")
@@ -195,6 +196,36 @@ class TestAnUnsupportedSentenceIsWithheld:
     def test_the_final_sentence_without_trailing_punctuation_is_still_gated(self, house):
         gated = gate_answer(f"{SUPPORTED} Ayrıca 912.000 milyon TL", result(), house.connection)
 
+        assert gated.status is AnswerStatus.QUALIFIED
+        assert "912.000" not in gated.text
+
+
+class TestTheInterpretationParagraph:
+    """The jury asks for a reading of the numbers; the gate asks for evidence.
+
+    Both are served by one labelled paragraph: it may read the pattern and name
+    factors worth testing, it may hold no number that is not a listed display, and
+    it may not assert a cause. It is the only heading the writer is allowed.
+    """
+
+    def test_a_labelled_reading_is_kept(self, house):
+        reading = (
+            " Yorum: Seri yıl boyunca yükselişte; konut talebi ve kredi koşulları test "
+            "edilmeye değer etkenlerdir, bu analiz bir açıklama kurmuş değildir."
+        )
+        gated = gate_answer(SUPPORTED + reading, result(), house.connection)
+        assert gated.status is AnswerStatus.ACCEPTED
+        assert "Yorum:" in gated.text
+
+    def test_a_cause_in_that_paragraph_is_still_withheld(self, house):
+        causal = " Yorum: Artışın nedeni faiz indirimidir."
+        gated = gate_answer(SUPPORTED + causal, result(), house.connection)
+        assert gated.status is AnswerStatus.QUALIFIED
+        assert "nedeni" not in gated.text
+
+    def test_a_new_number_in_that_paragraph_is_still_withheld(self, house):
+        invented = " Yorum: Yıl boyunca 912.000 milyon TL seviyesine yaklaşıldı."
+        gated = gate_answer(SUPPORTED + invented, result(), house.connection)
         assert gated.status is AnswerStatus.QUALIFIED
         assert "912.000" not in gated.text
 
@@ -334,6 +365,35 @@ class TestReadableVerifiedFigures:
     def test_display_does_not_bypass_semantic_or_numeric_checks(self, draft):
         assert gate_answer(draft, result()).status is AnswerStatus.ABSTAINED
 
+    def test_a_list_marker_is_not_a_claim(self):
+        """Live 2026-09-20: "(1) catalog_search; (2) web_search" lost its sentence.
+
+        Those markers measure nothing and bound to nothing, so the gate withheld
+        the only sentence that answered the question and what reached the reader
+        began mid-thought.
+        """
+        from kkb_agent.agent.presentation import display_value
+
+        value = ResultValue(
+            label="credit", value=767314.0, unit="TRY", scale=Scale.MILLION, period=JUNE
+        )
+        trusted = result(values=[value])
+        reply = (
+            "Elinde iki ana araç var: (1) catalog_search — resmî serileri bulmak için; "
+            "(2) web_search — sayfaları bulmak için."
+        )
+        assert gate_answer(reply, trusted).status is AnswerStatus.ACCEPTED
+        assert not gate_answer(reply, trusted).omitted
+        # A figure in brackets is still a figure when it carries an amount.
+        assert (
+            gate_answer("Haziran 2026'da (1) milyon TL.", trusted).status is AnswerStatus.ABSTAINED
+        )
+        # And a real claim beside markers still has to bind.
+        assert (
+            gate_answer(f"(1) Haziran 2026'da {display_value(value)}.", trusted).status
+            is AnswerStatus.ACCEPTED
+        )
+
     def test_naive_rounding_is_still_withheld(self):
         value = ResultValue(label="rate", value=4.447201536789372, unit="percent", scale=Scale.ONE)
         trusted = result(values=[value])
@@ -355,6 +415,14 @@ class TestReadableVerifiedFigures:
             ("basis points", Scale.ONE, "12,5 baz puan"),
             ("index points", Scale.ONE, "12,5 endeks puan"),
             ("dimensionless", Scale.ONE, "12,5 dimensionless"),
+            # A count is a number of things; the label says what they are, so the
+            # display adds no unit word. A quoted price is money per quantity
+            # (DEC-177). Neither had a display before (finding DN-6.4).
+            ("count", Scale.ONE, "12,5"),
+            ("count", Scale.THOUSAND, "12,5 bin"),
+            ("TRY/g", Scale.ONE, "12,5 TL/gr"),
+            ("USD/oz", Scale.ONE, "12,5 USD/ons"),
+            ("TRY/piece", Scale.ONE, "12,5 TL/adet"),
         ],
     )
     def test_only_explicit_unit_and_scale_mappings_are_used(self, unit, scale, expected):
@@ -383,8 +451,48 @@ class TestReadableVerifiedFigures:
         context = "\n".join(m.content for m in provider.seen[-1])
         assert "display 4,4472 yüzde" in context
         assert "4.447201536789372" not in context
-        assert "copying each number, unit and scale exactly" in context
+        assert "Copy every number, unit and scale exactly from a display phrase" in context
         assert gate_answer(draft, {"rate": trusted}).status is AnswerStatus.ABSTAINED
+
+
+class TestAPlainTableStillAnswers:
+    def test_the_writer_is_given_each_column_s_first_and_last_period(self):
+        """Live 2026-09-20: twelve monthly balances reached the writer with no
+        figure at all, because every per-period value belongs to the table shown
+        beside the answer. What it wrote said only that a table exists, which the
+        reader was already looking at. Two ends per column cannot be aggregated
+        into a new number the way rows can, and the gate binds them like any
+        other value.
+        """
+        from datetime import date
+
+        from kkb_agent.agent.loop import render_result
+        from kkb_agent.core import Frequency, Period
+
+        months = [
+            Period(
+                start=date(2025, month, 1),
+                end=date(2025, month, 28),
+                frequency=Frequency.MONTHLY,
+            )
+            for month in range(1, 13)
+        ]
+        values = [
+            ResultValue(
+                label="konut",
+                value=1000.0 + index * 10,
+                unit="TRY",
+                scale=Scale.MILLION,
+                period=period,
+            )
+            for index, period in enumerate(months)
+        ]
+        rendered = render_result(result(values=values))
+        quoted = [line for line in rendered.splitlines() if line.startswith("- konut:")]
+        assert len(quoted) == 2
+        assert "2025-01-01..2025-01-28" in quoted[0] and "1.000 milyon TL" in quoted[0]
+        assert "2025-12-01..2025-12-28" in quoted[1] and "1.110 milyon TL" in quoted[1]
+        assert "No value is listed" not in rendered
 
 
 class TestWhatTheWriterIsGiven:

@@ -15,6 +15,8 @@ from kkb_agent.ingest.json_table import RecordTable
 
 _HOSTS = frozenset({"borsaistanbul.com", "www.borsaistanbul.com"})
 _PAGE_CODES = {"/endeks/xtumy": "XTUMY", "/endeks/xu100": "XU100"}
+#: What the reviewed index is called on its own page, for a readable column.
+_PAGE_TITLES = {"XTUMY": "BIST TÜM kapanış (XTUMY)", "XU100": "BIST 100 kapanış (XU100)"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,6 +25,8 @@ class ReviewedMetric:
     scale: Scale
     measure: StockFlow
     source: str
+    #: How the column is named for a reader; the raw field name proves nothing.
+    title: str | None = None
 
 
 def bist_index_close_metrics(
@@ -57,5 +61,6 @@ def bist_index_close_metrics(
             scale=Scale.ONE,
             measure=StockFlow.INDEX,
             source=f"reviewed Borsa Istanbul {code} index-close mapping",
+            title=_PAGE_TITLES[code],
         )
     }

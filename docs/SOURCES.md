@@ -28,6 +28,25 @@ Enforcement: [original catalog pins](../tests/unit/test_catalog_mappings.py),
 [BDDK source hash](../tests/unit/test_bddk_monthly.py). These are existing tests,
 not new checks or permission to change the evidence.
 
+## What is covered, and what is not
+
+The demo answers from the prepared families and the sources' own directories:
+BDDK Monthly Bulletin tables that were reviewed one by one, the four reviewed
+EVDS series, and whatever the BDDK monthly bulletin, the BDDK weekly bulletin
+([DEC-182](DECISIONS.md)) and EVDS list themselves, which is searched and
+fetched on first use. Everything else is refused by name rather than guessed.
+
+Two things a reader may ask for are deliberately absent:
+
+- **FinTürk (province breakdown).** No adapter has been written and
+  reviewed, so there is no identity to cite for a province-level number.
+- **The rest of the Monthly Bulletin layouts** (loans, deposits, sectoral,
+  ratios). The ones reviewed are prepared; the others are listed but not read.
+
+This is a coverage decision, not a failure of the harness: an answer this system
+gives carries a reviewed identity, a unit and a frequency, and it would rather
+name what it does not have than produce a number nobody can check.
+
 ## Source identity and preparation rules
 
 Use reviewed real EVDS series IDs, never a datagroup as an observation series.

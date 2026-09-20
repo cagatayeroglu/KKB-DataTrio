@@ -316,12 +316,17 @@ export const savedSchema = z
                 "capacity",
                 "invalid_document",
                 "not_found",
+                "turn_interrupted",
+                "turn_not_sent",
               ])
               .optional(),
           })
           .strict(),
       )
-      .max(24),
+      // This tab's own record, not the server's policy: the per-conversation cap
+      // is the server's (`max_turns_per_session`, 100 here) and a fixed 24 here
+      // made a long chat unreadable after a reload.
+      .max(500),
   })
   .strict();
 export type Saved = z.infer<typeof savedSchema>;
@@ -407,6 +412,8 @@ export const conversationDetailSchema = z
           .strict(),
       )
       .max(4),
+    // Titles the pending clarification offered, so a reopened chat can show them.
+    pending_offered: z.array(z.string().min(1).max(240)).max(12).default([]),
   })
   .strict();
 export type ConversationSummary = z.infer<typeof conversationSummarySchema>;
@@ -415,6 +422,18 @@ export type TraceConversationSummary = z.infer<
 >;
 export type ConversationDetail = z.infer<typeof conversationDetailSchema>;
 export type StoredMessage = z.infer<typeof storedMessageSchema>;
+
+export const runProgressSchema = z
+  .object({
+    api_version: z.literal(1),
+    run_id: ref,
+    status: z.enum(["running", "completed", "failed", "cancelled"]),
+    steps: z.number().int().nonnegative(),
+    stage: z.string().max(120).nullable(),
+    name: z.string().max(120).nullable(),
+  })
+  .strict();
+export type RunProgress = z.infer<typeof runProgressSchema>;
 
 export const runSummarySchema = z
   .object({

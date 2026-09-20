@@ -18,8 +18,9 @@ import { Button } from "@/components/ui/button";
 import {
   admitDocumentFromUrl,
   annotateSeries,
+  ApiError,
   datasetRequestFromExport,
-  describeError,
+  describeKnowledgeError,
   listKnowledge,
   openDataset,
   readIndex,
@@ -49,7 +50,7 @@ import type {
 import { unitLabel } from "@/lib/table";
 
 type Filter =
-  "all" | "prepared" | "fetchable" | "catalog" | "user" | "archived";
+  "all" | "prepared" | "fetchable" | "catalog" | "listed" | "user" | "archived";
 /** Which retrieval stages ran for a trial, in the words the page uses elsewhere. */
 const retrievalWords: Record<string, string> = {
   lexical_only: "yalnızca kelime eşleşmesi",
@@ -82,6 +83,9 @@ const filters: [Filter, string][] = [
   ["prepared", "Hazır"],
   ["fetchable", "Kaynaktan çekilir"],
   ["catalog", "Yalnız katalog"],
+  // The directory records are most of the catalogue and had no chip of their
+  // own, so they could only be reached by scrolling (finding F4-bt-13).
+  ["listed", "Kaynak dizini"],
   ["user", "Benim eklediklerim"],
   ["archived", "Arşiv"],
 ];
@@ -164,6 +168,7 @@ function matches(item: KnowledgeSeries, filter: Filter) {
   if (filter === "fetchable") return item.fetchable;
   if (filter === "catalog")
     return item.origin === "reviewed" && !item.prepared && !item.fetchable;
+  if (filter === "listed") return item.origin === "listed";
   if (filter === "user") return item.origin === "user";
   return true;
 }
@@ -175,6 +180,7 @@ export function KnowledgePanel({
   documents,
   pool,
   onOpenConversation,
+  onChanged,
   session = null,
 }: {
   owner: string;
@@ -183,6 +189,13 @@ export function KnowledgePanel({
   pool?: Dataset | null;
   /** Opens one of this browser's conversations in the studio (reverse lineage). */
   onOpenConversation?: (id: string) => void;
+  /**
+   * The catalogue changed here, so the page's own numbers are stale.
+   *
+   * The strip above reads another request and only its own button refreshed it:
+   * adding a dataset moved one strip and not the other (finding B2).
+   */
+  onChanged?: () => void;
   /** The open conversation; a document fetched from an address is admitted into it. */
   session?: { id: string; token: string } | null;
 }) {
@@ -199,6 +212,11 @@ export function KnowledgePanel({
   const [trying, setTrying] = useState(false);
   //: Which generation of meaning vectors this deployment searches, and what it covers.
   const [index, setIndex] = useState<VectorIndex | null>(null);
+  //: This deployment has no index route at all, and: the last read did not
+  //: arrive. They used to be the same thing, so one slow read during a build
+  //: said the server was too old and stopped watching it (finding F4-bt-8).
+  const [indexUnsupported, setIndexUnsupported] = useState(false);
+  const [indexUnread, setIndexUnread] = useState(false);
   //: A friendly next-step note (not an error), cleared by the next action.
   const [hint, setHint] = useState("");
   const [refreshing, setRefreshing] = useState(false);
@@ -233,7 +251,20 @@ export function KnowledgePanel({
         setIndex(await readIndex(owner));
       }
     } catch (error) {
-      setIssue(describeError(error));
+      if (error instanceof ApiError && error.code === "connection") {
+        // The read is one request per opened datagroup and the server finishes it
+        // whatever this page does, so the outcome is taken from the listing
+        // instead of being reported as a failure (finding F4-bt-12).
+        setIssue("");
+        setHint(
+          "Dizin okuması sürüyor; sunucu tamamlıyor. Sonucu listeden okuyacağım.",
+        );
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        await refresh();
+        setHint(
+          'Dizin okuması sunucuda tamamlandıktan sonra liste tazelendi. Katalog değiştiyse "Yeniden vektörle" gerekir.',
+        );
+      } else setIssue(describeKnowledgeError(error));
     } finally {
       setRefreshing(false);
     }
@@ -269,7 +300,7 @@ export function KnowledgePanel({
       URL.revokeObjectURL(link.href);
       setIssue("");
     } catch (error) {
-      setIssue(describeError(error));
+      setIssue(describeKnowledgeError(error));
     } finally {
       setBusy(false);
     }
@@ -302,7 +333,7 @@ export function KnowledgePanel({
           imported++;
         } catch (error) {
           problems.push(
-            `${item.slug ?? item.series_id}: ${describeError(error)}`,
+            `${item.slug ?? item.series_id}: ${describeKnowledgeError(error)}`,
           );
         }
       }
@@ -311,34 +342,53 @@ export function KnowledgePanel({
         if (item.origin !== "reviewed") continue;
         if (!item.aliases.length && !item.note && item.status !== "archived")
           continue;
+        // An annotation is the whole set, and a missing note deletes the stored
+        // one, so an import used to wipe synonyms and notes that were only here
+        // (finding F4-bt-6). Both sides are kept: the union of the synonyms, and
+        // the local note unless the file brings its own.
+        const here = listing?.series.find(
+          (known) => known.series_id === item.series_id,
+        );
+        const aliases: string[] = [];
+        const seen = new Set<string>();
+        for (const alias of [...(here?.aliases ?? []), ...item.aliases]) {
+          const text = alias.trim();
+          const key = text.toLocaleLowerCase("tr");
+          if (!text || seen.has(key)) continue;
+          seen.add(key);
+          aliases.push(text);
+        }
+        const note = item.note ?? here?.note;
         try {
           await annotateSeries(owner, item.series_id, {
             archived: item.status === "archived",
-            aliases: item.aliases,
-            ...(item.note ? { note: item.note } : {}),
+            aliases,
+            ...(note ? { note } : {}),
           });
         } catch (error) {
-          problems.push(`${item.series_id}: ${describeError(error)}`);
+          problems.push(`${item.series_id}: ${describeKnowledgeError(error)}`);
         }
       }
-      setIssue(
-        problems.length
-          ? `${imported} veri seti alındı; alınamayanlar - ${problems.slice(0, 3).join(" · ")}`
-          : `${imported} veri seti ve notlar içe aktarıldı; her biri yeni bir sürüm olarak kaydedildi.`,
-      );
-      await refresh();
+      const report = problems.length
+        ? `${imported} veri seti alındı; alınamayanlar - ${problems.slice(0, 3).join(" · ")}`
+        : `${imported} veri seti ve notlar içe aktarıldı; her biri yeni bir sürüm olarak kaydedildi.`;
+      setIssue(report);
+      // The list is read again, but the report stays: it used to be wiped in the
+      // same tick it appeared, so nothing said what happened (finding F4-bt-6).
+      await refresh({ keep: report });
     } catch (error) {
-      setIssue(describeError(error));
+      setIssue(describeKnowledgeError(error));
     } finally {
       setBusy(false);
     }
   }
-  async function refresh() {
+  async function refresh(options: { keep?: string } = {}) {
     try {
       setListing(await listKnowledge(owner));
-      setIssue("");
+      setIssue(options.keep ?? "");
+      onChanged?.();
     } catch (error) {
-      setIssue(describeError(error));
+      setIssue(describeKnowledgeError(error));
     }
     // Every knowledge-base change makes a different catalogue, so the card that
     // reports vector coverage is read again with the listing.
@@ -347,9 +397,16 @@ export function KnowledgePanel({
   async function readIndexStatus() {
     try {
       setIndex(await readIndex(owner));
-    } catch {
-      // An older deployment has no index route; the card then says so.
-      setIndex(null);
+      setIndexUnsupported(false);
+      setIndexUnread(false);
+    } catch (error) {
+      // A deployment without the route has no card; one slow read must not end
+      // the card, and above all not the watch on a build in progress, which is
+      // exactly when reads are slow (finding F4-bt-8).
+      if (error instanceof ApiError && error.status === 404) {
+        setIndex(null);
+        setIndexUnsupported(true);
+      } else setIndexUnread(true);
     }
   }
   useEffect(() => {
@@ -358,10 +415,11 @@ export function KnowledgePanel({
   }, [owner]);
   useEffect(() => {
     // A build embeds every entry again, so it is followed rather than waited on.
-    if (!index?.rebuilding) return;
+    // A failed read keeps the last known state, so the watch survives it.
+    if (!index?.rebuilding && !(indexUnread && index)) return;
     const timer = setTimeout(() => void readIndexStatus(), 3000);
     return () => clearTimeout(timer);
-  }, [index]);
+  }, [index, indexUnread]);
 
   const shown = useMemo(
     () =>
@@ -369,7 +427,17 @@ export function KnowledgePanel({
         (item) =>
           matches(item, filter) &&
           (!query ||
-            [item.title, item.series_id, ...item.aliases]
+            // What a reader can see on the card is what the box searches: the
+            // note and the description used to be invisible to it (F4-bt-13).
+            [
+              item.title,
+              item.series_id,
+              ...item.aliases,
+              ...(item.reviewed_aliases ?? []),
+              item.note ?? "",
+              item.description ?? "",
+              item.reviewer_note ?? "",
+            ]
               .join(" ")
               .toLocaleLowerCase("tr")
               .includes(query.toLocaleLowerCase("tr"))),
@@ -392,7 +460,7 @@ export function KnowledgePanel({
       await refresh();
       noteVectorGap();
     } catch (error) {
-      setIssue(describeError(error));
+      setIssue(describeKnowledgeError(error));
     } finally {
       setBusy(false);
     }
@@ -441,7 +509,10 @@ export function KnowledgePanel({
             size="sm"
             variant="outline"
             disabled={refreshing}
-            title="EVDS'nin güncel veri grubu dizinini ve daha önce açılan grupların seri listelerini kaynağından yeniden okur. Yeni eklenen veri grupları ve seriler aramaya girer. Model çağrılmaz."
+            // Only EVDS publishes a directory to re-read. BDDK's is harvested
+            // into the code, so the button never touched it and its name said
+            // otherwise (finding B3).
+            title="EVDS'nin güncel veri grubu dizinini ve daha önce açılan grupların seri listelerini kaynağından yeniden okur. BDDK dizini kaynakta sabittir, bu düğme onu değiştirmez. Model çağrılmaz."
             onClick={() => void refreshSources()}
           >
             {refreshing ? (
@@ -449,7 +520,7 @@ export function KnowledgePanel({
             ) : (
               <RefreshCw size={13} />
             )}
-            {refreshing ? "Dizin okunuyor" : "Kaynak dizinini yenile"}
+            {refreshing ? "EVDS dizini okunuyor" : "EVDS dizinini yenile"}
           </Button>
         )}
         <span>
@@ -512,7 +583,7 @@ export function KnowledgePanel({
             setTrial(await trySearch(owner, trialQuery.trim()));
             setIssue("");
           } catch (error) {
-            setIssue(describeError(error));
+            setIssue(describeKnowledgeError(error));
           } finally {
             setTrying(false);
           }
@@ -595,7 +666,7 @@ export function KnowledgePanel({
               setIndex(await rebuildIndex(owner));
               setIssue("");
             } catch (error) {
-              setIssue(describeError(error));
+              setIssue(describeKnowledgeError(error));
             }
           }}
         />
@@ -603,13 +674,28 @@ export function KnowledgePanel({
         <section className="vector-index">
           <div className="vector-head">
             <h3>Anlamsal arama dizini</h3>
-            <span className="pill-warn">bilgi alınamadı</span>
+            <span className="pill-warn">
+              {indexUnsupported ? "bu sürümde yok" : "bilgi alınamadı"}
+            </span>
           </div>
-          <p className="helper">
-            Bu sunucu sürümü dizin bilgisini sunmuyor. Sunucu güncel koddan (ve{" "}
-            <code>--catalog-index</code> ile) yeniden başlatılınca burada
-            modelin, kapsamın ve &quot;Yeniden vektörle&quot; düğmesi görünür.
-          </p>
+          {indexUnsupported ? (
+            <p className="helper">
+              Bu sunucu sürümü dizin bilgisini sunmuyor. Sunucu güncel koddan
+              (ve <code>--catalog-index</code> ile) yeniden başlatılınca burada
+              modelin, kapsamın ve &quot;Yeniden vektörle&quot; düğmesi görünür.
+            </p>
+          ) : (
+            <p className="helper">
+              Dizin durumu okunamadı; kurulum sürüyor olabilir.{" "}
+              <button
+                type="button"
+                className="trace-retry"
+                onClick={() => void readIndexStatus()}
+              >
+                Yeniden dene
+              </button>
+            </p>
+          )}
         </section>
       )}
       <div className="knowledge-filters" role="tablist">
@@ -708,9 +794,18 @@ export function KnowledgePanel({
                 act={act}
                 stored={health(item, pool)}
                 vectored={
-                  index && index.configured
-                    ? !index.missing.includes(item.series_id)
-                    : null
+                  !index || !index.configured
+                    ? null
+                    : index.missing.includes(item.series_id)
+                      ? false
+                      : // The list of missing entries is clipped, so an entry
+                        // that is not in it is not proof of a vector: with more
+                        // than that many missing, the 51st looked covered
+                        // (finding F4-bt-11).
+                        index.series_total - index.series_vectored >
+                          index.missing.length
+                        ? "unknown"
+                        : true
                 }
                 onOpenConversation={onOpenConversation}
                 onEdit={async () => {
@@ -718,7 +813,7 @@ export function KnowledgePanel({
                   try {
                     setEditing(await openDataset(owner, item.slug));
                   } catch (error) {
-                    setIssue(describeError(error));
+                    setIssue(describeKnowledgeError(error));
                   }
                 }}
               />
@@ -846,6 +941,9 @@ function VectorIndexCard({
   );
 }
 
+/** Which of a record's readable sections a button opens (finding B1). */
+type Part = "dataset" | "values" | "history";
+
 function SeriesDetail({
   item,
   owner,
@@ -862,8 +960,11 @@ function SeriesDetail({
   act: (work: () => Promise<unknown>) => Promise<void>;
   /** The window the store really holds, when the catalogue record declares none. */
   stored: ReturnType<typeof health>;
-  /** Whether the vectors in use cover this entry; null when none are configured. */
-  vectored: boolean | null;
+  /**
+   * Whether the vectors in use cover this entry: null when none are configured,
+   * "unknown" when the server's list of missing entries was clipped.
+   */
+  vectored: boolean | "unknown" | null;
   onEdit: () => void;
   onOpenConversation?: (id: string) => void;
 }) {
@@ -889,6 +990,32 @@ function SeriesDetail({
   const [stored, setStored] = useState<
     { period_end: string; value: number | null }[] | null
   >(null);
+  //: Which of the three readings is in flight, and what went wrong with it.
+  const [reading, setReading] = useState<Part | null>(null);
+  const [readIssue, setReadIssue] = useState("");
+  /**
+   * Open a section, or close the open one.
+   *
+   * These three buttons only ever opened: there was no way back, and their
+   * awaits had no catch, so a failed read did nothing at all (finding B1).
+   */
+  async function show(
+    part: Part,
+    shown: unknown,
+    close: () => void,
+    load: () => Promise<void>,
+  ) {
+    setReadIssue("");
+    if (shown !== null && shown !== undefined) return close();
+    setReading(part);
+    try {
+      await load();
+    } catch (error) {
+      setReadIssue(describeKnowledgeError(error));
+    } finally {
+      setReading(null);
+    }
+  }
   const archived = item.status === "archived";
   const aliasList = aliases
     .split(",")
@@ -969,9 +1096,11 @@ function SeriesDetail({
             {item.search_text
               ? vectored === null
                 ? "Kelime aramasında; anlam vektörleri yapılandırılmamış"
-                : vectored
-                  ? "Kelime aramasında ve anlam vektörlerinde"
-                  : "Kelime aramasında; anlam vektörü eksik (vektörleri yeniden üret)"
+                : vectored === "unknown"
+                  ? "Kelime aramasında; anlam vektörü durumu bilinmiyor (eksik listesi kırpıldı)"
+                  : vectored
+                    ? "Kelime aramasında ve anlam vektörlerinde"
+                    : "Kelime aramasında; anlam vektörü eksik (vektörleri yeniden üret)"
               : "Aranan katalogda değil (arşivli)"}
             {item.search_text && (
               <details className="search-text">
@@ -1015,8 +1144,16 @@ function SeriesDetail({
           </div>
         )}
       </dl>
-      {item.origin === "reviewed" ? (
+      {item.origin === "reviewed" || item.origin === "listed" ? (
         <div className="knowledge-form">
+          {item.origin === "listed" && (
+            // The overlay treats a directory record like a reviewed one for
+            // notes and synonyms; only the route refused it (finding F4-bt-7).
+            <p className="helper">
+              Bu kayıt kaynağın kendi dizininden geliyor; tek tek incelenmedi.
+              Eş anlamlı ve açıklama eklemek onu aramada bulunur kılar.
+            </p>
+          )}
           <label>
             Eş anlamlılar (virgülle)
             <input
@@ -1089,14 +1226,24 @@ function SeriesDetail({
           <Button
             size="sm"
             variant="outline"
-            disabled={busy || !item.slug}
+            disabled={busy || !item.slug || reading === "dataset"}
             onClick={() =>
-              void (async () => {
-                if (item.slug) setDetail(await openDataset(owner, item.slug));
-              })()
+              void show(
+                "dataset",
+                detail,
+                () => setDetail(null),
+                async () => {
+                  if (item.slug) setDetail(await openDataset(owner, item.slug));
+                },
+              )
             }
           >
-            <History size={13} /> Değerler ve sürümler
+            {reading === "dataset" ? (
+              <LoaderCircle size={13} className="spin" />
+            ) : (
+              <History size={13} />
+            )}{" "}
+            {detail ? "Değerleri gizle" : "Değerler ve sürümler"}
           </Button>
           <Button size="sm" variant="outline" disabled={busy} onClick={onEdit}>
             <Pencil size={13} /> Düzenle
@@ -1162,14 +1309,25 @@ function SeriesDetail({
         <Button
           size="sm"
           variant="ghost"
+          disabled={reading === "values"}
           onClick={() =>
-            void (async () => {
-              const found = await seriesValues(owner, item.series_id);
-              setStored(found.observations);
-            })()
+            void show(
+              "values",
+              stored,
+              () => setStored(null),
+              async () => {
+                const found = await seriesValues(owner, item.series_id);
+                setStored(found.observations);
+              },
+            )
           }
         >
-          <History size={13} /> Değerleri göster
+          {reading === "values" ? (
+            <LoaderCircle size={13} className="spin" />
+          ) : (
+            <History size={13} />
+          )}{" "}
+          {stored ? "Değerleri gizle" : "Değerleri göster"}
         </Button>
       )}
       {stored && (
@@ -1205,22 +1363,33 @@ function SeriesDetail({
         <Button
           size="sm"
           variant="ghost"
+          disabled={reading === "history"}
           onClick={() =>
-            void (async () => {
-              const found = await seriesNotes(owner, item.series_id);
-              setHistory(
-                found.history.map(
-                  (v) =>
-                    `v${v.version} · ${v.archived ? "arşivlendi" : "etkin"} · ` +
-                    `${v.aliases.join(", ") || "eş anlamlı yok"} · ` +
-                    `${new Date(v.created_at).toLocaleString("tr-TR")}` +
-                    (v.note ? ` · ${v.note}` : ""),
-                ),
-              );
-            })()
+            void show(
+              "history",
+              history,
+              () => setHistory(null),
+              async () => {
+                const found = await seriesNotes(owner, item.series_id);
+                setHistory(
+                  found.history.map(
+                    (v) =>
+                      `v${v.version} · ${v.archived ? "arşivlendi" : "etkin"} · ` +
+                      `${v.aliases.join(", ") || "eş anlamlı yok"} · ` +
+                      `${new Date(v.created_at).toLocaleString("tr-TR")}` +
+                      (v.note ? ` · ${v.note}` : ""),
+                  ),
+                );
+              },
+            )
           }
         >
-          <History size={13} /> Düzenleme geçmişi
+          {reading === "history" ? (
+            <LoaderCircle size={13} className="spin" />
+          ) : (
+            <History size={13} />
+          )}{" "}
+          {history ? "Geçmişi gizle" : "Düzenleme geçmişi"}
         </Button>
       )}
       {history && (
@@ -1231,6 +1400,7 @@ function SeriesDetail({
           ))}
         </ol>
       )}
+      {readIssue && <p className="notice">{readIssue}</p>}
     </div>
   );
 }
@@ -1271,7 +1441,12 @@ function DatasetForm({
   const [source, setSource] = useState<"rows" | "document">("rows");
   const [rows, setRows] = useState(
     initial?.observations
-      .map((o) => `${o.period_end.slice(0, 7)};${o.value ?? ""}`)
+      // A weekly set is written with its days: drawing its rows as YYYY-AA made
+      // the parser refuse every line as soon as it was edited (finding F4-bt-2).
+      .map(
+        (o) =>
+          `${o.period_end.slice(0, series?.frequency === "weekly" ? 10 : 7)};${o.value ?? ""}`,
+      )
       .join("\n") ?? "",
   );
   //: Documents fetched from an address during this form, admitted like uploads.
@@ -1305,7 +1480,7 @@ function DatasetForm({
       setSource("document");
       setUrlDraft("");
     } catch (error) {
-      setIssue(describeError(error));
+      setIssue(describeKnowledgeError(error));
     } finally {
       setFetchingUrl(false);
     }
@@ -1349,7 +1524,9 @@ function DatasetForm({
       }
       request.observations = parsed.observations;
     } else {
-      const chosen = documents.find((d) => d.ref === document);
+      // Documents fetched from an address live beside the chat's own; looking
+      // only at the chat's meant a fetched table could never be saved (F4-bt-1).
+      const chosen = allDocs.find((d) => d.ref === document);
       if (!chosen || !columns.period.trim() || !columns.value.trim()) {
         setIssue("Belgeyi ve iki sütun başlığını seç.");
         return;
@@ -1367,7 +1544,7 @@ function DatasetForm({
       await saveDataset(owner, request);
       await onSaved();
     } catch (error) {
-      setIssue(describeError(error));
+      setIssue(describeKnowledgeError(error));
     } finally {
       setBusy(false);
     }
@@ -1518,6 +1695,15 @@ function DatasetForm({
         />
       </label>
       <div className="knowledge-filters" role="radiogroup" aria-label="Kaynak">
+        {!session && (
+          // The address field belongs to a conversation, because the document it
+          // fetches is admitted into one. Without this the field was simply
+          // absent and nothing said why (finding F4-bt-3).
+          <p className="helper">
+            Adresten tablo getirmek için önce bir sohbet aç: getirilen belge o
+            sohbete kabul edilir.
+          </p>
+        )}
         {session && (
           <div className="url-fetch">
             <input

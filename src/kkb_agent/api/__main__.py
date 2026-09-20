@@ -182,6 +182,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         # configured, not because a second flag was remembered. --no-ocr still refuses it.
         ocr_enabled = config.ocr_model is not None and not args.no_ocr
         uploads_enabled = not args.no_uploads
+        # Describing a picture needs the chat model, not the OCR one. Live 2026-09-20
+        # this deployment had KLOUDEKS_VISION_MODEL pointing at Unlimited-OCR, whose
+        # answer to "describe this chart" was "2025 chart [27, 114, 977, 956]": layout,
+        # not meaning. Pointed at the chat model the same picture came back read.
+        vision_enabled = (
+            config.vision_model is not None
+            and config.vision_model != config.ocr_model
+            and uploads_enabled
+        )
         acquisition_enabled = not args.no_official_acquisition
         if args.searxng_loopback and not (
             args.searxng_url and is_loopback_instance(args.searxng_url)
@@ -220,6 +229,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "web_url": args.enable_web_url,
                         "uploads": uploads_enabled,
                         "ocr": ocr_enabled,
+                        "vision": vision_enabled,
                         "official_acquisition": acquisition_enabled,
                         "web_search": search is not None,
                         "prepared": status.model_dump(mode="json"),
@@ -271,6 +281,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 web_url_fetch=safe_fetch if args.enable_web_url else None,
                 document_uploads=uploads_enabled,
                 document_ocr=provider if ocr_enabled else None,
+                document_vision=vision_enabled,
                 store=store,
                 official=official,
                 knowledge=knowledge,
@@ -375,6 +386,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "web_url": args.enable_web_url,
                         "uploads": uploads_enabled,
                         "ocr": ocr_enabled,
+                        "vision": vision_enabled,
                         "official_acquisition": acquisition_enabled,
                         "web_search": search is not None,
                         "conversations": "persistent",

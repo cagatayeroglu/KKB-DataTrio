@@ -296,9 +296,15 @@ def test_an_earlier_table_is_described_by_its_reviewed_series_name(pool, tmp_pat
     )
 
 
-def test_a_table_request_tells_the_writer_the_table_is_the_answer(pool, tmp_path):
-    """Live trace 2026-09-18: with every value tabled and none listed, the writer
-    wrote "this question was not covered" beside a 24-row table."""
+def test_a_table_request_gives_the_writer_the_ends_of_the_table(pool, tmp_path):
+    """Two live traces, two failures from the same cause.
+
+    2026-09-18: with every value tabled and none listed, the writer wrote "this
+    question was not covered" beside a 24-row table. 2026-09-20: told instead
+    that the table itself was the answer, it wrote only that a table exists,
+    which the reader was already looking at. It is now given each column's first
+    and last period and told to quote them.
+    """
     provider = scripted(proposal(table()), "Tablo hazır.")
     runner = PreparedRunner(
         provider, pool, tmp_path / "runtime", catalog_bytes=CATALOG.read_bytes()
@@ -307,5 +313,8 @@ def test_a_table_request_tells_the_writer_the_table_is_the_answer(pool, tmp_path
 
     writer = provider.seen[-1]
     results = next(m.content for m in writer if m.role is Role.SYSTEM and "Analysis" in m.content)
-    assert "the table itself answers a request for these values" in results
-    assert "do not say that the question or its values are not covered" in results
+    assert "each column's first and last period are listed below" in results
+    assert "an answer that only says a table exists tells them nothing" in results
+    # The ends are really there to quote, and nothing between them is.
+    quoted = [line for line in results.splitlines() if line.startswith("- ")]
+    assert len(quoted) == 2 and all("display" in line for line in quoted)

@@ -10,9 +10,9 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from test_catalog_continuation import CATALOG, TOTAL, proposal
+from test_catalog_continuation import CATALOG, TOTAL, discover, proposal
 from test_document_dataset import BASE, csv, seed, table_step
-from test_document_table import ask, step
+from test_document_table import ask, step, wait_http
 
 from kkb_agent.api.app import create_app
 from kkb_agent.api.prepared import PreparedRunner
@@ -466,3 +466,123 @@ def test_delete_without_cleanup_binding_fails_closed_and_keeps_chat(launch):
     response = client.delete(f"/v1/conversations/{sid}", headers={"X-KKB-Owner-Token": own})
     assert response.status_code == 503
     assert client.get(f"/v1/conversations/{sid}", headers=headers).status_code == 200
+
+
+def test_delete_while_the_runner_is_busy_succeeds_and_cleans_up_later(launch):
+    """A deletion is never reported as a failure because another turn holds the runner.
+
+    The runner is single-turn: removing one conversation's files while a different
+    conversation is mid-turn cannot take the lock, and the caller used to get 503
+    although the chat had already been hidden (finding J-3).
+    """
+    runner, client = launch(table_step(), "Tablo hazır.")
+    owner_token = owner(client)
+    sid, headers, _ = open_conversation(client, owner_token)
+    document = upload(client, sid, headers)
+    assert (
+        ask(client, sid, headers, "Belgeden tablo yap.", document_ref=document)["answer"]["status"]
+        == "accepted"
+    )
+    session_dir = runner.run_root / sid
+    assert session_dir.exists()
+    owner_headers = {"X-KKB-Owner-Token": owner_token}
+
+    # Exactly the state a concurrent turn leaves behind: the runner lock is held.
+    assert runner._lock.acquire(blocking=False)
+    try:
+        deleted = client.delete(f"/v1/conversations/{sid}", headers=owner_headers)
+        assert deleted.status_code == 200, deleted.text
+        assert client.get("/v1/conversations", headers=owner_headers).json()["conversations"] == []
+        assert session_dir.exists()
+    finally:
+        runner._lock.release()
+
+    # Whatever finishes next drains the queue; the trace stays.
+    client.get("/v1/health")
+    other, other_headers, _ = open_conversation(client, owner_token)
+    ask(client, other, other_headers, "selam")
+    assert not session_dir.exists()
+    assert client.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"]
+
+
+def test_a_failure_after_the_answer_still_closes_the_run(launch, monkeypatch):
+    """Publication comes after a good answer, and it is inside the run's lifetime.
+
+    An exception while the table is being written used to leave the row 'running'
+    for ever; only the next start-up sweep closed it (finding A3b).
+    """
+    runner, client = launch(table_step(), "Tablo hazır.")
+    owner_token = owner(client)
+    sid, headers, _ = open_conversation(client, owner_token)
+    document = upload(client, sid, headers)
+    monkeypatch.setattr(
+        runner,
+        "_materialize_gold",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("disk full")),
+    )
+    path = f"/v1/sessions/{sid}/turns"
+    admitted = client.post(
+        path,
+        json={
+            "request_id": uuid4().hex,
+            "question": "Belgeden tablo yap.",
+            "document_ref": document,
+        },
+        headers=headers,
+    )
+    assert admitted.status_code == 202, admitted.text
+    finished = wait_http(client, f"{path}/{admitted.json()['turn_id']}", headers)
+    assert finished["state"] == "failed"
+
+    runs = client.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"]
+    assert [(item["status"], item["error"]) for item in runs] == [("failed", "internal_error")]
+    assert runs[0]["ended_at"] and runs[0]["duration_ms"] > 0
+
+
+def test_identities_the_catalog_vouched_for_survive_a_restart(launch):
+    """A reopened conversation does not re-prove what the catalog already returned.
+
+    The runner kept proven identities in memory only; after a restart they were
+    gone and the next question spent a planning round trip on discovery (H4).
+    """
+    runner, client = launch(
+        proposal(discover()),
+        proposal({"step_id": "a", "tool": "lakehouse", "arguments": {"series": [TOTAL]}}),
+        "Tablo hazır.",
+    )
+    owner_token = owner(client)
+    sid, headers, _ = open_conversation(client, owner_token)
+    answered = ask(client, sid, headers, "Toplam konut kredisi bakiyesini göster.")
+    assert answered["answer"]["status"] in ("accepted", "qualified"), answered
+    proven = runner._proven.get(sid, set())
+    assert TOTAL in proven
+
+    restarted, _ = launch()
+    restarted._restore(sid)
+    assert restarted._proven.get(sid, set()) == proven
+
+
+def test_a_reopened_conversation_still_offers_the_pending_choices(launch):
+    """The titles the pending clarification offered come back with the conversation.
+
+    They were stored already, but the detail never carried them, so a reopened
+    chat left the person to retype one of them (finding F2-netl).
+    """
+    runner, client = launch(proposal(clarification="ambiguous_series"), "-")
+    owner_token = owner(client)
+    sid, headers, _ = open_conversation(client, owner_token)
+    assert ask(client, sid, headers, "konut kredisi faizi")["answer"]["status"] == "abstained"
+    offered = ["Konut Kredisi (TL, Akım, %)", "Konut Kredisi (TL, Stok, %)"]
+    runner._store.set_pending_clarification(
+        sid,
+        {
+            "original_question": "konut kredisi faizi",
+            "clarifications": [],
+            "selection": None,
+            "document_ref": None,
+            "offered": offered,
+        },
+    )
+
+    detail = client.get(f"/v1/conversations/{sid}", headers=headers).json()
+    assert detail["pending_offered"] == offered

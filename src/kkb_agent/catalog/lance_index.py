@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 from typing import Annotated, Literal
+from uuid import uuid4
 
 import pyarrow as pa  # type: ignore[import-untyped]  # Arrow data validated below.
 from lancedb.db import LanceDBConnection
@@ -109,11 +110,31 @@ def _rows_digest(rows: list[_Row]) -> str:
     ).hexdigest()
 
 
+def _set_aside(root: Path) -> bool:
+    """Move a generation that has no manifest out of the way, keeping every byte.
+
+    A build that is killed before its manifest is published leaves a directory
+    that can never be opened, and the generation's path is its catalogue digest,
+    so every later build of that same catalogue failed on the existing directory
+    and an operator had to delete it by hand (finding F4-bt-9). The leftovers are
+    renamed, never removed: nothing this process cannot read is destroyed.
+    """
+    for _ in range(3):
+        target = root.with_name(f"{root.name}.incomplete-{uuid4().hex[:8]}")
+        try:
+            root.rename(target)
+        except OSError:
+            continue
+        return True
+    return False
+
+
 def build_catalog_index(root: Path, snapshot: ReviewedSnapshot, vectors: CatalogVectors) -> None:
     """Write a fresh generation; manifest is published last, existing roots refused.
 
     A failed build can leave an incomplete operator directory. It cannot be opened
-    by this API; retry into another fresh directory after investigating the error.
+    by this API, so a later build renames it aside and starts clean; the bytes are
+    kept for investigation under the same name with an `.incomplete-*` suffix.
     Never overwrite an earlier generation or delete a caller's data on failure.
     """
     root = _local_root(root)
@@ -152,6 +173,14 @@ def build_catalog_index(root: Path, snapshot: ReviewedSnapshot, vectors: Catalog
     )
     try:
         root.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        # A complete generation is never touched; unopenable leftovers are set aside.
+        if (root / MANIFEST).exists() or not _set_aside(root):
+            raise CatalogIndexError("INDEX_NEW_LOCAL_DIRECTORY_REQUIRED") from None
+        try:
+            root.mkdir(parents=True, exist_ok=False)
+        except OSError:
+            raise CatalogIndexError("INDEX_NEW_LOCAL_DIRECTORY_REQUIRED") from None
     except OSError:
         raise CatalogIndexError("INDEX_NEW_LOCAL_DIRECTORY_REQUIRED") from None
     try:

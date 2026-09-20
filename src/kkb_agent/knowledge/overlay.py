@@ -184,14 +184,15 @@ def effective_snapshot(
         if concept is not None:
             concepts.append(concept)
 
+    # What the catalogue *is*, never how it got here. The note version used to be
+    # part of this, so archiving an entry and restoring it produced a third digest
+    # for the first content: the vectors stopped covering the catalogue and every
+    # meaning-based search was off until a full rebuild (finding F4-bt-10).
     state = json.dumps(
         {
             **({"directory": directory.digest} if directory is not None and listed else {}),
             "datasets": [[i.series_id, i.content_sha256()] for i in active],
-            "notes": [
-                [n.series_id, n.version, n.archived, list(n.aliases), n.note or ""]
-                for n in relevant
-            ],
+            "notes": [[n.series_id, n.archived, list(n.aliases), n.note or ""] for n in relevant],
         },
         sort_keys=True,
     ).encode()

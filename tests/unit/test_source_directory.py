@@ -19,7 +19,7 @@ from kkb_agent.catalog.hybrid import search_hybrid_catalog
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
 from kkb_agent.catalog.mappings import is_listed_series, load_reviewed_snapshot
 from kkb_agent.catalog.search import CatalogSearchArguments, search_catalog
-from kkb_agent.core import CumulativeKind, Scale, StockFlow
+from kkb_agent.core import CumulativeKind, Frequency, Scale, StockFlow
 from kkb_agent.ingest import bddk_monthly as monthly
 from kkb_agent.ingest import bddk_monthly_load as load
 from kkb_agent.ingest.acquisition import (
@@ -309,7 +309,11 @@ def test_the_directory_is_a_second_tier_and_never_replaces_a_reviewed_entry(cata
     assert not is_listed_series(kept) and "Reviewed" in kept.record.description
     listed = [item for item in effective.series if is_listed_series(item)]
     assert len(listed) == len(source_directory().series)
-    bddk = [item for item in listed if item.record.provider == "BDDK"]
+    bddk = [
+        item
+        for item in listed
+        if item.record.provider == "BDDK" and item.record.frequency is Frequency.MONTHLY
+    ]
     assert len(bddk) == len(supported_selectors()) - 3  # the housing trio stays reviewed
     assert all(item.evidence_ids == (BDDK_EVIDENCE_ID,) for item in bddk)
     assert BDDK_EVIDENCE_ID in {item.evidence_id for item in effective.evidence}
@@ -317,6 +321,12 @@ def test_the_directory_is_a_second_tier_and_never_replaces_a_reviewed_entry(cata
 
 def found(snapshot, query):
     return search_catalog(snapshot, CatalogSearchArguments(query=query))
+
+
+def row_of(candidate):
+    """A listed row: its table and title. The weekly bulletin repeats some monthly titles."""
+    record = candidate.series.record
+    return record.group.group_id, record.title
 
 
 def test_a_reviewed_concept_still_bounds_the_candidates_to_reviewed_series(catalogue):
@@ -351,7 +361,7 @@ def test_a_listed_measure_is_found_as_one_unconfirmed_candidate_per_row(catalogu
     assert title in titles[:3]
     listed = [c for c in output.candidates if is_listed_series(c.series)]
     # One candidate per listed row: the total, since the question names neither TL nor FX.
-    assert len({c.series.record.title for c in listed}) == len(listed)
+    assert len({row_of(c) for c in listed}) == len(listed)
     assert {c.series.record.labels[2] for c in listed} == {"TOTAL"}
 
 
@@ -361,7 +371,9 @@ def test_the_component_the_question_names_is_the_one_shown(catalogue):
     personal = [
         c for c in output.candidates if c.series.record.title == "Tüketici Kredileri - İhtiyaç"
     ]
-    assert [c.series.record.labels[2] for c in personal] == ["TP"]
+    # Once per bulletin and table that lists it, and each time the component that was named.
+    assert personal and {c.series.record.labels[2] for c in personal} == {"TP"}
+    assert len({row_of(c) for c in personal}) == len(personal)
 
 
 def dense_for(snapshot, root):
@@ -409,7 +421,7 @@ def test_hybrid_search_applies_the_same_rule(catalogue, tmp_path):
     )
     listed = [c for c in output.candidates if is_listed_series(c.series)]
     assert output.top_candidate == "unconfirmed"
-    assert len({c.series.record.title for c in listed}) == len(listed)
+    assert len({row_of(c) for c in listed}) == len(listed)
 
 
 # --- a served turn ------------------------------------------------------------------------------

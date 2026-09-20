@@ -44,3 +44,37 @@ cumulative), `always` → year-to-date total that resets every January (FLOW, YE
 Run the harvest again (58 public requests, one a second) and review the diff of
 `src/kkb_agent/ingest/bddk_monthly_directory.py` in a PR. A new row becomes a new entry; a
 renamed or renumbered row fails closed at fetch time until the listing is refreshed.
+
+# BDDK weekly bulletin — the pinned listing (DEC-182)
+
+`tests/manual/harvest_bddk_weekly_directory.py` walks the bulletin's nine tables through the
+page's own table switch (ten public requests, one a second) and keeps what a person reads
+there: table titles, rows in page order with their numbers and labels, the row a sub-item
+sits under, the item id each value cell charts (`<table>.0.<row>`) and which of TP / YP /
+TOPLAM the row has. No observation value is kept. 2026-09-20: 9 tables, 179 rows, 515
+identities; one caption for all of them, "Birim: Milyon TL".
+
+| Table | Rows | Columns |
+| --- | --- | --- |
+| 1 Krediler | 22 | TP, YP, Toplam |
+| 2 Takipteki Alacaklar | 12 | TP, YP, Toplam |
+| 3 Menkul Değerler | 13 | TP, YP, Toplam |
+| 4 Mevduat | 12 | TP, YP, Toplam; two memo rows have no YP |
+| 5 Diğer Bilanço Kalemleri | 16 | TP, YP, Toplam |
+| 6 Bilanço Dışı İşlemler | 4 | TP, YP, Toplam |
+| 7 Bankalarda Saklanan Menkul Değerler - 1 (nominal) | 45 | TP, YP, Toplam |
+| 8 Bankalarda Saklanan Menkul Değerler - 2 (market value) | 45 | TP, YP, Toplam |
+| 9 Yabancı Para Pozisyonu | 10 | Toplam only |
+
+Item ids are not row numbers: the page shows "KOBİ Kredileri (Bilgi)" as row 19 of Krediler
+and charts it as `1.0.11`, and the ids of tables 3 and 9 start at 11 and 14. The listing keeps
+both, and the adapter asks by id and describes by the number a person sees.
+
+Every item is declared the same way, because every table is a position table: weekly with a
+Friday anchor, TRY million, STOCK, not cumulative, reduced over time by its last value and
+never summed. What the series endpoint was measured to do (the ninety-day answer, holiday
+weeks, the empty chart for an unknown id) is recorded in [DEC-182](DECISIONS.md).
+
+Refreshing is the same: run the harvest, review the diff of
+`src/kkb_agent/ingest/bddk_weekly_directory.py` in a PR. A renamed or renumbered row fails
+closed at fetch time, because the answer's title no longer equals the listed label.

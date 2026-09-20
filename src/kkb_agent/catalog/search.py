@@ -8,7 +8,7 @@ log(1+(N-df+.5)/(df+.5)) IDF; no stemming/stopwords or holdout tuning.
 from collections import Counter
 from collections.abc import Callable, Sequence
 from math import log
-from typing import Literal
+from typing import Final, Literal
 
 from pydantic import Field, StrictBool, StrictInt, StrictStr, field_validator
 
@@ -184,6 +184,102 @@ def _terms(item: ReviewedSeries, concepts: list[Concept]) -> Counter[str]:
     return Counter(normalize_search_text(text).split())
 
 
+#: The words a question names a calendar by, already in search form. Fineness is the order:
+#: a coarser calendar is derived from a finer one by resampling, never the other way round.
+_CALENDAR_WORDS: Final = (
+    (Frequency.DAILY, 0, ("gunluk", "gun bazinda", "daily")),
+    (Frequency.WEEKLY, 1, ("haftalik", "hafta bazinda", "haftalar itibariyla", "weekly")),
+    (Frequency.MONTHLY, 2, ("aylik", "ay bazinda", "monthly")),
+    (Frequency.QUARTERLY, 3, ("ceyreklik", "uc aylik", "quarterly")),
+    (Frequency.ANNUAL, 4, ("yillik", "annual", "yearly")),
+)
+_FINENESS: Final = {
+    **{calendar: order for calendar, order, _ in _CALENDAR_WORDS},
+    Frequency.BUSINESS_DAY: 0,
+}
+
+
+def named_calendar(key: str) -> Frequency | None:
+    """The one calendar a normalized question names, or None when it names none or several."""
+    padded = f" {key} "
+    named = {
+        calendar
+        for calendar, _, words in _CALENDAR_WORDS
+        if any(f" {word} " in padded for word in words)
+    }
+    return next(iter(named)) if len(named) == 1 else None
+
+
+def finer_than_reviewed(
+    snapshot: ReviewedSnapshot, mapped: set[str], calendar: Frequency | None, query: str
+) -> bool:
+    """The question names a calendar finer than the matched concept has, and one that exists.
+
+    A monthly series holds no weeks, so a reviewed concept that exists only monthly cannot
+    answer "haftalık ...": it stops bounding the candidates (DEC-182). The other direction
+    is ordinary work, not a reason to look elsewhere: "aylık" over a weekly reviewed series
+    is a resample of that series. And the bound is kept when no series of the named calendar
+    is titled with a word of the question: "haftalık TÜFE" has no weekly series to go to, so
+    the monthly index is still the answer, with its calendar said. A series the question's
+    own qualifiers contradict does not count: a weekly interest rate is nowhere to go for
+    "haftalık konut kredisi bakiyesi".
+    """
+    if calendar is None or not mapped:
+        return False
+    known = [
+        _FINENESS[item.record.frequency]
+        for item in snapshot.series
+        if item.record.series_id in mapped and item.record.frequency in _FINENESS
+    ]
+    if not known or _FINENESS[calendar] >= min(known):
+        return False
+    asked = set(normalize_search_text(query).split()) - {
+        part for _, _, words in _CALENDAR_WORDS for word in words for part in word.split()
+    }
+    return any(
+        item.record.frequency is calendar
+        and not is_source_group(item)
+        and asked & set(normalize_search_text(item.record.title).split())
+        and not intent_key(query, item)[1]  # no qualifier of the question contradicts it
+        for item in snapshot.series
+    )
+
+
+def scoped_to_named_calendar(
+    snapshot: ReviewedSnapshot, arguments: CatalogSearchArguments
+) -> tuple[CatalogSearchArguments, bool]:
+    """The arguments a search really runs with, and whether the reviewed bound was lifted.
+
+    One decision for the word search and the combined search, so both look at the same
+    series: when `finer_than_reviewed`, the search runs among series of the named calendar.
+    A calendar filter the caller set is kept.
+    """
+    key = normalize_search_text(arguments.query)
+    matches, _ = _concept_matches(snapshot, key)
+    mapped = {sid for c in matches for sid in c.candidate_series_ids}
+    calendar = named_calendar(key)
+    if not finer_than_reviewed(snapshot, mapped, calendar, arguments.query):
+        return arguments, False
+    if arguments.frequency is None:
+        arguments = arguments.model_copy(update={"frequency": calendar})
+    return arguments, True
+
+
+def named_calendar_first[T](
+    query: str, ordered: Sequence[T], *, reviewed_series: Callable[[T], ReviewedSeries]
+) -> list[T]:
+    """Neighbours of the calendar the question names come first; nothing is removed.
+
+    Only for a search no reviewed concept bounds: every candidate is then a neighbour, and
+    "haftalık ihtiyaç kredisi" is nearer to the weekly series than to the monthly one of
+    the same name. The order within each calendar is kept.
+    """
+    calendar = named_calendar(normalize_search_text(query))
+    if calendar is None:
+        return list(ordered)
+    return sorted(ordered, key=lambda item: reviewed_series(item).record.frequency is not calendar)
+
+
 def source_matches(item: ReviewedSeries, source: str) -> bool:
     """`source` names the provider (EVDS, BDDK) or a publisher the reviewed text names.
 
@@ -267,6 +363,12 @@ def search_catalog(
     key = normalize_search_text(args.query)
     matches, method = _concept_matches(snapshot, key)
     mapped = {sid for c in matches for sid in c.candidate_series_ids}
+    args, lifted = scoped_to_named_calendar(snapshot, args)
+    if lifted:
+        # The concept exists only on a coarser calendar than the one asked for, so it no
+        # longer bounds the search; series of the named calendar are searched instead,
+        # unconfirmed as any neighbour is.
+        matches, mapped, method = [], set(), "bm25"
     excluded = (
         sum(
             s.record.status is CatalogStatus.ARCHIVED
@@ -289,11 +391,14 @@ def search_catalog(
     query_terms = set(key.split())
     count = len(documents)
     average = sum(sum(d.values()) for d in documents.values()) / count if count else 1.0
+    # Counted once per word of the question, not once per series that carries it: with the
+    # sources' listings in the catalogue that was millions of lookups a search.
+    holders = {term: sum(term in doc for doc in documents.values()) for term in query_terms}
     scores: dict[str, float] = {}
     for sid, doc in documents.items():
         score = 0.0
         for term in sorted(query_terms & doc.keys()):
-            df = sum(term in other for other in documents.values())
+            df = holders[term]
             idf = log(1 + (count - df + 0.5) / (df + 0.5))
             tf = doc[term]
             score += idf * tf * 2.2 / (tf + 1.2 * (0.25 + 0.75 * sum(doc.values()) / average))
@@ -315,6 +420,8 @@ def search_catalog(
     found_groups = [s for s in ranked if is_source_group(s)][:MAX_GROUPS]
     ranked = [s for s in ranked if not is_source_group(s)]
     ranked = rerank_by_reviewed_intent(args.query, ranked, reviewed_series=lambda item: item)
+    if not matches:
+        ranked = named_calendar_first(args.query, ranked, reviewed_series=lambda item: item)
     ranked = one_per_listed_row(ranked, reviewed_series=lambda item: item)
     unresolved = any(c.unresolved for c in matches)
     status: SearchStatus

@@ -1807,6 +1807,41 @@ svg {
 .chat-item > .chat-delete {
   color: #e9a9a1;
 }
+/* The row asks before it disappears: text, a red confirm, a way out (finding J-5). */
+.chat-confirm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  width: 100%;
+  padding: 4px 2px 4px 7px;
+  font-size: 11px;
+  color: var(--sidebar-ink);
+}
+.chat-confirm span {
+  flex: 1 1 100%;
+  opacity: 0.85;
+}
+.chat-confirm button {
+  border: 1px solid #ffffff33;
+  border-radius: 6px;
+  background: #ffffff10;
+  color: #eef2f5;
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.chat-confirm button.chat-confirm-yes {
+  border-color: #e9a9a166;
+  color: #f6c3bc;
+}
+.chat-menu-note {
+  margin: 0;
+  padding: 7px 10px 3px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--muted, #6b7785);
+}
 .chat-item input {
   width: 100%;
   border: 1px solid #ffffff33;
@@ -3223,4 +3258,65 @@ button:not(:disabled):focus-visible {
   [role="button"]:not([aria-disabled="true"]):active {
     filter: none;
   }
+}
+
+/* Leaving a pending clarification is an explicit choice, not a guess from the
+   message's length: the switch sits with the composer it applies to. */
+.composer-escape {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.composer-escape input {
+  accent-color: var(--accent);
+}
+
+/* One control for one moment: while a turn is out the send button becomes the
+   stop button. A ring turns around it so "running" is visible without a second
+   widget, and the pressed state only changes shade, never position. */
+.composer .send.running,
+.composer .send.stopping {
+  background: var(--accent-ink);
+  border-color: var(--accent-ink);
+  position: relative;
+}
+.composer .send.running::after,
+.composer .send.stopping::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-top-color: #fff;
+  animation: send-spin 900ms linear infinite;
+}
+.composer .send.stopping {
+  opacity: 0.75;
+}
+.composer .send.stopping::after {
+  animation-duration: 1800ms;
+}
+@keyframes send-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer .send.running::after,
+  .composer .send.stopping::after {
+    animation: none;
+  }
+}
+
+/* The model line states what runs; it is not a chooser, so it does not look
+   like one (the deployment serves a single model). */
+.model-current {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  font-weight: 600;
 }

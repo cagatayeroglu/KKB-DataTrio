@@ -518,8 +518,8 @@ def test_turn_one_answer_carries_the_table_and_writer_is_told_not_to_repeat_it(l
     (table,) = answered.tables
     assert len(table.rows) == 6 and table.columns[0].startswith("BDDK Aylık Bülten")
     writer_rules = session.provider.seen[1][0].content
-    assert "do not reproduce per-period rows" in writer_rules
-    assert "never by raw labels or identifiers" in writer_rules
+    assert "Do not reproduce the per-period rows" in writer_rules
+    assert "never by a raw label or an identifier" in writer_rules
     assert "without that word" in writer_rules
 
 

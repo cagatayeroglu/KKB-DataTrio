@@ -821,7 +821,7 @@ class TestTheCountContractIsFollowable:
         assert bare.status is not AnswerStatus.ACCEPTED
 
     def test_both_writer_contracts_carry_the_rule(self):
-        assert "identified by its listed phrase" in SYNTHESIS_PROMPT
+        assert "write a count without its listed phrase" in SYNTHESIS_PROMPT
         assert "copy its listed phrase with the number" in NUMERIC_REPAIR_INSTRUCTIONS
 
 

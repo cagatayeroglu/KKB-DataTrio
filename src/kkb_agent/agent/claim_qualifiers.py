@@ -61,6 +61,30 @@ UNITS = {
     "basis points": "basis_points",
     "index points": "index_points",
     "endeks puan": "index_points",
+    # A number of things. The label says what they are, so the display adds no unit
+    # word; these spellings exist so a sentence that names them still binds.
+    "kişi": "count",
+    "adet": "count",
+    "işlem": "count",
+    "count": "count",
+    # A quoted price is money per quantity (DEC-177), in both spellings a reader
+    # uses. Series with these units had no display at all (finding DN-6.4).
+    **{
+        spelling: f"{currency.lower()}/{quantity}"
+        for currency, money in (
+            ("TRY", ("tl", "try")),
+            ("USD", ("usd", "dolar")),
+            ("EUR", ("eur", "euro")),
+        )
+        for quantity, words in (
+            ("g", ("gr", "gram", "g")),
+            ("kg", ("kg",)),
+            ("oz", ("ons", "oz")),
+            ("t", ("ton", "t")),
+            ("piece", ("adet",)),
+        )
+        for spelling in (f"{word}/{unit}" for word in money for unit in words)
+    },
 }
 _UNIT_TEXT = "|".join(re.escape(u) for u in sorted(UNITS, key=len, reverse=True))
 UNIT = re.compile(r"(?<!\w)(" + _UNIT_TEXT + r")(?!\w)", re.I)
@@ -180,6 +204,38 @@ def amount_qualifiers(text: str, start: int, end: int) -> tuple[Scale | None, tu
 def has_amount_context(text: str, start: int, end: int) -> bool:
     scale, units = amount_qualifiers(text, start, end)
     return scale is not None or bool(units)
+
+
+#: A number that enumerates rather than measures: "(1)", a line's leading "2." or
+#: "3)". Live 2026-09-20: a reply listing the agent's own tools as "(1) ... (2) ..."
+#: had that whole sentence withheld, because those markers bound to nothing, and the
+#: answer that reached the reader began mid-thought.
+_LIST_MARKER = re.compile(
+    "(?:"
+    r"(?<=[(])(?P<paren>\d{1,2})(?=[)])"
+    "|"
+    r"(?:(?<=^)|(?<=\n)|(?<=; )|(?<=: ))(?P<lead>\d{1,2})(?=[).-]\s)"
+    ")"
+)
+
+
+def is_list_marker(text: str, start: int, end: int) -> bool:
+    """Whether the number at this position enumerates instead of measuring.
+
+    Only a bare one- or two-digit marker, and only where nothing gives it an
+    amount: a figure with a unit or a scale word is a claim wherever it sits.
+    """
+    if has_amount_context(text, start, end):
+        return False
+    # "(3) milyon TL" is an amount whose scale word sits past the bracket, which
+    # the qualifier vocabulary does not read through on its own.
+    if text[end : end + 1] == ")" and has_amount_context(text, start, end + 1):
+        return False
+    for match in _LIST_MARKER.finditer(text):
+        group = "paren" if match.group("paren") else "lead"
+        if match.start(group) == start and match.end(group) == end:
+            return True
+    return False
 
 
 def is_date_token(text: str, start: int, end: int) -> bool:

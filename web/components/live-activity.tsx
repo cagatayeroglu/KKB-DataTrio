@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { listRuns, openRun } from "@/lib/client";
+import { ApiError, listRuns, openRun, readRunProgress } from "@/lib/client";
 import { liveActivityLabel } from "@/lib/trace-summary";
 
 /** What the newest recorded step means, in one line a person can read. */
@@ -21,6 +21,8 @@ const stageWords: Record<string, string> = {
   "gold.materialized": "Tablo kaydediliyor",
   "gold.skipped": "Tablo kaydı atlandı",
   "model.reasoning": "Model düşünüyor",
+  // Written when the request leaves, so the line is honest while it is out.
+  "model.started": "Model düşünüyor (yanıt bekleniyor)",
 };
 const toolWords: Record<string, string> = {
   catalog_search: "Katalogda seri aranıyor",
@@ -65,10 +67,29 @@ export function LiveActivity({
         if (!cancelled) setReadFailed(false);
         const run = runs.runs.find((item) => item.turn_id === turnId);
         if (run) {
-          const detail = await openRun(conversationId, run.run_id, token);
-          const last = detail.steps.at(-1);
-          if (!cancelled && last) setLine(phrase(last));
-          if (!cancelled && detail.run.status !== "running") return;
+          // Only the newest step, not the whole trace: reading the detail every
+          // two seconds shipped megabytes of prompt and tool text to draw one
+          // line, and parsing it stalled the page (finding F2-canlı).
+          let progress;
+          try {
+            progress = await readRunProgress(conversationId, run.run_id, token);
+          } catch (error) {
+            // A server older than this page has no progress route. Reading the
+            // whole trace is what this component used to do: heavier, but a live
+            // line is better than none, and it only happens against that server.
+            if (!(error instanceof ApiError && error.status === 404))
+              throw error;
+            const detail = await openRun(conversationId, run.run_id, token);
+            const last = detail.steps.at(-1);
+            progress = {
+              status: detail.run.status,
+              stage: last?.stage ?? null,
+              name: last?.name ?? null,
+            };
+          }
+          if (!cancelled && progress.stage && progress.name)
+            setLine(phrase({ stage: progress.stage, name: progress.name }));
+          if (!cancelled && progress.status !== "running") return;
         }
       } catch {
         // One stable state per outage, while the bounded polling retry continues.

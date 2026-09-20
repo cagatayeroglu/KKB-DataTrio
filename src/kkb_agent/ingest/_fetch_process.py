@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, BinaryIO, cast
 
 if TYPE_CHECKING:
     from kkb_agent.ingest.bddk_monthly_request import MonthlyRequest
+    from kkb_agent.ingest.bddk_weekly_request import WeeklyRequest
     from kkb_agent.ingest.evds_request import EvdsRequest
 
 from kkb_agent.ingest.safe_fetch import (
@@ -99,6 +100,7 @@ def fetch_in_process(
     *,
     monthly: MonthlyRequest | None = None,
     evds: EvdsRequest | None = None,
+    weekly: WeeklyRequest | None = None,
 ) -> FetchOutcome:
     """Bound DNS/connect first, then the whole operation including worker IPC.
 
@@ -129,6 +131,18 @@ def fetch_in_process(
         # A reviewed request stays the closed {code, window} pair on the wire to the worker;
         # only a listed series (DEC-177) carries its calendar.
         message["evds"] = evds.model_dump(mode="json", exclude_none=True)
+    if weekly is not None:
+        from kkb_agent.ingest.bddk_weekly_request import WEEKLY_LIMITS, WeeklyRequest
+
+        weekly = WeeklyRequest.model_validate(weekly)
+        if (
+            monthly is not None
+            or evds is not None
+            or request != weekly.fetch_request()
+            or limits != WEEKLY_LIMITS
+        ):
+            return FetchFailure(source_ref=request.source_ref, code=FetchCode.INVALID_REQUEST)
+        message["weekly"] = weekly.model_dump(mode="json")
     payload = json.dumps(message).encode()
     if len(payload) > MAX_INPUT_BYTES:
         return FetchFailure(source_ref=request.source_ref, code=FetchCode.SIZE_LIMIT)

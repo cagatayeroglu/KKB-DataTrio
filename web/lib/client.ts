@@ -17,6 +17,7 @@ import {
   ownerSchema,
   resultSchema,
   runDetailSchema,
+  runProgressSchema,
   runsDeletedSchema,
   runtimeSettingsSchema,
   searchTrialSchema,
@@ -269,26 +270,32 @@ export function listKnowledge(owner: string) {
   return api("knowledge", knowledgeListSchema, {}, undefined, owner);
 }
 export function trySearch(owner: string, query: string) {
-  // Reading what discovery would find starts no analysis and stores nothing.
+  // Reading what discovery would find starts no analysis and stores nothing. It
+  // can still read a source's series list and write it to disk, which the default
+  // 12 s did not allow for (finding F4-bt-12); the bridge's own ceiling is 30 s.
   return api(
     `knowledge/search?q=${encodeURIComponent(query.slice(0, 512))}`,
     searchTrialSchema,
     {},
     undefined,
     owner,
+    { timeoutMs: 28000 },
   );
 }
 export function readIndex(owner: string) {
   return api("knowledge/index", vectorIndexSchema, {}, undefined, owner);
 }
 export function refreshDirectory(owner: string) {
-  // Reads the sources' own listings again; no model call.
+  // Reads the sources' own listings again; no model call. One request per opened
+  // datagroup, so it grows with use and outran the default 12 s while the server
+  // kept going (finding F4-bt-12).
   return api(
     "knowledge/directory",
     directoryRefreshSchema,
     { method: "POST", body: "{}" },
     undefined,
     owner,
+    { timeoutMs: 28000 },
   );
 }
 export function rebuildIndex(owner: string) {
@@ -612,6 +619,9 @@ export function admitDocumentFromUrl(session: Session, url: string) {
       body: JSON.stringify({ url: url.trim().slice(0, 2000) }),
     },
     session.token,
+    undefined,
+    // The server fetches and reads the address; the proxy already allows 30 s.
+    { timeoutMs: 45000 },
   );
 }
 export async function admit(saved: Saved, index: number) {
@@ -671,6 +681,23 @@ export async function uploadDocument(
     documentAdmittedSchema,
     { method: "POST", body: file, headers: { "Content-Type": type } },
     session.token,
+    undefined,
+    // Admission reads the document (a scanned page goes through OCR) and the file
+    // itself can be 10 MiB: the default 12 s cut off uploads the server accepted.
+    { timeoutMs: 90000 },
+  );
+}
+/** Where a run is now: the line a live view shows, without any step text. */
+export function readRunProgress(
+  conversationId: string,
+  runId: string,
+  token: string,
+) {
+  return api(
+    `conversations/${conversationId}/runs/${runId}/progress`,
+    runProgressSchema,
+    {},
+    token,
   );
 }
 export function publishedResult(turn?: Turn) {
@@ -709,6 +736,18 @@ export function draftRequest(
       : {}),
   };
 }
+/**
+ * The server does not know this turn any more, so following it is pointless.
+ *
+ * Turn handles live in the API process and a restart drops them, while the
+ * conversation itself stays in its store. Every other error - a transport
+ * failure, "busy", a 5xx - leaves the turn running server-side, so the caller
+ * keeps polling instead of giving it up (findings F2-restart, F1-5).
+ */
+export function lostTurn(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404;
+}
+
 export function admissionRejection(
   error: unknown,
 ): Saved["turns"][number]["admission_error"] {
@@ -740,7 +779,7 @@ export function validQuestion(value: string) {
 }
 export const errorText: Record<string, string> = {
   document_rejected:
-    "Belge kabul edilmedi. CSV, Excel (.xlsx), PDF veya HTML olmalı ve içerik kontrollerinden geçmeli.",
+    "Belge kabul edilmedi. CSV, Excel (.xlsx), PDF, HTML ya da görsel (PNG, JPG) olmalı ve içerik kontrollerinden geçmeli.",
   invalid_document:
     "Ekli belge bu oturumda bulunamadı ya da değişmiş. Belgeyi yeniden yükle.",
   body_too_large:
@@ -750,7 +789,8 @@ export const errorText: Record<string, string> = {
   unavailable:
     "Yerel analiz servisine ulaşılamıyor. API’nin çalıştığını kontrol et.",
   busy: "Başka bir analiz devam ediyor. Bitince aynı isteği yeniden gönderebilirsin.",
-  capacity: "Bu oturumun veya servisin işlem sınırına ulaşıldı.",
+  capacity:
+    "Bu sohbet tur sınırına ulaştı ya da servis şu an dolu. Yeni bir sohbet aç: bu sohbetin geçmişi ve tabloları duruyor.",
   not_found:
     "Oturum bulunamadı. API yeniden başlamış olabilir; yeni oturum açmalısın.",
   forbidden:
@@ -762,8 +802,14 @@ export const errorText: Record<string, string> = {
     "Kaynak tablo bu oturumda kullanılamıyor. Geçerli bir sonuç seçip yeni soru gönderebilirsin.",
   session_gone:
     "Bu sekmedeki oturum sunucuda artık yok (sunucu yeniden başlatılmış olabilir). Yeni bir sohbet açıldı; kayıtlı sohbetler soldaki listede.",
+  session_restored:
+    "Sunucu yeniden başladığı için devam eden tur kayboldu. Sohbet kayıtlarından geri yüklendi ve son soru kutuya yazıldı; göndererek yeniden sorabilirsin.",
   selection_unavailable:
     "Kayıtlı kaynak tablo yüklenemedi. Yeni bir soru gönderebilirsin; ajan kullanılabilir tabloları kendisi seçer.",
+  turn_interrupted:
+    "Bu soru gönderildi ama sunucu yeniden başladığı için tamamlanmadı. İşlem kaydında yarım kalmış olarak duruyor; aynı soruyu yeniden gönderebilirsin.",
+  turn_not_sent:
+    "Bu soru sunucuya ulaşmadı, bu yüzden çalıştırılmadı. Yeniden gönderebilirsin.",
   cancelled:
     "İstek durduruldu. O ana kadar yapılanlar işlem kaydında duruyor; tablo yayımlanmadı.",
   invalid_request:
@@ -775,6 +821,47 @@ export const errorText: Record<string, string> = {
     "Bu istek kimliği farklı bir soruya ait. Mevcut isteği tamamla.",
   internal_error: "Analiz tamamlanamadı. Önceki sonuçlar korunuyor.",
 };
+/**
+ * What went wrong in the knowledge base, said in its own words.
+ *
+ * The panel used to borrow the chat's sentences, so a refused record said
+ * "Başka bir analiz devam ediyor" or "Soruyu ve metin uzunluğunu kontrol et",
+ * and a file that was not an export said the browser could not store the
+ * session (finding F4-bt-5).
+ */
+export const knowledgeErrorText: Record<string, string> = {
+  knowledge_rejected:
+    "Kayıt kabul edilmedi. Zorunlu alanları, kimliği ve satır biçimini (dönem;değer) kontrol et.",
+  invalid_request:
+    "Alanlar kabul edilmedi. Ad, kimlik ve açıklama uzunluklarını kontrol et.",
+  invalid_document:
+    "Belge bu sohbette bulunamadı ya da değişmiş. Belgeyi yeniden yükle.",
+  not_found:
+    "Bu kayıt bulunamadı; başka bir yerde değişmiş olabilir. Listeyi tazele.",
+  busy: "Bilgi tabanında başka bir iş sürüyor (vektörleme olabilir). Bitince yeniden dene.",
+  capacity:
+    "Bu sohbetin belge hakkı doldu (4 belge). Yeni bir sohbet aç ya da yüklediğin belgelerden birini kullan.",
+  unavailable:
+    "Yerel servise ulaşılamıyor ya da bu özellik kapalı. API'nin çalıştığını kontrol et.",
+  connection:
+    "Bağlantı kesildi. İşlem sunucuda sürmüş olabilir; listeyi tazeleyip kontrol et.",
+  forbidden:
+    "Yerel bağlantı doğrulanamadı. Arayüzü 127.0.0.1:3000 adresinden aç.",
+  body_too_large: "Dosya ya da satırlar boyut sınırını aşıyor.",
+};
+export function describeKnowledgeError(error: unknown) {
+  if (error instanceof ApiError)
+    return (
+      knowledgeErrorText[error.code] ??
+      errorText[error.code] ??
+      "İşlem tamamlanamadı. Bilgi tabanında değişen bir şey yok."
+    );
+  if (error instanceof SyntaxError)
+    return "Dosya okunamadı: geçerli bir JSON değil. Dışa aktarılan .json dosyasını seç.";
+  if (error instanceof Error && error.name === "ZodError")
+    return "Dosya bu sürümün dışa aktarım biçimine uymuyor.";
+  return "İşlem tamamlanamadı. Bilgi tabanında değişen bir şey yok.";
+}
 export function describeError(error: unknown) {
   return error instanceof ApiError
     ? (errorText[error.code] ??

@@ -22,7 +22,7 @@ import json
 import secrets
 import sqlite3
 import threading
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -165,6 +165,13 @@ CREATE TABLE IF NOT EXISTS result_series (
     PRIMARY KEY (conversation_id, turn_id, series_id)
 );
 
+CREATE TABLE IF NOT EXISTS proven_series (
+    conversation_id TEXT NOT NULL REFERENCES conversations(conversation_id),
+    series_id       TEXT NOT NULL,
+    proven_at       TEXT NOT NULL,
+    PRIMARY KEY (conversation_id, series_id)
+);
+
 CREATE INDEX IF NOT EXISTS result_series_by_series ON result_series(series_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS runs_by_conversation ON runs(conversation_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS conversations_by_owner
@@ -251,6 +258,9 @@ class StoredRun:
     duration_ms: int
     started_at: datetime
     ended_at: datetime | None
+    #: Steps recorded for this run. Every row in a listing used to say "0 steps"
+    #: because only the opened detail counted them (finding F4-iz-2).
+    events: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -285,6 +295,12 @@ class ConversationStore:
             str(self._path), check_same_thread=False, isolation_level=None
         )
         self._connection.row_factory = sqlite3.Row
+        # SQLite's own lower() is ASCII-only, so "Üretim" did not match "üretim"
+        # and half a Turkish search found nothing (finding D3). Python knows the
+        # letters; casefold also handles I/İ and ß.
+        self._connection.create_function(
+            "tr_lower", 1, lambda text: text.casefold() if isinstance(text, str) else text
+        )
         with self._lock:
             self._connection.executescript(SCHEMA)
             self._migrate()
@@ -513,12 +529,12 @@ class ConversationStore:
         )
         parameters: list[object] = [owner_id, int(archived), MAX_LISTED]
         if search:
-            needle = f"%{search[:MAX_SEARCH_CHARS].lower()}%"
+            needle = f"%{search[:MAX_SEARCH_CHARS].casefold()}%"
             query = (
                 "SELECT c.* FROM conversations c WHERE c.owner_id = ? AND c.archived = ?"
                 " AND c.deleted_at IS NULL AND ("
-                "lower(c.title) LIKE ? OR EXISTS (SELECT 1 FROM messages m WHERE "
-                "m.conversation_id = c.conversation_id AND lower(m.text) LIKE ?)) "
+                "tr_lower(c.title) LIKE ? OR EXISTS (SELECT 1 FROM messages m WHERE "
+                "m.conversation_id = c.conversation_id AND tr_lower(m.text) LIKE ?)) "
                 "ORDER BY c.updated_at DESC LIMIT ?"
             )
             parameters = [owner_id, int(archived), needle, needle, MAX_LISTED]
@@ -538,10 +554,10 @@ class ConversationStore:
         parameters: list[object] = [owner_id, int(archived)]
         if search:
             query += (
-                " AND (lower(c.title) LIKE ? OR EXISTS (SELECT 1 FROM messages m WHERE"
-                " m.conversation_id = c.conversation_id AND lower(m.text) LIKE ?))"
+                " AND (tr_lower(c.title) LIKE ? OR EXISTS (SELECT 1 FROM messages m WHERE"
+                " m.conversation_id = c.conversation_id AND tr_lower(m.text) LIKE ?))"
             )
-            needle = f"%{search[:MAX_SEARCH_CHARS].lower()}%"
+            needle = f"%{search[:MAX_SEARCH_CHARS].casefold()}%"
             parameters.extend([needle, needle])
         query += " ORDER BY c.updated_at DESC, c.rowid DESC LIMIT ?"
         parameters.append(MAX_LISTED)
@@ -587,6 +603,30 @@ class ConversationStore:
             ).fetchone()
         return row is not None and row["deleted_at"] is not None
 
+    def proven_series(self, conversation_id: str) -> set[str]:
+        """Identities the catalog returned in this conversation, over restarts too.
+
+        Kept so a reopened conversation does not spend a planning round trip
+        proving a series the catalog already vouched for (finding H4).
+        """
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT series_id FROM proven_series WHERE conversation_id = ?",
+                [conversation_id],
+            ).fetchall()
+        return {row["series_id"] for row in rows}
+
+    def add_proven_series(self, conversation_id: str, series_ids: Iterable[str]) -> None:
+        identities = sorted({item for item in series_ids if item})
+        if not identities:
+            return
+        now = self._now()
+        with self._write() as connection:
+            connection.executemany(
+                "INSERT OR IGNORE INTO proven_series VALUES (?, ?, ?)",
+                [(conversation_id, item, now) for item in identities],
+            )
+
     def clear_session_artifacts(self, conversation_id: str) -> None:
         """Forget document/publication references after their files are gone."""
         with self._write() as connection:
@@ -596,6 +636,9 @@ class ConversationStore:
             )
             connection.execute(
                 "DELETE FROM result_series WHERE conversation_id = ?", [conversation_id]
+            )
+            connection.execute(
+                "DELETE FROM proven_series WHERE conversation_id = ?", [conversation_id]
             )
 
     def delete_runs(self, conversation_id: str) -> int:
@@ -958,7 +1001,10 @@ class ConversationStore:
     def runs(self, conversation_id: str, limit: int = 100) -> list[StoredRun]:
         with self._lock:
             rows = self._connection.execute(
-                "SELECT * FROM runs WHERE conversation_id = ? ORDER BY started_at DESC LIMIT ?",
+                "SELECT runs.*,"
+                " (SELECT COUNT(*) FROM trace_events WHERE trace_events.run_id = runs.run_id)"
+                " AS events FROM runs WHERE conversation_id = ?"
+                " ORDER BY started_at DESC LIMIT ?",
                 [conversation_id, limit],
             ).fetchall()
         found: list[StoredRun] = []
@@ -976,6 +1022,7 @@ class ConversationStore:
                         int(row["duration_ms"]),
                         _moment(row["started_at"]),
                         _moment(row["ended_at"]) if row["ended_at"] else None,
+                        int(row["events"]),
                     )
                 )
             except (TypeError, ValueError):
@@ -994,6 +1041,20 @@ class ConversationStore:
             ),
             None,
         )
+
+    def last_event(self, run_id: str) -> tuple[int, str, str] | None:
+        """The newest step's count, stage and name: what a live view needs.
+
+        Reading the whole detail every two seconds shipped megabytes of step text
+        to say one line (finding F2-canlı).
+        """
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT stage, name, (SELECT COUNT(*) FROM trace_events WHERE run_id = ?)"
+                " AS total FROM trace_events WHERE run_id = ? ORDER BY sequence DESC LIMIT 1",
+                [run_id, run_id],
+            ).fetchone()
+        return (int(row["total"]), row["stage"], row["name"]) if row is not None else None
 
     def events(self, run_id: str) -> list[StoredEvent]:
         with self._lock:
