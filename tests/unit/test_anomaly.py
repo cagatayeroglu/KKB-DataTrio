@@ -14,7 +14,10 @@ hides. The MAD-based test is checked against exactly that case.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
+from math import log
+from statistics import median
 
 import pytest
 
@@ -43,6 +46,17 @@ STOCK = SeriesSemantics(
     observation=StockFlow.STOCK,
     cumulative=CumulativeKind.NONE,
     aggregation=Aggregation.LAST,
+)
+
+#: A rate is judged in its own points: two points is two points whether the rate
+#: is 8 or 43, so a rate never moves to the relative basis.
+RATE = SeriesSemantics(
+    unit="percent",
+    scale=Scale.ONE,
+    frequency=Frequency.MONTHLY,
+    observation=StockFlow.RATE,
+    cumulative=CumulativeKind.NONE,
+    aggregation=Aggregation.AVERAGE,
 )
 
 
@@ -78,12 +92,35 @@ def detect(observations, semantics=STOCK, **kwargs):
     return detect_anomalies(observations, semantics, series_id="bddk:konut", **kwargs)
 
 
+def _levels(first: float, steps):
+    """The level series a list of period-over-period steps produces."""
+    found = [first]
+    for step in steps:
+        found.append(found[-1] + step)
+    return found
+
+
+def _rate_with_three_jumps():
+    """A rate moving +1 point a month, three times +15: the median deviation is zero."""
+    steps = ([1.0] * 7 + [15.0]) * 3
+    return series(*_levels(8.0, steps))
+
+
 class TestItExaminesChangesNotLevels:
     def test_a_steadily_rising_series_flags_nothing(self):
-        # This is the whole point. Every recent level is the highest ever, and
-        # none of them is unusual. Every change is +100, so there is no spread
-        # at all and the honest answer is that nothing can be scored.
+        # This is the whole point. Every recent level is the highest ever, and none of
+        # them is unusual. A step of +100 on a level of 1,000 is not the same move as
+        # +100 on 3,300, so the relative changes taper instead of repeating; they taper
+        # smoothly, and "no anomalies" is the answer, with a count the verifier can bind.
         result = detect(STEADY)
+        count = next(v for v in result.values if v.label.endswith("anomalies found"))
+
+        assert result.status is ResultStatus.COMPUTED
+        assert count.value == 0.0
+
+    def test_a_series_that_never_moves_is_still_undefined(self):
+        # M6-08: no spread at all cannot be scored, on either basis.
+        result = detect(series(*[1000.0] * 24))
 
         assert result.status is ResultStatus.UNDEFINED
         assert "moves by the same amount every period" in result.reason
@@ -114,34 +151,75 @@ class TestItExaminesChangesNotLevels:
         plain_z = (5000.0 - mean) / sigma
 
         assert plain_z < 5.0  # a jump 49x the usual step, barely above the cut
-        assert result.parameters["median_change"] == pytest.approx(100.0)
-        assert len([v for v in result.values if "change at" in v.label]) == 1
+        flagged = [v for v in result.values if "change at" in v.label]
+        assert [v.value for v in flagged] == pytest.approx([5000.0])
 
     def test_a_collapsed_median_deviation_falls_back_rather_than_giving_up(self):
-        # 23 of 24 changes are identical, so the median absolute deviation is
+        # 21 of 24 changes are identical, so the median absolute deviation is
         # exactly zero. Refusing here would refuse the clearest case there is.
-        result = detect(STEADY_THEN_JUMP)
+        result = detect(_rate_with_three_jumps(), RATE)
 
         assert result.status is ResultStatus.COMPUTED
         assert "MAD was zero" in result.parameters["scale_estimator"]
 
     def test_the_fallback_scale_keeps_the_declared_cut(self):
-        # 21 changes of +100 and three of +1500. The median deviation is zero, so the
-        # fallback decides these, and the mean absolute deviation about the median is
-        # 175: the paper's score for a +1500 change is 1400 / (1.253314 * 175) = 6.4,
-        # well past 3.5. A fallback scale 2.198 times too large scores it 2.9 and
-        # reports nothing at all, which is what this series looked like before.
-        steps = [100.0] * 7 + [1500.0] + [100.0] * 7 + [1500.0] + [100.0] * 7 + [1500.0]
-        level = 1000.0
-        levels = [level]
-        for step in steps:
-            level += step
-            levels.append(level)
-        result = detect(series(*levels))
+        # A flat rate moving +1 point a month, with three months of +15. The median
+        # deviation is zero, so the fallback decides these, and the mean absolute
+        # deviation about the median is 1.75: the paper's score for a +15 point move is
+        # 14 / (1.253314 * 1.75) = 6.4, well past 3.5. A fallback scale 2.198 times too
+        # large scores it 2.9 and reports nothing at all, which is what this looked like.
+        result = detect(_rate_with_three_jumps(), RATE)
 
-        assert "MAD was zero" in result.parameters["scale_estimator"]
         flagged = [v for v in result.values if "change at" in v.label]
-        assert [v.value for v in flagged] == pytest.approx([1500.0, 1500.0, 1500.0])
+        assert [v.value for v in flagged] == pytest.approx([15.0, 15.0, 15.0])
+
+
+class TestWhatAPeriodIsComparedWith:
+    """A period is judged against the other periods, not against the size reached."""
+
+    @staticmethod
+    def _index_with_one_record_month():
+        """An index rising ~4% a month for five years, with one month of +13.5%.
+
+        This is the shape of the prepared CPI. The record month is early, so it is
+        worth about 16 index points, while an ordinary month near the end of the
+        window is worth more than twice that in points and nothing at all in meaning.
+        """
+        steps = [1.04, 1.036, 1.044] * 20
+        steps[5] = 1.135
+        level = 100.0
+        levels = [level]
+        for factor in steps:
+            level *= factor
+            levels.append(level)
+        return series(*levels), levels
+
+    def test_the_record_month_is_found_although_later_months_moved_more_in_points(self):
+        observations, levels = self._index_with_one_record_month()
+        record = levels[6] - levels[5]
+        last = levels[-1] - levels[-2]
+        assert last > 2 * record  # an ordinary late month dwarfs it in index points
+
+        result = detect(
+            observations,
+            replace(STOCK, observation=StockFlow.INDEX, unit="index", scale=Scale.ONE, base_year=2025),
+        )
+        flagged = [v for v in result.values if "change at" in v.label]
+
+        assert [v.value for v in flagged] == pytest.approx([record])
+        assert any("relative to the level before it" in w for w in result.warnings)
+
+    def test_a_rate_is_judged_in_its_own_points(self):
+        parameters = detect(_rate_with_three_jumps(), RATE).parameters
+
+        assert parameters["scored_on"] == "the difference in the series' own unit"
+
+    def test_a_series_that_reaches_zero_keeps_its_difference(self):
+        # There is no ratio to a level of zero, and a sign change has no log.
+        balance = series(*_levels(-500.0, [100.0] * 8 + [700.0] + [100.0] * 15))
+        parameters = detect(balance).parameters
+
+        assert parameters["scored_on"] == "the difference in the series' own unit"
 
 
 class TestTheCountIsAlwaysReported:
@@ -220,9 +298,11 @@ class TestGapsBreakTheChain:
         # Without the break, the 1000-unit step across the gap would be the
         # largest "change" in the series and would flag itself.
         with_gap = series(
+            # The block after the gap repeats the block before it three times over,
+            # so the two halves move alike and only the gap itself is under test.
             *[1000.0 + 100 * step + (step % 3) * 30 for step in range(10)],
             None,
-            *[3000.0 + 100 * step + (step % 3) * 30 for step in range(14)],
+            *[3.0 * (1000.0 + 100 * step + (step % 3) * 30) for step in range(10, 24)],
         )
         result = detect(with_gap)
         flagged = [v for v in result.values if "change at" in v.label]
@@ -232,9 +312,11 @@ class TestGapsBreakTheChain:
 
     def test_the_skipped_period_is_counted_and_reported(self):
         with_gap = series(
+            # The block after the gap repeats the block before it three times over,
+            # so the two halves move alike and only the gap itself is under test.
             *[1000.0 + 100 * step + (step % 3) * 30 for step in range(10)],
             None,
-            *[3000.0 + 100 * step + (step % 3) * 30 for step in range(14)],
+            *[3.0 * (1000.0 + 100 * step + (step % 3) * 30) for step in range(10, 24)],
         )
         result = detect(with_gap)
 
@@ -249,7 +331,12 @@ class TestWhatTheResultDeclares:
         assert parameters["threshold"] == pytest.approx(3.5)
         assert parameters["examined"] == "period-over-period change"
         assert "median absolute deviation" in parameters["method"]
-        assert parameters["median_change"] == pytest.approx(100.0)
+        # A reader can see which basis decided the flags, and the median it was
+        # measured against; on this rising balance that is the relative one.
+        assert "log ratio to the previous level" in parameters["scored_on"]
+        levels = [o.value for o in STEADY_THEN_JUMP]
+        expected = median([log(b / a) for a, b in zip(levels, levels[1:], strict=False)])
+        assert parameters["median_scored_change"] == pytest.approx(expected)
 
     def test_the_threshold_is_marked_as_unmeasured(self):
         # A default nobody benchmarked must not read as a validated one.

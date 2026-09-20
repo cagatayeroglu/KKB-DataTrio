@@ -90,19 +90,19 @@ def _refuse(
     )
 
 
-def _changes(window: Sequence[Observation]) -> tuple[list[tuple[Observation, float]], int]:
-    """Period-over-period changes between consecutive published values."""
-    changes: list[tuple[Observation, float]] = []
+def _changes(window: Sequence[Observation]) -> tuple[list[tuple[Observation, float, float]], int]:
+    """Consecutive (observation, previous level, level) between published values."""
+    changes: list[tuple[Observation, float, float]] = []
     missing = 0
-    previous: Observation | None = None
+    previous: float | None = None
     for item in window:
         if item.value is None:
             missing += 1
             previous = None  # A gap is not zero: it ends the pair, it does not bridge it.
             continue
         if previous is not None:
-            changes.append((item, item.value - (previous.value or 0.0)))
-        previous = item
+            changes.append((item, previous, item.value))
+        previous = item.value
     return changes, missing
 
 
@@ -194,7 +194,13 @@ def detect_breakpoints(
             f"needs ({minimum_segment} on each side of a split)",
             SampleCounts(used=len(changes), missing=missing, minimum_required=required),
         )
-    magnitudes = [value for _, value in changes]
+    # Measured 2026-09-20 over the whole prepared pool: moving this search onto the
+    # relative basis the anomaly baseline uses removes the CPI's 2021-12 and 2023-07
+    # regime changes and adds three others to the housing price index, with nothing to
+    # say which reading is right. What this statistic should run on is the question
+    # B4/B5/B8 of the same audit ask, and it needs its own measured decision; until
+    # then the search stays on the difference and the shift is reported in that unit.
+    differences = magnitudes = [value - previous for _, previous, value in changes]
     if _pooled(magnitudes[:1], magnitudes[1:]) == 0 and len(set(magnitudes)) == 1:
         return _refuse(
             identifier,
@@ -240,8 +246,8 @@ def detect_breakpoints(
     details: list[JsonValue] = []
     for index, (position, statistic) in enumerate(found):
         observation = changes[position][0]
-        before = magnitudes[edges[index] : position]
-        after = magnitudes[position : edges[index + 2]]
+        before = differences[edges[index] : position]
+        after = differences[position : edges[index + 2]]
         shift = fmean(after) - fmean(before)
         values.append(
             ResultValue(
