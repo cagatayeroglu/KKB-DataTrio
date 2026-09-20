@@ -310,6 +310,33 @@ class TestGapsBreakTheChain:
         assert result.status is ResultStatus.COMPUTED
         assert flagged == []
 
+    def test_an_absent_row_is_a_gap_too(self):
+        # A user's file may simply not have the February row. Differencing January
+        # against March would label four months of movement one month's move, which
+        # is how a flat series acquires an anomaly it never had.
+        months = series(*[1000.0 + 40 * step + (step % 3) * 15 for step in range(24)])
+        without_february = [o for o in months if o.period_end.month != 2]
+        result = detect(without_february)
+
+        assert result.samples.excluded == 2  # one February is absent in each year
+        assert [v for v in result.values if "change at" in v.label] == []
+        assert any("did not follow one another" in w for w in result.warnings)
+
+    def test_a_daily_series_is_not_cut_at_every_weekend(self):
+        # Published business days follow one another; the Friday-to-Monday move is
+        # the one a reader asks about, and it used to be dropped as a gap.
+        start = date(2024, 1, 1)  # a Monday
+        days = [start + timedelta(days=step) for step in range(40)]
+        business = [day for day in days if day.weekday() < 5]
+        observations = [
+            Observation(day, day, 100.0 + index * 2.0) for index, day in enumerate(business)
+        ]
+        daily = replace(STOCK, frequency=Frequency.DAILY, aggregation=Aggregation.LAST)
+        result = detect(observations, daily)
+
+        assert result.samples.excluded == 0
+        assert result.samples.used == len(business) - 1  # every published pair scored
+
     def test_the_skipped_period_is_counted_and_reported(self):
         with_gap = series(
             # The block after the gap repeats the block before it three times over,

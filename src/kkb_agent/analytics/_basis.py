@@ -21,9 +21,10 @@ records which basis decided it.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import timedelta
 from math import log
 
-from kkb_agent.core import StockFlow
+from kkb_agent.core import Frequency, StockFlow
 from kkb_agent.lakehouse.records import Observation
 from kkb_agent.lakehouse.semantics import SeriesSemantics
 
@@ -50,3 +51,38 @@ def magnitudes(
     if ratio:
         return [log(value / previous) for _, previous, value in changes]
     return [value - previous for _, previous, value in changes]
+
+
+def consecutive_changes(
+    window: Sequence[Observation], semantics: SeriesSemantics
+) -> tuple[list[tuple[Observation, float, float]], int, int]:
+    """Changes between periods that really follow one another, and what was left out.
+
+    Two observations are consecutive when the later period begins the day after the
+    earlier one ends. That is one rule for two failures a null-valued row alone does
+    not cover. A dataset whose February row is simply absent - which a user's file may
+    be, where a prepared series may not - used to have January and March differenced
+    and the result labelled one month's move. And a daily series publishes nothing on
+    a weekend, so every Monday followed a break and the Friday-to-Monday move, the one
+    a reader asks about, was never scored at all.
+
+    So a daily or business-day series treats its published days as consecutive - the
+    calendar gap between them is expected absence, not a hole - while every other
+    calendar has to meet the day-after rule. Measured over the whole prepared pool on
+    2026-09-20, every consecutive published pair of every series meets it, so this
+    leaves the prepared path exactly as it was.
+
+    Returns the changes, how many rows carried no value, and how many pairs were left
+    out because the periods did not follow one another.
+    """
+    published = [(item, item.value) for item in window if item.value is not None]
+    missing = len(window) - len(published)
+    daily = semantics.frequency in (Frequency.DAILY, Frequency.BUSINESS_DAY)
+    changes: list[tuple[Observation, float, float]] = []
+    interrupted = 0
+    for (earlier, before), (later, value) in zip(published, published[1:], strict=False):
+        if not daily and later.period_start != earlier.period_end + timedelta(days=1):
+            interrupted += 1
+            continue
+        changes.append((later, before, value))
+    return changes, missing, interrupted

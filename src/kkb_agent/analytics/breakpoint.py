@@ -32,6 +32,7 @@ from typing import Final
 
 from pydantic import JsonValue
 
+from kkb_agent.analytics._basis import consecutive_changes
 from kkb_agent.core import (
     DIMENSIONLESS,
     AnalyticalResult,
@@ -88,22 +89,6 @@ def _refuse(
         reason=reason,
         unresolved_semantics=list(unresolved),
     )
-
-
-def _changes(window: Sequence[Observation]) -> tuple[list[tuple[Observation, float, float]], int]:
-    """Consecutive (observation, previous level, level) between published values."""
-    changes: list[tuple[Observation, float, float]] = []
-    missing = 0
-    previous: float | None = None
-    for item in window:
-        if item.value is None:
-            missing += 1
-            previous = None  # A gap is not zero: it ends the pair, it does not bridge it.
-            continue
-        if previous is not None:
-            changes.append((item, previous, item.value))
-        previous = item.value
-    return changes, missing
 
 
 def _statistic(values: Sequence[float], split: int) -> float:
@@ -184,7 +169,7 @@ def detect_breakpoints(
         for item in sorted(observations, key=lambda entry: entry.period_end)
         if (start is None or item.period_end >= start) and (end is None or item.period_end <= end)
     ]
-    changes, missing = _changes(window)
+    changes, missing, interrupted = consecutive_changes(window, semantics)
     required = 2 * minimum_segment
     if len(changes) < required:
         return _refuse(
@@ -192,7 +177,12 @@ def detect_breakpoints(
             ResultStatus.INSUFFICIENT,
             f"{len(changes)} period-over-period changes is below the {required} this method "
             f"needs ({minimum_segment} on each side of a split)",
-            SampleCounts(used=len(changes), missing=missing, minimum_required=required),
+            SampleCounts(
+                used=len(changes),
+                missing=missing,
+                excluded=interrupted,
+                minimum_required=required,
+            ),
         )
     # Measured 2026-09-20 over the whole prepared pool: moving this search onto the
     # relative basis the anomaly baseline uses removes the CPI's 2021-12 and 2023-07
@@ -207,7 +197,7 @@ def detect_breakpoints(
             ResultStatus.UNDEFINED,
             "Every period-over-period change is identical, so there is no spread to "
             "measure a regime change against",
-            SampleCounts(used=len(changes), missing=missing),
+            SampleCounts(used=len(changes), missing=missing, excluded=interrupted),
         )
 
     found: list[tuple[int, float]] = []
@@ -290,6 +280,11 @@ def detect_breakpoints(
             f"{missing} period(s) had no published value; a gap ends a pair rather than "
             "bridging it, so no change was invented across it"
         )
+    if interrupted:
+        warnings.append(
+            f"{interrupted} pair(s) of periods did not follow one another and were left out; "
+            "a regime is read from periods that actually succeed each other"
+        )
 
     return AnalyticalResult(
         result_id=identifier,
@@ -308,7 +303,7 @@ def detect_breakpoints(
             "maximum_points": maximum_points,
             "breakpoints": details,
         },
-        samples=SampleCounts(used=len(changes), missing=missing),
+        samples=SampleCounts(used=len(changes), missing=missing, excluded=interrupted),
         evidence=ResultEvidence(
             input_refs=list(input_refs),
             lineage_node=lineage_node,
