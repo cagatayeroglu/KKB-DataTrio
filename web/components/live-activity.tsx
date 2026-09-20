@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { listRuns, openRun } from "@/lib/client";
+import { listRuns, readRunProgress } from "@/lib/client";
 import { liveActivityLabel } from "@/lib/trace-summary";
 
 /** What the newest recorded step means, in one line a person can read. */
@@ -67,10 +67,17 @@ export function LiveActivity({
         if (!cancelled) setReadFailed(false);
         const run = runs.runs.find((item) => item.turn_id === turnId);
         if (run) {
-          const detail = await openRun(conversationId, run.run_id, token);
-          const last = detail.steps.at(-1);
-          if (!cancelled && last) setLine(phrase(last));
-          if (!cancelled && detail.run.status !== "running") return;
+          // Only the newest step, not the whole trace: reading the detail every
+          // two seconds shipped megabytes of prompt and tool text to draw one
+          // line, and parsing it stalled the page (finding F2-canlı).
+          const progress = await readRunProgress(
+            conversationId,
+            run.run_id,
+            token,
+          );
+          if (!cancelled && progress.stage && progress.name)
+            setLine(phrase({ stage: progress.stage, name: progress.name }));
+          if (!cancelled && progress.status !== "running") return;
         }
       } catch {
         // One stable state per outage, while the bounded polling retry continues.

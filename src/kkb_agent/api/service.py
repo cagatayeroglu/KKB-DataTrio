@@ -48,6 +48,7 @@ from kkb_agent.api.contracts import (
     Result,
     RunDetail,
     RunList,
+    RunProgress,
     RunSummary,
     RuntimeSettings,
     SessionCreated,
@@ -564,6 +565,23 @@ class AnalysisService:
                 # contract make every other run unreadable.
                 continue
         return RunList(runs=tuple(summaries))
+
+    def run_progress(self, session_id: str, run_id: str, token: str) -> RunProgress:
+        """Where a run is now, for a view that polls: status and the newest step."""
+        self._trace_access(session_id, token)
+        if self._store is None:  # pragma: no cover - _trace_access refuses without a store
+            raise ServiceError("unavailable", 503)
+        found = self._store.run_of(session_id, run_id)
+        if found is None:
+            raise ServiceError("not_found", 404)
+        last = self._store.last_event(run_id)
+        return RunProgress(
+            run_id=found.run_id,
+            status=found.status,  # type: ignore[arg-type]
+            steps=last[0] if last else 0,
+            stage=last[1] if last else None,
+            name=last[2] if last else None,
+        )
 
     def run(self, session_id: str, run_id: str, token: str) -> RunDetail:
         self._trace_access(session_id, token)

@@ -1035,6 +1035,20 @@ class ConversationStore:
             None,
         )
 
+    def last_event(self, run_id: str) -> tuple[int, str, str] | None:
+        """The newest step's count, stage and name: what a live view needs.
+
+        Reading the whole detail every two seconds shipped megabytes of step text
+        to say one line (finding F2-canlı).
+        """
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT stage, name, (SELECT COUNT(*) FROM trace_events WHERE run_id = ?)"
+                " AS total FROM trace_events WHERE run_id = ? ORDER BY sequence DESC LIMIT 1",
+                [run_id, run_id],
+            ).fetchone()
+        return (int(row["total"]), row["stage"], row["name"]) if row is not None else None
+
     def events(self, run_id: str) -> list[StoredEvent]:
         with self._lock:
             rows = self._connection.execute(

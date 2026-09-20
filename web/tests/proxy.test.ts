@@ -690,3 +690,21 @@ test("the catalogue trial passes with the browser key and only its own query", a
     assert.ok([403, 404].includes(refused.status), `${target} ${method}`);
   }
 });
+
+test("the live progress route is allowed and the step route still is", async () => {
+  const sid = "a".repeat(32);
+  const run = "b".repeat(32);
+  const keyed = { "x-kkb-session-token": "t".repeat(43) };
+  for (const path of [
+    `v1/conversations/${sid}/runs/${run}/progress`,
+    `v1/conversations/${sid}/runs/${run}/steps/3`,
+  ]) {
+    const response = await forward(
+      request(path, "GET", keyed),
+      path.split("/"),
+      async () =>
+        new Response("{}", { headers: { "content-type": "application/json" } }),
+    );
+    assert.equal(response.status, 200, path);
+  }
+});

@@ -418,6 +418,18 @@ export type TraceConversationSummary = z.infer<
 export type ConversationDetail = z.infer<typeof conversationDetailSchema>;
 export type StoredMessage = z.infer<typeof storedMessageSchema>;
 
+export const runProgressSchema = z
+  .object({
+    api_version: z.literal(1),
+    run_id: ref,
+    status: z.enum(["running", "completed", "failed", "cancelled"]),
+    steps: z.number().int().nonnegative(),
+    stage: z.string().max(120).nullable(),
+    name: z.string().max(120).nullable(),
+  })
+  .strict();
+export type RunProgress = z.infer<typeof runProgressSchema>;
+
 export const runSummarySchema = z
   .object({
     run_id: ref,

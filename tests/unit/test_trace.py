@@ -258,3 +258,24 @@ def test_a_running_model_call_is_visible_before_it_returns(launch):
     # right after it and is already stored while the call is still out.
     names = [item["name"] for item in steps]
     assert names.index("model.started") == names.index("planner.initial") + 1
+
+
+def test_progress_reports_the_newest_step_without_its_text(launch):
+    """A live view polls this instead of the whole trace (finding F2-canlı)."""
+    _, client = launch(reply("Merhaba!"))
+    owner_token = owner(client)
+    sid, headers, _ = open_conversation(client, owner_token)
+    ask(client, sid, headers, "Merhaba")
+    runs = client.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"]
+    detail = trace(client, sid, headers, runs[0]["run_id"])
+    progress = client.get(
+        f"/v1/conversations/{sid}/runs/{runs[0]['run_id']}/progress", headers=headers
+    ).json()
+
+    assert progress["status"] == "completed"
+    assert progress["steps"] == len(detail["steps"])
+    assert (progress["stage"], progress["name"]) == (
+        detail["steps"][-1]["stage"],
+        detail["steps"][-1]["name"],
+    )
+    assert "detail" not in progress and "steps" not in str(progress["name"])

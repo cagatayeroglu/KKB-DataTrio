@@ -510,6 +510,17 @@ class RunDetail(ContractModel):
     steps: Annotated[tuple[TraceStep, ...], Field(max_length=5000)] = ()
 
 
+class RunProgress(ContractModel):
+    """What a live view shows while a run is going: no step text at all."""
+
+    api_version: Literal[1] = 1
+    run_id: Reference
+    status: Literal["running", "completed", "failed", "cancelled"]
+    steps: Annotated[int, Field(strict=True, ge=0)] = 0
+    stage: Code | None = None
+    name: Code | None = None
+
+
 #: Why an answer was rated down; a fixed vocabulary, never free-form categories.
 FeedbackReason = Literal[
     "accuracy",

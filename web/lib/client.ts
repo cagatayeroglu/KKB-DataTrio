@@ -17,6 +17,7 @@ import {
   ownerSchema,
   resultSchema,
   runDetailSchema,
+  runProgressSchema,
   runsDeletedSchema,
   runtimeSettingsSchema,
   searchTrialSchema,
@@ -678,6 +679,19 @@ export async function uploadDocument(
     // Admission reads the document (a scanned page goes through OCR) and the file
     // itself can be 10 MiB: the default 12 s cut off uploads the server accepted.
     { timeoutMs: 90000 },
+  );
+}
+/** Where a run is now: the line a live view shows, without any step text. */
+export function readRunProgress(
+  conversationId: string,
+  runId: string,
+  token: string,
+) {
+  return api(
+    `conversations/${conversationId}/runs/${runId}/progress`,
+    runProgressSchema,
+    {},
+    token,
   );
 }
 export function publishedResult(turn?: Turn) {

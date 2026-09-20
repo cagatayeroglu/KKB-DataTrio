@@ -19,7 +19,7 @@ const documentRoute = new RegExp(`^v1/sessions/${REF}/documents$`);
 const documentUrlRoute = new RegExp(`^v1/sessions/${REF}/documents/from-url$`);
 const conversationRoute = new RegExp(`^v1/conversations/${REF}$`);
 const runRoute = new RegExp(
-  `^v1/conversations/${REF}/runs(?:/${REF}(?:/steps/[1-9][0-9]{0,5})?)?$`,
+  `^v1/conversations/${REF}/runs(?:/${REF}(?:/progress|/steps/[1-9][0-9]{0,5})?)?$`,
 );
 /** A stored trace holds every prompt and tool output, so it may exceed the usual ceiling. */
 export const TRACE_LIMIT = 8 * 1024 * 1024;
