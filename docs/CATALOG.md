@@ -302,8 +302,9 @@ DEC-142 selects the instruct policy for the prepared runtime.
 must explicitly contain an operator-configured `catalog_search` to use discovery.
 If a plan directly uses known reviewed identities or published tables, it executes
 without an extra discovery/model call. The default `False` preserves the prior
-one-plan path. `Session.plan()` only plans; `Session.run()` owns execution and the
-single continuation. No general autonomous research loop is introduced.
+one-plan path. `Session.plan()` only plans; `Session.run()` owns execution and
+at most two catalog phases followed by analysis. No general autonomous research
+loop is introduced.
 
 The existing prepared-pool rehearsal can opt in with a reviewed snapshot:
 
@@ -330,35 +331,40 @@ Analysis writes stay in that copy; source preparation is unchanged.
 - A discovery plan contains only `catalog_search`, at most four independent
   queries. Mixing calculations or dependent queries into it is rejected before
   any step executes and consumes the ordinary plan-repair budget.
-- Only successful typed catalog outputs reach the second plan. Metadata is
+- Only successful typed catalog outputs reach a continuation plan. Metadata is
   revalidated and projected without source locators, observation samples or
   source-evidence file references. Financial declarations, original descriptions,
-  review notes, ambiguity, unresolved conditions and stage provenance remain.
+  review notes, ambiguity and unresolved conditions remain; retrieval scores,
+  rank and stage provenance are omitted.
 - The feedback is a JSON **user/data message**, never a system message. The
   Kloudeks transport's leading-system merge preserves this distinction. JSON
   is a representation, not a proof against injection; executable authority is
   still enforced by the registry, phase validation and analytical tools.
-- Feedback is capped at 32 KiB in UTF-8. Oversized metadata is refused rather
+- Each phase's feedback is capped at 32 KiB in UTF-8. Oversized metadata is refused rather
   than silently dropping conditions that could determine the series choice.
-- The one continuation may use only registered `lakehouse`, `anomaly`,
-  `causality`, `change_detection` and `table_transform`, or clarify. It receives
-  only those tool descriptions. No second discovery or catalog-derived
-  `web_search`/`web_url` action is accepted, even if a web tool exists in the
-  broader registry. A separately requested direct web workflow remains separate.
+- The first continuation may use registered analysis tools, clarify, or request
+  **one** additional catalog-only phase when a supporting measure was missing.
+  The next continuation receives analysis schemas only; no third search is
+  admitted. `promote_series`, `web_search` and `web_url` are never reopened by
+  the auxiliary phase, even if present in the registry. A separately requested
+  direct document/web workflow remains separate. Analysis may read only series
+  identities proven by these searches or previously proven in the conversation.
 - Continuation IDs must be fresh, and discovery steps cannot be referenced as
   calculation dependencies. The analysis gets a fresh execution context; catalog
   metadata is not an input table or numerical evidence.
-- `max_steps` and `max_plan_repairs` are shared across both phases. With defaults,
-  at most eight distinct steps and two plan repairs across at most two planning
-  phases are accepted. Each provider call retains its own bounded transport/schema
+- `max_steps` and `max_plan_repairs` are shared across the phases. With defaults,
+  at most twelve steps, two catalog phases (four independent queries each) and
+  two plan repairs across at most three planning phases are accepted. Each
+  provider call retains its own bounded transport/schema
   retries; the plan counts are not a claim of total HTTP-call or wall-time limits.
 - The executor binds every returned tool/step identity to the validated step,
   including exhausted retries, preserving the outcome's real trace and evidence.
 
 `Planned.plan` is the final analysis/clarification plan; `Planned.discovery_plan`
-keeps the earlier validated plan separately. `attempts` and `rejections` are
-aggregate; `discovery_rounds` is zero or one. `ExecutionOutcome.results` preserves
-both phases in order. The live-check report includes a separate discovery record.
+and optional `auxiliary_discovery_plan` keep the catalog plans separately.
+`attempts` and `rejections` are aggregate; `discovery_rounds` is zero, one or two.
+`ExecutionOutcome.results` preserves all phases in order. The live-check report
+includes both catalog queries in its discovery record.
 It does not merge historical discovery steps into an executable clarification plan.
 
 

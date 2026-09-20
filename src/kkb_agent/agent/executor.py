@@ -67,6 +67,12 @@ class Budget:
     max_steps: int = 12
     max_plan_repairs: int = 2
     max_tool_retries: int = 1
+    # One initial catalog phase and, only when necessary, one auxiliary phase.
+    max_discovery_rounds: int = 2
+
+    def __post_init__(self) -> None:
+        if self.max_discovery_rounds not in (0, 1, 2):
+            raise ValueError("Catalog discovery permits at most two rounds")
 
 
 #: Frozen defaults, so a shared budget cannot be mutated by one caller.
