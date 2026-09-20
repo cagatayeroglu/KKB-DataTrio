@@ -167,6 +167,13 @@ def validate_plan(
         seen.add(step.step_id)
         tools_by_id[step.step_id] = step.tool
 
+    if known_tables is not None and (collisions := seen.intersection(known_tables)):
+        raise PlanRejected(
+            f"Step ID {sorted(collisions)[0]!r} collides with a published table name; "
+            "use a fresh step ID so each table reference has one identity",
+            category=RejectionCategory.DEPENDENCIES,
+        )
+
     validated: dict[str, ValidatedStep] = {}
     for step in plan.steps:
         try:
@@ -208,10 +215,28 @@ def validate_plan(
                 )
         validated[step.step_id] = ValidatedStep(step, arguments)
 
-    # Only the last computed result is answered and published. A second
-    # unconsumed calculation would be silently discarded, so refuse the plan and
-    # let the planner combine conditions or chain the steps instead (M11-11).
-    consumed = {dependency for step in plan.steps for dependency in step.depends_on}
+    ordered = tuple(_ordered(plan, validated))
+    # Only the last computed result is answered and published. A depends_on edge
+    # orders execution but says nothing about whether the later tool actually
+    # reads that result. Count only registry-declared typed inputs as consumption;
+    # otherwise a planner could silence this guard with a fake ordering edge.
+    consumed: set[str] = set()
+    for validated_step in validated.values():
+        spec = registry.get(validated_step.step.tool)
+        table = spec.table_input(validated_step.arguments) if spec.table_input else None
+        references = (
+            tuple(
+                name for name in (table.source, table.input_step, *table.others) if name is not None
+            )
+            if table is not None
+            else ()
+        )
+        required = spec.required_steps(validated_step.arguments) if spec.required_steps else ()
+        consumed.update(
+            name
+            for name in (*references, *required)
+            if name in validated and name in validated_step.step.depends_on
+        )
     final = [
         step.step_id
         for step in plan.steps
@@ -220,15 +245,18 @@ def validate_plan(
     if len(final) > 1:
         raise PlanRejected(
             f"Plan has {len(final)} final calculation steps ({', '.join(final)}); only one "
-            "final result is answered and published. Express every condition in one "
-            "operation (for example table_co_movement when_column/when_direction) or make "
-            "each later step depend on the earlier one",
+            "final result is answered and published. For compatible monthly tables, "
+            "use table_transform join_table with both step IDs as source/other and both "
+            "in depends_on; it keeps their units and exact-month join policy. A plain "
+            "depends_on edge does not combine results. Incompatible tables and independent "
+            "scalar + table outputs cannot be silently combined; clarify or separate them. "
+            "For a joint condition, use one table_co_movement operation",
             category=RejectionCategory.STRUCTURE,
         )
 
     return ValidatedPlan(
         plan.question,
-        tuple(_ordered(plan, validated)),
+        ordered,
         plan.clarification,
         plan.reply,
         plan.clarification_text,

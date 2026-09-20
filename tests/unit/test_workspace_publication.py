@@ -121,17 +121,25 @@ def session(candidate, draft="table: 999 TL.", *, later=None):
     )
     steps = [{"step_id": "s1", "tool": "lakehouse", "arguments": {}}]
     if later is not None:
+
+        def later_run(a, c):
+            # The second fixture step really reads the first result; an order-
+            # only edge would be two independent finals under the product gate.
+            assert c.outputs["s1"] is candidate
+            return ToolResult(
+                later,
+                "s2",
+                "anomaly",
+                error_category="fixture-failure" if later is ToolStatus.FAILURE else None,
+            )
+
         registry.register(
             ToolSpec(
                 "anomaly",
                 "fixture",
                 Args,
-                lambda a, c: ToolResult(
-                    later,
-                    "s2",
-                    "anomaly",
-                    error_category="fixture-failure" if later is ToolStatus.FAILURE else None,
-                ),
+                later_run,
+                required_steps=lambda a: ("s1",),
             )
         )
         steps.append({"step_id": "s2", "tool": "anomaly", "arguments": {}, "depends_on": ["s1"]})

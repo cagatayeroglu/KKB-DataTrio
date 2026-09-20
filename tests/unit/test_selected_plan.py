@@ -81,12 +81,13 @@ def test_registry_declared_chain_uses_selected_source(scope):
 @pytest.mark.parametrize("args", [{"source": "other"}, {}, {"source": "chosen", "input_step": "a"}])
 def test_whole_invalid_plan_rejected_before_valid_prefix_runs(scope, args):
     registry, calls = setup(scope)
-    # One final step, so the dispatch-time selection check (not the final-result
-    # rule) is what refuses the invalid second step.
-    validated = validate_plan(
-        plan(step("a", source="chosen"), step("b", after=("a",), **args)), registry
-    )
     with pytest.raises(PlanRejected):
+        # A bare ordering edge is rejected as two finals at validation; an
+        # actual typed input with invalid selected-source grounding is rejected
+        # at dispatch. Neither path may run the otherwise valid prefix.
+        validated = validate_plan(
+            plan(step("a", source="chosen"), step("b", after=("a",), **args)), registry
+        )
         execute(validated, registry, context=ExecutionContext("fixture"), selection=scope)
     assert calls == []
 
@@ -95,6 +96,17 @@ def test_parallel_final_calculations_are_refused_before_dispatch(scope):
     registry, calls = setup(scope)
     with pytest.raises(PlanRejected, match="final calculation steps"):
         validate_plan(plan(step("a", source="chosen"), step("b", source="chosen")), registry)
+    assert calls == []
+
+
+def test_ordering_dependency_does_not_consume_a_sibling_result(scope):
+    registry, calls = setup(scope)
+    # "b" waits for "a" but reads the selected workspace table again. Its typed
+    # input does not include "a", so publishing only "b" would silently lose it.
+    with pytest.raises(PlanRejected, match="final calculation steps"):
+        validate_plan(
+            plan(step("a", source="chosen"), step("b", source="chosen", after=("a",))), registry
+        )
     assert calls == []
 
 

@@ -678,7 +678,7 @@ def make_table_transform_tool(
             inputs.append(
                 canonical({other_origin: selected.other, "result": other.model_dump(mode="json")})
             )
-            result = _joined(selected, source, other)
+            result = _joined(selected, source, other, require_full_other=other_origin == "step")
         elif isinstance(selected, AddDocumentColumnArguments):
             if selected.year is not None and not year_in_question(selected.year, context.question):
                 return failure("needs_input", "YEAR_NOT_IN_QUESTION")
@@ -821,9 +821,11 @@ def make_table_transform_tool(
             "recompute a published table. Sum is refused for stocks, rates and indices. "
             "rebase adds an explicitly based copy of an existing index column. align selects "
             "existing exact periods using inner or explicitly anchored-left policy. join_table "
-            "adds the monthly columns of another published result (for example a table built "
-            "from an uploaded document, or an official-series table) onto the source table's "
-            "exact months, keeping each column's own unit. filter "
+            "adds the monthly columns of another published result or an earlier same-plan "
+            "table step onto the source table's exact months, keeping each column's own "
+            "unit. To compose two independent reads in one turn, name both step IDs as "
+            "source/other and list both in depends_on; an ordering edge alone does not "
+            "compose them. filter "
             "selects an inclusive period-end range. These unary operations never fill cells, "
             "convert frequency, or accept SQL."
             + (
@@ -1444,7 +1446,11 @@ def _flowed(
 
 
 def _joined(
-    arguments: JoinTableArguments, source: AnalyticalResult, other: AnalyticalResult
+    arguments: JoinTableArguments,
+    source: AnalyticalResult,
+    other: AnalyticalResult,
+    *,
+    require_full_other: bool = False,
 ) -> AnalyticalResult:
     result_id = f"table_transform:join_table:{arguments.source}:{arguments.other}"
     try:
@@ -1459,6 +1465,19 @@ def _joined(
             tool="table_transform",
             method=JOIN_METHOD,
             reason=str(error),
+        )
+    if require_full_other and len(joined.values) != len(other.values):
+        return AnalyticalResult(
+            result_id=result_id,
+            kind=ResultKind.SERIES,
+            status=ResultStatus.ABSTAINED,
+            tool="table_transform",
+            method=JOIN_METHOD,
+            reason=(
+                "The same-plan sibling table has values outside the exact-month join or "
+                "the selected columns. Its full result cannot be preserved; clarify or "
+                "separate the requested outputs"
+            ),
         )
     series_names: dict[str, JsonValue] = {}
     for table in (source, other):
