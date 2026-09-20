@@ -132,8 +132,11 @@ export async function forward(
   const creation = name === "v1/sessions";
   const owner = name === "v1/owner";
   const list = name === "v1/conversations";
+  const traceList = name === "v1/trace-conversations";
   const conversation = conversationRoute.test(name);
   const runs = runRoute.test(name);
+  const deleteConversation = conversation && request.method === "DELETE";
+  const deleteRuns = runs && path.length === 4 && request.method === "DELETE";
   const feedback = feedbackRoute.test(name);
   const results = resultRoute.test(name);
   const turns = route.test(name);
@@ -169,7 +172,7 @@ export async function forward(
   const search = new URL(request.url).search.replace(/^\?/, "");
   if (
     search &&
-    !(list && LIST_QUERY.test(search)) &&
+    !((list || traceList) && LIST_QUERY.test(search)) &&
     !(knowledgeSearch && SEARCH_QUERY.test(search))
   )
     return error("forbidden", 403);
@@ -179,6 +182,7 @@ export async function forward(
       (publicGet ||
         getTurn ||
         list ||
+        traceList ||
         settings ||
         prompts ||
         conversation ||
@@ -208,15 +212,16 @@ export async function forward(
         directoryRefresh ||
         (turns && path.length === 4))
     ) &&
-    !(request.method === "PATCH" && (conversation || settings))
+    !(request.method === "PATCH" && (conversation || settings)) &&
+    !(deleteConversation || deleteRuns)
   )
     return error("not_found", 404);
   const headers = new Headers({ Accept: "application/json" });
   if (
     turns ||
     documents ||
-    conversation ||
-    runs ||
+    (conversation && !deleteConversation) ||
+    (runs && !deleteRuns) ||
     results ||
     feedback ||
     cancel ||
@@ -232,11 +237,12 @@ export async function forward(
     if (!key || !tokenPattern.test(key)) return error("not_found", 404);
     headers.set("X-KKB-Owner-Token", key);
   }
-  if (list || creation) {
+  if (list || traceList || creation || deleteConversation || deleteRuns) {
     // The browser's own key: required to list, optional only where the backend says so.
     const key = request.headers.get("x-kkb-owner-token");
     if (key && !tokenPattern.test(key)) return error("not_found", 404);
-    if (!key && list) return error("not_found", 404);
+    if (!key && (list || traceList || deleteConversation || deleteRuns))
+      return error("not_found", 404);
     if (key) headers.set("X-KKB-Owner-Token", key);
   }
   let timeoutMs: number;

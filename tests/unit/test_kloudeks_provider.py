@@ -484,6 +484,25 @@ class TestItIsTheProductsProvider:
         with KloudeksProvider.from_env() as built:
             assert str(built._client.base_url) == DEC_129_URL + "/"
 
+    def test_writer_thinking_off_env_keeps_planner_thinking_on(self):
+        resolved = ProviderConfig.from_env(
+            {
+                env.BASE_URL: DEC_129_URL,
+                env.CREDENTIAL: CANARY,
+                env.PLANNER_MODEL: CHAT_MODEL,
+                env.ROUTER_MODEL: CHAT_MODEL,
+                env.WRITER_THINKING: "0",
+            }
+        )
+        assert resolved.planner_thinking is True and resolved.writer_thinking is False
+        server = Server(chat('{"tool": "t", "limit": 1}'), chat("cümle"))
+        target = KloudeksProvider(resolved, transport=httpx.MockTransport(server))
+        ask(target, schema=Plan)
+        ask(target)
+        planned, written = server.bodies()
+        assert "chat_template_kwargs" not in planned
+        assert written["chat_template_kwargs"] == {"enable_thinking": False}
+
     def test_a_question_is_planned_through_the_real_transport(self):
         class LakehouseArgs(BaseModel):
             model_config = ConfigDict(extra="forbid")

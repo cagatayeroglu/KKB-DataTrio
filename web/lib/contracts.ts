@@ -315,6 +315,7 @@ export const savedSchema = z
                 "request_conflict",
                 "capacity",
                 "invalid_document",
+                "not_found",
               ])
               .optional(),
           })
@@ -345,13 +346,41 @@ export const conversationListSchema = z
     conversations: z.array(conversationSummarySchema).max(200),
   })
   .strict();
+export const traceConversationSummarySchema = conversationSummarySchema
+  .extend({ deleted: z.boolean() })
+  .strict();
+export const traceConversationListSchema = z
+  .object({
+    api_version: z.literal(1),
+    conversations: z.array(traceConversationSummarySchema).max(200),
+  })
+  .strict();
+export const conversationDeletedSchema = z
+  .object({ api_version: z.literal(1), deleted: z.literal(true) })
+  .strict();
+export const runsDeletedSchema = z
+  .object({
+    api_version: z.literal(1),
+    deleted_runs: z.number().int().nonnegative(),
+  })
+  .strict();
 export const storedMessageSchema = z
   .object({
     sequence: z.number().int().min(1),
     turn_id: ref,
     role: z.enum(["user", "assistant"]),
     text: bounded,
-    status: z.enum(["accepted", "qualified", "abstained"]).nullable(),
+    status: z
+      .enum([
+        "accepted",
+        "qualified",
+        "abstained",
+        "queued",
+        "running",
+        "completed",
+        "failed",
+      ])
+      .nullable(),
     result_ref: ref.nullable(),
     result_version: digest.nullable(),
     document_ref: ref.nullable(),
@@ -381,6 +410,9 @@ export const conversationDetailSchema = z
   })
   .strict();
 export type ConversationSummary = z.infer<typeof conversationSummarySchema>;
+export type TraceConversationSummary = z.infer<
+  typeof traceConversationSummarySchema
+>;
 export type ConversationDetail = z.infer<typeof conversationDetailSchema>;
 export type StoredMessage = z.infer<typeof storedMessageSchema>;
 

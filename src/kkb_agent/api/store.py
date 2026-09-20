@@ -67,7 +67,8 @@ CREATE TABLE IF NOT EXISTS conversations (
     title           TEXT NOT NULL,
     archived        INTEGER NOT NULL DEFAULT 0,
     created_at      TEXT NOT NULL,
-    updated_at      TEXT NOT NULL
+    updated_at      TEXT NOT NULL,
+    deleted_at      TEXT
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -82,6 +83,11 @@ CREATE TABLE IF NOT EXISTS messages (
     document_ref    TEXT,
     created_at      TEXT NOT NULL,
     PRIMARY KEY (conversation_id, sequence)
+);
+
+CREATE TABLE IF NOT EXISTS pending_clarifications (
+    conversation_id TEXT PRIMARY KEY REFERENCES conversations(conversation_id),
+    payload         TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS documents (
@@ -282,6 +288,7 @@ class ConversationStore:
         with self._lock:
             self._connection.executescript(SCHEMA)
             self._migrate()
+            self._interrupt_stale_runs()
 
     def _migrate(self) -> None:
         """Bring a store created by an earlier version up to this schema, in place."""
@@ -291,6 +298,35 @@ class ConversationStore:
             self._connection.execute(
                 "ALTER TABLE feedback ADD COLUMN score INTEGER"
                 " CHECK (score IS NULL OR score BETWEEN 1 AND 5)"
+            )
+        conversations = {
+            row["name"] for row in self._connection.execute("PRAGMA table_info(conversations)")
+        }
+        if "deleted_at" not in conversations:
+            self._connection.execute("ALTER TABLE conversations ADD COLUMN deleted_at TEXT")
+
+    def _interrupt_stale_runs(self) -> None:
+        """At single-process startup, close attempts left open by the prior process.
+
+        This runs before this store can start a new turn, never during normal
+        reads, so newly admitted runs cannot be mistaken for stale ones.
+        """
+        ended = self._now()
+        rows = self._connection.execute(
+            "SELECT run_id, started_at FROM runs WHERE status = 'running' AND ended_at IS NULL"
+        ).fetchall()
+        for row in rows:
+            try:
+                elapsed = max(
+                    0, round((_moment(ended) - _moment(row["started_at"])).total_seconds() * 1000)
+                )
+            except (TypeError, ValueError):
+                elapsed = 0
+            self._connection.execute(
+                "UPDATE runs SET status = 'failed', error = 'interrupted',"
+                " duration_ms = ?, ended_at = ? WHERE run_id = ?"
+                " AND status = 'running' AND ended_at IS NULL",
+                [elapsed, ended, row["run_id"]],
             )
 
     @property
@@ -366,7 +402,9 @@ class ConversationStore:
         """Whose conversation this is, so a turn can read that owner's settings."""
         with self._lock:
             row = self._connection.execute(
-                "SELECT owner_id FROM conversations WHERE conversation_id = ?", [conversation_id]
+                "SELECT owner_id FROM conversations WHERE conversation_id = ?"
+                " AND deleted_at IS NULL",
+                [conversation_id],
             ).fetchone()
         return str(row["owner_id"]) if row is not None else None
 
@@ -392,7 +430,8 @@ class ConversationStore:
             ):
                 raise StoreError("unknown_owner")
             connection.execute(
-                "INSERT INTO conversations VALUES (?, ?, ?, ?, 0, ?, ?)",
+                "INSERT INTO conversations (conversation_id, owner_id, token_digest, title,"
+                " archived, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?)",
                 [
                     conversation_id,
                     owner_id,
@@ -411,11 +450,19 @@ class ConversationStore:
             _moment(moment),
         )
 
-    def conversation(self, conversation_id: str) -> Conversation | None:
+    def conversation(
+        self, conversation_id: str, *, include_deleted: bool = False
+    ) -> Conversation | None:
         with self._lock:
-            row = self._connection.execute(
-                "SELECT * FROM conversations WHERE conversation_id = ?", [conversation_id]
-            ).fetchone()
+            if include_deleted:
+                row = self._connection.execute(
+                    "SELECT * FROM conversations WHERE conversation_id = ?", [conversation_id]
+                ).fetchone()
+            else:
+                row = self._connection.execute(
+                    "SELECT * FROM conversations WHERE conversation_id = ? AND deleted_at IS NULL",
+                    [conversation_id],
+                ).fetchone()
         return None if row is None else self._conversation(row)
 
     @staticmethod
@@ -429,13 +476,20 @@ class ConversationStore:
             _moment(row["updated_at"]),
         )
 
-    def opens(self, conversation_id: str, *, token: str | None, owner_token: str | None) -> bool:
+    def opens(
+        self,
+        conversation_id: str,
+        *,
+        token: str | None,
+        owner_token: str | None,
+        include_deleted: bool = False,
+    ) -> bool:
         """Whether this request may open the conversation.
 
         Either the conversation's own token or its owner's key opens it; a
         conversation id alone never does.
         """
-        found = self.conversation(conversation_id)
+        found = self.conversation(conversation_id, include_deleted=include_deleted)
         if found is None:
             return False
         if owner_token is not None and self.owner_of(found.owner_id, owner_token):
@@ -453,14 +507,16 @@ class ConversationStore:
         self, owner_id: str, *, archived: bool = False, search: str | None = None
     ) -> list[Conversation]:
         query = (
-            "SELECT * FROM conversations WHERE owner_id = ? AND archived = ? "
+            "SELECT * FROM conversations WHERE owner_id = ? AND archived = ?"
+            " AND deleted_at IS NULL "
             "ORDER BY updated_at DESC, rowid DESC LIMIT ?"
         )
         parameters: list[object] = [owner_id, int(archived), MAX_LISTED]
         if search:
             needle = f"%{search[:MAX_SEARCH_CHARS].lower()}%"
             query = (
-                "SELECT c.* FROM conversations c WHERE c.owner_id = ? AND c.archived = ? AND ("
+                "SELECT c.* FROM conversations c WHERE c.owner_id = ? AND c.archived = ?"
+                " AND c.deleted_at IS NULL AND ("
                 "lower(c.title) LIKE ? OR EXISTS (SELECT 1 FROM messages m WHERE "
                 "m.conversation_id = c.conversation_id AND lower(m.text) LIKE ?)) "
                 "ORDER BY c.updated_at DESC LIMIT ?"
@@ -470,25 +526,88 @@ class ConversationStore:
             rows = self._connection.execute(query, parameters).fetchall()
         return [self._conversation(row) for row in rows]
 
+    def list_trace_conversations(
+        self, owner_id: str, *, archived: bool = False, search: str | None = None
+    ) -> list[tuple[Conversation, bool]]:
+        """Only chats with retained runs; deleted ones are visible here, not in chat."""
+        query = (
+            "SELECT c.* FROM conversations c WHERE c.owner_id = ?"
+            " AND (c.archived = ? OR c.deleted_at IS NOT NULL)"
+            " AND EXISTS (SELECT 1 FROM runs r WHERE r.conversation_id = c.conversation_id)"
+        )
+        parameters: list[object] = [owner_id, int(archived)]
+        if search:
+            query += (
+                " AND (lower(c.title) LIKE ? OR EXISTS (SELECT 1 FROM messages m WHERE"
+                " m.conversation_id = c.conversation_id AND lower(m.text) LIKE ?))"
+            )
+            needle = f"%{search[:MAX_SEARCH_CHARS].lower()}%"
+            parameters.extend([needle, needle])
+        query += " ORDER BY c.updated_at DESC, c.rowid DESC LIMIT ?"
+        parameters.append(MAX_LISTED)
+        with self._lock:
+            rows = self._connection.execute(query, parameters).fetchall()
+        return [(self._conversation(row), row["deleted_at"] is not None) for row in rows]
+
     def update_conversation(
         self, conversation_id: str, *, title: str | None = None, archived: bool | None = None
     ) -> Conversation:
         with self._write() as connection:
             if title is not None:
                 connection.execute(
-                    "UPDATE conversations SET title = ?, updated_at = ? WHERE conversation_id = ?",
+                    "UPDATE conversations SET title = ?, updated_at = ? WHERE conversation_id = ?"
+                    " AND deleted_at IS NULL",
                     [title[:MAX_TITLE_CHARS], self._now(), conversation_id],
                 )
             if archived is not None:
                 connection.execute(
                     "UPDATE conversations SET archived = ?, updated_at = ? "
-                    "WHERE conversation_id = ?",
+                    "WHERE conversation_id = ? AND deleted_at IS NULL",
                     [int(archived), self._now(), conversation_id],
                 )
         found = self.conversation(conversation_id)
         if found is None:
             raise StoreError("unknown_conversation")
         return found
+
+    def soft_delete(self, conversation_id: str) -> None:
+        """Hide an owned conversation without erasing its independent run record."""
+        with self._write() as connection:
+            connection.execute(
+                "UPDATE conversations SET deleted_at = COALESCE(deleted_at, ?), updated_at = ?"
+                " WHERE conversation_id = ?",
+                [self._now(), self._now(), conversation_id],
+            )
+
+    def is_deleted(self, conversation_id: str) -> bool:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT deleted_at FROM conversations WHERE conversation_id = ?",
+                [conversation_id],
+            ).fetchone()
+        return row is not None and row["deleted_at"] is not None
+
+    def clear_session_artifacts(self, conversation_id: str) -> None:
+        """Forget document/publication references after their files are gone."""
+        with self._write() as connection:
+            connection.execute("DELETE FROM documents WHERE conversation_id = ?", [conversation_id])
+            connection.execute(
+                "DELETE FROM publications WHERE conversation_id = ?", [conversation_id]
+            )
+            connection.execute(
+                "DELETE FROM result_series WHERE conversation_id = ?", [conversation_id]
+            )
+
+    def delete_runs(self, conversation_id: str) -> int:
+        """Irreversibly remove only this conversation's runs and their trace events."""
+        with self._write() as connection:
+            found = connection.execute(
+                "SELECT run_id FROM runs WHERE conversation_id = ?", [conversation_id]
+            ).fetchall()
+            for row in found:
+                connection.execute("DELETE FROM trace_events WHERE run_id = ?", [row["run_id"]])
+            connection.execute("DELETE FROM runs WHERE conversation_id = ?", [conversation_id])
+        return len(found)
 
     # -- which answers rest on which series (reverse lineage) ------------------
 
@@ -520,7 +639,7 @@ class ConversationStore:
                          ORDER BY m.sequence LIMIT 1) AS question
                   FROM result_series r
                   JOIN conversations c ON c.conversation_id = r.conversation_id
-                 WHERE r.series_id = ? AND c.owner_id = ?
+                 WHERE r.series_id = ? AND c.owner_id = ? AND c.deleted_at IS NULL
                  ORDER BY r.created_at DESC LIMIT ?
                 """,
                 [series_id, owner_id, MAX_LISTED],
@@ -537,6 +656,39 @@ class ConversationStore:
         ]
 
     # -- messages -------------------------------------------------------------
+
+    def pending_clarification(self, conversation_id: str) -> dict[str, object] | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT payload FROM pending_clarifications WHERE conversation_id = ?",
+                [conversation_id],
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            payload = json.loads(row["payload"])
+        except (TypeError, ValueError):
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    def set_pending_clarification(
+        self, conversation_id: str, payload: dict[str, object] | None
+    ) -> None:
+        with self._write() as connection:
+            if payload is None:
+                connection.execute(
+                    "DELETE FROM pending_clarifications WHERE conversation_id = ?",
+                    [conversation_id],
+                )
+            else:
+                encoded = json.dumps(payload, ensure_ascii=False)
+                if len(encoded) > 16_384:
+                    raise StoreError("pending_clarification_too_large")
+                connection.execute(
+                    "INSERT INTO pending_clarifications(conversation_id, payload) VALUES (?, ?) "
+                    "ON CONFLICT(conversation_id) DO UPDATE SET payload = excluded.payload",
+                    [conversation_id, encoded],
+                )
 
     def append_message(
         self,
@@ -637,11 +789,12 @@ class ConversationStore:
                 question = None
         return pairs[-limit:]
 
-    def turn_count(self, conversation_id: str) -> int:
+    def turn_count(self, conversation_id: str, exclude_turn_id: str | None = None) -> int:
         with self._lock:
             row = self._connection.execute(
-                "SELECT COUNT(DISTINCT turn_id) AS turns FROM messages WHERE conversation_id = ?",
-                [conversation_id],
+                "SELECT COUNT(DISTINCT turn_id) AS turns FROM messages "
+                "WHERE conversation_id = ? AND (? IS NULL OR turn_id <> ?)",
+                [conversation_id, exclude_turn_id, exclude_turn_id],
             ).fetchone()
         return int(row["turns"])
 
@@ -808,21 +961,28 @@ class ConversationStore:
                 "SELECT * FROM runs WHERE conversation_id = ? ORDER BY started_at DESC LIMIT ?",
                 [conversation_id, limit],
             ).fetchall()
-        return [
-            StoredRun(
-                row["run_id"],
-                row["turn_id"],
-                row["question"],
-                row["status"],
-                row["answer_status"],
-                row["error"],
-                row["result_ref"],
-                int(row["duration_ms"]),
-                _moment(row["started_at"]),
-                _moment(row["ended_at"]) if row["ended_at"] else None,
-            )
-            for row in rows
-        ]
+        found: list[StoredRun] = []
+        for row in rows:
+            try:
+                found.append(
+                    StoredRun(
+                        row["run_id"],
+                        row["turn_id"],
+                        row["question"],
+                        row["status"],
+                        row["answer_status"],
+                        row["error"],
+                        row["result_ref"],
+                        int(row["duration_ms"]),
+                        _moment(row["started_at"]),
+                        _moment(row["ended_at"]) if row["ended_at"] else None,
+                    )
+                )
+            except (TypeError, ValueError):
+                # Retain the damaged row on disk for diagnosis; one unreadable
+                # legacy record must not hide every other trace from its owner.
+                continue
+        return found
 
     def run_of(self, conversation_id: str, run_id: str) -> StoredRun | None:
         """One run, only when it belongs to this conversation."""

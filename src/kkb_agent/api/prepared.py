@@ -7,6 +7,7 @@ import io
 import json
 import os
 import re
+import shutil
 import threading
 import time
 from collections.abc import Callable, Iterator, Sequence
@@ -22,7 +23,7 @@ from pydantic import Field, JsonValue, SecretStr
 
 from kkb_agent.agent import Session, ToolRegistry, Workspace
 from kkb_agent.agent.cancellation import TurnCancelled
-from kkb_agent.agent.loop import MAX_HISTORY_TURNS
+from kkb_agent.agent.loop import MAX_HISTORY_TURNS, PlanningFailed
 from kkb_agent.agent.observer import Tracer
 from kkb_agent.agent.selection import SelectedTable, SelectionError
 from kkb_agent.agent.verifier import AnswerStatus
@@ -156,16 +157,8 @@ _NEW_QUESTION_PREFIXES = (
     "new question:",
     "vazgeçip başka",
     "başka bir soru",
+    "şimdi de ",
 )
-#: Words a message must reach, while asking something of its own, before it reads
-#: as a new request rather than an answer to the pending clarification.
-_NEW_QUESTION_WORDS = 6
-#: An answer to a clarification is one short clause ("BDDK verisini kullan.", "BDDK
-#: Aylık Bülten toplam bakiyeyi Mayıs-Haziran 2026 dönemi için kullan."). A longer
-#: message made of several clauses states a request of its own even without a
-#: question mark: the E1 trace (2026-09-19) merged "2021-2025 konut kredisi bakiyesini
-#: aylık getir, TÜFE ile ... arındır." into an unrelated pending clarification and
-#: clarified again. Beyond `_REPLY_HARD_MAX_WORDS` any message is a request.
 #: Shown with an abstention when a read of the question's address was lost after every attempt.
 #: Shown with an abstention when an official series could not be fetched after every attempt.
 SOURCE_UNREACHED_NOTICE = (
@@ -182,8 +175,8 @@ ADDRESS_UNREAD_NOTICE = (
     "Sorudaki adresin bazı kaynakları bu turda okunamadı (zaman aşımı ya da bağlantı hatası). "
     "Aynı soruyu yeniden sormak sonucu değiştirebilir."
 )
-_REPLY_MAX_WORDS = 9
-_REPLY_HARD_MAX_WORDS = 14
+_STANDALONE_QUESTION = re.compile(r"\b(?:ne kadar|nasıl|kaç|nedir|hangi)\b")
+_MULTISTEP_REQUEST = re.compile(r"\b(?:getir|göster|hesapla|arındır|ekle|karşılaştır)\b")
 
 
 def _is_cancellation(question: str) -> bool:
@@ -200,13 +193,9 @@ def _is_new_question(
 ) -> bool:
     """Decide, without asking the person, whether this message answers the clarification.
 
-    An answer to a clarification is short and declarative ("aylık olsun", "TCMB
-    verisi"). A message that asks something of its own, at the length of a real
-    request, is a new question however the previous turn ended - whether it ends
-    in a question mark or states the request as an instruction. A caller may still
-    state `is_continuation`; this decides only when it did not, and the decision
-    is recorded in the turn's trace rather than left to a control the person has
-    to operate.
+    A long explanation of a chosen series is still an answer. Only an explicit
+    new-question marker or a standalone question/multi-action request replaces
+    the pending question. The request's explicit continuation flag takes priority.
     """
     q = question.strip().lower()
     # A teammate's trace and live E1b (2026-09-19): the entry picked from the offered list
@@ -220,11 +209,11 @@ def _is_new_question(
         return True
     if selection is not None and pending.selection is not None and selection != pending.selection:
         return True
-    words = len(q.split())
-    if q.endswith("?") and words >= _NEW_QUESTION_WORDS:
+    if q.endswith("?") and _STANDALONE_QUESTION.search(q):
         return True
-    clauses = 1 + q.count(",") + q.count(";")
-    return words > _REPLY_HARD_MAX_WORDS or (words > _REPLY_MAX_WORDS and clauses > 1)
+    return len(_MULTISTEP_REQUEST.findall(q)) >= 2 and not any(
+        word in q for word in ("kullan", "olsun", "seç")
+    )
 
 
 def _format_clarification_prompt(original: str, clarifications: tuple[str, ...]) -> str:
@@ -531,11 +520,30 @@ class PreparedRunner:
             settings=settings,
         )
 
-    def _restore(self, session_id: str) -> None:
+    def _restore(self, session_id: str, current_turn_id: str | None = None) -> None:
         """Bring one conversation's persisted references back into this process."""
+        with self._lock:
+            self._restore_locked(session_id, current_turn_id)
+
+    def _restore_locked(self, session_id: str, current_turn_id: str | None = None) -> None:
         if self._store is None or session_id in self._turns:
             return
-        self._turns[session_id] = self._store.turn_count(session_id)
+        if len(self._turns) >= MAX_SESSIONS:
+            # The runner is single-turn under _lock. Drop the oldest idle in-memory
+            # handle only; DuckDB, messages and pending intent remain on disk.
+            oldest = next(iter(self._turns))
+            del self._turns[oldest]
+            self._pending_clarifications.pop(oldest, None)
+            self._history.pop(oldest, None)
+            self._proven.pop(oldest, None)
+            for key in tuple(self._publications):
+                if key[0] == oldest:
+                    del self._publications[key]
+            with self._documents_lock:
+                for key in tuple(self._documents):
+                    if key[0] == oldest:
+                        del self._documents[key]
+        self._turns[session_id] = self._store.turn_count(session_id, current_turn_id)
         for item in self._store.publications(session_id):
             self._publications[session_id, item.turn_id] = _Publication(
                 SelectedResult(item.turn_id, item.result_ref, item.result_version),
@@ -553,6 +561,63 @@ class PreparedRunner:
                     document.admitted_at,
                 )
         self._history[session_id] = list(self._store.history(session_id, MAX_HISTORY_TURNS))
+        saved = self._store.pending_clarification(session_id)
+        if saved is not None:
+            try:
+                selected = saved.get("selection")
+                selection = SelectedResult(**selected) if isinstance(selected, dict) else None
+                original = saved["original_question"]
+                clarifications = saved["clarifications"]
+                offered = saved["offered"]
+                document_ref = saved.get("document_ref")
+                if (
+                    isinstance(original, str)
+                    and isinstance(clarifications, list)
+                    and all(isinstance(item, str) for item in clarifications)
+                    and isinstance(offered, list)
+                    and all(isinstance(item, str) for item in offered)
+                    and (document_ref is None or isinstance(document_ref, str))
+                ):
+                    self._pending_clarifications[session_id] = PendingClarification(
+                        original, tuple(clarifications), selection, document_ref, tuple(offered)
+                    )
+            except (KeyError, TypeError, ValueError):
+                pass
+
+    def delete_session(self, session_id: str) -> None:
+        """Remove only one server-issued session's files after its turn has stopped.
+
+        The prepared seed and shared acquisition/directory roots are never targets.
+        The caller must have authorized the deletion and ensured no turn uses this
+        session; the runner lock also refuses a concurrent execution.
+        """
+        if not _IDENTIFIER.fullmatch(session_id):
+            raise PreparedError("invalid_runtime_identity")
+        if not self._lock.acquire(blocking=False):
+            raise PreparedError("concurrent_runtime_refused")
+        try:
+            target = self.run_root / session_id
+            if target.is_symlink() or not target.resolve().is_relative_to(self.run_root):
+                raise PreparedError("linked_path_refused")
+            if target.exists():
+                if not target.is_dir():
+                    raise PreparedError("session_path_invalid")
+                shutil.rmtree(target)
+            with self._documents_lock:
+                for key in tuple(self._documents):
+                    if key[0] == session_id:
+                        del self._documents[key]
+            self._turns.pop(session_id, None)
+            self._pending_clarifications.pop(session_id, None)
+            if self._store is not None:
+                self._store.set_pending_clarification(session_id, None)
+            self._history.pop(session_id, None)
+            self._proven.pop(session_id, None)
+            for key in tuple(self._publications):
+                if key[0] == session_id:
+                    del self._publications[key]
+        finally:
+            self._lock.release()
 
     def admit_document_from_url(self, session_id: str, url: str) -> DocumentAdmitted:
         """Fetch a tabular document at a user-written address and admit it like an upload.
@@ -816,7 +881,9 @@ class PreparedRunner:
         if not self._lock.acquire(blocking=False):
             raise PreparedError("concurrent_runtime_refused")
         try:
-            self._restore(session_id)
+            self._restore_locked(session_id, turn_id)
+            if session_id in self._turns:
+                self._turns[session_id] = self._turns.pop(session_id)
             pending = self._pending_clarifications.get(session_id)
             effective_question = question
             effective_selection = selection
@@ -827,11 +894,15 @@ class PreparedRunner:
                 if is_continuation is False or _is_cancellation(question):
                     is_cancel = True
                     self._pending_clarifications.pop(session_id, None)
+                    if self._store is not None:
+                        self._store.set_pending_clarification(session_id, None)
                     effective_question = question
                     effective_selection = selection
-                elif _is_new_question(question, selection, pending):
+                elif is_continuation is not True and _is_new_question(question, selection, pending):
                     is_new_q = True
                     self._pending_clarifications.pop(session_id, None)
+                    if self._store is not None:
+                        self._store.set_pending_clarification(session_id, None)
                     effective_question = question
                     effective_selection = selection
                 else:
@@ -1053,13 +1124,20 @@ class PreparedRunner:
                             run_id,
                             status="cancelled" if cancelled else "failed",
                             duration_ms=max(0, round((time.monotonic() - started) * 1000)),
-                            # A provider failure keeps its curated category, status
-                            # included ("Kloudeks rejected the request (400)"); every
-                            # other failure is named by type only, never by text.
+                            # Run summaries are a strict public contract. Keep only
+                            # fixed categories, never provider/exception prose.
                             error=(
-                                f"{type(failure).__name__}: {failure}"
+                                "cancelled"
+                                if cancelled
+                                else "provider_failed"
                                 if isinstance(failure, ProviderError)
-                                else type(failure).__name__
+                                else "planning_failed"
+                                if isinstance(failure, PlanningFailed)
+                                else "output_limit"
+                                if isinstance(failure, OutputRefused)
+                                else failure.code
+                                if isinstance(failure, ServiceError)
+                                else "internal_error"
                             ),
                             events=tracer.events,
                         )
@@ -1144,6 +1222,8 @@ class PreparedRunner:
                 clarification_reason = answered.planned.plan.clarification
                 if answer.status == AnswerStatus.ACCEPTED:
                     self._pending_clarifications.pop(session_id, None)
+                    if self._store is not None:
+                        self._store.set_pending_clarification(session_id, None)
                 elif clarification_reason in (
                     "ambiguous_series",
                     "missing_series",
@@ -1167,6 +1247,26 @@ class PreparedRunner:
                             for item in (answer.selection.others if answer.selection else ())
                         ),
                     )
+                    if self._store is not None:
+                        active = self._pending_clarifications[session_id]
+                        self._store.set_pending_clarification(
+                            session_id,
+                            {
+                                "original_question": active.original_question,
+                                "clarifications": list(active.clarifications),
+                                "selection": (
+                                    {
+                                        "turn_id": active.selection.turn_id,
+                                        "result_ref": active.selection.result_ref,
+                                        "version": active.selection.version,
+                                    }
+                                    if active.selection is not None
+                                    else None
+                                ),
+                                "document_ref": active.document_ref,
+                                "offered": list(active.offered),
+                            },
+                        )
                 if self._store is not None:
                     self._store.finish_run(
                         run_id,
@@ -1276,7 +1376,12 @@ class PreparedRunner:
         if self._store is None:
             return
         self._store.append_message(
-            session_id, turn_id=turn_id, role="user", text=question, document_ref=document_ref
+            session_id,
+            turn_id=turn_id,
+            role="user",
+            text=question,
+            status="completed",
+            document_ref=document_ref,
         )
         self._store.append_message(
             session_id,
@@ -1339,7 +1444,7 @@ class PreparedRunner:
         if not self._lock.acquire(blocking=False):
             raise ServiceError("busy", 409)
         try:
-            self._restore(session_id)
+            self._restore_locked(session_id)
             publication = self._publications.get((session_id, turn_id))
             if publication is None:
                 raise ServiceError("not_found", 404)

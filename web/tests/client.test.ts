@@ -13,9 +13,18 @@ import {
   describeError,
   documentMediaType,
   uploadDocument,
+  deleteConversation,
+  deleteConversationRuns,
+  listTraceConversations,
   ApiError,
 } from "../lib/client";
-import { cellSchema, turnSchema, type Saved } from "../lib/contracts";
+import {
+  cellSchema,
+  conversationSummarySchema,
+  traceConversationSummarySchema,
+  turnSchema,
+  type Saved,
+} from "../lib/contracts";
 import { arrange, displayValue, unitLabel, periodLabel } from "../lib/table";
 import { noticeText } from "../lib/language";
 const sid = "1".repeat(32),
@@ -98,6 +107,74 @@ test("an admitted turn is recovered by GET without another question submission",
   } finally {
     globalThis.fetch = old;
   }
+});
+test("deletion uses the owner key and keeps soft-delete separate from trace deletion", async () => {
+  const old = globalThis.fetch;
+  const seen: { url: string; method: string; headers: Headers }[] = [];
+  globalThis.fetch = async (url, init) => {
+    seen.push({
+      url: String(url),
+      method: init?.method ?? "GET",
+      headers: new Headers(init?.headers),
+    });
+    return Response.json(
+      seen.length === 1
+        ? { api_version: 1, deleted: true }
+        : { api_version: 1, deleted_runs: 2 },
+    );
+  };
+  try {
+    assert.equal((await deleteConversation(sid, session.token)).deleted, true);
+    assert.equal(
+      (await deleteConversationRuns(sid, session.token)).deleted_runs,
+      2,
+    );
+  } finally {
+    globalThis.fetch = old;
+  }
+  assert.deepEqual(
+    seen.map((item) => item.url),
+    [
+      `/api/kkb/v1/conversations/${sid}`,
+      `/api/kkb/v1/conversations/${sid}/runs`,
+    ],
+  );
+  assert.ok(seen.every((item) => item.method === "DELETE"));
+  assert.ok(
+    seen.every(
+      (item) => item.headers.get("x-kkb-owner-token") === session.token,
+    ),
+  );
+  assert.ok(seen.every((item) => !item.headers.has("x-kkb-session-token")));
+});
+test("deleted chats have a trace-only owner index and never satisfy normal chat schema", async () => {
+  const old = globalThis.fetch;
+  const seen: { url: string; headers: Headers }[] = [];
+  const entry = {
+    conversation_id: sid,
+    title: "Silinen test sohbeti",
+    archived: false,
+    created_at: "2026-09-19T10:00:00Z",
+    updated_at: "2026-09-19T10:01:00Z",
+    turns: 1,
+    deleted: true,
+  };
+  globalThis.fetch = async (url, init) => {
+    seen.push({ url: String(url), headers: new Headers(init?.headers) });
+    return Response.json({ api_version: 1, conversations: [entry] });
+  };
+  try {
+    const listed = await listTraceConversations(session.token, {
+      search: "test",
+    });
+    assert.equal(listed.conversations[0].deleted, true);
+  } finally {
+    globalThis.fetch = old;
+  }
+  assert.equal(seen[0].url, "/api/kkb/v1/trace-conversations?search=test");
+  assert.equal(seen[0].headers.get("x-kkb-owner-token"), session.token);
+  assert.ok(traceConversationSummarySchema.safeParse(entry).success);
+  assert.ok(!conversationSummarySchema.safeParse(entry).success);
 });
 test("session state is validated and storage failure is not ignored", () => {
   const memory = new Map<string, string>();

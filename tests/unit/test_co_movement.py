@@ -376,8 +376,27 @@ def test_turn_one_end_to_end_is_accepted_and_published(lake):
     writer_prompt = session.provider.seen[1][1].content
     assert f"Series {TOTAL_ID} means: BDDK Aylık Bülten" in writer_prompt
     assert "did not rise: 2021-02-28, 2021-04-30, 2021-06-30" in writer_prompt
-    # Cause wording is withheld even when negated, so the writer is told to avoid it.
-    assert "not even to deny one" in session.provider.seen[1][0].content
+    assert "not evidence that one series caused" in writer_prompt
+
+
+@pytest.mark.parametrize(
+    "unsupported_cause",
+    [
+        "Faiz düşüşü kredi artışına neden oldu.",
+        "Faiz düşüşü kredi artışına neden olmadı.",
+    ],
+)
+def test_turn_one_causal_wording_is_withheld_even_when_negated(lake, unsupported_cause):
+    draft = (
+        "Faizin düştüğü 4 aylık geçişin 3'ünde konut kredisi bakiyesi artmadı. " + unsupported_cause
+    )
+    answered, workspace, _ = turn_one(lake, draft)
+    assert answered.answer.status is AnswerStatus.QUALIFIED
+    assert unsupported_cause not in answered.answer.text
+    assert any(
+        "causal" in reason for omitted in answered.answer.omitted for reason in omitted.reasons
+    )
+    assert workspace.names() == []
 
 
 def test_turn_one_table_rows_bind_to_their_own_periods(lake):

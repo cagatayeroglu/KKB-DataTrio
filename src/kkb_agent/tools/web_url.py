@@ -53,6 +53,7 @@ from kkb_agent.core import AnalyticalResult, Scale, SourceRef
 from kkb_agent.csv_loader import CsvLoadResult, CsvTable
 from kkb_agent.html_loader import HtmlDocument, HtmlLoadResult
 from kkb_agent.ingest.attached import Attachment
+from kkb_agent.ingest.bist_index_semantics import bist_index_close_metrics
 from kkb_agent.ingest.fetched import (
     DOCUMENT_MEDIA_TYPES,
     fetched_source,
@@ -583,6 +584,19 @@ def make_web_url_tool(
                 )
 
             try:
+                reviewed_metrics = (
+                    bist_index_close_metrics(arguments.url, endpoint, output.table)
+                    if arguments.url is not None
+                    and arguments.follow is not None
+                    and ENDPOINT_NAME.fullmatch(arguments.follow)
+                    and arguments.period_column == "hisTs"
+                    and rule in ("last", "mean")
+                    and (endpoint := (endpoints or {}).get(arguments.follow)) is not None
+                    and isinstance(output.table, RecordTable)
+                    and source.source_id == source_id_for(endpoint)
+                    and media_type == JSON_MEDIA_TYPE
+                    else {}
+                )
                 table = (
                     read_daily_table(
                         grids(output.table, output.document),
@@ -592,6 +606,7 @@ def make_web_url_tool(
                         as_of=as_of(source),
                         is_series=is_series,
                         declared_units=units,
+                        reviewed_metrics=reviewed_metrics,
                     )
                     if rule is not None
                     else read_table(

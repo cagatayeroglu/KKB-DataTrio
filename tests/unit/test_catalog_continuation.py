@@ -39,8 +39,15 @@ QUESTION = "Toplam konut kredisi bakiyesi Nisan-Haziran 2026 arasında ne kadar 
 NOW = datetime(2026, 9, 14, tzinfo=UTC)
 
 
-def proposal(*steps, clarification=None):
-    return json.dumps({"question": QUESTION, "steps": list(steps), "clarification": clarification})
+def proposal(*steps, clarification=None, clarification_text=None):
+    return json.dumps(
+        {
+            "question": QUESTION,
+            "steps": list(steps),
+            "clarification": clarification,
+            "clarification_text": clarification_text,
+        }
+    )
 
 
 def discover(step_id="d", query="toplam konut kredisi"):
@@ -278,6 +285,66 @@ def test_typed_clarification_makes_no_writer_call_and_publishes_nothing(tmp_path
     assert answer.results == answer.tables == ()
     assert answer.planned.plan.clarification == reason
     assert answer.planned.plan.steps == ()
+
+
+def test_specific_clarification_is_shown_with_cards_and_unsafe_prose_falls_back(rig):
+    from uuid import uuid4
+
+    from kkb_agent.api.projection import project_answer
+
+    registry, _ = rig
+    specific = "Faiz için stok oranını mı, akım oranını mı kullanayım?"
+    provider = scripted(
+        proposal(discover()),
+        proposal(clarification="ambiguous_series", clarification_text=specific),
+    )
+    shown = project_answer(
+        enabled(provider, registry).answer(QUESTION), turn_id=uuid4().hex, published=None
+    )
+    assert shown.text == specific
+    assert shown.selection is not None and shown.selection.others
+
+    for unsafe in (
+        "Kesin değer 999 milyon TL; hangisini seçeyim?",
+        "https://unsupported.example verisini mi kullanayım?",
+        "Enflasyon nedeniyle arttı; hangisini seçeyim?",
+    ):
+        provider = scripted(
+            proposal(clarification="unresolved_semantics", clarification_text=unsafe)
+        )
+        projected = project_answer(
+            enabled(provider, registry).answer(QUESTION), turn_id=uuid4().hex, published=None
+        )
+        assert projected.text != unsafe
+        assert "999" not in projected.text and "https://" not in projected.text
+
+
+def test_required_discovery_initial_schema_is_quantitatively_bounded(rig):
+    registry, _ = rig
+    provider = scripted(proposal(discover()))
+    session = enabled(provider, registry, require_series_discovery=True)
+    session.plan(QUESTION)
+    exposed = provider.seen[0][1].content
+    full = session._tools_prompt()
+    assert '"catalog_search"' in exposed
+    assert '"change_detection"' not in exposed
+    assert len(full.encode()) - len(exposed.encode()) > 200
+
+
+def test_reviewed_rate_basis_ambiguity_clarifies_without_second_model_call(rig):
+    from uuid import uuid4
+
+    from kkb_agent.api.projection import project_answer
+
+    registry, _ = rig
+    question = "Konut kredisi faiz oranını göster."
+    provider = scripted(proposal(discover(query="konut kredisi faiz oranı")))
+    answered = enabled(provider, registry).answer(question)
+    shown = project_answer(answered, turn_id=uuid4().hex, published=None)
+    assert len(provider.seen) == 1
+    assert answered.planned.plan.clarification == "ambiguous_series"
+    assert "stok oranını mı" in shown.text and "akım oranını mı" in shown.text
+    assert shown.selection is not None and len(shown.selection.others) == 2
 
 
 def test_clarification_can_precede_discovery(rig):

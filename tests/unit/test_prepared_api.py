@@ -25,6 +25,7 @@ from kkb_agent.catalog.mappings import load_reviewed_snapshot
 from kkb_agent.core import SourceRef
 from kkb_agent.lakehouse import Observation, SeriesSemantics, open_lakehouse
 from kkb_agent.llm import scripted
+from kkb_agent.llm.provider import Role
 
 BASE = "http://127.0.0.1:8000"
 
@@ -143,11 +144,28 @@ def test_followup_reads_prior_workspace_in_same_session(pool, tmp_path):
     sid = uuid4().hex
     first = prepared(sid, uuid4().hex, QUESTION)
     first_json = first.model_dump_json()
-    # Exercise prior analytical-state exposure; the second query may calculate
-    # afresh but must see the exact previously published result identity.
-    second = prepared(sid, uuid4().hex, QUESTION)
+    first_call_count = len(provider.seen)
+    # A genuine reference to the prior table must see its published identity;
+    # repeating the original independent question does not request that context.
+    second = prepared(
+        sid,
+        uuid4().hex,
+        "Bu tablodaki konut kredisi stoğu Nisan-Haziran 2026 arasında ne kadar değişti?",
+    )
     assert first_json == first.model_dump_json()
-    assert any("analiz_1" in m.content for m in provider.seen[3])
+    published_contexts = [
+        message.content
+        for call in provider.seen[first_call_count:]
+        for message in call
+        if message.role is Role.SYSTEM
+        and message.content.startswith("Results published in earlier turns")
+    ]
+    assert len(published_contexts) == 1
+    assert "analiz_1: produced by" in published_contexts[0]
+    assert "coverage 2026-04-01..2026-06-30" in published_contexts[0]
+    assert "column labels:" in published_contexts[0]
+    assert QUESTION not in published_contexts[0]
+    assert len(published_contexts[0]) < 1200
     # The same unqualified numeric claim now matches two distinct result
     # identities. Preserve the existing gate's refusal, not a weaker API matcher.
     assert second.status.value == "abstained" and second.result is None

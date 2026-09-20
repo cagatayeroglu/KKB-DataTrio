@@ -33,6 +33,7 @@ from kkb_agent.ingest.prepared_series import prepared_series_names
 from kkb_agent.lakehouse.records import Observation
 from kkb_agent.lakehouse.semantics import SeriesSemantics
 from kkb_agent.llm import scripted
+from kkb_agent.llm.provider import Role
 from kkb_agent.tools import make_change_detection_tool, make_table_transform_tool
 from kkb_agent.tools.table_transform import TableTransformArguments
 
@@ -267,9 +268,23 @@ def test_turn_two_end_to_end_is_accepted_published_and_keeps_turn_one(pool):
     assert table.columns[-1].endswith(
         "real, 2021-06 prices (TÜFE genel endeksi (2025=100), TÜİK, aylık)"
     )
-    planner_messages = [m.content for m in session.provider.seen[0]]
-    assert any("Results published in earlier turns" in m for m in planner_messages)
-    assert any("table_transform" in m for m in planner_messages)
+    planner_calls = [
+        call
+        for call in session.provider.seen
+        if any(
+            message.role is Role.SYSTEM
+            and "konut_kredisi_ve_faiz: produced by" in message.content
+            and "column labels:" in message.content
+            for message in call
+        )
+    ]
+    assert len(planner_calls) == 1
+    planner_messages = [message.content for message in planner_calls[0]]
+    assert any(
+        "coverage 2021-02-01..2021-06-30" in message and TOTAL_ID in message
+        for message in planner_messages
+    )
+    assert any("table_transform" in message for message in planner_messages)
     # Turn 1's published result is unchanged.
     assert workspace.value_of("konut_kredisi_ve_faiz").tool == "analytics"
 

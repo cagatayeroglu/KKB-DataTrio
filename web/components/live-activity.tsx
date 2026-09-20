@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { listRuns, openRun } from "@/lib/client";
+import { liveActivityLabel } from "@/lib/trace-summary";
 
 /** What the newest recorded step means, in one line a person can read. */
 const stageWords: Record<string, string> = {
@@ -53,6 +54,7 @@ export function LiveActivity({
   turnId: string;
 }) {
   const [line, setLine] = useState("");
+  const [readFailed, setReadFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -60,6 +62,7 @@ export function LiveActivity({
     const read = async () => {
       try {
         const runs = await listRuns(conversationId, token);
+        if (!cancelled) setReadFailed(false);
         const run = runs.runs.find((item) => item.turn_id === turnId);
         if (run) {
           const detail = await openRun(conversationId, run.run_id, token);
@@ -68,7 +71,8 @@ export function LiveActivity({
           if (!cancelled && detail.run.status !== "running") return;
         }
       } catch {
-        // The line is a courtesy; a failed read simply leaves the last phrase.
+        // One stable state per outage, while the bounded polling retry continues.
+        if (!cancelled) setReadFailed(true);
       }
       if (!cancelled) timer = setTimeout(() => void read(), 2000);
     };
@@ -79,5 +83,9 @@ export function LiveActivity({
     };
   }, [conversationId, token, turnId]);
 
-  return <span className="live-activity">{line || "Analiz başlıyor"}…</span>;
+  return (
+    <span className="live-activity">
+      {liveActivityLabel(line, readFailed)}…
+    </span>
+  );
 }
