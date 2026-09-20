@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { hasUnrecordedRun, keepSubmittedPrompts } from "../lib/chat-state";
+import {
+  hasUnrecordedRun,
+  keepSubmittedPrompts,
+  unreadTables,
+} from "../lib/chat-state";
 
 test("a run finishing across the history snapshot boundary triggers a fresh read", () => {
   const messages = [{ turn_id: "earlier" }];
@@ -21,4 +25,26 @@ test("lost server session keeps submitted prompt and completed entries visible",
   assert.equal(visible[0].question, "pending exact question");
   assert.equal(visible[0].admission_error, "not_found");
   assert.deepEqual(visible[1], entries[1]);
+});
+
+test("a published table missing from this browser is asked for again, once", () => {
+  const messages = [
+    { result_ref: "held" },
+    { result_ref: "busy-earlier" },
+    { result_ref: "gone" },
+    { result_ref: null },
+  ];
+  const restored = [{ result: { result_ref: "held" } }];
+  assert.deepEqual(unreadTables(messages, restored, ["gone"]), [
+    { result_ref: "busy-earlier" },
+  ]);
+  // Once it arrives, nothing is asked for again.
+  assert.deepEqual(
+    unreadTables(
+      messages,
+      [...restored, { result: { result_ref: "busy-earlier" } }],
+      ["gone"],
+    ),
+    [],
+  );
 });

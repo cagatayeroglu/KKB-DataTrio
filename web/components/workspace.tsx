@@ -40,7 +40,11 @@ import {
 import { preparedTitle } from "@/lib/table";
 import { noticeText } from "@/lib/language";
 import { clarificationPickText } from "@/lib/clarification";
-import { hasUnrecordedRun, keepSubmittedPrompts } from "@/lib/chat-state";
+import {
+  hasUnrecordedRun,
+  keepSubmittedPrompts,
+  unreadTables,
+} from "@/lib/chat-state";
 import {
   api,
   ApiError,
@@ -234,6 +238,8 @@ export function Workspace() {
     [conversations, setConversations] = useState<ConversationSummary[]>([]),
     [conversationId, setConversationId] = useState<string | null>(null),
     [transcript, setTranscript] = useState<StoredMessage[]>([]),
+    //: Receipts this process answered for, and the ones it truly cannot serve.
+    [lostTables, setLostTables] = useState<string[]>([]),
     [restoredTables, setRestoredTables] = useState<
       { turnId: string; result: Result }[]
     >([]),
@@ -375,6 +381,7 @@ export function Workspace() {
     setItems([]);
     setTranscript([]);
     setRestoredTables([]);
+    setLostTables([]);
     setConversationId(null);
     setRatings({});
     setPendingIndex(null);
@@ -413,6 +420,39 @@ export function Workspace() {
       (entry): entry is { turnId: string; result: Result } => Boolean(entry),
     );
   }
+  // A table published while a turn is running cannot be read back yet: the runner
+  // answers "busy" and `restoreTables` returns nothing for it. Ask again as soon as
+  // the runner is free, so a table that exists is never explained away as a restart
+  // (reported live 2026-09-20: the answer was accepted and the table was materialised,
+  // but the chat said the server had restarted).
+  useEffect(() => {
+    if (!ownerToken || !conversationId || busy) return;
+    const missing = unreadTables(transcript, restoredTables, lostTables);
+    if (!missing.length) return;
+    let cancelled = false;
+    void (async () => {
+      const found = await restoreTables(conversationId, missing, ownerToken);
+      if (cancelled || !mounted.current) return;
+      if (found.length) setRestoredTables((old) => [...old, ...found]);
+      const arrived = new Set(found.map((entry) => entry.result.result_ref));
+      const gone = missing
+        .map((message) => message.result_ref as string)
+        .filter((ref) => !arrived.has(ref));
+      // Only a failure with the runner free means the receipt is really gone.
+      if (gone.length) setLostTables((old) => [...old, ...gone]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    transcript,
+    restoredTables,
+    lostTables,
+    busy,
+    conversationId,
+    ownerToken,
+  ]);
   // Leaving the studio for another page and coming back remounts this component: the turns
   // of this tab come back from sessionStorage, but the conversation's EARLIER messages live
   // on the server. Without this they vanished, and with them the clarification being
@@ -1414,12 +1454,15 @@ export function Workspace() {
                                 />
                               </div>
                             ) : (
-                              message.result_ref && (
+                              message.result_ref &&
+                              (lostTables.includes(message.result_ref) ? (
                                 <p className="notice">
-                                  Bu turda bir tablo yayımlandı; sunucu yeniden
-                                  başladığı için burada yeniden gösterilemiyor.
+                                  Bu turda bir tablo yayımlandı; bu sunucu artık
+                                  onu sunmuyor (yeniden başlatılmış olabilir).
                                 </p>
-                              )
+                              ) : (
+                                <p className="notice">Tablo yükleniyor…</p>
+                              ))
                             )}
                             {history && conversationId && ownerToken && (
                               <div className="answer-actions">
