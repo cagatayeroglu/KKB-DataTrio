@@ -41,6 +41,9 @@ MAX_SEARCH_CHARS: Final = 120
 MAX_LISTED: Final = 200
 #: A settings record is a handful of flags and numbers, never free text.
 MAX_SETTINGS_CHARS: Final = 2000
+#: A held offer carries its months, so it is allowed more room than a clarification
+#: and still a bounded amount: a monthly series of any length this store accepts fits.
+MAX_PENDING_PROMOTION_BYTES: Final = 131_072
 #: A conversation is named by its first question until the user renames it.
 DEFAULT_TITLE: Final = "Yeni sohbet"
 
@@ -86,6 +89,11 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 
 CREATE TABLE IF NOT EXISTS pending_clarifications (
+    conversation_id TEXT PRIMARY KEY REFERENCES conversations(conversation_id),
+    payload         TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS pending_promotions (
     conversation_id TEXT PRIMARY KEY REFERENCES conversations(conversation_id),
     payload         TEXT NOT NULL
 );
@@ -713,6 +721,41 @@ class ConversationStore:
         except (TypeError, ValueError):
             return None
         return payload if isinstance(payload, dict) else None
+
+    def pending_promotion(self, conversation_id: str) -> dict[str, object] | None:
+        """The save this conversation has offered and not yet been answered on."""
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT payload FROM pending_promotions WHERE conversation_id = ?",
+                [conversation_id],
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            payload = json.loads(row["payload"])
+        except (TypeError, ValueError):
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    def set_pending_promotion(
+        self, conversation_id: str, payload: dict[str, object] | None
+    ) -> None:
+        """Hold one offer per conversation, or clear it once it is answered."""
+        with self._write() as connection:
+            if payload is None:
+                connection.execute(
+                    "DELETE FROM pending_promotions WHERE conversation_id = ?",
+                    [conversation_id],
+                )
+                return
+            encoded = json.dumps(payload, ensure_ascii=False)
+            if len(encoded) > MAX_PENDING_PROMOTION_BYTES:
+                raise StoreError("pending_promotion_too_large")
+            connection.execute(
+                "INSERT INTO pending_promotions(conversation_id, payload) VALUES (?, ?) "
+                "ON CONFLICT(conversation_id) DO UPDATE SET payload = excluded.payload",
+                [conversation_id, encoded],
+            )
 
     def set_pending_clarification(
         self, conversation_id: str, payload: dict[str, object] | None

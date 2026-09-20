@@ -28,8 +28,11 @@ BRIEF_TOOLS = frozenset(
 
 
 # M13-04 catalog_search; M5-20 table_transform (DEC-135, delivered operations only);
-# DEC-181 document_read, whose output is a reading rather than evidence.
-IMPLEMENTED_PRODUCT_TOOLS = frozenset({"catalog_search", "table_transform", "document_read"})
+# DEC-181 document_read, whose output is a reading rather than evidence; DEC-183
+# promote_series, whose output is an offer and whose write waits for the person.
+IMPLEMENTED_PRODUCT_TOOLS = frozenset(
+    {"catalog_search", "table_transform", "document_read", "promote_series"}
+)
 
 
 class RegistryError(ValueError):
