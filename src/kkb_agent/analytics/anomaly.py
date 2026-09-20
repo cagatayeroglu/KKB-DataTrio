@@ -8,6 +8,12 @@ five years, so every recent level is "unusually high" against its own history
 and a level-based detector would flag the present and nothing else. The
 interesting event is a month that moved unlike other months.
 
+**What a change is compared with.** A difference in the series' own unit grows
+with the level, so on a balance that triples the recent months hold the largest
+differences whatever happened in them. Unless the series is a rate or reaches
+zero, a period is scored against the level it moved from; the figure reported
+stays in the series' unit. `_basis.py` records the measurement behind that.
+
 **How the scale is estimated.** Mean and standard deviation are computed from
 the same data that contains the outlier, so a single large jump inflates the
 spread and hides itself — the more extreme the event, the better it hides.
@@ -33,6 +39,13 @@ from datetime import date
 from statistics import median
 from typing import Final
 
+from kkb_agent.analytics._basis import (
+    DIFFERENCE_BASIS,
+    RATIO_BASIS,
+    consecutive_changes,
+    scored_magnitudes,
+    scored_on_ratio,
+)
 from kkb_agent.core import (
     DIMENSIONLESS,
     AnalyticalResult,
@@ -145,17 +158,26 @@ def detect_anomalies(
         for item in sorted(observations, key=lambda entry: entry.period_end)
         if (start is None or item.period_end >= start) and (end is None or item.period_end <= end)
     ]
-    changes, missing = _changes(window)
+    changes, missing, interrupted = consecutive_changes(window, semantics)
     if len(changes) < minimum_changes:
         return _refuse(
             identifier,
             ResultStatus.INSUFFICIENT,
             f"{len(changes)} period-over-period changes is below the {minimum_changes} "
             "this baseline requires for a stable median and spread",
-            SampleCounts(used=len(changes), missing=missing, minimum_required=minimum_changes),
+            SampleCounts(
+                used=len(changes),
+                missing=missing,
+                excluded=interrupted,
+                minimum_required=minimum_changes,
+            ),
         )
 
-    magnitudes = [value for _, value in changes]
+    differences = [value - previous for _, previous, value in changes]
+    ratio_basis = scored_on_ratio(semantics, changes)
+    # What is scored, against what is reported: the flag is decided on a comparable
+    # basis, while the figure the answer quotes stays in the series' own unit.
+    magnitudes = scored_magnitudes(changes, ratio=ratio_basis)
     centre = median(magnitudes)
     deviations = [abs(value - centre) for value in magnitudes]
     spread = median(deviations)
@@ -164,7 +186,12 @@ def detect_anomalies(
         # Over half the changes are identical, so MAD collapsed. Fall back to
         # the mean absolute deviation about the same median, which is the
         # published remedy and is zero only when *every* change is identical.
-        spread = (sum(deviations) / len(deviations)) * MEANAD_TO_SIGMA / MAD_TO_SIGMA
+        # The score below is 0.6745 * (value - centre) / spread, so a fallback spread has
+        # to be whatever makes that expression the paper's mean-absolute-deviation score,
+        # (value - centre) / (1.253314 * meanAD). Dividing by MAD_TO_SIGMA instead of
+        # multiplying made the spread 2.198 times too large, which turned the declared
+        # 3.5 cut into 7.7 sigma: a flat rate with three +5 point jumps reported none.
+        spread = (sum(deviations) / len(deviations)) * MEANAD_TO_SIGMA * MAD_TO_SIGMA
         scale_used = "mean absolute deviation about the median (MAD was zero)"
     if spread == 0:
         return _refuse(
@@ -172,16 +199,18 @@ def detect_anomalies(
             ResultStatus.UNDEFINED,
             "Every period-over-period change is identical, so there is no spread to "
             "score against; the series moves by the same amount every period or not at all",
-            SampleCounts(used=len(changes), missing=missing),
+            SampleCounts(used=len(changes), missing=missing, excluded=interrupted),
         )
 
     def score(value: float) -> float:
         return MAD_TO_SIGMA * (value - centre) / spread
 
     flagged = [
-        (observation, value, score(value))
-        for observation, value in changes
-        if abs(score(value)) > threshold
+        (observation, difference, score(magnitude))
+        for (observation, _, _), difference, magnitude in zip(
+            changes, differences, magnitudes, strict=True
+        )
+        if abs(score(magnitude)) > threshold
     ]
 
     values = [
@@ -224,9 +253,19 @@ def detect_anomalies(
             "Changes are in an outstanding balance, so an unusual month is unusual net "
             "movement, not unusual new lending"
         )
+    if ratio_basis:
+        warnings.append(
+            "A period was judged by how much it moved relative to the level before it, "
+            "not by the size of the movement; the figure reported stays in the series' unit"
+        )
     if missing:
         warnings.append(
             f"{missing} period(s) had no published value and were skipped; a gap is not zero"
+        )
+    if interrupted:
+        warnings.append(
+            f"{interrupted} pair(s) of periods did not follow one another and were left out; "
+            "differencing across a hole would report several periods of movement as one"
         )
 
     return AnalyticalResult(
@@ -246,35 +285,20 @@ def detect_anomalies(
             "series": series_id,
             "method": "median absolute deviation, Iglewicz-Hoaglin modified z-score",
             "examined": "period-over-period change",
+            "scored_on": RATIO_BASIS if ratio_basis else DIFFERENCE_BASIS,
             "threshold": threshold,
             "minimum_changes": minimum_changes,
-            "median_change": centre,
+            "median_scored_change": centre,
             "scale_estimator": scale_used,
             "scale": spread,
             "threshold_status": "PROPOSED; no benchmark has measured it",
         },
-        samples=SampleCounts(used=len(changes), missing=missing, minimum_required=minimum_changes),
+        samples=SampleCounts(
+            used=len(changes),
+            missing=missing,
+            excluded=interrupted,
+            minimum_required=minimum_changes,
+        ),
         evidence=ResultEvidence(input_refs=list(input_refs), lineage_node=lineage_node),
         warnings=warnings,
     )
-
-
-def _changes(window: Sequence[Observation]) -> tuple[list[tuple[Observation, float]], int]:
-    """Consecutive differences, and how many periods had no value.
-
-    A gap breaks the chain rather than being bridged: differencing across it
-    would report two periods of movement as one, which is a larger change than
-    anything that happened.
-    """
-    changes: list[tuple[Observation, float]] = []
-    missing = 0
-    previous: float | None = None
-    for observation in window:
-        if observation.value is None:
-            missing += 1
-            previous = None
-            continue
-        if previous is not None:
-            changes.append((observation, observation.value - previous))
-        previous = observation.value
-    return changes, missing

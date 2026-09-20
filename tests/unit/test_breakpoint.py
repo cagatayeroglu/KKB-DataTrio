@@ -93,6 +93,14 @@ def test_two_regime_changes_are_reported_in_order():
     assert len(shifts) == 2
     assert [v.period.end for v in shifts] == sorted(v.period.end for v in shifts)
     assert shifts[0].value > 0 and shifts[1].value < 0  # up, then down
+    # Each shift is between the regimes it separates: ~4 to ~20, then ~20 to ~2.
+    # Measured against the whole window instead, the first reported +7 (its "after"
+    # held the third regime too) and the second -10 (its "before" held the first).
+    assert shifts[0].value == pytest.approx(16.0, abs=0.5)
+    assert shifts[1].value == pytest.approx(-18.0, abs=0.5)
+    first, second = result.parameters["breakpoints"]
+    assert first["observations_after"] == second["observations_before"] == 8
+    assert first["mean_change_after"] == pytest.approx(second["mean_change_before"])
 
 
 @pytest.mark.parametrize(

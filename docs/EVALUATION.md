@@ -369,6 +369,52 @@ This retires "slim the big tool schemas" as a latency fix and keeps it as a cost
 question. It also explains the 1,070 s turn reported live on 2026-09-20, whose
 964 s were a single continuation call: its 74.4 KB prompt was not the cause.
 
+### E6 — what the anomaly and breakpoint tools are scored on (2026-09-20, offline)
+
+Read straight from `data/processed/lakehouse/kkb.duckdb` with plain SQL and the
+modules' own arithmetic rewritten in the measuring script, never through the tools.
+No model or source call. Reproduce with
+`python tests/manual/measure_change_basis.py data/processed/lakehouse`. This is the evidence behind M6-ANOM-BREAK; the audit that
+started it supplied the reproductions, this measured them against the prepared pool.
+
+**The anomaly basis.** Every published change of four representative series was scored
+both ways - the difference in the series' own unit, and the log ratio to the previous
+level - with the Iglewicz-Hoaglin modified z-score and the declared 3.5 cut.
+
+| Series | Difference: top \|z\| | Ratio: top \|z\| | Flags (difference / ratio) |
+| --- | --- | --- | --- |
+| `EVDS:TP.TUKFIY2025.GENEL` (CPI) | 2026-01 at 3.50 | **2021-12 at 6.32**, 2022-01 at 4.92 | 0 / 4 |
+| `EVDS:TP.KFE.TR` (house prices) | 2025-01 at 2.15 | **2021-12 at 5.14**, 2022-05 at 4.56 | 0 / 5 |
+| BDDK housing balance (stock) | 2026-03 at 2.41 | 2023-03 at 3.13 | 0 / 0 |
+| `EVDS:TP.KTF12` (rate) | 2023-07-14 at 15.70 | 2023-06-16 at 19.11 | 28 / 29 |
+
+December 2021 is the record monthly rise of the CPI window and the difference basis
+cannot see it: the index level grows fivefold, so an ordinary 2026 month is worth more
+index points than the record month of 2021. The ratio basis puts it first. A rate needs
+no such help, which is why a rate keeps its difference.
+
+**The shift a breakpoint reports.** The prepared BDDK housing balance breaks at
+2024-10 and 2025-10. Its regimes average +4,284, +13,206 and +19,741 million TRY a
+month, so the two shifts are +8,921 and +6,535. Measured against the whole window -
+what the code did before - they were +11,722 and +13,545, because the second
+breakpoint's "before" still held the slow 2021-2024 regime. The fixed tool returns
++8,921 and +6,535 on the same observations.
+
+**The breakpoint basis.** The same comparison over the whole pool, on the binary
+segmentation the `change_detection` breakpoint operation runs (threshold 3.0, minimum
+segment 6, at most 3 points), gave the opposite reading: the CPI's 2021-12 and 2023-07
+are found on the difference and **not at all** on the ratio, while the house price index
+gains three different months (2021-11, 2022-07, 2023-10) and loses 2021-12. Fourteen of
+the twenty series change their answer. Nothing here says which reading is right, so the
+breakpoint search was left on the difference and the choice belongs to the audit's own
+B4/B5/B8 items, with their measured decision.
+
+**Adjacency.** Over every series of the pool, every consecutive published pair begins
+the day after the previous period ends: 0 exceptions. The rule that a change is read
+only between periods that follow one another therefore leaves the prepared path exactly
+as it was, and exists for user datasets with an absent row and for daily series, whose
+Friday-to-Monday move was previously dropped as a gap.
+
 ### M6-25 organizer Turn 1 live run (2026-09-14)
 
 Owner-authorized runs of `python -m kkb_agent.live_check --prepared-root data/processed/lakehouse` ask the organizer's Turn 1 question through Kloudeks (Qwen planner and writer) over a private copy of the prepared pool; the copy keeps runtime lineage, execution evidence and workspace writes out of the prepared root. Offline tests use the same path with a scripted provider ([test_co_movement](../tests/unit/test_co_movement.py)).

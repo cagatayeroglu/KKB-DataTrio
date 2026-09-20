@@ -526,6 +526,19 @@ class TestWhatTheWriterIsGiven:
         )
         assert "Limitation: Association only" in rendered
 
+    def test_warnings_reach_the_writer_too(self):
+        # The tool computed the caution; before this it stopped at the result object
+        # and the answer told the reader an unusual month without saying what one is.
+        rendered = render_result(
+            result(
+                kind=ResultKind.ANOMALY,
+                values=[ResultValue(label="n", value=2.0, unit="dimensionless", scale=Scale.ONE)],
+                warnings=["An unusual change is not an error, an event or a cause"],
+            )
+        )
+        assert "An unusual change is not an error" in rendered
+        assert "without a figure" in rendered
+
 
 def plan_json(sql: str) -> str:
     return json.dumps(

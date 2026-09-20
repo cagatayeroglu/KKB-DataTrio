@@ -32,6 +32,7 @@ from typing import Final
 
 from pydantic import JsonValue
 
+from kkb_agent.analytics._basis import consecutive_changes
 from kkb_agent.core import (
     DIMENSIONLESS,
     AnalyticalResult,
@@ -88,22 +89,6 @@ def _refuse(
         reason=reason,
         unresolved_semantics=list(unresolved),
     )
-
-
-def _changes(window: Sequence[Observation]) -> tuple[list[tuple[Observation, float]], int]:
-    """Period-over-period changes between consecutive published values."""
-    changes: list[tuple[Observation, float]] = []
-    missing = 0
-    previous: Observation | None = None
-    for item in window:
-        if item.value is None:
-            missing += 1
-            previous = None  # A gap is not zero: it ends the pair, it does not bridge it.
-            continue
-        if previous is not None:
-            changes.append((item, item.value - (previous.value or 0.0)))
-        previous = item
-    return changes, missing
 
 
 def _statistic(values: Sequence[float], split: int) -> float:
@@ -184,7 +169,7 @@ def detect_breakpoints(
         for item in sorted(observations, key=lambda entry: entry.period_end)
         if (start is None or item.period_end >= start) and (end is None or item.period_end <= end)
     ]
-    changes, missing = _changes(window)
+    changes, missing, interrupted = consecutive_changes(window, semantics)
     required = 2 * minimum_segment
     if len(changes) < required:
         return _refuse(
@@ -192,16 +177,27 @@ def detect_breakpoints(
             ResultStatus.INSUFFICIENT,
             f"{len(changes)} period-over-period changes is below the {required} this method "
             f"needs ({minimum_segment} on each side of a split)",
-            SampleCounts(used=len(changes), missing=missing, minimum_required=required),
+            SampleCounts(
+                used=len(changes),
+                missing=missing,
+                excluded=interrupted,
+                minimum_required=required,
+            ),
         )
-    magnitudes = [value for _, value in changes]
+    # Measured 2026-09-20 over the whole prepared pool: moving this search onto the
+    # relative basis the anomaly baseline uses removes the CPI's 2021-12 and 2023-07
+    # regime changes and adds three others to the housing price index, with nothing to
+    # say which reading is right. What this statistic should run on is the question
+    # B4/B5/B8 of the same audit ask, and it needs its own measured decision; until
+    # then the search stays on the difference and the shift is reported in that unit.
+    differences = magnitudes = [value - previous for _, previous, value in changes]
     if _pooled(magnitudes[:1], magnitudes[1:]) == 0 and len(set(magnitudes)) == 1:
         return _refuse(
             identifier,
             ResultStatus.UNDEFINED,
             "Every period-over-period change is identical, so there is no spread to "
             "measure a regime change against",
-            SampleCounts(used=len(changes), missing=missing),
+            SampleCounts(used=len(changes), missing=missing, excluded=interrupted),
         )
 
     found: list[tuple[int, float]] = []
@@ -231,11 +227,18 @@ def detect_breakpoints(
             period=coverage,
         )
     ]
+    # Each breakpoint separates the regime before it from the regime after it, so its
+    # shift is measured between those two neighbours. Taking the whole window instead
+    # mixes every other regime into both means. Measured on the prepared housing
+    # balance, which breaks at 2024-10 and 2025-10: the neighbouring regimes differ by
+    # +8,921 and +6,535 million TRY a month, and the whole window reported +11,722 and
+    # +13,545 - the second one's "before" still held the slow 2021-2024 regime.
+    edges = [0, *(position for position, _ in found), len(magnitudes)]
     details: list[JsonValue] = []
-    for position, statistic in found:
+    for index, (position, statistic) in enumerate(found):
         observation = changes[position][0]
-        before = magnitudes[:position]
-        after = magnitudes[position:]
+        before = differences[edges[index] : position]
+        after = differences[position : edges[index + 2]]
         shift = fmean(after) - fmean(before)
         values.append(
             ResultValue(
@@ -278,6 +281,11 @@ def detect_breakpoints(
             f"{missing} period(s) had no published value; a gap ends a pair rather than "
             "bridging it, so no change was invented across it"
         )
+    if interrupted:
+        warnings.append(
+            f"{interrupted} pair(s) of periods did not follow one another and were left out; "
+            "a regime is read from periods that actually succeed each other"
+        )
 
     return AnalyticalResult(
         result_id=identifier,
@@ -296,7 +304,7 @@ def detect_breakpoints(
             "maximum_points": maximum_points,
             "breakpoints": details,
         },
-        samples=SampleCounts(used=len(changes), missing=missing),
+        samples=SampleCounts(used=len(changes), missing=missing, excluded=interrupted),
         evidence=ResultEvidence(
             input_refs=list(input_refs),
             lineage_node=lineage_node,
