@@ -260,6 +260,33 @@ def test_a_running_model_call_is_visible_before_it_returns(launch):
     assert names.index("model.started") == names.index("planner.initial") + 1
 
 
+def test_a_listed_run_says_how_many_steps_it_has(launch):
+    """Every row said 0 steps because only an opened run counted them (F4-iz-2)."""
+    _, client = launch(reply("Merhaba!"))
+    owner_token = owner(client)
+    sid, headers, _ = open_conversation(client, owner_token)
+    ask(client, sid, headers, "Merhaba")
+    runs = client.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"]
+    detail = trace(client, sid, headers, runs[0]["run_id"])
+    assert runs[0]["events"] == len(detail["steps"]) > 0
+
+
+def test_a_step_clipped_at_the_ceiling_is_still_readable():
+    """The note about what was dropped counts toward the ceiling (F4-iz-6).
+
+    Adding it after the cut made the step longer than its own contract allows,
+    so asking for that step's full text answered 500.
+    """
+    from kkb_agent.agent.observer import MAX_DETAIL_CHARS, _clip
+    from kkb_agent.api.contracts import TraceStepFull
+
+    clipped = _clip("x" * (MAX_DETAIL_CHARS + 5_000), MAX_DETAIL_CHARS)
+    assert len(clipped) == MAX_DETAIL_CHARS
+    assert clipped.endswith("more characters]")
+    step = TraceStepFull(sequence=1, name="tool.web_url", detail=clipped)
+    assert step.detail == clipped
+
+
 def test_progress_reports_the_newest_step_without_its_text(launch):
     """A live view polls this instead of the whole trace (finding F2-canlı)."""
     _, client = launch(reply("Merhaba!"))

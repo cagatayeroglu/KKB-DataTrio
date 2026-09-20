@@ -1441,7 +1441,10 @@ export function Workspace() {
         )}
         <button
           className={`nav-item ${panel === null ? "chosen" : ""}`}
-          onClick={() => setPanel(null)}
+          onClick={() => {
+            setTracing(null);
+            setPanel(null);
+          }}
         >
           <MessageSquare size={18} /> Analiz stüdyosu
         </button>
@@ -1457,7 +1460,12 @@ export function Workspace() {
         {history && ownerToken && (
           <button
             className={`nav-item ${panel === "traces" ? "chosen" : ""}`}
-            onClick={() => setPanel("traces")}
+            // Opened from here it is the whole page; the turn a "Canlı izle"
+            // asked for is not remembered for next time (finding F4-iz-3).
+            onClick={() => {
+              setTracing(null);
+              setPanel("traces");
+            }}
           >
             <ListTree size={18} /> İşlem kayıtları
           </button>

@@ -258,6 +258,9 @@ class StoredRun:
     duration_ms: int
     started_at: datetime
     ended_at: datetime | None
+    #: Steps recorded for this run. Every row in a listing used to say "0 steps"
+    #: because only the opened detail counted them (finding F4-iz-2).
+    events: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -998,7 +1001,10 @@ class ConversationStore:
     def runs(self, conversation_id: str, limit: int = 100) -> list[StoredRun]:
         with self._lock:
             rows = self._connection.execute(
-                "SELECT * FROM runs WHERE conversation_id = ? ORDER BY started_at DESC LIMIT ?",
+                "SELECT runs.*,"
+                " (SELECT COUNT(*) FROM trace_events WHERE trace_events.run_id = runs.run_id)"
+                " AS events FROM runs WHERE conversation_id = ?"
+                " ORDER BY started_at DESC LIMIT ?",
                 [conversation_id, limit],
             ).fetchall()
         found: list[StoredRun] = []
@@ -1016,6 +1022,7 @@ class ConversationStore:
                         int(row["duration_ms"]),
                         _moment(row["started_at"]),
                         _moment(row["ended_at"]) if row["ended_at"] else None,
+                        int(row["events"]),
                     )
                 )
             except (TypeError, ValueError):

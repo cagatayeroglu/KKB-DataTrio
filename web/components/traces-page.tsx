@@ -76,15 +76,22 @@ type FullDetails = Record<number, string | null>;
 function Content({
   step,
   full,
+  failed = false,
+  onRetry,
   onExpand,
 }: {
   step: TraceStep;
   full: string | null | undefined;
+  //: The full text could not be read. Without this the spinner turned forever
+  //: and the preview below it looked like the whole step (finding F4-iz-5).
+  failed?: boolean;
+  onRetry?: () => void;
   onExpand: (step: TraceStep, text: string) => void;
 }) {
   const text = full !== undefined ? full : step.detail;
   const chars = step.detail_chars ?? step.detail?.length ?? 0;
-  const clipped = step.detail_complete === false && full === undefined;
+  const clipped =
+    step.detail_complete === false && full === undefined && !failed;
   const entries = Object.entries(step.attributes).filter(
     ([, value]) => value !== null && value !== "",
   );
@@ -108,6 +115,16 @@ function Content({
         <p className="helper">
           <LoaderCircle size={12} className="spin" />{" "}
           {`Tam metin yükleniyor (${size(chars)})`}
+        </p>
+      )}
+      {failed && (
+        <p className="helper">
+          {`Tam metin okunamadı (${size(chars)}); aşağıdaki ilk bölüm kayıttan geliyor.`}
+          {onRetry && (
+            <button type="button" className="trace-retry" onClick={onRetry}>
+              Yeniden dene
+            </button>
+          )}
         </p>
       )}
       {text && (
@@ -134,6 +151,8 @@ function Step({
   onToggle,
   onExpand,
   fullOf,
+  failedOf,
+  onRetry,
 }: {
   step: TraceStep;
   records: TraceStep[];
@@ -142,6 +161,8 @@ function Step({
   onToggle: () => void;
   onExpand: (step: TraceStep, text: string) => void;
   fullOf: (step: TraceStep) => string | null | undefined;
+  failedOf: (step: TraceStep) => boolean;
+  onRetry: (step: TraceStep) => void;
 }) {
   const own = (step.detail_chars ?? step.detail?.length ?? 0) as number;
   const chars =
@@ -173,7 +194,13 @@ function Step({
       </button>
       {open && (
         <div className="trace-nested">
-          <Content step={step} full={full} onExpand={onExpand} />
+          <Content
+            step={step}
+            full={full}
+            failed={failedOf(step)}
+            onRetry={() => onRetry(step)}
+            onExpand={onExpand}
+          />
           {records.map((child) => (
             <section key={child.sequence} className="trace-child">
               <h4>
@@ -182,7 +209,13 @@ function Step({
                   <span> · {String(child.attributes.position)}</span>
                 )}
               </h4>
-              <Content step={child} full={fullOf(child)} onExpand={onExpand} />
+              <Content
+                step={child}
+                full={fullOf(child)}
+                failed={failedOf(child)}
+                onRetry={() => onRetry(child)}
+                onExpand={onExpand}
+              />
             </section>
           ))}
         </div>
@@ -207,6 +240,9 @@ function RunView({
   const [detail, setDetail] = useState<RunDetail | null>(null);
   const [open, setOpen] = useState<Set<number>>(new Set());
   const [full, setFull] = useState<FullDetails>({});
+  //: Steps whose full text could not be read, and whether a file is being built.
+  const [failed, setFailed] = useState<Set<number>>(new Set());
+  const [downloading, setDownloading] = useState(false);
   const [issue, setIssue] = useState("");
   const [filter, setFilter] = useState("");
   //: One record read on its own, filling the page until it is closed.
@@ -246,6 +282,12 @@ function RunView({
         step.detail_complete === false && full[step.sequence] === undefined,
     );
     for (const step of missing) {
+      setFailed((current) => {
+        if (!current.has(step.sequence)) return current;
+        const next = new Set(current);
+        next.delete(step.sequence);
+        return next;
+      });
       try {
         const whole = await openRunStep(
           conversationId,
@@ -255,8 +297,10 @@ function RunView({
         );
         setFull((current) => ({ ...current, [step.sequence]: whole.detail }));
       } catch (error) {
+        // One unreadable step is not the end of the list: it says so in place and
+        // the others still open (finding F4-iz-5).
+        setFailed((current) => new Set(current).add(step.sequence));
         setIssue(describeError(error));
-        return;
       }
     }
   }
@@ -301,53 +345,58 @@ function RunView({
   }, [grouped, filter]);
 
   async function download() {
-    if (!detail) return;
-    // Every clipped step is read whole for the file, whether or not it is open.
-    const steps = await Promise.all(
-      detail.steps.map(async (step) =>
-        step.detail_complete === false
-          ? {
-              ...step,
-              detail: (
-                await openRunStep(
-                  conversationId,
-                  run.run_id,
-                  step.sequence,
-                  token,
-                )
-              ).detail,
-              detail_complete: true,
-            }
-          : step,
-      ),
-    );
-    const blob = new Blob(
-      [JSON.stringify({ run: detail.run, answer, feedback, steps }, null, 2)],
-      { type: "application/json" },
-    );
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `trace-${run.run_id.slice(0, 8)}.json`;
-    link.click();
-    URL.revokeObjectURL(link.href);
+    if (!detail || downloading) return;
+    setDownloading(true);
+    setIssue("");
+    try {
+      // Every clipped step is read whole for the file, whether or not it is open.
+      // One at a time: a long run is hundreds of steps, and asking for all of
+      // them at once used to flood the bridge and fail without a word (F4-iz-5).
+      const steps: TraceStep[] = [];
+      for (const step of detail.steps) {
+        if (step.detail_complete === false) {
+          const whole = await openRunStep(
+            conversationId,
+            run.run_id,
+            step.sequence,
+            token,
+          );
+          steps.push({ ...step, detail: whole.detail, detail_complete: true });
+        } else steps.push(step);
+      }
+      const blob = new Blob(
+        [JSON.stringify({ run: detail.run, answer, feedback, steps }, null, 2)],
+        { type: "application/json" },
+      );
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `trace-${run.run_id.slice(0, 8)}.json`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    } catch (error) {
+      setIssue(describeError(error));
+    } finally {
+      setDownloading(false);
+    }
   }
 
   // Call spans appear only after completion. Never label a running first call
   // "0 model calls" merely because the provider has not returned yet.
-  const model = detail ? modelCallLabel(run.status, detail.steps) : "";
+  const summary = detail?.run ?? run;
+  const model = detail ? modelCallLabel(summary.status, detail.steps) : "";
   const tools = detail?.steps.filter((step) => step.stage === "tool").length;
 
   return (
     <div className="trace-run">
       <header className="trace-run-head">
-        <h3>{run.question}</h3>
+        <h3>{summary.question}</h3>
         <p>
-          {new Date(run.started_at).toLocaleString("tr-TR")} ·{" "}
-          {run.status === "running"
+          {new Date(summary.started_at).toLocaleString("tr-TR")} ·{" "}
+          {summary.status === "running"
             ? "çalışıyor"
-            : `toplam ${duration(run.duration_ms)}`}{" "}
-          · {run.answer_status ?? run.status}
-          {run.error ? ` · hata: ${run.error}` : ""}
+            : `toplam ${duration(summary.duration_ms)}`}{" "}
+          · {summary.answer_status ?? summary.status}
+          {summary.error ? ` · hata: ${summary.error}` : ""}
           {detail &&
             ` · ${detail.steps.length} adım · ${model} · ${tools} araç adımı`}
         </p>
@@ -418,10 +467,10 @@ function RunView({
         <Button
           variant="outline"
           size="sm"
-          disabled={!detail}
+          disabled={!detail || downloading}
           onClick={() => void download()}
         >
-          <Download size={13} /> JSON indir
+          <Download size={13} /> {downloading ? "Hazırlanıyor…" : "JSON indir"}
         </Button>
       </div>
       {issue && <p className="notice">{issue}</p>}
@@ -455,6 +504,8 @@ function RunView({
             onToggle={() => toggle(item.step, item.children)}
             onExpand={(step, text) => setExpanded({ step, text })}
             fullOf={(child) => full[child.sequence]}
+            failedOf={(child) => failed.has(child.sequence)}
+            onRetry={(child) => void loadFull([child])}
           />
         ))}
       </ol>
@@ -555,6 +606,7 @@ export function TracesPage({
       return;
     }
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     setRuns([]);
     setRun(null);
     setRunsState("loading");
@@ -567,13 +619,19 @@ export function TracesPage({
         const listed = await listRuns(chosen, owner);
         if (cancelled) return;
         setRuns(listed.runs);
-        setRun(
-          (initialTurn
-            ? listed.runs.find((item) => item.turn_id === initialTurn)?.run_id
-            : undefined) ??
-            listed.runs[0]?.run_id ??
-            null,
-        );
+        const wanted = initialTurn
+          ? listed.runs.find((item) => item.turn_id === initialTurn)?.run_id
+          : undefined;
+        if (initialTurn && !wanted) {
+          // Asked for one turn and its run is not written yet: wait for it
+          // rather than open a different one (finding F4-iz-3).
+          setRunsState("waiting");
+          timer = setTimeout(() => {
+            if (!cancelled) setRetry((old) => old + 1);
+          }, 1500);
+          return;
+        }
+        setRun(wanted ?? listed.runs[0]?.run_id ?? null);
         setRunsState("ready");
         setIssue("");
         if (!chosenDeleted) {
@@ -598,6 +656,7 @@ export function TracesPage({
     })();
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
   }, [chosen, owner, initialTurn, retry, chosenDeleted]);
 
@@ -713,7 +772,7 @@ export function TracesPage({
               </button>
             </div>
           )}
-          {chosen && runsState === "loading" && (
+          {chosen && (runsState === "loading" || runsState === "waiting") && (
             <p className="chat-empty">
               {runReadMessage(runsState, runs.length)}
             </p>

@@ -1,11 +1,15 @@
 import type { RunSummary, TraceStep } from "./contracts";
 
-export type RunReadState = "loading" | "ready" | "error";
+export type RunReadState = "loading" | "ready" | "error" | "waiting";
 
 /** An unreadable run list is never described as an empty one. */
 export function runReadMessage(state: RunReadState, count: number) {
   if (state === "error") return "Kayıtlar okunamadı — yeniden dene";
   if (state === "loading") return "Kayıtlar yükleniyor…";
+  // The run row is written when the turn reaches the runner, a moment after the
+  // studio sends it. Opening whatever run happened to be newest under the words
+  // "Canlı izle" showed an older turn's trace (finding F4-iz-3).
+  if (state === "waiting") return "Bu turun kaydı henüz açılmadı; bekleniyor…";
   return count === 0 ? "Bu sohbette kayıtlı işlem yok." : null;
 }
 

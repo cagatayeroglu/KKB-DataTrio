@@ -47,10 +47,26 @@ STAGES: Final = (
 )
 
 
+def _dropped(count: int) -> str:
+    return f"… [{count} more characters]"
+
+
 def _clip(text: str, limit: int) -> str:
+    """Shorten to `limit` characters, the note about what was dropped included.
+
+    The note used to be appended after the cut, so a step that reached the
+    ceiling came back longer than the ceiling and its own contract refused it:
+    reading that step answered 500 (finding F4-iz-6).
+    """
     if len(text) <= limit:
         return text
-    return text[:limit] + f"… [{len(text) - limit} more characters]"
+    head = limit
+    for _ in range(4):
+        adjusted = max(0, limit - len(_dropped(len(text) - head)))
+        if adjusted == head:
+            break
+        head = adjusted
+    return (text[:head] + _dropped(len(text) - head))[:limit]
 
 
 @dataclass(frozen=True, slots=True)

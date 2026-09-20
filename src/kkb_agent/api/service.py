@@ -559,7 +559,7 @@ class AnalysisService:
         summaries: list[RunSummary] = []
         for item in self._store.runs(session_id):
             try:
-                summaries.append(self._run_summary(item, events=0))
+                summaries.append(self._run_summary(item, events=item.events))
             except ValidationError:
                 # Preserve the row in SQLite, but do not let one damaged legacy
                 # contract make every other run unreadable.
