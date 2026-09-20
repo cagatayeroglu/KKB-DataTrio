@@ -388,7 +388,11 @@ def today_instructions(today: date) -> str:
         "frequency: three months are last=3 of a monthly series, about 13 of a weekly one and "
         "about 66 of a daily one (a daily series has some 22 published days a month), so "
         "convert the span the question names into the series' frequency. Name explicit dates "
-        "only when the question does."
+        "only when the question does. A change, growth or difference over a range needs the "
+        "period BEFORE the range as well: read (or keep) one period earlier and narrow the "
+        "table afterwards, otherwise the first period the question asks for has nothing to "
+        "compare against and stays empty (live 2026-09-20: a 2025 table gave no change for "
+        "January because December 2024 had been filtered out)."
     )
 
 
