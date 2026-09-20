@@ -329,6 +329,11 @@ def test_required_discovery_initial_schema_is_quantitatively_bounded(rig):
     assert '"catalog_search"' in exposed
     assert '"change_detection"' not in exposed
     assert len(full.encode()) - len(exposed.encode()) > 200
+    # The narrowed step still names what it may not call, so a message asking what
+    # the system can do is not answered with "you have two tools" (live 2026-09-20).
+    names = [message.content for message in provider.seen[0] if message.role is Role.SYSTEM]
+    note = next(item for item in names if "The system also computes with" in item)
+    assert "change_detection" in note and '"arguments"' not in note
 
 
 def test_reviewed_rate_basis_ambiguity_clarifies_without_second_model_call(rig):

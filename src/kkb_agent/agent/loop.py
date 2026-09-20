@@ -780,26 +780,30 @@ class Session:
             if workspace is not self.selection.workspace:
                 raise SelectionError("invalid_result")
             self.selection.check()
+        discovery_only = (
+            discovery is None
+            and self.catalog_continuation
+            and self.require_series_discovery
+            and not self.proven_series
+            and self.selection is None
+            and (workspace is None or not workspace.names())
+            and not self.tools_required
+            and self.documents_note is None
+            and self.address_note is None
+        )
         messages = [
             Message(Role.SYSTEM, SYSTEM_PROMPT + "\n\n" + schema_instructions(AnalyticalPlan)),
             Message(
                 Role.SYSTEM,
                 self._tools_prompt(
-                    continuation=discovery is not None,
-                    discovery_only=(
-                        discovery is None
-                        and self.catalog_continuation
-                        and self.require_series_discovery
-                        and not self.proven_series
-                        and self.selection is None
-                        and (workspace is None or not workspace.names())
-                        and not self.tools_required
-                        and self.documents_note is None
-                        and self.address_note is None
-                    ),
+                    continuation=discovery is not None, discovery_only=discovery_only
                 ),
             ),
         ]
+        # A narrowed list is about this step, not about the product: a message that
+        # asks what the system can do is answered from the same prompt.
+        if discovery_only and (note := self._other_tools_note()) is not None:
+            messages.append(Message(Role.SYSTEM, note))
         if self.today is not None:
             messages.append(Message(Role.SYSTEM, today_instructions(self.today)))
         if self.catalog_continuation:
@@ -1688,7 +1692,13 @@ class Session:
             )
 
     def _tools_prompt(self, *, continuation: bool = False, discovery_only: bool = False) -> str:
-        """The only tool information the planner receives (M5-06)."""
+        """The only tool information the planner receives (M5-06).
+
+        A phase is given the schemas it may use now. The names left out are still
+        listed in one line, because a narrowed list is about this step, not about
+        the product: asked what it could do during a discovery step, the planner
+        answered "you have two tools" and named only those two (live 2026-09-20).
+        """
         return "Available tools:\n" + json.dumps(
             [
                 item
@@ -1700,6 +1710,28 @@ class Session:
             ],
             ensure_ascii=False,
             sort_keys=True,
+        )
+
+    def _other_tools_note(self) -> str | None:
+        """The names this step may not call, for a message that asks what the system does.
+
+        The first call of a discovery turn is given two schemas, which is about
+        that step. Asked "what tools do you have?" in such a turn, the planner
+        replied "you have two tools" and named only those two (live 2026-09-20).
+        Names only: no schema, nothing new to plan with.
+        """
+        withheld = sorted(
+            str(item["name"])
+            for item in self.registry.descriptions()
+            if item["name"] not in {"catalog_search", "web_search"}
+        )
+        if not withheld:
+            return None
+        return (
+            "Only the tools listed above may be called in this step. The system also "
+            f"computes with: {', '.join(withheld)}. They become available later in the "
+            "same turn, after discovery. If the message asks what you can do, describe "
+            "all of it; never plan these here."
         )
 
 

@@ -33,6 +33,7 @@ from kkb_agent.agent.claim_qualifiers import (
     has_amount_context,
     identity_fault,
     is_date_token,
+    is_list_marker,
     period_fault,
     table_count_identity_fault,
     unit_fault,
@@ -183,12 +184,20 @@ def _groups_are_valid(text: str, grouping: str, decimal: str | None) -> bool:
 
 
 def extract_numbers(text: str) -> list[WrittenNumber]:
-    """Every quantity in the answer, in the order it appears."""
+    """Every quantity in the answer, in the order it appears.
+
+    A list marker is not a quantity. "(1)" and "(2)" in a sentence that names two
+    tools measure nothing, and treating them as claims withheld the sentence that
+    answered the question (live 2026-09-20).
+    """
     found: list[WrittenNumber] = []
     for match in NUMBER.finditer(text):
         value = parse_written(match.group())
-        if value is not None:
-            found.append(WrittenNumber(match.group(), value, match.start()))
+        if value is None:
+            continue
+        if is_list_marker(text, match.start(), match.end()):
+            continue
+        found.append(WrittenNumber(match.group(), value, match.start()))
     return found
 
 

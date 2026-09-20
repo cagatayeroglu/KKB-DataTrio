@@ -334,6 +334,35 @@ class TestReadableVerifiedFigures:
     def test_display_does_not_bypass_semantic_or_numeric_checks(self, draft):
         assert gate_answer(draft, result()).status is AnswerStatus.ABSTAINED
 
+    def test_a_list_marker_is_not_a_claim(self):
+        """Live 2026-09-20: "(1) catalog_search; (2) web_search" lost its sentence.
+
+        Those markers measure nothing and bound to nothing, so the gate withheld
+        the only sentence that answered the question and what reached the reader
+        began mid-thought.
+        """
+        from kkb_agent.agent.presentation import display_value
+
+        value = ResultValue(
+            label="credit", value=767314.0, unit="TRY", scale=Scale.MILLION, period=JUNE
+        )
+        trusted = result(values=[value])
+        reply = (
+            "Elinde iki ana araç var: (1) catalog_search — resmî serileri bulmak için; "
+            "(2) web_search — sayfaları bulmak için."
+        )
+        assert gate_answer(reply, trusted).status is AnswerStatus.ACCEPTED
+        assert not gate_answer(reply, trusted).omitted
+        # A figure in brackets is still a figure when it carries an amount.
+        assert (
+            gate_answer("Haziran 2026'da (1) milyon TL.", trusted).status is AnswerStatus.ABSTAINED
+        )
+        # And a real claim beside markers still has to bind.
+        assert (
+            gate_answer(f"(1) Haziran 2026'da {display_value(value)}.", trusted).status
+            is AnswerStatus.ACCEPTED
+        )
+
     def test_naive_rounding_is_still_withheld(self):
         value = ResultValue(label="rate", value=4.447201536789372, unit="percent", scale=Scale.ONE)
         trusted = result(values=[value])
