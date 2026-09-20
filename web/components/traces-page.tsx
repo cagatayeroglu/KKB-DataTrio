@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   Maximize2,
@@ -546,6 +546,9 @@ export function TracesPage({
   //: This API has no retained-trace index, so the list came from the ordinary
   //: conversation list and deleted conversations are not in it.
   const [plainList, setPlainList] = useState(false);
+  //: How many times the watched turn's record has been looked for. A turn runs
+  //: for minutes and each look is three requests, so the wait is slow and ends.
+  const waited = useRef(0);
   const chosenDeleted =
     conversations.find((item) => item.conversation_id === chosen)?.deleted ??
     false;
@@ -623,6 +626,9 @@ export function TracesPage({
   }, [owner, archived, search, listRevision]);
 
   useEffect(() => {
+    waited.current = 0;
+  }, [initialTurn, chosen]);
+  useEffect(() => {
     if (!chosen) {
       setRuns([]);
       setRun(null);
@@ -646,16 +652,21 @@ export function TracesPage({
         const wanted = initialTurn
           ? listed.runs.find((item) => item.turn_id === initialTurn)?.run_id
           : undefined;
-        if (initialTurn && !wanted) {
-          // Asked for one turn and its run is not written yet: wait for it
-          // rather than open a different one (finding F4-iz-3).
+        if (initialTurn && !wanted && waited.current < 40) {
+          // Asked for one turn and its record is not written yet: wait for it
+          // rather than open a different one (finding F4-iz-3). Older servers
+          // write the row only when the turn ends, so the wait is bounded and
+          // then the page says so instead of polling all afternoon.
+          waited.current += 1;
           setRunsState("waiting");
           timer = setTimeout(() => {
             if (!cancelled) setRetry((old) => old + 1);
-          }, 1500);
+          }, 3000);
           return;
         }
-        setRun(wanted ?? listed.runs[0]?.run_id ?? null);
+        setRun(
+          wanted ?? (initialTurn ? null : (listed.runs[0]?.run_id ?? null)),
+        );
         setRunsState("ready");
         setIssue("");
         if (!chosenDeleted) {
@@ -685,6 +696,9 @@ export function TracesPage({
   }, [chosen, owner, initialTurn, retry, chosenDeleted]);
 
   const current = runs.find((item) => item.run_id === run);
+  //: Asked to watch one turn whose record never appeared: the list is this
+  //: conversation's earlier runs, and none of them is that turn.
+  const missedTurn = Boolean(initialTurn && !current && runsState === "ready");
   return (
     <section
       className="traces-page"
@@ -815,7 +829,18 @@ export function TracesPage({
           )}
         </nav>
         <div className="traces-main">
-          {current && chosen ? (
+          {runsState === "waiting" ? (
+            <p className="chat-empty">
+              Bu turun kaydı henüz açılmadı. Tur çalışmaya başlayınca kaydı
+              burada kendiliğinden açılacak; aşağıdaki liste bu sohbetin daha
+              önceki turları.
+            </p>
+          ) : missedTurn ? (
+            <p className="chat-empty">
+              Bu turun kaydı hâlâ açılmadı. Tur bitince listede görünür;
+              listeden bir tur seçebilirsin.
+            </p>
+          ) : current && chosen ? (
             <RunView
               key={current.run_id}
               conversationId={chosen}
