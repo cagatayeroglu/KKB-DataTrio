@@ -750,7 +750,8 @@ export const errorText: Record<string, string> = {
   unavailable:
     "Yerel analiz servisine ulaşılamıyor. API’nin çalıştığını kontrol et.",
   busy: "Başka bir analiz devam ediyor. Bitince aynı isteği yeniden gönderebilirsin.",
-  capacity: "Bu oturumun veya servisin işlem sınırına ulaşıldı.",
+  capacity:
+    "Bu sohbet tur sınırına ulaştı ya da servis şu an dolu. Yeni bir sohbet aç: bu sohbetin geçmişi ve tabloları duruyor.",
   not_found:
     "Oturum bulunamadı. API yeniden başlamış olabilir; yeni oturum açmalısın.",
   forbidden:
