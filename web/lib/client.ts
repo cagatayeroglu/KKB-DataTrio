@@ -612,6 +612,9 @@ export function admitDocumentFromUrl(session: Session, url: string) {
       body: JSON.stringify({ url: url.trim().slice(0, 2000) }),
     },
     session.token,
+    undefined,
+    // The server fetches and reads the address; the proxy already allows 30 s.
+    { timeoutMs: 45000 },
   );
 }
 export async function admit(saved: Saved, index: number) {
@@ -671,6 +674,10 @@ export async function uploadDocument(
     documentAdmittedSchema,
     { method: "POST", body: file, headers: { "Content-Type": type } },
     session.token,
+    undefined,
+    // Admission reads the document (a scanned page goes through OCR) and the file
+    // itself can be 10 MiB: the default 12 s cut off uploads the server accepted.
+    { timeoutMs: 90000 },
   );
 }
 export function publishedResult(turn?: Turn) {
@@ -740,7 +747,7 @@ export function validQuestion(value: string) {
 }
 export const errorText: Record<string, string> = {
   document_rejected:
-    "Belge kabul edilmedi. CSV, Excel (.xlsx), PDF veya HTML olmalı ve içerik kontrollerinden geçmeli.",
+    "Belge kabul edilmedi. CSV, Excel (.xlsx), PDF, HTML ya da görsel (PNG, JPG) olmalı ve içerik kontrollerinden geçmeli.",
   invalid_document:
     "Ekli belge bu oturumda bulunamadı ya da değişmiş. Belgeyi yeniden yükle.",
   body_too_large:

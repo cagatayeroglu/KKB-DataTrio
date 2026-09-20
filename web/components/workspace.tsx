@@ -224,6 +224,10 @@ export function Workspace() {
     [panel, setPanel] = useState<"data" | "traces" | "settings" | null>(null),
     [pendingIndex, setPendingIndex] = useState<number | null>(null),
     [attachment, setAttachment] = useState<DocumentAdmitted | null>(null),
+    //: The name of the file the person chose. The server keeps none (it names
+    //: documents belge_1, belge_2), and an image is admitted as a one-page PDF,
+    //: so without this the badge said "PDF" about a screenshot.
+    [attachedName, setAttachedName] = useState<string | null>(null),
     [dragging, setDragging] = useState(false),
     [uploading, setUploading] = useState(false),
     //: The turn a stop was asked for. It stays until that turn reaches a terminal
@@ -398,6 +402,7 @@ export function Workspace() {
     setStopRequestedFor(null);
     setSelected(null);
     setAttachment(null);
+    setAttachedName(null);
     setQuestion("");
     pickedClarification.current = null;
     setIssue(storageIssue);
@@ -540,6 +545,8 @@ export function Workspace() {
       setSelected(null);
       setPendingIndex(null);
       setAttachment(null);
+      setAttachedName(null);
+      setAttachedName(null);
       setQuestion("");
       setAsNewQuestion(false);
       pickedClarification.current = null;
@@ -671,6 +678,23 @@ export function Workspace() {
     );
     setPendingIndex(recoveries.current[0] ?? null);
   }
+  // A file dropped anywhere but the composer used to be opened by the browser,
+  // which navigated away from the chat and lost the turn in flight. The window
+  // refuses every drop it is not meant to handle (finding F2-upl-4).
+  useEffect(() => {
+    const swallow = (event: DragEvent) => {
+      if (!event.dataTransfer?.types.includes("Files")) return;
+      if ((event.target as HTMLElement | null)?.closest?.(".composer")) return;
+      event.preventDefault();
+      if (event.type === "drop") event.dataTransfer.dropEffect = "none";
+    };
+    window.addEventListener("dragover", swallow);
+    window.addEventListener("drop", swallow);
+    return () => {
+      window.removeEventListener("dragover", swallow);
+      window.removeEventListener("drop", swallow);
+    };
+  }, []);
   /**
    * Drop a request the server never admitted, so the composer is usable again.
    *
@@ -934,6 +958,7 @@ export function Workspace() {
     try {
       const state = await session();
       setAttachment(await uploadDocument(state.session, file));
+      setAttachedName(file.name);
     } catch (error) {
       setIssue(describeError(error));
     } finally {
@@ -943,6 +968,10 @@ export function Workspace() {
     }
   }
   async function submit(text = question) {
+    if (uploading) {
+      setIssue("Belge yükleniyor; bitince gönderebilirsin.");
+      return;
+    }
     if (
       busyRef.current ||
       pending ||
@@ -985,6 +1014,8 @@ export function Workspace() {
       setQuestion("");
       pickedClarification.current = null;
       setAttachment(null);
+      setAttachedName(null);
+      setAttachedName(null);
       recoveries.current = [next.turns.length - 1];
       setPendingIndex(next.turns.length - 1);
       busyRef.current = false;
@@ -1847,7 +1878,26 @@ export function Workspace() {
                     );
                     if (!uploads || !file) return;
                     e.preventDefault();
-                    const extension = file.type === "image/png" ? "png" : "jpg";
+                    // Only the two formats the server reads; webp or gif pasted from a
+                    // browser used to be renamed .jpg and refused without a word.
+                    const extension =
+                      file.type === "image/png"
+                        ? "png"
+                        : file.type === "image/jpeg"
+                          ? "jpg"
+                          : null;
+                    if (!extension) {
+                      setIssue(
+                        "Yapıştırılan görsel PNG ya da JPG olmalı. Ekran görüntüsünü PNG olarak kaydedip yükleyebilirsin.",
+                      );
+                      return;
+                    }
+                    if (busyRef.current || pending || uploading) {
+                      setIssue(
+                        "Analiz sürerken belge eklenemiyor; tur bitince yeniden yapıştır.",
+                      );
+                      return;
+                    }
                     void attach(
                       new File([file], `pano.${extension}`, {
                         type: file.type,
@@ -1891,13 +1941,19 @@ export function Workspace() {
                 {attachment && (
                   <div className="composer-attachment" aria-live="polite">
                     <FileText size={13} /> Ekli belge:{" "}
-                    {attachment.document_format.toUpperCase()} ·{" "}
-                    {Math.max(1, Math.round(attachment.bytes / 1024))} KB
+                    {attachedName ?? attachment.document_format.toUpperCase()} ·{" "}
+                    {/^.+\.(png|jpe?g)$/i.test(attachedName ?? "")
+                      ? "görsel, tek sayfalık PDF olarak okunuyor"
+                      : attachment.document_format.toUpperCase()}{" "}
+                    · {Math.max(1, Math.round(attachment.bytes / 1024))} KB
                     <button
                       type="button"
                       aria-label="Ekli belgeyi kaldır"
                       disabled={busy || pending}
-                      onClick={() => setAttachment(null)}
+                      onClick={() => {
+                        setAttachment(null);
+                        setAttachedName(null);
+                      }}
                     >
                       <X size={12} />
                     </button>
