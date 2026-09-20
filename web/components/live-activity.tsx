@@ -21,6 +21,8 @@ const stageWords: Record<string, string> = {
   "gold.materialized": "Tablo kaydediliyor",
   "gold.skipped": "Tablo kaydı atlandı",
   "model.reasoning": "Model düşünüyor",
+  // Written when the request leaves, so the line is honest while it is out.
+  "model.started": "Model düşünüyor (yanıt bekleniyor)",
 };
 const toolWords: Record<string, string> = {
   catalog_search: "Katalogda seri aranıyor",

@@ -976,6 +976,10 @@ class Session:
                 prompt_bytes=sum(len(item.content.encode()) for item in messages),
             )
             span.describe(prompt_outline(messages))
+            # A span is recorded when it ends, and a planning call can run for many
+            # minutes: without this the live view said "assembling context" the whole
+            # time and the trace page counted no model call at all (finding D6-10).
+            self.tracer.event("model", "model.started", phase=phase, attempt=attempt)
             try:
                 completion = self.provider.complete(
                     messages, model=self.model, schema=AnalyticalPlan
@@ -1647,6 +1651,7 @@ class Session:
                 prompt_bytes=sum(len(item.content.encode()) for item in messages),
                 repair="period" if repair_period else "numeric" if repair_numeric else None,
             )
+            self.tracer.event("model", "model.started", phase="writer")
             completion = self.provider.complete(messages, model=self.model)
             span.set(model=completion.model)
             _record_cost(span, completion)

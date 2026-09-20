@@ -241,3 +241,20 @@ def test_events_are_readable_while_the_turn_is_still_running(launch):
         client.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"][0]["status"]
         == "completed"
     )
+
+
+def test_a_running_model_call_is_visible_before_it_returns(launch):
+    """The live view followed a call that had not returned yet (finding D6-10)."""
+    _, client = launch(reply("Merhaba!"))
+    owner_token = owner(client)
+    sid, headers, _ = open_conversation(client, owner_token)
+    ask(client, sid, headers, "Merhaba")
+    runs = client.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"]
+    steps = trace(client, sid, headers, runs[0]["run_id"])["steps"]
+    started = [item for item in steps if item["name"] == "model.started"]
+    assert [item["stage"] for item in started] == ["model"]
+    assert started[0]["attributes"]["phase"] == "initial"
+    # A span keeps the sequence it was opened with, so the start event lands
+    # right after it and is already stored while the call is still out.
+    names = [item["name"] for item in steps]
+    assert names.index("model.started") == names.index("planner.initial") + 1

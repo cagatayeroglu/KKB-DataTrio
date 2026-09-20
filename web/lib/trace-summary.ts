@@ -15,7 +15,13 @@ export function liveActivityLabel(line: string, readFailed: boolean) {
     : line || "Analiz başlıyor";
 }
 
-/** A span is recorded when a provider call ends, not when it begins. */
+/**
+ * How many provider calls this run has made, and whether one is out right now.
+ *
+ * A span is recorded when the call ends; "model.started" is written when the
+ * request leaves, so a call in flight can be counted honestly instead of being
+ * reported as nothing at all.
+ */
 export function modelCallLabel(
   status: RunSummary["status"],
   steps: Pick<TraceStep, "stage" | "name">[],
@@ -27,6 +33,12 @@ export function modelCallLabel(
         step.name !== "planner.output") ||
       step.name === "writer.call",
   ).length;
+  const started = steps.filter((step) => step.name === "model.started").length;
+  const running = status === "running" && started > completed;
+  if (running)
+    return completed === 0
+      ? "1. model çağrısı sürüyor"
+      : `${completed} tamamlanan model çağrısı · ${started}. çağrı sürüyor`;
   if (status === "running" && completed === 0)
     return "Model çağrısı sürüyor veya bekleniyor; tamamlanan çağrı henüz yok";
   return `${completed} tamamlanan model çağrısı`;
