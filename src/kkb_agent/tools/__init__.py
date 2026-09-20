@@ -14,6 +14,11 @@ from kkb_agent.tools.change_detection import (
     make_change_detection_tool,
     read_series,
 )
+from kkb_agent.tools.document_read import (
+    DocumentReadArguments,
+    DocumentReading,
+    make_document_read_tool,
+)
 from kkb_agent.tools.lakehouse import (
     DEFAULT_MAX_ROWS,
     DEFAULT_READABLE,
@@ -46,6 +51,9 @@ from kkb_agent.tools.web_url import (
 
 __all__ = [
     "make_catalog_search_tool",
+    "DocumentReadArguments",
+    "DocumentReading",
+    "make_document_read_tool",
     "BackendHit",
     "SearchBackend",
     "SearchCandidate",

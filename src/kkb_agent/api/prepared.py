@@ -80,6 +80,7 @@ from kkb_agent.tools import (
     make_catalog_search_tool,
     make_causality_tool,
     make_change_detection_tool,
+    make_document_read_tool,
     make_lakehouse_tool,
     make_table_transform_tool,
     make_web_search_tool,
@@ -423,6 +424,7 @@ class PreparedRunner:
         web_url_fetch: Fetcher | None = None,
         document_uploads: bool = False,
         document_ocr: OcrProvider | None = None,
+        document_vision: bool = False,
         store: ConversationStore | None = None,
         official: OfficialSources | None = None,
         clock: Callable[[], date] = lambda: datetime.now(UTC).date(),
@@ -463,6 +465,9 @@ class PreparedRunner:
         self._documents: dict[tuple[str, str], _Document] = {}
         self._documents_lock = threading.Lock()
         self._provider = provider
+        # Operator switch for reading a page that has no text layer with the vision
+        # model (DEC-129). Without it such a page is reported unreadable, never guessed.
+        self._vision = document_vision
         self._redactions = redactions
         root, state_root = _local(root), _local(state_root, exists=False)
         if state_root.is_relative_to(root) or root.is_relative_to(state_root):
@@ -1614,6 +1619,19 @@ class PreparedRunner:
                     ocr=None if "document_ocr" in disabled else self._document_ocr,
                     library=library,
                     endpoints=turn_fetch.endpoints if turn_fetch is not None else None,
+                )
+            )
+        if (attachment is not None or library) and "document_upload" not in disabled:
+            # Meaning from a document that holds no table to compute from: a chart, a
+            # scanned page, a passage. Its output is a reading, never a result, so it
+            # is bound to the same admitted bytes and to nothing else.
+            registry.register(
+                make_document_read_tool(
+                    provider=self._provider,
+                    attachment=attachment,
+                    library=library,
+                    ocr=None if "document_ocr" in disabled else self._document_ocr,
+                    vision=self._vision,
                 )
             )
         return registry

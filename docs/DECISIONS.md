@@ -894,6 +894,17 @@ Confirmed team priority refinement, explicitly requested by Çağatay after M3-0
 - Live, 2026-09-19: the documented container answered through `SearxngBackend(..., fetch=loopback_fetch)` with 20 hits for "TCMB politika faizi kararı" (tcmb.gov.tr first).
 - Tests: `test_searxng.py` (a stub server on loopback is read; a non-loopback host, https and a missing port are refused before any connection).
 
+### DEC-181 — A document reading is shown as a reading, never as evidence
+
+- Status: CONFIRMED team decision, 2026-09-20, by Arda: "Demo günü Lakehouse verileri dışında prompt içerisinde URL verilerek … pdf, excel, resim veya ilgili yazı bölümlerinden anlam çıkartılması istenecektir: bu yarışma pdfinde yazdığı için mecbur izin vereceğiz … kanıtsız cevap olduğunu model kendisi belirtsin … elinde sayı varsa kanıtlı, elinde sadece görsel varsa … kendi model eğitimiyle verir". Answers the question [DEC-179](#dec-179--a-picture-is-read-as-a-one-page-scanned-document) left open.
+- Finding: everything this product answers is bound to stored evidence, so a document that holds no table to compute from - a picture of a chart, a scanned page, a passage of prose - produced no answer at all. The organizer's brief asks for meaning to be made of exactly those on demo day.
+- Decision: one tool, `document_read`, reads an admitted document and returns what the model read. It is the one output in this system that is **not** evidence: no cells, no result, nothing published, and no later step can compute on it. It reads a page's text layer, else its OCR text, else - only when the operator configured a vision model - the rendered page through `LLMProvider.vision`. The document is the same admitted, hashed, conversation-owned upload every other path uses; only the reading is soft.
+- How such text is shown: the answer can never be ACCEPTED. It is QUALIFIED, it carries the limitation "a document reading is model output over admitted bytes, not a computed result", and the harness - not the model - puts one sentence before it naming the document and its digest: "Aşağıdaki okuma, belgenin model tarafından okunmasıdır; sayıları kaynaktan doğrulanmadı ve bu okuma yayımlanmadı." The trace records the reading, the document name and the digest.
+- Bounds: only when the turn produced no analytical result, so a reading can never dilute a computed answer; at most three pages; at most 4,000 characters; one model call. When a table can answer, `web_url` and `table_transform add_document_column` are still the way, and the tool's description says so.
+- Not decided here: letting a reading enter the workspace, be published, or be cited by a later turn. It stays a leaf.
+- Tests: `test_document_reading.py`.
+
+
 ## Proposed decisions
 
 Candidates below are not approved selections. Compare options in a bounded task; do not silently promote a proposal to CONFIRMED.

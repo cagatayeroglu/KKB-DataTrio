@@ -75,11 +75,57 @@ class CachedOcr:
         return result
 
 
-def render_pages(content: bytes, pages: list[dict[str, object]]) -> None:
-    """Attach bounded inline PNGs only for pages without a text layer."""
+def page_images(content: bytes, numbers: Sequence[int]) -> list[bytes]:
+    """Bounded PNGs of the named pages, for a model that reads a picture.
+
+    The same renderer, bounds and page checks the OCR path uses; only the caller
+    differs. A page a model is asked to describe is rendered exactly once here,
+    and nothing about the rendering depends on what the model will be asked.
+    """
     # This bounded native renderer ships no typing marker/stubs. Its image/page
     # sizes still pass the explicit checks below; only this import is untyped.
     import pypdfium2 as pdfium  # type: ignore[import-untyped]
+
+    wanted = [number for number in numbers if isinstance(number, int) and number >= 1]
+    if not wanted or len(wanted) > MAX_OCR_PAGES:
+        raise OcrError("LIMIT_EXCEEDED")
+    images: list[bytes] = []
+    with pdfium.PdfDocument(content) as pdf:
+        for number in wanted:
+            if number > len(pdf):
+                raise OcrError("PARSER_FAILED")
+            page = pdf[number - 1]
+            try:
+                width, height = page.get_size()
+                if not all(math.isfinite(value) and value > 0 for value in (width, height)):
+                    raise OcrError("LIMIT_EXCEEDED")
+                if (
+                    math.ceil(width * RENDER_SCALE) * math.ceil(height * RENDER_SCALE)
+                    > MAX_PAGE_PIXELS
+                ):
+                    raise OcrError("LIMIT_EXCEEDED")
+                bitmap = page.render(scale=RENDER_SCALE)
+                try:
+                    image = bitmap.to_pil()
+                    try:
+                        output = io.BytesIO()
+                        image.save(output, format="PNG")
+                        png = output.getvalue()
+                        if len(png) > MAX_IMAGE_BYTES:
+                            raise OcrError("LIMIT_EXCEEDED")
+                        images.append(png)
+                    finally:
+                        image.close()
+                finally:
+                    bitmap.close()
+            finally:
+                page.close()
+    return images
+
+
+def render_pages(content: bytes, pages: list[dict[str, object]]) -> None:
+    """Attach bounded inline PNGs only for pages without a text layer."""
+    import pypdfium2 as pdfium
 
     missing: list[tuple[dict[str, object], int]] = []
     for record in pages:

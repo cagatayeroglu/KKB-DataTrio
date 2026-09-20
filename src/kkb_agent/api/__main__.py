@@ -271,6 +271,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 web_url_fetch=safe_fetch if args.enable_web_url else None,
                 document_uploads=uploads_enabled,
                 document_ocr=provider if ocr_enabled else None,
+                document_vision=config.vision_model is not None and uploads_enabled,
                 store=store,
                 official=official,
                 knowledge=knowledge,

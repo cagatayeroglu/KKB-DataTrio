@@ -460,6 +460,37 @@ def search_listing(outcome: ExecutionOutcome) -> str | None:
     return "\n".join([SEARCH_HEADER, *lines[:10], SEARCH_FOOTER])
 
 
+#: What a reading is, said by the harness rather than by the model that produced it.
+#: It leads the answer, so a reader never meets these figures as verified ones.
+READING_HEADER: Final = (
+    "Aşağıdaki okuma, belgenin model tarafından okunmasıdır; sayıları kaynaktan "
+    "doğrulanmadı ve bu okuma yayımlanmadı."
+)
+READING_LIMITATION: Final = (
+    "A document reading is model output over admitted bytes, not a computed result: "
+    "its figures are bound to nothing and nothing was published"
+)
+
+
+def document_reading(outcome: ExecutionOutcome) -> tuple[str, str, str] | None:
+    """What a `document_read` step read, with the document it read and its digest.
+
+    The one tool output this system shows without binding its numbers, because a
+    picture of a chart has no stored figures to bind them to. It can only be the
+    answer when the turn produced no analytical result at all.
+    """
+    for item in reversed(outcome.results):
+        if item.tool != "document_read" or item.status is not ToolStatus.SUCCESS:
+            continue
+        text = str(getattr(item.output, "text", "") or "").strip()
+        if not text:
+            continue
+        name = str(getattr(item.output, "document", "") or "belge")
+        digest = str(getattr(item.output, "sha256", "") or "")[:12]
+        return text, name, digest
+    return None
+
+
 #: How the writer tells this turn's result from the conversation's earlier tables. The
 #: live chain suite (S4, 2026-09-18) restated an unrelated earlier table in a new answer:
 #: every published table was in reach and nothing said which one the turn had produced.
@@ -1327,6 +1358,8 @@ class Session:
         incomplete = incomplete_steps(outcome)
         if not results and (listing := search_listing(outcome)) is not None:
             return self._search_answer(planned, outcome, listing, connection, workspace, gate)
+        if not results and (reading := document_reading(outcome)) is not None:
+            return self._reading_answer(planned, outcome, reading)
         if not results:
             return Answered(
                 planned,
@@ -1626,6 +1659,51 @@ class Session:
             outcome,
             (),
             replace(answer, limitations=(*answer.limitations, SEARCH_LIMITATION)),
+        )
+
+    def _reading_answer(
+        self,
+        planned: Planned,
+        outcome: ExecutionOutcome,
+        reading: tuple[str, str, str],
+    ) -> Answered:
+        """What a model read in a document, shown as a reading and never as a result.
+
+        This is the one answer whose figures are not bound, because there is
+        nothing to bind them to: a picture of a chart holds no stored values. The
+        harness says so in its own sentence before the reading, names the document
+        and its digest, and the answer can never be ACCEPTED. Nothing is published,
+        so no later turn can compute on it (the organizer's brief asks for meaning
+        to be made of a PDF, a spreadsheet or an image that arrives with the
+        question; this is how that is answered without calling it evidence).
+        """
+        text, document, digest = reading
+        if self.tracer is not None:
+            self.tracer.event(
+                "answer",
+                "document.reading",
+                source="model",
+                document=document,
+                sha256=digest,
+                detail=text,
+            )
+            self.tracer.event(
+                "publication",
+                "workspace.not_published",
+                status="skipped",
+                reason="a document reading is not a computed result",
+            )
+        shown = f"{READING_HEADER} ({document}, sha256 {digest})\n\n{text}"
+        return Answered(
+            planned,
+            outcome,
+            (),
+            GatedAnswer(
+                AnswerStatus.QUALIFIED,
+                shown,
+                Verdict(True, ()),
+                limitations=(READING_LIMITATION,),
+            ),
         )
 
     def _reply(
