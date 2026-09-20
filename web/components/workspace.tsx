@@ -9,6 +9,7 @@ import {
   Trash2,
   Check,
   ChevronDown,
+  Info,
   Database,
   ListTree,
   FileText,
@@ -238,6 +239,11 @@ export function Workspace() {
     [stopRequestedFor, setStopRequestedFor] = useState<string | null>(null);
   // Conversations that outlive this tab: the browser's own key lists and reopens them.
   const [prompts, setPrompts] = useState<PromptParts | null>(null),
+    //: Why the prompt parts are not on screen: not read yet, this server has no
+    //: route for them, or the read failed and can be tried again.
+    [promptsState, setPromptsState] = useState<
+      "loading" | "ready" | "unsupported" | "error"
+    >("loading"),
     [openPrompt, setOpenPrompt] = useState<string | null>(null);
   // Header chrome for the open chat: its menu, an inline rename, the copy flash.
   const [chatMenu, setChatMenu] = useState(false),
@@ -269,7 +275,9 @@ export function Workspace() {
     health?.capabilities.includes("conversation_history") ?? false;
   const pending = pendingIndex !== null;
   const [settings, setSettings] = useState<RuntimeSettings | null>(null),
-    [savingSetting, setSavingSetting] = useState("");
+    [savingSetting, setSavingSetting] = useState(""),
+    //: What the slider shows while it is being dragged; saved on release.
+    [historyDraft, setHistoryDraft] = useState<number | null>(null);
   const uploads = health?.capabilities.includes("document_upload") ?? false;
   const ocr = health?.capabilities.includes("document_ocr") ?? false;
   const knowledgeBase =
@@ -324,9 +332,16 @@ export function Workspace() {
     }
     try {
       setPrompts(await readPrompts(token));
-    } catch {
-      // An older server has no prompts route; the section says so itself.
+      setPromptsState("ready");
+    } catch (error) {
+      // Only a route this server does not have means "older server"; a timeout
+      // or a dropped connection is a retry, not a missing feature (F4-istem).
       setPrompts(null);
+      setPromptsState(
+        error instanceof ApiError && error.code === "not_found"
+          ? "unsupported"
+          : "error",
+      );
     }
   }
   async function changeSetting(change: {
@@ -342,6 +357,15 @@ export function Workspace() {
     } finally {
       setSavingSetting("");
     }
+  }
+  function commitHistoryTurns() {
+    if (historyDraft === null || historyDraft === settings?.history_turns) {
+      setHistoryDraft(null);
+      return;
+    }
+    const chosen = historyDraft;
+    setHistoryDraft(null);
+    void changeSetting({ history_turns: chosen });
   }
   async function refreshConversations(token = ownerToken) {
     if (!token) return;
@@ -2069,9 +2093,12 @@ export function Workspace() {
                       <button
                         type="button"
                         className="model-pick"
-                        aria-haspopup="listbox"
+                        aria-haspopup="dialog"
                         aria-expanded={modelMenu}
-                        title="Yanıtları üreten model"
+                        // It never chose anything: the deployment serves one model
+                        // and the contract has no model field. It says which models
+                        // are in use instead of pretending to be a chooser (F4-model).
+                        title="Bu dağıtımın kullandığı modeller"
                         onClick={(e) => {
                           // The composer clips its children, so the menu is placed on the
                           // viewport from the button's own box instead of inside it.
@@ -2092,27 +2119,19 @@ export function Workspace() {
                         }}
                       >
                         <Cpu size={14} /> {modelShort}
-                        <ChevronDown size={12} />
+                        <Info size={12} />
                       </button>
                       {modelMenu && (
                         <ul
                           className="model-options"
-                          role="listbox"
-                          aria-label="Model"
+                          aria-label="Kullanılan modeller"
                           style={{
                             left: modelMenuAt.left,
                             bottom: modelMenuAt.bottom,
                           }}
                         >
-                          {/* The deployment serves one planner/writer model; the list grows
-                              when the server reports more. */}
-                          <li role="option" aria-selected="true">
-                            <button
-                              type="button"
-                              onClick={() => setModelMenu(false)}
-                            >
-                              <Check size={13} /> {modelLabel}
-                            </button>
+                          <li className="model-current">
+                            <Check size={13} /> {modelLabel}
                           </li>
                           <li className="model-note">
                             Yarışma platformundaki en güçlü sohbet modeli.
@@ -2370,18 +2389,24 @@ export function Workspace() {
                                 type="range"
                                 min={0}
                                 max={settings.max_history_turns}
-                                value={settings.history_turns}
-                                disabled={savingSetting !== ""}
+                                value={historyDraft ?? settings.history_turns}
+                                // Saving on every step sent one request per pixel and
+                                // disabled the slider mid-drag, which broke the drag
+                                // itself; the value is committed on release (F4-kaydırıcı).
                                 onChange={(event) =>
-                                  void changeSetting({
-                                    history_turns: Number(event.target.value),
-                                  })
+                                  setHistoryDraft(Number(event.target.value))
                                 }
+                                onPointerUp={() => commitHistoryTurns()}
+                                onKeyUp={() => commitHistoryTurns()}
+                                onBlur={() => commitHistoryTurns()}
                               />
                               <span>
-                                {settings.history_turns === 0
+                                {(historyDraft ?? settings.history_turns) === 0
                                   ? "Yok"
-                                  : `${settings.history_turns} tur`}
+                                  : `${historyDraft ?? settings.history_turns} tur`}
+                                {savingSetting === "history_turns"
+                                  ? " · kaydediliyor"
+                                  : ""}
                               </span>
                             </label>
                           ) : (
@@ -2438,7 +2463,11 @@ export function Workspace() {
                     </p>
                     {prompts === null ? (
                       <p className="helper">
-                        Bu sunucu istem parçalarını sunmuyor (eski sürüm).
+                        {promptsState === "loading"
+                          ? "İstem parçaları yükleniyor…"
+                          : promptsState === "unsupported"
+                            ? "Bu sunucu istem parçalarını sunmuyor (eski sürüm)."
+                            : "İstem parçaları okunamadı; sayfayı yenilemeyi dene."}
                       </p>
                     ) : (
                       <ul className="prompt-parts">

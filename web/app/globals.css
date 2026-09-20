@@ -3275,3 +3275,13 @@ button:not(:disabled):focus-visible {
     animation: none;
   }
 }
+
+/* The model line states what runs; it is not a chooser, so it does not look
+   like one (the deployment serves a single model). */
+.model-current {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  font-weight: 600;
+}
