@@ -121,6 +121,7 @@ def producer_fixture_for_sentence_tests(request, monkeypatch):
         TestAnUnsupportedSentenceIsWithheld,
         TestTheWithheldSentenceCanBeDiagnosedWithoutItsText,
         TestAbstention,
+        TestTheInterpretationParagraph,
     }:
         return
     house = request.getfixturevalue("house")
@@ -195,6 +196,36 @@ class TestAnUnsupportedSentenceIsWithheld:
     def test_the_final_sentence_without_trailing_punctuation_is_still_gated(self, house):
         gated = gate_answer(f"{SUPPORTED} Ayrıca 912.000 milyon TL", result(), house.connection)
 
+        assert gated.status is AnswerStatus.QUALIFIED
+        assert "912.000" not in gated.text
+
+
+class TestTheInterpretationParagraph:
+    """The jury asks for a reading of the numbers; the gate asks for evidence.
+
+    Both are served by one labelled paragraph: it may read the pattern and name
+    factors worth testing, it may hold no number that is not a listed display, and
+    it may not assert a cause. It is the only heading the writer is allowed.
+    """
+
+    def test_a_labelled_reading_is_kept(self, house):
+        reading = (
+            " Yorum: Seri yıl boyunca yükselişte; konut talebi ve kredi koşulları test "
+            "edilmeye değer etkenlerdir, bu analiz bir açıklama kurmuş değildir."
+        )
+        gated = gate_answer(SUPPORTED + reading, result(), house.connection)
+        assert gated.status is AnswerStatus.ACCEPTED
+        assert "Yorum:" in gated.text
+
+    def test_a_cause_in_that_paragraph_is_still_withheld(self, house):
+        causal = " Yorum: Artışın nedeni faiz indirimidir."
+        gated = gate_answer(SUPPORTED + causal, result(), house.connection)
+        assert gated.status is AnswerStatus.QUALIFIED
+        assert "nedeni" not in gated.text
+
+    def test_a_new_number_in_that_paragraph_is_still_withheld(self, house):
+        invented = " Yorum: Yıl boyunca 912.000 milyon TL seviyesine yaklaşıldı."
+        gated = gate_answer(SUPPORTED + invented, result(), house.connection)
         assert gated.status is AnswerStatus.QUALIFIED
         assert "912.000" not in gated.text
 
