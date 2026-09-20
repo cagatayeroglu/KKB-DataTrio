@@ -217,8 +217,11 @@ def needs_series_discovery(plan: ValidatedPlan, proven: frozenset[str] = frozens
     # `web_search` reads no catalogue series either: it returns a list of pages. Without this
     # exemption the rule refused every search plan and sent the planner to catalog_search,
     # which cannot answer "search the web" (live W1, 2026-09-19).
+    # `document_read` names no series either: it reads an admitted document and returns
+    # a reading (DEC-181). Without this the rule sent a picture of a chart to
+    # catalog_search, which has nothing to find for it (live 2026-09-20).
     return any(
-        step.step.tool not in ("catalog_search", "web_url", "web_search")
+        step.step.tool not in ("catalog_search", "web_url", "web_search", "document_read")
         and step.arguments.model_dump().get("operation")
         not in workspace_operations.get(step.step.tool, set())
         and not _already_proven(step, proven)

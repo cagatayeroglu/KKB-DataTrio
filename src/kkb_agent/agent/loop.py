@@ -460,6 +460,16 @@ def search_listing(outcome: ExecutionOutcome) -> str | None:
     return "\n".join([SEARCH_HEADER, *lines[:10], SEARCH_FOOTER])
 
 
+#: How to read the outline that follows it: which tool each document calls for.
+DOCUMENT_TABLES_NOTE: Final = (
+    "The message below outlines every document in this conversation. A document whose "
+    "`tables` is empty holds no period table to compute from - a chart, a photograph, a "
+    "page of prose - so reading its columns is not possible: answer it with document_read, "
+    "which returns what the model reads and publishes nothing. A document that does list "
+    "tables is read with web_url (attached=true) or table_transform add_document_column, "
+    "which produce verified cells; use document_read for it only when the question asks "
+    "what the document says rather than for its figures."
+)
 #: What a reading is, said by the harness rather than by the model that produced it.
 #: It leads the answer, so a reader never meets these figures as verified ones.
 READING_HEADER: Final = (
@@ -935,6 +945,7 @@ class Session:
                 )
             )
         if self.documents_note is not None:
+            messages.append(Message(Role.SYSTEM, DOCUMENT_TABLES_NOTE))
             messages.append(Message(Role.USER, self.documents_note))
         if self.address_note is not None and discovery is None:
             messages.append(Message(Role.USER, self.address_note))

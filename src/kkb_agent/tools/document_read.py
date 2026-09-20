@@ -74,6 +74,13 @@ class DocumentReadArguments(BaseModel):
             "the question carries one document or the conversation holds only one"
         ),
     )
+    attached: bool = Field(
+        default=True,
+        description=(
+            "Always true: this tool reads a document of this conversation. The field exists "
+            "because web_url takes it, and a plan that writes it should not be refused"
+        ),
+    )
     pages: int = Field(
         default=MAX_OCR_PAGES,
         ge=1,
