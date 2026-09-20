@@ -196,7 +196,9 @@ def needs_series_discovery(plan: ValidatedPlan, proven: frozenset[str] = frozens
     the catalog returned it earlier in this same conversation, so searching for it
     again buys no authority and costs a planning round trip. The identities come
     from the argument contract (`SeriesId`), not from field names, and a step whose
-    arguments can hide one (`OpaqueSeriesReference`, such as SQL) never qualifies.
+    arguments can hide one (`OpaqueSeriesReference`, such as SQL) never qualifies —
+    unless the query reads only this conversation's own published tables, which
+    hold nothing the catalog has not already vouched for (`_reads_published_only`).
     """
     workspace_operations = {
         "table_transform": {
@@ -220,8 +222,33 @@ def needs_series_discovery(plan: ValidatedPlan, proven: frozenset[str] = frozens
         and step.arguments.model_dump().get("operation")
         not in workspace_operations.get(step.step.tool, set())
         and not _already_proven(step, proven)
+        and not _reads_published_only(step)
         for step in plan.steps
     )
+
+
+#: The published-results table of this conversation's own lakehouse.
+PUBLISHED_TABLE = "gold_cells"
+#: Tables that hold series data; a query naming one of them reads the catalog.
+SERIES_TABLES = ("silver_series", "silver_observations")
+
+
+def _reads_published_only(step: ValidatedStep) -> bool:
+    """True when a SQL step reads this conversation's published tables and nothing else.
+
+    Asking for the mean of a table the agent itself published needs no catalog
+    round trip: those rows were written from an answer the catalog and the gate
+    already accepted. The check is textual and conservative — DuckDB needs the
+    base table's name in the query, so a statement that never writes "silver_"
+    cannot reach series data, and the tool's own whitelist still runs.
+    """
+    if step.step.tool != "lakehouse":
+        return False
+    sql = step.arguments.model_dump().get("sql")
+    if not isinstance(sql, str) or not sql.strip():
+        return False
+    lowered = sql.lower()
+    return PUBLISHED_TABLE in lowered and not any(name in lowered for name in SERIES_TABLES)
 
 
 def _already_proven(step: ValidatedStep, proven: frozenset[str]) -> bool:
