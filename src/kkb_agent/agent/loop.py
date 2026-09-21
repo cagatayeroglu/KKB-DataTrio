@@ -569,6 +569,11 @@ def render_results(named: Mapping[str, AnalyticalResult], current: str | None = 
         controlled_label = controlled_count_label(named[name], value)
         for other_name, other_index, other in values:
             if (name, index) != (other_name, other_index) and _indistinguishable(value, other):
+                if value.label == other.label:
+                    # The same measure with the same figure is one fact: the gate binds it
+                    # (DEC-186), so the writer is given it. Marking it told the writer to
+                    # quote nothing of a table whose read stood beside it.
+                    continue
                 other_label = controlled_count_label(named[other_name], other)
                 if controlled_label is not None and controlled_label != other_label:
                     # The answer can bind this final comparison count through
