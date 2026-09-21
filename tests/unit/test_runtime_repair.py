@@ -8,7 +8,7 @@ rejection already gets a repair; a run-time refusal now gets the same one, once.
 import json
 
 from test_catalog_continuation import QUESTION as DISCOVERY_QUESTION
-from test_catalog_continuation import calculate, discover, enabled, proposal
+from test_catalog_continuation import calculate, enabled, proposal
 from test_catalog_continuation import rig as rig  # noqa: F401
 from test_co_movement import TOTAL_ID
 from test_co_movement import lake as lake  # noqa: F401 - the pool fixture builds on it
@@ -122,13 +122,14 @@ def test_an_empty_discovery_is_searched_again_before_any_continuation(rig):  # n
         "tool": "catalog_search",
         "arguments": {"query": "toplam konut kredisi", "source": "TÜİK"},
     }
-    provider = scripted(proposal(emptied), proposal(discover("d2")), proposal(calculate("a")))
+    # A filter that matches nothing used to empty the search, and the turn paid a second
+    # discovery call for it. The search now answers without the filter and says so.
+    provider = scripted(proposal(emptied), proposal(calculate("a")))
     planned, outcome = enabled(provider, reg, repair_runtime_refusals=True).run(DISCOVERY_QUESTION)
     assert outcome.completed and len(calls) == 1
-    assert planned.discovery_rounds == 1 and planned.attempts == 3
-    assert any("returned no candidates" in reason for reason in planned.rejections)
-    # The second discovery saw why the first one came back empty.
-    assert "FILTERED_OUT" in provider.seen[1][-1].content
+    assert planned.discovery_rounds == 1 and planned.attempts == 2
+    assert planned.rejections == ()
+    assert "nothing matched with source" in provider.seen[1][-1].content
 
 
 def test_an_empty_discovery_still_gets_its_continuation_when_the_repair_fails(rig):  # noqa: F811

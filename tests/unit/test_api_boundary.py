@@ -128,8 +128,14 @@ def test_nonaccepted_turn_never_promotes_candidate_or_rejected_text(verified, st
     output = project_answer(unsafe, turn_id=uuid4().hex, published=None)
     assert output.result is None and output.omitted_claims == 1
     assert SENTINEL not in output.model_dump_json()
-    with pytest.raises(OutputRefused):
-        project_answer(unsafe, turn_id=uuid4().hex, published=result)
+    if state is AnswerStatus.ABSTAINED:
+        with pytest.raises(OutputRefused):
+            project_answer(unsafe, turn_id=uuid4().hex, published=result)
+    else:
+        # A qualified turn's table is the tools' own and is published; what was withheld
+        # from its prose still never leaves the process.
+        shown = project_answer(unsafe, turn_id=uuid4().hex, published=result)
+        assert shown.result is not None and SENTINEL not in shown.model_dump_json()
 
 
 def test_accepted_but_unpublished_turn_does_not_export_candidate(verified):

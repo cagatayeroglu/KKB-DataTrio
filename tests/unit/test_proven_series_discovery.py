@@ -244,7 +244,8 @@ def test_instructions_name_the_proven_identities_and_drop_the_contradiction():
     # The old rule ordered a search "even if a reviewed series identity is already
     # visible", which contradicts admitting exactly that plan.
     assert "even if a reviewed series identity is already visible" not in text
-    assert "NOT listed above" in text
+    assert "Read them directly; do not search for them again" in text
+    assert "MUST" not in text  # one policy, said without an order that contradicts it
     assert "promote_series offer for an admitted document" in text
 
 

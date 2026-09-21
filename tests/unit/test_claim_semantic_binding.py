@@ -26,6 +26,12 @@ from kkb_agent.database import apply_schema
 
 
 @pytest.fixture(autouse=True)
+def _wording_rules(monkeypatch):
+    """These cases pin the optional wording contract; the served gate binds figures only."""
+    monkeypatch.setattr("kkb_agent.agent.verifier.WORDING_RULES", True)
+
+
+@pytest.fixture(autouse=True)
 def verified_execution_boundary(monkeypatch):
     """Unit-test qualifiers after execution proof; never issue fake evidence.
 

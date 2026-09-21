@@ -113,7 +113,7 @@ def test_nominal_then_missing_cpi_is_discovered_before_deflation_and_published(p
         {"table_transform"},
     ]
     assert any(
-        "one final catalog-only phase" in message.content
+        "plan catalog_search steps once more" in message.content
         for message in phases[1]
         if message.role is Role.SYSTEM
     )
@@ -180,18 +180,32 @@ def test_missing_auxiliary_measure_clarifies_and_never_publishes(pool):  # noqa:
     assert workspace.value_of("konut_kredisi_ve_faiz") == before
 
 
-def test_auxiliary_rate_basis_ambiguity_clarifies_without_analysis(pool):  # noqa: F811
+def test_the_rate_basis_choice_is_the_planners_not_the_harnesss(pool):  # noqa: F811
+    # The harness used to end the turn here with a question of its own, before the planner
+    # had seen the two candidates. The planner sees them now; whether to take the usual one
+    # with an assumption or to ask is its call, and its own question is what is shown.
     lake, workspace = pool
+    asked = "Yeni kullandırılan kredilerin faizini mi, portföy faizini mi kullanayım?"
     current, provider = session(
         pool,
         plan(discover("credit", "toplam konut kredisi bakiyesi")),
         plan(discover("rate", "konut kredisi faiz oranı")),
+        json.dumps(
+            {
+                "question": TURN_TWO,
+                "steps": [],
+                "clarification": "ambiguous_series",
+                "clarification_text": asked,
+            }
+        ),
     )
     answered = current.answer(TURN_TWO, lake.connection, workspace=workspace, remember="rate")
     assert answered.answer.status is AnswerStatus.ABSTAINED
-    assert answered.planned.plan.clarification == "ambiguous_series"
+    assert answered.planned.plan.clarification_text == asked
     assert answered.planned.discovery_rounds == 2
-    assert len(provider.seen) == 2 and "rate" not in workspace.names()
+    assert len(provider.seen) == 3 and "rate" not in workspace.names()
+    candidates = provider.seen[2][-1].content
+    assert "new_credit" in candidates and "outstanding_portfolio" in candidates
 
 
 def test_third_search_rejected_and_existing_table_unchanged(pool):  # noqa: F811

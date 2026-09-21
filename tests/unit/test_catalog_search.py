@@ -176,8 +176,15 @@ def test_invalid_query_safe_error(tool, query):
 def test_source_and_frequency_filters(tool):
     assert ids(search(tool, "konut kredisi", source="evds", frequency="weekly")) == NEW
     assert ids(search(tool, "konut kredisi", frequency="monthly")) == BOOK
-    assert search(tool, "KFE", source="BDDK").status == "FILTERED_OUT"
-    assert search(tool, "KFE", frequency="weekly").status == "FILTERED_OUT"
+    # A filter narrows a search; it is never the reason a search finds nothing. Twice live
+    # (TÜİK, then TCMB) a planner named the institution it had in mind, the provider label
+    # differed, and the turn was lost to an empty result.
+    wrong_source = search(tool, "KFE", source="BDDK")
+    assert wrong_source.candidates and wrong_source.relaxed_filters == ("source",)
+    wrong_calendar = search(tool, "KFE", frequency="weekly")
+    assert wrong_calendar.candidates and wrong_calendar.relaxed_filters == ("frequency",)
+    assert search(tool, "konut kredisi", source="TCMB").relaxed_filters == ()  # EVDS is TCMB's
+    assert ids(search(tool, "konut kredisi", source="TCMB", frequency="weekly")) == NEW
     assert (
         ids(search(tool, "konut arşiv serileri", include_archived=True, frequency="unknown"))
         == ARCHIVE
@@ -293,7 +300,7 @@ def test_planner_sees_only_delivered_names(tool):
     registry = ToolRegistry()
     registry.register(tool)
     assert [d["name"] for d in registry.descriptions()] == ["catalog_search"]
-    assert "Does not fetch observation values" in registry.descriptions()[0]["description"]
+    assert "it reads no values" in registry.descriptions()[0]["description"]
     for name in (*FUTURE, "shell"):
         with pytest.raises(RegistryError):
             registry.register(ToolSpec(name, "fake", CatalogSearchArguments, tool.run))

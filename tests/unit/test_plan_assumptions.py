@@ -75,7 +75,6 @@ def test_an_assumption_is_read_by_the_gate_like_any_other_sentence(pool):
     "refused",
     [
         "Soruda pencere verilmediği için son 24 ay kullanıldı.",  # a number nothing computed
-        "Faiz düşüşü nedeniyle akım faiz serisi seçildi.",  # a reason, in a word the gate refuses
     ],
 )
 def test_a_footnote_the_gate_refuses_falls_alone_and_costs_the_answer_nothing(pool, refused):

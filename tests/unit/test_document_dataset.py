@@ -421,26 +421,22 @@ def test_two_same_turn_monthly_reads_publish_one_composed_table_with_both_series
     assert len(result["proof"]["documents"]) == 2
 
 
-def test_two_terminal_reads_are_repaired_to_an_explicit_join_before_execution(served):
+def test_two_terminal_reads_run_as_planned_and_both_reach_the_writer(served):
+    # The plan used to be refused ("only one final result") and planned again. It runs:
+    # the last read is the published table, and the writer is shown the other beside it.
     runner, client, sid, headers = served(
         two_table_plan(join=False),
-        two_table_plan(),
-        "İki seri aynı aylarda yan yana gösterildi.",
+        "İki seri okundu.",
     )
     upload(client, sid, headers, csv())
     upload(client, sid, headers, csv([v + 10 for v in ADMISSIONS], header="Yatış"))
 
     response = ask(client, sid, headers, "İki yüklenen seriyi yan yana göster.")
     assert response["answer"]["status"] == "accepted", response
-    assert {c["label"] for c in response["answer"]["result"]["cells"]} == {
-        "Başvuru Sayısı",
-        "Yatış",
-    }
-    assert any(
-        "only one final result" in message.content
-        for call in runner._provider.seen
-        for message in call
-    )
+    assert {c["label"] for c in response["answer"]["result"]["cells"]} == {"Yatış"}
+    said = [message.content for call in runner._provider.seen for message in call]
+    assert not any("only one final result" in content for content in said)
+    assert any("Başvuru Sayısı" in content and "Yatış" in content for content in said[-3:])
 
 
 def test_compound_join_refuses_incompatible_months_without_partial_publication(served):
