@@ -8,7 +8,7 @@ may fetch EVDS/BDDK/web data. Start the API on its own port with its own state r
 
 Suites: chain, rerun, external, upload, edge, e1, analytics, causality, jury, kb, cancel,
 missing, directory, followup, timing, bddk,
-reference. `followup` publishes one table and then asks the
+provinces, reference. `followup` publishes one table and then asks the
 single-number questions about it (average, highest, a refused total). `timing` is the
 fixed measurement set: one turn per path, independent of each other, so two runs can be
 compared turn by turn. Each suite
@@ -307,6 +307,21 @@ SUITES: dict[str, list[tuple[str, str, dict[str, object]]]] = {
         (
             "B4-named-tool",
             "Web search aracını kullanarak BDDK haftalık bülteni hangi gün yayımlıyor, öğren.",
+            {},
+        ),
+    ],
+    # FinTürk alone: two provinces of one table, then a ratio (DEC-184).
+    "provinces": [
+        (
+            "P1-two-provinces",
+            "İstanbul ve Ankara'da konut kredisi bakiyesi 2021'den bugüne nasıl değişti? "
+            "İl bazında çeyreklik göster.",
+            {},
+        ),
+        (
+            "P2-province-ratio",
+            "İzmir'de takipteki alacakların toplam nakdi kredilere oranı 2024-2026 arasında "
+            "nasıl seyretti?",
             {},
         ),
     ],
