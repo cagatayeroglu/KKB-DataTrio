@@ -282,18 +282,51 @@ def test_injection_is_inert_and_search_cannot_support_a_numeric_answer():
     assert text not in str(provider.seen)
 
 
-def test_discovered_url_still_rejected_by_web_url():
+def test_a_url_search_found_is_readable_in_the_same_turn_and_nothing_else_is():
+    """The reader asked for the search and for what it finds.
+
+    Live 2026-09-21: "TCMB Mart 2024 PPK kararını web'de ara ve resmi kaynağı özetle"
+    found the official page and could not read it; the address had to be pasted in a
+    second message. What a search of THIS turn returned is readable. Everything else is
+    refused exactly as before - and a page's own content never fills this set, so a
+    fetched document still cannot name the next request.
+    """
     from kkb_agent.tools import WebUrlArguments, make_web_url_tool
 
-    url = call([hit()]).output.candidates[0].url
+    found = call([hit()]).output
+    url = found.candidates[0].url
 
-    def forbidden(*args, **kwargs):
-        raise AssertionError("discovery must not fetch")
+    fetched: list[str] = []
 
-    result = make_web_url_tool(fetch=forbidden).run(
-        WebUrlArguments(url=url), ExecutionContext("find public data")
+    def record(request, **kwargs):
+        fetched.append(str(getattr(request, "url", request)))
+        raise AssertionError("fetch attempted")
+
+    tool = make_web_url_tool(fetch=record)
+    # Not searched this turn: refused before anything is fetched, as it always was.
+    bare = tool.run(WebUrlArguments(url=url), ExecutionContext("find public data"))
+    assert bare.output.code == "URL_NOT_IN_QUESTION" and not fetched
+
+    # Searched this turn, by a step of this plan: the address is admitted and reaches the
+    # fetcher, which this fixture refuses to be.
+    context = ExecutionContext("find public data")
+    context.outputs["s1"] = found
+    with pytest.raises(AssertionError, match="fetch attempted"):
+        tool.run(WebUrlArguments(url=url), context)
+    assert len(fetched) == 1  # the address reached the fetcher (its locator stays secret)
+
+    # A redacted locator no longer names the page the hit named, so it stays refused.
+    redacted = found.model_copy(
+        update={
+            "candidates": tuple(
+                item.model_copy(update={"locator_redacted": True}) for item in found.candidates
+            )
+        }
     )
-    assert result.output.code == "URL_NOT_IN_QUESTION"
+    hidden = ExecutionContext("find public data")
+    hidden.outputs["s1"] = redacted
+    assert tool.run(WebUrlArguments(url=url), hidden).output.code == "URL_NOT_IN_QUESTION"
+    assert len(fetched) == 1  # nothing further was requested
 
 
 def test_six_core_factories_register_without_exposing_planned_tools(tmp_path):

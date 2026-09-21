@@ -86,6 +86,14 @@ class ExecutionContext:
 
     question: str
     outputs: dict[str, object] = field(default_factory=dict)
+    #: Addresses a web_search step of THIS turn returned whole, which web_url may read.
+    #: The person asked for a search and for what it finds; making them write the address
+    #: again in a second message was a product limit, not a security one (live 2026-09-21:
+    #: "TCMB Mart 2024 PPK kararını web'de ara ve özetle" found the official page and could
+    #: not read it). A page's own content still cannot become a request: only a search this
+    #: turn ran fills this, never a fetched document, and a locator whose query string was
+    #: redacted is left out because it no longer names the resource the hit named.
+    searched: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)

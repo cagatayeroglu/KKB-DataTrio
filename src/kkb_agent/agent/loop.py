@@ -33,6 +33,7 @@ from kkb_agent.agent.discovery import (
     CONTINUATION_TOOLS,
     DISCOVERY_INSTRUCTIONS,
     REQUIRED_DISCOVERY_BASE,
+    SEARCHED_CONTINUATION_TOOL,
     WEB_ADDRESS_INSTRUCTIONS,
     catalog_feedback,
     proven_identities,
@@ -86,6 +87,7 @@ from kkb_agent.llm.provider import (
     SchemaViolation,
 )
 from kkb_agent.llm.structured import schema_instructions
+from kkb_agent.tools.web_url import searched_addresses
 
 if TYPE_CHECKING:  # pragma: no cover
     from duckdb import DuckDBPyConnection
@@ -1568,8 +1570,9 @@ class Session:
             following = execute(
                 continuation.plan,
                 self.registry,
-                # Search metadata never becomes a calculation dependency.
-                context=ExecutionContext(question=question),
+                # Search metadata never becomes a calculation dependency; the addresses it
+                # returned are readable, because the reader asked for the search.
+                context=ExecutionContext(question=question, searched=searched_addresses(current)),
                 selection=self.selection,
                 budget=replace(budget, max_steps=remaining),
                 tracer=self.tracer,
@@ -2257,6 +2260,7 @@ class Session:
         continuation: bool = False,
         discovery_only: bool = False,
         auxiliary_discovery_allowed: bool = False,
+        searched_addresses: bool = False,
     ) -> str:
         """The only tool information the planner receives (M5-06).
 
@@ -2273,6 +2277,7 @@ class Session:
                     not continuation
                     or item["name"] in CONTINUATION_TOOLS
                     or (auxiliary_discovery_allowed and item["name"] == "catalog_search")
+                    or (searched_addresses and item["name"] == SEARCHED_CONTINUATION_TOOL)
                 )
                 and (not discovery_only or item["name"] in {"catalog_search", "web_search"})
             )

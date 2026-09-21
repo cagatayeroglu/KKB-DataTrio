@@ -17,12 +17,27 @@ from kkb_agent.catalog.mappings import is_listed_series
 from kkb_agent.catalog.records import CatalogStatus
 from kkb_agent.catalog.search import CatalogCandidate, CatalogSearchOutput
 from kkb_agent.core import declared_series_identities
+from kkb_agent.tools.web_search import WebSearchOutput
 
 MAX_DISCOVERY_QUERIES = 4
 MAX_DISCOVERY_BYTES = 32 * 1024
 CONTINUATION_TOOLS = frozenset(
-    {"lakehouse", "anomaly", "causality", "change_detection", "table_transform"}
+    {
+        "lakehouse",
+        "anomaly",
+        "causality",
+        "change_detection",
+        "table_transform",
+    }
 )
+#: Offered in a continuation only when this turn's own web_search returned an address, so
+#: "find the official page and summarise it" finishes in one turn (live 2026-09-21: it
+#: needed a second message from the reader). A catalogue-only discovery never unlocks it:
+#: a poisoned catalogue title would then have been a way to ask for a fetch
+#: (test_source_injection_is_data_and_cannot_expand_web_authority).
+SEARCHED_CONTINUATION_TOOL = "web_url"
+#: Tools a discovery phase may use: they find what to read without computing anything.
+DISCOVERY_TOOLS = frozenset({"catalog_search", "web_search"})
 _DISCOVERY_FIRST = (
     "Series are read by their catalogue ID. When you do not know the ID of a measure, plan "
     "catalog_search steps alone - one short Turkish keyword query per measure, at most four, "
@@ -249,6 +264,7 @@ def validate_discovery_phase(
     require_series_discovery: bool = False,
     proven_series: frozenset[str] = frozenset(),
     auxiliary_discovery_allowed: bool = False,
+    searched_addresses: bool = False,
     discovery_rounds_remaining: int = 1,
     known_series: frozenset[str] = frozenset(),
 ) -> None:
@@ -290,9 +306,12 @@ def validate_discovery_phase(
             category=RejectionCategory.DISCOVERY_RULE,
         )
     if continuation:
+        permitted = CONTINUATION_TOOLS | (
+            {SEARCHED_CONTINUATION_TOOL} if searched_addresses else frozenset()
+        )
         if "catalog_search" in names and auxiliary_discovery_allowed:
             _validate_catalog_only(plan, names)
-        elif names - CONTINUATION_TOOLS:
+        elif names - permitted:
             raise PlanRejected(
                 "Continuation permits analysis or clarification, not discovery or web",
                 category=RejectionCategory.DISCOVERY_RULE,
@@ -361,16 +380,45 @@ def catalog_feedback(outcome: ExecutionOutcome) -> str:
     Exclude source locators, samples and storage details. Reject oversized feedback
     instead of truncating potentially decisive conditions or semantic declarations.
     This function does not select a candidate or produce analytical evidence.
+
+    A web_search step is projected too: its hits are what the next call chooses an address
+    from. They stay what search output always was - untrusted discovery metadata, titles
+    and locators as the engine returned them - and only a locator the search did not
+    redact is offered, because a redacted one no longer names the page it found.
     """
     if not 1 <= len(outcome.results) <= MAX_DISCOVERY_QUERIES:
         raise ValueError("invalid discovery count")
-    observations = []
+    observations: list[dict[str, object]] = []
     for item in outcome.results:
-        if (
-            item.tool != "catalog_search"
-            or item.status is not ToolStatus.SUCCESS
-            or not isinstance(item.output, CatalogSearchOutput)
-        ):
+        if item.status is not ToolStatus.SUCCESS:
+            raise ValueError("invalid discovery output")
+        if isinstance(item.output, WebSearchOutput):
+            # Revalidated like the catalogue output beside it, in python mode: a json
+            # dump turns the candidate tuple into a list the strict model refuses.
+            found = WebSearchOutput.model_validate(item.output.model_dump())
+            observations.append(
+                {
+                    "step_id": item.step_id,
+                    "kind": "web_search",
+                    "status": found.status,
+                    "hits": [
+                        {
+                            "title": hit.title,
+                            "url": str(hit.url),
+                            "domain": hit.domain,
+                            **(
+                                {"published_at": hit.published_at.isoformat()}
+                                if hit.published_at
+                                else {}
+                            ),
+                        }
+                        for hit in found.candidates
+                        if not hit.locator_redacted
+                    ],
+                }
+            )
+            continue
+        if item.tool != "catalog_search" or not isinstance(item.output, CatalogSearchOutput):
             raise ValueError("invalid discovery output")
         # Revalidate mutated typed objects rather than trusting their class alone.
         output = CatalogSearchOutput.model_validate(item.output.model_dump(mode="json"))

@@ -46,7 +46,12 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, StringConstraints, model_validator
 
-from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
+from kkb_agent.agent.executor import (
+    ExecutionContext,
+    ExecutionOutcome,
+    ToolResult,
+    ToolStatus,
+)
 from kkb_agent.agent.registry import ToolSpec
 from kkb_agent.catalog.normalization import normalize_search_text
 from kkb_agent.core import AnalyticalResult, Scale, SourceRef
@@ -377,6 +382,27 @@ def read_attachment(
     return _loaded(loaded, source, attachment.media_type)
 
 
+def searched_addresses(source: ExecutionContext | ExecutionOutcome) -> frozenset[str]:
+    """Addresses this turn's own web_search steps returned whole.
+
+    Read from the context the executor filled (a search earlier in the same plan) or from
+    a finished discovery outcome (a search in the round before this one). A redacted
+    locator is left out: its query string was dropped for display, so it no longer names
+    the resource the hit named.
+    """
+    if isinstance(source, ExecutionContext):
+        found: set[str] = set(source.searched)
+        outputs: list[object] = list(source.outputs.values())
+    else:
+        found = set()
+        outputs = [item.output for item in source.results if item.status is ToolStatus.SUCCESS]
+    for output in outputs:
+        for candidate in getattr(output, "candidates", ()) or ():
+            if not getattr(candidate, "locator_redacted", True):
+                found.add(str(candidate.url))
+    return frozenset(found)
+
+
 def read_document(
     url: str,
     question: str,
@@ -389,17 +415,21 @@ def read_document(
     follow: str | None = None,
     endpoints: Mapping[str, str] | None = None,
     keep: Callable[[str, bytes], None] | None = None,
+    searched: frozenset[str] = frozenset(),
 ) -> DocumentRead:
     """The prompt-address boundary every document reader shares (M7-17, M7-14).
 
-    `question` must be the user's own words: only an address written there is
-    requested, through `fetch`, and the bytes meet the upload admission rules.
+    `question` must be the user's own words: an address written there is requested,
+    through `fetch`, and the bytes meet the upload admission rules. `searched` adds the
+    addresses a web_search step of this same turn returned whole - the person asked for
+    the search and for what it finds - and nothing else ever widens the set: a fetched
+    page's own content cannot name the next request.
     With `follow`, that page is read for its links and the one same-site link
     matching the name is requested instead (see `ingest.page_links`); the
     address always comes from the page bytes, never from the planner.
     A loaded result always carries its source; nothing is recorded here.
     """
-    if url not in addresses_in(question):
+    if url not in set(addresses_in(question)) | searched:
         return DocumentRead(WebUrlOutput("rejected", "URL_NOT_IN_QUESTION"), "url_not_in_question")
     if follow is not None and ENDPOINT_NAME.fullmatch(follow):
         # A data endpoint named in this turn's page outline; the address came from the
@@ -558,6 +588,7 @@ def make_web_url_tool(
                 follow=arguments.follow,
                 endpoints=endpoints,
                 keep=keep,
+                searched=searched_addresses(context),
             )
         if read.failure is not None:
             return _failed(read.failure, read.output, extra=read.reasons)
