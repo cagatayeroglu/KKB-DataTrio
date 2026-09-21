@@ -65,6 +65,11 @@ EMBEDDINGS_PATH: Final = "/embeddings"
 #: embedding vectors can reach megabytes.
 MAX_RESPONSE_BYTES: Final = 16 * 1024 * 1024
 
+#: How long one question's vector is waited for. It is a single short text (one to six
+#: seconds when measured on 2026-09-21); a search without it still has the reviewed words,
+#: and the knowledge page gives a trial under thirty seconds in all.
+QUERY_EMBEDDING_SECONDS: Final = 10.0
+
 #: Images are sent inline only — DEC-129 forbids external image URLs. The
 #: platform's own size limit is undocumented, so this cap is conservative.
 MAX_IMAGE_BYTES: Final = 8 * 1024 * 1024
@@ -205,7 +210,17 @@ class KloudeksProvider:
         # are applied above this boundary (kkb_agent.catalog.embedding, DEC-142),
         # so the provider sends exactly the texts it receives.
         document = self._post(
-            EMBEDDINGS_PATH, {"model": model, "input": items, "encoding_format": "float"}
+            EMBEDDINGS_PATH,
+            {"model": model, "input": items, "encoding_format": "float"},
+            # A search waits for its question's vector, and falls back to the words alone
+            # when there is none. The request deadline is sized for a long completion (half
+            # an hour in the served configuration), so a busy endpoint left a search, and
+            # the turn or the knowledge page behind it, waiting that long for one vector.
+            timeout=(
+                min(QUERY_EMBEDDING_SECONDS, self._config.request_timeout)
+                if kind == "query"
+                else None
+            ),
         )
         return _vectors(document, len(items))
 
@@ -283,19 +298,23 @@ class KloudeksProvider:
         )
         return Completion(text=text, model=model, finish_reason=finish)
 
-    def _post(self, path: str, body: dict[str, object]) -> dict[str, Any]:
+    def _post(
+        self, path: str, body: dict[str, object], *, timeout: float | None = None
+    ) -> dict[str, Any]:
         if path not in (CHAT_PATH, EMBEDDINGS_PATH):
             raise ProviderError("Unknown provider path")
+        allowed = self._config.request_timeout if timeout is None else timeout
         request = self._client.build_request(
             "POST",
             path,
             json=body,
             headers={"Authorization": f"Bearer {self._config.credential.get_secret_value()}"},
+            timeout=httpx.Timeout(allowed),
         )
         # Checked again per request: an absolute URL would override base_url.
         if request.url.scheme != "https" or request.url.host not in APPROVED_HOSTS:
             raise ConfigurationError("Refusing to send the credential outside the DEC-129 endpoint")
-        deadline = time.monotonic() + self._config.request_timeout
+        deadline = time.monotonic() + allowed
         try:
             response = self._client.send(request, stream=True)
         except httpx.HTTPError as error:
