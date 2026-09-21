@@ -429,6 +429,15 @@ def _catalog_planning_context(output: CatalogSearchOutput) -> dict[str, object]:
     semantic authority. Sending their score/profiling/provenance mechanics is
     therefore duplicate prompt weight, not information the planner can safely
     use. Keep declared identity, semantics, ambiguity and archive facts intact.
+
+    `clarification_required` is not sent. It is true on every output that holds a
+    candidate (DEC-165: "a candidate is never a verified selection"), so beside
+    `top_candidate="unambiguous"` it told the planner two things at once. Stored traces
+    show what that cost: 12 of 21 continuation plans that ended in a question quote the
+    flag, and the owner's run of the reference first turn asked stock-or-flow after both
+    of its searches had come back unambiguous ("unambiguous but clarification_required:
+    true. Hmm"). `top_candidate` is the signal the instructions define; the flag keeps
+    its meaning, and its tests, in the search contract.
     """
     return {
         "status": output.status,
@@ -445,7 +454,6 @@ def _catalog_planning_context(output: CatalogSearchOutput) -> dict[str, object]:
         ],
         "total_candidates": output.total_candidates,
         "truncated": output.truncated,
-        "clarification_required": output.clarification_required,
         "top_candidate": output.top_candidate,
         "excluded_archived_count": output.excluded_archived_count,
         "untrusted_metadata": True,

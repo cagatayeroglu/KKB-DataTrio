@@ -162,6 +162,11 @@ def test_catalog_feedback_removes_retrieval_mechanics_but_keeps_planning_semanti
     assert "snapshot_sha256" not in payload["results"][0]
     # DEC-165: the planner is told whether the first candidate is the default.
     assert payload["results"][0]["top_candidate"] == "unambiguous"
+    # And it is told once. The search contract's flag is true on every output that holds
+    # a candidate; beside "unambiguous" it read as the opposite instruction, and stored
+    # traces show planners stopping to ask because of it. The contract keeps the flag.
+    assert output.clarification_required is True
+    assert "clarification_required" not in payload["results"][0]
 
 
 def test_continuation_prompt_is_smaller_without_exposing_extra_tool_schemas(rig, snapshot):

@@ -148,7 +148,10 @@ def test_prepared_turn_embeds_the_instructed_query_and_still_publishes(pool, tmp
         ("query", [f"Instruct: {embedding.TASK}\nQuery:toplam konut kredisi"])
     ]
     found = discovery(provider)
-    assert found["candidates"] and found["clarification_required"]
+    # The planner is told which candidate is the default, and only that (the search
+    # contract's always-true flag is not repeated beside it).
+    assert found["candidates"] and found["top_candidate"] in ("unambiguous", "ambiguous")
+    assert "clarification_required" not in found
     assert (
         not {
             "retrieval_mode",
