@@ -20,7 +20,11 @@ from datetime import date
 from typing import TYPE_CHECKING, Final, Literal
 
 from kkb_agent.agent.cancellation import checkpoint
-from kkb_agent.agent.claim_qualifiers import causal_fault, controlled_count_label
+from kkb_agent.agent.claim_qualifiers import (
+    causal_fault,
+    controlled_count_label,
+    value_meaning,
+)
 from kkb_agent.agent.diagnostics import PlanAttempt
 from kkb_agent.agent.discovery import (
     AUXILIARY_CONTINUATION_INSTRUCTIONS,
@@ -569,7 +573,7 @@ def render_results(named: Mapping[str, AnalyticalResult], current: str | None = 
         controlled_label = controlled_count_label(named[name], value)
         for other_name, other_index, other in values:
             if (name, index) != (other_name, other_index) and _indistinguishable(value, other):
-                if value.label == other.label:
+                if value_meaning(named[name], value) == value_meaning(named[other_name], other):
                     # The same measure with the same figure is one fact: the gate binds it
                     # (DEC-186), so the writer is given it. Marking it told the writer to
                     # quote nothing of a table whose read stood beside it.

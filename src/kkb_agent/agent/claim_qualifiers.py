@@ -414,6 +414,17 @@ def controlled_count_label(result: AnalyticalResult, value: ResultValue) -> str 
     return table_count_display_label(result, value) or comovement_count_display_label(result, value)
 
 
+def value_meaning(result: AnalyticalResult, value: ResultValue) -> str:
+    """What a value measures, for deciding whether two equal figures are one fact.
+
+    A comparison labels each count with its own identity ("table comparison 3f2a...:
+    complete monthly transitions"), so two comparisons over one table never share a label
+    although both count the same 59 transitions. The controlled role phrase is what the
+    count means, and what a sentence can say; any other value means its label.
+    """
+    return controlled_count_label(result, value) or value.label
+
+
 def comovement_count_identity_fault(
     clause: str, result: AnalyticalResult, value: ResultValue
 ) -> str | None:
