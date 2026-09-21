@@ -27,6 +27,7 @@ from kkb_agent.core import (
     WeeklyAnchor,
 )
 from kkb_agent.tools._projection_provenance import provenance_fault
+from kkb_agent.tools._running_totals import declared_accumulation, running_total_limitation
 
 if TYPE_CHECKING:  # pragma: no cover
     from duckdb import DuckDBPyConnection
@@ -359,6 +360,14 @@ def project(
         )
     if excluded:
         warnings.append(f"{excluded} row(s) carried a non-numeric value and were excluded")
+    # A cell carries no cumulative kind, so without this a year-to-date figure is quoted
+    # as the month's own: "Aralık 2021'de aylık net kâr 1.200 milyon TL" where December
+    # earned 100 (served run, audit of 2026-09-21). The writer is shown limitations.
+    limitations = [
+        running_total_limitation(label, kind)
+        for label in sorted({value.label for value in values})
+        if (kind := declared_accumulation(connection, label)) is not None
+    ]
 
     return AnalyticalResult(
         result_id=result_id,
@@ -372,6 +381,7 @@ def project(
         samples=SampleCounts(used=len(values), missing=missing, excluded=excluded),
         evidence=evidence,
         warnings=warnings,
+        limitations=limitations,
         unresolved_semantics=sorted(notes),
     )
 

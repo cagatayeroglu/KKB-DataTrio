@@ -178,6 +178,15 @@ def _prepare(
                 f"The {name} series' meaning is unresolved "
                 f"({', '.join(semantics.unresolved)}); align it before comparing"
             )
+        if semantics.cumulative.value in ("since_inception", "yearly_reset"):
+            # The same refusal change, breakpoint, co_movement and anomaly already make. A
+            # running total rises all year and falls every January whatever the activity
+            # does, and that sawtooth is what would be correlated, lagged and tested.
+            return (
+                f"The {name} series accumulates ({semantics.cumulative.value}); convert it to "
+                "flow before measuring an association, or the running total's own shape is "
+                "what gets measured, not the activity"
+            )
     if left_semantics.frequency is not right_semantics.frequency:
         return (
             f"The series are published at different frequencies "

@@ -21,6 +21,7 @@ from kkb_agent.analytics.table_relationship import (
 from kkb_agent.core import AnalyticalResult, ResultKind, ResultStatus
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.lakehouse.result_evidence import _record_execution, canonical
+from kkb_agent.tools._running_totals import declared_accumulation, running_total_refusal
 
 if TYPE_CHECKING:
     from duckdb import DuckDBPyConnection
@@ -271,6 +272,15 @@ def run_table_relationship(
     columns = _deflated_columns(source, effective)
     deflated = columns.moved
     try:
+        for label in (columns.driver, columns.target, columns.when):
+            # What the store declares outranks what the values look like. A year-to-date
+            # profit with one loss month no longer "falls within calendar years", so the
+            # inference below took it for a level and counted the running total's rises.
+            accumulates = declared_accumulation(connection, label) if label else None
+            if label and accumulates is not None:
+                raise TableComparisonRefused(
+                    running_total_refusal(label, accumulates, "a direction comparison")
+                )
         result = compare_table_directions(
             source,
             driver_column=columns.driver,
