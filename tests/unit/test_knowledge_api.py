@@ -859,6 +859,59 @@ def test_the_whole_directory_is_browsed_one_page_at_a_time(tmp_path):
         knowledge.close()
 
 
+def test_a_page_does_not_rebuild_the_whole_catalogue_every_time(tmp_path, monkeypatch):
+    """Live 2026-09-21: with 8,374 listed series every list request rebuilt the effective
+    catalogue (about a second) and the search text of all of it (3.5 s) to show fifty; the
+    page asks for several things at once, the list passed the client's 12 s and the reader
+    saw "Bağlantı kesildi" under an empty list."""
+    from kkb_agent.api import knowledge_service as module
+    from kkb_agent.catalog.directory import source_directory
+    from kkb_agent.catalog.mappings import load_reviewed_snapshot
+
+    built = {"catalogue": 0, "texts": 0}
+    snapshot, documents = module.effective_snapshot, module.catalog_documents
+
+    def counted_snapshot(*args, **kwargs):
+        built["catalogue"] += 1
+        return snapshot(*args, **kwargs)
+
+    def counted_documents(*args, **kwargs):
+        built["texts"] += 1
+        return documents(*args, **kwargs)
+
+    monkeypatch.setattr(module, "effective_snapshot", counted_snapshot)
+    monkeypatch.setattr(module, "catalog_documents", counted_documents)
+    store = ConversationStore(tmp_path / "c.sqlite")
+    knowledge = KnowledgeStore(tmp_path / "k.sqlite")
+    _, token = store.create_owner()
+    service = KnowledgeService(
+        knowledge,
+        store,
+        load_reviewed_snapshot(CATALOG.read_bytes()),
+        prepared=frozenset({TOTAL}),
+        source_directory=source_directory(),
+    )
+    try:
+        first = service.listing(token, tab="listed", page=1)
+        for page in (2, 3):
+            service.listing(token, tab="listed", page=page)
+        service.listing(token, tab="all", query="konut", page=1)
+        assert built == {"catalogue": 1, "texts": 1}
+        assert first.series[0].search_text
+        # What a person says about a series changes what search reads: built again, once.
+        target = first.series[0].series_id
+        service.annotate(token, target, SeriesNoteRequest(archived=False, note="kendi notum"))
+        after = service.listing(token, tab="listed", page=1)
+        service.listing(token, tab="listed", page=2)
+        assert built == {"catalogue": 2, "texts": 2}
+        noted = next(item for item in after.series if item.series_id == target)
+        assert noted.note == "kendi notum" and "kendi notum" in (noted.search_text or "")
+        assert after.catalog_digest != first.catalog_digest
+    finally:
+        store.close()
+        knowledge.close()
+
+
 def test_the_list_route_takes_its_view_as_a_bounded_query(api):
     key = {"X-KKB-Owner-Token": owner(api)}
     shown = api.get("/v1/knowledge?tab=reviewed&page=1&page_size=5", headers=key)
