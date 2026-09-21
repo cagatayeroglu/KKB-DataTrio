@@ -189,6 +189,13 @@ def test_each_dated_figure_is_read_under_the_date_that_introduces_it():
     assert not verify_claims(swapped, _january_and_june()).accepted
 
 
+def test_a_month_written_as_digits_is_a_date_and_never_the_figure_after_it():
+    # "2026-06" once read as the year 2026 followed by a figure "06", which made the
+    # clause look paired and let an unrecorded second month through.
+    second_month = "Ocak 2025'te bakiye 100 milyon TL (2026-06 fiyatlarıyla)."
+    assert not verify_claims(second_month, _january_and_june()).accepted
+
+
 def test_two_dates_that_share_one_figure_both_have_to_hold():
     # Nothing stands between the two dates, so the clause pairs nothing: the figure is
     # claimed for both months, and it is only January's.

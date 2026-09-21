@@ -472,6 +472,13 @@ def mask_price_references(text: str, references: Sequence[date]) -> str:
 def _dated_mentions(context: str) -> list[tuple[int, int]]:
     """Where a clause names a period: a date, a month with its year, or a year alone."""
     spans = [(found.start(), found.end()) for found in ISO_DATE.finditer(context)]
+    # "2026-06" is one mention. Read as a year with a stray "-06" after it, the "06" counted
+    # as a figure standing after the last date, and a price month nobody recorded paired off.
+    spans += [
+        (found.start(), found.end())
+        for found in YEAR_MONTH.finditer(context)
+        if not any(start <= found.start() < end for start, end in spans)
+    ]
     for found in MONTH.finditer(context):
         rest = context[found.end() :]
         year = YEAR.match(rest.lstrip())
