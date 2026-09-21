@@ -282,6 +282,43 @@ def test_injection_is_inert_and_search_cannot_support_a_numeric_answer():
     assert text not in str(provider.seen)
 
 
+def test_a_read_names_the_hit_it_wants_and_never_writes_the_address_out():
+    """Live 2026-09-22: asked to read what the search found, the planner wrote a TCMB
+    address from memory instead of the one the search had returned, and the read was
+    refused as an address nobody had asked for. The planner names the hit; the address
+    comes from the search output the executor already holds."""
+    from kkb_agent.tools import WebUrlArguments, make_web_url_tool
+
+    found = call([hit()]).output
+    fetched: list[object] = []
+
+    def record(request, **kwargs):
+        fetched.append(request)
+        raise AssertionError("fetch attempted")
+
+    tool = make_web_url_tool(fetch=record)
+    context = ExecutionContext("resmi sayfayı bul ve özetle")
+    context.outputs["ara"] = found
+
+    with pytest.raises(AssertionError, match="fetch attempted"):
+        tool.run(WebUrlArguments(found_by="ara", result=1), context)
+    assert len(fetched) == 1  # the hit's own address reached the fetcher
+
+    # The step it names is declared, so the executor runs the search first.
+    assert tool.required_steps(WebUrlArguments(found_by="ara")) == ("ara",)
+    assert tool.required_steps(WebUrlArguments(url="https://example.test/a")) == ()
+
+    # A hit that is not there is refused in its own words, and nothing is fetched.
+    missing = tool.run(WebUrlArguments(found_by="ara", result=9), context)
+    assert missing.output.code == "SEARCH_RESULT_NOT_FOUND" and len(fetched) == 1
+    empty = tool.run(WebUrlArguments(found_by="yok"), ExecutionContext("q"))
+    assert empty.output.code == "SEARCH_RESULT_NOT_FOUND" and len(fetched) == 1
+
+    # One source at a time: an address and a hit together name two pages.
+    with pytest.raises(ValidationError):
+        WebUrlArguments(found_by="ara", url="https://example.test/a")
+
+
 def test_a_url_search_found_is_readable_in_the_same_turn_and_nothing_else_is():
     """The reader asked for the search and for what it finds.
 

@@ -155,6 +155,22 @@ class WebUrlArguments(BaseModel):
         default=False,
         description="true to read a document uploaded in this conversation instead of a url",
     )
+    found_by: str | None = Field(
+        default=None,
+        pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
+        description=(
+            "Instead of url: the step_id of a web_search step of this plan, to read one of "
+            "the pages it found. Say which with `result` and list the step in depends_on. "
+            "Use this rather than writing an address out of a search result: the address is "
+            "taken from what the search returned, so it is the page that was found"
+        ),
+    )
+    result: int = Field(
+        default=1,
+        ge=1,
+        le=10,
+        description="With found_by: which hit to read, 1 for the first the search returned",
+    )
     follow: str | None = Field(
         default=None,
         min_length=1,
@@ -261,12 +277,13 @@ class WebUrlArguments(BaseModel):
 
     @model_validator(mode="after")
     def _column_and_row_together(self) -> WebUrlArguments:
-        if (self.url is None) == (not self.attached):
-            raise ValueError("give either url or attached=true, not both or neither")
+        sources = sum((self.url is not None, self.attached, self.found_by is not None))
+        if sources != 1:
+            raise ValueError("give exactly one of url, attached=true or found_by")
         if self.document is not None and not self.attached:
             raise ValueError("document names an upload; it needs attached=true")
-        if self.follow is not None and self.url is None:
-            raise ValueError("follow names a link on the page at url")
+        if self.follow is not None and self.attached:
+            raise ValueError("follow names a link on a page, not in an uploaded document")
         if (self.period_column is None) != (self.value_columns is None):
             raise ValueError("period_column and value_columns build a table together")
         if self.period_column is not None and self.column is not None:
@@ -380,6 +397,30 @@ def read_attachment(
             "not_admitted",
         )
     return _loaded(loaded, source, attachment.media_type)
+
+
+def _found_address(context: ExecutionContext, step_id: str, rank: int) -> str | None:
+    """The address a web_search step of this plan returned at `rank`, or None.
+
+    The planner names the hit, never the address: asked to read what a search found, it
+    wrote a TCMB address from memory instead of the one the search had returned, and the
+    read was refused as an address nobody had asked for (live 2026-09-22). A redacted
+    locator is not offered, because it no longer names the page that was found.
+    """
+    output = context.outputs.get(step_id)
+    hits = [
+        candidate
+        for candidate in (getattr(output, "candidates", ()) or ())
+        if not getattr(candidate, "locator_redacted", True)
+    ]
+    return str(hits[rank - 1].url) if 0 < rank <= len(hits) else None
+
+
+def _required_steps(arguments: BaseModel) -> tuple[str, ...]:
+    """The search step a read names, so the executor runs it first."""
+    if isinstance(arguments, WebUrlArguments) and arguments.found_by is not None:
+        return (arguments.found_by,)
+    return ()
 
 
 def searched_addresses(source: ExecutionContext | ExecutionOutcome) -> frozenset[str]:
@@ -574,11 +615,21 @@ def make_web_url_tool(
             read = read_attachment(
                 chosen, delimiter=arguments.delimiter, sheet=arguments.sheet, ocr=ocr
             )
-        elif fetch is None or arguments.url is None:
+        elif fetch is None:
             return _failed("fetch_failed", WebUrlOutput("rejected", "NETWORK_DISABLED"))
         else:
+            address = arguments.url
+            if arguments.found_by is not None:
+                address = _found_address(context, arguments.found_by, arguments.result)
+                if address is None:
+                    return _failed(
+                        "needs_input",
+                        WebUrlOutput("rejected", "SEARCH_RESULT_NOT_FOUND"),
+                    )
+            if address is None:  # pragma: no cover - the validator admits no third case
+                return _failed("fetch_failed", WebUrlOutput("rejected", "NETWORK_DISABLED"))
             read = read_document(
-                arguments.url,
+                address,
                 context.question,
                 fetch=fetch,
                 delimiter=arguments.delimiter,
@@ -731,7 +782,10 @@ def make_web_url_tool(
         description=(
             "Read CSV/XLSX tables, PDF text/ruled tables, or static HTML text/tables from a "
             "web address the user wrote in the question. Pass the address exactly as "
-            "written; any other address is refused. PDF tables may be ruled or set out with "
+            "written; any other address is refused. To read a page a web_search step of "
+            "this plan found, do not write its address out: give found_by=<that step_id> "
+            "with result=<which hit>, and list the step in depends_on - the address is then "
+            "taken from what the search returned. PDF tables may be ruled or set out with "
             "text alone. A CSV's column separator is detected "
             "from the file: give delimiter only when the user states one, and a CSV whose "
             "separator cannot be detected needs it stated; a workbook with several sheets "
@@ -768,6 +822,7 @@ def make_web_url_tool(
         ),
         arguments=WebUrlArguments,
         run=run,
+        required_steps=_required_steps,
     )
 
 

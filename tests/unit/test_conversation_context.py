@@ -31,22 +31,34 @@ CREDIT_VALUES = (100.0, 120.0, 150.0)
 CPI_VALUES = (100.0, 110.0, 120.0)
 
 
-def test_independent_question_does_not_inherit_istanbul_prose_but_reference_does():
-    previous = (("İstanbul konut kredilerini göster.", "İstanbul tablosu hazır."),)
-    independent = scripted(proposal(clarification="unsupported_request"))
-    Session(independent, ToolRegistry(), history=previous).plan(
-        "2021-2025 Türkiye konut kredisi bakiyesi nedir?"
-    )
-    assert not any("İstanbul" in item.content for item in independent.seen[0])
-    assert not any(previous[0][0] in item.content for item in independent.seen[0])
-    assert not any(
-        item.content.startswith("Earlier turns of this conversation")
-        for item in independent.seen[0]
-    )
+def test_the_conversation_is_shown_whatever_the_next_question_looks_like():
+    """Which turns are a follow-up is the planner's reading, not a word list's.
 
-    followup = scripted(proposal(clarification="unsupported_request"))
-    Session(followup, ToolRegistry(), history=previous).plan("Aynı tabloya KFE ekle")
-    assert any("İstanbul" in item.content for item in followup.seen[0])
+    A word list decided this until 2026-09-22 ("bu tablo", "önceki cevap", "aynı seri").
+    It let "grafiği çiz bi" through as a question about nothing: four words, no
+    conversation, answered as if nothing had been asked before. The block is six turns of
+    questions and answer text, about 500 bytes beside a 42 KB prompt, and its header says
+    what it is for - resolving a reference - and that its figures are not evidence.
+    """
+    previous = (("İstanbul konut kredilerini göster.", "İstanbul tablosu hazır."),)
+    for question in ("2021-2025 Türkiye konut kredisi bakiyesi nedir?", "grafiği çiz bi"):
+        provider = scripted(proposal(clarification="unsupported_request"))
+        Session(provider, ToolRegistry(), history=previous).plan(question)
+        shown = [
+            item.content
+            for item in provider.seen[0]
+            if item.content.startswith("Earlier turns of this conversation")
+        ]
+        assert len(shown) == 1, question
+        assert "İstanbul" in shown[0]
+        assert "figures in them are not new evidence" in shown[0]
+
+    # A conversation that has not started shows nothing.
+    fresh = scripted(proposal(clarification="unsupported_request"))
+    Session(fresh, ToolRegistry()).plan("İstanbul konut kredilerini göster.")
+    assert not any(
+        item.content.startswith("Earlier turns of this conversation") for item in fresh.seen[0]
+    )
 
 
 @pytest.fixture

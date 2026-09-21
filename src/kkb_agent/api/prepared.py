@@ -1494,6 +1494,12 @@ class PreparedRunner:
         recorded as a receipt, never as an `AnalyticalResult`: nothing was computed.
         """
         self._drop_offer(session_id)
+        # "evet" answered the offer, not whatever clarification an earlier turn left
+        # waiting. Kept, it was prepended to the next free question as "Orijinal istek:"
+        # and the reader's new request was answered as the old one (live 2026-09-22).
+        self._pending_clarifications.pop(session_id, None)
+        if self._store is not None:
+            self._store.set_pending_clarification(session_id, None)
         if self._promote is None:  # pragma: no cover - the tool is not offered without it
             raise ServiceError("unavailable", 503)
         try:

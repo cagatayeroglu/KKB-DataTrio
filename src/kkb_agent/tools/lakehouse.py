@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from typing import TYPE_CHECKING, Annotated, Any
@@ -54,6 +54,10 @@ from kkb_agent.agent.registry import ToolSpec
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
 from kkb_agent.core import AnalyticalResult, OpaqueSeriesReference, ResultStatus, SeriesId
 from kkb_agent.database import all_tables
+from kkb_agent.ingest.prepared_series import (
+    prepared_series_coverage,
+    prepared_series_window,
+)
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.lakehouse.result_evidence import _record_execution, canonical
 from kkb_agent.tools import _projection
@@ -349,6 +353,7 @@ def make_lakehouse_tool(
     max_rows: int = DEFAULT_MAX_ROWS,
     lineage: Lineage | None = None,
     inspector: PreparedSeriesInspector | None = None,
+    series_names: Mapping[str, str] | None = None,
 ) -> ToolSpec:
     """Bind the tool to one database. The registry holds the closure, not the data.
 
@@ -400,6 +405,25 @@ def make_lakehouse_tool(
                     tool="lakehouse",
                     error_category="series_unknown",
                     warnings=("Series cannot be read: " + "; ".join(refused),),
+                )
+            outside = _outside_stored_window(connection, arguments)
+            if outside:
+                # A period the store does not hold is not an empty series. Read bare, it
+                # returned "The query returned no rows" and the turn abstained without
+                # saying why (live 2026-09-22: 2019 asked of a series stored from 2021).
+                # What is stored is said here, so the planner can ask for a period that
+                # exists or tell the reader plainly.
+                return ToolResult(
+                    ToolStatus.FAILURE,
+                    step_id="",
+                    tool="lakehouse",
+                    error_category="needs_input",
+                    warnings=(
+                        "The period asked for is outside what is stored: "
+                        + "; ".join(outside)
+                        + ". Read a period inside that window, or say that the store does "
+                        "not reach the one asked for.",
+                    ),
                 )
             since = None
             if arguments.last is not None:
@@ -499,13 +523,54 @@ def make_lakehouse_tool(
 
     return ToolSpec(
         name="lakehouse",
-        description=_describe(readable),
+        description=_describe(readable, _stored_windows(connection, series_names)),
         arguments=LakehouseRequest,
         run=run,
     )
 
 
-def _describe(readable: Iterable[str]) -> str:
+def _stored_windows(connection: DuckDBPyConnection, names: Mapping[str, str] | None) -> str:
+    """Each named series and the window the store holds for it, for the planner to read.
+
+    change_detection and causality carry this; the tool that actually reads a series did
+    not, so the planner asked 2019 of a series stored from 2021 and read nothing (live
+    2026-09-22).
+    """
+    if not names:
+        return ""
+    coverage = prepared_series_coverage(connection)
+    listed = "; ".join(
+        f"{identity}: {name}" + (f" [{coverage[identity]}]" if identity in coverage else "")
+        for identity, name in names.items()
+    )
+    return (
+        " Prepared series (series_id: meaning [stored window]): " + listed + "." if listed else ""
+    )
+
+
+def _outside_stored_window(connection: DuckDBPyConnection, arguments: SeriesRead) -> list[str]:
+    """Series whose stored window does not meet the period this read asks for.
+
+    Only a read that names its own period can be outside one; `last` counts back from what
+    is stored and is always inside it.
+    """
+    if arguments.start is None and arguments.end is None:
+        return []
+    coverage = prepared_series_window(connection)
+    outside: list[str] = []
+    for identity in arguments.series:
+        window = coverage.get(identity)
+        if window is None:
+            continue
+        first, last = window
+        if (arguments.end is not None and arguments.end < first) or (
+            arguments.start is not None and arguments.start > last
+        ):
+            outside.append(f"{identity} holds {first.isoformat()}..{last.isoformat()}")
+    return outside
+
+
+def _describe(readable: Iterable[str], windows: str = "") -> str:
     # The planner reads this text; nothing here is ever executed. It is the tool's
     # description, returned for ToolSpec.description, and the only interpolation is
     # the list of readable table names. Bandit's B608 heuristic sees SQL words beside
@@ -520,7 +585,7 @@ def _describe(readable: Iterable[str]) -> str:
         "a column labelled by its id, and a reviewed series the store lacks is fetched from "
         "its official source first. Use sql only for what that cannot express: "
         "run one read-only SELECT over the analysis tables. "  # nosec B608
-        f"Readable tables: {', '.join(sorted(readable))}. "
+        f"Readable tables: {', '.join(sorted(readable))}. " + windows + " "
         "Only SELECT is accepted; no table functions, no writes, no other tables."
         " Measurements require direct columns: select o.series_id, o.period_start,"
         " o.period_end and o.value from silver_observations o. Each row's unit, scale,"
