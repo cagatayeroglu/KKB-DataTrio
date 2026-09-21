@@ -65,6 +65,7 @@ from kkb_agent.agent.verifier import (
     DEFAULT_TOLERANCE,
     AnswerStatus,
     GatedAnswer,
+    OmittedSentence,
     Verdict,
     gate_answer,
     result_faults,
@@ -793,6 +794,13 @@ def promotion_offer(outcome: ExecutionOutcome) -> str | None:
         if isinstance(summary, str) and summary.strip():
             return summary.strip()
     return None
+
+
+def _part_of(sentence: str, footnote: str) -> bool:
+    """Whether a withheld sentence is this footnote, or one sentence of it."""
+    sentence = " ".join(sentence.split())
+    footnote = " ".join(footnote.split())
+    return bool(sentence) and (sentence in footnote or footnote in sentence)
 
 
 def plan_assumptions(planned: Planned, outcome: ExecutionOutcome) -> tuple[str, ...]:
@@ -1595,17 +1603,46 @@ class Session:
         )
         if self.tracer is not None and fast_draft is None:
             self.tracer.event("answer", "draft.model", source="model", detail=draft)
-        closing = [
-            *plan_assumptions(planned, outcome),
-            *([CAUSE_NOTE] if asks_about_cause(question) else []),
-        ]
+        footnotes = list(plan_assumptions(planned, outcome))
+        cause_note = [CAUSE_NOTE] if asks_about_cause(question) else []
+        withheld_footnotes: list[OmittedSentence] = []
 
-        def with_assumptions(text: str) -> str:
-            # Added before gating, never after: a sentence the gate has not read is a
-            # sentence nobody checked, whoever wrote it.
-            return "\n".join([text, *closing]) if closing else text
+        def gated_with_footnotes(text: str) -> GatedAnswer:
+            """The draft and what stands under it, through the gate together.
 
-        answer = self._gated(with_assumptions(draft), available, connection, gate)
+            Added before gating, never after: a sentence the gate has not read is a
+            sentence nobody checked, whoever wrote it. But a footnote is a courtesy and
+            not the answer. One the gate cannot bind ("son 24 ay kullanıldı", or a reason
+            written with "nedeniyle") used to turn an ACCEPTED answer QUALIFIED, and a
+            QUALIFIED answer publishes no table for the next turn to build on. So a
+            refused footnote falls alone: the answer is gated again without it, and the
+            refusal is still reported with the answer's other omissions.
+            """
+            while True:
+                closing = [*footnotes, *cause_note]
+                found = self._gated(
+                    "\n".join([text, *closing]) if closing else text, available, connection, gate
+                )
+                refused = [
+                    note
+                    for note in footnotes
+                    if any(_part_of(item.text, note) for item in found.omitted)
+                ]
+                if not refused:
+                    return found
+                withheld_footnotes.extend(
+                    item
+                    for item in found.omitted
+                    if any(_part_of(item.text, note) for note in refused)
+                )
+                for note in refused:
+                    footnotes.remove(note)
+                    if self.tracer is not None:
+                        self.tracer.event(
+                            "verification", "assumption.withheld", source="planner", detail=note
+                        )
+
+        answer = gated_with_footnotes(draft)
         faults = result_faults(
             {name: available[name]},
             connection,
@@ -1656,7 +1693,7 @@ class Session:
                     category="period" if period_repair else "numeric",
                     detail=rewritten,
                 )
-            answer = self._gated(with_assumptions(rewritten), available, connection, gate)
+            answer = gated_with_footnotes(rewritten)
             repaired.add("period" if period_repair else "numeric")
         # Sound prose that omits this turn's scalar is not a complete answer.
         # Only an already ACCEPTED draft may receive the deterministic sentence;
@@ -1767,6 +1804,10 @@ class Session:
             if table is not None and not faults and answer.status is not AnswerStatus.ABSTAINED
             else ()
         )
+        if withheld_footnotes:
+            # Said with the answer's other omissions, so the reader still learns that a
+            # sentence was withheld; it no longer decides the status or the publication.
+            answer = replace(answer, omitted=(*answer.omitted, *withheld_footnotes))
         if CAUSE_NOTE in answer.text and CAUSE_LIMITATION not in answer.limitations:
             # The sentence is in the answer where the reader is; this records for the
             # proof panel whose sentence it is and why the turn carries one.
