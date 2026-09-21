@@ -32,12 +32,54 @@ import {
 import type { Cell, Dataset, Result } from "@/lib/contracts";
 import { download, evidencePackage, exportName, tableCsv } from "@/lib/export";
 
-export function ResultTable({
+/**
+ * The table as the reader asked for it. A column they asked to convert ("enflasyondan
+ * arındır", not "yeni sütun ekle") is still in the result - the proof and the next turn
+ * read it - and is not shown until they ask to see it.
+ */
+export function ResultTable(props: {
+  result: Result;
+  dataset: Dataset | null;
+  context?: { question?: string; answer?: string };
+}) {
+  const [showHidden, setShowHidden] = useState(false);
+  const hidden = props.result.hidden_columns;
+  const shown = useMemo(
+    () =>
+      hidden.length && !showHidden
+        ? {
+            ...props.result,
+            cells: props.result.cells.filter(
+              (cell) => !hidden.includes(cell.label),
+            ),
+          }
+        : props.result,
+    [props.result, hidden, showHidden],
+  );
+  return (
+    <>
+      {hidden.length > 0 && (
+        <p className="notice hidden-columns">
+          Dönüştürülen {hidden.length} sütunun özgün hâli{" "}
+          {showHidden ? "gösteriliyor" : "gizli"}.{" "}
+          <button type="button" onClick={() => setShowHidden((old) => !old)}>
+            {showHidden ? "Gizle" : "Göster"}
+          </button>
+        </p>
+      )}
+      <ResultTableView {...props} result={shown} full={props.result} />
+    </>
+  );
+}
+
+function ResultTableView({
   result,
+  full,
   dataset,
   context,
 }: {
   result: Result;
+  full: Result;
   dataset: Dataset | null;
   context?: { question?: string; answer?: string };
 }) {
@@ -160,7 +202,7 @@ export function ResultTable({
             title="Soru, cevap, sürüm, her hücre ve kanıt zinciri tek dosyada"
             onClick={() =>
               download(
-                evidencePackage(result, context),
+                evidencePackage(full, context),
                 exportName(result, "json", "-kanit"),
                 "application/json",
               )

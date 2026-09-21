@@ -185,6 +185,28 @@ def tool(lake, workspace):
     )
 
 
+def test_a_column_the_reader_asked_to_convert_is_kept_in_the_record_and_not_shown(pool):
+    # "Tabloyu bozmadan sadece konut kredisi tutarlarını enflasyondan arındır" asks for the
+    # column converted, where the next question says "yeni bir sütun olarak". The nominal
+    # column stays in the result - the proof and the next step read it - and the reader's
+    # table and chart show the real one in its place. Which was meant is the planner's call.
+    from kkb_agent.agent.verifier import result_faults
+    from kkb_agent.api.projection import project_result
+
+    lake, workspace = pool
+    source = workspace.value_of("konut_kredisi_ve_faiz")
+    kept = tool(lake, workspace).run(transform(), ExecutionContext("turn 2")).output
+    assert "hidden_columns" not in kept.parameters
+    result = tool(lake, workspace).run(transform(replace=True), ExecutionContext("turn 2")).output
+    assert result.status is ResultStatus.COMPUTED
+    assert result.values[: len(source.values)] == source.values  # nothing was removed
+    assert result.parameters["hidden_columns"] == [TOTAL_ID]
+    assert result_faults({"real": result}, lake.connection) == {}
+    shown = project_result(result, turn_id="0" * 32)
+    assert shown.hidden_columns == (TOTAL_ID,)
+    assert any(cell.label == TOTAL_ID for cell in shown.cells)
+
+
 def test_deflate_keeps_every_published_value_and_adds_one_column(pool):
     lake, workspace = pool
     source = workspace.value_of("konut_kredisi_ve_faiz")

@@ -344,7 +344,7 @@ def test_turn_three_supported_count_and_safe_decimal_format_bind(pool, written):
     final = outcome.results[-1].output
 
     gated = gate_answer(
-        f"Koşul altında iki yönü birlikte karşılayan dönem sayısı {written}.",
+        f"İki hareketin aynı ayda birlikte görüldüğü ay sayısı {written}.",
         {"comparison": final},
         pool[0].connection,
     )
@@ -355,7 +355,7 @@ def test_turn_three_supported_count_and_safe_decimal_format_bind(pool, written):
         "eligible transitions matching both directions"
     )
     context = render_results({"comparison": final})
-    assert "Koşul altında iki yönü birlikte karşılayan dönem sayısı: display 1" in context
+    assert "İki hareketin aynı ayda birlikte görüldüğü ay sayısı: display 1" in context
 
 
 @pytest.mark.parametrize(
@@ -364,7 +364,7 @@ def test_turn_three_supported_count_and_safe_decimal_format_bind(pool, written):
         "Koşul altındaki dönemlerin oranı %17 oldu.",
         "Tabloda 6 aylık gözlem vardır.",
         "Koşul altında iki yönü birlikte karşılayan 19 ay vardır.",
-        "Koşul altında hedef yönünü karşılayan dönem sayısı 1 ay.",
+        "İkinci serinin belirtilen yönde hareket ettiği ay sayısı 1 ay.",
         "Mart 2021 döneminde price 105 endeks oldu.",
     ],
 )
@@ -381,7 +381,7 @@ def test_turn_three_derived_fabricated_or_misattributed_numbers_stay_rejected(po
 def test_turn_three_supported_claim_does_not_rescue_fabricated_extra_number(pool):
     outcome = execute(validate_plan(plan(), registry_for(pool)), registry_for(pool))
     final = outcome.results[-1].output
-    supported = "Koşul altında iki yönü birlikte karşılayan dönem sayısı 1 ay."
+    supported = "İki hareketin aynı ayda birlikte görüldüğü ay sayısı 1 ay."
 
     gated = gate_answer(
         supported + " Ayrıca desteklenmeyen 19 dönem vardır.",
@@ -397,8 +397,8 @@ def test_turn_three_supported_claim_does_not_rescue_fabricated_extra_number(pool
 @pytest.mark.parametrize(
     ("repaired", "accepted"),
     [
-        ("Koşul altında iki yönü birlikte karşılayan dönem sayısı 1 ay.", True),
-        ("Koşul altında iki yönü birlikte karşılayan dönem sayısı 19 ay.", False),
+        ("İki hareketin aynı ayda birlikte görüldüğü ay sayısı 1 ay.", True),
+        ("İki hareketin aynı ayda birlikte görüldüğü ay sayısı 19 ay.", False),
     ],
 )
 def test_turn_three_numeric_rewrite_reverifies_before_publication(pool, repaired, accepted):
@@ -581,7 +581,7 @@ class TestNominalAndRealAreNotInterchangeable:
         ][: len(table().values)]
 
 
-SUPPORTED_COUNT = "Koşul altında iki yönü birlikte karşılayan dönem sayısı 1 ay."
+SUPPORTED_COUNT = "İki hareketin aynı ayda birlikte görüldüğü ay sayısı 1 ay."
 #: A figure that is none of the result's values: the numeric-rewrite category. (An index
 #: base of 100 used to stand here; several values equal to it under one label are now one
 #: fact, and "2023=100" is part of a name, so neither is a fault any more.)
@@ -661,7 +661,7 @@ class TestOneRewritePerWordingProblem:
             pool,
             NUMERIC_ONLY_DRAFT,
             PERIOD_ONLY_DRAFT,
-            "Koşul altında iki yönü birlikte karşılayan dönem sayısı 19 ay.",
+            "İki hareketin aynı ayda birlikte görüldüğü ay sayısı 19 ay.",
         )
 
         assert len(provider.seen) == 4
@@ -686,8 +686,8 @@ class TestOneRewritePerWordingProblem:
 
 
 INHERITED_LABEL = "transitions where rate fell and credit did not rise"
-INHERITED_PHRASE = "Sürücü düşerken hedefin artmadığı geçiş sayısı"
-JOINT_PHRASE = "Koşul altında iki yönü birlikte karşılayan dönem sayısı"
+INHERITED_PHRASE = "Birinci seri düşerken ikinci serinin artmadığı ay sayısı"
+JOINT_PHRASE = "İki hareketin aynı ayda birlikte görüldüğü ay sayısı"
 
 
 def with_inherited_count(value):
@@ -1170,3 +1170,25 @@ def test_a_count_two_comparisons_share_is_one_fact_for_the_gate_and_the_writer(p
     # A bare figure that several different counts share still names none of them.
     bare = gate_answer(f"Sonuç {shared.value:.0f} aydır.", named, pool[0].connection)
     assert bare.status is AnswerStatus.ABSTAINED
+
+
+def test_the_counts_are_headed_by_which_series_moved_which_way():
+    # "Koşul altında sürücü yönünü karşılayan dönem sayısı 32" told a reader nothing about
+    # what had been counted. The line above the counts names the columns and directions.
+    from kkb_agent.agent.presentation import comparison_heading
+
+    assert comparison_heading(compare()) == (
+        "Birinci seri: price, yükseldiği aylar sayıldı. "
+        "İkinci seri: credit, yükselmediği aylar sayıldı. "
+        "Ön koşul: rate, düştüğü aylar sayıldı."
+    )
+    # A name with a digit in it would be read by the gate as a figure: no heading then.
+    numbered = table().model_copy(
+        update={
+            "values": [
+                v.model_copy(update={"label": "rate2"}) if v.label == "rate" else v
+                for v in table().values
+            ]
+        }
+    )
+    assert comparison_heading(compare(numbered, when_column="rate2")) is None

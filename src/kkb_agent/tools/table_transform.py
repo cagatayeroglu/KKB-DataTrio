@@ -109,6 +109,17 @@ NOMINAL_LIMITATION = "Values are nominal; no inflation adjustment was applied"
 #: full (1.7 KB of the planner's prompt saying one thing).
 _SOURCE = "The table to work on: a published table's name, or a table step_id of this plan"
 _SOURCE_UNCHANGED = _SOURCE
+#: A derived column is a copy beside the column it was made from, so nothing is lost and
+#: every figure can be traced. "Convert this column" asks for something else: the table the
+#: reader looks at should hold the converted column in the original's place. The original
+#: stays in the record (the proof and the next step can still read it) and is no longer
+#: shown. Which of the two the reader meant is the planner's reading of the question.
+_REPLACE = (
+    "true when the reader asks to convert the column itself (show it deflated, rebased, as "
+    "a flow, as its change) rather than to add a column: the original is kept in the record "
+    "and no longer shown in the table and the chart"
+)
+HIDDEN_COLUMNS = "hidden_columns"
 _OTHER = "The table to take columns from: a published table's name, or a table step_id of this plan"
 
 
@@ -139,6 +150,7 @@ class DeflateArguments(BaseModel):
             "for example the table's last month"
         )
     )
+    replace: bool = Field(default=False, description=_REPLACE)
 
     @model_validator(mode="after")
     def month_end(self) -> Self:
@@ -163,6 +175,7 @@ class ToFlowArguments(BaseModel):
         max_length=400,
         description="The cumulative column's exact label in that result; it is a series id",
     )
+    replace: bool = Field(default=False, description=_REPLACE)
 
 
 class ResampleArguments(BaseModel):
@@ -342,6 +355,7 @@ class RebaseArguments(BaseModel):
     )
     reference_period: date = Field(description="Existing period end that becomes the new base")
     new_base: float = Field(strict=True, gt=0, description="Explicit new index level, usually 100")
+    replace: bool = Field(default=False, description=_REPLACE)
 
 
 class ChangeArguments(BaseModel):
@@ -373,6 +387,7 @@ class ChangeArguments(BaseModel):
         description="Periods back to compare with: 1 for the previous period, 12 for a year "
         "earlier on monthly data",
     )
+    replace: bool = Field(default=False, description=_REPLACE)
 
 
 class AlignArguments(BaseModel):
@@ -780,6 +795,26 @@ def make_table_transform_tool(
                     },
                 }
             )
+        if (
+            isinstance(
+                selected, (DeflateArguments, ToFlowArguments, RebaseArguments, ChangeArguments)
+            )
+            and selected.replace
+            and result.status is ResultStatus.COMPUTED
+        ):
+            # Said on the result before it is recorded, so the record and every later table
+            # built on this one carry it: a column the reader asked to convert stays
+            # converted in the next turn's table too.
+            hidden = result.parameters.get(HIDDEN_COLUMNS)
+            shown = [*(hidden if isinstance(hidden, list) else []), selected.column]
+            result = result.model_copy(
+                update={
+                    "parameters": {
+                        **result.parameters,
+                        HIDDEN_COLUMNS: list(dict.fromkeys(shown)),
+                    }
+                }
+            )
         recorded = _recorded_arguments(selected)
         node = None
         if lineage is not None and result.status is ResultStatus.COMPUTED:
@@ -827,7 +862,9 @@ def make_table_transform_tool(
             + "another table_transform). A column is named by its exact label; the "
             "column of a series read in this plan is labelled by its series_id. Every "
             "operation keeps the old columns and leaves the source as it was; no empty cell "
-            "is ever filled and no SQL is accepted. Whether columns move together is "
+            "is ever filled and no SQL is accepted. deflate, rebase, to_flow and change take "
+            "`replace`: true when the reader asks to convert a column rather than to add "
+            "one. Whether columns move together is "
             "change_detection's table_co_movement, not this tool.\n"
             "- deflate: inflation-adjusted copy of a currency column (a credit balance) in "
             "the prices of reference_period, by a monthly price index series such as a "

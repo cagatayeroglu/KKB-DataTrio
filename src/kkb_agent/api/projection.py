@@ -127,8 +127,22 @@ def project_result(
             )
             for slot, value in enumerate(canonical.values)
         ),
+        hidden_columns=_hidden_columns(canonical, secrets),
         proof=_owned_proof(proof, version),
     )
+
+
+def _hidden_columns(result: AnalyticalResult, secrets: tuple[str, ...]) -> tuple[str, ...]:
+    """The columns a `replace` asked not to show, as far as the table still holds them."""
+    asked = result.parameters.get("hidden_columns")
+    if not isinstance(asked, list):
+        return ()
+    held = {value.label for value in result.values}
+    return tuple(
+        safe_text(label, limit=240, secrets=secrets)
+        for label in asked
+        if isinstance(label, str) and label in held
+    )[:32]
 
 
 #: How many catalogue entries a clarification lists; the search itself returns at most ten.

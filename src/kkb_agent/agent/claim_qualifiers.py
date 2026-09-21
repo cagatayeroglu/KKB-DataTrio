@@ -334,19 +334,25 @@ def identity_fault(
 
 
 TABLE_COUNT_LABELS = {
-    "complete monthly transitions": "Tam aylık geçiş sayısı",
-    # "nedeniyle" and "yüzünden" are causal wording the gate withholds, so this
-    # phrase states the exclusion without asserting a cause for it.
-    "transitions excluded for missing observations": "Dışlanan eksik gözlemli geçiş sayısı",
-    "transitions meeting the condition": "Koşulu karşılayan geçiş sayısı",
+    # Read by a person, not only by the gate. "Koşul altında sürücü yönünü karşılayan dönem
+    # sayısı" was the harness's own sentence in every reference answer, and the writer's
+    # interpretation took its vocabulary from it (live 2026-09-21). Which series is the
+    # first and which the second, and in which direction, is said in the line above them
+    # (`presentation.comparison_heading`). No phrase may contain another: the gate tells
+    # the counts apart by finding exactly one of them in a sentence.
+    "complete monthly transitions": "Karşılaştırılan aydan aya geçiş sayısı",
+    "transitions excluded for missing observations": (
+        "Eksik gözlem içerdiği için sayılmayan geçiş sayısı"
+    ),
+    "transitions meeting the condition": "Ön koşulu sağlayan geçiş sayısı",
     "eligible transitions matching the driver direction": (
-        "Koşul altında sürücü yönünü karşılayan dönem sayısı"
+        "Birinci serinin belirtilen yönde hareket ettiği ay sayısı"
     ),
     "eligible transitions matching the target direction": (
-        "Koşul altında hedef yönünü karşılayan dönem sayısı"
+        "İkinci serinin belirtilen yönde hareket ettiği ay sayısı"
     ),
     "eligible transitions matching both directions": (
-        "Koşul altında iki yönü birlikte karşılayan dönem sayısı"
+        "İki hareketin aynı ayda birlikte görüldüğü ay sayısı"
     ),
 }
 
@@ -376,9 +382,9 @@ def table_count_display_label(result: AnalyticalResult, value: ResultValue) -> s
 #: be named at all once a new comparison contributes an equal count.
 COMOVEMENT_COUNT_LABELS = {
     "transitions": "Karşılaştırılan ardışık ay geçişi sayısı",
-    "driver_fell": "Sürücü serinin düştüğü geçiş sayısı",
-    "target_rose": "Sürücü düşerken hedefin arttığı geçiş sayısı",
-    "target_did_not_rise": "Sürücü düşerken hedefin artmadığı geçiş sayısı",
+    "driver_fell": "Birinci serinin düştüğü ay sayısı",
+    "target_rose": "Birinci seri düşerken ikinci serinin arttığı ay sayısı",
+    "target_did_not_rise": "Birinci seri düşerken ikinci serinin artmadığı ay sayısı",
 }
 
 

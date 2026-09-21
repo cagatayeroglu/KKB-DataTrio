@@ -279,8 +279,65 @@ def deterministic_draft(result: AnalyticalResult) -> str | None:
             return None
         values = _controlled_counts(result, table_count_display_label, TABLE_COUNT_LABELS)
         if values is not None:
-            return "Tablodaki aylık yönler karşılaştırıldı.\n" + "\n".join(values)
+            heading = comparison_heading(result)
+            return "\n".join(
+                [
+                    "Tablodaki aylık yönler karşılaştırıldı.",
+                    *([heading] if heading else []),
+                    *values,
+                ]
+            )
     return None
+
+
+_DIRECTIONS = {
+    "up": "yükseldiği",
+    "down": "düştüğü",
+    "non_increasing": "yükselmediği",
+    "non_decreasing": "düşmediği",
+    "unchanged": "değişmediği",
+}
+
+
+def _column_name(result: AnalyticalResult, label: str) -> str | None:
+    """A column as a person would call it, or None when that cannot be said without a digit.
+
+    A sentence of the answer passes the gate like any other, and a digit in it is a figure
+    to bind: an ID such as "EVDS:TP.KTF12" or a base year in a name would cost the line.
+    """
+    names = result.parameters.get("series_names")
+    name = None
+    if isinstance(names, dict):
+        held = [
+            identity for identity in names if label == identity or label.startswith(identity + " ")
+        ]
+        if held:
+            name = str(names[max(held, key=len)])
+            if " real, " in label:
+                name += " (reel)"
+    name = name or label
+    return None if any(character.isdigit() for character in name) else name
+
+
+def comparison_heading(result: AnalyticalResult) -> str | None:
+    """Which series the counts below are about, and in which direction, in one line."""
+    if result.evidence is None or not result.evidence.transformations:
+        return None
+    asked = result.evidence.transformations[-1].parameters
+    parts: list[str] = []
+    for position, column, direction in (
+        ("Birinci seri", asked.get("driver_column"), asked.get("driver_direction")),
+        ("İkinci seri", asked.get("target_column"), asked.get("target_direction")),
+        ("Ön koşul", asked.get("when_column"), asked.get("when_direction")),
+    ):
+        if column is None and position == "Ön koşul":
+            continue
+        name = _column_name(result, column) if isinstance(column, str) else None
+        moved = _DIRECTIONS.get(direction) if isinstance(direction, str) else None
+        if name is None or moved is None:
+            return None
+        parts.append(f"{position}: {name}, {moved} aylar sayıldı.")
+    return " ".join(parts)
 
 
 #: How a table comparison labels its counts; `table_count_display_label` words the latest.

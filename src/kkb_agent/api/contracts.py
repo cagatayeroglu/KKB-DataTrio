@@ -269,6 +269,9 @@ class Result(ContractModel):
     # Only an exactly published workspace result may enter this contract.
     published: Literal[True] = True
     cells: Annotated[tuple[Cell, ...], Field(max_length=MAX_VALUES)]
+    # Columns the reader asked to convert rather than keep: still cells, still proven, not
+    # shown by default (table_transform `replace`).
+    hidden_columns: Annotated[tuple[Label, ...], Field(max_length=32)] = ()
     # Built only by the runner that owns the publication's connection.
     proof: Proof = Field(default_factory=unavailable_proof)
 
