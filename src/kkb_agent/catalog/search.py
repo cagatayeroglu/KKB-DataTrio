@@ -326,16 +326,52 @@ def source_matches(item: ReviewedSeries, source: str) -> bool:
     return f" {wanted} " in f" {named} "
 
 
+#: The one-word places the listed series of a catalogue are published for, by its digest.
+_PLACES: dict[str, frozenset[str]] = {}
+
+
+def named_places(snapshot: ReviewedSnapshot, query: str) -> frozenset[str]:
+    """The provinces a question names, among those a listed source publishes (DEC-184).
+
+    "İstanbul'da konut kredisi" is a question about İstanbul. A reviewed concept maps
+    "konut kredisi" to the national series and would bound the search to them, which held
+    every province cell back (live, 2026-09-21: the agent answered that the catalogue has no
+    province data). A place is one word of the question equal to a listed series' place;
+    "Yurt Dışı" is two ordinary words and never scopes a search.
+    """
+    places = _PLACES.get(snapshot.content_sha256)
+    if places is None:
+        places = frozenset(
+            place
+            for place in (
+                normalize_search_text(item.geography or "")
+                for item in snapshot.series
+                if is_listed_series(item)
+            )
+            if place and " " not in place
+        )
+        while len(_PLACES) >= _INDEXED_KEPT:
+            _PLACES.pop(next(iter(_PLACES)))
+        _PLACES[snapshot.content_sha256] = places
+    return places & set(normalize_search_text(query).split())
+
+
 def eligible_catalog_series(
     snapshot: ReviewedSnapshot, args: CatalogSearchArguments
 ) -> tuple[ReviewedSeries, ...]:
-    """Shared declared metadata filtering, independent of ranking method."""
+    """Shared declared metadata filtering, independent of ranking method.
+
+    A question that names provinces is searched among the series of those provinces, in the
+    word search and the combined search alike.
+    """
+    places = named_places(snapshot, args.query)
     return tuple(
         s
         for s in snapshot.series
         if (args.include_archived or s.record.status is not CatalogStatus.ARCHIVED)
         and (args.source is None or source_matches(s, args.source))
         and (args.frequency is None or s.record.frequency is args.frequency)
+        and (not places or normalize_search_text(s.geography or "") in places)
     )
 
 
@@ -423,10 +459,11 @@ def search_catalog(
     matches, method = _concept_matches(snapshot, key)
     mapped = {sid for c in matches for sid in c.candidate_series_ids}
     args, lifted = scoped_to_named_calendar(snapshot, args)
-    if lifted:
-        # The concept exists only on a coarser calendar than the one asked for, so it no
-        # longer bounds the search; series of the named calendar are searched instead,
-        # unconfirmed as any neighbour is.
+    if lifted or named_places(snapshot, args.query):
+        # The concept exists only on a coarser calendar than the one asked for, or only for
+        # the country when provinces were named, so it no longer bounds the search; series
+        # of the named calendar or provinces are searched instead, unconfirmed as any
+        # neighbour is.
         matches, mapped, method = [], set(), "bm25"
     excluded = (
         sum(

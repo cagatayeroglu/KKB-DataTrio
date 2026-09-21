@@ -7,7 +7,8 @@ may fetch EVDS/BDDK/web data. Start the API on its own port with its own state r
     python tests/manual/live_scenarios.py <suite> --state-root <dir> [--port 8001] [--budget 60]
 
 Suites: chain, rerun, external, upload, edge, e1, analytics, causality, jury, kb, cancel,
-missing, directory, followup, timing. `followup` publishes one table and then asks the
+missing, directory, followup, timing, bddk,
+provinces, reference. `followup` publishes one table and then asks the
 single-number questions about it (average, highest, a refused total). `timing` is the
 fixed measurement set: one turn per path, independent of each other, so two runs can be
 compared turn by turn. Each suite
@@ -288,6 +289,58 @@ SUITES: dict[str, list[tuple[str, str, dict[str, object]]]] = {
     # run can be compared with an earlier one turn by turn (seconds, model calls,
     # completion tokens). Every turn is minutes: plan for a long run, or raise
     # --budget and stop where it reaches.
+    # DEC-182/184: the weekly bulletin and FinTürk through the agent, and a tool the reader names.
+    "bddk": [
+        ("B1-weekly", "Son 8 haftada haftalık toplam konut kredisi bakiyesi nasıl değişti?", {}),
+        (
+            "B2-provinces",
+            "İstanbul ve Ankara'da konut kredisi bakiyesi 2021'den bugüne nasıl değişti? "
+            "İl bazında çeyreklik göster.",
+            {},
+        ),
+        (
+            "B3-province-ratio",
+            "İzmir'de takipteki alacakların toplam nakdi kredilere oranı 2024-2026 arasında "
+            "nasıl seyretti?",
+            {},
+        ),
+        (
+            "B4-named-tool",
+            "Web search aracını kullanarak BDDK haftalık bülteni hangi gün yayımlıyor, öğren.",
+            {},
+        ),
+    ],
+    # FinTürk alone: two provinces of one table, then a ratio (DEC-184).
+    "provinces": [
+        (
+            "P1-two-provinces",
+            "İstanbul ve Ankara'da konut kredisi bakiyesi 2021'den bugüne nasıl değişti? "
+            "İl bazında çeyreklik göster.",
+            {},
+        ),
+        (
+            "P2-province-ratio",
+            "İzmir'de takipteki alacakların toplam nakdi kredilere oranı 2024-2026 arasında "
+            "nasıl seyretti?",
+            {},
+        ),
+    ],
+    # The organizer's three-turn reference scenario over the prepared pool.
+    "reference": [
+        (
+            "R1-credit-and-rate",
+            "2021-2025 yılları arasında konut kredileri ve konut kredisi faizlerini aylık olarak "
+            "göster; faiz düştüğü halde kredinin artmadığı aylar var mı?",
+            {},
+        ),
+        ("R2-real", "Kredi tutarlarını TÜFE ile enflasyondan arındır; reel olarak göster.", {}),
+        (
+            "R3-house-prices",
+            "Tabloya konut fiyat endeksini de ekle; faiz düştüğünde reel kredi ve konut fiyatları "
+            "nasıl hareket etmiş?",
+            {},
+        ),
+    ],
     "timing": [
         ("T1-greeting", "selam", {}),
         ("T2-inventory", "Hangi verileri biliyorsun?", {}),
