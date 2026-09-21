@@ -57,7 +57,9 @@ _LABEL_UNITS: Final = {
 _MIXED_TABLE: Final = "Şubeler (Adet) ve Nüfusa Göre Dağılım (TL)"
 _MIXED_COLUMNS: Final = {
     "Yurtiçi Şube Sayısı": ("count", Scale.ONE, StockFlow.STOCK),
-    "Şubeye Düşen Nüfus": ("ratio", Scale.ONE, StockFlow.RATE),
+    # Persons per branch: a number of people, written bare like any count. Declared as a
+    # "ratio" it had no display, so the writer could show the column and never quote it.
+    "Şubeye Düşen Nüfus": ("count", Scale.ONE, StockFlow.RATE),
     "Kişi Başı Nakdi Kredi": ("TRY", Scale.ONE, StockFlow.STOCK),
     "Kişi Başı Takipteki Alacak": ("TRY", Scale.ONE, StockFlow.STOCK),
     "Kişi Başı Tasarruf Mevduatı": ("TRY", Scale.ONE, StockFlow.STOCK),
@@ -70,7 +72,6 @@ _UNIT_WORDS: Final = {
     ("TRY", Scale.ONE): "TL",
     ("percent", Scale.ONE): "yüzde",
     ("count", Scale.ONE): "adet",
-    ("ratio", Scale.ONE): "kişi/şube",
 }
 
 
