@@ -8,7 +8,8 @@ may fetch EVDS/BDDK/web data. Start the API on its own port with its own state r
 
 Suites: chain, rerun, external, upload, edge, e1, analytics, causality, jury, kb, cancel,
 missing, directory, followup, timing, bddk,
-provinces, reference. `followup` publishes one table and then asks the
+provinces, tools,
+promote, reference. `followup` publishes one table and then asks the
 single-number questions about it (average, highest, a refused total). `timing` is the
 fixed measurement set: one turn per path, independent of each other, so two runs can be
 compared turn by turn. Each suite
@@ -322,6 +323,35 @@ SUITES: dict[str, list[tuple[str, str, dict[str, object]]]] = {
             "P2-province-ratio",
             "İzmir'de takipteki alacakların toplam nakdi kredilere oranı 2024-2026 arasında "
             "nasıl seyretti?",
+            {},
+        ),
+    ],
+    # DEC-183: an uploaded table is analysed, offered to the knowledge base, and saved on "kaydet".
+    "promote": [
+        (
+            "K1-read",
+            "Yüklediğim dosyadaki kredi kartı harcamalarını aylık tablo olarak getir.",
+            {"attach": True},
+        ),
+        ("K2-offer", "Bu seriyi bilgi tabanına kaydet.", {}),
+        ("K3-confirm", "kaydet", {}),
+    ],
+    # One short turn per network tool, and a province question (the tools the reader names).
+    "tools": [
+        (
+            "W1-named-search",
+            "Web search aracını kullanarak BDDK haftalık bülten sayfasını bul.",
+            {},
+        ),
+        (
+            "W2-provinces",
+            "İstanbul ve Ankara'da konut kredisi bakiyesi 2021'den bugüne nasıl değişti?",
+            {},
+        ),
+        (
+            "W3-address",
+            "https://www.borsaistanbul.com/endeks/xtumy adresindeki BIST TÜM kapanışından 2025 "
+            "ay sonu değerlerini tablo olarak çıkar.",
             {},
         ),
     ],
