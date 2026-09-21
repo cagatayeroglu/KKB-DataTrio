@@ -1407,7 +1407,13 @@ class PreparedRunner:
                                 result_version=answer.result.version,
                             )
                     clarification_reason = answered.planned.plan.clarification
-                    if answer.status == AnswerStatus.ACCEPTED:
+                    # A turn that answered is not waiting for anything, whatever the gate
+                    # said about its prose: a withheld sentence leaves a QUALIFIED status
+                    # and that used to keep the old clarification armed, so the composer
+                    # went on offering "bekleyen netleştirmeyi bırak" under a finished
+                    # answer and the next free question was merged into the old prompt
+                    # (live 2026-09-21).
+                    if answer.status != AnswerStatus.ABSTAINED:
                         self._pending_clarifications.pop(session_id, None)
                         if self._store is not None:
                             self._store.set_pending_clarification(session_id, None)

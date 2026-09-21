@@ -272,6 +272,12 @@ class Result(ContractModel):
     # Columns the reader asked to convert rather than keep: still cells, still proven, not
     # shown by default (table_transform `replace`).
     hidden_columns: Annotated[tuple[Label, ...], Field(max_length=32)] = ()
+    # What each series in this result is called, as the tools recorded it. The reader saw
+    # "BDDK:selector:v1:001a584..." in chart legends and table headers for anything the
+    # startup dataset did not list - a province series fetched during the turn, a series
+    # they had saved themselves, a weekly bulletin row (live 2026-09-21). The name was in
+    # the result all along and stopped at this contract.
+    series_names: Annotated[dict[Label, Label], Field(max_length=64)] = Field(default_factory=dict)
     # Built only by the runner that owns the publication's connection.
     proof: Proof = Field(default_factory=unavailable_proof)
 

@@ -86,6 +86,7 @@ function ResultTableView({
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Cell | null>(null);
   const arranged = useMemo(() => arrange(result.cells), [result]);
+  const named = result.series_names;
   const columns = useMemo<ColumnDef<TableRow>[]>(
     () => [
       {
@@ -104,8 +105,8 @@ function ResultTableView({
         id: column.key,
         header: () => (
           <div className="column-title">
-            <span title={seriesLabel(column.label, dataset)}>
-              {seriesLabel(column.label, dataset)}
+            <span title={seriesLabel(column.label, dataset, named)}>
+              {seriesLabel(column.label, dataset, named)}
             </span>
             <small>{unitLabel(column.unit, column.scale)}</small>
           </div>
@@ -233,8 +234,8 @@ function ResultTableView({
               onClick={() => setSelected(cell)}
               className="metric-item"
             >
-              <span title={seriesLabel(cell.label, dataset)}>
-                {seriesLabel(cell.label, dataset)}
+              <span title={seriesLabel(cell.label, dataset, named)}>
+                {seriesLabel(cell.label, dataset, named)}
               </span>
               <strong>{displayValue(cell)}</strong>
               <small>{unitLabel(cell.unit, cell.scale)}</small>
@@ -338,7 +339,7 @@ function ResultTableView({
               <X size={17} />
             </Button>
           </div>
-          <h3>{seriesLabel(selected.label, dataset)}</h3>
+          <h3>{seriesLabel(selected.label, dataset, named)}</h3>
           <dl>
             <div>
               <dt>Değer</dt>

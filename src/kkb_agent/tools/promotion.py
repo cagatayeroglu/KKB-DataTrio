@@ -118,6 +118,15 @@ def unit_for(word: str, scale: object = None) -> str | None:
     return UNIT_WORDS.get(" ".join(parts))
 
 
+#: How a stored unit is said back to the person. Anything else is said as it is stored.
+_UNIT_SAID: Final = {"TRY": "TL", "USD": "USD", "EUR": "EUR", "percent": "yüzde"}
+
+
+def _said_unit(unit: str) -> str:
+    """The stored unit in the reader's words, with no scale in it."""
+    return _UNIT_SAID.get(unit, unit)
+
+
 #: How each reading is said back to the person, in the summary they approve.
 MEANING_WORDS: Final = {
     "period_end_balance": "ay sonundaki bakiye",
@@ -380,8 +389,12 @@ def make_promote_series_tool(
         if not digest:
             return _refused("DOCUMENT_NOT_HASHED")
         stock_flow, aggregation, cumulative = MEANINGS[arguments.meaning]
+        # The stored unit, not the word the planner wrote: `unit_for` strips a scale said
+        # in front of it ("milyon TL" -> TRY), while `_summary` adds the scale word itself.
+        # Given the raw word the reader was asked to approve "aylık, milyon milyon TL"
+        # (live 2026-09-21), although what was saved was right all along.
         summary = _summary(
-            arguments.title, arguments.meaning, arguments.unit, arguments.scale, observations
+            arguments.title, arguments.meaning, _said_unit(unit), arguments.scale, observations
         )
         proposal = PromotionProposal(
             slug=slug_for(arguments.title),

@@ -166,6 +166,11 @@ export const resultSchema = z
     cells: z.array(cellSchema).max(2048),
     // Absent from a server older than the option; then nothing is hidden.
     hidden_columns: z.array(z.string().max(240)).max(32).default([]),
+    // What each series in this result is called. A server that does not send it leaves
+    // the identities as they are, which is what every server did until 2026-09-21.
+    series_names: z
+      .record(z.string().max(240), z.string().max(240))
+      .default({}),
     proof: proofSchema,
   })
   .strict()
