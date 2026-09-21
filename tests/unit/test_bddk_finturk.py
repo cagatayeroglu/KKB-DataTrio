@@ -197,7 +197,7 @@ def test_a_province_is_named_by_plain_capitals_and_shown_as_it_is_written():
         (selector(3, 2), "TRY", Scale.THOUSAND, StockFlow.STOCK),
         (selector(5, 1), "percent", Scale.ONE, StockFlow.RATE),
         (selector(6, 1), "count", Scale.ONE, StockFlow.STOCK),
-        (selector(6, 2), "ratio", Scale.ONE, StockFlow.RATE),
+        (selector(6, 2), "count", Scale.ONE, StockFlow.RATE),  # persons per branch
         (selector(6, 3), "TRY", Scale.ONE, StockFlow.STOCK),
     ],
 )
