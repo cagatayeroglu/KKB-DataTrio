@@ -754,6 +754,14 @@ export function Workspace() {
   }
   function update(index: number, turn: Turn, selectResult = false) {
     const result = publishedResult(turn);
+    // A turn that answered is not waiting for anything: the server drops the pending
+    // clarification then (api/prepared.py), and this tab must stop offering to leave it.
+    // It only ever cleared on reopening the chat, so the composer went on showing
+    // "bekleyen netleştirmeyi bırak" under a finished answer (live 2026-09-21).
+    if (turn.answer && turn.answer.status !== "abstained") {
+      setPendingOffered([]);
+      setAsNewQuestion(false);
+    }
     if (selectResult && result && saved.current) {
       record({ ...saved.current, view_result_id: result.result_ref });
       setSelected(result.result_ref);

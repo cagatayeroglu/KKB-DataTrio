@@ -532,3 +532,53 @@ def test_bad_env_file_is_refused_without_exposing_values(tmp_path, monkeypatch, 
     with pytest.raises(ValueError) as error:
         cli.literal_config(path)
     assert content not in str(error.value)
+
+
+def test_a_series_name_the_startup_pool_never_listed_still_reaches_the_reader(pool, tmp_path):
+    # Live 2026-09-21: chart legends and table headers read "BDDK:selector:v1:001a584..."
+    # for a province series fetched during the turn, for a series the reader had saved and
+    # for a weekly bulletin row. /v1/dataset is the seed pool frozen at startup and lists
+    # none of them; the tools record the name in the result, and it stopped at this
+    # contract. It now crosses it.
+    from datetime import date
+
+    from kkb_agent.api.projection import project_result
+    from kkb_agent.core import (
+        AnalyticalResult,
+        Frequency,
+        Period,
+        ResultEvidence,
+        ResultKind,
+        ResultStatus,
+        ResultValue,
+        Scale,
+        StockFlow,
+    )
+
+    identity = "BDDK:selector:v1:001a584"
+    result = AnalyticalResult(
+        result_id="fixture",
+        kind=ResultKind.SERIES,
+        status=ResultStatus.COMPUTED,
+        tool="lakehouse",
+        method="sql",
+        evidence=ResultEvidence(input_refs=["silver_observations"]),
+        values=[
+            ResultValue(
+                label=identity,
+                value=1.0,
+                unit="TRY",
+                scale=Scale.MILLION,
+                measure=StockFlow.STOCK,
+                period=Period(
+                    start=date(2025, 1, 1), end=date(2025, 1, 31), frequency=Frequency.MONTHLY
+                ),
+            )
+        ],
+        parameters={"series_names": {identity: "Konut Kredisi - İstanbul"}},
+    )
+    shown = project_result(result, turn_id="0" * 32)
+    assert shown.series_names == {identity: "Konut Kredisi - İstanbul"}
+    # Nothing to name is nothing to send.
+    bare = result.model_copy(update={"parameters": {}})
+    assert project_result(bare, turn_id="0" * 32).series_names == {}

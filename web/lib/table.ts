@@ -106,9 +106,20 @@ export function preparedTitle(title: string) {
     .replace(/; percent, weekly, rate$/, "; yüzde, haftalık faiz oranı")
     .replace(/; index, monthly, index$/, "; aylık endeks");
 }
-export function seriesLabel(label: string, dataset: Dataset | null) {
+export function seriesLabel(
+  label: string,
+  dataset: Dataset | null,
+  names: Record<string, string> = {},
+) {
   let result = label;
-  for (const series of [...(dataset?.series ?? [])].sort(
+  // The result's own names first: the startup dataset lists the seed pool only, so a
+  // province series fetched during the turn, a series the reader saved, or a weekly
+  // bulletin row reached the legend as "BDDK:selector:v1:001a584..." (live 2026-09-21).
+  const known = [
+    ...Object.entries(names).map(([id, title]) => ({ series_id: id, title })),
+    ...(dataset?.series ?? []),
+  ];
+  for (const series of known.sort(
     (a, b) => b.series_id.length - a.series_id.length,
   ))
     result = result.replaceAll(series.series_id, preparedTitle(series.title));

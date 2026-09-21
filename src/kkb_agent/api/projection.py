@@ -128,8 +128,27 @@ def project_result(
             for slot, value in enumerate(canonical.values)
         ),
         hidden_columns=_hidden_columns(canonical, secrets),
+        series_names=_series_names(canonical, secrets),
         proof=_owned_proof(proof, version),
     )
+
+
+def _series_names(result: AnalyticalResult, secrets: tuple[str, ...]) -> dict[str, str]:
+    """What each series of this result is called, for a reader who sees the labels.
+
+    The tools record it (`parameters["series_names"]`); it never held anything but a
+    catalogue title, and it is scrubbed like every other text that crosses this boundary.
+    """
+    recorded = result.parameters.get("series_names")
+    if not isinstance(recorded, dict):
+        return {}
+    named: dict[str, str] = {}
+    for identity, name in list(recorded.items())[:64]:
+        if isinstance(identity, str) and isinstance(name, str) and identity and name:
+            named[safe_text(identity, limit=240, secrets=secrets)] = safe_text(
+                name, limit=240, secrets=secrets
+            )
+    return named
 
 
 def _hidden_columns(result: AnalyticalResult, secrets: tuple[str, ...]) -> tuple[str, ...]:

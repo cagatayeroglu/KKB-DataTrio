@@ -42,12 +42,25 @@ export function chartModel(
         a.period!.end.localeCompare(b.period!.end),
     );
   if (rows.length < 2 || !table.columns.length) return null;
+  // A column holding one value is a point, not a line, and a result made only of such
+  // columns is not a chart: a breakpoint result is "breakpoints found = 2" and one shift
+  // per break, each at a period of its own, and it was drawn as three lone markers while
+  // the series the reader wanted to see the breaks in was not in that result at all
+  // (live 2026-09-21). Beside a real column a single value still shows; alone, nothing is
+  // drawn, because a chart of three unrelated points says something untrue.
+  if (
+    !table.columns.some(
+      (column) =>
+        rows.filter((row) => row.values[column.key] !== undefined).length > 1,
+    )
+  )
+    return null;
   const groups = new Map<string, string>();
   const series: ChartSeries[] = table.columns.map((column) => {
     const group = JSON.stringify([column.unit, column.scale]);
     if (!groups.has(group))
       groups.set(group, plain(unitLabel(column.unit, column.scale)));
-    const name = plain(seriesLabel(column.label, dataset));
+    const name = plain(seriesLabel(column.label, dataset, result.series_names));
     return {
       key: column.key,
       name,

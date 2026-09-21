@@ -135,3 +135,58 @@ test("a change column's suffix is read in Turkish, percent and lag included", as
     "balance değişim (12 dönem öncesine göre)",
   );
 });
+
+test("a result made only of summary metrics is not charted", async () => {
+  // A breakpoint result: a count over the whole window, and one shift per break, each at
+  // a period of its own. Drawn, it was three lone markers and no series (live 2026-09-21).
+  const { chartModel } = await import("../lib/chart");
+  const { cellSchema } = await import("../lib/contracts");
+  const metric = (
+    label: string,
+    value: number,
+    start: string,
+    end: string,
+    slot: number,
+  ) =>
+    cellSchema.parse({
+      cell_id: String(slot).repeat(32),
+      slot,
+      label,
+      value,
+      display: String(value),
+      unit: "index_points",
+      scale: "one",
+      measure: "index",
+      period: { start, end, frequency: "monthly", weekly_anchor: null },
+      samples: null,
+      lag: null,
+    });
+  const breakpoints = {
+    result_ref: "a".repeat(32),
+    version: "b".repeat(64),
+    kind: "series",
+    claim_kind: "analytical_value",
+    published: true as const,
+    hidden_columns: [],
+    series_names: {},
+    cells: [
+      metric("TÜFE breakpoints found", 2, "2021-01-01", "2025-12-31", 1),
+      metric(
+        "TÜFE average change shift at 2021-12-31",
+        0.93,
+        "2021-12-01",
+        "2021-12-31",
+        2,
+      ),
+      metric(
+        "TÜFE average change shift at 2023-06-30",
+        1.03,
+        "2023-06-01",
+        "2023-06-30",
+        3,
+      ),
+    ],
+    proof: { gate: "accepted" as const, availability: "unavailable" as const },
+  };
+  assert.equal(chartModel(breakpoints as never, null), null);
+});

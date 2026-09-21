@@ -434,3 +434,36 @@ def test_a_unit_said_with_its_scale_is_read_when_the_two_agree():
     assert unit_for("Milyon  TL") == "TRY" and unit_for("TL", "million") == "TRY"
     assert unit_for("bin TL", "million") is None  # two answers to one question
     assert unit_for("milyon şey", "million") is None
+
+
+def test_the_offer_says_the_scale_once_and_speaks_turkish():
+    """Live 2026-09-21: the reader was asked to approve "aylık, milyon milyon TL".
+
+    The planner writes the unit as the column header says it ("milyon TL") and the scale
+    beside it; `unit_for` strips the scale from the unit, and the summary adds the scale
+    word itself. Given the raw word, both said it. What was saved was right either way.
+    """
+    from kkb_agent.agent.loop import OFFER_LIMITATION
+    from kkb_agent.tools.promotion import (
+        PromoteSeriesArguments,
+        _said_unit,
+        _summary,
+        unit_for,
+    )
+
+    asked = PromoteSeriesArguments(
+        title="Kredi Kartı Harcaması",
+        meaning="monthly_total",
+        unit="milyon TL",
+        scale="million",
+        period_column="Dönem",
+        value_column="Gelir (milyon TL)",
+    )
+    stored = unit_for(asked.unit, asked.scale)
+    assert stored == "TRY"
+    text = _summary(
+        asked.title, asked.meaning, _said_unit(stored), asked.scale, ((date(2024, 1, 31), 1.0),) * 2
+    )
+    assert "milyon TL" in text and "milyon milyon" not in text
+    # The sentence shown above the offer is the reader's language too.
+    assert "kayıt teklifi" in OFFER_LIMITATION and "promotion offer" not in OFFER_LIMITATION
