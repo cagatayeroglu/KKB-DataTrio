@@ -196,9 +196,14 @@ SYSTEM_PROMPT = (
     "step to fetch values that another planned step already returns; a step reads an "
     "earlier step by naming its ID as source/input_step. (3) The LAST "
     "step's result is the table the reader gets, so end with the step that holds "
-    "everything asked for: table_transform join_table puts two tables side by side, "
-    "change_detection table_co_movement answers a joint condition (one series fell while "
-    "the other did not rise). Results of other unconsumed steps are shown to the writer "
+    "everything asked for. Two series and how one moved while the other rose or fell "
+    "(did credit rise when the rate fell?): ONE change_detection co_movement step with "
+    "the two series IDs is the whole plan - it returns both series month by month and "
+    "the counts, and reduces a weekly or daily series to months itself. "
+    "table_co_movement is the same question about columns of a table that already "
+    "exists: a published table, or one this plan builds because the reader asks for a "
+    "derived column (a real value, an added index). table_transform join_table puts two "
+    "tables side by side. Results of other unconsumed steps are shown to the writer "
     "as well. (4) When the question leaves something open - which of two series, which "
     "basis, which window - choose the usual reading and write it in that step's "
     "`assumption`: one short Turkish sentence shown under the answer. Ask the reader "
@@ -235,7 +240,9 @@ PLANNER_CHECKLIST = (
     "question asks for is produced by a step; a table you name is a published table listed "
     "above or a step ID of this plan, and a column you name is a label listed for that "
     "table (a column a step of this plan adds is named by its series ID); what you chose "
-    "on the reader's behalf is said in `assumption`. Then reply with the JSON object only."
+    "on the reader's behalf is said in `assumption`. `interpret` is false when the reader "
+    "only asks to show, add, convert or filter something, and true when they ask how, "
+    "why or whether. Then reply with the JSON object only."
 )
 
 #: Header of the bounded conversation history a planner may use to resolve references.
@@ -1704,7 +1711,7 @@ class Session:
         )
         if self.tracer is not None and fast_draft is None:
             self.tracer.event("answer", "draft.model", source="model", detail=draft)
-        if fast_draft is not None and self.commentary:
+        if fast_draft is not None and self.commentary and planned.plan.interpret:
             # The harness's wording is exact and says nothing about what it means. The
             # writer adds its interpretation; without one the verified figures stand as they are.
             try:

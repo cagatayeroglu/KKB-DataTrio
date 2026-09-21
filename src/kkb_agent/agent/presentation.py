@@ -256,7 +256,7 @@ def deterministic_draft(result: AnalyticalResult) -> str | None:
             return None
         values = _controlled_counts(result, comovement_count_display_label, COMOVEMENT_COUNT_LABELS)
         if values is not None:
-            return "Aylık yön karşılaştırması hesaplandı. " + " ".join(values)
+            return "Aylık yön karşılaştırması hesaplandı.\n" + "\n".join(values)
     if (
         result.tool == "change_detection"
         and result.method == "table-direction-comparison-v1"
@@ -273,7 +273,7 @@ def deterministic_draft(result: AnalyticalResult) -> str | None:
             return None
         values = _controlled_counts(result, table_count_display_label, TABLE_COUNT_LABELS)
         if values is not None:
-            return "Tablodaki aylık yönler karşılaştırıldı. " + " ".join(values)
+            return "Tablodaki aylık yönler karşılaştırıldı.\n" + "\n".join(values)
     return None
 
 

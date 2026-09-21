@@ -395,7 +395,15 @@ class TestThePlannerLoop:
         offered = json.loads(initial[1].content.split("\n", 1)[1])
         assert sorted(offered, key=lambda item: item["name"]) == reg.descriptions()
         assert sum(message.content.count(contract) for message in initial) == 1
-        assert len(contract.encode("utf-8")) < 2048  # Regression budget for this fixed contract.
+        # Regression budget for this fixed contract. 2,048 until `interpret` was added (one
+        # boolean: whether the reader asked for an interpretation at all); a guard against
+        # the contract growing unnoticed, not a limit the planner has.
+        assert len(contract.encode("utf-8")) < 2176
+        assert emitted_schema["properties"]["interpret"] == {
+            "default": True,
+            "title": "Interpret",
+            "type": "boolean",
+        }
 
     def test_schema_failure_retains_initial_contract_and_uses_it_for_repair(self):
         bad = '{"steps": []}'

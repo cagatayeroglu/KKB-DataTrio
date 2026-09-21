@@ -36,6 +36,7 @@ from kkb_agent.analytics.accumulation import AccumulationRefused, to_flow_column
 from kkb_agent.analytics.deflation import FORMULA, METHOD, DeflationRefused, deflate
 from kkb_agent.analytics.resample import METHOD as RESAMPLE_METHOD
 from kkb_agent.analytics.resample import ResampleRefused, resample_column
+from kkb_agent.analytics.table_relationship import resolve_label
 from kkb_agent.analytics.table_series import (
     DOCUMENT_METHOD,
     JOIN_METHOD,
@@ -486,6 +487,14 @@ def _column_of(source: AnalyticalResult, requested: str) -> tuple[str, str | Non
     labels = list(dict.fromkeys(value.label for value in source.values))
     if requested in labels:
         return requested, None
+    # The planner is told to name a column a step of this plan adds by its series ID, and a
+    # resample, a deflation or a change renames it ("EVDS:TP.KTF12 monthly average
+    # (by_end)"). Only table_co_movement kept that promise; live 2026-09-21 a join_table
+    # that named the resampled rate by its ID was refused, and the turn paid a second
+    # planner call (250 s) for a simpler plan.
+    meant = resolve_label(source, requested)
+    if meant in labels:
+        return meant, f"Column {requested!r} was read as {meant!r}, the one column holding it"
     if len(labels) == 1:
         return labels[0], (
             f"Column {requested!r} is not in the table; its only column {labels[0]!r} was used"
@@ -493,6 +502,14 @@ def _column_of(source: AnalyticalResult, requested: str) -> tuple[str, str | Non
     raise ColumnUnknown(
         f"No values are labelled {requested!r}; the table's columns are: " + "; ".join(labels)
     )
+
+
+def _named(source: AnalyticalResult, requested: str) -> str:
+    """`_column_of` for an operation that refuses an unknown column in its own words."""
+    try:
+        return _column_of(source, requested)[0]
+    except ColumnUnknown:
+        return requested
 
 
 def _table_input(arguments: BaseModel) -> TableInput | None:
@@ -679,6 +696,10 @@ def make_table_transform_tool(
             if isinstance(resolved_other, ToolResult):
                 return resolved_other
             other, other_origin = resolved_other
+            if selected.columns is not None:
+                selected = selected.model_copy(
+                    update={"columns": tuple(_named(other, item) for item in selected.columns)}
+                )
             inputs.append(
                 canonical({other_origin: selected.other, "result": other.model_dump(mode="json")})
             )
@@ -898,9 +919,13 @@ def _closed_transform(
         if isinstance(arguments, AlignArguments):
             shaped = align_periods(
                 source,
-                columns=arguments.columns,
+                columns=tuple(_named(source, item) for item in arguments.columns),
                 join=arguments.join,
-                anchor_column=arguments.anchor_column,
+                anchor_column=(
+                    _named(source, arguments.anchor_column)
+                    if arguments.anchor_column is not None
+                    else None
+                ),
             )
             return _shaped(arguments, source, shaped, method=ALIGN_METHOD)
         shaped = filter_periods(

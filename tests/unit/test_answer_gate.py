@@ -123,6 +123,7 @@ def producer_fixture_for_sentence_tests(request, monkeypatch):
         TestAbstention,
         TestTheInterpretationParagraph,
         TestWhatIsNotAFigureToChooseBetween,
+        TestTheAnswerKeepsItsShape,
     }:
         return
     house = request.getfixturevalue("house")
@@ -848,3 +849,24 @@ class TestWhatIsNotAFigureToChooseBetween:
         # compared; every sentence quoting a count they share was withheld as ambiguous.
         gated = gate_answer(SUPPORTED, {"a": result(), "b": result()}, house.connection)
         assert gated.status is AnswerStatus.ACCEPTED, gated
+
+
+class TestTheAnswerKeepsItsShape:
+    """Live 2026-09-21: the figures, the interpretation, the assumption and the system's note
+    reached the reader as one block of text, because kept sentences were joined by spaces."""
+
+    def test_lines_and_paragraphs_of_the_draft_survive_the_gate(self, house):
+        draft = f"{SUPPORTED}\nSeri aylık yayımlanmaktadır.\n\nYorum: Bakiye ay sonu stoktur."
+        gated = gate_answer(draft, result(), house.connection)
+        assert gated.status is AnswerStatus.ACCEPTED, gated
+        assert gated.text == draft
+
+    def test_a_withheld_sentence_takes_its_own_line_with_it(self, house):
+        draft = f"{SUPPORTED}\n{INVENTED}\n\nYorum: Bakiye ay sonu stoktur."
+        gated = gate_answer(draft, result(), house.connection)
+        assert gated.status is AnswerStatus.QUALIFIED
+        assert gated.text == f"{SUPPORTED}\n\nYorum: Bakiye ay sonu stoktur."
+
+    def test_a_draft_written_on_one_line_is_joined_as_before(self, house):
+        draft = f"{SUPPORTED} Seri aylık yayımlanmaktadır."
+        assert gate_answer(draft, result(), house.connection).text == draft
