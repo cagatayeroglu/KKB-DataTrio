@@ -809,3 +809,61 @@ def test_a_person_s_description_of_a_reviewed_series_is_searched(api):
     assert entry["description"].startswith("Reviewed")  # the reviewed text itself is unchanged
     found = api.get("/v1/knowledge/search", params={"q": "ipotekli finansman"}, headers=key)
     assert [hit["series_id"] for hit in found.json()["hits"]][:1] == [TOTAL]
+
+
+def test_the_whole_directory_is_browsed_one_page_at_a_time(tmp_path):
+    """Every listed entry can be browsed, and only one page of them travels.
+
+    Measured on 2026-09-21: the whole list is 1,930 bytes an entry, 3.6 MB for 1,869
+    entries, against the web bridge's 1 MiB response bound; the tabs, the search box and
+    the province selector therefore run on the server.
+    """
+    from kkb_agent.catalog.directory import source_directory
+    from kkb_agent.catalog.mappings import load_reviewed_snapshot
+
+    store = ConversationStore(tmp_path / "c.sqlite")
+    knowledge = KnowledgeStore(tmp_path / "k.sqlite")
+    _, token = store.create_owner()
+    directory = source_directory()
+    service = KnowledgeService(
+        knowledge,
+        store,
+        load_reviewed_snapshot(CATALOG.read_bytes()),
+        prepared=frozenset({TOTAL}),
+        source_directory=directory,
+    )
+    try:
+        bounded = service.listing(token)
+        assert bounded.total is None and all(item.origin != "listed" for item in bounded.series)
+        first = service.listing(token, tab="listed", page=1)
+        assert len(first.series) == 50 and first.page == 1 and first.page_size == 50
+        assert first.total == first.counts["listed"] == bounded.listed_series > 1000
+        # Archived entries sit in their own tab, as they did in the browser.
+        assert 0 < first.counts["reviewed"] <= len(service._reviewed.series)
+        assert all(item.origin == "listed" for item in first.series)
+        assert len(first.model_dump_json().encode()) < 512 * 1024
+        second = service.listing(token, tab="listed", page=2)
+        assert not {item.series_id for item in first.series} & {
+            item.series_id for item in second.series
+        }
+        last = service.listing(token, tab="listed", page=first.total // 50 + 1)
+        assert 0 < len(last.series) <= 50
+        assert service.listing(token, tab="listed", page=999).series == ()
+        found = service.listing(token, tab="all", query="İHTİYAÇ", page=1)
+        assert 0 < found.total < first.total
+        assert all("htiya" in item.title for item in found.series)
+        assert service.listing(token, tab="nonsense", page=1).total == first.counts["all"]
+        assert service.listing(token, page=1, page_size=1000).page_size == 100
+    finally:
+        store.close()
+        knowledge.close()
+
+
+def test_the_list_route_takes_its_view_as_a_bounded_query(api):
+    key = {"X-KKB-Owner-Token": owner(api)}
+    shown = api.get("/v1/knowledge?tab=reviewed&page=1&page_size=5", headers=key)
+    assert shown.status_code == 200, shown.text
+    body = shown.json()
+    assert len(body["series"]) == 5 and body["total"] == body["counts"]["reviewed"]
+    assert api.get("/v1/knowledge?page=0", headers=key).status_code == 422
+    assert api.get("/v1/knowledge?page_size=500&page=1", headers=key).status_code == 422

@@ -79,6 +79,8 @@ MAX_KNOWLEDGE_BODY_BYTES = 1024 * 1024
 LIST_ROUTE = re.compile(r"/v1/conversations\Z")
 TRACE_LIST_ROUTE = re.compile(r"/v1/trace-conversations\Z")
 SEARCH_ROUTE = re.compile(r"/v1/knowledge/search\Z")
+#: The knowledge list takes its tab, province, search text and page as a query string.
+KNOWLEDGE_LIST_ROUTE = re.compile(r"/v1/knowledge\Z")
 MAX_QUERY_BYTES = 1024
 #: Methods that may carry a body; a body anywhere else is refused.
 BODY_METHODS = ("POST", "PATCH")
@@ -150,6 +152,7 @@ class LocalBoundary:
                 LIST_ROUTE.fullmatch(scope["path"])
                 or TRACE_LIST_ROUTE.fullmatch(scope["path"])
                 or SEARCH_ROUTE.fullmatch(scope["path"])
+                or KNOWLEDGE_LIST_ROUTE.fullmatch(scope["path"])
             )
             if (query and not (queried and len(query) <= MAX_QUERY_BYTES)) or any(
                 len(headers.get(key, [])) > 1
@@ -429,9 +432,17 @@ def create_app(
 
     @app.get("/v1/knowledge", response_model=KnowledgeList)
     def knowledge_list(
-        owner: OwnerToken, include_all_listed: bool = True
+        owner: OwnerToken,
+        tab: Annotated[str, Query(max_length=16)] = "all",
+        province: Annotated[str | None, Query(max_length=64)] = None,
+        q: Annotated[str | None, Query(max_length=200)] = None,
+        page: Annotated[int | None, Query(ge=1, le=1000)] = None,
+        page_size: Annotated[int, Query(ge=1, le=100)] = 50,
     ) -> KnowledgeList:
-        return _knowledge().listing(owner, include_all_listed=include_all_listed)
+        # One page travels; the whole list no longer fits the bridge's response bound.
+        return _knowledge().listing(
+            owner, tab=tab, province=province, query=q, page=page, page_size=page_size
+        )
 
     @app.get("/v1/knowledge/search", response_model=SearchTrial)
     def knowledge_search(

@@ -628,6 +628,13 @@ class KnowledgeList(ContractModel):
     #: Entries of the sources' own directory that search finds and turns fetch on first use.
     #: Only the ones a person annotated or a turn fetched are in `series`.
     listed_series: Annotated[int, Field(ge=0, le=MAX_CATALOG_SERIES)] = 0
+    #: Set when one page was asked for: how many entries the filters match, which page
+    #: this is, how many each tab holds, and the provinces a province selector can offer.
+    total: Annotated[int, Field(ge=0, le=MAX_CATALOG_SERIES)] | None = None
+    page: Annotated[int, Field(ge=1)] | None = None
+    page_size: Annotated[int, Field(ge=1, le=100)] | None = None
+    counts: dict[str, Annotated[int, Field(ge=0, le=MAX_CATALOG_SERIES)]] | None = None
+    provinces: Annotated[tuple[str, ...], Field(max_length=128)] = ()
 
 
 class DirectoryRefreshResult(ContractModel):

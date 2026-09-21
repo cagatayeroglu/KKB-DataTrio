@@ -45,6 +45,14 @@ export const LIST_FILTERS = {
 };
 /** The one filter the knowledge search accepts, measured after decoding. */
 export const SEARCH_FILTERS = { q: /^[\s\S]{1,512}$/ };
+/** What the knowledge list may be asked for: one tab, one province, a search, one page. */
+export const KNOWLEDGE_FILTERS = {
+  tab: /^(?:all|reviewed|listed|prepared|fetchable|catalog|user|archived)$/,
+  province: /^[\s\S]{1,64}$/,
+  q: /^[\s\S]{1,200}$/,
+  page: /^[1-9]\d{0,3}$/,
+  page_size: /^(?:[1-9]\d?|100)$/,
+};
 /**
  * A query string carrying only the named filters, each within its own bound.
  *
@@ -211,7 +219,8 @@ export async function forward(
   if (
     search &&
     !((list || traceList) && queryWithin(search, LIST_FILTERS)) &&
-    !(knowledgeSearch && queryWithin(search, SEARCH_FILTERS))
+    !(knowledgeSearch && queryWithin(search, SEARCH_FILTERS)) &&
+    !(knowledgeList && queryWithin(search, KNOWLEDGE_FILTERS))
   )
     return error("forbidden", 403);
   if (

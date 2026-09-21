@@ -708,6 +708,11 @@ export const knowledgeListSchema = z
     series: z.array(knowledgeSeriesSchema).max(10000),
     // Directory entries search finds and turns fetch on first use; absent on an older server.
     listed_series: z.number().int().min(0).max(10000).optional(),
+    total: z.number().int().min(0).max(10000).nullable().optional(),
+    page: z.number().int().min(1).nullable().optional(),
+    page_size: z.number().int().min(1).max(100).nullable().optional(),
+    counts: z.record(z.string(), z.number().int().min(0)).nullable().optional(),
+    provinces: z.array(z.string().max(200)).max(128).optional(),
   })
   .strict();
 export const datasetDetailSchema = z

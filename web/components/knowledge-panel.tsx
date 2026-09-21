@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Archive,
   ArchiveRestore,
@@ -165,20 +165,6 @@ function where(item: KnowledgeSeries) {
   if (item.fetchable) return "İlk kullanımda kaynaktan çekilir";
   return "Yalnız katalogda";
 }
-function matches(item: KnowledgeSeries, filter: Filter, province?: string) {
-  if (province && item.geography && item.geography !== province) return false;
-  if (filter === "archived") return item.status === "archived";
-  if (item.status === "archived") return filter === "all";
-  if (filter === "reviewed") return item.origin === "reviewed";
-  if (filter === "listed") return item.origin === "listed";
-  if (filter === "prepared") return item.prepared;
-  if (filter === "fetchable") return item.fetchable;
-  if (filter === "catalog")
-    return item.origin === "reviewed" && !item.prepared && !item.fetchable;
-  if (filter === "user") return item.origin === "user";
-  return true;
-}
-
 export type ChatDocument = { sessionId: string; ref: string; label: string };
 
 export function KnowledgePanel({
@@ -256,7 +242,7 @@ export function KnowledgePanel({
       setHint(parts.filter(Boolean).join(" "));
       setIssue("");
       if (found.catalog_changed) {
-        setListing(await listKnowledge(owner));
+        setListing(await listKnowledge(owner, view()));
         setIndex(await readIndex(owner));
       }
     } catch (error) {
@@ -391,9 +377,13 @@ export function KnowledgePanel({
       setBusy(false);
     }
   }
+  /** What the reader is looking at: the server filters and sends this one page. */
+  function view() {
+    return { tab: filter, province, query, page, pageSize: PAGE_SIZE };
+  }
   async function refresh(options: { keep?: string } = {}) {
     try {
-      setListing(await listKnowledge(owner));
+      setListing(await listKnowledge(owner, view()));
       setIssue(options.keep ?? "");
       onChanged?.();
     } catch (error) {
@@ -433,57 +423,27 @@ export function KnowledgePanel({
   useEffect(() => {
     setPage(1);
   }, [filter, query, province]);
+  useEffect(() => {
+    const timer = setTimeout(() => void refresh(), query ? 300 : 0);
+    return () => clearTimeout(timer);
+  }, [filter, province, query, page]);
 
-  const provinces = useMemo(() => {
-    const set = new Set<string>();
-    for (const item of listing?.series ?? []) {
-      if (item.geography && item.geography !== "Türkiye" && item.geography !== "turkiye") {
-        set.add(item.geography);
-      }
-    }
-    return Array.from(set).sort((a, b) => a.localeCompare(b, "tr"));
-  }, [listing]);
+  const provinces = listing?.provinces ?? [];
+  // Already filtered and cut to one page by the server.
+  const shown = listing?.series ?? [];
+  const total = listing?.total ?? shown.length;
 
-  const shown = useMemo(
-    () =>
-      (listing?.series ?? []).filter(
-        (item) =>
-          matches(item, filter, province) &&
-          (!query ||
-            // What a reader can see on the card is what the box searches: the
-            // note and the description used to be invisible to it (F4-bt-13).
-            [
-              item.title,
-              item.series_id,
-              ...item.aliases,
-              ...(item.reviewed_aliases ?? []),
-              item.note ?? "",
-              item.description ?? "",
-              item.reviewer_note ?? "",
-              item.geography ?? "",
-            ]
-              .join(" ")
-              .toLocaleLowerCase("tr")
-              .includes(query.toLocaleLowerCase("tr"))),
-      ),
-    [listing, filter, province, query],
-  );
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pagedItems = shown;
 
-  const totalPages = Math.max(1, Math.ceil(shown.length / PAGE_SIZE));
-  const pagedItems = useMemo(
-    () => shown.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
-    [shown, page],
-  );
-
-  const counts = useMemo(() => {
-    const all = listing?.series ?? [];
-    return {
-      reviewed: all.filter((s) => s.origin === "reviewed").length,
-      listed: all.filter((s) => s.origin === "listed").length || (listing?.listed_series ?? 0),
-      user: all.filter((s) => s.origin === "user").length,
-      archived: all.filter((s) => s.status === "archived").length,
-    };
-  }, [listing]);
+  const counts = {
+    all: listing?.counts?.all ?? 0,
+    reviewed: listing?.counts?.reviewed ?? 0,
+    listed: listing?.counts?.listed ?? listing?.listed_series ?? 0,
+    prepared: listing?.counts?.prepared ?? 0,
+    user: listing?.counts?.user ?? 0,
+    archived: listing?.counts?.archived ?? 0,
+  };
 
   async function act(work: () => Promise<unknown>) {
     setBusy(true);
@@ -549,7 +509,9 @@ export function KnowledgePanel({
             ) : (
               <RefreshCw size={13} />
             )}
-            {refreshing ? "Kaynak dizinleri okunuyor..." : "Kaynak dizinlerini yenile"}
+            {refreshing
+              ? "Kaynak dizinleri okunuyor..."
+              : "Kaynak dizinlerini yenile"}
           </Button>
         )}
         <span>
@@ -761,6 +723,9 @@ export function KnowledgePanel({
             onClick={() => setFilter(key)}
           >
             {label}
+            {key in counts
+              ? ` (${counts[key as keyof typeof counts].toLocaleString("tr-TR")})`
+              : ""}
           </button>
         ))}
       </div>
@@ -803,9 +768,9 @@ export function KnowledgePanel({
           }}
         >
           <span>
-            Toplam <strong>{shown.length.toLocaleString("tr-TR")}</strong> seriden{" "}
+            Toplam <strong>{total.toLocaleString("tr-TR")}</strong> seriden{" "}
             <strong>
-              {(page - 1) * PAGE_SIZE + 1} - {Math.min(page * PAGE_SIZE, shown.length)}
+              {(page - 1) * PAGE_SIZE + 1} - {Math.min(page * PAGE_SIZE, total)}
             </strong>{" "}
             arası gösteriliyor
           </span>
@@ -835,7 +800,10 @@ export function KnowledgePanel({
       <div className="series-list">
         {!listing && <LoaderCircle size={16} className="spin" />}
         {shown.length === 0 && listing && (
-          <p className="helper" style={{ padding: "16px 0", textAlign: "center" }}>
+          <p
+            className="helper"
+            style={{ padding: "16px 0", textAlign: "center" }}
+          >
             Bu filtreye veya aramaya uygun seri bulunamadı.
           </p>
         )}
@@ -927,7 +895,7 @@ export function KnowledgePanel({
           <p className="helper">Bu filtrede kayıt yok.</p>
         )}
       </div>
-      {shown.length > PAGE_SIZE && (
+      {total > PAGE_SIZE && (
         <div
           className="knowledge-pagination"
           style={{
@@ -943,7 +911,8 @@ export function KnowledgePanel({
           }}
         >
           <span>
-            Sayfa {page} / {totalPages} (Toplam {shown.length.toLocaleString("tr-TR")} seri)
+            Sayfa {page} / {totalPages} (Toplam {total.toLocaleString("tr-TR")}{" "}
+            seri)
           </span>
           <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
             <Button
