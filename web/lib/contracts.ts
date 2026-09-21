@@ -164,6 +164,8 @@ export const resultSchema = z
     claim_kind: z.string(),
     published: z.literal(true),
     cells: z.array(cellSchema).max(2048),
+    // Absent from a server older than the option; then nothing is hidden.
+    hidden_columns: z.array(z.string().max(240)).max(32).default([]),
     proof: proofSchema,
   })
   .strict()
