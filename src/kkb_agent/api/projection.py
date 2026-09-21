@@ -41,14 +41,41 @@ _INTERNAL = re.compile(
 )
 
 
-def safe_text(text: str, *, limit: int = 8192, secrets: tuple[str, ...] = ()) -> str:
+def safe_text(
+    text: str,
+    *,
+    limit: int = 8192,
+    secrets: tuple[str, ...] = (),
+    shown_urls: frozenset[str] = frozenset(),
+) -> str:
+    """`shown_urls` are addresses this turn's own web search returned: they are the answer
+    to "webde ara", and the reader needs them to ask for a page to be read. Live
+    2026-09-21 every one of them was replaced by the placeholder, under a sentence telling
+    the reader to write the address in the next question."""
     if len(text) > limit or len(text.encode("utf-8")) > limit * 4:
         raise OutputRefused("output_limit")
-    cleaned = _INTERNAL.sub("[gizli bilgi kaldırıldı]", text)
+
+    def hidden(found: re.Match[str]) -> str:
+        return found.group() if found.group() in shown_urls else "[gizli bilgi kaldırıldı]"
+
+    cleaned = _INTERNAL.sub(hidden, text)
     for secret in secrets:
         if secret:
             cleaned = cleaned.replace(secret, "[gizli bilgi kaldırıldı]")
     return "".join(c for c in cleaned if ord(c) >= 32 or c in "\n\t")
+
+
+def _searched_urls(answered: Answered) -> frozenset[str]:
+    """The https addresses this turn's web_search steps returned, and nothing else."""
+    found: set[str] = set()
+    for item in answered.outcome.results:
+        if item.tool != "web_search":
+            continue
+        for candidate in getattr(item.output, "candidates", ()) or ():
+            url = str(getattr(candidate, "url", "") or "")
+            if url.startswith("https://") and not any(c.isspace() for c in url):
+                found.add(url)
+    return frozenset(found)
 
 
 def _owned_proof(proof: Proof | None, version: str) -> Proof:
@@ -340,7 +367,7 @@ def project_answer(
             )
         )
     else:
-        text = safe_text(gate.text, secrets=secrets)
+        text = safe_text(gate.text, secrets=secrets, shown_urls=_searched_urls(answered))
     if gate.omitted:
         notices.append("Doğrulanamayan bazı ifadeler yanıttan çıkarıldı.")
     if gate.limitations:
