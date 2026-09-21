@@ -59,7 +59,7 @@ from kkb_agent.agent.presentation import (
     format_number,
     period_table,
 )
-from kkb_agent.agent.registry import ToolRegistry
+from kkb_agent.agent.registry import RegistryError, ToolRegistry
 from kkb_agent.agent.selection import SelectedTable, SelectionError
 from kkb_agent.agent.verifier import (
     DEFAULT_TOLERANCE,
@@ -297,6 +297,20 @@ class Answered:
     #: Deterministic per-period layouts of the answered result, shown beside the
     #: prose only when the result carries no faults and the answer did not abstain.
     tables: tuple[PeriodTable, ...] = ()
+
+
+def _results_by_step(outcome: ExecutionOutcome) -> list[tuple[str, AnalyticalResult]]:
+    """`collect_results`, with the step each result came from."""
+    found: list[tuple[str, AnalyticalResult]] = []
+    for item in outcome.results:
+        if item.status is not ToolStatus.SUCCESS:
+            continue
+        candidate = getattr(item.output, "result", None)
+        if isinstance(candidate, AnalyticalResult):
+            found.append((item.step_id, candidate))
+        elif isinstance(item.output, AnalyticalResult):
+            found.append((item.step_id, item.output))
+    return found
 
 
 def collect_results(outcome: ExecutionOutcome) -> tuple[AnalyticalResult, ...]:
@@ -1634,9 +1648,15 @@ class Session:
         # The last result is the table that is published. A plan may leave other results
         # unconsumed (a second independent calculation); they are shown to the writer and
         # bound by the gate like any other, instead of the plan being refused for them.
-        for position, other in enumerate(results[:-1], start=1):
+        # Only a step no later step reads: an intermediate result (the daily read behind a
+        # monthly table) holds the same figures as what was built from it, and beside it
+        # every one of them is ambiguous to the gate (live 2026-09-21: the writer was shown
+        # "display AMBIGUOUS" for each BIST month-end and could quote none).
+        consumed = self._consumed_steps(planned.plan)
+        for position, (step_id, other) in enumerate(_results_by_step(outcome)[:-1], start=1):
             if (
                 self.selection is None
+                and step_id not in consumed
                 and other.status is ResultStatus.COMPUTED
                 and other.values
                 and not all(value in result.values for value in other.values)
@@ -1902,6 +1922,26 @@ class Session:
             # proof panel whose sentence it is and why the turn carries one.
             answer = replace(answer, limitations=(*answer.limitations, CAUSE_LIMITATION))
         return Answered(planned, outcome, results, answer, tables)
+
+    def _consumed_steps(self, plan: ValidatedPlan) -> set[str]:
+        """The steps another step of the plan reads, by its declared inputs or its edges."""
+        consumed: set[str] = set()
+        for item in plan.steps:
+            consumed.update(item.step.depends_on)
+            try:
+                spec = self.registry.get(item.step.tool)
+            except RegistryError:
+                continue
+            table = spec.table_input(item.arguments) if spec.table_input is not None else None
+            if table is not None:
+                consumed.update(
+                    name
+                    for name in (table.source, table.input_step, *table.others)
+                    if name is not None
+                )
+            if spec.required_steps is not None:
+                consumed.update(spec.required_steps(item.arguments))
+        return consumed
 
     def _gated(
         self,

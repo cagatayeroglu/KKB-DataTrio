@@ -559,9 +559,10 @@ class TestNominalAndRealAreNotInterchangeable:
 
 
 SUPPORTED_COUNT = "Koşul altında iki yönü birlikte karşılayan dönem sayısı 1 ay."
-#: An index base is not one of the series' values; the gate rejects it as an
-#: ambiguous binding, which is the numeric-rewrite category.
-NUMERIC_ONLY_DRAFT = "Endeks tabanı 100 olarak alınmıştır."
+#: A figure that is none of the result's values: the numeric-rewrite category. (An index
+#: base of 100 used to stand here; several values equal to it under one label are now one
+#: fact, and "2023=100" is part of a name, so neither is a fault any more.)
+NUMERIC_ONLY_DRAFT = "Endeks tabanı 987 olarak alınmıştır."
 #: The same base written beside a supported count fails period attribution
 #: instead, which is the other rewrite category.
 PERIOD_ONLY_DRAFT = "Endeks 2023=100 tabanlıdır ve birlikte karşılanan dönem sayısı 1 ay."

@@ -145,17 +145,32 @@ class ToolRegistry:
 
 
 def _without_titles(node: Any, *, names: bool = False) -> Any:
-    """A JSON schema without the `title` annotations pydantic generates for every field.
+    """A tool's JSON schema as a planner needs it: what to write, without the validator's marks.
 
-    They repeat the field name in title case ("Driver Column" beside `driver_column`) and
-    were 8% of what the planner reads about its tools. Inside `properties` and `$defs` a
-    key is an argument's or a model's own name, never an annotation, and is kept.
+    Removed, because they tell a planner nothing it can act on (the validator keeps them):
+    the `title` pydantic generates for every field ("Driver Column" beside `driver_column`),
+    the `anyOf [X, null]` + `default null` wrapper of an optional field (`required` already
+    says which fields are not optional). `additionalProperties: false` stays, because it
+    tells a planner not to invent a field the validator would refuse, and so does the
+    discriminator, whose mapping lists a tool's operations by name. Measured on the served
+    tools: 29.4 KB to about 25 KB. Inside `properties` and
+    `$defs` a key is an argument's or a model's own name, never an annotation, and is kept.
     """
     if isinstance(node, dict):
+        if not names:
+            options = node.get("anyOf")
+            if isinstance(options, list) and len(options) == 2 and {"type": "null"} in options:
+                base = next(item for item in options if item != {"type": "null"})
+                if isinstance(base, dict):
+                    rest = {k: v for k, v in node.items() if k not in ("anyOf", "default")}
+                    node = {**base, **rest}
         return {
             key: _without_titles(value, names=key in ("properties", "$defs"))
             for key, value in node.items()
-            if names or key != "title" or not isinstance(value, str)
+            if names
+            or not (
+                (key == "title" and isinstance(value, str)) or (key == "default" and value is None)
+            )
         }
     if isinstance(node, list):
         return [_without_titles(item) for item in node]

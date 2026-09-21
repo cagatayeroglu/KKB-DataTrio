@@ -374,7 +374,8 @@ def test_required_discovery_initial_schema_is_quantitatively_bounded(rig):
     full = session._tools_prompt()
     assert '"catalog_search"' in exposed
     assert '"change_detection"' not in exposed
-    assert len(full.encode()) - len(exposed.encode()) > 200
+    # The fixture's second tool is a few fields; its compacted schema is under 200 bytes.
+    assert len(full.encode()) - len(exposed.encode()) > 100
     # The narrowed step still names what it may not call, so a message asking what
     # the system can do is not answered with "you have two tools" (live 2026-09-20).
     names = [message.content for message in provider.seen[0] if message.role is Role.SYSTEM]

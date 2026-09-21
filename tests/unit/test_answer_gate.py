@@ -122,6 +122,7 @@ def producer_fixture_for_sentence_tests(request, monkeypatch):
         TestTheWithheldSentenceCanBeDiagnosedWithoutItsText,
         TestAbstention,
         TestTheInterpretationParagraph,
+        TestWhatIsNotAFigureToChooseBetween,
     }:
         return
     house = request.getfixturevalue("house")
@@ -828,3 +829,22 @@ class TestTheWithheldSentenceCanBeDiagnosedWithoutItsText:
         for word in ("Temmuz", "ulaştı", "milyon", "konut", "kredisi"):
             assert word not in exported
         assert not any(reason in exported for reason in omitted.reasons)
+
+
+class TestWhatIsNotAFigureToChooseBetween:
+    def test_a_base_year_notation_is_part_of_a_name(self, house):
+        # Live 2026-09-21: a note naming "TCMB Türkiye geneli endeksi (2023=100)" was
+        # withheld because 100 is no value of the result.
+        named = " Endeks olarak TCMB Türkiye geneli endeksi (2023=100) kullanıldı."
+        gated = gate_answer(SUPPORTED + named, result(), house.connection)
+        assert gated.status is AnswerStatus.ACCEPTED, gated
+        assert "(2023=100)" in gated.text
+        # A hundred that is claimed as a value is still a figure.
+        claimed = gate_answer(SUPPORTED + " Endeks 100 oldu.", result(), house.connection)
+        assert claimed.status is AnswerStatus.QUALIFIED
+
+    def test_the_same_measure_with_the_same_figure_in_two_results_is_one_fact(self, house):
+        # Live 2026-09-21: two co-movements over one table both count the transitions
+        # compared; every sentence quoting a count they share was withheld as ambiguous.
+        gated = gate_answer(SUPPORTED, {"a": result(), "b": result()}, house.connection)
+        assert gated.status is AnswerStatus.ACCEPTED, gated

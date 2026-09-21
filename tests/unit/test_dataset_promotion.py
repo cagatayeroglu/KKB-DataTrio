@@ -423,3 +423,14 @@ def test_admitting_an_address_does_not_wait_on_the_lock_its_turn_already_holds(s
 
     assert done.is_set(), "admission waited on the turn's own lock"
     assert len(runner._library(session_id)) == 2
+
+
+def test_a_unit_said_with_its_scale_is_read_when_the_two_agree():
+    # Live 2026-09-21: unit="milyon TL" with scale="million" was refused as
+    # UNIT_NOT_RECOGNISED, and the reader was shown a sentence that said nothing.
+    from kkb_agent.tools.promotion import unit_for
+
+    assert unit_for("milyon TL", "million") == "TRY"
+    assert unit_for("Milyon  TL") == "TRY" and unit_for("TL", "million") == "TRY"
+    assert unit_for("bin TL", "million") is None  # two answers to one question
+    assert unit_for("milyon şey", "million") is None
