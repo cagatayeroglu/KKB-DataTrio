@@ -123,3 +123,15 @@ test("derived columns keep a distinguishing legend suffix", () => {
   assert.match(legends[2], /reel, 2025-12/);
   assert.ok(legends.every((legend) => legend.length <= 72));
 });
+
+test("a change column's suffix is read in Turkish, percent and lag included", async () => {
+  const { seriesLabel } = await import("../lib/table");
+  assert.equal(
+    seriesLabel("balance % change (lag 1)", null),
+    "balance yüzde değişim (önceki döneme göre)",
+  );
+  assert.equal(
+    seriesLabel("balance change (lag 12)", null),
+    "balance değişim (12 dönem öncesine göre)",
+  );
+});

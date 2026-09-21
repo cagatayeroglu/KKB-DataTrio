@@ -128,6 +128,12 @@ export function seriesLabel(label: string, dataset: Dataset | null) {
         }`,
     )
     .replaceAll("month-over-month change", "aylık değişim")
+    // table_transform change: "<column> % change (lag 1)" / "<column> change (lag 12)".
+    .replace(
+      / (% )?change \(lag (\d+)\)/g,
+      (_, percent: string | undefined, lag: string) =>
+        ` ${percent ? "yüzde " : ""}değişim (${lag === "1" ? "önceki döneme göre" : `${lag} dönem öncesine göre`})`,
+    )
     .replace(/ real, (\d{4}-\d{2}) prices /g, " reel, $1 fiyatlarıyla ");
   const comparison = result.match(/^table comparison ([a-f0-9]{12}): (.+)$/);
   const comparisonLabels: Record<string, string> = {
