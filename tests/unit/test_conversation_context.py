@@ -208,9 +208,14 @@ def test_the_planner_is_given_names_and_coverage_but_never_the_figures(pool, tmp
         assert runner(sid, uuid4().hex, question).status.value == "accepted"
 
     prompts = workspace_prompts(provider)
-    assert len(prompts) == 1, "only the explicit follow-up receives old table metadata"
-    last = prompts[-1]
+    # Every question after the first is told which tables exist: names and labels, never
+    # figures. A word list used to decide whether the question referred to one; "Tabloya
+    # konut fiyat endeksini de ekle" matched nothing in it, the planner invented a table
+    # name, and the jury's third turn lost sixteen minutes to the refusal (live 2026-09-21).
+    assert len(prompts) == 2
+    last = prompts[0]
     assert "analiz_1" in last and "analiz_2" not in last
+    assert "analiz_2" in prompts[1]
     assert "coverage 2026-04-01..2026-06-30" in last
     assert "column labels:" in last
     # No published figure is in the prompt, in any shape a model could read. 100 is

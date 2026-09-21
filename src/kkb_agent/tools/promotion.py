@@ -89,9 +89,33 @@ UNIT_WORDS: Final = {
 }
 
 
-def unit_for(word: str) -> str | None:
-    """The stored unit a reader's word means, or None when it means nothing certain."""
-    return UNIT_WORDS.get(" ".join(word.strip().casefold().split()))
+#: A scale said in front of a unit ("milyon TL"), and the stored scale it names.
+SCALE_WORDS: Final = {
+    "bin": "thousand",
+    "milyon": "million",
+    "milyar": "billion",
+    "thousand": "thousand",
+    "million": "million",
+    "billion": "billion",
+}
+
+
+def unit_for(word: str, scale: object = None) -> str | None:
+    """The stored unit a reader's word means, or None when it means nothing certain.
+
+    "milyon TL" is a unit said with its scale, as the column header itself says it. It is
+    read as TL when the scale in front agrees with the declared one; a different one is two
+    answers to one question, and nothing certain. Live 2026-09-21: the planner passed
+    unit="milyon TL" with scale="million", the offer was refused as UNIT_NOT_RECOGNISED
+    and the reader was shown a sentence that said nothing.
+    """
+    parts = word.strip().casefold().split()
+    if len(parts) == 2 and parts[0] in SCALE_WORDS:
+        declared = getattr(scale, "value", scale)
+        if declared is not None and declared != SCALE_WORDS[parts[0]]:
+            return None
+        parts = parts[1:]
+    return UNIT_WORDS.get(" ".join(parts))
 
 
 #: How each reading is said back to the person, in the summary they approve.
@@ -337,7 +361,7 @@ def make_promote_series_tool(
             return _refused("VALUE_COLUMN_NOT_SETTLED" if candidates else "NO_VALUE_COLUMN")
         if arguments.meaning == "index" and arguments.base_year is None:
             return _refused("INDEX_NEEDS_BASE_YEAR")
-        unit = unit_for(arguments.unit)
+        unit = unit_for(arguments.unit, arguments.scale)
         if unit is None:
             # The person's own word for a unit nobody here recognises. Storing it as
             # written would put an unresolved meaning in the catalogue; asking is the

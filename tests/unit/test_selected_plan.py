@@ -92,22 +92,14 @@ def test_whole_invalid_plan_rejected_before_valid_prefix_runs(scope, args):
     assert calls == []
 
 
-def test_parallel_final_calculations_are_refused_before_dispatch(scope):
-    registry, calls = setup(scope)
-    with pytest.raises(PlanRejected, match="final calculation steps"):
-        validate_plan(plan(step("a", source="chosen"), step("b", source="chosen")), registry)
-    assert calls == []
-
-
-def test_ordering_dependency_does_not_consume_a_sibling_result(scope):
-    registry, calls = setup(scope)
-    # "b" waits for "a" but reads the selected workspace table again. Its typed
-    # input does not include "a", so publishing only "b" would silently lose it.
-    with pytest.raises(PlanRejected, match="final calculation steps"):
-        validate_plan(
-            plan(step("a", source="chosen"), step("b", source="chosen", after=("a",))), registry
-        )
-    assert calls == []
+def test_parallel_final_calculations_are_a_valid_plan(scope):
+    # Two calculations nobody consumes used to refuse the plan, at the price of another
+    # planner call. The last one is the table that is published; the other's result is
+    # shown to the writer beside it (`Session.answer`), so nothing is dropped unseen.
+    registry, _ = setup(scope)
+    for second in (step("b", source="chosen"), step("b", source="chosen", after=("a",))):
+        validated = validate_plan(plan(step("a", source="chosen"), second), registry)
+        assert [item.step.step_id for item in validated.steps] == ["a", "b"]
 
 
 def test_mutated_argument_rechecked_at_dispatch(scope):

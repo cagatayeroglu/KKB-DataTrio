@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from uuid import UUID, uuid5
 
+from kkb_agent.agent.claim_qualifiers import has_amount_context, is_list_marker
 from kkb_agent.agent.discovery import CLARIFICATION_TEXT, MISSING_SERIES_ROUTES
 from kkb_agent.agent.executor import ExecutionOutcome
 from kkb_agent.agent.loop import Answered
@@ -40,14 +41,41 @@ _INTERNAL = re.compile(
 )
 
 
-def safe_text(text: str, *, limit: int = 8192, secrets: tuple[str, ...] = ()) -> str:
+def safe_text(
+    text: str,
+    *,
+    limit: int = 8192,
+    secrets: tuple[str, ...] = (),
+    shown_urls: frozenset[str] = frozenset(),
+) -> str:
+    """`shown_urls` are addresses this turn's own web search returned: they are the answer
+    to "webde ara", and the reader needs them to ask for a page to be read. Live
+    2026-09-21 every one of them was replaced by the placeholder, under a sentence telling
+    the reader to write the address in the next question."""
     if len(text) > limit or len(text.encode("utf-8")) > limit * 4:
         raise OutputRefused("output_limit")
-    cleaned = _INTERNAL.sub("[gizli bilgi kaldırıldı]", text)
+
+    def hidden(found: re.Match[str]) -> str:
+        return found.group() if found.group() in shown_urls else "[gizli bilgi kaldırıldı]"
+
+    cleaned = _INTERNAL.sub(hidden, text)
     for secret in secrets:
         if secret:
             cleaned = cleaned.replace(secret, "[gizli bilgi kaldırıldı]")
     return "".join(c for c in cleaned if ord(c) >= 32 or c in "\n\t")
+
+
+def _searched_urls(answered: Answered) -> frozenset[str]:
+    """The https addresses this turn's web_search steps returned, and nothing else."""
+    found: set[str] = set()
+    for item in answered.outcome.results:
+        if item.tool != "web_search":
+            continue
+        for candidate in getattr(item.output, "candidates", ()) or ():
+            url = str(getattr(candidate, "url", "") or "")
+            if url.startswith("https://") and not any(c.isspace() for c in url):
+                found.add(url)
+    return frozenset(found)
 
 
 def _owned_proof(proof: Proof | None, version: str) -> Proof:
@@ -205,6 +233,28 @@ def series_selection(
     )
 
 
+def _quotes_a_figure(text: str) -> bool:
+    """A digit that measures something; the "(1)" and "(2)" of two choices only count them.
+
+    A planner that names the axis it cannot settle writes the choices as a list. The
+    filter below read those markers as figures, so the owner's run of the reference
+    first turn showed the generic "several series fit" in place of the planner's own
+    "(1) yeni kullandırılan, akım ... (2) stok ..." (stored trace, 2026-09-20).
+    """
+    # A year or a date in the planner's own question measures nothing ("2020 sonrası
+    # için hangi seriyi kullanayım?", "2025-12 fiyatlarıyla mı?"); it used to send the
+    # whole question back to the fixed text. Any other number is a figure nothing computed.
+    undated = re.sub(r"\b\d{4}-\d{2}(?:-\d{2})?\b|\b\d{1,2}[./]\d{1,2}[./]\d{4}\b", " ", text)
+    for found in re.finditer(r"\d+(?:[.,]\d+)*", undated):
+        if is_list_marker(undated, found.start(), found.end()):
+            continue
+        token = found.group()
+        a_year = token.isdigit() and 1900 <= int(token) <= 2100
+        if not a_year or has_amount_context(undated, found.start(), found.end()):
+            return True
+    return False
+
+
 def clarification_text(
     reason: str,
     outcome: ExecutionOutcome,
@@ -221,14 +271,17 @@ def clarification_text(
     # Planner prose is not evidence. A numeric statement, locator or causal claim
     # in it cannot be bound by the ordinary answer verifier, so do not show it.
     # This intentionally rejects even a harmless date rather than certifying an
-    # unverified figure in a clarification.
+    # unverified figure in a clarification. The markers of a list of choices are not
+    # figures, and are the one kind of digit let through.
     if proposed is not None:
         specific = proposed.strip()
+        # The planner's own question is shown as it wrote it: "2020 sonrası için hangi
+        # seriyi kullanayım?" used to be replaced by a generic sentence because it holds a
+        # digit. An amount, a locator or a secret still sends it back to the fixed text.
         if (
             specific
-            and not re.search(
-                r"\d|https?://|\b(?:nedeniyle|sebebiyle|yol açt[ıi])\b", specific, re.I
-            )
+            and not _quotes_a_figure(specific)
+            and not re.search(r"https?://", specific, re.I)
             and "[gizli bilgi kaldırıldı]" not in safe_text(specific, limit=1500, secrets=secrets)
         ):
             return specific
@@ -314,7 +367,7 @@ def project_answer(
             )
         )
     else:
-        text = safe_text(gate.text, secrets=secrets)
+        text = safe_text(gate.text, secrets=secrets, shown_urls=_searched_urls(answered))
     if gate.omitted:
         notices.append("Doğrulanamayan bazı ifadeler yanıttan çıkarıldı.")
     if gate.limitations:
@@ -325,7 +378,7 @@ def project_answer(
     result = None
     if published is not None:
         if (
-            gate.status is not AnswerStatus.ACCEPTED
+            gate.status is AnswerStatus.ABSTAINED
             or not answered.results
             or published.digest() != answered.results[-1].digest()
         ):

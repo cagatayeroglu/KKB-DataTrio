@@ -26,6 +26,12 @@ from kkb_agent.database import apply_schema
 
 
 @pytest.fixture(autouse=True)
+def _wording_rules(monkeypatch):
+    """These cases pin the optional wording contract; the served gate binds figures only."""
+    monkeypatch.setattr("kkb_agent.agent.verifier.WORDING_RULES", True)
+
+
+@pytest.fixture(autouse=True)
 def verified_execution_boundary(monkeypatch):
     """Unit-test qualifiers after execution proof; never issue fake evidence.
 
@@ -168,6 +174,39 @@ def test_period_selects_the_correct_value_not_the_first_magnitude():
     combined = january.model_copy(update={"values": [january.values[0], june.values[0]]})
     verdict = verify_claims("Haziran 2025'te 100 milyon TL.", combined)
     assert verdict.accepted
+
+
+def _january_and_june():
+    january = result()
+    june = result(
+        value=250.0,
+        period=Period(start=date(2025, 6, 1), end=date(2025, 6, 30), frequency=Frequency.MONTHLY),
+    )
+    return january.model_copy(update={"values": [january.values[0], june.values[0]]})
+
+
+def test_each_dated_figure_is_read_under_the_date_that_introduces_it():
+    # How an analyst says it, with both figures right. Read as one context, each figure was
+    # refused for the other's month and the turn paid a second writer call (live E7).
+    natural = "Ocak 2025'te 100 milyon TL olan bakiye Haziran 2025'te 250 milyon TL'ye ulaştı."
+    assert verify_claims(natural, _january_and_june()).accepted
+    # The same two figures under each other's month are refused as before.
+    swapped = "Ocak 2025'te 250 milyon TL olan bakiye Haziran 2025'te 100 milyon TL'ye ulaştı."
+    assert not verify_claims(swapped, _january_and_june()).accepted
+
+
+def test_a_month_written_as_digits_is_a_date_and_never_the_figure_after_it():
+    # "2026-06" once read as the year 2026 followed by a figure "06", which made the
+    # clause look paired and let an unrecorded second month through.
+    second_month = "Ocak 2025'te bakiye 100 milyon TL (2026-06 fiyatlarıyla)."
+    assert not verify_claims(second_month, _january_and_june()).accepted
+
+
+def test_two_dates_that_share_one_figure_both_have_to_hold():
+    # Nothing stands between the two dates, so the clause pairs nothing: the figure is
+    # claimed for both months, and it is only January's.
+    shared = "Ocak 2025 ve Haziran 2025'te bakiye 100 milyon TL oldu."
+    assert not verify_claims(shared, _january_and_june()).accepted
 
 
 def test_known_conflicting_identity_cannot_borrow_another_value():
@@ -542,6 +581,29 @@ class TestACountIsOnlyQuotedAsWhatItIs:
             "Gözlem sayısı 60 ve dönem 60 ay; bakiye 100 milyon TL oldu.",
         ):
             assert verify_claims(phrase, sample).accepted
+
+    @pytest.mark.parametrize(
+        "draft",
+        [
+            # The months belong to the first 60; they lend the second one nothing.
+            "60 aylık dönemde 60 milyarlık artış oldu.",
+            "60 aylık dönemde bakiye 60 puan arttı.",
+            "Son 5 yılda bakiye 5 kat arttı.",
+            # A multiple, an amount or points never count periods, whatever follows them.
+            "Bakiye 5 kat arttı; yıllık bazda da yükseldi.",
+            "Artış 60 bin aylık ödemeye denk geldi.",
+        ],
+    )
+    def test_a_role_word_another_number_owns_lends_nothing(self, draft):
+        assert not verify_claims(draft, self._window()).accepted
+
+    def test_a_role_named_before_its_own_number_still_binds(self):
+        sample = self._window()
+        for phrase in (
+            "Gözlem sayısı 60'tır; bakiye 100 milyon TL oldu.",
+            "Pencere 5 yıl, yani 60 ay; bakiye 100 milyon TL oldu.",
+        ):
+            assert verify_claims(phrase, sample).accepted, phrase
 
     def test_question_number_does_not_make_a_new_financial_claim(self):
         sample = self._window()

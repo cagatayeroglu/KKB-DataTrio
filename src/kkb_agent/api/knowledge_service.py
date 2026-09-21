@@ -43,7 +43,8 @@ from kkb_agent.catalog.discovered import DiscoveredStore, listed_entry
 from kkb_agent.catalog.expansion import expand_groups
 from kkb_agent.catalog.hybrid import CatalogDenseStage, search_hybrid_catalog
 from kkb_agent.catalog.lance_index import CatalogIndexError
-from kkb_agent.catalog.mappings import ReviewedSeries, ReviewedSnapshot
+from kkb_agent.catalog.mappings import ReviewedSeries, ReviewedSnapshot, is_source_group
+from kkb_agent.catalog.normalization import normalize_search_text
 from kkb_agent.catalog.records import CatalogRecord, CatalogStatus
 from kkb_agent.catalog.search import CatalogSearchArguments, search_catalog
 from kkb_agent.catalog.vectors import catalog_documents
@@ -110,6 +111,41 @@ def _index_failure(error: Exception) -> str:
     if isinstance(error, OSError):
         return "state_filesystem_failure"
     return "rebuild_failed"
+
+
+#: The page's tabs, and the most entries one page of the list may carry.
+KNOWLEDGE_TABS = (
+    "all",
+    "reviewed",
+    "listed",
+    "prepared",
+    "fetchable",
+    "catalog",
+    "user",
+    "archived",
+)
+MAX_KNOWLEDGE_PAGE = 100
+
+
+def _in_tab(item: KnowledgeSeries, tab: str) -> bool:
+    """The same sorting the page did in the browser while the whole list still fitted."""
+    if tab == "archived":
+        return item.status == "archived"
+    if item.status == "archived":
+        return tab == "all"
+    if tab == "reviewed":
+        return item.origin == "reviewed"
+    if tab == "listed":
+        return item.origin == "listed"
+    if tab == "prepared":
+        return item.prepared
+    if tab == "fetchable":
+        return item.fetchable
+    if tab == "catalog":
+        return item.origin == "reviewed" and not item.prepared and not item.fetchable
+    if tab == "user":
+        return item.origin == "user"
+    return True
 
 
 class KnowledgeService:
@@ -437,7 +473,25 @@ class KnowledgeService:
         if thread is not None:
             thread.join(timeout=600)
 
-    def listing(self, owner_token: str) -> KnowledgeList:
+    def listing(
+        self,
+        owner_token: str,
+        *,
+        tab: str = "all",
+        province: str | None = None,
+        query: str | None = None,
+        page: int | None = None,
+        page_size: int = 50,
+    ) -> KnowledgeList:
+        """The knowledge base, one page of it at a time.
+
+        Without `page` this is the bounded list the page always had: reviewed entries,
+        the reader's own datasets, and the listed entries a person touched or a turn
+        fetched. With `page` every listed entry can be browsed: the filters run here and
+        one page travels. Measured: the whole list is 1,930 bytes an entry, 3.6 MB for the
+        1,869 entries of 2026-09-21 and about 16 MB with FinTürk and the full monthly
+        bulletin, against the web bridge's 1 MiB response bound.
+        """
         self._author(owner_token)
         datasets = self._knowledge.datasets(include_archived=True)
         notes = {note.series_id: note for note in self._knowledge.notes()}
@@ -450,40 +504,88 @@ class KnowledgeService:
         fetched = self._acquisitions() if self._acquisitions is not None else {}
         entries = [
             self._reviewed_entry(
-                item.record, notes.get(item.record.series_id), fetched.get(item.record.series_id)
+                item.record,
+                notes.get(item.record.series_id),
+                fetched.get(item.record.series_id),
+                geography=item.geography,
             )
             for item in self._reviewed.series
         ]
-        # The sources' own directory is hundreds of entries; the page lists the ones a
-        # person has touched or a turn has fetched, and counts the rest (DEC-176). Every
-        # one of them is found by the trial search above the list.
         listed = self._directory.series if self._directory is not None else ()
         known = {item.record.series_id for item in self._reviewed.series}
+        everything = page is not None
         entries.extend(
             self._reviewed_entry(
                 item.record,
                 notes.get(item.record.series_id),
                 fetched.get(item.record.series_id),
                 origin="listed",
+                geography=item.geography,
             )
             for item in listed
             if item.record.series_id not in known
-            and (item.record.series_id in fetched or item.record.series_id in notes)
+            and not is_source_group(item)
+            and (everything or item.record.series_id in fetched or item.record.series_id in notes)
         )
-        # EVDS series a search opened and a turn then fetched (DEC-177).
+        # EVDS series a search opened (DEC-177); without `page`, the fetched ones only.
         entries.extend(
             self._reviewed_entry(
                 item.record, None, fetched.get(item.record.series_id), origin="listed"
             )
             for item in self._opened()
-            if item.record.series_id not in known and item.record.series_id in fetched
+            if item.record.series_id not in known
+            and (everything or item.record.series_id in fetched)
         )
         entries.extend(self._dataset_entry(item) for item in datasets)
+        listed_total = sum(
+            item.record.series_id not in known and not is_source_group(item) for item in listed
+        )
+        if page is None:
+            return KnowledgeList(
+                catalog_digest=catalog.content_sha256,
+                reviewed_digest=self._reviewed.content_sha256,
+                series=tuple(self._with_search_text(entries, catalog)),
+                listed_series=listed_total,
+            )
+        counts = {name: sum(_in_tab(item, name) for item in entries) for name in KNOWLEDGE_TABS}
+        provinces = sorted(
+            {item.geography for item in entries if item.geography and item.geography != "Türkiye"}
+        )
+        # Folded as the catalogue search folds it: "İHTİYAÇ" finds "İhtiyaç" and "ihtiyac".
+        wanted = normalize_search_text(query or "")
+        shown = [
+            item
+            for item in entries
+            if _in_tab(item, tab if tab in KNOWLEDGE_TABS else "all")
+            and (not province or item.geography == province)
+            and (
+                not wanted
+                or wanted
+                in normalize_search_text(
+                    " ".join(
+                        [
+                            item.title,
+                            item.series_id,
+                            *item.aliases,
+                            item.note or "",
+                            item.geography or "",
+                        ]
+                    )
+                )
+            )
+        ]
+        size = max(1, min(page_size, MAX_KNOWLEDGE_PAGE))
+        first = (max(1, page) - 1) * size
         return KnowledgeList(
             catalog_digest=catalog.content_sha256,
             reviewed_digest=self._reviewed.content_sha256,
-            series=tuple(self._with_search_text(entries, catalog)),
-            listed_series=sum(item.record.series_id not in known for item in listed),
+            series=tuple(self._with_search_text(shown[first : first + size], catalog)),
+            listed_series=listed_total,
+            total=len(shown),
+            page=max(1, page),
+            page_size=size,
+            counts=counts,
+            provinces=tuple(provinces),
         )
 
     def _opened(self) -> tuple[ReviewedSeries, ...]:
@@ -534,6 +636,7 @@ class KnowledgeService:
         fetched: dict[str, object] | None = None,
         *,
         origin: Literal["reviewed", "listed"] = "reviewed",
+        geography: str | None = None,
     ) -> KnowledgeSeries:
         archived = note is not None and note.archived
         fetched_at = fetched.get("fetched_at") if fetched is not None else None
@@ -565,6 +668,7 @@ class KnowledgeService:
             coverage_end=record.coverage.end,
             aliases=note.aliases if note is not None else (),
             note=note.note if note is not None else None,
+            geography=geography,
             version=note.version if note is not None else None,
             updated_at=note.created_at if note is not None else None,
             acquired_at=datetime.fromisoformat(fetched_at) if isinstance(fetched_at, str) else None,

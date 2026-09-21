@@ -33,6 +33,7 @@ from kkb_agent.agent.claim_qualifiers import (
     fold,
     has_amount_context,
     identity_fault,
+    is_base_notation,
     is_date_token,
     is_list_marker,
     period_fault,
@@ -208,7 +209,9 @@ def extract_numbers(text: str) -> list[WrittenNumber]:
         value = parse_written(match.group())
         if value is None:
             continue
-        if is_list_marker(text, match.start(), match.end()):
+        if is_list_marker(text, match.start(), match.end()) or is_base_notation(
+            text, match.start(), match.end()
+        ):
             continue
         found.append(WrittenNumber(match.group(), value, match.start()))
     return found
@@ -552,7 +555,13 @@ def verify_claims(
     rejected: list[str] = []
     if exposes_literal_identity(answer, list(named.values())):
         rejected.append("Internal document proof identifiers are not answer text")
-    for start, end in _sentence_spans(answer):
+    # What the gate guarantees is figures: every number in the answer is a value a tool
+    # computed, with its unit, scale and period. Wording is the writer's. The word lists
+    # that used to withhold a sentence for its vocabulary (cause, absence, superlatives,
+    # endpoint direction) could not tell a denial from an assertion, withheld the hedged
+    # reading the writer is asked for, and cost the turn its table; `WORDING_RULES`
+    # restores them for a caller that wants the old contract.
+    for start, end in _sentence_spans(answer) if WORDING_RULES else ():
         if fault := causal_fault(answer[start:end]):
             rejected.append(fault)
         if fault := _observation_fault(
@@ -615,14 +624,30 @@ COUNT_WORDS: Final = {
 _COUNT_CLAUSE_CONNECTORS: Final = frozenset({"ve", "veya", "ama", "fakat", "and", "or", "but"})
 
 
-def _nearest_count_role(words: Iterable[str]) -> str | None:
-    """The first role before another count or a conjoined claim owns this number."""
-    for index, word in enumerate(words):
+#: Words that make the number before them an amount, a rate or a multiple. The amount
+#: vocabulary in `claim_qualifiers` reads "60 milyar" and not "60 milyarlık", and knows
+#: neither a bare "puan" nor "kat"; a count is never followed by any of them.
+_NEVER_A_COUNT: Final = re.compile(
+    r"(?:milyar|milyon|trilyon|katrilyon)\w*|bin|binlik|binlerce|puan\w*"
+    r"|kat|kati|katina|katindan|katlik|tl|lira\w*|usd|dolar\w*|euro|avro|sterlin\w*"
+)
+
+
+def _nearest_count_role(words: Iterable[str], *, behind: bool = False) -> str | None:
+    """The first role before another count or a conjoined claim owns this number.
+
+    Read backwards (`behind`), a role word that itself follows a number belongs to that
+    number: in "60 aylık dönemde 60 ..." the months are the first 60's, and lend the
+    second nothing.
+    """
+    listed = list(words)
+    for index, word in enumerate(listed):
         if index >= 5 or word in _COUNT_CLAUSE_CONNECTORS or word.isdecimal():
             break
         for role, vocabulary in COUNT_WORDS.items():
             if word in vocabulary:
-                return role
+                owned = behind and index + 1 < len(listed) and listed[index + 1].isdecimal()
+                return None if owned else role
     return None
 
 
@@ -635,10 +660,15 @@ class WindowCount:
 
     def named_in(self, clause: str, start: int, end: int) -> bool:
         """A role must attach locally; another number's role grants no licence."""
-        following = _nearest_count_role(re.findall(r"\w+", fold(clause[end:])))
+        after = re.findall(r"\w+", fold(clause[end:]))
+        if after and _NEVER_A_COUNT.fullmatch(after[0]):
+            return False
+        following = _nearest_count_role(after)
         if following is not None:
             return following == self.role
-        preceding = _nearest_count_role(reversed(re.findall(r"\w+", fold(clause[:start]))))
+        preceding = _nearest_count_role(
+            reversed(re.findall(r"\w+", fold(clause[:start]))), behind=True
+        )
         return preceding == self.role
 
 
@@ -724,7 +754,13 @@ def _bind_to_results(
                 fault
                 for fault in (
                     _scale_fault(answer, number, value),
-                    period_fault(clause, prefix, value, _price_references(result, value)),
+                    period_fault(
+                        clause,
+                        prefix,
+                        value,
+                        _price_references(result, value),
+                        position=number.start - sentence_start - len(prefix),
+                    ),
                     unit_fault(answer, number.start, end, value),
                     identity_fault(clause, prefix, name, result, value, named),
                     table_count_identity_fault(clause, result, value),
@@ -755,6 +791,11 @@ def _bind_to_results(
 
     supported = [candidate for candidate in candidates if candidate.supported]
     if len(supported) == 1:
+        return supported[0]
+    if len(supported) > 1 and len({candidate.value_label for candidate in supported}) == 1:
+        # The same measure with the same figure in several results is one fact, not a choice
+        # between two. Live 2026-09-21: two co-movements over one table both count "59
+        # transitions compared"; every sentence quoting a count they share was withheld.
         return supported[0]
     if len(supported) > 1:
         return NumberVerdict(
@@ -951,6 +992,11 @@ _UNVERIFIED_AGGREGATE = re.compile(
 )
 
 
+#: Whether a sentence may be withheld for its vocabulary alone. Off: the gate binds
+#: figures and leaves wording to the writer (2026-09-21, trust-the-model).
+WORDING_RULES = False
+
+
 def _observation_fault(sentence: str, named: Mapping[str, AnalyticalResult]) -> str | None:
     """Only check bounded descriptions; arbitrary prose is not semantic proof."""
     folded = fold(sentence)
@@ -1069,6 +1115,8 @@ def gate_answer(
             failures.setdefault(span, []).append(
                 "Internal document proof identifiers are not answer text"
             )
+        if not WORDING_RULES:
+            continue
         if fault := causal_fault(draft[span[0] : span[1]]):
             failures.setdefault(span, []).append(fault)
         if fault := _observation_fault(

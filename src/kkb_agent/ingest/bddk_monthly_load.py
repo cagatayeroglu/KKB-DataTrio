@@ -21,10 +21,15 @@ from pydantic import JsonValue
 
 from kkb_agent.core import SourceRef
 from kkb_agent.ingest.bddk_monthly import (
+    HOUSING_ROW,
+    HOUSING_TABLE,
+    SUPPORTED_ROWS,
     BddkSelector,
     MonthlyHousingMetadata,
     reviewed_monthly_catalog,
+    row_key,
     validate_reviewed_monthly_metadata,
+    value_columns,
 )
 from kkb_agent.ingest.bddk_monthly_request import (
     MONTHLY_ENDPOINT,
@@ -45,6 +50,7 @@ SEMANTIC_VERSION = "bddk-monthly-reviewed-v1"
 MANIFEST_VERSION = "bddk-monthly-batch-v1"
 TRANSFORMATION = "native-monthly;json-number-to-double;null-preserved;no-fill-or-rescale"
 MAX_ROWS = 10000
+MAX_COLUMNS = 24
 _DIMENSION_INDEX = {"TP": 4, "YP": 5, "TOTAL": 6}
 
 
@@ -116,8 +122,13 @@ def parse_monthly(payload: bytes, request: MonthlyRequest) -> Observation:
     """Validate the full selected-row envelope before extracting any value.
 
     Unknown colModels fields/font hints/other labels are inert source data.
-    All rows have the documented seven cells and unique (bank,row) identity.
+    All rows have one cell per column header and unique (bank,row) identity.
     The selected row must also agree with the reviewed metadata, not just id.
+
+    A listed row is found by its label, not its number: the bulletin renumbers rows when it
+    inserts one (measured: Menkul Kıymetler 2022-09, Krediler 2022-01, Sermaye Yeterliliği
+    three times). A month whose table does not have the row yet is a missing value, never
+    another row's number; two rows of the asked name refuse the answer.
     """
     request = MonthlyRequest.model_validate(request)
     try:
@@ -142,25 +153,59 @@ def parse_monthly(payload: bytes, request: MonthlyRequest) -> Observation:
             raise ValueError("Invalid rows")
         selected: list[JsonValue] | None = None
         seen: set[tuple[str, int]] = set()
+        names = report["colNames"]
+        if (
+            not isinstance(names, list)
+            or not 5 <= len(names) <= MAX_COLUMNS
+            or not all(isinstance(name, str) for name in names)
+        ):
+            raise ValueError("Invalid column headers")
+        headers = [str(name) for name in names]
+        listed = SUPPORTED_ROWS.get((request.selector.table, request.selector.row))
+        by_label = (
+            listed is not None
+            and listed.by_label
+            and (request.selector.table, request.selector.row) != (HOUSING_TABLE, HOUSING_ROW)
+        )
         for raw in rows:
             row = _object(raw)
             cell = row["cell"]
-            if not isinstance(cell, list) or len(cell) != 7:
+            if not isinstance(cell, list) or len(cell) != len(headers):
                 raise ValueError("Invalid row shape")
             bank, number = cell[0], cell[1]
             if not isinstance(bank, str) or type(number) is not int:
                 raise ValueError("Invalid row identity")
             if not 1 <= number <= 99999 or row.get("id") != str(number):
                 raise ValueError("Inconsistent row id")
-            if (bank, number) in seen:
+            if (bank, number) in seen and not by_label:
+                # Measured: from 2021-11 to 2022-05 the capital table itself carries two
+                # rows numbered 28. A row found by its label does not depend on numbers;
+                # one found by its number does, and is refused.
                 raise ValueError("Duplicate row")
             seen.add((bank, number))
-            if number == request.selector.row:
+            wanted = (
+                isinstance(cell[2], str) and row_key(cell[2]) == row_key(listed.label)
+                if by_label and listed is not None
+                else number == request.selector.row
+            )
+            if wanted:
                 if selected is not None:
                     raise ValueError("Ambiguous selected row")
                 selected = cell
+        period = request.period
+        start = date(period.year, period.month, 1)
+        end = date(period.year, period.month, calendar.monthrange(period.year, period.month)[1])
         if selected is None:
-            raise ValueError("Missing selected row")
+            if not by_label:
+                raise ValueError("Missing selected row")
+            # The table is the listed one for this month; it only has no such row yet.
+            first = _object(rows[0])["cell"]
+            if not isinstance(first, list):  # pragma: no cover - every row was checked above
+                raise ValueError("Invalid row shape")
+            selected = [first[0], request.selector.row, listed.label if listed else "", *first[3:]]
+            absent = True
+        else:
+            absent = False
         metadata = MonthlyHousingMetadata.model_validate(
             {
                 "success": root["success"],
@@ -174,12 +219,12 @@ def parse_monthly(payload: bytes, request: MonthlyRequest) -> Observation:
         validate_reviewed_monthly_metadata(
             request.selector, metadata, requested_period=request.period
         )
-        period = request.period
-        return Observation(
-            date(period.year, period.month, 1),
-            date(period.year, period.month, calendar.monthrange(period.year, period.month)[1]),
-            _number(selected[_DIMENSION_INDEX[request.selector.value_dimension]]),
-        )
+        if absent:
+            return Observation(start, end, None)
+        # The column is found by its header in this month's own answer: the bands before a
+        # total have changed over the years, the total's name has not (checked above).
+        columns = value_columns(headers) if listed is not None else _DIMENSION_INDEX
+        return Observation(start, end, _number(selected[columns[request.selector.value_dimension]]))
     except (ValueError, TypeError, KeyError, OverflowError, RecursionError):
         raise MonthlyLoadError(MonthlyLoadCode.RESPONSE_INVALID) from None
 

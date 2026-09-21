@@ -142,7 +142,7 @@ def test_component_fingerprints_distinct_but_form_is_same():
 @pytest.mark.parametrize(
     "field,value",
     [
-        ("table", 3),
+        ("table", 17),  # says no unit anywhere
         ("row", 7),  # listed, never measured (all zeros): the listing leaves it unsupported
         ("bank_group", 10002),
         ("presentation_currency", "USD"),

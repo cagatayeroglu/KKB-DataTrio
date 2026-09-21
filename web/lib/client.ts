@@ -266,8 +266,34 @@ export function readPrompts(owner: string) {
   // The prompt parts as the deployment holds them; there is nothing to write.
   return api("prompts", promptPartsSchema, {}, undefined, owner);
 }
-export function listKnowledge(owner: string) {
-  return api("knowledge", knowledgeListSchema, {}, undefined, owner);
+export type KnowledgePage = {
+  tab: string;
+  province?: string;
+  query?: string;
+  page: number;
+  pageSize?: number;
+};
+/**
+ * One page of the knowledge base. The filters run on the server: the whole list is
+ * 1,930 bytes an entry (3.6 MB for 1,869 entries, measured), and the bridge bounds
+ * a response at 1 MiB.
+ */
+export function listKnowledge(owner: string, view?: KnowledgePage) {
+  if (!view) return api("knowledge", knowledgeListSchema, {}, undefined, owner);
+  const asked = new URLSearchParams({
+    tab: view.tab,
+    page: String(view.page),
+    page_size: String(view.pageSize ?? 50),
+  });
+  if (view.province) asked.set("province", view.province);
+  if (view.query?.trim()) asked.set("q", view.query.trim().slice(0, 200));
+  return api(
+    `knowledge?${asked.toString()}`,
+    knowledgeListSchema,
+    {},
+    undefined,
+    owner,
+  );
 }
 export function trySearch(owner: string, query: string) {
   // Reading what discovery would find starts no analysis and stores nothing. It

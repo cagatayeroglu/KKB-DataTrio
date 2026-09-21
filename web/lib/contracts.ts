@@ -696,6 +696,7 @@ export const knowledgeSeriesSchema = z
     reviewed_aliases: z.array(z.string().max(400)).max(400).optional(),
     reviewer_note: z.string().max(8192).nullable().optional(),
     search_text: z.string().max(16384).nullable().optional(),
+    geography: z.string().max(200).nullable().optional(),
   })
   .strict();
 export const knowledgeListSchema = z
@@ -707,6 +708,11 @@ export const knowledgeListSchema = z
     series: z.array(knowledgeSeriesSchema).max(10000),
     // Directory entries search finds and turns fetch on first use; absent on an older server.
     listed_series: z.number().int().min(0).max(10000).optional(),
+    total: z.number().int().min(0).max(10000).nullable().optional(),
+    page: z.number().int().min(1).nullable().optional(),
+    page_size: z.number().int().min(1).max(100).nullable().optional(),
+    counts: z.record(z.string(), z.number().int().min(0)).nullable().optional(),
+    provinces: z.array(z.string().max(200)).max(128).optional(),
   })
   .strict();
 export const datasetDetailSchema = z

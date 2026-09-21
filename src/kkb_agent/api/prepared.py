@@ -48,6 +48,7 @@ from kkb_agent.catalog.inspection import PreparedSeriesInspector
 from kkb_agent.catalog.mappings import (
     MAX_SNAPSHOT_BYTES,
     ReviewedSnapshot,
+    is_source_group,
     load_reviewed_snapshot,
     series_display_names,
 )
@@ -1285,8 +1286,17 @@ class PreparedRunner:
                     selection=selected_table,
                     require_series_discovery=self._dense is not None,
                     proven_series=frozenset(self._proven.get(session_id, ())),
+                    # What the catalogue lists is a known identity; the inspector still
+                    # checks each one against its declaration when it is read.
+                    known_series=frozenset(
+                        item.record.series_id
+                        for item in catalog.series
+                        if not is_source_group(item)
+                    ),
                     repair_period_wording=True,
                     repair_unmatched_numbers=True,
+                    # The jury values the reading beside the figures; one more writer call.
+                    commentary=True,
                     repair_runtime_refusals=True,
                     documents_note=document_note,
                     address_note=address_note,
@@ -1811,7 +1821,12 @@ class PreparedRunner:
         for make in (make_anomaly_tool, make_causality_tool):
             registry.register(make(connection, lineage=lineage, inspector=inspector))
         if self._search_backend is not None and "web_search" not in disabled:
-            registry.register(make_web_search_tool(backend=self._search_backend))
+            # Measured 2026-09-21: a search is 1 to 3.3 s and the worker process another
+            # second to start, so the 5 s default left no room for the one retry of an
+            # empty page; twenty seconds is still far below a planner call.
+            registry.register(
+                make_web_search_tool(backend=self._search_backend, timeout_seconds=20.0)
+            )
         if self._web_url_fetch is not None or attachment is not None or library:
             # The cell proof lives in this session's own lineage, where the gate
             # and the proof builder re-read it; the document itself is not kept.

@@ -223,7 +223,9 @@ def test_http_selected_followup_and_retry_use_actual_prepared_runner(tmp_path):
         assert (
             client.post(path, headers=headers, json=payload).json()["turn_id"] == follow["turn_id"]
         )
-        assert len(provider.seen) == 3
+        # Two plans, one writer call, and the writer asked once for its reading of a
+        # result the harness worded itself (the scripted provider has none to give).
+        assert len(provider.seen) == 4
 
 
 def test_selected_add_then_relationship_binds_step_output_and_publishes_counts(tmp_path):

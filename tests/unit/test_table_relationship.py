@@ -559,9 +559,10 @@ class TestNominalAndRealAreNotInterchangeable:
 
 
 SUPPORTED_COUNT = "Koşul altında iki yönü birlikte karşılayan dönem sayısı 1 ay."
-#: An index base is not one of the series' values; the gate rejects it as an
-#: ambiguous binding, which is the numeric-rewrite category.
-NUMERIC_ONLY_DRAFT = "Endeks tabanı 100 olarak alınmıştır."
+#: A figure that is none of the result's values: the numeric-rewrite category. (An index
+#: base of 100 used to stand here; several values equal to it under one label are now one
+#: fact, and "2023=100" is part of a name, so neither is a fault any more.)
+NUMERIC_ONLY_DRAFT = "Endeks tabanı 987 olarak alınmıştır."
 #: The same base written beside a supported count fails period attribution
 #: instead, which is the other rewrite category.
 PERIOD_ONLY_DRAFT = "Endeks 2023=100 tabanlıdır ve birlikte karşılanan dönem sayısı 1 ay."
@@ -1069,3 +1070,47 @@ def test_a_same_plan_step_named_as_source_is_read_like_input_step(pool):
     assert counts(result.output) == [5, 0, 5, 4, 3, 3]
     missing = tool.run(tool.parse(arguments), ExecutionContext("compare"))
     assert missing.error_category == "table_reference"
+
+
+class TestAColumnIsFoundTheWayAPlannerNamesIt:
+    """Live 2026-09-21, the jury's third turn: 37 minutes and no answer.
+
+    The planner named a column of a table a same-plan step had yet to build, by the series
+    it holds. The tool answered "A selected column does not exist in the table" - not
+    which one, not what the table does have - and two sixteen-minute calls went into
+    guessing. A refusal now carries both, and the unambiguous case is simply resolved.
+    """
+
+    def test_a_series_id_names_the_one_column_that_holds_it(self, pool):
+        from kkb_agent.analytics.table_relationship import resolve_label
+
+        source = source_of(pool)
+        labels = list(dict.fromkeys(value.label for value in source.values))
+        rate = next(label for label in labels if label.startswith("EVDS:TP.KTF12 "))
+        assert resolve_label(source, "EVDS:TP.KTF12") == rate
+        assert resolve_label(source, rate) == rate
+        assert resolve_label(source, "EVDS:TP.NOPE") == "EVDS:TP.NOPE"  # left to the refusal
+        # Named by what the series means, as the planner reads it beside the ID.
+        named = source.model_copy(
+            update={"parameters": {**source.parameters, "series_names": {"EVDS:TP.KTF12": "Faiz"}}}
+        )
+        assert resolve_label(named, "Faiz") == rate
+
+    def test_a_refusal_names_the_missing_column_and_the_columns_there_are(self, pool):
+        from kkb_agent.analytics.table_relationship import (
+            TableComparisonRefused,
+            compare_table_directions,
+        )
+
+        source = source_of(pool)
+        present = next(iter(dict.fromkeys(value.label for value in source.values)))
+        with pytest.raises(TableComparisonRefused) as refusal:
+            compare_table_directions(
+                source,
+                driver_column="Konut fiyat endeksi",
+                target_column=present,
+                driver_direction="down",
+                target_direction="up",
+            )
+        assert "'Konut fiyat endeksi'" in str(refusal.value)
+        assert "The table's columns are:" in str(refusal.value) and present in str(refusal.value)

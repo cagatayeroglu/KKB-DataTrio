@@ -17,10 +17,12 @@ from kkb_agent.analytics.table_relationship import (
     TableComparisonRefused,
     compare_table_directions,
     real_counterpart,
+    resolve_label,
 )
 from kkb_agent.core import AnalyticalResult, ResultKind, ResultStatus
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.lakehouse.result_evidence import _record_execution, canonical
+from kkb_agent.tools._running_totals import declared_accumulation, running_total_refusal
 
 if TYPE_CHECKING:
     from duckdb import DuckDBPyConnection
@@ -262,6 +264,14 @@ def run_table_relationship(
             error_category="table_reference",
             warnings=("The referenced table is unavailable or cannot be verified",),
         )
+    # A column named by the series it holds is read as the column that holds it.
+    named = {
+        field: resolve_label(source, asked)
+        for field in ("driver_column", "target_column", "when_column")
+        if isinstance(asked := getattr(arguments, field), str)
+    }
+    if any(getattr(arguments, field) != label for field, label in named.items()):
+        arguments = arguments.model_copy(update=named)
     inherited = _continued_condition(source, arguments, context.question)
     effective = (
         arguments.model_copy(update={"when_column": inherited[0], "when_direction": inherited[1]})
@@ -271,6 +281,15 @@ def run_table_relationship(
     columns = _deflated_columns(source, effective)
     deflated = columns.moved
     try:
+        for label in (columns.driver, columns.target, columns.when):
+            # What the store declares outranks what the values look like. A year-to-date
+            # profit with one loss month no longer "falls within calendar years", so the
+            # inference below took it for a level and counted the running total's rises.
+            accumulates = declared_accumulation(connection, label) if label else None
+            if label and accumulates is not None:
+                raise TableComparisonRefused(
+                    running_total_refusal(label, accumulates, "a direction comparison")
+                )
         result = compare_table_directions(
             source,
             driver_column=columns.driver,

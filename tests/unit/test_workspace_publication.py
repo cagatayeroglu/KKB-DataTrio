@@ -158,7 +158,6 @@ def session(candidate, draft="table: 999 TL.", *, later=None):
         "failed_step",
         "partial_step",
         "uncited_bad_candidate",
-        "qualified",
         "planner_error",
         "noncomputed",
     ],
@@ -174,9 +173,6 @@ def test_unsuccessful_turn_leaves_all_workspace_tables_unchanged(space, monkeypa
         draft = "   "
     elif case == "wrong_number":
         draft = "table: 777 TL."
-    elif case == "qualified":
-        draft = "table: 999 TL. Extra amount: 777 TL."
-        expected = AnswerStatus.QUALIFIED
     elif case == "uncited_bad_candidate":
         draft = "other: 500 TL."
         expected = AnswerStatus.ACCEPTED
@@ -212,6 +208,16 @@ def test_unsuccessful_turn_leaves_all_workspace_tables_unchanged(space, monkeypa
     assert snapshot(space) == before
     assert space.value_of("table").values[0].value == 100.0
     assert space.stale() == set()
+
+
+def test_a_qualified_turn_still_publishes_the_verified_table(space):
+    # The table is what the tools computed and the verifier re-read. A sentence withheld
+    # from the prose about it (here an amount nothing computed) no longer unpublishes it.
+    turn = session(result(), "table: 999 TL. Extra amount: 777 TL.")
+    answer = turn.answer("fixture", space.connection, workspace=space, remember="table")
+    assert answer.answer.status is AnswerStatus.QUALIFIED
+    assert "777" not in answer.answer.text
+    assert space.value_of("table").values[0].value == 999.0
 
 
 def test_writer_and_verifier_get_preview_but_real_workspace_changes_only_after_gate(

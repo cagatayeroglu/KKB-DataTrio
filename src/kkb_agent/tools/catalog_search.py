@@ -30,16 +30,32 @@ def make_catalog_search_tool(
     series the source lists under it, so the planner only ever sees readable identities."""
     snapshot = load_reviewed_snapshot(snapshot_bytes)
 
+    def search(arguments: CatalogSearchArguments) -> CatalogSearchOutput:
+        if dense is None:
+            return search_catalog(snapshot, arguments)
+        # Ordinary lexical/runtime imports do not initialize the native vector engine.
+        from kkb_agent.catalog.hybrid import search_hybrid_catalog
+
+        return search_hybrid_catalog(snapshot, arguments, dense)
+
     def run(arguments: BaseModel, context: ExecutionContext) -> ToolResult:
         # Fresh validated models per call prevent callers mutating subsequent results.
         args = CatalogSearchArguments.model_validate(arguments)
-        if dense is None:
-            output = search_catalog(snapshot, args)
-        else:
-            # Ordinary lexical/runtime imports do not initialize the native vector engine.
-            from kkb_agent.catalog.hybrid import search_hybrid_catalog
-
-            output = search_hybrid_catalog(snapshot, args, dense)
+        output = search(args)
+        if not output.candidates and not output.groups and (args.source or args.frequency):
+            # A filter narrows a search; it must never be the reason a search finds nothing.
+            # Twice live (TÜİK 2026-09-19, TCMB 2026-09-21) a planner named the institution
+            # it had in mind, the provider label differed, and the turn was lost to it.
+            relaxed = args.model_copy(update={"source": None, "frequency": None})
+            again = search(relaxed)
+            if again.candidates or again.groups:
+                output = again.model_copy(
+                    update={
+                        "relaxed_filters": tuple(
+                            name for name in ("source", "frequency") if getattr(args, name)
+                        )
+                    }
+                )
         # A datagroup is never shown as a candidate: it is opened into series, or dropped.
         output = (
             expand(args.query, output)
@@ -65,20 +81,14 @@ def make_catalog_search_tool(
     return ToolSpec(
         name="catalog_search",
         description=(
-            "Discover trusted reviewed catalog candidates using offline lexical/BM25 and aliases. "
-            "Does not fetch observation values or produce verified analytical claims. "
-            "Preserves unresolved concepts, ambiguity and unknown metadata; top-1 is not truth. "
-            "Archived records are excluded unless include_archived=true. "
-            "source filters by provider (EVDS, BDDK) or a publisher the reviewed labels name "
-            "(TÜİK, TCMB); frequency filters declared native frequency; a filter that matches "
-            "nothing returns FILTERED_OUT with no candidates, so omit filters when unsure. "
-            + (
-                "Uses configured lexical and local dense candidate stages; "
-                "failures are explicitly degraded. "
-                "Scores are stage-specific, not confidence. No automatic candidate selection."
-                if dense is not None
-                else "Not full hybrid retrieval; no dense or live access."
-            )
+            "Find the catalogue ID of a measure: BDDK monthly and weekly bulletins, FinTürk "
+            "province tables, TCMB/EVDS series, prices and indices, and datasets the reader "
+            "saved. Returns up to ten candidates with title, kind (stock, flow, rate, "
+            "index), unit, frequency and tier; it reads no values. Query with a few Turkish "
+            "keywords for ONE measure ('konut kredisi bakiyesi', 'tüketici fiyat endeksi'); "
+            "name a province or 'haftalık' in the query to reach province or weekly series. "
+            "Leave source and frequency empty unless the person named one: a finer series "
+            "can be reduced later, a filtered-out one cannot be found."
         ),
         arguments=CatalogSearchArguments,
         run=run,

@@ -107,12 +107,10 @@ def test_scalar_and_independent_table_are_not_implicitly_published_as_one(pool):
         },
         "depends_on": ["fetch"],
     }
-    with pytest.raises(PlanRejected, match=r"scalar \+ table"):
-        validate_plan(
-            plan(fetch(), second, scalar),
-            registry,
-            known_tables=pool[1].names(),
-        )
+    # A table nobody consumes beside a summary of another used to refuse the plan. The
+    # last step's result is published; the other reaches the writer (`Session.answer`).
+    validated = validate_plan(plan(fetch(), second, scalar), registry, known_tables=pool[1].names())
+    assert [item.step.step_id for item in validated.steps][-1] == "summary"
 
 
 def test_same_plan_step_cannot_shadow_a_published_table_name(pool):

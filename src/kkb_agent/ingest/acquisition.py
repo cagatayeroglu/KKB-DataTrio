@@ -42,6 +42,13 @@ from typing import TYPE_CHECKING, Final, Protocol
 
 from kkb_agent.catalog.inspection import PreparedSeriesInspector, SeriesInspection
 from kkb_agent.core import Frequency
+from kkb_agent.ingest.bddk_finturk import supported_finturk_selectors
+from kkb_agent.ingest.bddk_finturk_load import FinturkLoadCode, FinturkLoadError, ingest_finturk
+from kkb_agent.ingest.bddk_finturk_request import (
+    FIRST_QUARTER,
+    FinturkRequest,
+    fetch_finturk,
+)
 from kkb_agent.ingest.bddk_monthly import BddkSelector, MonthlyPeriod, supported_selectors
 from kkb_agent.ingest.bddk_monthly_load import MonthlyLoadCode, MonthlyLoadError, ingest_monthly
 from kkb_agent.ingest.bddk_monthly_request import MonthlyRange, MonthlyRequest, fetch_monthly
@@ -230,11 +237,23 @@ def weekly_selector(series_id: str) -> BddkSelector | None:
     return ROUTED_WEEKLY_SELECTORS.get(series_id)
 
 
+#: Every selector the FinTürk adapter accepts, by catalogue id (DEC-184).
+ROUTED_FINTURK_SELECTORS: Final = {
+    selector.internal_id(): selector for selector in supported_finturk_selectors()
+}
+
+
+def finturk_selector(series_id: str) -> BddkSelector | None:
+    """The FinTürk selector a catalogue id names, when the adapter accepts it."""
+    return ROUTED_FINTURK_SELECTORS.get(series_id)
+
+
 def has_reviewed_route(series_id: str) -> bool:
     return (
         reviewed_code(series_id) is not None
         or reviewed_selector(series_id) is not None
         or weekly_selector(series_id) is not None
+        or finturk_selector(series_id) is not None
     )
 
 
@@ -340,6 +359,7 @@ class OfficialSources:
     evds: Callable[[EvdsRequest], FetchOutcome] = fetch_series
     bddk: Callable[[MonthlyRequest], FetchOutcome] = fetch_monthly
     bddk_weekly: Callable[[WeeklyRequest], FetchOutcome] = fetch_weekly
+    bddk_finturk: Callable[[FinturkRequest], FetchOutcome] = fetch_finturk
     store: AcquisitionStore | None = None
     #: The wait before a transient failure is asked again; a test passes a no-op.
     pause: Callable[[float], None] = time.sleep
@@ -369,17 +389,19 @@ class TurnAcquirer:
             return tried  # One attempt per series per turn, whatever it returned.
         code, selector = reviewed_code(series_id), reviewed_selector(series_id)
         weekly = weekly_selector(series_id)
+        finturk = finturk_selector(series_id)
         listed = (
             self.sources.listed_evds(series_id)
             if code is None
             and selector is None
             and weekly is None
+            and finturk is None
             and self.sources.listed_evds is not None
             else None
         )
         if listed is not None:
             code = listed.code
-        if code is None and selector is None and weekly is None:
+        if code is None and selector is None and weekly is None and finturk is None:
             outcome = Acquisition(
                 series_id,
                 AcquisitionCode.NO_REVIEWED_ROUTE,
@@ -397,8 +419,10 @@ class TurnAcquirer:
                     outcome = self._evds(series_id, code, listed)
                 elif selector is not None:
                     outcome = self._bddk(series_id, selector)
+                elif weekly is not None:
+                    outcome = self._bddk_weekly(series_id, weekly)
                 else:
-                    outcome = self._bddk_weekly(series_id, weekly)  # type: ignore[arg-type]
+                    outcome = self._bddk_finturk(series_id, finturk)  # type: ignore[arg-type]
             except ValueError:
                 # A window or request the reviewed contract refuses is a refusal, never
                 # a crash in the middle of a turn.
@@ -514,6 +538,38 @@ class TurnAcquirer:
             missing_values=loaded.missing_values,
             window_start=loaded.first_week,
             window_end=loaded.last_week,
+            from_store=bool(calls) and not any(calls),
+        )
+
+    def _bddk_finturk(self, series_id: str, selector: BddkSelector) -> Acquisition:
+        """Every quarter from `FIRST_QUARTER` to the newest the source has published."""
+        calls = self._live()
+        asked = patient(self.sources.bddk_finturk, self.sources.pause)
+        retrieve = (
+            self.sources.store.cached(asked, calls)  # type: ignore[arg-type]
+            if self.sources.store is not None
+            else asked
+        )
+        first = date(FIRST_QUARTER[0], FIRST_QUARTER[1] - 2, 1)
+        try:
+            loaded = ingest_finturk(self.lake, selector, self.today, retrieve=retrieve)
+        except FinturkLoadError as error:
+            return Acquisition(
+                series_id,
+                AcquisitionCode.RETRIEVAL_FAILED
+                if error.code is FinturkLoadCode.RETRIEVAL_FAILED
+                else AcquisitionCode.REFUSED,
+                window_start=first,
+                window_end=self.today,
+                detail=error.code.value,
+            )
+        return Acquisition(
+            series_id,
+            AcquisitionCode.ALREADY_PRESENT if loaded.already_present else AcquisitionCode.ACQUIRED,
+            observations=loaded.quarters,
+            missing_values=loaded.missing_values,
+            window_start=first,
+            window_end=loaded.last_quarter,
             from_store=bool(calls) and not any(calls),
         )
 

@@ -16,6 +16,7 @@ from contextlib import suppress
 from typing import TYPE_CHECKING, BinaryIO, cast
 
 if TYPE_CHECKING:
+    from kkb_agent.ingest.bddk_finturk_request import FinturkRequest
     from kkb_agent.ingest.bddk_monthly_request import MonthlyRequest
     from kkb_agent.ingest.bddk_weekly_request import WeeklyRequest
     from kkb_agent.ingest.evds_request import EvdsRequest
@@ -101,6 +102,7 @@ def fetch_in_process(
     monthly: MonthlyRequest | None = None,
     evds: EvdsRequest | None = None,
     weekly: WeeklyRequest | None = None,
+    finturk: FinturkRequest | None = None,
 ) -> FetchOutcome:
     """Bound DNS/connect first, then the whole operation including worker IPC.
 
@@ -143,6 +145,19 @@ def fetch_in_process(
         ):
             return FetchFailure(source_ref=request.source_ref, code=FetchCode.INVALID_REQUEST)
         message["weekly"] = weekly.model_dump(mode="json")
+    if finturk is not None:
+        from kkb_agent.ingest.bddk_finturk_request import FINTURK_LIMITS, FinturkRequest
+
+        finturk = FinturkRequest.model_validate(finturk)
+        if (
+            monthly is not None
+            or evds is not None
+            or weekly is not None
+            or request != finturk.fetch_request()
+            or limits != FINTURK_LIMITS
+        ):
+            return FetchFailure(source_ref=request.source_ref, code=FetchCode.INVALID_REQUEST)
+        message["finturk"] = finturk.model_dump(mode="json")
     payload = json.dumps(message).encode()
     if len(payload) > MAX_INPUT_BYTES:
         return FetchFailure(source_ref=request.source_ref, code=FetchCode.SIZE_LIMIT)

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, date, datetime
-from typing import TYPE_CHECKING, Annotated, Any, Literal, Self
+from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, RootModel, model_validator
 
@@ -92,6 +92,7 @@ from kkb_agent.tools._document_column import (
     read_column,
 )
 from kkb_agent.tools._document_value import as_of, csv_parsing, grids, year_in_question
+from kkb_agent.tools._running_totals import declared_accumulation, running_total_refusal
 from kkb_agent.tools.change_detection import SeriesUnknown, read_series
 from kkb_agent.tools.web_url import Fetcher, choose_document, read_attachment, read_document
 
@@ -102,16 +103,12 @@ INPUTS = ("silver_series", "silver_observations")
 NOMINAL_LIMITATION = "Values are nominal; no inflation adjustment was applied"
 
 
-#: Every table argument accepts a published result or a step of this plan (DEC-165).
-_SOURCE = (
-    "A published result from an earlier turn, or the step_id of an earlier step in this "
-    "plan that produced a table (then list that step in depends_on)"
-)
-_SOURCE_UNCHANGED = _SOURCE + "; its rows stay unchanged"
-_OTHER = (
-    "Another published result, or an earlier step of this plan such as a fetched or "
-    "uploaded table (then list that step in depends_on)"
-)
+#: Every table argument accepts a published result or a step of this plan (DEC-165). What
+#: that means is said once, in the tool's description; ten operations each repeated it in
+#: full (1.7 KB of the planner's prompt saying one thing).
+_SOURCE = "The table to work on: a published table's name, or a table step_id of this plan"
+_SOURCE_UNCHANGED = _SOURCE
+_OTHER = "The table to take columns from: a published table's name, or a table step_id of this plan"
 
 
 class DeflateArguments(BaseModel):
@@ -119,12 +116,7 @@ class DeflateArguments(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    operation: Literal["deflate"] = Field(
-        description=(
-            "deflate: add an inflation-adjusted copy of one currency column, in the prices of "
-            "reference_period, keeping every existing column unchanged"
-        )
-    )
+    operation: Literal["deflate"]
     source: str = Field(
         pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
         description=_SOURCE,
@@ -160,14 +152,7 @@ class ToFlowArguments(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    operation: Literal["to_flow"] = Field(
-        description=(
-            "to_flow: add a per-period flow copy of one column the store records as a "
-            "cumulative series (yearly_reset or since_inception), keeping every existing "
-            "column unchanged. The store's declaration decides; a column that only looks "
-            "cumulative is refused"
-        )
-    )
+    operation: Literal["to_flow"]
     source: str = Field(
         pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
         description=_SOURCE_UNCHANGED,
@@ -184,17 +169,7 @@ class ResampleArguments(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    operation: Literal["resample"] = Field(
-        description=(
-            "resample: produce a monthly-only table from one weekly or daily column, "
-            "reduced by the "
-            "aggregation the store declares for that series (a rate or an exchange rate "
-            "averaged, a flow summed, a stock at its last period); the weekly/daily source "
-            "remains upstream in lineage, not mixed into this table. join_table can put "
-            "the monthly result beside other monthly tables. A monthly "
-            "column is never spread onto weeks or days"
-        )
-    )
+    operation: Literal["resample"]
     source: str = Field(
         pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
         description=_SOURCE,
@@ -220,11 +195,7 @@ class SummarizeArguments(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    operation: Literal["summarize"] = Field(
-        description=(
-            "summarize one existing table column as mean, sum, min, max, first, last or count"
-        )
-    )
+    operation: Literal["summarize"]
     source: str = Field(pattern=r"^[A-Za-z0-9_.:-]{1,64}$", description=_SOURCE)
     column: str = Field(min_length=1, max_length=400, description="Exact target column label")
     aggregation: Literal["mean", "sum", "min", "max", "first", "last", "count"]
@@ -377,13 +348,7 @@ class ChangeArguments(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    operation: Literal["change"] = Field(
-        description=(
-            "change: add the period-over-period change of one column (month over month for a "
-            "monthly table, day over day for a daily one), keeping every existing column. It "
-            "answers how much a value rose or fell each period and which period moved most"
-        )
-    )
+    operation: Literal["change"]
     source: str = Field(pattern=r"^[A-Za-z0-9_.:-]{1,64}$", description=_SOURCE_UNCHANGED)
     column: str = Field(
         min_length=1,
@@ -538,6 +503,31 @@ def _table_input(arguments: BaseModel) -> TableInput | None:
     return None
 
 
+#: A monthly column compared with the same month a year earlier: the one change of a
+#: year-to-date total that means something, the running total against last year's.
+_SAME_MONTH_LAST_YEAR: Final = 12
+
+
+def _reads_each_period_as_its_own(selected: BaseModel) -> tuple[str, str] | None:
+    """The column an operation reads as each period's own amount, and what it computes of it.
+
+    None when it does not: `first`, `last` and `count` quote or count cells, a change over
+    twelve months sets one running total against last year's, and the remaining operations
+    move or relabel cells without doing arithmetic across periods.
+    """
+    if isinstance(selected, SummarizeArguments):
+        if selected.aggregation in ("sum", "mean", "min", "max"):
+            return selected.column, f"a {selected.aggregation}"
+        return None
+    if isinstance(selected, ChangeArguments):
+        if selected.lag == _SAME_MONTH_LAST_YEAR:
+            return None
+        return selected.column, "a period-over-period change"
+    if isinstance(selected, DeflateArguments):
+        return selected.column, "a price adjustment by one month's index"
+    return None
+
+
 def make_table_transform_tool(
     connection: DuckDBPyConnection,
     workspace: Workspace,
@@ -636,6 +626,20 @@ def make_table_transform_tool(
                 if label != selected.column:
                     requested_column = selected.column
                     selected = selected.model_copy(update={"column": label})
+        if refusal is None and (totals := _reads_each_period_as_its_own(selected)) is not None:
+            # The column is resolved, so its label is the stored series it was read from,
+            # when it was read from one.
+            totalled, reading = totals
+            accumulates = declared_accumulation(connection, totalled)
+            if accumulates is not None:
+                refusal = AnalyticalResult(
+                    result_id=f"table_transform:{selected.operation}:{selected.source}",
+                    kind=ResultKind.SERIES,
+                    status=ResultStatus.ABSTAINED,
+                    tool="table_transform",
+                    method=_METHODS[selected.operation],
+                    reason=running_total_refusal(totalled, accumulates, reading),
+                )
         if refusal is not None:
             result = refusal
         elif isinstance(selected, (DeflateArguments, AddSeriesArguments)):
@@ -793,43 +797,47 @@ def make_table_transform_tool(
     return ToolSpec(
         name="table_transform",
         description=(
-            "Change a table published in an earlier turn by producing a new result without "
-            "mutating the published source. deflate adds an "
-            "inflation-adjusted copy of one currency column (for example a credit balance) in "
-            "the prices of reference_period, using a registered monthly price index such as a "
-            "consumer price index. Refer to the published result by its name and to the column "
-            "by its exact label. add_series adds a registered monthly series (for example a "
-            "housing price index) on the table's exact months. Use source and series_id only "
-            "for add_series. It preserves every old column, records missing months without "
-            "filling them, and does not calculate a relationship or establish a cause. "
-            "to_flow adds a per-period flow copy of a column the store records as cumulative "
-            "(yearly_reset or since_inception), which is what comparison, breakpoint and "
-            "table direction comparison can use; series-based tools still read original series. "
-            "A column the store does "
-            "not declare cumulative is refused rather than differenced. "
-            "change adds the period-over-period change of one column (kind=difference in the "
-            "column's unit, or kind=percent; lag=12 for a year earlier on monthly data) and "
-            "marks the periods with the largest rise and fall; a period after a gap stays empty. "
-            "resample produces a monthly-only table from a weekly or daily column "
-            "by the series' declared "
-            "aggregation (state week_assignment for a weekly one), so a weekly rate or a daily "
-            "exchange rate can then be joined with monthly tables; a monthly column is never "
-            "spread onto weeks or days. "
-            "summarize computes a typed mean, sum, minimum, maximum, first, last or period "
-            "count from one existing column, optionally within an inclusive date range. "
-            "Use it for scalar questions such as 'ortalaması ne'; do not use raw SQL to "
-            "recompute a published table. Sum is refused for stocks, rates and indices. "
-            "rebase adds an explicitly based copy of an existing index column. align selects "
-            "existing exact periods using inner or explicitly anchored-left policy. join_table "
-            "adds the monthly columns of another published result or an earlier same-plan "
-            "table step onto the source table's exact months, keeping each column's own "
-            "unit. To compose two independent reads in one turn, name both step IDs as "
-            "source/other and list both in depends_on; an ordering edge alone does not "
-            "compose them. filter "
-            "selects an inclusive period-end range. These unary operations never fill cells, "
-            "convert frequency, or accept SQL."
+            "Builds a new table from a table. One operation per step; chain steps to combine "
+            "them. `source` (and `other`) is the name of a published table, or the step_id of "
+            "an earlier step of this plan that returns a table (a lakehouse read, "
+            # Named only where it is offered: a description never advertises a tool the
+            # operator has switched off.
+            + ("a web_url read, " if document_fetch is not None or readable else "")
+            + "another table_transform). A column is named by its exact label; the "
+            "column of a series read in this plan is labelled by its series_id. Every "
+            "operation keeps the old columns and leaves the source as it was; no empty cell "
+            "is ever filled and no SQL is accepted. Whether columns move together is "
+            "change_detection's table_co_movement, not this tool.\n"
+            "- deflate: inflation-adjusted copy of a currency column (a credit balance) in "
+            "the prices of reference_period, by a monthly price index series such as a "
+            "consumer price index.\n"
+            "- add_series: a catalogue monthly series (a housing price index) added as a "
+            "column on the table's own months; a month it lacks stays empty.\n"
+            "- join_table: the monthly columns of `other` added onto the months of `source`, "
+            "each in its own unit. This is how two reads of one plan become one table.\n"
+            "- change: how much a column rose or fell each period, month over month or day "
+            "over day (kind=difference in the "
+            "column's unit, or kind=percent; lag=12 for a year earlier on monthly data); "
+            "marks the largest rise and fall; the period after a gap stays empty.\n"
+            "- resample: a weekly or daily column reduced to months by the series' declared "
+            "aggregation - a rate averaged, a flow summed, a stock at its last period "
+            "(week_assignment is required for a weekly column) - so a weekly "
+            "rate or a daily exchange rate can be joined with monthly tables. Monthly data "
+            "is never spread onto weeks or days.\n"
+            "- summarize: one number from a column - mean, sum, min, max, first, last or "
+            "count - optionally within a date range ('ortalaması ne', 'en yüksek değer'). "
+            "Sum is refused for stocks, rates and indices.\n"
+            "- to_flow: per-period flow copy of a column the store declares cumulative "
+            "(yearly_reset or since_inception). Such a column holds running totals, so "
+            "summarize sum/mean/min/max, change, deflate and table_co_movement refuse it: "
+            "read it, to_flow it, then apply them to the flow column in the same plan. A "
+            "column not declared cumulative is refused rather than differenced.\n"
+            "- rebase: copy of an index column with reference_period set to new_base.\n"
+            "- align: keeps the periods the chosen columns share (join=inner), or those of "
+            "anchor_column (join=left).\n"
+            "- filter: keeps an inclusive period-end range."
             + (
-                " add_document_column adds one column from a CSV, Excel, PDF or HTML table "
+                "\n- add_document_column: one column from a CSV, Excel, PDF or HTML table "
                 + (
                     "at a web address written in the question (give the address exactly as url)"
                     if document_fetch is not None

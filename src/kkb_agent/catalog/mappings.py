@@ -28,9 +28,11 @@ Text = Annotated[str, StringConstraints(strict=True, min_length=1, max_length=10
 Digest = Annotated[str, StringConstraints(strict=True, pattern=r"^[0-9a-f]{64}$")]
 Revision = Annotated[str, StringConstraints(strict=True, pattern=r"^[0-9a-f]{40}$")]
 #: A memory bound on catalogue bytes, not a catalogue size: the series ceiling is
-#: MAX_CATALOG_SERIES. With the sources' own directory applied (DEC-176) a catalogue is a
-#: few hundred entries of about a kilobyte each; 256 KiB held only the reviewed 37.
-MAX_SNAPSHOT_BYTES = 16 * 1024 * 1024
+#: MAX_CATALOG_SERIES. An entry serializes to about two kilobytes. With FinTürk's province
+#: cells (DEC-184) the served catalogue measured 16.7 MB against a 16 MiB bound, so one
+#: dataset saved by a reader would have refused every turn; the bound now covers
+#: MAX_CATALOG_SERIES entries of that size with room to spare.
+MAX_SNAPSHOT_BYTES = 64 * 1024 * 1024
 
 
 class Evidence(ContractModel):

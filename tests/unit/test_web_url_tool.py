@@ -26,6 +26,7 @@ from kkb_agent.agent import (
     ToolStatus,
 )
 from kkb_agent.agent.loop import collect_results
+from kkb_agent.agent.registry import _without_titles
 from kkb_agent.core import Scale
 from kkb_agent.csv_loader import CsvTable
 from kkb_agent.ingest.fetched import DOCUMENT_MEDIA_TYPES, source_id_for
@@ -88,7 +89,8 @@ class TestTheArgumentSchema:
 
         (described,) = registry.descriptions()
         assert described["name"] == "web_url"
-        assert described["arguments"] == WebUrlArguments.model_json_schema()
+        # The validated schema, without the `title` annotations pydantic generates.
+        assert described["arguments"] == _without_titles(WebUrlArguments.model_json_schema())
 
     @pytest.mark.parametrize(
         "raw",

@@ -218,6 +218,19 @@ def amount_qualifiers(text: str, start: int, end: int) -> tuple[Scale | None, tu
     return scale, tuple(units)
 
 
+#: "2023=100": how an index names its base year. It is part of the series' name, not a
+#: figure: neither the year nor the hundred measures anything (live 2026-09-21: a note
+#: naming "TCMB Türkiye geneli endeksi (2023=100)" was withheld because 100 is no value).
+_BASE_NOTATION = re.compile(r"(?<![\d.,])(?:19|20)\d{2}\s*=\s*100(?![\d.,])")
+
+
+def is_base_notation(text: str, start: int, end: int) -> bool:
+    """Whether the number at [start, end) sits inside an index's base-year notation."""
+    return any(
+        found.start() <= start and end <= found.end() for found in _BASE_NOTATION.finditer(text)
+    )
+
+
 def has_amount_context(text: str, start: int, end: int) -> bool:
     scale, units = amount_qualifiers(text, start, end)
     return scale is not None or bool(units)
@@ -469,14 +482,77 @@ def mask_price_references(text: str, references: Sequence[date]) -> str:
     return text
 
 
+def _dated_mentions(context: str) -> list[tuple[int, int]]:
+    """Where a clause names a period: a date, a month with its year, or a year alone."""
+    spans = [(found.start(), found.end()) for found in ISO_DATE.finditer(context)]
+    # "2026-06" is one mention. Read as a year with a stray "-06" after it, the "06" counted
+    # as a figure standing after the last date, and a price month nobody recorded paired off.
+    spans += [
+        (found.start(), found.end())
+        for found in YEAR_MONTH.finditer(context)
+        if not any(start <= found.start() < end for start, end in spans)
+    ]
+    for found in MONTH.finditer(context):
+        rest = context[found.end() :]
+        year = YEAR.match(rest.lstrip())
+        end = found.end() + (len(rest) - len(rest.lstrip()) + year.end() if year else 0)
+        spans.append((found.start(), end))
+    for found in YEAR.finditer(context):
+        if has_amount_context(context, found.start(), found.end()):
+            continue
+        if not any(start <= found.start() < end for start, end in spans):
+            spans.append((found.start(), found.end()))
+    return sorted(spans)
+
+
+def own_dated_part(clause: str, position: int) -> str:
+    """The part of a clause a figure is dated by, when each date introduces its own figure.
+
+    "Ocak 2021'de 281.234 milyon TL olan bakiye Aralık 2025'te 801.438 milyon TL'ye ulaştı."
+    is how an analyst says it, and both figures are right; read as one context, each figure
+    was refused for the other's month, and the turn paid a second writer call to have the
+    sentence cut in two (live E7; one stored repair took 1,036 s). The reading is only
+    narrowed where the clause itself pairs them: a figure stands between every two dated
+    mentions and after the last one. "2021 ve 2022 yıllarında 100 oldu" pairs nothing, so
+    both years still have to hold, and a figure written before the first date keeps the
+    whole clause.
+    """
+    mentions = _dated_mentions(clause)
+    if len(mentions) < 2 or position < mentions[0][0]:
+        return clause
+    bounds = [start for start, _ in mentions] + [len(clause)]
+    for (_, end), following in zip(mentions, bounds[1:], strict=True):
+        between = clause[end:following]
+        if not any(
+            not is_list_marker(clause, end + found.start(), end + found.end())
+            for found in re.finditer(r"\d+", between)
+        ):
+            return clause
+    for start, following in zip(bounds, bounds[1:], strict=False):
+        if start <= position < following:
+            return clause[start:following]
+    return clause
+
+
 def period_fault(
-    clause: str, prefix: str, value: ResultValue, references: Sequence[date] = ()
+    clause: str,
+    prefix: str,
+    value: ResultValue,
+    references: Sequence[date] = (),
+    position: int | None = None,
 ) -> str | None:
     # A leading date may scope several columns. An explicit local date takes
     # precedence, so a later column cannot borrow another column's month.
     if references:
-        clause = mask_price_references(clause, references)
+        masked = mask_price_references(clause, references)
+        # Masking keeps every offset only when it keeps the length; otherwise the
+        # figure's position no longer means anything and the whole clause is read.
+        if len(masked) != len(clause):
+            position = None
+        clause = masked
         prefix = mask_price_references(prefix, references)
+    if position is not None:
+        clause = own_dated_part(clause, position)
     context = clause
     if not YEAR.search(context) and not MONTH.search(context) and not ISO_DATE.search(context):
         context = prefix

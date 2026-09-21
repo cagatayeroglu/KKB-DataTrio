@@ -48,6 +48,39 @@ def _matches(change: float, direction: Direction) -> bool:
 LEVEL_MEASURES = (StockFlow.STOCK, StockFlow.RATE, StockFlow.INDEX)
 
 
+#: How many of a table's column labels a refusal names.
+MAX_LISTED_COLUMNS = 16
+
+
+def resolve_label(source: AnalyticalResult, asked: str) -> str:
+    """The column a planner means by `asked`; the exact label when the table has it.
+
+    A planner names a column of a table a same-plan step has yet to build, so it cannot
+    have seen the label, and it names the series the column holds: "EVDS:TP.KTF12" for
+    "EVDS:TP.KTF12 monthly average (by_end)". Live 2026-09-21 that was refused ("A selected
+    column does not exist") and cost the turn another planner call. When the labels that
+    begin with the asked name are one column and columns derived from it ("... month-over-
+    month change"), that one column is meant. Anything else is left for the refusal.
+    """
+    labels = list(dict.fromkeys(value.label for value in source.values))
+    if asked in labels:
+        return asked
+    # The planner reads each series as "ID (what it means)" and may name the column by the
+    # meaning: "Konut fiyat endeksi, Türkiye geneli (2023=100)" for EVDS:TP.KFE.TR.
+    names = source.parameters.get("series_names")
+    if isinstance(names, dict):
+        meant = [identity for identity, name in names.items() if name == asked]
+        if len(meant) == 1 and meant[0] != asked:
+            return resolve_label(source, meant[0])
+    begun = [label for label in labels if label.startswith(asked + " ")]
+    base = [
+        label
+        for label in begun
+        if all(other == label or other.startswith(label + " ") for other in begun)
+    ]
+    return base[0] if len(base) == 1 else asked
+
+
 def _column(source: AnalyticalResult, label: str, notes: list[str]) -> dict[date, float]:
     """One column's monthly values; `notes` receives how its semantics were settled.
 
@@ -60,7 +93,16 @@ def _column(source: AnalyticalResult, label: str, notes: list[str]) -> dict[date
     """
     selected = [value for value in source.values if value.label == label]
     if not selected:
-        raise TableComparisonRefused("A selected column does not exist in the table")
+        # Said with the name that was not found and the names that are there. Live
+        # 2026-09-21: "A selected column does not exist in the table" named neither, and the
+        # planner spent two sixteen-minute calls guessing which of its two columns was
+        # wrong and what the right label might be.
+        present = list(dict.fromkeys(value.label for value in source.values))
+        listed = "; ".join(repr(name[:160]) for name in present[:MAX_LISTED_COLUMNS])
+        raise TableComparisonRefused(
+            f"A selected column does not exist in the table: {label[:160]!r}. "
+            f"The table's columns are: {listed}"
+        )
     signatures = {(v.unit, v.scale, v.measure) for v in selected}
     if len(signatures) != 1:
         raise TableComparisonRefused("A selected column changes units, scale or measurement kind")

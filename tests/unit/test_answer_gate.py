@@ -122,6 +122,7 @@ def producer_fixture_for_sentence_tests(request, monkeypatch):
         TestTheWithheldSentenceCanBeDiagnosedWithoutItsText,
         TestAbstention,
         TestTheInterpretationParagraph,
+        TestWhatIsNotAFigureToChooseBetween,
     }:
         return
     house = request.getfixturevalue("house")
@@ -217,11 +218,19 @@ class TestTheInterpretationParagraph:
         assert gated.status is AnswerStatus.ACCEPTED
         assert "Yorum:" in gated.text
 
-    def test_a_cause_in_that_paragraph_is_still_withheld(self, house):
+    def test_a_cause_in_that_paragraph_is_the_writers_to_state(self, house):
+        # The gate binds figures. The vocabulary rule that withheld this sentence could not
+        # tell "nedeni" from "nedeni değildir", and the jury asks for exactly this reading.
+        causal = " Yorum: Artışın nedeni muhtemelen faiz indirimidir."
+        gated = gate_answer(SUPPORTED + causal, result(), house.connection)
+        assert gated.status is AnswerStatus.ACCEPTED
+        assert "nedeni" in gated.text
+
+    def test_the_optional_wording_contract_still_withholds_it(self, house, monkeypatch):
+        monkeypatch.setattr("kkb_agent.agent.verifier.WORDING_RULES", True)
         causal = " Yorum: Artışın nedeni faiz indirimidir."
         gated = gate_answer(SUPPORTED + causal, result(), house.connection)
-        assert gated.status is AnswerStatus.QUALIFIED
-        assert "nedeni" not in gated.text
+        assert gated.status is AnswerStatus.QUALIFIED and "nedeni" not in gated.text
 
     def test_a_new_number_in_that_paragraph_is_still_withheld(self, house):
         invented = " Yorum: Yıl boyunca 912.000 milyon TL seviyesine yaklaşıldı."
@@ -451,7 +460,7 @@ class TestReadableVerifiedFigures:
         context = "\n".join(m.content for m in provider.seen[-1])
         assert "display 4,4472 yüzde" in context
         assert "4.447201536789372" not in context
-        assert "Copy every number, unit and scale exactly from a display phrase" in context
+        assert "Copy a figure exactly as its display phrase gives it" in context
         assert gate_answer(draft, {"rate": trusted}).status is AnswerStatus.ABSTAINED
 
 
@@ -740,7 +749,8 @@ def test_period_repair_provider_failure_preserves_first_gated_answer(house, monk
     answer = Session(provider, registry, repair_period_wording=True).answer(
         "q", house.connection, workspace=workspace, remember="table"
     )
-    assert len(calls) == 3 and workspace.names() == []
+    # The table is the tools' and is published; the prose about it stays qualified.
+    assert len(calls) == 3 and workspace.names() == ["table"]
     assert answer.answer.status is AnswerStatus.QUALIFIED
     assert answer.answer.text == "Seri aylık yayımlanmaktadır."
     assert "private transport detail" not in answer.answer.text
@@ -819,3 +829,22 @@ class TestTheWithheldSentenceCanBeDiagnosedWithoutItsText:
         for word in ("Temmuz", "ulaştı", "milyon", "konut", "kredisi"):
             assert word not in exported
         assert not any(reason in exported for reason in omitted.reasons)
+
+
+class TestWhatIsNotAFigureToChooseBetween:
+    def test_a_base_year_notation_is_part_of_a_name(self, house):
+        # Live 2026-09-21: a note naming "TCMB Türkiye geneli endeksi (2023=100)" was
+        # withheld because 100 is no value of the result.
+        named = " Endeks olarak TCMB Türkiye geneli endeksi (2023=100) kullanıldı."
+        gated = gate_answer(SUPPORTED + named, result(), house.connection)
+        assert gated.status is AnswerStatus.ACCEPTED, gated
+        assert "(2023=100)" in gated.text
+        # A hundred that is claimed as a value is still a figure.
+        claimed = gate_answer(SUPPORTED + " Endeks 100 oldu.", result(), house.connection)
+        assert claimed.status is AnswerStatus.QUALIFIED
+
+    def test_the_same_measure_with_the_same_figure_in_two_results_is_one_fact(self, house):
+        # Live 2026-09-21: two co-movements over one table both count the transitions
+        # compared; every sentence quoting a count they share was withheld as ambiguous.
+        gated = gate_answer(SUPPORTED, {"a": result(), "b": result()}, house.connection)
+        assert gated.status is AnswerStatus.ACCEPTED, gated

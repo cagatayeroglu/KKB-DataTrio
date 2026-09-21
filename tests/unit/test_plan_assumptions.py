@@ -71,6 +71,39 @@ def test_an_assumption_is_read_by_the_gate_like_any_other_sentence(pool):
     assert any(invented in omitted.text for omitted in result.answer.omitted)
 
 
+@pytest.mark.parametrize(
+    "refused",
+    [
+        "Soruda pencere verilmediği için son 24 ay kullanıldı.",  # a number nothing computed
+    ],
+)
+def test_a_footnote_the_gate_refuses_falls_alone_and_costs_the_answer_nothing(pool, refused):
+    """A footnote is a courtesy, not the answer.
+
+    Withheld with the answer, it used to make an ACCEPTED answer QUALIFIED, and a
+    QUALIFIED answer publishes no table: the next turn's "tabloyu bozmadan ..." then had
+    nothing to build on, for the sake of a sentence nobody had asked for.
+    """
+    plain = answered(pool, [fetch()])
+    result = answered(pool, [with_assumption(refused)])
+
+    assert plain.answer.status is AnswerStatus.ACCEPTED
+    assert result.answer.status is AnswerStatus.ACCEPTED, result.answer
+    assert result.answer.text == plain.answer.text and result.tables == plain.tables
+    # Still reported: the reader is told a sentence was withheld, and which.
+    assert [item.text for item in result.answer.omitted] == [f"{ASSUMPTION_LABEL}{refused}"]
+
+
+def test_a_refused_footnote_does_not_take_a_sound_one_with_it(pool):
+    second = dict(rebase("fetch", ["fetch"]))
+    second["assumption"] = "Son 24 ay kullanıldı."
+    result = answered(pool, [with_assumption(NOTE), second])
+
+    assert result.answer.status is AnswerStatus.ACCEPTED, result.answer
+    assert f"{ASSUMPTION_LABEL}{NOTE}" in result.answer.text
+    assert "24" not in result.answer.text
+
+
 @pytest.mark.parametrize("note", ["", "   "])
 def test_an_empty_assumption_adds_no_line(pool, note):
     result = answered(pool, [with_assumption(note)])
@@ -95,3 +128,17 @@ def test_only_a_step_that_ran_is_footnoted():
     )
 
     assert plan_assumptions(Planned(plan, attempts=1), outcome) == (f"{ASSUMPTION_LABEL}{NOTE}",)
+
+
+def test_a_number_the_reader_wrote_is_theirs_to_read_back(pool):
+    # Live, 2026-09-21: every sentence of the model passed, and the harness's own note
+    # ("Son 8 haftanın değişimi için ...") was withheld because 8 is no result's value. The
+    # answer went QUALIFIED, a 384-second rewrite followed, and it came back worse.
+    lake, workspace = pool
+    steps = [with_assumption("Son 8 haftanın değişimi için 8 haftalık pencere okundu.")]
+    provider = scripted(json.dumps({"question": QUESTION, "steps": steps}), "Tablo hazırlandı.")
+    result = Session(provider, registry_for(pool)).answer(
+        "Son 8 haftada TÜFE nasıl değişti?", lake.connection, workspace=workspace
+    )
+    assert result.answer.status is AnswerStatus.ACCEPTED, result.answer
+    assert "8 haftalık" in result.answer.text and result.answer.omitted == ()

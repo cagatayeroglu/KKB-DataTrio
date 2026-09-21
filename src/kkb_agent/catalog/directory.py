@@ -41,6 +41,13 @@ from kkb_agent.catalog.mappings import (
 )
 from kkb_agent.catalog.records import CatalogRecord, CatalogStatus, SourceGroup
 from kkb_agent.core import Frequency, SourceRef
+from kkb_agent.ingest.bddk_finturk import (
+    finturk_directory_catalog,
+    listed_finturk,
+    place_name,
+    supported_finturk_selectors,
+)
+from kkb_agent.ingest.bddk_finturk_directory import DIRECTORY_SHA256 as FINTURK_DIRECTORY_SHA256
 from kkb_agent.ingest.bddk_monthly import (
     HOUSING_ROW,
     HOUSING_TABLE,
@@ -55,6 +62,7 @@ from kkb_agent.ingest.evds_directory_listing import DIRECTORY_SHA256 as EVDS_DIR
 
 BDDK_EVIDENCE_ID: Final = DIRECTORY_EVIDENCE_PREFIX + "bddk-monthly"
 BDDK_WEEKLY_EVIDENCE_ID: Final = DIRECTORY_EVIDENCE_PREFIX + "bddk-weekly"
+BDDK_FINTURK_EVIDENCE_ID: Final = DIRECTORY_EVIDENCE_PREFIX + "bddk-finturk"
 EVDS_GROUP_PREFIX: Final = "EVDS:group:"
 DIRECTORY_NOTE: Final = (
     "Listed by the source's own directory and fetched from it on first use. Unit, scale, "
@@ -115,6 +123,21 @@ def _bddk_weekly_series() -> tuple[ReviewedSeries, ...]:
     )
 
 
+def _bddk_finturk_series() -> tuple[ReviewedSeries, ...]:
+    return tuple(
+        ReviewedSeries(
+            record=finturk_directory_catalog(selector),
+            evidence_ids=(BDDK_FINTURK_EVIDENCE_ID,),
+            title_basis="documented_title",
+            # The province, so a question that names it finds it first and one that names
+            # none keeps a national series ahead of it (DEC-164).
+            geography=place_name(listed_finturk(selector)[2]),
+            note=DIRECTORY_NOTE,
+        )
+        for selector in supported_finturk_selectors()
+    )
+
+
 def _group_entry(group: ListedGroup) -> ReviewedSeries:
     calendar = FREQUENCIES.get(group.frequency_str)
     return ReviewedSeries(
@@ -166,10 +189,17 @@ def _pinned() -> tuple[tuple[ReviewedSeries, ...], tuple[Evidence, ...]]:
         file_sha256=WEEKLY_DIRECTORY_SHA256,
         section="BDDK weekly bulletin listing: tables, rows in page order, item ids, columns.",
     )
+    finturk = Evidence(
+        evidence_id=BDDK_FINTURK_EVIDENCE_ID,
+        path="src/kkb_agent/ingest/bddk_finturk_directory.py",
+        revision=hashlib.sha1(FINTURK_DIRECTORY_SHA256.encode(), usedforsecurity=False).hexdigest(),
+        file_sha256=FINTURK_DIRECTORY_SHA256,
+        section="FinTürk listing: tables with their unit label, columns and provinces.",
+    )
     groups = tuple(_group_entry(group) for group in listed_groups())
     return (
-        (*_bddk_series(), *_bddk_weekly_series(), *groups),
-        (bddk, weekly, evds_evidence()),
+        (*_bddk_series(), *_bddk_weekly_series(), *_bddk_finturk_series(), *groups),
+        (bddk, weekly, finturk, evds_evidence()),
     )
 
 
@@ -193,6 +223,7 @@ def source_directory(supplement: Sequence[ListedGroup] = ()) -> SourceDirectory:
     state = json.dumps(
         {
             "bddk": DIRECTORY_SHA256,
+            "bddk_finturk": FINTURK_DIRECTORY_SHA256,
             "bddk_weekly": WEEKLY_DIRECTORY_SHA256,
             "evds": EVDS_DIRECTORY_SHA256,
             **(

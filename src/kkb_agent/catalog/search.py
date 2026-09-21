@@ -113,6 +113,8 @@ class CatalogSearchOutput(ContractModel):
     snapshot_sha256: str
     retrieval_version: Literal["m13-04-lexical-v1", "m13-05-combined-v1"] = "m13-04-lexical-v1"
     top_candidate: TopCandidate = "none"
+    #: Filters the tool dropped because nothing matched with them (`tools.catalog_search`).
+    relaxed_filters: tuple[Literal["source", "frequency"], ...] = ()
     retrieval_mode: Literal["lexical_only", "hybrid", "lexical_degraded"] = "lexical_only"
     combination_policy: Literal[
         "lexical-v1", "reviewed-match-order-v1", "alternating-archive-tier-v1"
@@ -280,6 +282,39 @@ def named_calendar_first[T](
     return sorted(ordered, key=lambda item: reviewed_series(item).record.frequency is not calendar)
 
 
+#: The last few catalogues' search text. A catalogue is immutable and named by its content
+#: digest, and with the sources' listings in it (8,000 entries with FinTürk) folding every
+#: entry's words again for every search was most of a search's time.
+_INDEXED: dict[str, tuple[dict[str, list[Concept]], dict[str, Counter[str]]]] = {}
+_INDEXED_KEPT: Final = 4
+
+
+def _indexed(
+    snapshot: ReviewedSnapshot,
+) -> tuple[dict[str, list[Concept]], dict[str, Counter[str]]]:
+    """Each series' reviewed concepts and search words, computed once per catalogue."""
+    kept = _INDEXED.get(snapshot.content_sha256)
+    if kept is None:
+        concepts: dict[str, list[Concept]] = {}
+        for concept in snapshot.concepts:
+            for series_id in concept.candidate_series_ids:
+                concepts.setdefault(series_id, []).append(concept)
+        kept = (
+            concepts,
+            {
+                item.record.series_id: _terms(item, concepts.get(item.record.series_id, []))
+                for item in snapshot.series
+            },
+        )
+        while len(_INDEXED) >= _INDEXED_KEPT:
+            _INDEXED.pop(next(iter(_INDEXED)))
+        _INDEXED[snapshot.content_sha256] = kept
+    return kept
+
+
+_EVDS_NAMES = frozenset({"tcmb", "cbrt", "merkez bankasi", "central bank", "evds"})
+
+
 def source_matches(item: ReviewedSeries, source: str) -> bool:
     """`source` names the provider (EVDS, BDDK) or a publisher the reviewed text names.
 
@@ -290,27 +325,73 @@ def source_matches(item: ReviewedSeries, source: str) -> bool:
     """
     wanted = normalize_search_text(source)
     record = item.record
+    # EVDS is the central bank's own data system: a planner that asks for "TCMB" means it
+    # (live 2026-09-21: `source="TCMB"` emptied the search for the housing loan rate).
+    if wanted in _EVDS_NAMES and record.provider == "EVDS":
+        return True
     if normalize_search_text(record.provider) == wanted:
         return True
     named = normalize_search_text(" ".join([record.title, *record.labels]))
     return f" {wanted} " in f" {named} "
 
 
+#: The one-word places the listed series of a catalogue are published for, by its digest.
+_PLACES: dict[str, frozenset[str]] = {}
+
+
+def named_places(snapshot: ReviewedSnapshot, query: str) -> frozenset[str]:
+    """The provinces a question names, among those a listed source publishes (DEC-184).
+
+    "İstanbul'da konut kredisi" is a question about İstanbul. A reviewed concept maps
+    "konut kredisi" to the national series and would bound the search to them, which held
+    every province cell back (live, 2026-09-21: the agent answered that the catalogue has no
+    province data). A place is one word of the question equal to a listed series' place;
+    "Yurt Dışı" is two ordinary words and never scopes a search.
+    """
+    places = _PLACES.get(snapshot.content_sha256)
+    if places is None:
+        places = frozenset(
+            place
+            for place in (
+                normalize_search_text(item.geography or "")
+                for item in snapshot.series
+                if is_listed_series(item)
+            )
+            if place and " " not in place
+        )
+        while len(_PLACES) >= _INDEXED_KEPT:
+            _PLACES.pop(next(iter(_PLACES)))
+        _PLACES[snapshot.content_sha256] = places
+    return places & set(normalize_search_text(query).split())
+
+
 def eligible_catalog_series(
     snapshot: ReviewedSnapshot, args: CatalogSearchArguments
 ) -> tuple[ReviewedSeries, ...]:
-    """Shared declared metadata filtering, independent of ranking method."""
+    """Shared declared metadata filtering, independent of ranking method.
+
+    A question that names provinces is searched among the series of those provinces, in the
+    word search and the combined search alike.
+    """
+    places = named_places(snapshot, args.query)
     return tuple(
         s
         for s in snapshot.series
         if (args.include_archived or s.record.status is not CatalogStatus.ARCHIVED)
         and (args.source is None or source_matches(s, args.source))
         and (args.frequency is None or s.record.frequency is args.frequency)
+        and (not places or normalize_search_text(s.geography or "") in places)
     )
 
 
+def _place_is_named(series: ReviewedSeries, query_words: set[str]) -> bool:
+    """Whether the question names this listed series' place ("İstanbul'da", "Ankara ve ...")."""
+    place = normalize_search_text(series.geography or "").split()
+    return bool(place) and all(word in query_words for word in place)
+
+
 def one_per_listed_row[T](
-    ordered: Sequence[T], *, reviewed_series: Callable[[T], ReviewedSeries]
+    ordered: Sequence[T], *, reviewed_series: Callable[[T], ReviewedSeries], query: str = ""
 ) -> list[T]:
     """Keep the first component of each listed row; reviewed entries are all kept.
 
@@ -319,14 +400,23 @@ def one_per_listed_row[T](
     has already put first the component the question names, or the total when it names
     none, so the first of each row is the one to show. Reviewed series are untouched:
     their components are told apart by reviewed concepts and defaults (DEC-165).
+
+    A listed province series (FinTürk, DEC-184) exists once per province under one column
+    name. Each province the question names is its own row; the provinces it does not name
+    are one row, or ten results would be one column in ten arbitrary provinces.
     """
     seen: set[tuple[str, str | None, str]] = set()
     kept: list[T] = []
+    words = set(normalize_search_text(query).split())
     for item in ordered:
         series = reviewed_series(item)
         if is_listed_series(series):
             record = series.record
-            row = (record.provider, record.group.group_id if record.group else None, record.title)
+            title = record.title
+            if series.geography and title.endswith(" - " + series.geography):
+                if not _place_is_named(series, words):
+                    title = title.removesuffix(" - " + series.geography)
+            row = (record.provider, record.group.group_id if record.group else None, title)
             if row in seen:
                 continue
             seen.add(row)
@@ -378,10 +468,11 @@ def search_catalog(
     matches, method = _concept_matches(snapshot, key)
     mapped = {sid for c in matches for sid in c.candidate_series_ids}
     args, lifted = scoped_to_named_calendar(snapshot, args)
-    if lifted:
-        # The concept exists only on a coarser calendar than the one asked for, so it no
-        # longer bounds the search; series of the named calendar are searched instead,
-        # unconfirmed as any neighbour is.
+    if lifted or named_places(snapshot, args.query):
+        # The concept exists only on a coarser calendar than the one asked for, or only for
+        # the country when provinces were named, so it no longer bounds the search; series
+        # of the named calendar or provinces are searched instead, unconfirmed as any
+        # neighbour is.
         matches, mapped, method = [], set(), "bm25"
     excluded = (
         sum(
@@ -393,15 +484,9 @@ def search_catalog(
         else 0
     )
     eligible = eligible_catalog_series(snapshot, args)
-    concepts_by_id = {
-        s.record.series_id: [
-            c for c in snapshot.concepts if s.record.series_id in c.candidate_series_ids
-        ]
-        for s in eligible
-    }
-    documents = {
-        s.record.series_id: _terms(s, concepts_by_id[s.record.series_id]) for s in eligible
-    }
+    concepts_of, terms_of = _indexed(snapshot)
+    concepts_by_id = {s.record.series_id: concepts_of.get(s.record.series_id, []) for s in eligible}
+    documents = {s.record.series_id: terms_of[s.record.series_id] for s in eligible}
     query_terms = set(key.split())
     count = len(documents)
     average = sum(sum(d.values()) for d in documents.values()) / count if count else 1.0
@@ -436,7 +521,7 @@ def search_catalog(
     ranked = rerank_by_reviewed_intent(args.query, ranked, reviewed_series=lambda item: item)
     if not matches:
         ranked = named_calendar_first(args.query, ranked, reviewed_series=lambda item: item)
-    ranked = one_per_listed_row(ranked, reviewed_series=lambda item: item)
+    ranked = one_per_listed_row(ranked, reviewed_series=lambda item: item, query=args.query)
     unresolved = any(c.unresolved for c in matches)
     status: SearchStatus
     if ranked or found_groups:

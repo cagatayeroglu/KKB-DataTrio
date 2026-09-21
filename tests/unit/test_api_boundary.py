@@ -128,8 +128,14 @@ def test_nonaccepted_turn_never_promotes_candidate_or_rejected_text(verified, st
     output = project_answer(unsafe, turn_id=uuid4().hex, published=None)
     assert output.result is None and output.omitted_claims == 1
     assert SENTINEL not in output.model_dump_json()
-    with pytest.raises(OutputRefused):
-        project_answer(unsafe, turn_id=uuid4().hex, published=result)
+    if state is AnswerStatus.ABSTAINED:
+        with pytest.raises(OutputRefused):
+            project_answer(unsafe, turn_id=uuid4().hex, published=result)
+    else:
+        # A qualified turn's table is the tools' own and is published; what was withheld
+        # from its prose still never leaves the process.
+        shown = project_answer(unsafe, turn_id=uuid4().hex, published=result)
+        assert shown.result is not None and SENTINEL not in shown.model_dump_json()
 
 
 def test_accepted_but_unpublished_turn_does_not_export_candidate(verified):
@@ -604,3 +610,15 @@ def test_duplicate_sensitive_headers_are_rejected(http_api):
         ],
     )
     assert response.status_code == 400 and not calls
+
+
+def test_addresses_a_web_search_returned_are_shown_and_any_other_is_not():
+    # Live 2026-09-21: "webde ara" listed four pages and every address was replaced by the
+    # placeholder, under a sentence telling the reader to write the address in a question.
+    from kkb_agent.api.projection import safe_text
+
+    found = "https://www.bddk.org.tr/BultenHaftalik"
+    text = f"- Haftalık Bülten — www.bddk.org.tr: {found}\n- başka: https://other.example/x"
+    shown = safe_text(text, shown_urls=frozenset({found}))
+    assert found in shown and "other.example" not in shown
+    assert found not in safe_text(text)
