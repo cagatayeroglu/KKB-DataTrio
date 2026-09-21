@@ -214,16 +214,20 @@ def test_discovery_budget_cannot_expand_beyond_one_auxiliary_round():
         Budget(max_discovery_rounds=3)
 
 
-def test_auxiliary_catalog_queries_must_use_new_step_ids(pool):  # noqa: F811
+def test_an_auxiliary_query_that_reuses_a_step_id_runs_under_a_fresh_one(pool):  # noqa: F811
+    # The name clash used to cost the whole turn ("Continuation step IDs must be new"); the
+    # harness knows every ID in use and every reference, so it renames instead.
     lake, workspace = pool
     current, provider = session(
         pool,
         plan(discover("credit", "toplam konut kredisi bakiyesi")),
         plan(discover("credit", "TÜFE genel endeksi")),
+        plan(deflate()),
     )
-    with pytest.raises(PlanningFailed, match="Continuation step IDs must be new"):
-        current.answer(TURN_TWO, lake.connection, workspace=workspace, remember="real")
-    assert len(provider.seen) == 2 and "real" not in workspace.names()
+    answered = current.answer(TURN_TWO, lake.connection, workspace=workspace, remember="real")
+    assert answered.answer.status is AnswerStatus.ACCEPTED
+    assert [item.step_id for item in answered.outcome.results][:2] == ["credit", "credit_2"]
+    assert len(provider.seen) == 3 and "real" in workspace.names()
 
 
 def test_auxiliary_query_count_cannot_exceed_four(pool):  # noqa: F811

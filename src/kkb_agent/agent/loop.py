@@ -51,6 +51,7 @@ from kkb_agent.agent.executor import (
 from kkb_agent.agent.literal import literal_text
 from kkb_agent.agent.observer import Span, Tracer, prompt_outline
 from kkb_agent.agent.plan import AnalyticalPlan
+from kkb_agent.agent.plan_healing import heal_plan
 from kkb_agent.agent.presentation import (
     PeriodTable,
     deterministic_draft,
@@ -1080,6 +1081,18 @@ class Session:
                 raise PlanningFailed("Planner returned no plan")
 
             fingerprint = proposal.fingerprint()
+            # Bookkeeping the harness can read off the plan is completed, not refused: a
+            # refusal is a whole planner call (minutes on the served model).
+            proposal, mended = heal_plan(
+                proposal,
+                self.registry,
+                used_ids=used_ids,
+                known_tables=workspace.names() if workspace is not None else (),
+            )
+            if mended and self.tracer is not None:
+                self.tracer.event(
+                    "planning", "plan.healed", detail="; ".join(mended), count=len(mended)
+                )
             try:
                 if proposal.reply is not None and self.tools_required:
                     raise PlanRejected(
