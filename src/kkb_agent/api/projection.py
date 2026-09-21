@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from uuid import UUID, uuid5
 
+from kkb_agent.agent.claim_qualifiers import is_list_marker
 from kkb_agent.agent.discovery import CLARIFICATION_TEXT, MISSING_SERIES_ROUTES
 from kkb_agent.agent.executor import ExecutionOutcome
 from kkb_agent.agent.loop import Answered
@@ -205,6 +206,19 @@ def series_selection(
     )
 
 
+def _quotes_a_figure(text: str) -> bool:
+    """A digit that measures something; the "(1)" and "(2)" of two choices only count them.
+
+    A planner that names the axis it cannot settle writes the choices as a list. The
+    filter below read those markers as figures, so the owner's run of the reference
+    first turn showed the generic "several series fit" in place of the planner's own
+    "(1) yeni kullandırılan, akım ... (2) stok ..." (stored trace, 2026-09-20).
+    """
+    return any(
+        not is_list_marker(text, found.start(), found.end()) for found in re.finditer(r"\d+", text)
+    )
+
+
 def clarification_text(
     reason: str,
     outcome: ExecutionOutcome,
@@ -221,14 +235,14 @@ def clarification_text(
     # Planner prose is not evidence. A numeric statement, locator or causal claim
     # in it cannot be bound by the ordinary answer verifier, so do not show it.
     # This intentionally rejects even a harmless date rather than certifying an
-    # unverified figure in a clarification.
+    # unverified figure in a clarification. The markers of a list of choices are not
+    # figures, and are the one kind of digit let through.
     if proposed is not None:
         specific = proposed.strip()
         if (
             specific
-            and not re.search(
-                r"\d|https?://|\b(?:nedeniyle|sebebiyle|yol açt[ıi])\b", specific, re.I
-            )
+            and not _quotes_a_figure(specific)
+            and not re.search(r"https?://|\b(?:nedeniyle|sebebiyle|yol açt[ıi])\b", specific, re.I)
             and "[gizli bilgi kaldırıldı]" not in safe_text(specific, limit=1500, secrets=secrets)
         ):
             return specific

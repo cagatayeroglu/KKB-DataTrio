@@ -320,8 +320,28 @@ def test_specific_clarification_is_shown_with_cards_and_unsafe_prose_falls_back(
     assert shown.text == specific
     assert shown.selection is not None and shown.selection.others
 
+    # A question that lists its choices is still a question: "(1)" and "(2)" count the
+    # choices and quote nothing. The owner's run of the reference first turn lost exactly
+    # this sentence and showed the generic one instead (stored trace, 2026-09-20).
+    listed = (
+        "Hangi faiz oranını kullanayım: (1) yeni kullandırılan kredilerin akım faizi, "
+        "(2) mevcut portföyün stok faizi?"
+    )
+    provider = scripted(
+        proposal(discover()),
+        proposal(clarification="ambiguous_series", clarification_text=listed),
+    )
+    assert (
+        project_answer(
+            enabled(provider, registry).answer(QUESTION), turn_id=uuid4().hex, published=None
+        ).text
+        == listed
+    )
+
     for unsafe in (
         "Kesin değer 999 milyon TL; hangisini seçeyim?",
+        "Hangisi: (1) 45 puanlık akım faizi, (2) stok faizi?",
+        "Hangisi: (1) 2024 verisi, (2) 2025 verisi?",
         "https://unsupported.example verisini mi kullanayım?",
         "Enflasyon nedeniyle arttı; hangisini seçeyim?",
     ):
@@ -333,6 +353,7 @@ def test_specific_clarification_is_shown_with_cards_and_unsafe_prose_falls_back(
         )
         assert projected.text != unsafe
         assert "999" not in projected.text and "https://" not in projected.text
+        assert "45" not in projected.text and "2024" not in projected.text
 
 
 def test_required_discovery_initial_schema_is_quantitatively_bounded(rig):
