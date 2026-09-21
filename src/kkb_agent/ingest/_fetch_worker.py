@@ -2,8 +2,8 @@
 
 Not a command runner: the executable/module are constant, input is validated
 JSON on stdin: bounded source GET, the closed reviewed Monthly POST, the closed Weekly
-POST or the closed EVDS `fe` POST. stdout contains bounded connection-phase markers and
-one bounded JSON result; stderr is discarded.
+POST, the closed FinTürk POST or the closed EVDS `fe` POST. stdout contains bounded
+connection-phase markers and one bounded JSON result; stderr is discarded.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import quote, urlsplit, urlunsplit
 
 if TYPE_CHECKING:
+    from kkb_agent.ingest.bddk_finturk_request import FinturkRequest
     from kkb_agent.ingest.bddk_monthly_request import MonthlyRequest
     from kkb_agent.ingest.bddk_weekly_request import WeeklyRequest
     from kkb_agent.ingest.evds_request import EvdsRequest
@@ -56,6 +57,7 @@ def fetch_once(
     monthly: MonthlyRequest | None = None,
     evds: EvdsRequest | None = None,
     weekly: WeeklyRequest | None = None,
+    finturk: FinturkRequest | None = None,
 ) -> FetchOutcome:
     """One supervised request lifecycle, including explicitly checked GET hops."""
 
@@ -67,7 +69,7 @@ def fetch_once(
         body = None
         content_type = "application/x-www-form-urlencoded"
         fixed_headers: tuple[tuple[str, str], ...] = ()
-        if sum(item is not None for item in (monthly, evds, weekly)) > 1:
+        if sum(item is not None for item in (monthly, evds, weekly, finturk)) > 1:
             return FetchFailure(source_ref=request.source_ref, code=FetchCode.INVALID_REQUEST)
         if monthly is not None:
             from kkb_agent.ingest.bddk_monthly_request import MONTHLY_LIMITS, MonthlyRequest
@@ -90,9 +92,18 @@ def fetch_once(
             if request != weekly.fetch_request() or limits != WEEKLY_LIMITS:
                 return FetchFailure(source_ref=request.source_ref, code=FetchCode.INVALID_REQUEST)
             body = weekly.form_body()
+        if finturk is not None:
+            from kkb_agent.ingest.bddk_finturk_request import FINTURK_LIMITS, FinturkRequest
+
+            finturk = FinturkRequest.model_validate(finturk)
+            if request != finturk.fetch_request() or limits != FINTURK_LIMITS:
+                return FetchFailure(source_ref=request.source_ref, code=FetchCode.INVALID_REQUEST)
+            body = finturk.form_body()
         # Only the revalidated fixed BDDK POSTs get the pinned BDDK issuer.
         connection = SourceConnection(
-            request, limits=limits, reviewed_issuer=monthly is not None or weekly is not None
+            request,
+            limits=limits,
+            reviewed_issuer=any(item is not None for item in (monthly, weekly, finturk)),
         )
         visited = {connection.url.get_secret_value()}
         hops = 0
@@ -214,6 +225,11 @@ def main() -> int:
             from kkb_agent.ingest.bddk_weekly_request import WeeklyRequest
 
             weekly = WeeklyRequest.model_validate(data["weekly"])
+        finturk = None
+        if "finturk" in data:
+            from kkb_agent.ingest.bddk_finturk_request import FinturkRequest
+
+            finturk = FinturkRequest.model_validate(data["finturk"])
 
         def connected() -> None:
             sys.stdout.buffer.write(CONNECTED)
@@ -233,6 +249,7 @@ def main() -> int:
             monthly=monthly,
             evds=evds,
             weekly=weekly,
+            finturk=finturk,
         )
         encoded = result.model_dump(mode="json")
         if isinstance(result, FetchSuccess):
