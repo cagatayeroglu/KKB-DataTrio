@@ -30,7 +30,7 @@ from kkb_agent.agent import (
     execute,
     validate_plan,
 )
-from kkb_agent.agent.loop import REPLY_INSTRUCTIONS
+from kkb_agent.agent.loop import PLANNER_CHECKLIST, REPLY_INSTRUCTIONS
 from kkb_agent.llm import ScriptedProvider, scripted
 from kkb_agent.llm.provider import Role
 from kkb_agent.llm.structured import schema_instructions
@@ -119,7 +119,14 @@ class TestTheRegistryOwnsTheNames:
 
     def test_descriptions_carry_the_same_schema_the_executor_validates(self):
         described = {item["name"]: item for item in registry().descriptions()}
-        assert described["lakehouse"]["arguments"] == LakehouseArgs.model_json_schema()
+        shown, validated = described["lakehouse"]["arguments"], LakehouseArgs.model_json_schema()
+        # The same schema, without the `title` annotations pydantic generates ("Limit" beside
+        # `limit`): 8% of what a planner read about its tools, and nothing it can use.
+        assert shown["properties"].keys() == validated["properties"].keys()
+        assert shown["properties"]["limit"] == {
+            key: value for key, value in validated["properties"]["limit"].items() if key != "title"
+        }
+        assert "title" not in shown and shown["type"] == validated["type"]
         assert set(described) == {"anomaly", "lakehouse"}
 
     def test_arguments_are_parsed_against_the_tool_not_a_generic_dict(self):
@@ -370,10 +377,14 @@ class TestThePlannerLoop:
             Role.SYSTEM,
             Role.SYSTEM,
             Role.SYSTEM,
+            Role.SYSTEM,
             Role.USER,
         ]
         # The conversational-reply decision is offered once, to the initial call only.
         assert initial[2].content == REPLY_INSTRUCTIONS
+        # The last instruction sits next to the question, forty kilobytes of tool schema
+        # after the working guide: what to check a plan against before replying.
+        assert initial[3].content == PLANNER_CHECKLIST
         assert initial[0].content.endswith(contract)
         emitted_schema = json.loads(contract.split("\n", 1)[1])
         assert emitted_schema == AnalyticalPlan.model_json_schema()

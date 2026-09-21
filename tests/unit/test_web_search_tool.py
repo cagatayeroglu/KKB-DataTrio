@@ -18,6 +18,7 @@ from kkb_agent.agent import (
     ToolStatus,
 )
 from kkb_agent.agent.loop import collect_results
+from kkb_agent.agent.registry import _without_titles
 from kkb_agent.llm.doubles import scripted
 from kkb_agent.tools.web_search import (
     BackendHit,
@@ -76,7 +77,8 @@ def test_contract_is_absent_until_explicit_registration():
     backend: SearchBackend = FakeSearchBackend(SearchReply())
     registry.register(make_web_search_tool(backend=backend))
     description = registry.descriptions()[0]
-    assert description["arguments"] == SearchRequest.model_json_schema()
+    # The validated schema, without the `title` annotations pydantic generates.
+    assert description["arguments"] == _without_titles(SearchRequest.model_json_schema())
     assert set(description["arguments"]["properties"]) == {"query", "max_results"}
     assert "discovery" in description["description"].lower()
     assert "synthetic-backend-secret" not in json.dumps(description)

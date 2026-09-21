@@ -138,7 +138,25 @@ class ToolRegistry:
             {
                 "name": spec.name,
                 "description": spec.description,
-                "arguments": spec.arguments.model_json_schema(),
+                "arguments": _without_titles(spec.arguments.model_json_schema()),
             }
             for spec in self
         ]
+
+
+def _without_titles(node: Any, *, names: bool = False) -> Any:
+    """A JSON schema without the `title` annotations pydantic generates for every field.
+
+    They repeat the field name in title case ("Driver Column" beside `driver_column`) and
+    were 8% of what the planner reads about its tools. Inside `properties` and `$defs` a
+    key is an argument's or a model's own name, never an annotation, and is kept.
+    """
+    if isinstance(node, dict):
+        return {
+            key: _without_titles(value, names=key in ("properties", "$defs"))
+            for key, value in node.items()
+            if names or key != "title" or not isinstance(value, str)
+        }
+    if isinstance(node, list):
+        return [_without_titles(item) for item in node]
+    return node
