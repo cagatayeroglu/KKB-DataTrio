@@ -148,6 +148,10 @@ def project_reply(reply: SearchReply, request: SearchRequest) -> WebSearchOutput
     )
 
 
+#: The pause before an empty result page is asked for once more.
+EMPTY_RETRY_SECONDS = 1.5
+
+
 def _failure(code: SearchCode) -> WebSearchOutput:
     return WebSearchOutput(status="failed", code=code)
 
@@ -160,6 +164,13 @@ def _worker(backend: SearchBackend, request: SearchRequest, output: Path) -> Non
         try:
             try:
                 reply = backend.search(request)
+                if type(reply) is SearchReply and not reply.hits:
+                    # A metasearch instance whose engines were cold answers an empty page
+                    # and a full one a second later (live 2026-09-21: "no_results" for a
+                    # query that returned 42 hits when asked again). Asked once more,
+                    # inside the same deadline; an empty second answer is the answer.
+                    time.sleep(EMPTY_RETRY_SECONDS)
+                    reply = backend.search(request)
             except TimeoutError:
                 result = _failure(SearchCode.BACKEND_TIMEOUT)
             except Exception:
