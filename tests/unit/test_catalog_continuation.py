@@ -27,7 +27,15 @@ from kkb_agent.agent.discovery import catalog_feedback
 from kkb_agent.agent.executor import ExecutionOutcome
 from kkb_agent.catalog.mappings import load_reviewed_snapshot
 from kkb_agent.catalog.search import CatalogSearchArguments, search_catalog
-from kkb_agent.core import Aggregation, CumulativeKind, Frequency, Scale, SourceRef, StockFlow
+from kkb_agent.core import (
+    Aggregation,
+    CumulativeKind,
+    Frequency,
+    Scale,
+    SeriesId,
+    SourceRef,
+    StockFlow,
+)
 from kkb_agent.lakehouse import Observation, SeriesSemantics, open_lakehouse
 from kkb_agent.llm import KloudeksProvider, ProviderConfig, scripted
 from kkb_agent.llm.provider import Role
@@ -65,7 +73,7 @@ def calculate(step_id="a", **kwargs):
 
 class Args(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    series_id: str
+    series_id: SeriesId
 
 
 @pytest.fixture
@@ -196,7 +204,7 @@ def test_continuation_prompt_is_smaller_without_exposing_extra_tool_schemas(rig,
         next(m.content for m in continuation if m.content.startswith("Available tools:"))[17:]
     )
     assert {item["name"] for item in first_tools} == {"catalog_search", "change_detection"}
-    assert {item["name"] for item in continuation_tools} == {"change_detection"}
+    assert {item["name"] for item in continuation_tools} == {"catalog_search", "change_detection"}
 
 
 def test_single_plan_mode_remains_explicit_and_makes_no_extra_call(rig):
@@ -405,7 +413,9 @@ def test_continuation_cannot_repeat_discovery_reuse_ids_or_consume_catalog_as_va
     reg, calls = rig
     provider = scripted(proposal(discover()), following)
     with pytest.raises(PlanningFailed):
-        enabled(provider, reg, budget=Budget(max_plan_repairs=0)).run(QUESTION)
+        enabled(provider, reg, budget=Budget(max_plan_repairs=0, max_discovery_rounds=1)).run(
+            QUESTION
+        )
     assert not calls and len(provider.seen) == 2
 
 
@@ -433,7 +443,9 @@ def test_plan_repair_budget_is_shared_across_phases(rig):
         proposal(discover(), calculate()), proposal(discover()), proposal(discover("again"))
     )
     with pytest.raises(PlanningFailed):
-        enabled(provider, reg, budget=Budget(max_plan_repairs=1)).run(QUESTION)
+        enabled(provider, reg, budget=Budget(max_plan_repairs=1, max_discovery_rounds=1)).run(
+            QUESTION
+        )
     assert len(provider.seen) == 3 and not calls
 
 
@@ -445,7 +457,7 @@ def test_successful_repairs_preserve_total_attempts_and_do_not_repeat_tools(rig)
         proposal(discover("again")),
         proposal(calculate()),
     )
-    planned, outcome = enabled(provider, reg).run(QUESTION)
+    planned, outcome = enabled(provider, reg, budget=Budget(max_discovery_rounds=1)).run(QUESTION)
     assert planned.attempts == 4 and len(planned.rejections) == 2
     assert len(calls) == 1 and len(outcome.results) == 2
 
@@ -456,7 +468,9 @@ def test_repeated_invalid_continuation_stops_early(rig):
         proposal(discover()), proposal(discover("again")), proposal(discover("again"))
     )
     with pytest.raises(PlanningFailed, match="repeated"):
-        enabled(provider, reg, budget=Budget(max_plan_repairs=10)).run(QUESTION)
+        enabled(provider, reg, budget=Budget(max_plan_repairs=10, max_discovery_rounds=1)).run(
+            QUESTION
+        )
     assert len(provider.seen) == 3 and not calls
 
 
@@ -543,7 +557,7 @@ def test_source_injection_is_data_and_cannot_expand_web_authority(snapshot):
     assert any(poison in m.content for m in provider.seen[1] if m.role is Role.USER)
     assert not any(poison in m.content for m in provider.seen[1] if m.role is Role.SYSTEM)
     descriptions = json.loads(provider.seen[1][1].content.split("\n", 1)[1])
-    assert descriptions == []
+    assert [item["name"] for item in descriptions] == ["catalog_search"]
     assert poison not in answer.answer.abstention and answer.answer.text == ""
 
 
@@ -694,7 +708,7 @@ def test_continuation_rejection_then_valid_repair_records_attempts_log(rig):
         proposal(discover("again")),
         proposal(calculate()),
     )
-    planned, outcome = enabled(provider, reg).run(QUESTION)
+    planned, outcome = enabled(provider, reg, budget=Budget(max_discovery_rounds=1)).run(QUESTION)
     assert planned.attempts == 3
     assert len(planned.attempts_log) == 3
     assert planned.attempts_log == (
@@ -716,7 +730,7 @@ def test_shared_repair_budget_exhaustion_across_phases_gives_one_attempt(rig):
         proposal(discover()),
         proposal(discover("again")),
     )
-    session = enabled(provider, reg, budget=Budget(max_plan_repairs=1))
+    session = enabled(provider, reg, budget=Budget(max_plan_repairs=1, max_discovery_rounds=1))
     with pytest.raises(PlanningFailed):
         session.run(QUESTION)
     assert len(provider.seen) == 3 and not calls
@@ -769,7 +783,7 @@ def test_repeating_identical_invalid_plan_stops_with_repeated_plan_outcome(rig):
         proposal(discover("again")),
         proposal(discover("again")),
     )
-    session = enabled(provider, reg, budget=Budget(max_plan_repairs=10))
+    session = enabled(provider, reg, budget=Budget(max_plan_repairs=10, max_discovery_rounds=1))
     with pytest.raises(PlanningFailed, match="repeated"):
         session.run(QUESTION)
     assert len(provider.seen) == 3 and not calls

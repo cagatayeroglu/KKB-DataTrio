@@ -18,6 +18,10 @@ from test_document_dataset import ADMISSIONS, MONTHS, seed
 from kkb_agent.api.knowledge_service import KnowledgeService
 from kkb_agent.api.prepared import PreparedRunner
 from kkb_agent.api.store import DATABASE_NAME, ConversationStore
+from kkb_agent.catalog import embedding
+from kkb_agent.catalog.hybrid import CatalogDenseStage
+from kkb_agent.catalog.lance_index import LocalCatalogIndex
+from kkb_agent.catalog.mappings import load_reviewed_snapshot
 from kkb_agent.catalog.search import CatalogSearchArguments, search_catalog
 from kkb_agent.ingest.safe_fetch import FetchSuccess
 from kkb_agent.knowledge import KnowledgeStore
@@ -26,6 +30,7 @@ from kkb_agent.tools.promotion import slug_for
 from kkb_agent.tools.web_url import read_document
 
 from test_catalog_continuation import CATALOG  # isort: skip
+from test_prepared_dense import POLICY, build_index  # isort: skip
 
 TITLE = "Şirket geliri"
 SLUG = slug_for(TITLE)
@@ -70,13 +75,24 @@ def stack(tmp_path):
     knowledge = KnowledgeStore(tmp_path.resolve() / "state" / "knowledge.sqlite")
     calls: list[str] = []
 
-    def build(*responses):
+    def build(*responses, hybrid=False):
         provider = scripted(*responses)
+        dense = None
+        if hybrid:
+            snapshot = load_reviewed_snapshot(CATALOG.read_bytes())
+            index_root = build_index(tmp_path.resolve() / "catalog-index", CATALOG)
+            dense = CatalogDenseStage(
+                index=LocalCatalogIndex.open(
+                    index_root, snapshot, embedding.profile_for(POLICY, "kloudeks")
+                ),
+                embed_query=lambda _query: pytest.fail("promotion must not embed or search"),
+            )
         runner = PreparedRunner(
             provider,
             root,
             tmp_path.resolve() / "state" / "runtime",
             catalog_bytes=CATALOG.read_bytes(),
+            catalog_dense=dense,
             document_uploads=True,
             store=store,
             knowledge=knowledge,
@@ -114,6 +130,23 @@ def conversation(store, runner, content=None, name="sohbet"):
 
 
 class TestTheOfferWritesNothing:
+    def test_hybrid_admitted_document_offers_without_search_then_saves_model_free(self, stack):
+        build, store, knowledge, calls = stack
+        runner, _ = build(promotion_plan(), hybrid=True)
+        session_id, _, _ = conversation(store, runner)
+
+        offered = runner(session_id, uuid4().hex, "Bu tabloyu kaydet")
+
+        assert runner.dense is not None
+        assert "Onaylıyor musun?" in offered.text
+        assert knowledge.dataset(SLUG) is None and calls == []
+
+        saved = runner(session_id, uuid4().hex, "evet")
+
+        assert f"USER:{SLUG}.v1" in saved.text
+        assert len(calls) == 1
+        assert len(knowledge.dataset(SLUG).observations) == len(ADMISSIONS)
+
     def test_a_proposal_is_offered_and_saves_only_after_the_person_agrees(self, stack):
         build, store, knowledge, calls = stack
         runner, service = build(promotion_plan())
@@ -217,17 +250,17 @@ class TestWhatTheSaveRefuses:
 
     def test_another_conversations_document_is_not_reachable(self, stack):
         build, store, knowledge, _ = stack
-        runner, _ = build(promotion_plan())
+        runner, _ = build(promotion_plan(document="belge_2"))
         mine, _, _ = conversation(store, runner)
-        theirs, _, reference = conversation(store, runner)
-        held_plan = promotion_plan(document=reference)
-        assert reference not in held_plan or True  # the name is this conversation's own
+        theirs, _, _ = conversation(store, runner)
+        reference = runner.admit_document(theirs, "text/csv", two_value_csv()).document_ref
+        assert runner._library(theirs)["belge_2"][0] == reference
+        assert "belge_2" not in runner._library(mine)
 
         offered = runner(mine, uuid4().hex, "Bu tabloyu kaydet")
 
-        # The tool only ever sees this conversation's library, so a save here can
-        # never be bound to the other conversation's bytes.
-        assert runner._pending_promotions[mine].session_id == mine
+        assert "Onaylıyor musun?" not in offered.text
+        assert mine not in runner._pending_promotions
         assert theirs not in offered.text
         assert knowledge.dataset(SLUG) is None
 

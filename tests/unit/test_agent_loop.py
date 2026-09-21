@@ -47,6 +47,7 @@ class AnomalyArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     column: str
+    input_step: str = "s1"
 
 
 def lakehouse_run(arguments, context):
@@ -62,6 +63,10 @@ def registry(*, failing=None, recoverable_times=0):
     calls = {"n": 0}
 
     def anomaly_run(arguments, context):
+        # This fixture is a real consumer of the earlier output, not merely a
+        # scheduling dependency that would hide a second terminal result.
+        if arguments.input_step not in context.outputs:
+            return ToolResult(ToolStatus.FAILURE, "s2", "anomaly", error_category="missing_input")
         calls["n"] += 1
         if calls["n"] <= recoverable_times:
             return ToolResult(
@@ -73,7 +78,15 @@ def registry(*, failing=None, recoverable_times=0):
             )
         return ToolResult(ToolStatus.SUCCESS, "s2", "anomaly", output={"outliers": 0})
 
-    reg.register(ToolSpec("anomaly", "Detect outliers", AnomalyArgs, anomaly_run))
+    reg.register(
+        ToolSpec(
+            "anomaly",
+            "Detect outliers",
+            AnomalyArgs,
+            anomaly_run,
+            required_steps=lambda args: (args.input_step,),
+        )
+    )
     reg.calls = calls  # type: ignore[attr-defined]
     return reg
 

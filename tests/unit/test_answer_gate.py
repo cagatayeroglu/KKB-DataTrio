@@ -494,6 +494,35 @@ class TestAPlainTableStillAnswers:
         assert "2025-12-01..2025-12-28" in quoted[1] and "1.110 milyon TL" in quoted[1]
         assert "No value is listed" not in rendered
 
+    def test_writer_receives_verified_endpoint_without_middle_rows_or_extra_call(self):
+        months = [
+            Period(
+                start=date(2025, month, 1), end=date(2025, month, 28), frequency=Frequency.MONTHLY
+            )
+            for month in range(1, 13)
+        ]
+        values = [
+            ResultValue(
+                label="konut",
+                value=float(1000 + index * 10),
+                unit="TRY",
+                scale=Scale.MILLION,
+                period=period,
+            )
+            for index, period in enumerate(months)
+        ]
+        provider = scripted("Konut kredisi ilk ve son dönem arasında arttı.")
+        draft = Session(provider, ToolRegistry()).draft(
+            "Konut kredisi?", {"credit": result(values=values)}
+        )
+        assert draft and len(provider.seen) == 1
+        system, evidence, question = (message.content for message in provider.seen[0])
+        assert "Verified endpoint observation for konut: rose" in evidence
+        assert evidence.count(": display ") == 2  # the twelve-row table is not sent
+        assert "1.050 milyon TL" not in evidence
+        assert len(system.encode()) < 3130  # measured pre-workstream system prompt
+        assert sum(len(part.encode()) for part in (system, evidence, question)) < 3770
+
 
 class TestWhatTheWriterIsGiven:
     def test_the_rendered_result_carries_units_and_periods(self):

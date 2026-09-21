@@ -225,7 +225,11 @@ def search_hybrid_catalog(
             "candidates": [c.model_dump() for c in candidates],
             "groups": [c.model_dump() for c in groups],
             "top_candidate": top_candidate_signal(
-                args.query, candidates, reviewed_match=bool(lexical.concepts)
+                args.query,
+                candidates,
+                reviewed_match=bool(lexical.concepts),
+                available_kinds=frozenset(eligible[sid].record.stock_flow for sid in order),
+                runner_up=eligible[order[1]] if len(order) > 1 else None,
             ),
             # Dense/BM25 proximity without a reviewed concept is a candidate for
             # clarification, not evidence that the requested intent is mapped.

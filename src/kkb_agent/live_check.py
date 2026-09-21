@@ -265,7 +265,12 @@ def _answer_report(
             "rounds": answered.planned.discovery_rounds,
             "steps": [
                 {"step_id": v.step.step_id, "query": v.arguments.model_dump(mode="json")}
-                for v in answered.planned.discovery_plan.steps
+                for discovery_plan in (
+                    answered.planned.discovery_plan,
+                    answered.planned.auxiliary_discovery_plan,
+                )
+                if discovery_plan is not None
+                for v in discovery_plan.steps
             ],
             "clarification": answered.planned.plan.clarification,
         }

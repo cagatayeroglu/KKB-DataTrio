@@ -93,6 +93,39 @@ def test_the_validator_names_the_repair_for_a_missing_edge_or_an_unknown_table(p
         validate_plan(plan(rebase("rebased")), registry, known_tables=known)
 
 
+def test_scalar_and_independent_table_are_not_implicitly_published_as_one(pool):
+    registry = registry_for(pool)
+    second = {**fetch(), "step_id": "other"}
+    scalar = {
+        "step_id": "summary",
+        "tool": "table_transform",
+        "arguments": {
+            "operation": "summarize",
+            "source": "fetch",
+            "column": CPI_ID,
+            "aggregation": "mean",
+        },
+        "depends_on": ["fetch"],
+    }
+    with pytest.raises(PlanRejected, match=r"scalar \+ table"):
+        validate_plan(
+            plan(fetch(), second, scalar),
+            registry,
+            known_tables=pool[1].names(),
+        )
+
+
+def test_same_plan_step_cannot_shadow_a_published_table_name(pool):
+    registry = registry_for(pool)
+    shadowed = {**fetch(), "step_id": PUBLISHED}
+    with pytest.raises(PlanRejected, match="collides with a published table"):
+        validate_plan(
+            plan(shadowed, rebase(PUBLISHED, [PUBLISHED])),
+            registry,
+            known_tables=pool[1].names(),
+        )
+
+
 def test_the_tool_reads_a_same_plan_step_when_the_plan_declared_it(pool):
     lake, workspace = pool
     source = workspace.value_of(PUBLISHED)

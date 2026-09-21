@@ -89,8 +89,12 @@ REGIONAL = _phrases(
     "by province",
     "by city",
 )
-INTEREST = _phrases("faiz", "interest")
+INTEREST = _phrases("faiz", "faizi", "faizini", "faizleri", "interest")
 PROFIT_SHARE = _phrases("kâr payı", "kar payi", "profit share", "profit-share")
+AMOUNT = _phrases("miktar", "miktarı", "miktarını", "tutar", "tutarı", "tutarını", "amount")
+# A credit subject is not a stock/flow/rate decision. This only separates reviewed
+# credit titles from unrelated records with a shared common noun (e.g. "ev").
+_CREDIT_STEMS = ("kredi", "finansman", "loan", "mortgage")
 
 CURRENCY: tuple[tuple[Currency, tuple[str, ...]], ...] = (
     ("total", _phrases("toplam", "tp ve yp", "total")),
@@ -128,6 +132,10 @@ def _currency(text: str) -> Currency | None:
     return next((value for value, phrases in CURRENCY if _contains(text, phrases)), None)
 
 
+def _credit_subject(text: str) -> bool:
+    return any(word.startswith(_CREDIT_STEMS) for word in text.split())
+
+
 @dataclass(frozen=True, slots=True)
 class _QueryIntent:
     kind: StockFlow | None
@@ -143,15 +151,20 @@ class _QueryIntent:
     text: str
     #: The query asked for regional series generically (no single place named).
     regional: bool
+    credit_subject: bool
+    #: Amount does not imply stock: a new disbursement amount is a flow.
+    credit_amount: bool
 
 
 def _query_intent(query: str) -> _QueryIntent:
     text = normalize_search_text(query)
+    credit_subject = _credit_subject(text)
     kind = (
         StockFlow.RATE
         if _contains(text, RATE)
         else StockFlow.STOCK
         if _contains(text, STOCK)
+        or (credit_subject and _contains(text, _phrases("mevcut")) and not _contains(text, NEW))
         else None
     )
     rate_basis: RateBasis | None = None
@@ -196,6 +209,8 @@ def _query_intent(query: str) -> _QueryIntent:
         base_order=base_order,
         text=text,
         regional=_contains(text, REGIONAL),
+        credit_subject=credit_subject,
+        credit_amount=kind is not StockFlow.RATE and credit_subject and _contains(text, AMOUNT),
     )
 
 
@@ -209,6 +224,7 @@ class _CandidateIntent:
     #: A reviewed TP/YP/TOTAL label: the series is one column of a split aggregate.
     #: A denomination in a title ("(TL, Akım, %)") is not a component.
     component: Literal["total", "tp", "yp"] | None
+    credit_subject: bool
 
 
 def _candidate_intent(item: ReviewedSeries) -> _CandidateIntent:
@@ -238,11 +254,17 @@ def _candidate_intent(item: ReviewedSeries) -> _CandidateIntent:
     elif _contains(text, INCLUDED):
         inclusion = "included"
     rate_measure: RateMeasure | None = None
-    # Profit-share wording wins because its reviewed notes may contrast it with
-    # interest explicitly ("profit-share ... not deposit-bank interest").
-    if _contains(text, PROFIT_SHARE):
+    # A reviewed explanatory contrast after "; not ..." is not an affirmative
+    # measure. The title/labels and the positive description still determine it.
+    affirmative_description = re.split(
+        r";\s*not\b", record.description or "", maxsplit=1, flags=re.I
+    )[0]
+    affirmative = normalize_search_text(
+        " ".join([record.title, *record.labels, affirmative_description])
+    )
+    if _contains(affirmative, PROFIT_SHARE):
         rate_measure = "profit_share"
-    elif _contains(text, INTEREST):
+    elif _contains(affirmative, INTEREST):
         rate_measure = "interest"
     return _CandidateIntent(
         kind=record.stock_flow if record.stock_flow is not StockFlow.UNKNOWN else None,
@@ -251,6 +273,9 @@ def _candidate_intent(item: ReviewedSeries) -> _CandidateIntent:
         currency=currency,
         rate_measure=rate_measure,
         component=component,
+        credit_subject=_credit_subject(
+            normalize_search_text(" ".join([record.title, *record.labels]))
+        ),
     )
 
 
@@ -291,7 +316,7 @@ def _component_rank(intent: _QueryIntent, candidate: _CandidateIntent) -> int:
 
 def _semantic_key(
     intent: _QueryIntent, item: ReviewedSeries
-) -> tuple[int, int, int, int, int, int, int, int]:
+) -> tuple[int, int, int, int, int, int, int, int, int]:
     candidate = _candidate_intent(item)
     conflicts = 0
     matches = 0
@@ -311,6 +336,11 @@ def _semantic_key(
             matches += 1
         else:
             conflicts += 1
+    # A credit amount cannot be the numeric percentage of a credit rate. This
+    # demotes rate neighbours, without claiming that a stock is the requested
+    # flow amount or changing the reviewed resolution/selection authority.
+    if intent.credit_amount and candidate.kind is StockFlow.RATE:
+        conflicts += 1
     archive_rank = int(
         (intent.archive == "archived") != (item.record.status is CatalogStatus.ARCHIVED)
     )
@@ -334,6 +364,7 @@ def _semantic_key(
     return (
         archive_rank,
         conflicts,
+        int(intent.credit_subject and not candidate.credit_subject),
         _geography_rank(intent, item),
         _component_rank(intent, candidate),
         base_missing,
@@ -352,6 +383,11 @@ def intent_key(query: str, item: ReviewedSeries) -> tuple[int, ...]:
     did not name, which only the person can settle.
     """
     return _semantic_key(_query_intent(query), item)
+
+
+def named_measure_kind(query: str) -> StockFlow | None:
+    """Only an explicit stock/rate request resolves that axis; amount alone does not."""
+    return _query_intent(query).kind
 
 
 def rerank_by_reviewed_intent[T](

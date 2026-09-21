@@ -20,9 +20,9 @@ from kkb_agent.catalog.mappings import (
     is_source_group,
 )
 from kkb_agent.catalog.normalization import normalize_search_text
-from kkb_agent.catalog.ranking import intent_key, rerank_by_reviewed_intent
+from kkb_agent.catalog.ranking import intent_key, named_measure_kind, rerank_by_reviewed_intent
 from kkb_agent.catalog.records import MAX_CATALOG_CONCEPTS, MAX_CATALOG_SERIES, CatalogStatus
-from kkb_agent.core import Frequency
+from kkb_agent.core import Frequency, StockFlow
 from kkb_agent.core.models import ContractModel
 
 SearchMethod = Literal["reviewed_alias", "reviewed_phrase", "bm25", "dense"]
@@ -335,7 +335,12 @@ def one_per_listed_row[T](
 
 
 def top_candidate_signal(
-    query: str, candidates: Sequence[CatalogCandidate], *, reviewed_match: bool
+    query: str,
+    candidates: Sequence[CatalogCandidate],
+    *,
+    reviewed_match: bool,
+    available_kinds: frozenset[StockFlow] | None = None,
+    runner_up: ReviewedSeries | None = None,
 ) -> TopCandidate:
     """See `TopCandidate`: strictly first by reviewed intent, within one concept or family.
 
@@ -346,7 +351,16 @@ def top_candidate_signal(
         return "none"
     if not reviewed_match:
         return "unconfirmed"
+    # A component or currency default cannot settle an unnamed balance-vs-rate
+    # question. Check the full eligible set, not only max_results=1's shortlist.
+    kinds = available_kinds or frozenset(c.series.record.stock_flow for c in candidates)
+    if named_measure_kind(query) is None and StockFlow.STOCK in kinds and StockFlow.RATE in kinds:
+        return "ambiguous"
     if len(candidates) == 1:
+        if runner_up is not None and not intent_key(query, candidates[0].series) < intent_key(
+            query, runner_up
+        ):
+            return "ambiguous"
         return "unambiguous"
     first, second = (intent_key(query, c.series) for c in candidates[:2])
     if not first < second:
@@ -464,7 +478,13 @@ def search_catalog(
             )
             for i, s in enumerate(found_groups)
         ),
-        top_candidate=top_candidate_signal(args.query, candidates, reviewed_match=bool(matches)),
+        top_candidate=top_candidate_signal(
+            args.query,
+            candidates,
+            reviewed_match=bool(matches),
+            available_kinds=frozenset(s.record.stock_flow for s in ranked),
+            runner_up=ranked[1] if len(ranked) > 1 else None,
+        ),
         concepts=tuple(
             ConceptMatch(
                 concept_id=c.concept_id,

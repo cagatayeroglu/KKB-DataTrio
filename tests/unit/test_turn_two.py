@@ -376,7 +376,9 @@ def test_turn_two_quotes_bind_once_the_transform_supersedes_its_source(pool):
     assert "[konut_kredisi_ve_faiz_reel]" in writer_context
     assert "[konut_kredisi_ve_faiz]" not in writer_context
     assert workspace.names() == ["konut_kredisi_ve_faiz", "konut_kredisi_ve_faiz_reel"]
-    assert "second date" in session.provider.seen[1][0].content
+    assert "price-reference date separate from a different period's figure" in (
+        session.provider.seen[1][0].content
+    )
 
 
 def test_period_range_headers_qualify_list_items_and_still_check_the_period(pool):

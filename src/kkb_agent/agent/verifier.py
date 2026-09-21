@@ -40,6 +40,7 @@ from kkb_agent.agent.claim_qualifiers import (
     unit_fault,
 )
 from kkb_agent.agent.literal import exposes_literal_identity, literal_proof, literal_text
+from kkb_agent.agent.presentation import endpoint_observations
 from kkb_agent.core import (
     AnalyticalResult,
     ClaimKind,
@@ -554,6 +555,11 @@ def verify_claims(
     for start, end in _sentence_spans(answer):
         if fault := causal_fault(answer[start:end]):
             rejected.append(fault)
+        if fault := _observation_fault(
+            answer[start:end],
+            {name: result for name, result in named.items() if name not in disqualified},
+        ):
+            rejected.append(fault)
     if named and len(disqualified) == len(named):
         # Nothing in the draft can be trusted, including its unnumbered prose,
         # because the prose describes the same broken analysis.
@@ -606,6 +612,18 @@ _COUNT_WORDS: Final = {
 COUNT_WORDS: Final = {
     role: frozenset(fold(w) for w in words) for role, words in _COUNT_WORDS.items()
 }
+_COUNT_CLAUSE_CONNECTORS: Final = frozenset({"ve", "veya", "ama", "fakat", "and", "or", "but"})
+
+
+def _nearest_count_role(words: Iterable[str]) -> str | None:
+    """The first role before another count or a conjoined claim owns this number."""
+    for index, word in enumerate(words):
+        if index >= 5 or word in _COUNT_CLAUSE_CONNECTORS or word.isdecimal():
+            break
+        for role, vocabulary in COUNT_WORDS.items():
+            if word in vocabulary:
+                return role
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -615,10 +633,13 @@ class WindowCount:
     value: float
     role: str
 
-    def named_in(self, clause: str) -> bool:
-        """Whether this clause calls the number what it is."""
-        spoken = set(fold(clause).replace("'", " ").split())
-        return bool(spoken & COUNT_WORDS[self.role])
+    def named_in(self, clause: str, start: int, end: int) -> bool:
+        """A role must attach locally; another number's role grants no licence."""
+        following = _nearest_count_role(re.findall(r"\w+", fold(clause[end:])))
+        if following is not None:
+            return following == self.role
+        preceding = _nearest_count_role(reversed(re.findall(r"\w+", fold(clause[:start]))))
+        return preceding == self.role
 
 
 def window_counts(results: Iterable[AnalyticalResult]) -> tuple[WindowCount, ...]:
@@ -758,7 +779,13 @@ def _bind_to_results(
     if any(_close(number.value, value, tolerance) for value in permitted):
         return NumberVerdict(number, Binding.CONTEXT)
     if not amount_context and any(
-        _close(number.value, count.value, tolerance) and count.named_in(clause) for count in counted
+        _close(number.value, count.value, tolerance)
+        and count.named_in(
+            clause,
+            number.start - sentence_start - len(prefix),
+            end - sentence_start - len(prefix),
+        )
+        for count in counted
     ):
         return NumberVerdict(number, Binding.CONTEXT)
     return NumberVerdict(number, Binding.UNBOUND)
@@ -904,6 +931,50 @@ def _sentence_spans(text: str) -> list[tuple[int, int]]:
     return spans or [(0, len(text))]
 
 
+_ENDPOINT_DIRECTION = re.compile(
+    r"\b(?:ilk|başlangıç)\b.*\b(?:son|bitiş)\b.*\b"
+    r"(?P<up>artt\w*|yüksel\w*|yuksel\w*)\b|"
+    r"\b(?:ilk|başlangıç)\b.*\b(?:son|bitiş)\b.*\b"
+    r"(?P<down>azal\w*|düşt\w*|dust\w*)\b",
+    re.I,
+)
+_ENDPOINT_NEGATION = re.compile(
+    r"\b(?:ilk|başlangıç)\b.*\b(?:son|bitiş)\b.*\b"
+    r"(?:artmad\w*|yükselmed\w*|yukselmed\w*|azalmad\w*|düşmed\w*|dusmed\w*)\b",
+    re.I,
+)
+_UNVERIFIED_AGGREGATE = re.compile(
+    r"\b(?:en\s+(?:belirgin|büyük|yüksek|sert)\s+(?:artış|düşüş)|"
+    r"(?:artış|düşüş)l[ae]rin\s+(?:çoğu|büyük\s+bölümü)|"
+    r"ivme\s+(?:zayıfla|güçlen)|rekor\s+(?:artış|düşüş))",
+    re.I,
+)
+
+
+def _observation_fault(sentence: str, named: Mapping[str, AnalyticalResult]) -> str | None:
+    """Only check bounded descriptions; arbitrary prose is not semantic proof."""
+    folded = fold(sentence)
+    if _UNVERIFIED_AGGREGATE.search(folded):
+        return "Unsupported aggregate observation: no typed summary binds this wording"
+    if _ENDPOINT_NEGATION.search(folded):
+        return "Unsupported endpoint direction: a negated movement needs separate typed evidence"
+    match = _ENDPOINT_DIRECTION.search(folded)
+    if match is None:
+        return None
+    wanted = "rose" if match.group("up") else "fell"
+    options = [obs for result in named.values() for obs in endpoint_observations(result)]
+    if len(options) == 1 and options[0].direction == wanted:
+        return None
+    named_options = [
+        obs
+        for obs in options
+        if re.search(r"(?<!\w)" + re.escape(fold(obs.label)) + r"(?!\w)", folded)
+    ]
+    if len(named_options) == 1 and named_options[0].direction == wanted:
+        return None
+    return "Unsupported endpoint direction: no unique comparable typed observation"
+
+
 def _price_references(result: AnalyticalResult, value: ResultValue) -> tuple[date, ...]:
     """Recorded deflation reference months for exactly this value's column."""
     if result.evidence is None:
@@ -987,6 +1058,12 @@ def gate_answer(
     computed = any(
         result.status is ResultStatus.COMPUTED and result.values for result in named.values()
     )
+    missing_samples = len(named) == 1 and any(
+        result.status is ResultStatus.COMPUTED
+        and result.samples is not None
+        and result.samples.missing > 0
+        for result in named.values()
+    )
     for span in spans:
         if exposes_literal_identity(draft[span[0] : span[1]], list(named.values())):
             failures.setdefault(span, []).append(
@@ -994,7 +1071,14 @@ def gate_answer(
             )
         if fault := causal_fault(draft[span[0] : span[1]]):
             failures.setdefault(span, []).append(fault)
-        if computed and (fault := absence_fault(draft[span[0] : span[1]])):
+        if fault := _observation_fault(
+            draft[span[0] : span[1]],
+            {name: result for name, result in named.items() if name not in broken},
+        ):
+            failures.setdefault(span, []).append(fault)
+        if computed and (
+            fault := absence_fault(draft[span[0] : span[1]], missing_samples=missing_samples)
+        ):
             failures.setdefault(span, []).append(fault)
     unsupported: dict[tuple[int, int], list[NumberVerdict]] = {}
     for item in verdict.numbers:

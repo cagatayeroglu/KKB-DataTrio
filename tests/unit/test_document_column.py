@@ -408,14 +408,9 @@ def test_refused_columns_publish_nothing(tmp_path, fetch, plan, question):
 
 
 def test_hybrid_second_turn_adds_a_column_without_discovery(tmp_path):
-    from test_catalog_continuation import discover
-
-    calculate = proposal({"step_id": "a", "tool": "lakehouse", "arguments": {"sql": SQL}})
     provider = Recording(
         scripted(
-            proposal(discover()),
-            calculate,
-            "Tablo hazır.",
+            *table_turn(),
             add_plan(),
             "Kapanış sütunu eklendi.",
             embedding_dimension=4096,
@@ -427,13 +422,20 @@ def test_hybrid_second_turn_adds_a_column_without_discovery(tmp_path):
         LocalCatalogIndex.open(index, snapshot, embedding.profile_for(POLICY, "kloudeks")),
         embedding.query_embedder(provider, POLICY, origin="kloudeks"),
     )
-    runner = served(tmp_path, provider, FakeFetch(CSV), catalog_dense=stage)
+    # The first table is already published when dense retrieval is installed.
+    # A raw SQL read of silver series in a hybrid turn is not a valid substitute
+    # for a typed, catalog-proven series read under the current discovery rule.
+    runner = served(tmp_path, provider, FakeFetch(CSV))
     sid, _, selection = first_table(runner)
+    runner.use_dense(stage)
     embedded = len(provider.embedded)
+    seen_before = len(provider.seen)
     second = runner.selected(sid, uuid4().hex, ASK, selection)
     assert second.status.value == "accepted" and second.result is not None, second
     assert len(provider.embedded) == embedded
-    assert any(m.content == WEB_ADDRESS_INSTRUCTIONS for m in provider.seen[3])
+    assert any(
+        m.content == WEB_ADDRESS_INSTRUCTIONS for call in provider.seen[seen_before:] for m in call
+    )
 
 
 def test_add_document_column_needs_no_discovery():
