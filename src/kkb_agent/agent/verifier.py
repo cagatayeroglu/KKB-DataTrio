@@ -615,14 +615,30 @@ COUNT_WORDS: Final = {
 _COUNT_CLAUSE_CONNECTORS: Final = frozenset({"ve", "veya", "ama", "fakat", "and", "or", "but"})
 
 
-def _nearest_count_role(words: Iterable[str]) -> str | None:
-    """The first role before another count or a conjoined claim owns this number."""
-    for index, word in enumerate(words):
+#: Words that make the number before them an amount, a rate or a multiple. The amount
+#: vocabulary in `claim_qualifiers` reads "60 milyar" and not "60 milyarlık", and knows
+#: neither a bare "puan" nor "kat"; a count is never followed by any of them.
+_NEVER_A_COUNT: Final = re.compile(
+    r"(?:milyar|milyon|trilyon|katrilyon)\w*|bin|binlik|binlerce|puan\w*"
+    r"|kat|kati|katina|katindan|katlik|tl|lira\w*|usd|dolar\w*|euro|avro|sterlin\w*"
+)
+
+
+def _nearest_count_role(words: Iterable[str], *, behind: bool = False) -> str | None:
+    """The first role before another count or a conjoined claim owns this number.
+
+    Read backwards (`behind`), a role word that itself follows a number belongs to that
+    number: in "60 aylık dönemde 60 ..." the months are the first 60's, and lend the
+    second nothing.
+    """
+    listed = list(words)
+    for index, word in enumerate(listed):
         if index >= 5 or word in _COUNT_CLAUSE_CONNECTORS or word.isdecimal():
             break
         for role, vocabulary in COUNT_WORDS.items():
             if word in vocabulary:
-                return role
+                owned = behind and index + 1 < len(listed) and listed[index + 1].isdecimal()
+                return None if owned else role
     return None
 
 
@@ -635,10 +651,15 @@ class WindowCount:
 
     def named_in(self, clause: str, start: int, end: int) -> bool:
         """A role must attach locally; another number's role grants no licence."""
-        following = _nearest_count_role(re.findall(r"\w+", fold(clause[end:])))
+        after = re.findall(r"\w+", fold(clause[end:]))
+        if after and _NEVER_A_COUNT.fullmatch(after[0]):
+            return False
+        following = _nearest_count_role(after)
         if following is not None:
             return following == self.role
-        preceding = _nearest_count_role(reversed(re.findall(r"\w+", fold(clause[:start]))))
+        preceding = _nearest_count_role(
+            reversed(re.findall(r"\w+", fold(clause[:start]))), behind=True
+        )
         return preceding == self.role
 
 

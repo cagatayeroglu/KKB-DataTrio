@@ -543,6 +543,29 @@ class TestACountIsOnlyQuotedAsWhatItIs:
         ):
             assert verify_claims(phrase, sample).accepted
 
+    @pytest.mark.parametrize(
+        "draft",
+        [
+            # The months belong to the first 60; they lend the second one nothing.
+            "60 aylık dönemde 60 milyarlık artış oldu.",
+            "60 aylık dönemde bakiye 60 puan arttı.",
+            "Son 5 yılda bakiye 5 kat arttı.",
+            # A multiple, an amount or points never count periods, whatever follows them.
+            "Bakiye 5 kat arttı; yıllık bazda da yükseldi.",
+            "Artış 60 bin aylık ödemeye denk geldi.",
+        ],
+    )
+    def test_a_role_word_another_number_owns_lends_nothing(self, draft):
+        assert not verify_claims(draft, self._window()).accepted
+
+    def test_a_role_named_before_its_own_number_still_binds(self):
+        sample = self._window()
+        for phrase in (
+            "Gözlem sayısı 60'tır; bakiye 100 milyon TL oldu.",
+            "Pencere 5 yıl, yani 60 ay; bakiye 100 milyon TL oldu.",
+        ):
+            assert verify_claims(phrase, sample).accepted, phrase
+
     def test_question_number_does_not_make_a_new_financial_claim(self):
         sample = self._window()
         # The request may mention 60 months, but the result has no 60% rate.
