@@ -17,6 +17,7 @@ from kkb_agent.analytics.table_relationship import (
     TableComparisonRefused,
     compare_table_directions,
     real_counterpart,
+    resolve_label,
 )
 from kkb_agent.core import AnalyticalResult, ResultKind, ResultStatus
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
@@ -262,6 +263,14 @@ def run_table_relationship(
             error_category="table_reference",
             warnings=("The referenced table is unavailable or cannot be verified",),
         )
+    # A column named by the series it holds is read as the column that holds it.
+    named = {
+        field: resolve_label(source, asked)
+        for field in ("driver_column", "target_column", "when_column")
+        if isinstance(asked := getattr(arguments, field), str)
+    }
+    if any(getattr(arguments, field) != label for field, label in named.items()):
+        arguments = arguments.model_copy(update=named)
     inherited = _continued_condition(source, arguments, context.question)
     effective = (
         arguments.model_copy(update={"when_column": inherited[0], "when_direction": inherited[1]})

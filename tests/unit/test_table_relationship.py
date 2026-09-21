@@ -1069,3 +1069,47 @@ def test_a_same_plan_step_named_as_source_is_read_like_input_step(pool):
     assert counts(result.output) == [5, 0, 5, 4, 3, 3]
     missing = tool.run(tool.parse(arguments), ExecutionContext("compare"))
     assert missing.error_category == "table_reference"
+
+
+class TestAColumnIsFoundTheWayAPlannerNamesIt:
+    """Live 2026-09-21, the jury's third turn: 37 minutes and no answer.
+
+    The planner named a column of a table a same-plan step had yet to build, by the series
+    it holds. The tool answered "A selected column does not exist in the table" - not
+    which one, not what the table does have - and two sixteen-minute calls went into
+    guessing. A refusal now carries both, and the unambiguous case is simply resolved.
+    """
+
+    def test_a_series_id_names_the_one_column_that_holds_it(self, pool):
+        from kkb_agent.analytics.table_relationship import resolve_label
+
+        source = source_of(pool)
+        labels = list(dict.fromkeys(value.label for value in source.values))
+        rate = next(label for label in labels if label.startswith("EVDS:TP.KTF12 "))
+        assert resolve_label(source, "EVDS:TP.KTF12") == rate
+        assert resolve_label(source, rate) == rate
+        assert resolve_label(source, "EVDS:TP.NOPE") == "EVDS:TP.NOPE"  # left to the refusal
+        # Named by what the series means, as the planner reads it beside the ID.
+        named = source.model_copy(
+            update={"parameters": {**source.parameters, "series_names": {"EVDS:TP.KTF12": "Faiz"}}}
+        )
+        assert resolve_label(named, "Faiz") == rate
+
+    def test_a_refusal_names_the_missing_column_and_the_columns_there_are(self, pool):
+        from kkb_agent.analytics.table_relationship import (
+            TableComparisonRefused,
+            compare_table_directions,
+        )
+
+        source = source_of(pool)
+        present = next(iter(dict.fromkeys(value.label for value in source.values)))
+        with pytest.raises(TableComparisonRefused) as refusal:
+            compare_table_directions(
+                source,
+                driver_column="Konut fiyat endeksi",
+                target_column=present,
+                driver_direction="down",
+                target_direction="up",
+            )
+        assert "'Konut fiyat endeksi'" in str(refusal.value)
+        assert "The table's columns are:" in str(refusal.value) and present in str(refusal.value)

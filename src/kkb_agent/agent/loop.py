@@ -222,6 +222,18 @@ REPLY_INSTRUCTIONS = (
     "can search the web for it."
 )
 
+#: The last instruction before the question. The working guide opens the prompt and some
+#: forty kilobytes of tool schema follow it; a small model plans better for a short
+#: reminder next to the question (the two costly slips of the live reference run were a
+#: table name and a column label the prompt had not given it).
+PLANNER_CHECKLIST = (
+    "Before you reply, check the plan against what you were given: every measure the "
+    "question asks for is produced by a step; a table you name is a published table listed "
+    "above or a step ID of this plan, and a column you name is a label listed for that "
+    "table (a column a step of this plan adds is named by its series ID); what you chose "
+    "on the reader's behalf is said in `assumption`. Then reply with the JSON object only."
+)
+
 #: Header of the bounded conversation history a planner may use to resolve references.
 HISTORY_HEADER = (
     "Earlier turns of this conversation, oldest first (the user's words and the answers "
@@ -235,7 +247,8 @@ MAX_HISTORY_CHARS = 700
 _PRIOR_REFERENCE = re.compile(
     r"\b(?:bu\s+(?:tablo\w*|sonu\w*|seri\w*|veri\w*)|buna|bunun|"
     r"aynı\s+(?:tablo\w*|seri\w*|sonu\w*)|önceki\s+(?:tablo\w*|sonu\w*|cevab\w*|cevap\w*)|"
-    r"az\s+önceki|tablodaki|tablo\w*\s+bozmadan|(?:ilk|ikinci|üçüncü|son|eski)\s+"
+    r"az\s+önceki|tablodaki|tablo(?:ya|yu|nun|dan|da)\b|tablo\w*\s+bozmadan|"
+    r"(?:ilk|ikinci|üçüncü|son|eski)\s+"
     r"(?:analiz\w*\s+)?tablo\w*)\b",
     re.I,
 )
@@ -400,18 +413,13 @@ def today_instructions(today: date) -> str:
     """What day it is, and what a relative period means for data published with a lag."""
     return (
         f"Today is {today.isoformat()}. Official series are published with a lag, so a series' "
-        "latest published period is usually earlier than today; stored windows are listed with "
-        "the prepared series. A relative period ('son 3 ay', 'son bir yıl', 'geçen yıl sonundan "
-        "beri') is anchored to the series' latest published period, never to a guessed date: "
-        "read it with lakehouse series=[...] last=N. N counts periods of the series' OWN "
-        "frequency: three months are last=3 of a monthly series, about 13 of a weekly one and "
-        "about 66 of a daily one (a daily series has some 22 published days a month), so "
-        "convert the span the question names into the series' frequency. Name explicit dates "
-        "only when the question does. A change, growth or difference over a range needs the "
-        "period BEFORE the range as well: read (or keep) one period earlier and narrow the "
-        "table afterwards, otherwise the first period the question asks for has nothing to "
-        "compare against and stays empty (live 2026-09-20: a 2025 table gave no change for "
-        "January because December 2024 had been filtered out)."
+        "latest published period is usually earlier than today. A relative period ('son 3 "
+        "ay', 'son bir yıl') counts back from the series' latest published period: read it "
+        "with lakehouse series=[...] last=N, where N counts periods of the series' OWN "
+        "frequency (three months: last=3 monthly, about 13 weekly, about 66 daily). Use "
+        "explicit dates only when the question gives them. A change or growth over a range "
+        "needs the period BEFORE the range as well: read one period earlier and narrow the "
+        "table afterwards, or the first period has nothing to compare against."
     )
 
 
@@ -1037,10 +1045,13 @@ class Session:
                 if "web_url" in self.registry:
                     messages.append(Message(Role.SYSTEM, WEB_ADDRESS_INSTRUCTIONS))
         prior_context = self.selection is not None or references_prior_result(question)
+        # The tables this conversation published are always named to the planner: names and
+        # column labels, never values. They used to be shown only when a word list found a
+        # reference in the question; "Tabloya konut fiyat endeksini de ekle" has none it
+        # knew, so the planner invented a table name, was refused, and the turn paid 16
+        # minutes for it (live 2026-09-21). Earlier prose is still shown on a reference only.
         published = (
-            workspace_prompt(workspace, self.series_names)
-            if workspace is not None and prior_context
-            else None
+            workspace_prompt(workspace, self.series_names) if workspace is not None else None
         )
         if published is not None:
             messages.append(Message(Role.SYSTEM, published))
@@ -1062,6 +1073,8 @@ class Session:
             )
         if self.documents_note is not None:
             messages.append(Message(Role.SYSTEM, DOCUMENT_TABLES_NOTE))
+        messages.append(Message(Role.SYSTEM, PLANNER_CHECKLIST))
+        if self.documents_note is not None:
             messages.append(Message(Role.USER, self.documents_note))
         if self.address_note is not None and not discovery:
             messages.append(Message(Role.USER, self.address_note))
