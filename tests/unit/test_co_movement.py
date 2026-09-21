@@ -590,3 +590,60 @@ def test_the_planner_reads_each_prepared_series_stored_window_beside_its_meaning
     assert "kapsam" not in names[TOTAL_ID]  # display names stay clean
     tool = make_change_detection_tool(lake.connection, lineage=lake.lineage, series_names=names)
     assert f"{TOTAL_ID}: {names[TOTAL_ID]} [2021-01..2021-06]" in tool.description
+
+
+def _served_like(lake, *responses):
+    """The harness words the co-movement itself; the writer is asked only for its reading."""
+    registry = ToolRegistry()
+    registry.register(
+        make_change_detection_tool(
+            lake.connection,
+            lineage=lake.lineage,
+            series_names=prepared_series_names(lake.connection),
+        )
+    )
+    plan = {
+        "question": QUESTION,
+        "steps": [
+            {
+                "step_id": "turn1",
+                "tool": "change_detection",
+                "arguments": json.loads(arguments().model_dump_json(exclude_none=True)),
+            }
+        ],
+    }
+    workspace = Workspace.open(lake.connection)
+    session = Session(scripted(json.dumps(plan), *responses), registry, commentary=True)
+    answered = session.answer(
+        QUESTION, lake.connection, workspace=workspace, remember="konut_kredisi_ve_faiz"
+    )
+    return answered, workspace, session
+
+
+def test_the_writer_adds_its_reading_under_figures_the_harness_worded(lake):
+    # The jury: "nedenlerine ilişkin yorum ve açıklamaların çıktıya eklenmesi de katma değer".
+    reading = (
+        "Yorum: Faizin düştüğü ayların çoğunda bakiye artmış; bu, kredi talebinin faize "
+        "duyarlı olduğunu düşündürüyor ve muhtemelen para politikasıyla ilişkili."
+    )
+    answered, workspace, session = _served_like(lake, reading)
+    assert answered.answer.status is AnswerStatus.ACCEPTED
+    assert reading in answered.answer.text and answered.answer.text.index("Yorum:") > 0
+    asked = session.provider.seen[1]
+    assert any("Write ONLY the 'Yorum:' paragraph" in item.content for item in asked)
+    assert any(item.content.startswith("written:") for item in asked)
+    assert workspace.names() == ["konut_kredisi_ve_faiz"]
+
+
+def test_without_a_reading_the_verified_figures_stand_as_they_are(lake):
+    answered, workspace, _ = _served_like(lake)  # the provider has no reading to give
+    assert answered.answer.status is AnswerStatus.ACCEPTED and "Yorum:" not in answered.answer.text
+    assert workspace.names() == ["konut_kredisi_ve_faiz"]
+
+
+def test_a_reading_with_an_invented_figure_loses_that_sentence_and_nothing_else(lake):
+    reading = "Yorum: Bakiye 987 milyon TL'ye ulaşmış olabilir. Talep faize duyarlı görünüyor."
+    answered, workspace, _ = _served_like(lake, reading)
+    assert answered.answer.status is AnswerStatus.QUALIFIED
+    assert "987" not in answered.answer.text and "faize duyarlı" in answered.answer.text
+    assert workspace.names() == ["konut_kredisi_ve_faiz"]

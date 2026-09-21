@@ -1295,6 +1295,8 @@ class PreparedRunner:
                     ),
                     repair_period_wording=True,
                     repair_unmatched_numbers=True,
+                    # The jury values the reading beside the figures; one more writer call.
+                    commentary=True,
                     repair_runtime_refusals=True,
                     documents_note=document_note,
                     address_note=address_note,
