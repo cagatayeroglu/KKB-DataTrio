@@ -18,6 +18,7 @@ from kkb_agent.agent import (
     ExecutionContext,
     Session,
     ToolRegistry,
+    ToolStatus,
     gate_answer,
     render_results,
 )
@@ -1192,3 +1193,36 @@ def test_the_counts_are_headed_by_which_series_moved_which_way():
         }
     )
     assert comparison_heading(compare(numbered, when_column="rate2")) is None
+
+
+def test_a_step_that_computed_nothing_blocks_the_steps_that_read_it(pool):
+    # A tool that refuses an operation returns SUCCESS carrying an ABSTAINED result, so the
+    # plan does not stop - but the step reading that table has nothing to read. Live
+    # 2026-09-21: a refused join was followed by a comparison reporting "The referenced
+    # table is unavailable or cannot be verified", naming the wrong step and hiding the
+    # refusal that actually ended the plan.
+    registry = registry_for(pool)
+    refused = {
+        "step_id": "akim",
+        "tool": "table_transform",
+        "arguments": {"operation": "to_flow", "source": "add", "column": TOTAL_ID},
+        "depends_on": ["add"],
+    }
+    reader = {
+        "step_id": "komov",
+        "tool": "change_detection",
+        "arguments": args(input_step="akim"),
+        "depends_on": ["akim"],
+    }
+    both = plan().model_dump(mode="json")
+    both["steps"] = [*both["steps"], refused, reader]
+    outcome = execute(validate_plan(AnalyticalPlan.model_validate(both), registry), registry)
+
+    by_step = {item.step_id: item for item in outcome.results}
+    assert by_step["akim"].status is ToolStatus.SUCCESS  # the refusal is that step's answer
+    assert by_step["akim"].output.status is ResultStatus.ABSTAINED
+    assert by_step["komov"].status is ToolStatus.NOT_RUN
+    assert by_step["komov"].warnings == ("step 'akim' produced no computed result",)
+    assert not outcome.completed
+    # An independent step is untouched: this blocks readers, not the rest of the plan.
+    assert by_step["comparison"].status is ToolStatus.SUCCESS

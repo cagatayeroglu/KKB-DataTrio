@@ -466,13 +466,16 @@ class TestReadableVerifiedFigures:
 
 
 class TestAPlainTableStillAnswers:
-    def test_the_writer_is_given_each_column_s_first_and_last_period(self):
+    def test_a_table_short_enough_to_read_reaches_the_writer_whole(self):
         """Live 2026-09-20: twelve monthly balances reached the writer with no
         figure at all, because every per-period value belongs to the table shown
         beside the answer. What it wrote said only that a table exists, which the
-        reader was already looking at. Two ends per column cannot be aggregated
-        into a new number the way rows can, and the gate binds them like any
-        other value.
+        reader was already looking at.
+
+        Then the endpoints-only answer to that (2026-09-21) cost the reader the
+        middle: given a three-month table as its ends, the writer wrote that the
+        middle month "bu sonuclarda gosterilmedi". A table this short is now given
+        whole, and the writer is told so in as many words.
         """
         from datetime import date
 
@@ -499,12 +502,41 @@ class TestAPlainTableStillAnswers:
         ]
         rendered = render_result(result(values=values))
         quoted = [line for line in rendered.splitlines() if line.startswith("- konut:")]
-        assert len(quoted) == 2
+        assert len(quoted) == 12
         assert "2025-01-01..2025-01-28" in quoted[0] and "1.000 milyon TL" in quoted[0]
-        assert "2025-12-01..2025-12-28" in quoted[1] and "1.110 milyon TL" in quoted[1]
+        assert "2025-12-01..2025-12-28" in quoted[-1] and "1.110 milyon TL" in quoted[-1]
+        assert "1.050 milyon TL" in rendered  # a middle month the writer used to be denied
+        assert "Every one of its values is listed below." in rendered
         assert "No value is listed" not in rendered
 
-    def test_writer_receives_verified_endpoint_without_middle_rows_or_extra_call(self):
+    def test_a_longer_table_narrows_but_never_says_the_rest_is_absent(self):
+        # Above the threshold the listing narrows; what the writer is told about the
+        # narrowing is what stops it from calling the unlisted periods missing.
+        months = [
+            Period(
+                start=date(2021 + index // 12, index % 12 + 1, 1),
+                end=date(2021 + index // 12, index % 12 + 1, 28),
+                frequency=Frequency.MONTHLY,
+            )
+            for index in range(24)
+        ]
+        values = [
+            ResultValue(
+                label="konut",
+                value=1000.0 + index * 10,
+                unit="TRY",
+                scale=Scale.MILLION,
+                period=period,
+            )
+            for index, period in enumerate(months)
+        ]
+        rendered = render_result(result(values=values))
+        quoted = [line for line in rendered.splitlines() if line.startswith("- konut:")]
+        assert len(quoted) == 2  # the ends, as before
+        assert "THE TABLE HOLDS EVERY PERIOD OF THESE COLUMNS" in rendered
+        assert "Never write that a period, a column or a figure is missing" in rendered
+
+    def test_writer_receives_the_verified_endpoint_reading_without_an_extra_call(self):
         months = [
             Period(
                 start=date(2025, month, 1), end=date(2025, month, 28), frequency=Frequency.MONTHLY
@@ -528,10 +560,12 @@ class TestAPlainTableStillAnswers:
         assert draft and len(provider.seen) == 1
         system, evidence, question = (message.content for message in provider.seen[0])
         assert "Verified endpoint observation for konut: rose" in evidence
-        assert evidence.count(": display ") == 2  # the twelve-row table is not sent
-        assert "1.050 milyon TL" not in evidence
-        assert len(system.encode()) < 3130  # measured pre-workstream system prompt
-        assert sum(len(part.encode()) for part in (system, evidence, question)) < 3770
+        # Twelve months is short enough to read, so the writer is given all twelve and
+        # no longer has to guess what stands between the ends.
+        assert evidence.count(": display ") == 12
+        assert "1.050 milyon TL" in evidence
+        assert len(system.encode()) < 3200  # measured pre-workstream system prompt
+        assert sum(len(part.encode()) for part in (system, evidence, question)) < 5200
 
 
 class TestWhatTheWriterIsGiven:

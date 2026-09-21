@@ -24,6 +24,7 @@ the search.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date
 from typing import TYPE_CHECKING, Literal
 
@@ -40,6 +41,7 @@ from kkb_agent.analytics import (
 )
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
 from kkb_agent.core import AnalyticalResult, ResultStatus, SeriesId
+from kkb_agent.ingest.prepared_series import prepared_series_coverage
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.lakehouse.result_evidence import _record_execution
 from kkb_agent.tools.change_detection import SeriesUnknown, read_series
@@ -86,6 +88,7 @@ def make_causality_tool(
     connection: DuckDBPyConnection,
     *,
     lineage: Lineage | None = None,
+    series_names: Mapping[str, str] | None = None,
     inspector: PreparedSeriesInspector | None = None,
 ) -> ToolSpec:
     """Bind the tool to one database. The registry holds the closure, not the data."""
@@ -167,17 +170,28 @@ def make_causality_tool(
             evidence=node,
         )
 
+    description = (
+        "Measure whether two registered series moved together, optionally at a lag, "
+        "or whether one series' past improved predictions of the other's (Granger). "
+        "This reports ASSOCIATION ONLY — Granger gives predictive precedence at most — "
+        "and cannot establish that one series moves the other; every result carries "
+        "that limitation and a third factor moving both would produce the same number. "
+        "Series must share a frequency and are compared only on periods both "
+        "published. Needs about two years of aligned observations."
+    )
+    # The same list change_detection carries. Without it the planner configured this tool
+    # from memory: asked for the housing-loan rate it wrote EVDS:TP.BKR.TRY.18, the rate on
+    # the outstanding portfolio, which no list here had offered; the read refused it and
+    # nine minutes went on trying to recover (live 2026-09-21).
+    if series_names:
+        coverage = prepared_series_coverage(connection)
+        description += " Prepared series (series_id: meaning [stored window]): " + "; ".join(
+            f"{sid}: {name}" + (f" [{coverage[sid]}]" if sid in coverage else "")
+            for sid, name in series_names.items()
+        )
     return ToolSpec(
         name="causality",
-        description=(
-            "Measure whether two registered series moved together, optionally at a lag, "
-            "or whether one series' past improved predictions of the other's (Granger). "
-            "This reports ASSOCIATION ONLY — Granger gives predictive precedence at most — "
-            "and cannot establish that one series moves the other; every result carries "
-            "that limitation and a third factor moving both would produce the same number. "
-            "Series must share a frequency and are compared only on periods both "
-            "published. Needs about two years of aligned observations."
-        ),
+        description=description,
         arguments=CausalityArguments,
         run=run,
     )

@@ -26,6 +26,7 @@ from kkb_agent.agent.cancellation import checkpoint
 from kkb_agent.agent.observer import Tracer
 from kkb_agent.agent.plan import AnalyticalPlan, ClarificationReason, PlanStep
 from kkb_agent.agent.registry import ArgumentsRejected, RegistryError, TableInput, ToolRegistry
+from kkb_agent.core import AnalyticalResult, ResultStatus
 
 if TYPE_CHECKING:
     from kkb_agent.agent.selection import SelectedTable
@@ -305,11 +306,29 @@ def execute(
         selection.validate_plan(plan, registry)
     results: list[ToolResult] = []
     stopped = False
+    #: Steps that ran but produced nothing another step can compute from. A tool that
+    #: refuses an operation returns SUCCESS carrying an ABSTAINED result (the refusal is
+    #: the answer to that step), so the plan does not stop - but a step reading that table
+    #: has nothing to read. Live 2026-09-21: a refused join was followed by a comparison
+    #: that reported "The referenced table is unavailable or cannot be verified", naming
+    #: the wrong step and hiding the refusal that actually ended the plan.
+    unusable: set[str] = set()
 
     for validated in plan.steps:
-        if stopped:
+        blocked = sorted(unusable & _reads(validated, registry))
+        if stopped or blocked:
+            reason = (
+                f"step {blocked[0]!r} produced no computed result"
+                if blocked
+                else "an earlier step failed"
+            )
             results.append(
-                ToolResult(ToolStatus.NOT_RUN, validated.step.step_id, validated.step.tool)
+                ToolResult(
+                    ToolStatus.NOT_RUN,
+                    validated.step.step_id,
+                    validated.step.tool,
+                    warnings=(reason,) if blocked else (),
+                )
             )
             if tracer is not None:
                 tracer.event(
@@ -317,18 +336,48 @@ def execute(
                     validated.step.tool,
                     status="not_run",
                     step_id=validated.step.step_id,
-                    reason="an earlier step failed",
+                    reason=reason,
                 )
+            if blocked:
+                unusable.add(validated.step.step_id)
             continue
         checkpoint(f"tool.{validated.step.tool}")
         result = _traced_step(validated, registry, context, budget, selection, tracer)
         results.append(result)
         if result.status is ToolStatus.SUCCESS:
             context.outputs[validated.step.step_id] = result.output
+            if not _is_computed(result.output):
+                unusable.add(validated.step.step_id)
         elif result.status is ToolStatus.FAILURE:
             stopped = True
 
-    return ExecutionOutcome(tuple(results), completed=not stopped)
+    return ExecutionOutcome(tuple(results), completed=not stopped and not unusable)
+
+
+def _is_computed(output: object) -> bool:
+    """Whether a step's output is a result a later step could compute from."""
+    candidate = getattr(output, "result", output)
+    if isinstance(candidate, AnalyticalResult):
+        return candidate.status is ResultStatus.COMPUTED
+    return True
+
+
+def _reads(validated: ValidatedStep, registry: ToolRegistry) -> set[str]:
+    """The steps this one reads: its edges, its declared table inputs, its required steps."""
+    reads = set(validated.step.depends_on)
+    try:
+        spec = registry.get(validated.step.tool)
+    except RegistryError:
+        return reads
+    if spec.table_input is not None:
+        table = spec.table_input(validated.arguments)
+        if table is not None:
+            reads.update(
+                name for name in (table.source, table.input_step, *table.others) if name is not None
+            )
+    if spec.required_steps is not None:
+        reads.update(spec.required_steps(validated.arguments))
+    return reads
 
 
 def _traced_step(

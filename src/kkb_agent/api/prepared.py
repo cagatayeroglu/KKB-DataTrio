@@ -1823,8 +1823,12 @@ class PreparedRunner:
                 library=library,
             )
         )
-        for make in (make_anomaly_tool, make_causality_tool):
-            registry.register(make(connection, lineage=lineage, inspector=inspector))
+        registry.register(make_anomaly_tool(connection, lineage=lineage, inspector=inspector))
+        registry.register(
+            make_causality_tool(
+                connection, lineage=lineage, series_names=names, inspector=inspector
+            )
+        )
         if self._search_backend is not None and "web_search" not in disabled:
             # Measured 2026-09-21: a search is 1 to 3.3 s and the worker process another
             # second to start, so the 5 s default left no room for the one retry of an
