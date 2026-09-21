@@ -78,3 +78,32 @@ weeks, the empty chart for an unknown id) is recorded in [DEC-182](DECISIONS.md)
 Refreshing is the same: run the harvest, review the diff of
 `src/kkb_agent/ingest/bddk_weekly_directory.py` in a PR. A renamed or renumbered row fails
 closed at fetch time, because the answer's title no longer equals the listed label.
+
+# BDDK FinTürk — the pinned listing (DEC-184)
+
+`tests/manual/harvest_bddk_finturk_directory.py` reads the page's own option lists (tables,
+quarters, provinces) and asks each table once, for the latest quarter and every province
+(eight public requests, one a second). It keeps what a person reads there: table labels with
+their unit, column names in page order, and the provinces each table has. No observation
+value is kept. 2026-09-21: 7 tables, 76 columns, 81 provinces plus "YURT DIŞI", quarters from
+2007-12, latest 2026-6.
+
+| Table | Columns | Unit | Provinces |
+| --- | --- | --- | --- |
+| 1 Krediler | 4 | Bin TL | 82 |
+| 2 Mevduat | 7 | Bin TL | 82 |
+| 3 Bireysel Bankacılık | 8 | Bin TL | 82 |
+| 4 Seçilmiş Sektörel Krediler | 31 | Bin TL | 82 |
+| 5 Oranlar | 16 | % | 81 |
+| 6 Şubeler ve Nüfusa Göre Dağılım | 6 | adet; kişi/şube; TL per head | 81 |
+| 7 Altın Kredileri ve Altın Mevduatı | 4 | Bin TL | 82 |
+
+A series is one cell: a column of a table for a province, quarterly, a quarter-end position
+(not cumulative), reduced over time by its last value and never summed. **The money tables
+are TRY thousand; the bulletins are TRY million.** The entry's note says so, and the
+declared scale makes a comparison convert rather than mislead.
+
+Refreshing is the same: run the harvest, review the diff of
+`src/kkb_agent/ingest/bddk_finturk_directory.py` in a PR. A renamed, added or reordered
+column fails closed at fetch time, because the answer's column names no longer equal the
+listed ones.
