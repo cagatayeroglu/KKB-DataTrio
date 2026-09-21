@@ -799,8 +799,11 @@ def make_table_transform_tool(
         description=(
             "Builds a new table from a table. One operation per step; chain steps to combine "
             "them. `source` (and `other`) is the name of a published table, or the step_id of "
-            "an earlier step of this plan that returns a table (a lakehouse read, a web_url "
-            "read, another table_transform). A column is named by its exact label; the "
+            "an earlier step of this plan that returns a table (a lakehouse read, "
+            # Named only where it is offered: a description never advertises a tool the
+            # operator has switched off.
+            + ("a web_url read, " if document_fetch is not None or readable else "")
+            + "another table_transform). A column is named by its exact label; the "
             "column of a series read in this plan is labelled by its series_id. Every "
             "operation keeps the old columns and leaves the source as it was; no empty cell "
             "is ever filled and no SQL is accepted. Whether columns move together is "
