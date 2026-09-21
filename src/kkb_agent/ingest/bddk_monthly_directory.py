@@ -11,8 +11,8 @@ adapter accepts a selector only against this listing (DEC-176), and
 import json
 from typing import Final
 
-DIRECTORY_SHA256: Final = "d9cb5e3b9aab945ca87b3391904bf705e1cc7c983ef84768c3144f618fd489cf"
-DIRECTORY_JSON: Final = r"""{
+DIRECTORY_SHA256: Final = "22bc797447af136c4308362c29c0ade565fe02ae72c274ffc33a1af35fd0c415"
+DIRECTORY_JSON: Final = r'''{
  "bank_group": 10001,
  "evidence_years": [
   2024,
@@ -301,99 +301,99 @@ DIRECTORY_JSON: Final = r"""{
    "rows": {
     "1": {
      "label": "TP Mevduat / Katılım Fonları - Yurt İçi Yerleşik",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "10": {
      "label": "a) Gerçek Kişiler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "11": {
      "label": "b) Resmi Kuruluşlar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "12": {
      "label": "c) Ticari ve Diğer Kuruluşlar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "13": {
      "label": "Toplam Mevduat - Yurt İçi Yerleşik",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "14": {
      "label": "TP Mevduat / Katılım Fonları - Yurt Dışı Yerleşik",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "15": {
      "label": "a) Gerçek Kişiler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "16": {
      "label": "b) Ticari ve Diğer Kuruluşlar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "17": {
      "label": "Döviz Tevdiat Hesabı / Katılım Fonları - Yurt Dışı Yerleşik",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "18": {
      "label": "a) Gerçek Kişiler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "19": {
      "label": "b) Ticari ve Diğer Kuruluşlar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "2": {
      "label": "a) Gerçek Kişiler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "20": {
      "label": "Kıymetli Maden Depo Hesapları - Yurt Dışı Yerleşik",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "21": {
      "label": "a) Gerçek Kişiler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "22": {
      "label": "b) Ticari ve Diğer Kuruluşlar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "23": {
      "label": "Toplam Mevduat - Yurt Dışı Yerleşik",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "24": {
      "label": "TOPLAM MEVDUAT",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "3": {
      "label": "b) Resmi Kuruluşlar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "4": {
      "label": "c) Ticari ve Diğer Kuruluşlar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "5": {
      "label": "Döviz Tevdiat Hesabı / Katılım Fonları - Yurt İçi Yerleşik",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "6": {
      "label": "a) Gerçek Kişiler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "7": {
      "label": "b) Resmi Kuruluşlar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "8": {
      "label": "c) Ticari ve Diğer Kuruluşlar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "9": {
      "label": "Kıymetli Maden Depo Hesapları - Yurt İçi Yerleşik",
-     "resets": "unmeasured"
+     "resets": "never"
     }
    },
    "title": "Mevduat Vade İtibarıyla",
@@ -414,87 +414,87 @@ DIRECTORY_JSON: Final = r"""{
    "rows": {
     "1": {
      "label": "Nakit Değerler ve T.C. Merkez Bankası",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "10": {
      "label": "Kiralama İşlemlerinden Alacaklar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "11": {
      "label": "Türev İşlemler (12+13+14+15+16+17)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "12": {
      "label": "İki Güne Kadar Valörlü Döviz Alımları",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "13": {
      "label": "Vadeli Alım İşlemleri",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "14": {
      "label": "Swap Alım İşlemleri",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "15": {
      "label": "Futures Alım İşlemleri",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "16": {
      "label": "Opsiyon İşlemleri (Varlık)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "17": {
      "label": "Türev İşlemlerden Diğer Alacaklar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "18": {
      "label": "TOPLAM VARLIKLAR (1+...+11)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "19": {
      "label": "Mevduat (Katılım Fonu)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "2": {
      "label": "Gerçeğe Uygun Değer Farkı K/Z Yans. ve Sat.H. M.D (Net)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "20": {
      "label": "Para Piyasalarına Borçlar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "21": {
      "label": "TCMB`ye Borçlar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "22": {
      "label": "Bankalar, Yurt Dışı Merkez ve Şubeler (Yükümlülük)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "23": {
      "label": "Sermaye Benzeri Krediler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "24": {
      "label": "Müstakriz Fonları",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "25": {
      "label": "Kullanılan Diğer Krediler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "26": {
      "label": "Repo İşlemlerinden Sağlanan Fonlar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "27": {
      "label": "Menkul Kıymet Ödünç Piyasasına Borçlar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "28": {
      "label": "Kiralama İşlemlerinden Borçlar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "29": {
      "label": "Faktoring İşlemlerinden Borçlar",
@@ -502,91 +502,91 @@ DIRECTORY_JSON: Final = r"""{
     },
     "3": {
      "label": "Bankalar, Yurt Dışı Merkez ve Şubeler (Varlık)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "30": {
      "label": "Kamu Kurum ve Kuruluşlarına Borçlar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "31": {
      "label": "Kredi Kartı Ödemelerinden Borçlar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "32": {
      "label": "İhraç Edilen Menkul Kıymetler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "33": {
      "label": "Diğer Borçlar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "34": {
      "label": "Bilanço Dışı İşlemler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "35": {
      "label": "Türev İşlemler (36+37+38+39+40+41)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "36": {
      "label": "İki Güne Kadar Valörlü Döviz Satımları",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "37": {
      "label": "Vadeli Satım İşlemleri",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "38": {
      "label": "Swap Satım İşlemleri",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "39": {
      "label": "Futures Satım İşlemleri",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "4": {
      "label": "Para Piyasasından Alacaklar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "40": {
      "label": "Opsiyon İşlemleri (Yükümlülük)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "41": {
      "label": "Türev İşlemlerden Diğer Borçlar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "42": {
      "label": "TOPLAM YÜKÜMLÜLÜKLER (19+….+35)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "43": {
      "label": "Vade Dilimlerine Göre Net Likidite Açığı / Fazlası",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "44": {
      "label": "Likidite Yeterlilik Oranı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "5": {
      "label": "Ters Repo İşlemlerinden Alacaklar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "6": {
      "label": "Zorunlu Karşılıklar (Bloke)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "7": {
      "label": "Gayrinakdi Kredi Komisyonları",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "8": {
      "label": "Krediler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "9": {
      "label": "Vadeye Kadar Elde Tutulacak Menkul Değerler (Net)",
-     "resets": "unmeasured"
+     "resets": "never"
     }
    },
    "title": "Likidite Durumu",
@@ -603,15 +603,15 @@ DIRECTORY_JSON: Final = r"""{
    "rows": {
     "1": {
      "label": "Ana Sermaye Toplamı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "10": {
      "label": "Kredi Riskine Esas Tutar (11+12+13+29)*",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "11": {
      "label": "a) Menkul Kıymetleştirme Pozis. Kayn. Kredi Riskine Esas Tutar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "12": {
      "label": "b) Takas Riski ve Ödemesiz Teslim Riski İçin Kredi Riskine Esas Tutar",
@@ -619,27 +619,27 @@ DIRECTORY_JSON: Final = r"""{
     },
     "13": {
      "label": "c) Karşı Taraf Kredi Riski Dahil Kredi Riskine Esas Tutar (Standart Yaklaşım)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "14": {
      "label": "Risk Ağırlığı %0 Olan Kalemler Toplamı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "15": {
      "label": "Risk Ağırlığı %2 Olan Kalemler Toplamı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "16": {
      "label": "Risk Ağırlığı %4 Olan Kalemler Toplamı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "17": {
      "label": "Risk Ağırlığı %10 Olan Kalemler Toplamı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "18": {
      "label": "Risk Ağırlığı %20 Olan Kalemler Toplamı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "19": {
      "label": "Risk Ağırlığı %25 Olan Kalemler Toplamı",
@@ -647,27 +647,27 @@ DIRECTORY_JSON: Final = r"""{
     },
     "2": {
      "label": "Katkı Sermaye Toplamı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "20": {
      "label": "Risk Ağırlığı %35 Olan Kalemler Toplamı (G.menkul İpoteği ile Teminatlandırılanlar)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "21": {
      "label": "Risk Ağırlığı %50 Olan Kalemler Toplamı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "22": {
      "label": "Risk Ağırlığı %75 Olan Kalemler Toplamı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "23": {
      "label": "Risk Ağırlığı %100 Olan Kalemler Toplamı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "24": {
      "label": "Risk Ağırlığı %150 Olan Kalemler Toplamı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "25": {
      "label": "Risk Ağırlığı %200 Olan Kalemler Toplamı",
@@ -675,55 +675,55 @@ DIRECTORY_JSON: Final = r"""{
     },
     "26": {
      "label": "Risk Ağırlığı %250 Olan Kalemler Toplamı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "27": {
      "label": "Risk Ağırlığı %500 Olan Kalemler Toplamı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "28": {
      "label": "Risk Ağırlığı %1250 Olan Kalemler Toplamı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "29": {
      "label": "KDA Riskine Esas Tutar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "3": {
      "label": "Orana Esas Sermaye Toplamı (1+2)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "30": {
      "label": "Piyasa Riskine Esas Tutar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "31": {
      "label": "Operasyonel Riske Esas Tutar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "4": {
      "label": "Sermayeden İndirilen Değerler Toplamı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "5": {
      "label": "Yasal Özkaynak (3-4)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "6": {
      "label": "Çekirdek Sermaye",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "7": {
      "label": "Risk Ağırlıklı Kalemler Toplamı (10+30+31)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "8": {
      "label": "Çekirdek Sermaye Yeterliliği Rasyosu ((6/7)*100) (YÜZDE)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "9": {
      "label": "Sermaye Yeterliliği Standart Rasyosu ((5/7)*100) (YÜZDE)",
-     "resets": "unmeasured"
+     "resets": "never"
     }
    },
    "title": "Sermaye Yeterliliği",
@@ -740,47 +740,47 @@ DIRECTORY_JSON: Final = r"""{
    "rows": {
     "1": {
      "label": "Döviz Varlıkları Toplamı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "10": {
      "label": "Yasal Özkaynak",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "11": {
      "label": "Yabancı Para Net Genel Pozisyon / Yasal Özkaynak Standart Oranı (Yüzde)",
-     "resets": "unmeasured"
+     "resets": "mixed"
     },
     "2": {
      "label": "Bilanço İçi Varlıklar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "3": {
      "label": "Dövize Endeksli Varlıklar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "4": {
      "label": "Bilanço Dışı Varlıklar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "5": {
      "label": "Döviz Yükümlülükleri Toplamı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "6": {
      "label": "Bilanço İçi Yükümlülükler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "7": {
      "label": "Dövize Endeksli Yükümlülükler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "8": {
      "label": "Bilanço Dışı Yükümlülükler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "9": {
      "label": "Yabancı Para Net Genel Pozisyonu",
-     "resets": "unmeasured"
+     "resets": "mixed"
     }
    },
    "title": "Yabancı Para Pozisyonu",
@@ -1020,131 +1020,131 @@ DIRECTORY_JSON: Final = r"""{
    "rows": {
     "1": {
      "label": "Takipteki Alacaklar (Brüt) / Toplam Nakdi Krediler (%)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "10": {
      "label": "Toplam Faiz Gelirleri / Faiz Getirili Aktifler Ortalaması (%)",
-     "resets": "unmeasured"
+     "resets": "always"
     },
     "11": {
      "label": "Toplam Faiz Giderleri / Faiz Maliyetli Pasifler Ortalaması (%)",
-     "resets": "unmeasured"
+     "resets": "always"
     },
     "12": {
      "label": "Net Faiz Geliri (Gideri) / Ortalama Toplam Aktifler (%)",
-     "resets": "unmeasured"
+     "resets": "always"
     },
     "13": {
      "label": "Ücret, Komisyon ve Bankacılık Hizmetleri Gelirleri / Ortalama Toplam Aktifler (%)",
-     "resets": "unmeasured"
+     "resets": "always"
     },
     "14": {
      "label": "Ücret, Komisyon ve Bankacılık Hizmetleri Gelirleri / Toplam Gelirler (%)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "15": {
      "label": "İşletme Giderleri / Ortalama Toplam Aktifler (%)",
-     "resets": "unmeasured"
+     "resets": "always"
     },
     "16": {
      "label": "Faiz Dışı Gelirler / Faiz Dışı Giderler (%)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "17": {
      "label": "Ücret, Komisyon ve Bankacılık Hizmetleri Gelirleri / İşletme Giderleri (%)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "18": {
      "label": "Ortalama Toplam Aktifler / Ortalama Toplam Personel Sayısı (Bin TL)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "19": {
      "label": "Toplam Mevduat / Ortalama Toplam Personel Sayısı (Bin TL)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "2": {
      "label": "Takipteki Alacaklar Karşılığı / Brüt Takipteki Alacaklar (%)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "20": {
      "label": "Vergi Öncesi Kar (Zarar) / Ortalama Toplam Personel Sayısı (Bin TL)",
-     "resets": "unmeasured"
+     "resets": "always"
     },
     "21": {
      "label": "Toplam Mevduat / Ortalama Toplam Şube Sayısı (Bin TL)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "22": {
      "label": "Krediler / Ortalama Toplam Şube Sayısı (Bin TL)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "23": {
      "label": "Toplam Personel Sayısı / Toplam Şube Sayısı (Kişi)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "24": {
      "label": "Menkul Değerlerin Ağırlıklı Ortalama Vadesi (Gün)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "25": {
      "label": "Alım-Satım Amaçlı Menkul Değerlerin Ağırlıklı Ortalama Vadesi (Gün)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "26": {
      "label": "Toplam Nakdi Krediler / Toplam Mevduat (%)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "27": {
      "label": "Toplam Nakdi Krediler / Toplam Mevduat (Kalkınma ve Yatırım Bankaları Hariç) (%)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "28": {
      "label": "Toplam Menkul Değerler / Toplam Mevduat (%)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "29": {
      "label": "Vadesiz Mevduat / Toplam Mevduat (%)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "3": {
      "label": "3 Aya Kadar Vadede Faize Duyarlı Aktifler / 3 Aya Kadar Vadede Faize Duyarlı Pasifler (%)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "30": {
      "label": "Yasal Özkaynak / Risk Ağırlıklı Kalemler Toplamı (%)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "31": {
      "label": "Risk Ağırlıklı Kalemler Toplamı (Net) / Risk Ağırlıklı Kalemler Toplamı (Brüt) (%)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "32": {
      "label": "Yabancı Kaynaklar / Toplam Özkaynaklar (%)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "4": {
      "label": "Yüksek Montanlı (1 Milyon TL ve Üzeri) Mevduat / Toplam Mevduat (%)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "5": {
      "label": "(Bilanço Dışı Riskler - Türev Finansal Araçlar) / Toplam Aktifler (%)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "6": {
      "label": "Türev Finansal Araçlar / Taahhütler (%)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "7": {
      "label": "Vergi Öncesi Kar (Zarar) / Ortalama Toplam Aktifler (%)",
-     "resets": "unmeasured"
+     "resets": "always"
     },
     "8": {
      "label": "Dönem Net Kârı (Zararı) / Ortalama Toplam Aktifler (%)",
-     "resets": "unmeasured"
+     "resets": "always"
     },
     "9": {
      "label": "Dönem Net Kârı (Zararı) / Ortalama Özkaynaklar (%)",
-     "resets": "unmeasured"
+     "resets": "always"
     }
    },
    "title": "Rasyolar",
@@ -1161,31 +1161,31 @@ DIRECTORY_JSON: Final = r"""{
    "rows": {
     "1": {
      "label": "Banka Sayısı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "2": {
      "label": "Yurt İçi Şube Sayısı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "3": {
      "label": "Yurt Dışı Şube Sayısı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "4": {
      "label": "On-line Sistemine Dahil Şube Sayısı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "5": {
      "label": "ATM Sayısı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "6": {
      "label": "Yurt İçi Personel Sayısı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "7": {
      "label": "Yurt Dışı Personel Sayısı",
-     "resets": "unmeasured"
+     "resets": "never"
     }
    },
    "title": "Diğer Bilgiler",
@@ -1202,15 +1202,15 @@ DIRECTORY_JSON: Final = r"""{
    "rows": {
     "1": {
      "label": "Yurt Dışı Şubeler Kredileri / Toplam Krediler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "2": {
      "label": "Yurt Dışı Şubeler Aktifleri / Toplam Aktifler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "3": {
      "label": "Yurt Dışı Şubeler Mevduatı (Fon) / Toplam Mevduat (Fon)",
-     "resets": "unmeasured"
+     "resets": "never"
     }
    },
    "title": "Yurt Dışı Şube Rasyoları",
@@ -1462,83 +1462,83 @@ DIRECTORY_JSON: Final = r"""{
    "rows": {
     "1": {
      "label": "İskontolu İşlemlerden Alacaklar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "10": {
      "label": "Tüketici Kredileri",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "11": {
      "label": "Kredi Kartları",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "12": {
      "label": "Müşteri Adına Menkul Değer Alım Kredileri",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "13": {
      "label": "Kıymetli Maden Kredileri",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "14": {
      "label": "Faktoring İşlemlerinden Alacaklar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "15": {
      "label": "Vadeli Ticaretin Finansmanından Alacaklar*",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "16": {
      "label": "Ortaklık Finansmanı*",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "17": {
      "label": "Mali Kesime (Banka Dışı) Kullandırılan Krediler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "18": {
      "label": "Yurt Dışı Yerleşiklere Kullandırılan Krediler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "19": {
      "label": "Diğer Krediler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "2": {
      "label": "İhracat Kredileri",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "20": {
      "label": "Toplam Krediler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "3": {
      "label": "İthalat Kredileri",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "4": {
      "label": "İhracat Garantili Yatırım Kredileri",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "5": {
      "label": "Diğer Yatırım Kredileri",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "6": {
      "label": "İşletme Kredileri",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "7": {
      "label": "Taksitli Ticari Krediler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "8": {
      "label": "İhtisas Kredileri",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "9": {
      "label": "Fon Kaynaklı Krediler",
-     "resets": "unmeasured"
+     "resets": "never"
     }
    },
    "title": "Krediler",
@@ -1739,283 +1739,283 @@ DIRECTORY_JSON: Final = r"""{
    "rows": {
     "1": {
      "label": "Tarım, Avcılık ve Ormancılık (2+3+4)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "10": {
      "label": "Gıda, Meşrubat ve Tütün San.",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "11": {
      "label": "Tekstil ve Tekstil Ürünleri San.",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "12": {
      "label": "Deri ve Deri Ürünleri San.",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "13": {
      "label": "Ağaç ve Ağaç Ürünleri San.",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "14": {
      "label": "Kağıt Hammaddesi ve Kağıt Ürünleri San.",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "15": {
      "label": "Nükleer Yakıt, Petrol Rafineri ve Kok Kömür Ürt. San.",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "16": {
      "label": "Kimya Ürünleri San.",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "17": {
      "label": "Kauçuk ve Plastik Ürünler San.",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "18": {
      "label": "Diğer Metal Dışı Madenler San.",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "19": {
      "label": "Metal Ana San. ve İşlenmiş Maden Ürt. San.",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "2": {
      "label": "Tarım",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "20": {
      "label": "Makina ve Techizat San.",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "21": {
      "label": "Elektrikli ve Optik Aletler San.",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "22": {
      "label": "Ulaşım Araçları San.",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "23": {
      "label": "a) Gemi/Tekne Yapımı ve İmalatı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "24": {
      "label": "b) Motorlu ve Diğer Araçların İmalatı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "25": {
      "label": "Başka Yerlerde Sınıflandırılmamış İmalat San.",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "26": {
      "label": "Elektrik, Gaz ve Su Kaynakları Ürt. Dağt. San.",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "27": {
      "label": "İnşaat",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "28": {
      "label": "Toptan ve Perakende Ticaret, Motorlu Araçlar Servis Hizm. İle Kişisel ve Hane Halkı Ürünleri (29+30+31)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "29": {
      "label": "Motorlu Araçlar ve Yakıtlarının Perakende Satışı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "3": {
      "label": "Avcılık",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "30": {
      "label": "Toptan Ticaret ve Komisyonculuk",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "31": {
      "label": "Perakende Ticaret ve Kişisel Ürünler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "32": {
      "label": "Otel ve Restoranlar (Turizm) (33+34+35)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "33": {
      "label": "Oteller",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "34": {
      "label": "Restoranlar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "35": {
      "label": "Diğer Turizm",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "36": {
      "label": "Taşımacılık, Depolama ve Haberleşme (37+38+...+43)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "37": {
      "label": "Demiryolu Taşımacılığı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "38": {
      "label": "Karayolu Yolcu Taşımacılığı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "39": {
      "label": "Karayolu Yük Taşımacılığı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "4": {
      "label": "Kereste ve Orman Ürünleri",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "40": {
      "label": "Deniz Taşımacılığı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "41": {
      "label": "Hava Taşımacılığı",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "42": {
      "label": "Diğer Taşımacılık Faaliyetleri ve Depolama",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "43": {
      "label": "Haberleşme",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "44": {
      "label": "Finansal Aracılık (45+47+48+49)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "45": {
      "label": "Parasal Kurumlar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "46": {
      "label": "Bankalara Kullandırılan Krediler*",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "47": {
      "label": "Diğer Finansal Aracılar (Aracı Kurumlar, MKYO, GYO, RSYO)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "48": {
      "label": "İsteğe Bağlı Sigorta ve Emeklilik Hizmetleri",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "49": {
      "label": "Diğer Finansal Aracılık",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "5": {
      "label": "Balıkçılık",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "50": {
      "label": "Emlak Kom., Kiralama ve İşletmecilik Faal. (51+52+53+54)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "51": {
      "label": "Emlak Komisyonculuğu",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "52": {
      "label": "Kiralama(Ulaşım Araç, Makina, Techizat)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "53": {
      "label": "Bilgisayar ve İlgili Faaliyetler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "54": {
      "label": "Araştırma Danışmanlık Reklam ve Diğer Faaliyetler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "55": {
      "label": "Savunma ve Kamu Yönetimi ve Zorunlu Sosyal Güv. Kurumları",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "56": {
      "label": "Eğitim",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "57": {
      "label": "Sağlık ve Sosyal Hizmetler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "58": {
      "label": "Diğer Hizmetler (59+60+61+62)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "59": {
      "label": "Kanalizasyon ve Atıkların Tanzimi",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "6": {
      "label": "Madencilik ve Taşocakçılığı (7+8)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "60": {
      "label": "Örgütsel Faaliyetler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "61": {
      "label": "Kültür Eğlence ve Spor Faal.",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "62": {
      "label": "Diğer Bireysel Hizmetler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "63": {
      "label": "İşçi Çalıştıran Özel Kişiler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "64": {
      "label": "Uluslararası Örgüt ve Kuruluşlar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "65": {
      "label": "Ferdi Kredi Konut",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "66": {
      "label": "Ferdi Kredi Otomobil",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "67": {
      "label": "Ferdi Kredi Diğer",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "68": {
      "label": "Kredi Kartları**",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "69": {
      "label": "Diğer",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "7": {
      "label": "Enerji Üreten Madenlerin Çıkarılması",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "70": {
      "label": "TOPLAM",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "8": {
      "label": "Enerji Üretmeyen Madenlerin Çıkarılması",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "9": {
      "label": "İmalat Sanayi (10+...+22+25)",
-     "resets": "unmeasured"
+     "resets": "never"
     }
    },
    "title": "Sektörel Kredi Dağılımı",
@@ -2041,35 +2041,35 @@ DIRECTORY_JSON: Final = r"""{
    "rows": {
     "1": {
      "label": "Toplam KOBİ Kredileri (2+3+4)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "2": {
      "label": "Mikro İşletmelere Kullandırılan Krediler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "3": {
      "label": "Küçük İşletmelere Kullandırılan Krediler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "4": {
      "label": "Orta Büyüklükteki İşletmelere Kullandırılan Krediler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "5": {
      "label": "Toplam KOBİ Niteliğindeki Müşteri Sayısı (6+7+8) (Adet)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "6": {
      "label": "Mikro İşletme Niteliğindeki Müşteri Sayısı (Adet)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "7": {
      "label": "Küçük İşletme Niteliğindeki Müşteri Sayısı (Adet)",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "8": {
      "label": "Orta Büyüklükteki İşletme Niteliğindeki Müşteri Sayısı (Adet)",
-     "resets": "unmeasured"
+     "resets": "never"
     }
    },
    "title": "KOBİ Kredileri",
@@ -2249,112 +2249,112 @@ DIRECTORY_JSON: Final = r"""{
    "rows": {
     "1": {
      "label": "TP Mevduat / Katılım Fonları - Yurt İçi Yerleşik",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "10": {
      "label": "a) Gerçek Kişiler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "11": {
      "label": "b) Resmi Kuruluşlar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "12": {
      "label": "c) Ticari ve Diğer Kuruluşlar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "13": {
      "label": "Toplam Mevduat - Yurt İçi Yerleşik",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "14": {
      "label": "Mudi Sayısı - Yurt İçi Yerleşik*",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "15": {
      "label": "TP Mevduat / Katılım Fonları - Yurt Dışı Yerleşik",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "16": {
      "label": "a) Gerçek Kişiler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "17": {
      "label": "b) Ticari ve Diğer Kuruluşlar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "18": {
      "label": "Döviz Tevdiat Hesabı / Katılım Fonları - Yurt Dışı Yerleşik",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "19": {
      "label": "a) Gerçek Kişiler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "2": {
      "label": "a) Gerçek Kişiler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "20": {
      "label": "b) Ticari ve Diğer Kuruluşlar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "21": {
      "label": "Kıymetli Maden Depo Hesapları - Yurt Dışı Yerleşik",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "22": {
      "label": "a) Gerçek Kişiler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "23": {
      "label": "b) Ticari ve Diğer Kuruluşlar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "24": {
      "label": "Toplam Mevduat - Yurt Dışı Yerleşik",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "25": {
      "label": "Mudi Sayısı - Yurt Dışı Yerleşik*",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "26": {
      "label": "Toplam Mevduat",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "3": {
      "label": "b) Resmi Kuruluşlar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "4": {
      "label": "c) Ticari ve Diğer Kuruluşlar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "5": {
      "label": "Döviz Tevdiat Hesabı / Katılım Fonları - Yurt İçi Yerleşik",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "6": {
      "label": "a) Gerçek Kişiler",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "7": {
      "label": "b) Resmi Kuruluşlar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "8": {
      "label": "c) Ticari ve Diğer Kuruluşlar",
-     "resets": "unmeasured"
+     "resets": "never"
     },
     "9": {
      "label": "Kıymetli Maden Depo Hesapları - Yurt İçi Yerleşik",
-     "resets": "unmeasured"
+     "resets": "never"
     }
    },
    "title": "Mevduat Türler İtibarıyla",
    "unit_text": "milyon TL"
   }
  }
-}"""
+}'''
 DIRECTORY: Final = json.loads(DIRECTORY_JSON)
