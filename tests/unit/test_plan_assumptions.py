@@ -128,3 +128,17 @@ def test_only_a_step_that_ran_is_footnoted():
     )
 
     assert plan_assumptions(Planned(plan, attempts=1), outcome) == (f"{ASSUMPTION_LABEL}{NOTE}",)
+
+
+def test_a_number_the_reader_wrote_is_theirs_to_read_back(pool):
+    # Live, 2026-09-21: every sentence of the model passed, and the harness's own note
+    # ("Son 8 haftanın değişimi için ...") was withheld because 8 is no result's value. The
+    # answer went QUALIFIED, a 384-second rewrite followed, and it came back worse.
+    lake, workspace = pool
+    steps = [with_assumption("Son 8 haftanın değişimi için 8 haftalık pencere okundu.")]
+    provider = scripted(json.dumps({"question": QUESTION, "steps": steps}), "Tablo hazırlandı.")
+    result = Session(provider, registry_for(pool)).answer(
+        "Son 8 haftada TÜFE nasıl değişti?", lake.connection, workspace=workspace
+    )
+    assert result.answer.status is AnswerStatus.ACCEPTED, result.answer
+    assert "8 haftalık" in result.answer.text and result.answer.omitted == ()

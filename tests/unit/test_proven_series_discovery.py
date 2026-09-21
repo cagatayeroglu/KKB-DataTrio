@@ -357,3 +357,39 @@ def test_sql_over_this_conversations_published_tables_needs_no_discovery():
         )
     )
     assert needs_series_discovery(series)
+
+
+# --- what the catalogue lists needs no search to be read --------------------------------------
+
+
+def test_an_identity_the_catalogue_lists_is_read_without_a_search_of_its_own():
+    # 13 of 22 stored plan rejections were "New series require a catalog_search phase": the
+    # planner named a real catalogue ID and paid two more model calls to be allowed to
+    # read it. The catalogue vouches for what it lists; the inspector checks it when read.
+    for continuation in (False, True):
+        validate_discovery_phase(
+            plan_of(step("change_detection", change()), step("table_transform", deflate(), "b")),
+            continuation=continuation,
+            require_series_discovery=True,
+            known_series=frozenset({TOTAL, OTHER}),
+        )
+
+
+def test_an_identity_the_catalogue_does_not_hold_is_refused_by_name():
+    with pytest.raises(PlanRejected) as refusal:
+        validate_discovery_phase(
+            plan_of(step("change_detection", change("EVDS:TP.UYDURMA"))),
+            continuation=False,
+            require_series_discovery=True,
+            known_series=frozenset({TOTAL}),
+        )
+    assert "EVDS:TP.UYDURMA" in str(refusal.value) and "catalog_search" in str(refusal.value)
+    # In a continuation with no search left, the refusal does not offer one.
+    with pytest.raises(PlanRejected) as final:
+        validate_discovery_phase(
+            plan_of(step("change_detection", change("EVDS:TP.UYDURMA"))),
+            continuation=True,
+            require_series_discovery=True,
+            known_series=frozenset({TOTAL}),
+        )
+    assert "EVDS:TP.UYDURMA" in str(final.value) and "plan catalog_search" not in str(final.value)
