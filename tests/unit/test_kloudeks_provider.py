@@ -402,6 +402,38 @@ class TestEmbeddings:
 
         assert [body["input"] for body in server.bodies()] == [["konut"], ["konut"]]
 
+    def test_a_questions_vector_is_not_waited_for_as_long_as_a_completion(self):
+        # The served request deadline is half an hour, for long completions. A search waits
+        # for its question's vector, so a busy endpoint held a turn and the knowledge page's
+        # trial that long; the page gave up after 28 s and said the connection was lost.
+        reply = {"data": [{"index": 0, "embedding": [0.5]}]}
+        vector = httpx.Response(200, json=reply)
+        server = Server(vector, vector, chat("tamam"))
+        target = provider(server, request_timeout=1800.0)
+        target.embed(["konut"], kind="query")
+        target.embed(["konut"], kind="passage")
+        ask(target)
+
+        waits = [request.extensions["timeout"]["read"] for request in server.requests]
+        assert waits == [kloudeks.QUERY_EMBEDDING_SECONDS, 1800.0, 1800.0]
+
+    def test_a_shorter_request_deadline_still_bounds_a_questions_vector(self):
+        reply = {"data": [{"index": 0, "embedding": [0.5]}]}
+        server = Server(httpx.Response(200, json=reply))
+        provider(server, request_timeout=3.0).embed(["konut"], kind="query")
+
+        assert server.requests[0].extensions["timeout"]["read"] == 3.0
+
+    def test_a_vector_that_arrives_too_late_is_a_transport_error(self, monkeypatch):
+        reply = {"data": [{"index": 0, "embedding": [0.5]}]}
+        server = Server(httpx.Response(200, json=reply))
+        target = provider(server, request_timeout=1800.0)
+        clock = iter([0.0, kloudeks.QUERY_EMBEDDING_SECONDS + 1.0])
+        monkeypatch.setattr("kkb_agent.llm.kloudeks.time.monotonic", lambda: next(clock))
+
+        with pytest.raises(TransportError, match="deadline"):
+            target.embed(["konut"], kind="query")
+
     @pytest.mark.parametrize(
         "content",
         [
