@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, date, datetime
-from typing import TYPE_CHECKING, Annotated, Any, Literal, Self
+from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, RootModel, model_validator
 
@@ -92,6 +92,7 @@ from kkb_agent.tools._document_column import (
     read_column,
 )
 from kkb_agent.tools._document_value import as_of, csv_parsing, grids, year_in_question
+from kkb_agent.tools._running_totals import declared_accumulation, running_total_refusal
 from kkb_agent.tools.change_detection import SeriesUnknown, read_series
 from kkb_agent.tools.web_url import Fetcher, choose_document, read_attachment, read_document
 
@@ -538,6 +539,31 @@ def _table_input(arguments: BaseModel) -> TableInput | None:
     return None
 
 
+#: A monthly column compared with the same month a year earlier: the one change of a
+#: year-to-date total that means something, the running total against last year's.
+_SAME_MONTH_LAST_YEAR: Final = 12
+
+
+def _reads_each_period_as_its_own(selected: BaseModel) -> tuple[str, str] | None:
+    """The column an operation reads as each period's own amount, and what it computes of it.
+
+    None when it does not: `first`, `last` and `count` quote or count cells, a change over
+    twelve months sets one running total against last year's, and the remaining operations
+    move or relabel cells without doing arithmetic across periods.
+    """
+    if isinstance(selected, SummarizeArguments):
+        if selected.aggregation in ("sum", "mean", "min", "max"):
+            return selected.column, f"a {selected.aggregation}"
+        return None
+    if isinstance(selected, ChangeArguments):
+        if selected.lag == _SAME_MONTH_LAST_YEAR:
+            return None
+        return selected.column, "a period-over-period change"
+    if isinstance(selected, DeflateArguments):
+        return selected.column, "a price adjustment by one month's index"
+    return None
+
+
 def make_table_transform_tool(
     connection: DuckDBPyConnection,
     workspace: Workspace,
@@ -636,6 +662,20 @@ def make_table_transform_tool(
                 if label != selected.column:
                     requested_column = selected.column
                     selected = selected.model_copy(update={"column": label})
+        if refusal is None and (totals := _reads_each_period_as_its_own(selected)) is not None:
+            # The column is resolved, so its label is the stored series it was read from,
+            # when it was read from one.
+            totalled, reading = totals
+            accumulates = declared_accumulation(connection, totalled)
+            if accumulates is not None:
+                refusal = AnalyticalResult(
+                    result_id=f"table_transform:{selected.operation}:{selected.source}",
+                    kind=ResultKind.SERIES,
+                    status=ResultStatus.ABSTAINED,
+                    tool="table_transform",
+                    method=_METHODS[selected.operation],
+                    reason=running_total_refusal(totalled, accumulates, reading),
+                )
         if refusal is not None:
             result = refusal
         elif isinstance(selected, (DeflateArguments, AddSeriesArguments)):
@@ -803,8 +843,9 @@ def make_table_transform_tool(
             "for add_series. It preserves every old column, records missing months without "
             "filling them, and does not calculate a relationship or establish a cause. "
             "to_flow adds a per-period flow copy of a column the store records as cumulative "
-            "(yearly_reset or since_inception), which is what comparison, breakpoint and "
-            "table direction comparison can use; series-based tools still read original series. "
+            "(yearly_reset or since_inception). Such a column holds running totals, so "
+            "summarize sum/mean/min/max, change, deflate and table_co_movement refuse it: read "
+            "it, to_flow it, then apply them to the flow column in the same plan. "
             "A column the store does "
             "not declare cumulative is refused rather than differenced. "
             "change adds the period-over-period change of one column (kind=difference in the "
