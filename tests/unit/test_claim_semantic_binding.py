@@ -296,6 +296,114 @@ def test_a_denial_in_causal_words_is_withheld_too(connection):
     assert gated.text == "Ocak 2025'te 100 milyon TL."
 
 
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "Bu veri nedensellik göstermez.",
+        "Bu veriler neden-sonuç ilişkisini kanıtlamak için yeterli değildir.",
+        "This is association, not causation.",
+    ],
+)
+def test_safe_causal_limitations_without_assertion_words_survive(sentence):
+    assert gate_answer(sentence, result()).status is AnswerStatus.ACCEPTED
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "Faiz kredileri artırmış olabilir.",
+        "Konut talebi krediyi tetiklemiş olabilir.",
+        "Politika kararı kredi büyümesini etkilemiş olabilir.",
+        "Faizler kredi miktarını azaltmış olabilir.",
+        "The policy move may have affected credit.",
+        "Faiz düşüşü kredi artışının sebebi olabilir.",
+    ],
+)
+def test_hedged_positive_causality_remains_unsupported(sentence):
+    gated = gate_answer("Ocak 2025'te 100 milyon TL. " + sentence, result())
+    assert gated.status is AnswerStatus.QUALIFIED
+    assert gated.text == "Ocak 2025'te 100 milyon TL."
+    assert any("causal" in fault for fault in gated.omitted[0].reasons)
+
+
+def _endpoint_result():
+    first = result()
+    last = first.values[0].model_copy(
+        update={
+            "period": Period(
+                start=date(2025, 6, 1), end=date(2025, 6, 30), frequency=Frequency.MONTHLY
+            ),
+            "value": 120.0,
+        }
+    )
+    return first.model_copy(update={"values": [first.values[0], last]})
+
+
+def test_typed_endpoint_observation_and_qualified_interpretation_survive():
+    draft = (
+        "İlk ve son dönem arasında kredi arttı. "
+        "Yorum: İlk ve son dönem arasındaki artış gözlenen net değişimi özetler; "
+        "ara aylarda aynı yönde hareket edildiği bundan çıkmaz."
+    )
+    gated = gate_answer(draft, _endpoint_result())
+    assert gated.status is AnswerStatus.ACCEPTED
+    assert gated.text == draft
+
+
+def test_wrong_direction_or_insufficient_visible_endpoints_is_withheld():
+    for response, values in (
+        ("İlk ve son dönemde kredi azaldı.", _endpoint_result()),
+        ("İlk ve son dönemde kredi arttı.", result()),
+        ("İlk ve son dönemde kredi yükselmedi.", _endpoint_result()),
+        ("İlk ve son dönemde kredi artmadı.", _endpoint_result()),
+    ):
+        gated = gate_answer(response, values)
+        assert gated.status is AnswerStatus.ABSTAINED
+        assert any("endpoint direction" in reason for reason in gated.omitted[0].reasons)
+
+
+def test_one_series_cannot_borrow_another_series_endpoint_direction():
+    rising = _endpoint_result()
+    other_first = result(label="other_series").model_copy(update={"result_id": "other-result"})
+    other_last = other_first.values[0].model_copy(
+        update={
+            "period": Period(
+                start=date(2025, 6, 1), end=date(2025, 6, 30), frequency=Frequency.MONTHLY
+            ),
+            "value": 80.0,
+        }
+    )
+    falling = other_first.model_copy(update={"values": [other_first.values[0], other_last]})
+    gated = gate_answer(
+        "İlk ve son dönem arasında other_series arttı.",
+        {"credit": rising, "other": falling},
+    )
+    assert gated.status is AnswerStatus.ABSTAINED
+    assert any("endpoint direction" in reason for reason in gated.omitted[0].reasons)
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "En belirgin artış son dönemde görüldü.",
+        "Düşüşlerin büyük bölümü ikinci yarıda görüldü.",
+        "Bu dönemde ivme zayıfladı.",
+    ],
+)
+def test_aggregate_or_superlative_requires_more_than_endpoint_values(sentence):
+    gated = gate_answer(sentence, _endpoint_result())
+    assert gated.status is AnswerStatus.ABSTAINED
+    assert any("aggregate observation" in reason for reason in gated.omitted[0].reasons)
+
+
+@pytest.mark.xfail(
+    strict=True, reason="Free-text external premises have no typed proposition binder"
+)
+def test_unlisted_external_premise_is_not_yet_deterministically_proven():
+    gated = gate_answer("Yorum: Merkez Bankası beklenmedik bir karar aldı.", _endpoint_result())
+    assert gated.status is AnswerStatus.ABSTAINED
+
+
 def test_unqualified_missing_data_cannot_contradict_a_complete_result():
     complete = result().model_copy(update={"samples": SampleCounts(used=3, missing=0)})
     gated = gate_answer("Ocak 2025'te 100 milyon TL. Veri eksik.", complete)

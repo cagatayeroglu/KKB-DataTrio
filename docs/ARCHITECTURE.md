@@ -562,6 +562,21 @@ M8-18 binds a figure's explicit qualifiers as well as its magnitude. [claim_qual
 
 M11-CLAIM-ROLES narrows the contextual count binding to the role adjacent to each number within its own clause: "60 gözlem" no longer licenses "60 farklı seri" elsewhere in a conjoined sentence. Untyped ordinal/rank claims remain unbound. The absence gate now rejects unsupported "veri/gözlem eksik" statements; only a generic missing-observation disclosure over one result with a typed positive `samples.missing` count survives, never a named period or a mixed-result absence. DEC-120's causal-wording restriction and fixed reviewed cause caveat are unchanged; any general model-written causal-denial exception requires a separate decision.
 
+The pending Workstream 6 writer contract in #285 projects at most three first/last
+direction observations from comparable typed period values alongside the existing
+two displayed edge values per column; it never sends all table rows to the model.
+The verifier checks a bounded explicit first/last movement sentence against those
+typed endpoints and withholds the wrong direction or an ambiguous column.
+Selected high-risk superlatives and aggregate shorthand are withheld, not
+inferred from hidden rows, including when an existing highlight would need a
+separate series/window binder to support the prose. This is **not** a full
+prose-entailment engine: free-form external premises, alternative trend wording
+and exact causal negation semantics are not generally provable. The writer
+prompt remains responsible for steering those
+claims away; the fixed #282 limitation and typed numeric/execution/publication
+gates remain in force. A richer free-prose contract needs reviewed structured
+observations or an explicit policy decision before it can claim full assurance.
+
 [verify](../src/kkb_agent/agent/verifier.py) extracts numbers and finds a numerically close gold cell or silver observation; caller-allowed context values and years can also pass. Gold matching returns the first numeric match, without tying it to the requested period/unit/series/workspace/run. A verdict may reject unbound numbers, but acceptance is not independent recomputation, semantic correctness or sufficient claim-level proof. Ambiguous numeric locale interpretations also need explicit policy. This legacy `verify` API remains callable, but `Session.answer` uses the stronger result-bound gate described above.
 
 TARGET / CONFIRMED: DEC-119 requires a gate, strengthened by DEC-128's proof chain. Before an answer reaches the user:

@@ -12,6 +12,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+from typing import Literal
 
 from kkb_agent.agent.claim_qualifiers import (
     COMOVEMENT_COUNT_LABELS,
@@ -163,6 +164,52 @@ def period_table(result: AnalyticalResult) -> PeriodTable | None:
             for start, end in periods
         ),
     )
+
+
+@dataclass(frozen=True, slots=True)
+class EndpointObservation:
+    """A bounded comparison of two typed cells, not an all-window trend."""
+
+    label: str
+    first: ResultValue
+    last: ResultValue
+    direction: Literal["rose", "fell", "unchanged"]
+
+
+def endpoint_observations(result: AnalyticalResult) -> tuple[EndpointObservation, ...]:
+    """Project only first/last comparable values already in a verified result.
+
+    A gate rechecks the result's execution proof before trusting this projection.
+    No interpolation, period aggregation or model arithmetic is involved.
+    """
+    if result.status is not ResultStatus.COMPUTED or period_table(result) is None:
+        return ()
+    by_label: dict[str, list[ResultValue]] = {}
+    for value in result.values:
+        if value.period is not None and value.unit != DIMENSIONLESS:
+            by_label.setdefault(value.label, []).append(value)
+    observations = []
+    for label, values in by_label.items():
+        if len(values) < 2 or any(value.semantics_are_unresolved for value in values):
+            continue
+        ordered = sorted(values, key=lambda value: (value.period.end, value.period.start))  # type: ignore[union-attr]
+        first, last = ordered[0], ordered[-1]
+        if any(
+            value.unit != first.unit or value.scale != first.scale or value.measure != first.measure
+            for value in ordered
+        ):
+            continue
+        direction: Literal["rose", "fell", "unchanged"] = (
+            "rose"
+            if last.value > first.value
+            else "fell"
+            if last.value < first.value
+            else "unchanged"
+        )
+        observations.append(EndpointObservation(label, first, last, direction))
+        if len(observations) == 3:
+            break
+    return tuple(observations)
 
 
 def deterministic_draft(result: AnalyticalResult) -> str | None:

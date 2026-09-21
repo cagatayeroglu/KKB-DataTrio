@@ -40,6 +40,7 @@ from kkb_agent.agent.claim_qualifiers import (
     unit_fault,
 )
 from kkb_agent.agent.literal import exposes_literal_identity, literal_proof, literal_text
+from kkb_agent.agent.presentation import endpoint_observations
 from kkb_agent.core import (
     AnalyticalResult,
     ClaimKind,
@@ -554,6 +555,11 @@ def verify_claims(
     for start, end in _sentence_spans(answer):
         if fault := causal_fault(answer[start:end]):
             rejected.append(fault)
+        if fault := _observation_fault(
+            answer[start:end],
+            {name: result for name, result in named.items() if name not in disqualified},
+        ):
+            rejected.append(fault)
     if named and len(disqualified) == len(named):
         # Nothing in the draft can be trusted, including its unnumbered prose,
         # because the prose describes the same broken analysis.
@@ -925,6 +931,50 @@ def _sentence_spans(text: str) -> list[tuple[int, int]]:
     return spans or [(0, len(text))]
 
 
+_ENDPOINT_DIRECTION = re.compile(
+    r"\b(?:ilk|başlangıç)\b.*\b(?:son|bitiş)\b.*\b"
+    r"(?P<up>artt\w*|yüksel\w*|yuksel\w*)\b|"
+    r"\b(?:ilk|başlangıç)\b.*\b(?:son|bitiş)\b.*\b"
+    r"(?P<down>azal\w*|düşt\w*|dust\w*)\b",
+    re.I,
+)
+_ENDPOINT_NEGATION = re.compile(
+    r"\b(?:ilk|başlangıç)\b.*\b(?:son|bitiş)\b.*\b"
+    r"(?:artmad\w*|yükselmed\w*|yukselmed\w*|azalmad\w*|düşmed\w*|dusmed\w*)\b",
+    re.I,
+)
+_UNVERIFIED_AGGREGATE = re.compile(
+    r"\b(?:en\s+(?:belirgin|büyük|yüksek|sert)\s+(?:artış|düşüş)|"
+    r"(?:artış|düşüş)l[ae]rin\s+(?:çoğu|büyük\s+bölümü)|"
+    r"ivme\s+(?:zayıfla|güçlen)|rekor\s+(?:artış|düşüş))",
+    re.I,
+)
+
+
+def _observation_fault(sentence: str, named: Mapping[str, AnalyticalResult]) -> str | None:
+    """Only check bounded descriptions; arbitrary prose is not semantic proof."""
+    folded = fold(sentence)
+    if _UNVERIFIED_AGGREGATE.search(folded):
+        return "Unsupported aggregate observation: no typed summary binds this wording"
+    if _ENDPOINT_NEGATION.search(folded):
+        return "Unsupported endpoint direction: a negated movement needs separate typed evidence"
+    match = _ENDPOINT_DIRECTION.search(folded)
+    if match is None:
+        return None
+    wanted = "rose" if match.group("up") else "fell"
+    options = [obs for result in named.values() for obs in endpoint_observations(result)]
+    if len(options) == 1 and options[0].direction == wanted:
+        return None
+    named_options = [
+        obs
+        for obs in options
+        if re.search(r"(?<!\w)" + re.escape(fold(obs.label)) + r"(?!\w)", folded)
+    ]
+    if len(named_options) == 1 and named_options[0].direction == wanted:
+        return None
+    return "Unsupported endpoint direction: no unique comparable typed observation"
+
+
 def _price_references(result: AnalyticalResult, value: ResultValue) -> tuple[date, ...]:
     """Recorded deflation reference months for exactly this value's column."""
     if result.evidence is None:
@@ -1020,6 +1070,11 @@ def gate_answer(
                 "Internal document proof identifiers are not answer text"
             )
         if fault := causal_fault(draft[span[0] : span[1]]):
+            failures.setdefault(span, []).append(fault)
+        if fault := _observation_fault(
+            draft[span[0] : span[1]],
+            {name: result for name, result in named.items() if name not in broken},
+        ):
             failures.setdefault(span, []).append(fault)
         if computed and (
             fault := absence_fault(draft[span[0] : span[1]], missing_samples=missing_samples)

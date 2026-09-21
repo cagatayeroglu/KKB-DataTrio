@@ -150,6 +150,15 @@ CAUSAL_PHRASES = (
     r"driven\s+by",
     r"le(?:d|ads?|ading)\s+to",
     r"yüzünden",
+    # Direct or hedged influence verbs observed in ordinary analyst prose.
+    # "arttı" (rose) is not "artırdı" (made rise); keep that distinction.
+    r"artir\w*",
+    r"azalt\w*",
+    r"tetikle\w*",
+    r"etkile\w*",
+    r"baskila\w*",
+    r"affect\w*",
+    r"contribut\w*",
 )
 CAUSAL = re.compile(r"\b(?:" + "|".join(CAUSAL_PHRASES) + r")\b", re.I)
 

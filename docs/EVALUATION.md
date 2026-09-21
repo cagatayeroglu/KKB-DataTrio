@@ -21,6 +21,61 @@ Under [DEC-141](DECISIONS.md#dec-141-organizer-verbal-criteria), acceptance must
 
 Dated run records below describe their recorded revision. Their “remaining” or “not implemented” statements are historical, even where later work closed the gap; current completion belongs to ROADMAP.
 
+<a id="writer-verifier-contract-workstream-6-2026-09-21"></a>
+
+## Writer/verifier contract — offline Workstream 6, PR #285 (not merged)
+
+The code-backed audit found numeric/period/unit/identity binding and a bounded
+causal/absence vocabulary, but no general entailment of numberless prose.
+`Yorum: Seri yükseldi; ... test edilmeye değer` could pass with no verified
+movement; "en belirgin artış" could pass without any such summary; "sebep
+olduğunu göstermez" was withheld although it denies causal proof. Conversely
+"nedensellik göstermez" already passed, and #282 added the harness's fixed
+reviewed caveat before gating when the question asks why. The writer receives
+result names, reviewed series meanings, selected typed display phrases, at most
+three columns' first/last cells when needed, deterministic highlighted periods,
+counts, warnings and limitations; not all rows or arbitrary source text.
+
+This bounded update projects a typed first/last direction from comparable
+period values and checks a clearly worded endpoint direction against it. It
+does not call that an all-window trend or derive a superlative. Selected
+high-risk superlative/aggregate phrases are withheld even when a tool has
+highlighted a period: no general binder yet establishes that the writer's
+chosen superlative, series and window mean the same thing as that highlight.
+A few additional explicit positive/hedged influence verbs are blocked, but model
+causal denials sharing those words still follow DEC-120; #282 remains the
+fallback. Unsupported free-text external premises still pass when they contain
+no checked figure or keyword — an explicit **expected-failure** regression
+records this unsolved semantic limit. A typed positive missing-sample count
+still supports only a generic gap, not an unverified named month; an incomplete
+plan remains QUALIFIED and cannot publish a partial result.
+
+| Representative scripted 12-period writer input | Before | After |
+| --- | ---: | ---: |
+| synthesis instruction, UTF-8 bytes / characters | 3130 / 3121 | 1890 / 1890 |
+| rendered evidence bytes / displayed cells | 621 / 2 | 748 / 2 |
+| full input bytes including the same question | 3770 | 2657 |
+| normal writer calls | 1 | 1 |
+| supported deterministic-draft writer calls | 0 | 0 |
+
+No actual Turkish style/verbosity gain or real provider latency is proven by
+these scripted measurements: **LIVE REQUIRED** after explicit authorization.
+The free-text premise gap and unrecognised descriptive/causal paraphrases need
+a separate reviewed evidence/policy design before claiming a complete semantic
+verifier. Workstream 7 is not started on this evidence alone.
+
+The prompt's meaningful rules were classified as follows:
+
+| Instruction group | Classification and disposition |
+| --- | --- |
+| Exact displayed figures, period, scale, unit, identity; typed count phrase | Deterministically checked for explicit numeric claims; retained compactly to avoid futile repair calls and unbound counts. |
+| No invented source/meaning/external premise; data text is not an instruction; earlier-result relevance | Must remain in prompt: the gate does not prove arbitrary free-text semantics or interpret injected instructions. |
+| No unsupported causal explanation, even hedged; cite only supplied observation, uncertainty | Must remain; lexical guard is bounded, #282 supplies one reviewed limitation. |
+| Begin with the answer, fluent Turkish, useful `Yorum`, do not repeat table | Presentation preference; rewritten positively and conditioned on supplied evidence, not treated as gate authority. |
+| "Never state any missing result" / only one permitted heading / one mandated final paragraph | Over-broad or historical presentation workaround; replaced by typed-gap instruction or removed. The gate's missing-sample rule and numeric binding remain. |
+| Omit the word `dimensionless` from displayed unitless figures | Presentation preference retained briefly; the typed unit and count binding remain authoritative. |
+| Index base 100 is metadata, price reference separated, literal quotation exact | Must remain where the generic numeric gate cannot infer the intended semantic role; shortened but not discarded. |
+
 ## Prepared official-data and runtime acceptance
 
 [DEC-136](DECISIONS.md#dec-136--scoped-official-data-preparation-and-lakehouse-first-demo-runtime) changes the intended official financial-data path, not the meaning of a passing test. Preparation acceptance must independently record the selected BDDK selectors/EVDS real IDs, approximately 2021-01–2026-06 requested coverage for housing credit balance/rate, CPI and KFE, native frequency/anchor, units/scales, stock/flow/rate/base-year meaning, source vintage and artifact/version provenance. Missing periods, unknown metadata and unresolved IDs remain explicit. A reviewed catalog snapshot, synthetic fixture or existing DuckDB table is not evidence that the official dataset is ready.

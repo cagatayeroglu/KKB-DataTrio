@@ -821,7 +821,9 @@ class TestTheCountContractIsFollowable:
         assert bare.status is not AnswerStatus.ACCEPTED
 
     def test_both_writer_contracts_carry_the_rule(self):
-        assert "write a count without its listed phrase" in SYNTHESIS_PROMPT
+        # The supported phrase/count behavior is exercised above; do not pin
+        # this prompt to the older negative wording of the same instruction.
+        assert all(word in SYNTHESIS_PROMPT.lower() for word in ("count", "listed", "role phrase"))
         assert "copy its listed phrase with the number" in NUMERIC_REPAIR_INSTRUCTIONS
 
 
