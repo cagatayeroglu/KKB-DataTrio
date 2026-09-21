@@ -75,3 +75,7 @@ def test_a_turn_whose_plan_left_the_edge_out_runs_without_a_second_planner_call(
     assert answered.answer.status is AnswerStatus.ACCEPTED, answered.answer
     assert [r.status for r in answered.outcome.results] == [ToolStatus.SUCCESS] * 2
     assert session.rejections == [] and answered.planned.attempts == 1
+    # The read behind the transform is not shown to the writer beside it: the same figures
+    # twice are ambiguous to the gate, and the writer could then quote none of them.
+    writer_context = " ".join(message.content for message in provider.seen[-1])
+    assert "tufe_bazli_ek_" not in writer_context and "display AMBIGUOUS" not in writer_context
