@@ -126,6 +126,11 @@ SYNTHESIS_PROMPT = (
 #: A result with a fixed wording (a co-movement count, a period summary) is written by the
 #: harness: exact, and mute. The jury asks for the reading as well ("nedenlerine ilişkin
 #: yorum ve açıklamalar ... katma değer"), so the writer adds that paragraph and nothing else.
+#: What stands in for a draft the writer did not produce. No figure, no claim.
+EMPTY_DRAFT_NOTE = (
+    "Hesap tamamlandı ve sonuç tablosu ayrı olarak gösteriliyor. Bu turda yazılı "
+    "değerlendirme üretilemedi; aynı soruyu yeniden sorabilirsiniz."
+)
 COMMENTARY_INSTRUCTIONS = (
     "The verified figures of this answer are already written for the reader; they follow "
     "as `written`. Do not repeat or rephrase them. Write ONLY the 'Yorum:' paragraph "
@@ -1711,6 +1716,14 @@ class Session:
         )
         if self.tracer is not None and fast_draft is None:
             self.tracer.event("answer", "draft.model", source="model", detail=draft)
+        if not draft.strip():
+            # A writer that thought until its tokens ran out returns nothing. The footnotes
+            # alone then passed the gate, and the reader got an "accepted" answer that
+            # answered nothing (live 2026-09-21). The table is computed and verified; say
+            # that, and say that the prose is missing.
+            draft = EMPTY_DRAFT_NOTE
+            if self.tracer is not None:
+                self.tracer.event("answer", "draft.empty", source="harness", detail=draft)
         if fast_draft is not None and self.commentary and planned.plan.interpret:
             # The harness's wording is exact and says nothing about what it means. The
             # writer adds its interpretation; without one the verified figures stand as they are.

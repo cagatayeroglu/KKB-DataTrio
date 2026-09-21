@@ -612,6 +612,16 @@ class TestTheWholeSliceEndToEnd:
         assert "801.438" in answered.answer.text
         assert answered.results[-1].status is ResultStatus.COMPUTED
 
+    def test_a_writer_that_returns_nothing_is_not_an_answer_of_footnotes(self, house):
+        # Live 2026-09-21: the writer spent every token thinking and returned an empty
+        # draft; the assumptions alone passed the gate as an "accepted" answer.
+        provider = scripted(plan_json(FULLY_TYPED), "")
+        answered = Session(provider, self.registry(house)).answer(
+            "Haziran'da konut kredisi stoğu neydi?", house.connection
+        )
+        assert "yazılı değerlendirme üretilemedi" in answered.answer.text
+        assert answered.results[-1].status is ResultStatus.COMPUTED
+
     def test_a_model_that_invents_a_figure_has_it_stripped(self, house):
         provider = scripted(plan_json(FULLY_TYPED), f"{SUPPORTED} {INVENTED}")
         session = Session(provider, self.registry(house))

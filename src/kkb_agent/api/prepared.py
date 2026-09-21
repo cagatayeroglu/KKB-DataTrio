@@ -104,6 +104,8 @@ if TYPE_CHECKING:  # pragma: no cover
 MAX_POOL_BYTES = 1024 * 1024 * 1024
 MAX_POOL_FILES = 10000
 _IDENTIFIER = re.compile(r"[a-f0-9]{32}\Z")
+#: How long a stored table's read waits for another read before it answers "busy".
+STORED_READ_WAIT_SECONDS = 5.0
 
 
 class PreparedError(ValueError):
@@ -1705,7 +1707,10 @@ class PreparedRunner:
         """
         if not _IDENTIFIER.fullmatch(session_id) or not _IDENTIFIER.fullmatch(turn_id):
             raise ServiceError("not_found", 404)
-        if not self._lock.acquire(blocking=False):
+        # Waits a moment for another read: a reopened chat asks for each of its tables, and
+        # refusing the second because the first was being read made a table look lost. A
+        # running turn holds the lock for minutes, and that is still answered "busy".
+        if not self._lock.acquire(timeout=STORED_READ_WAIT_SECONDS):
             raise ServiceError("busy", 409)
         try:
             self._restore_locked(session_id)
