@@ -245,9 +245,10 @@ class LocalCatalogIndex:
         if (
             manifest.snapshot_sha256 != snapshot.content_sha256
             or manifest.snapshot_version != snapshot.snapshot_version
-            or manifest.profile != profile
         ):
-            raise CatalogIndexError("INDEX_SNAPSHOT_OR_PROFILE_MISMATCH")
+            raise CatalogIndexError("INDEX_CATALOG_DIGEST_MISMATCH")
+        if manifest.profile != profile:
+            raise CatalogIndexError("INDEX_PROFILE_MISMATCH")
         try:
             db = LanceDBConnection(root)
             table = db.open_table("catalog", version=1)

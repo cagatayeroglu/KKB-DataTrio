@@ -42,6 +42,7 @@ from kkb_agent.catalog.directory import source_directory as build_source_directo
 from kkb_agent.catalog.discovered import DiscoveredStore, listed_entry
 from kkb_agent.catalog.expansion import expand_groups
 from kkb_agent.catalog.hybrid import CatalogDenseStage, search_hybrid_catalog
+from kkb_agent.catalog.lance_index import CatalogIndexError
 from kkb_agent.catalog.mappings import ReviewedSeries, ReviewedSnapshot
 from kkb_agent.catalog.records import CatalogRecord, CatalogStatus
 from kkb_agent.catalog.search import CatalogSearchArguments, search_catalog
@@ -64,6 +65,7 @@ from kkb_agent.knowledge import (
 )
 from kkb_agent.lakehouse.records import Observation
 from kkb_agent.lakehouse.semantics import SemanticsError, period_bounds
+from kkb_agent.llm.provider import ConfigurationError, ProviderError, TransportError
 from kkb_agent.tools.promotion import PromotionProposal, PromotionReceipt
 
 #: (session_id, document_ref, period_column, value_column, sheet, year) -> monthly
@@ -79,6 +81,35 @@ def _stage(sources: tuple[str, ...]) -> Literal["lexical", "dense", "both"]:
     if "lexical" in sources and "dense" in sources:
         return "both"
     return "dense" if "dense" in sources else "lexical"
+
+
+def _index_failure(error: Exception) -> str:
+    """Stable status category only; exception text may contain provider or local secrets."""
+    if isinstance(error, CatalogIndexError):
+        code = str(error)
+        return {
+            "INDEX_CATALOG_DIGEST_MISMATCH": "catalog_digest_mismatch",
+            "INDEX_SNAPSHOT_OR_IDENTITIES_MISMATCH": "catalog_digest_mismatch",
+            "INDEX_PROFILE_MISMATCH": "profile_mismatch",
+            "INDEX_QUERY_PROFILE_MISMATCH": "profile_mismatch",
+            "INDEX_VECTOR_DIMENSION_MISMATCH": "vector_dimension_mismatch",
+            "INDEX_EMBEDDING_COUNT_MISMATCH": "embedding_count_mismatch",
+            "INDEX_MANIFEST_INVALID": "generation_corrupt_or_incomplete",
+            "INDEX_CONTENT_INVALID": "generation_corrupt_or_incomplete",
+            "INDEX_BUILD_INCOMPLETE": "generation_corrupt_or_incomplete",
+            "INDEX_NEW_LOCAL_DIRECTORY_REQUIRED": "state_filesystem_failure",
+            "INDEX_LOCAL_ABSOLUTE_PATH_REQUIRED": "state_filesystem_failure",
+            "INDEX_CATALOG_CHANGED_DURING_BUILD": "concurrent_catalog_change",
+        }.get(code, "generation_invalid")
+    if isinstance(error, ConfigurationError):
+        return "provider_auth_or_configuration"
+    if isinstance(error, TransportError):
+        return "provider_transient_failure"
+    if isinstance(error, ProviderError):
+        return "provider_failure"
+    if isinstance(error, OSError):
+        return "state_filesystem_failure"
+    return "rebuild_failed"
 
 
 class KnowledgeService:
@@ -114,6 +145,8 @@ class KnowledgeService:
         self._reopen = reopen_index
         self._directory = source_directory
         self._building = threading.Lock()
+        # Serialize catalog edits with the final digest check and installation.
+        self._catalog_change = threading.RLock()
         self._build_thread: threading.Thread | None = None
         self._built_at: datetime | None = None
         self._build_error: str | None = None
@@ -282,13 +315,25 @@ class KnowledgeService:
         try:
             stage = self._reopen(catalog)
         except Exception as error:
-            self._build_error = type(error).__name__
+            self._build_error = _index_failure(error)
             return False
-        if stage is None or stage.index.snapshot_sha256 != catalog.content_sha256:
+        if stage is None:
             return False
-        if self._install is not None:
-            self._install(stage)
-        self._dense = stage
+        if stage.index.snapshot_sha256 != catalog.content_sha256:
+            self._build_error = "catalog_digest_mismatch"
+            return False
+        try:
+            with self._catalog_change:
+                if self._effective().content_sha256 != catalog.content_sha256:
+                    return False
+                if self._dense is not None and stage.index.profile != self._dense.index.profile:
+                    raise CatalogIndexError("INDEX_PROFILE_MISMATCH")
+                if self._install is not None:
+                    self._install(stage)
+                self._dense = stage
+        except Exception as error:
+            self._build_error = _index_failure(error)
+            return False
         return True
 
     def rebuild(self, owner_token: str) -> VectorIndexStatus:
@@ -314,20 +359,28 @@ class KnowledgeService:
             # the process was restarted (finding F4-bt-11).
             self._building.release()
             raise
+        if self._dense is not None and self._dense.index.snapshot_sha256 == catalog.content_sha256:
+            self._building.release()
+            return self.index_status(owner_token)
         build, install = self._rebuild, self._install
 
         def run() -> None:
             try:
                 stage = build(catalog)
                 if stage.index.snapshot_sha256 != catalog.content_sha256:
-                    raise ValueError("generation does not cover the catalogue it was built for")
-                if install is not None:
-                    install(stage)
-                self._dense = stage
+                    raise CatalogIndexError("INDEX_CATALOG_DIGEST_MISMATCH")
+                if self._dense is not None and stage.index.profile != self._dense.index.profile:
+                    raise CatalogIndexError("INDEX_PROFILE_MISMATCH")
+                with self._catalog_change:
+                    if self._effective().content_sha256 != catalog.content_sha256:
+                        raise CatalogIndexError("INDEX_CATALOG_CHANGED_DURING_BUILD")
+                    if install is not None:
+                        install(stage)
+                    self._dense = stage
                 self._built_at, self._build_error = datetime.now(UTC), None
             except Exception as error:
                 # A category, never a path, a query or vector contents.
-                self._build_error = type(error).__name__
+                self._build_error = _index_failure(error)
             finally:
                 self._building.release()
 
@@ -362,9 +415,10 @@ class KnowledgeService:
             directory = build_source_directory(self._discovered.supplement())
             changed = directory.digest != self._directory.digest
             if changed:
-                self._directory = directory
-                if self._install_directory is not None:
-                    self._install_directory(directory)
+                with self._catalog_change:
+                    self._directory = directory
+                    if self._install_directory is not None:
+                        self._install_directory(directory)
             return DirectoryRefreshResult(
                 evds_listed=found.listed,
                 added_total=len(found.added),
@@ -702,11 +756,12 @@ class KnowledgeService:
             source_sha256=digest,
             author=author,
         )
-        existing = self._knowledge.dataset(slug)
-        if existing is not None and existing.status == "archived":
-            item = replace(item, status="archived")  # editing does not silently restore
         try:
-            self._knowledge.save_dataset(item)
+            with self._catalog_change:
+                existing = self._knowledge.dataset(slug)
+                if existing is not None and existing.status == "archived":
+                    item = replace(item, status="archived")  # editing does not silently restore
+                self._knowledge.save_dataset(item)
         except KnowledgeError:
             raise ServiceError("knowledge_rejected", 422) from None
         return self.dataset(owner_token, slug) if owner_token is not None else self._detail(slug)
@@ -756,9 +811,10 @@ class KnowledgeService:
     def set_status(self, owner_token: str, slug: str, *, archived: bool) -> DatasetDetail:
         author = self._author(owner_token)
         try:
-            self._knowledge.set_dataset_status(
-                slug, "archived" if archived else "active", author=author
-            )
+            with self._catalog_change:
+                self._knowledge.set_dataset_status(
+                    slug, "archived" if archived else "active", author=author
+                )
         except KnowledgeError as error:
             if str(error) == "not_found":
                 raise ServiceError("not_found", 404) from None
@@ -785,13 +841,14 @@ class KnowledgeService:
         if series_id not in self._annotatable():
             raise ServiceError("not_found", 404)
         try:
-            self._knowledge.annotate(
-                series_id,
-                archived=request.archived,
-                aliases=request.aliases,
-                note=request.note,
-                author=author,
-            )
+            with self._catalog_change:
+                self._knowledge.annotate(
+                    series_id,
+                    archived=request.archived,
+                    aliases=request.aliases,
+                    note=request.note,
+                    author=author,
+                )
         except KnowledgeError:
             raise ServiceError("knowledge_rejected", 422) from None
         return self.note_history(owner_token, series_id)

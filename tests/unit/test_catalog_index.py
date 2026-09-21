@@ -213,7 +213,7 @@ def test_a_build_killed_before_its_manifest_does_not_block_the_next_one(
 def test_old_snapshot_cannot_open_new_index(built, profile):
     root, _ = built
     old = load_reviewed_snapshot((ROOT / "docs/catalog/demo_v1.json").read_bytes())
-    with pytest.raises(CatalogIndexError, match="SNAPSHOT_OR_PROFILE"):
+    with pytest.raises(CatalogIndexError, match="CATALOG_DIGEST_MISMATCH"):
         LocalCatalogIndex.open(root, old, profile)
 
 
@@ -223,7 +223,7 @@ def test_old_snapshot_cannot_open_new_index(built, profile):
 def test_input_policy_and_fixture_origin_cannot_be_mixed(built, snapshot, profile, change):
     root, index = built
     changed = VectorProfile.model_validate({**profile.model_dump(), **change})
-    with pytest.raises(CatalogIndexError, match="SNAPSHOT_OR_PROFILE"):
+    with pytest.raises(CatalogIndexError, match="PROFILE_MISMATCH"):
         LocalCatalogIndex.open(root, snapshot, changed)
     with pytest.raises(CatalogIndexError, match="QUERY_PROFILE"):
         index.search(QueryVector(profile=changed, values=direction()), eligible_ids=frozenset())

@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from kkb_agent.catalog.lance_index import build_catalog_index
+from kkb_agent.catalog.lance_index import CatalogIndexError, build_catalog_index
 from kkb_agent.catalog.mappings import ReviewedSnapshot, load_reviewed_snapshot
 from kkb_agent.catalog.vectors import (
     DIMENSION,
@@ -30,7 +30,7 @@ from kkb_agent.catalog.vectors import (
     VectorProfile,
     catalog_documents,
 )
-from kkb_agent.llm.provider import LLMProvider, ProviderError
+from kkb_agent.llm.provider import LLMProvider
 
 MODEL: Literal["kkbhackathon2026/Qwen3-Embedding-8B"] = "kkbhackathon2026/Qwen3-Embedding-8B"
 TASK = (
@@ -79,8 +79,10 @@ def profile_for(policy_id: str, origin: Origin) -> VectorProfile:
 
 
 def _checked(vectors: list[list[float]], expected: int) -> list[tuple[float, ...]]:
-    if len(vectors) != expected or any(len(vector) != DIMENSION for vector in vectors):
-        raise ProviderError("embedding count or dimension does not match the request")
+    if len(vectors) != expected:
+        raise CatalogIndexError("INDEX_EMBEDDING_COUNT_MISMATCH")
+    if any(len(vector) != DIMENSION for vector in vectors):
+        raise CatalogIndexError("INDEX_VECTOR_DIMENSION_MISMATCH")
     return [tuple(vector) for vector in vectors]
 
 
