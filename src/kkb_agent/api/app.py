@@ -428,8 +428,10 @@ def create_app(
         return prompt_parts()
 
     @app.get("/v1/knowledge", response_model=KnowledgeList)
-    def knowledge_list(owner: OwnerToken) -> KnowledgeList:
-        return _knowledge().listing(owner)
+    def knowledge_list(
+        owner: OwnerToken, include_all_listed: bool = True
+    ) -> KnowledgeList:
+        return _knowledge().listing(owner, include_all_listed=include_all_listed)
 
     @app.get("/v1/knowledge/search", response_model=SearchTrial)
     def knowledge_search(

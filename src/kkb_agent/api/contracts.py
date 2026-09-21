@@ -616,6 +616,7 @@ class KnowledgeSeries(ContractModel):
     reviewed_aliases: tuple[str, ...] = ()
     reviewer_note: str | None = None
     search_text: str | None = None
+    geography: str | None = None
 
 
 class KnowledgeList(ContractModel):

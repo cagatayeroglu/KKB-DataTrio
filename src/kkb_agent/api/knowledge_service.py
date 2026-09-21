@@ -437,7 +437,7 @@ class KnowledgeService:
         if thread is not None:
             thread.join(timeout=600)
 
-    def listing(self, owner_token: str) -> KnowledgeList:
+    def listing(self, owner_token: str, include_all_listed: bool = True) -> KnowledgeList:
         self._author(owner_token)
         datasets = self._knowledge.datasets(include_archived=True)
         notes = {note.series_id: note for note in self._knowledge.notes()}
@@ -454,30 +454,48 @@ class KnowledgeService:
             )
             for item in self._reviewed.series
         ]
-        # The sources' own directory is hundreds of entries; the page lists the ones a
-        # person has touched or a turn has fetched, and counts the rest (DEC-176). Every
-        # one of them is found by the trial search above the list.
+        # The sources' own directory is hundreds of entries; when include_all_listed is
+        # True, all listed entries are provided for frontend browsing/pagination.
         listed = self._directory.series if self._directory is not None else ()
         known = {item.record.series_id for item in self._reviewed.series}
-        entries.extend(
-            self._reviewed_entry(
-                item.record,
-                notes.get(item.record.series_id),
-                fetched.get(item.record.series_id),
-                origin="listed",
+        if include_all_listed:
+            entries.extend(
+                self._reviewed_entry(
+                    item.record,
+                    notes.get(item.record.series_id),
+                    fetched.get(item.record.series_id),
+                    origin="listed",
+                )
+                for item in listed
+                if item.record.series_id not in known
             )
-            for item in listed
-            if item.record.series_id not in known
-            and (item.record.series_id in fetched or item.record.series_id in notes)
-        )
-        # EVDS series a search opened and a turn then fetched (DEC-177).
-        entries.extend(
-            self._reviewed_entry(
-                item.record, None, fetched.get(item.record.series_id), origin="listed"
+            entries.extend(
+                self._reviewed_entry(
+                    item.record, None, fetched.get(item.record.series_id), origin="listed"
+                )
+                for item in self._opened()
+                if item.record.series_id not in known
             )
-            for item in self._opened()
-            if item.record.series_id not in known and item.record.series_id in fetched
-        )
+        else:
+            entries.extend(
+                self._reviewed_entry(
+                    item.record,
+                    notes.get(item.record.series_id),
+                    fetched.get(item.record.series_id),
+                    origin="listed",
+                )
+                for item in listed
+                if item.record.series_id not in known
+                and (item.record.series_id in fetched or item.record.series_id in notes)
+            )
+            # EVDS series a search opened and a turn then fetched (DEC-177).
+            entries.extend(
+                self._reviewed_entry(
+                    item.record, None, fetched.get(item.record.series_id), origin="listed"
+                )
+                for item in self._opened()
+                if item.record.series_id not in known and item.record.series_id in fetched
+            )
         entries.extend(self._dataset_entry(item) for item in datasets)
         return KnowledgeList(
             catalog_digest=catalog.content_sha256,
@@ -565,6 +583,7 @@ class KnowledgeService:
             coverage_end=record.coverage.end,
             aliases=note.aliases if note is not None else (),
             note=note.note if note is not None else None,
+            geography=getattr(record, "geography", None),
             version=note.version if note is not None else None,
             updated_at=note.created_at if note is not None else None,
             acquired_at=datetime.fromisoformat(fetched_at) if isinstance(fetched_at, str) else None,

@@ -50,7 +50,14 @@ import type {
 import { unitLabel } from "@/lib/table";
 
 type Filter =
-  "all" | "prepared" | "fetchable" | "catalog" | "listed" | "user" | "archived";
+  | "all"
+  | "reviewed"
+  | "listed"
+  | "prepared"
+  | "fetchable"
+  | "catalog"
+  | "user"
+  | "archived";
 /** Which retrieval stages ran for a trial, in the words the page uses elsewhere. */
 const retrievalWords: Record<string, string> = {
   lexical_only: "yalnızca kelime eşleşmesi",
@@ -80,13 +87,10 @@ const denseFailureWords: Record<string, string> = {
 
 const filters: [Filter, string][] = [
   ["all", "Tümü"],
-  ["prepared", "Hazır"],
-  ["fetchable", "Kaynaktan çekilir"],
-  ["catalog", "Yalnız katalog"],
-  // The directory records are most of the catalogue and had no chip of their
-  // own, so they could only be reached by scrolling (finding F4-bt-13).
-  ["listed", "Kaynak dizini"],
-  ["user", "Benim eklediklerim"],
+  ["reviewed", "İncelenmiş Katalog"],
+  ["listed", "Kaynak Dizini (İncelenmemiş)"],
+  ["prepared", "Hazır Havuz"],
+  ["user", "Benim Eklediklerim"],
   ["archived", "Arşiv"],
 ];
 const measures: Record<string, string> = {
@@ -161,14 +165,16 @@ function where(item: KnowledgeSeries) {
   if (item.fetchable) return "İlk kullanımda kaynaktan çekilir";
   return "Yalnız katalogda";
 }
-function matches(item: KnowledgeSeries, filter: Filter) {
+function matches(item: KnowledgeSeries, filter: Filter, province?: string) {
+  if (province && item.geography && item.geography !== province) return false;
   if (filter === "archived") return item.status === "archived";
   if (item.status === "archived") return filter === "all";
+  if (filter === "reviewed") return item.origin === "reviewed";
+  if (filter === "listed") return item.origin === "listed";
   if (filter === "prepared") return item.prepared;
   if (filter === "fetchable") return item.fetchable;
   if (filter === "catalog")
     return item.origin === "reviewed" && !item.prepared && !item.fetchable;
-  if (filter === "listed") return item.origin === "listed";
   if (filter === "user") return item.origin === "user";
   return true;
 }
@@ -202,6 +208,9 @@ export function KnowledgePanel({
   const [listing, setListing] = useState<KnowledgeList | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
+  const [province, setProvince] = useState("");
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 50;
   const [open, setOpen] = useState<string | null>(null);
   const [editing, setEditing] = useState<DatasetDetail | "new" | null>(null);
   const [issue, setIssue] = useState("");
@@ -421,11 +430,25 @@ export function KnowledgePanel({
     return () => clearTimeout(timer);
   }, [index, indexUnread]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [filter, query, province]);
+
+  const provinces = useMemo(() => {
+    const set = new Set<string>();
+    for (const item of listing?.series ?? []) {
+      if (item.geography && item.geography !== "Türkiye" && item.geography !== "turkiye") {
+        set.add(item.geography);
+      }
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "tr"));
+  }, [listing]);
+
   const shown = useMemo(
     () =>
       (listing?.series ?? []).filter(
         (item) =>
-          matches(item, filter) &&
+          matches(item, filter, province) &&
           (!query ||
             // What a reader can see on the card is what the box searches: the
             // note and the description used to be invisible to it (F4-bt-13).
@@ -437,17 +460,26 @@ export function KnowledgePanel({
               item.note ?? "",
               item.description ?? "",
               item.reviewer_note ?? "",
+              item.geography ?? "",
             ]
               .join(" ")
               .toLocaleLowerCase("tr")
               .includes(query.toLocaleLowerCase("tr"))),
       ),
-    [listing, filter, query],
+    [listing, filter, province, query],
   );
+
+  const totalPages = Math.max(1, Math.ceil(shown.length / PAGE_SIZE));
+  const pagedItems = useMemo(
+    () => shown.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [shown, page],
+  );
+
   const counts = useMemo(() => {
     const all = listing?.series ?? [];
     return {
       reviewed: all.filter((s) => s.origin === "reviewed").length,
+      listed: all.filter((s) => s.origin === "listed").length || (listing?.listed_series ?? 0),
       user: all.filter((s) => s.origin === "user").length,
       archived: all.filter((s) => s.status === "archived").length,
     };
@@ -509,10 +541,7 @@ export function KnowledgePanel({
             size="sm"
             variant="outline"
             disabled={refreshing}
-            // Only EVDS publishes a directory to re-read. BDDK's is harvested
-            // into the code, so the button never touched it and its name said
-            // otherwise (finding B3).
-            title="EVDS'nin güncel veri grubu dizinini ve daha önce açılan grupların seri listelerini kaynağından yeniden okur. BDDK dizini kaynakta sabittir, bu düğme onu değiştirmez. Model çağrılmaz."
+            title="EVDS canlı veri gruplarını, BDDK bültenlerini ve FinTürk kaynak dizinlerini günceller. Model çağrılmaz."
             onClick={() => void refreshSources()}
           >
             {refreshing ? (
@@ -520,7 +549,7 @@ export function KnowledgePanel({
             ) : (
               <RefreshCw size={13} />
             )}
-            {refreshing ? "EVDS dizini okunuyor" : "EVDS dizinini yenile"}
+            {refreshing ? "Kaynak dizinleri okunuyor..." : "Kaynak dizinlerini yenile"}
           </Button>
         )}
         <span>
@@ -532,6 +561,30 @@ export function KnowledgePanel({
         </span>
       </div>
       <div className="knowledge-tools">
+        {provinces.length > 0 && (
+          <select
+            aria-label="İle göre süz"
+            value={province}
+            onChange={(e) => setProvince(e.target.value)}
+            style={{
+              height: "36px",
+              padding: "0 10px",
+              borderRadius: "6px",
+              border: "1px solid var(--border, #ccc)",
+              fontSize: "13px",
+              background: "var(--background, #fff)",
+              color: "var(--foreground, inherit)",
+              cursor: "pointer",
+            }}
+          >
+            <option value="">Tüm İller ({provinces.length} İl)</option>
+            {provinces.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
+        )}
         <label className="table-search">
           <Search size={14} />
           <input
@@ -734,9 +787,59 @@ export function KnowledgePanel({
           }}
         />
       )}
+      {shown.length > 0 && (
+        <div
+          className="knowledge-pagination"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "8px 12px",
+            margin: "12px 0 6px 0",
+            background: "var(--surface-subtle, #f9fafb)",
+            border: "1px solid var(--border, #e5e7eb)",
+            borderRadius: "8px",
+            fontSize: "13px",
+          }}
+        >
+          <span>
+            Toplam <strong>{shown.length.toLocaleString("tr-TR")}</strong> seriden{" "}
+            <strong>
+              {(page - 1) * PAGE_SIZE + 1} - {Math.min(page * PAGE_SIZE, shown.length)}
+            </strong>{" "}
+            arası gösteriliyor
+          </span>
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              ◀ Önceki
+            </Button>
+            <span style={{ fontWeight: 500, padding: "0 6px" }}>
+              Sayfa {page} / {totalPages}
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={page >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            >
+              Sonraki ▶
+            </Button>
+          </div>
+        </div>
+      )}
       <div className="series-list">
         {!listing && <LoaderCircle size={16} className="spin" />}
-        {shown.map((item) => (
+        {shown.length === 0 && listing && (
+          <p className="helper" style={{ padding: "16px 0", textAlign: "center" }}>
+            Bu filtreye veya aramaya uygun seri bulunamadı.
+          </p>
+        )}
+        {pagedItems.map((item) => (
           <article key={item.series_id} className="knowledge-item">
             <button
               className="knowledge-head"
@@ -824,6 +927,50 @@ export function KnowledgePanel({
           <p className="helper">Bu filtrede kayıt yok.</p>
         )}
       </div>
+      {shown.length > PAGE_SIZE && (
+        <div
+          className="knowledge-pagination"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "8px 12px",
+            margin: "6px 0 16px 0",
+            background: "var(--surface-subtle, #f9fafb)",
+            border: "1px solid var(--border, #e5e7eb)",
+            borderRadius: "8px",
+            fontSize: "13px",
+          }}
+        >
+          <span>
+            Sayfa {page} / {totalPages} (Toplam {shown.length.toLocaleString("tr-TR")} seri)
+          </span>
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={page <= 1}
+              onClick={() => {
+                setPage((p) => Math.max(1, p - 1));
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+            >
+              ◀ Önceki
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={page >= totalPages}
+              onClick={() => {
+                setPage((p) => Math.min(totalPages, p + 1));
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+            >
+              Sonraki ▶
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

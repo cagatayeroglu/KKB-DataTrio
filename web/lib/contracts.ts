@@ -696,6 +696,7 @@ export const knowledgeSeriesSchema = z
     reviewed_aliases: z.array(z.string().max(400)).max(400).optional(),
     reviewer_note: z.string().max(8192).nullable().optional(),
     search_text: z.string().max(16384).nullable().optional(),
+    geography: z.string().max(200).nullable().optional(),
   })
   .strict();
 export const knowledgeListSchema = z
