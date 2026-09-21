@@ -1819,7 +1819,12 @@ class PreparedRunner:
         for make in (make_anomaly_tool, make_causality_tool):
             registry.register(make(connection, lineage=lineage, inspector=inspector))
         if self._search_backend is not None and "web_search" not in disabled:
-            registry.register(make_web_search_tool(backend=self._search_backend))
+            # Measured 2026-09-21: a search is 1 to 3.3 s and the worker process another
+            # second to start, so the 5 s default left no room for the one retry of an
+            # empty page; twenty seconds is still far below a planner call.
+            registry.register(
+                make_web_search_tool(backend=self._search_backend, timeout_seconds=20.0)
+            )
         if self._web_url_fetch is not None or attachment is not None or library:
             # The cell proof lives in this session's own lineage, where the gate
             # and the proof builder re-read it; the document itself is not kept.
