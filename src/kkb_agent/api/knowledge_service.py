@@ -10,10 +10,10 @@ applies as its catalog. Every write names its author, the browser key's owner.
 from __future__ import annotations
 
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from datetime import UTC, date, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import ValidationError
 
@@ -195,6 +195,13 @@ class KnowledgeService:
         self._acquisitions = acquisitions
         # A prepared series' stored values, read-only from the verified seed.
         self._series_values = series_values
+        # What a list request needs of the whole catalogue, kept until what it is made of
+        # changes (see `_catalog_now`, `_search_texts`).
+        self._effective_kept: tuple[tuple[Any, ...], ReviewedSnapshot] | None = None
+        self._texts_kept: tuple[str, dict[str, str]] | None = None
+        # A page asks for several things at once; after a restart they would each build
+        # the same catalogue side by side and all be late. One builds, the others wait.
+        self._keeping = threading.Lock()
 
     # -- authorization ---------------------------------------------------------
 
@@ -260,9 +267,51 @@ class KnowledgeService:
         """The catalogue a turn would search: reviewed, with this knowledge base applied."""
         datasets = self._knowledge.datasets(include_archived=True)
         notes = list({note.series_id: note for note in self._knowledge.notes()}.values())
-        return effective_snapshot(
-            self._reviewed, [d for d in datasets if d.status == "active"], notes, self._directory
+        return self._catalog_now(datasets, notes)
+
+    def _catalog_now(
+        self, datasets: Sequence[DatasetVersion], notes: Sequence[SeriesNote]
+    ) -> ReviewedSnapshot:
+        """`effective_snapshot`, built again only when one of its inputs changed.
+
+        With FinTürk and the whole monthly bulletin listed the catalogue is 8,374 series
+        and building it is about a second; every list request built it, and then built the
+        search text of all 8,374 to show fifty (3.5 s). The page asks for the list, the
+        index state and the counters at once, so the list passed the client's 12 s and the
+        reader saw "Bağlantı kesildi" under an empty list (live 2026-09-21). A dataset or a
+        note is a new version when it changes, and a refreshed directory is a new object,
+        so those identities are the whole key.
+        """
+        key = (
+            self._directory,
+            tuple((item.series_id, item.version, item.status) for item in datasets),
+            tuple((note.series_id, note.version) for note in notes),
         )
+        with self._keeping:
+            kept = self._effective_kept
+            if kept is not None and kept[0][0] is key[0] and kept[0][1:] == key[1:]:
+                return kept[1]
+            catalog = effective_snapshot(
+                self._reviewed,
+                [item for item in datasets if item.status == "active"],
+                list(notes),
+                self._directory,
+            )
+            self._effective_kept = (key, catalog)
+            return catalog
+
+    def _search_texts(self, catalog: ReviewedSnapshot) -> dict[str, str]:
+        """What search reads for each series of `catalog`, built once per catalogue."""
+        with self._keeping:
+            kept = self._texts_kept
+            if kept is not None and kept[0] == catalog.content_sha256:
+                return kept[1]
+            try:
+                texts = {item.series_id: item.text for item in catalog_documents(catalog)}
+            except ValueError:
+                texts = {}
+            self._texts_kept = (catalog.content_sha256, texts)
+            return texts
 
     def uses(self, owner_token: str, series_id: str) -> SeriesUses:
         """Which of this browser's answers rest on the series (reverse lineage).
@@ -495,12 +544,7 @@ class KnowledgeService:
         self._author(owner_token)
         datasets = self._knowledge.datasets(include_archived=True)
         notes = {note.series_id: note for note in self._knowledge.notes()}
-        catalog = effective_snapshot(
-            self._reviewed,
-            [d for d in datasets if d.status == "active"],
-            list(notes.values()),
-            self._directory,
-        )
+        catalog = self._catalog_now(datasets, list(notes.values()))
         fetched = self._acquisitions() if self._acquisitions is not None else {}
         entries = [
             self._reviewed_entry(
@@ -597,10 +641,7 @@ class KnowledgeService:
         self, entries: list[KnowledgeSeries], catalog: ReviewedSnapshot
     ) -> list[KnowledgeSeries]:
         """Each entry with what search reads for it, from the catalogue a turn searches now."""
-        try:
-            indexed = {item.series_id: item.text for item in catalog_documents(catalog)}
-        except ValueError:
-            indexed = {}
+        indexed = self._search_texts(catalog)
         reviewed = {item.record.series_id: item for item in self._reviewed.series}
         if self._directory is not None:
             for listed in self._directory.series:
