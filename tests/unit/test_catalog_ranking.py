@@ -197,6 +197,48 @@ def test_a_publisher_named_in_reviewed_labels_is_a_valid_source_filter(snapshot)
     assert wrong.status == "FILTERED_OUT" and not wrong.candidates
 
 
+def test_a_shortlist_limit_cannot_hide_a_stock_rate_or_new_portfolio_choice(snapshot):
+    for query in ("toplam konut kredisi", "konut kredisi faizi"):
+        full = result(snapshot, query)
+        short = search_catalog(snapshot, CatalogSearchArguments(query=query, max_results=1))
+        assert full.top_candidate == short.top_candidate == "ambiguous"
+        assert full.candidates[0] == short.candidates[0]
+
+
+def test_new_credit_interest_contrasted_with_profit_share_is_not_a_positive_profit_share(snapshot):
+    from kkb_agent.catalog.ranking import _candidate_intent
+
+    query = result(snapshot, "yeni konut kredisi faizi")
+    assert query.candidates[0].series.rate_basis == "new_credit"
+    assert _candidate_intent(query.candidates[0].series).rate_measure == "interest"
+    assert _candidate_intent(query.candidates[1].series).rate_measure == "profit_share"
+    assert query.top_candidate == "unambiguous"
+    # Without the explicit interest measure, the two new-rate measures tie.
+    broader = result(snapshot, "yeni konut kredisi oranı")
+    assert broader.top_candidate == "ambiguous"
+
+
+def test_reviewed_total_used_credit_identity_stays_bound_to_dec139(snapshot):
+    chosen = result(snapshot, "kullanılan toplam konut kredisi")
+    assert chosen.top_candidate == "unambiguous"
+    assert chosen.candidates[0].series.record.stock_flow.value == "stock"
+    assert {concept.concept_id for concept in chosen.concepts} == {"housing_balance_total"}
+
+
+def test_contextual_existing_credit_is_stock_but_new_lending_is_not_invented(snapshot):
+    existing = result(snapshot, "mevcut konut kredisi")
+    assert existing.candidates[0].series.record.stock_flow.value == "stock"
+    assert existing.top_candidate == "unambiguous"
+    for phrase in (
+        "bankaların verdiği yeni konut finansmanı",
+        "bu ay yeni verilen konut kredisi tutarı",
+    ):
+        missing = result(snapshot, phrase)
+        assert missing.status == "PARTIAL" and missing.clarification_required
+        assert missing.top_candidate != "unambiguous"
+        assert all(c.series.record.stock_flow.value != "flow" for c in missing.candidates)
+
+
 @pytest.mark.parametrize(
     "query",
     [

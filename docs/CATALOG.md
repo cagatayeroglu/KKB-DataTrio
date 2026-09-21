@@ -33,8 +33,8 @@ Empty eligibility skips embedding and retains UNRESOLVED/FILTERED_OUT.
 
 Both combination policies take up to ten candidates per stage, interleave stage
 positions and deduplicate IDs. The shared deterministic reviewed-intent post-order
-then refines candidates only for explicit query qualifiers with typed/reviewed
-counterparts: amount/rate kind, new/outstanding rate basis, inclusion/exclusion,
+then refines candidates from explicit query qualifiers and reviewed candidate
+metadata: amount/rate kind, new/outstanding rate basis, inclusion/exclusion,
 currency/component, base year and archive intent. Unknown candidate semantics are
 neutral, and the pre-policy order breaks ties. Archived records stay after
 non-archived records unless the caller both opts in and explicitly requests archive
@@ -46,8 +46,17 @@ with the dense position otherwise. **`alternating-archive-tier-v1`**, the M13-09
 baseline, always starts lexical and stays selectable for comparison. Native distance
 ties use stable IDs. There is no BM25/cosine score addition, RRF or model/listwise
 reranker; the post-order never creates candidates or changes stage scores/status.
+For natural credit paraphrases, the post-order also distinguishes a credit subject
+in the reviewed title/labels from a shared non-credit noun (for example, a CPI
+"ev" division), demotes a rate percentage when the query asks for a credit
+amount without naming a rate, and reads affirmative rate descriptions before
+their "; not ..." contrasts. These are soft ordering cues, **not** proof that
+"çektiği/verdiği" names an outstanding stock or that a new-loan amount exists.
+An unnamed stock-versus-rate axis remains ambiguous even if TOTAL/TP makes one
+candidate rank first; `max_results=1` cannot hide a tied alternative. The
+reviewed v3/r4 snapshot, aliases and local vector generation digest are unchanged.
 Measured gains and remaining losses are in
-[EVALUATION](EVALUATION.md#m13-15-catalog-quality-hardening-2026-09-15).
+[EVALUATION](EVALUATION.md#catalog-paraphrase-holdout-2026-09-21).
 
 Candidates carry retrieval source(s), per-stage rank, BM25 score if present in
 that stage, and cosine distance if present in dense. Unmeasured scores are null.

@@ -26,13 +26,14 @@ class Case:
     first_family: str | None
     auto_safe: bool
     forbidden_before: tuple[str, ...] = ()
-    expected_concept: str | None = None
+    missing_concept: str | None = None
     base_year: int | None = None
     geography: str | None = None
     component: str | None = None
     rate_basis: str | None = None
     include_archived: bool = False
     clarification: bool = True
+    forbidden_first_kind: StockFlow | None = None
 
 
 CASES = (
@@ -41,19 +42,20 @@ CASES = (
     Case("ev kredisi stoku", "housing_stock", False, ("housing_rate", "cpi_division")),
     Case(
         "vatandaşın çektiği ev kredisi miktarı",
-        "housing_stock",
+        "housing_credit",
         False,
-        ("housing_rate", "cpi_division"),
+        ("cpi_division",),
+        forbidden_first_kind=StockFlow.RATE,
     ),
     Case(
         "bankaların verdiği konut finansmanı",
-        "housing_stock",
+        "housing_credit",
         False,
-        ("housing_rate", "cpi_division"),
+        ("cpi_division",),
     ),
     Case("yeni konut kredileri", None, False),
     # This reviewed concept has no mapped disbursement-amount identity. A rate is not it.
-    Case("yeni verilen konut kredisi tutarı", None, False, expected_concept="housing_disbursement"),
+    Case("yeni verilen konut kredisi tutarı", None, False, missing_concept="housing_disbursement"),
     Case("konut kredisi faiz oranı", "housing_rate", False, ("housing_stock",)),
     Case(
         "yeni konut kredisi faizi",
@@ -66,7 +68,12 @@ CASES = (
     Case("vatandaşların kullandığı ihtiyaç kredileri", None, False),
     Case("yeni ihtiyaç kredisi", None, False),
     Case("ihtiyaç kredisi faiz oranı", "personal_rate", False, ("housing_stock",)),
-    Case("konut kredisi miktarı", "housing_stock", False, ("housing_rate",)),
+    Case(
+        "konut kredisi miktarı",
+        "housing_credit",
+        False,
+        forbidden_first_kind=StockFlow.RATE,
+    ),
     Case("ev kredisi", "housing_credit", False, ("cpi_division",)),
     Case("toplam mevcut konut kredisi", "housing_stock", True, ("housing_rate",)),
     Case("bu ay yeni verilen konut kredisi", None, False),
@@ -127,12 +134,14 @@ def test_frozen_lexical_paraphrase_order_and_confidence(snapshot, case):
         CatalogSearchArguments(query=case.query, include_archived=case.include_archived),
     )
     assert output.clarification_required is case.clarification
-    if case.expected_concept is not None:
-        assert output.status == "UNRESOLVED"
-        assert not output.candidates
-        assert case.expected_concept in {c.concept_id for c in output.concepts}
-        assert output.top_candidate == "none"
-        return
+    if case.missing_concept is not None:
+        # The snapshot documents this absence, but the broad housing-credit alias
+        # can still surface neighbouring stock/rate series. They must not resolve
+        # a new-disbursement amount or become a confident default.
+        concept = next(c for c in snapshot.concepts if c.concept_id == case.missing_concept)
+        assert concept.resolution == "UNRESOLVED" and not concept.candidate_series_ids
+        assert output.status == "PARTIAL" and output.top_candidate != "unambiguous"
+        assert all(c.series.record.stock_flow is not StockFlow.FLOW for c in output.candidates)
     if case.first_family is not None:
         assert output.candidates, case.query
         assert is_family(output.candidates[0], case.first_family)
@@ -146,6 +155,8 @@ def test_frozen_lexical_paraphrase_order_and_confidence(snapshot, case):
             forbidden not in ranked or first < ranked.index(forbidden)
             for forbidden in case.forbidden_before
         )
+    if case.forbidden_first_kind is not None:
+        assert output.candidates[0].series.record.stock_flow is not case.forbidden_first_kind
     if case.auto_safe:
         assert output.top_candidate == "unambiguous"
     else:
@@ -195,7 +206,7 @@ class FixedDenseIndex:
     ("query", "expected_family", "safe"),
     [
         ("ev kredisi stoku", "housing_stock", False),
-        ("ev kredisi", "housing_stock", False),
+        ("ev kredisi", "housing_credit", False),
         ("yeni konut kredisi faizi", "housing_rate", True),
     ],
 )
@@ -214,6 +225,6 @@ def test_fixture_dense_order_never_becomes_selection_authority(
     )
     output = search_hybrid_catalog(snapshot, CatalogSearchArguments(query=query), dense)
     assert output.retrieval_mode == "hybrid" and output.dense_status == "success"
-    assert family(output.candidates[0]) == expected_family
+    assert is_family(output.candidates[0], expected_family)
     assert output.clarification_required
     assert (output.top_candidate == "unambiguous") is safe

@@ -2434,6 +2434,45 @@ turns, the full organizer three-turn flow and graph layout were not exercised.
 
 # Catalog validation records
 
+<a id="catalog-paraphrase-holdout-2026-09-21"></a>
+
+## Natural Turkish paraphrase ordering — offline Workstream 5, PR #285
+
+The 23 lexical cases and three deterministic fake-dense cases in
+`tests/eval/test_catalog_paraphrase_holdout.py` were committed before changing
+ranking. The first run was **17/26 passing**. Failures demonstrated a credit
+amount ranked below a rate, a common-word CPI division above housing-credit
+families, an unlabeled stock/rate choice marked unambiguous because of its
+TOTAL component, and a negative metadata contrast being read as a positive
+profit-share measure. The fake-dense fixture is deliberately adversarial; it
+does **not** measure real Qwen retrieval quality.
+
+Three original oracle expectations were corrected after inspecting reviewed
+semantics: "bankaların verdiği konut finansmanı" does not prove STOCK;
+"ev kredisi" in the dense fixture does not prove STOCK over RATE; and "yeni
+verilen konut kredisi tutarı" cannot be `UNRESOLVED` by exact alias because
+the broad housing-credit phrase already surfaces `PARTIAL` neighbours. The
+last case has an independently reviewed `housing_disbursement` concept with
+no mapped series. Its oracle now requires no confident default, never treats
+a candidate as FLOW, and preserves clarification. The first two require a
+credit-family candidate before the unrelated CPI noun and no automatic
+selection. These are corrections to the *expectations*, not claimed fixes.
+
+After the bounded reviewed-intent changes, **26/26 pass** (lexical 23/23,
+fixture-hybrid 3/3); four additional focused confidence/DEC-139 tests pass.
+`max_results=1` retains stock/rate and portfolio/new-rate ambiguity, while
+an explicitly named new-loan interest rate distinguishes affirmative interest
+from a profit-share contrast. The broader targeted catalog/hybrid/discovery
+suite passed **290 tests**, touched Ruff format/check passed, and strict mypy
+passed over 15 catalog source files. The same v3/r4 snapshot/aliases/vector
+digest, candidate membership, BM25/dense scores, archive preference and
+clarification gate remain unchanged. This is development evidence on a used
+holdout, not an independent estimate of general retrieval gain; a fresh
+untuned holdout and real index/model evaluation remain **LIVE REQUIRED**.
+Missing new-disbursement amount identity, unreviewed personal-credit balances
+and natural paraphrases without a reviewed concept remain `PARTIAL` or
+ambiguous; no balance/rate is substituted as a new-lending amount.
+
 Historical delivery records migrated from technical references. Test counts,
 package versions, findings and pending integration statements are as recorded at
 the original delivery, not a new run or current task selection.
