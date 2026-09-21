@@ -62,6 +62,8 @@ class AnalyticalPlan(BaseModel):
     clarification: ClarificationReason | None = None
     clarification_text: str | None = Field(default=None, min_length=1, max_length=1500)
     reply: str | None = Field(default=None, min_length=1, max_length=MAX_REPLY_CHARS)
+    #: False when the reader only asks to show, add, convert or filter: no 'Yorum' then.
+    interpret: bool = True
 
     @model_validator(mode="after")
     def executable_or_clarification(self) -> Self:

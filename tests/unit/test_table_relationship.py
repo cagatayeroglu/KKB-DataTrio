@@ -236,6 +236,29 @@ def test_repeat_comparison_refuses_duplicate_counts_but_new_criteria_are_distinc
     assert len({v.label for v in second.values if v.label.startswith("table comparison ")}) == 12
 
 
+def test_a_comparison_over_a_table_an_earlier_comparison_left_is_still_worded_by_the_harness():
+    # Live 2026-09-21, reference turn 3: the table carried turn 1's comparison counts, which
+    # have no phrase of their own once a newer comparison exists. The harness gave up its
+    # own wording for that, and the model writer it fell back to thought for 16,384 tokens
+    # and wrote nothing.
+    from kkb_agent.agent.presentation import deterministic_draft
+
+    shown = table()
+    shown = shown.model_copy(update={"values": [v for v in shown.values if v.label != "price"]})
+    criteria = {"driver_column": "rate", "driver_direction": "down", "when_column": None}
+    first = compare(shown, **criteria, when_direction=None)
+    assert deterministic_draft(first) is not None
+    second = compare(first, **criteria, when_direction=None, target_direction="up")
+    draft = deterministic_draft(second)
+    assert draft is not None and draft.startswith("Tablodaki aylık yönler karşılaştırıldı.")
+    latest = [
+        controlled_count_label(second, value)
+        for value in second.values
+        if controlled_count_label(second, value) is not None
+    ]
+    assert latest and all(phrase in draft for phrase in latest)
+
+
 def args(**changes):
     return {
         "operation": "table_co_movement",

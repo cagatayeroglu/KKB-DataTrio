@@ -1153,10 +1153,20 @@ def gate_answer(
     kept: list[str] = []
     omitted: list[OmittedSentence] = []
     position = 0
+    # How each kept sentence is joined to the one before it: the draft's own line or
+    # paragraph break where it had one, a space otherwise. Joined with spaces alone, the
+    # figures, the interpretation, the assumption and the system's note reached the reader
+    # as one block of text (live 2026-09-21).
+    joints: list[str] = []
+    read_to = 0
     for span in spans:
-        sentence = draft[span[0] : span[1]].strip()
+        raw = draft[span[0] : span[1]]
+        sentence = raw.strip()
         if not sentence:
             continue
+        gap = draft[read_to : span[0]] + raw[: len(raw) - len(raw.lstrip())]
+        read_to = span[0] + len(raw.rstrip())
+        joint = "\n\n" if gap.count("\n") > 1 else "\n" if "\n" in gap else " "
         if span in failures:
             omitted.append(
                 OmittedSentence(
@@ -1168,6 +1178,7 @@ def gate_answer(
             )
         else:
             kept.append(sentence)
+            joints.append(joint)
         position += 1
 
     if not kept:
@@ -1184,4 +1195,7 @@ def gate_answer(
             ),
         )
     status = AnswerStatus.QUALIFIED if omitted else AnswerStatus.ACCEPTED
-    return GatedAnswer(status, " ".join(kept), verdict, tuple(omitted), limitations)
+    text = kept[0] + "".join(
+        joint + sentence for joint, sentence in zip(joints[1:], kept[1:], strict=True)
+    )
+    return GatedAnswer(status, text, verdict, tuple(omitted), limitations)

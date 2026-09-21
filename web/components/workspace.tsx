@@ -29,6 +29,7 @@ import {
   Table2,
   X,
 } from "lucide-react";
+import { AnswerText } from "@/components/answer-text";
 import { Button } from "@/components/ui/button";
 import { ResultTable } from "@/components/result-table";
 import { TracesPage } from "@/components/traces-page";
@@ -273,6 +274,7 @@ export function Workspace() {
     [transcript, setTranscript] = useState<StoredMessage[]>([]),
     //: Receipts this process answered for, and the ones it truly cannot serve.
     [lostTables, setLostTables] = useState<string[]>([]),
+    [restoreTick, setRestoreTick] = useState(0),
     //: Send the next message as its own question instead of an answer to the
     //: pending clarification; the harness decides when this is off.
     [asNewQuestion, setAsNewQuestion] = useState(false),
@@ -482,22 +484,26 @@ export function Workspace() {
     token: string,
   ) {
     const published = messages.filter((message) => message.result_ref);
-    const restored = await Promise.all(
-      published.map(async (message) => {
-        try {
-          return {
-            turnId: message.turn_id,
-            result: await storedResult(id, message.turn_id, token),
-          };
-        } catch {
-          // Busy (a turn is running) or gone: the message says so in place.
-          return undefined;
-        }
-      }),
-    );
-    return restored.filter(
-      (entry): entry is { turnId: string; result: Result } => Boolean(entry),
-    );
+    const found: { turnId: string; result: Result }[] = [];
+    const gone: string[] = [];
+    // One at a time. The server reads a stored table under the runner's lock; asked for
+    // three at once it served one and answered "busy" to the rest, and every failure was
+    // taken for a lost table: a chat with two tables or more showed the first and said of
+    // the others that the server no longer had them (reported live 2026-09-21).
+    for (const message of published) {
+      try {
+        found.push({
+          turnId: message.turn_id,
+          result: await storedResult(id, message.turn_id, token),
+        });
+      } catch (error) {
+        // Only "not found" means the receipt is gone. Busy, a timeout or a dropped
+        // connection is asked again.
+        if (error instanceof ApiError && error.code === "not_found")
+          gone.push(message.result_ref as string);
+      }
+    }
+    return { found, gone };
   }
   // A table published while a turn is running cannot be read back yet: the runner
   // answers "busy" and `restoreTables` returns nothing for it. Ask again as soon as
@@ -509,19 +515,23 @@ export function Workspace() {
     const missing = unreadTables(transcript, restoredTables, lostTables);
     if (!missing.length) return;
     let cancelled = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
     void (async () => {
-      const found = await restoreTables(conversationId, missing, ownerToken);
+      const { found, gone } = await restoreTables(
+        conversationId,
+        missing,
+        ownerToken,
+      );
       if (cancelled || !mounted.current) return;
       if (found.length) setRestoredTables((old) => [...old, ...found]);
-      const arrived = new Set(found.map((entry) => entry.result.result_ref));
-      const gone = missing
-        .map((message) => message.result_ref as string)
-        .filter((ref) => !arrived.has(ref));
-      // Only a failure with the runner free means the receipt is really gone.
       if (gone.length) setLostTables((old) => [...old, ...gone]);
+      // What neither arrived nor is gone was busy or timed out: ask again shortly.
+      if (found.length + gone.length < missing.length)
+        retry = setTimeout(() => setRestoreTick((tick) => tick + 1), 3000);
     })();
     return () => {
       cancelled = true;
+      if (retry) clearTimeout(retry);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -531,6 +541,7 @@ export function Workspace() {
     busy,
     conversationId,
     ownerToken,
+    restoreTick,
   ]);
   // Leaving the studio for another page and coming back remounts this component: the turns
   // of this tab come back from sessionStorage, but the conversation's EARLIER messages live
@@ -557,7 +568,10 @@ export function Workspace() {
         setPendingOffered(detail.pending_offered);
         setStoredDocuments(detail.documents);
         const kept = await restoreTables(conversationId, earlier, ownerToken);
-        if (!cancelled && mounted.current) setRestoredTables(kept);
+        if (!cancelled && mounted.current) {
+          setRestoredTables(kept.found);
+          if (kept.gone.length) setLostTables((old) => [...old, ...kept.gone]);
+        }
       } catch {
         // A chat still works without its earlier messages; the sidebar can reopen it.
         transcriptFor.current = null;
@@ -673,8 +687,10 @@ export function Workspace() {
         setStoredDocuments(fresh.documents);
         const freshTables = await restoreTables(id, fresh.messages, ownerToken);
         if (!active()) return;
-        setRestoredTables(freshTables);
-        setSelected(freshTables.at(-1)?.result.result_ref ?? null);
+        setRestoredTables(freshTables.found);
+        if (freshTables.gone.length)
+          setLostTables((old) => [...old, ...freshTables.gone]);
+        setSelected(freshTables.found.at(-1)?.result.result_ref ?? null);
       }
       if (running) {
         const turn = await readTurn(reopened.session, running.turn_id).catch(
@@ -1717,7 +1733,7 @@ export function Workspace() {
                                 </span>
                               </div>
                             )}
-                            <p className="answer-text">{message.text}</p>
+                            <AnswerText text={message.text} />
                             {table ? (
                               <div
                                 className={`inline-result ${table.result_ref === selected ? "newest" : ""}`}
@@ -1856,9 +1872,7 @@ export function Workspace() {
                                       }[item.turn.answer.status]}
                                 </span>
                               </div>
-                              <p className="answer-text">
-                                {item.turn.answer.text}
-                              </p>
+                              <AnswerText text={item.turn.answer.text} />
                               {item.turn.answer.selection && (
                                 <SeriesChoiceCard
                                   selection={item.turn.answer.selection}

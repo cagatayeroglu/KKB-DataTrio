@@ -592,7 +592,7 @@ def test_the_planner_reads_each_prepared_series_stored_window_beside_its_meaning
     assert f"{TOTAL_ID}: {names[TOTAL_ID]} [2021-01..2021-06]" in tool.description
 
 
-def _served_like(lake, *responses):
+def _served_like(lake, *responses, **plan_fields):
     """The harness words the co-movement itself; the writer is asked only for its reading."""
     registry = ToolRegistry()
     registry.register(
@@ -611,6 +611,7 @@ def _served_like(lake, *responses):
                 "arguments": json.loads(arguments().model_dump_json(exclude_none=True)),
             }
         ],
+        **plan_fields,
     }
     workspace = Workspace.open(lake.connection)
     session = Session(scripted(json.dumps(plan), *responses), registry, commentary=True)
@@ -633,6 +634,27 @@ def test_the_writer_adds_its_reading_under_figures_the_harness_worded(lake):
     assert any("Write ONLY the 'Yorum:' paragraph" in item.content for item in asked)
     assert any(item.content.startswith("written:") for item in asked)
     assert workspace.names() == ["konut_kredisi_ve_faiz"]
+
+
+def test_a_request_that_asks_for_no_interpretation_gets_none_and_costs_no_writer_call(lake):
+    # Live 2026-09-21: "tabloyu bozmadan ... enflasyondan arındırır mısın?" was answered with
+    # a 'Yorum:' paragraph restating what had been done, and 58 of the turn's 100 seconds
+    # went to writing it. Whether the reader asked how, why or whether is the planner's
+    # reading of the question, said in the plan.
+    reading = "Yorum: Bu cümle hiç istenmemeli."
+    answered, workspace, session = _served_like(lake, reading, interpret=False)
+    assert answered.answer.status is AnswerStatus.ACCEPTED
+    assert "Yorum:" not in answered.answer.text
+    assert len(session.provider.seen) == 1  # the planner call, and no writer call
+    assert workspace.names() == ["konut_kredisi_ve_faiz"]
+
+
+def test_the_figures_stand_each_on_its_own_line_above_the_reading(lake):
+    reading = "Yorum: Talep faize duyarlı görünüyor."
+    answered, _, _ = _served_like(lake, reading)
+    figures, _, rest = answered.answer.text.partition("\n\n")
+    assert figures.startswith("Aylık yön karşılaştırması hesaplandı.\n")
+    assert len(figures.splitlines()) >= 4 and rest.startswith("Yorum:")
 
 
 def test_without_a_reading_the_verified_figures_stand_as_they_are(lake):

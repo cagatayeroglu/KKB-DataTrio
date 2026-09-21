@@ -256,7 +256,7 @@ def deterministic_draft(result: AnalyticalResult) -> str | None:
             return None
         values = _controlled_counts(result, comovement_count_display_label, COMOVEMENT_COUNT_LABELS)
         if values is not None:
-            return "Aylık yön karşılaştırması hesaplandı. " + " ".join(values)
+            return "Aylık yön karşılaştırması hesaplandı.\n" + "\n".join(values)
     if (
         result.tool == "change_detection"
         and result.method == "table-direction-comparison-v1"
@@ -268,13 +268,23 @@ def deterministic_draft(result: AnalyticalResult) -> str | None:
             value.unit == DIMENSIONLESS
             and table_count_display_label(result, value) is None
             and comovement_count_display_label(result, value) is None
+            # The counts of a comparison an earlier turn made travel with the table it
+            # left. They are that table's content, not this answer's figures. Refusing to
+            # word the new comparison because of them sent the third reference turn to the
+            # model writer, which spent its whole 16,384 tokens thinking and wrote nothing
+            # (live 2026-09-21).
+            and not value.label.startswith(EARLIER_COMPARISON)
             for value in result.values
         ):
             return None
         values = _controlled_counts(result, table_count_display_label, TABLE_COUNT_LABELS)
         if values is not None:
-            return "Tablodaki aylık yönler karşılaştırıldı. " + " ".join(values)
+            return "Tablodaki aylık yönler karşılaştırıldı.\n" + "\n".join(values)
     return None
+
+
+#: How a table comparison labels its counts; `table_count_display_label` words the latest.
+EARLIER_COMPARISON = "table comparison "
 
 
 def _controlled_counts(

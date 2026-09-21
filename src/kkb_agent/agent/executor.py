@@ -121,6 +121,7 @@ class ValidatedPlan:
     clarification: ClarificationReason | None = None
     reply: str | None = None
     clarification_text: str | None = None
+    interpret: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -226,6 +227,7 @@ def validate_plan(
         plan.clarification,
         plan.reply,
         plan.clarification_text,
+        plan.interpret,
     )
 
 

@@ -17,7 +17,7 @@ export type ChartModel = {
   series: ChartSeries[];
 };
 
-const LEGEND = 42;
+const LEGEND = 72;
 
 // Plotly interprets a small HTML subset in trace names; labels stay plain text.
 function plain(text: string) {
@@ -91,7 +91,7 @@ export function legendName(name: string, names: string[]) {
     .filter((other) => other !== name && name.startsWith(other))
     .sort((a, b) => b.length - a.length)[0];
   if (!base) return clip(name, LEGEND);
-  return `${clip(base, 18)} ${clip(name.slice(base.length).trim(), LEGEND - 19)}`;
+  return `${clip(base, 36)} ${clip(name.slice(base.length).trim(), LEGEND - 37)}`;
 }
 
 /** At most two unit groups share a chart: the first on the left axis, the second on the right. */

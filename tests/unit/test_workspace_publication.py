@@ -152,7 +152,6 @@ def session(candidate, draft="table: 999 TL.", *, later=None):
     [
         "bad_evidence",
         "writer_error",
-        "empty",
         "wrong_number",
         "verifier_error",
         "failed_step",
@@ -169,8 +168,6 @@ def test_unsuccessful_turn_leaves_all_workspace_tables_unchanged(space, monkeypa
     later = None
     if case == "writer_error":
         draft = ProviderError("fixture provider failure")
-    elif case == "empty":
-        draft = "   "
     elif case == "wrong_number":
         draft = "table: 777 TL."
     elif case == "uncited_bad_candidate":
@@ -208,6 +205,17 @@ def test_unsuccessful_turn_leaves_all_workspace_tables_unchanged(space, monkeypa
     assert snapshot(space) == before
     assert space.value_of("table").values[0].value == 100.0
     assert space.stale() == set()
+
+
+def test_a_writer_that_returns_nothing_does_not_cost_the_reader_the_verified_table(space):
+    # An empty draft used to abstain and unpublish. Live 2026-09-21 the writer spent all its
+    # tokens thinking; the table was computed and verified all the same. It is published,
+    # and the prose says plainly that it is missing (DEC-186: the table is the tools').
+    turn = session(result(), "   ")
+    answer = turn.answer("fixture", space.connection, workspace=space, remember="table")
+    assert answer.answer.status is AnswerStatus.ACCEPTED
+    assert "yazılı değerlendirme üretilemedi" in answer.answer.text
+    assert space.value_of("table").values[0].value == 999.0
 
 
 def test_a_qualified_turn_still_publishes_the_verified_table(space):
