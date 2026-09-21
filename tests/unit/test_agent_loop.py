@@ -321,7 +321,11 @@ class TestBoundedExecution:
         reg = registry(failing=inspect)
         plan = validate_plan(AnalyticalPlan.model_validate_json(plan_json(ONE_STEP)), reg)
         execute(plan, reg)
-        assert seen["fields"] == {"question", "outputs"}
+        # Every field here is something the turn itself produced: the reader's own words,
+        # the outputs of earlier steps, and the addresses this turn's web_search returned.
+        # Nothing from the conversation, the catalogue or a fetched page enters a tool's
+        # view, which is what keeps a page from naming the next request.
+        assert seen["fields"] == {"question", "outputs", "searched"}
 
 
 class TestThePlannerLoop:
