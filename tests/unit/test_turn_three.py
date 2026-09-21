@@ -126,15 +126,16 @@ def test_three_turn_acceptance_requires_requested_real_comparison(lake, tmp_path
         ]
 
 
-def test_final_qualified_answer_without_publication_is_not_a_passing_rehearsal(lake, tmp_path):
+def test_an_invented_figure_is_withheld_and_the_verified_table_is_still_published(lake, tmp_path):
+    # The table is what the tools computed. A sentence the gate withheld used to cost the
+    # turn its table, and with it everything the next question builds on.
     prepared(lake)
     provider = scripted(*first_two("Tablo hazırlandı. Kredi bakiyesi 987654321 milyon TL oldu."))
     report = live_check.run_prepared_check(provider, lake.root, tmp_path / "work", turns=2)
-    assert report["passed"] is False
     final = report["turns"][-1]
     assert final["answer"]["status"] == "qualified"
-    assert final["published"] == [live_check.TURN_ONE_NAME]
-    assert final["passed"] is False
+    assert "987654321" not in final["answer"]["text"]
+    assert final["passed"] is True  # the reader has verified prose and the verified table
 
 
 def comparison(step_id, target, when=None, direction="non_increasing"):
@@ -159,37 +160,35 @@ ADD_KFE = step(
 REAL = f"{TOTAL_ID} real, 2021-06 prices ({CPI_ID})"
 
 
-def test_live_parallel_comparisons_are_repaired_into_one_published_condition(lake, tmp_path):
-    """M11-07 live Turn 3: two unconsumed comparisons published only the last one."""
+def test_live_parallel_comparisons_both_reach_the_writer_without_a_second_plan(lake, tmp_path):
+    """M11-07 live Turn 3: two unconsumed comparisons published only the last one and the
+    first was dropped unseen. The plan was then refused for it, at the price of another
+    planner call; now it runs, the last result is the table, and the writer is shown both."""
     prepared(lake)
     parallel = [
         ADD_KFE,
         comparison("kfe", "EVDS:TP.KFE.TR", when=(REAL, "non_increasing"), direction="up"),
         comparison("real", REAL),
     ]
-    combined = [ADD_KFE, comparison("compare", REAL, when=("EVDS:TP.KFE.TR", "up"))]
     provider = scripted(
         *first_two(),
         proposal(live_check.TURN_THREE_QUESTION, parallel),
-        proposal(live_check.TURN_THREE_QUESTION, combined),
         "Tablo hazırlandı.",
     )
     report = live_check.run_prepared_check(provider, lake.root, tmp_path / "work", turns=3)
     final = report["turns"][-1]
-    assert report["passed"] is True and final["relationship_checked"] is True, report
     assert final["published"][-1] == live_check.TURN_THREE_NAME
     assert final["result"]["transformations"][-1] == "table_co_movement"
-    planner_feedback = " ".join(m.content for m in provider.seen[-2])
-    assert "final calculation steps" in planner_feedback
+    planner_messages = " ".join(m.content for m in provider.seen[-2])
+    assert "rejected" not in planner_messages
     writer_context = " ".join(m.content for m in provider.seen[-1])
-    assert "condition column EVDS:TP.KFE.TR direction up" in writer_context
-    presence = next(
-        line for line in writer_context.splitlines() if "have a value in every period" in line
-    )
-    assert "EVDS:TP.KFE.TR" in presence or "Konut" in presence
+    assert "condition column " + REAL + " direction non_increasing" in writer_context
+    assert f"{live_check.TURN_THREE_NAME}_ek_" in writer_context
 
 
-def test_live_absence_prose_cannot_pass_turn_three(lake, tmp_path):
+def test_live_absence_prose_cannot_pass_turn_three(lake, tmp_path, monkeypatch):
+    # The optional wording contract; the served gate binds figures and leaves wording be.
+    monkeypatch.setattr("kkb_agent.agent.verifier.WORDING_RULES", True)
     prepared(lake)
     third = [ADD_KFE, comparison("compare", REAL, when=("EVDS:TP.KFE.TR", "up"))]
     provider = scripted(

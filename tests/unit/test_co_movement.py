@@ -386,17 +386,21 @@ def test_turn_one_end_to_end_is_accepted_and_published(lake):
         "Faiz düşüşü kredi artışına neden olmadı.",
     ],
 )
-def test_turn_one_causal_wording_is_withheld_even_when_negated(lake, unsupported_cause):
+def test_turn_one_causal_wording_is_kept_and_the_reader_is_told_what_was_tested(
+    lake, unsupported_cause
+):
+    # The gate binds figures; wording is the writer's. A sentence about cause used to be
+    # withheld, assertion and denial alike, and took the turn's table with it. It is kept,
+    # and the harness's own note says what the tools did and did not establish.
+    from kkb_agent.agent.loop import CAUSE_NOTE
+
     draft = (
         "Faizin düştüğü 4 aylık geçişin 3'ünde konut kredisi bakiyesi artmadı. " + unsupported_cause
     )
     answered, workspace, _ = turn_one(lake, draft)
-    assert answered.answer.status is AnswerStatus.QUALIFIED
-    assert unsupported_cause not in answered.answer.text
-    assert any(
-        "causal" in reason for omitted in answered.answer.omitted for reason in omitted.reasons
-    )
-    assert workspace.names() == []
+    assert answered.answer.status is AnswerStatus.ACCEPTED
+    assert unsupported_cause in answered.answer.text and CAUSE_NOTE in answered.answer.text
+    assert workspace.names() == ["konut_kredisi_ve_faiz"]
 
 
 def test_turn_one_table_rows_bind_to_their_own_periods(lake):
@@ -426,7 +430,8 @@ def test_a_wrong_table_row_is_withheld_without_silencing_the_others(lake):
     assert answered.answer.status is AnswerStatus.QUALIFIED
     assert len(answered.answer.omitted) == 1 and "2021-02-01" in answered.answer.omitted[0].text
     assert "2021-03-01..2021-03-31" in answered.answer.text
-    assert workspace.names() == []
+    # The table is what the tools computed; a withheld sentence about it does not unpublish it.
+    assert workspace.names() == ["konut_kredisi_ve_faiz"]
 
 
 def test_turn_one_with_an_invented_figure_is_not_published(lake):
@@ -518,7 +523,7 @@ def test_turn_one_answer_carries_the_table_and_writer_is_told_not_to_repeat_it(l
     (table,) = answered.tables
     assert len(table.rows) == 6 and table.columns[0].startswith("BDDK Aylık Bülten")
     writer_rules = session.provider.seen[1][0].content
-    assert "The reader sees the rows separately" in writer_rules
+    assert "the reader sees the full table separately" in writer_rules
     assert "meaningful series name" in writer_rules
     assert "dimensionless displays" in writer_rules and "without that" in writer_rules
 

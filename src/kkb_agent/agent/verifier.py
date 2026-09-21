@@ -552,7 +552,13 @@ def verify_claims(
     rejected: list[str] = []
     if exposes_literal_identity(answer, list(named.values())):
         rejected.append("Internal document proof identifiers are not answer text")
-    for start, end in _sentence_spans(answer):
+    # What the gate guarantees is figures: every number in the answer is a value a tool
+    # computed, with its unit, scale and period. Wording is the writer's. The word lists
+    # that used to withhold a sentence for its vocabulary (cause, absence, superlatives,
+    # endpoint direction) could not tell a denial from an assertion, withheld the hedged
+    # reading the writer is asked for, and cost the turn its table; `WORDING_RULES`
+    # restores them for a caller that wants the old contract.
+    for start, end in _sentence_spans(answer) if WORDING_RULES else ():
         if fault := causal_fault(answer[start:end]):
             rejected.append(fault)
         if fault := _observation_fault(
@@ -978,6 +984,11 @@ _UNVERIFIED_AGGREGATE = re.compile(
 )
 
 
+#: Whether a sentence may be withheld for its vocabulary alone. Off: the gate binds
+#: figures and leaves wording to the writer (2026-09-21, trust-the-model).
+WORDING_RULES = False
+
+
 def _observation_fault(sentence: str, named: Mapping[str, AnalyticalResult]) -> str | None:
     """Only check bounded descriptions; arbitrary prose is not semantic proof."""
     folded = fold(sentence)
@@ -1096,6 +1107,8 @@ def gate_answer(
             failures.setdefault(span, []).append(
                 "Internal document proof identifiers are not answer text"
             )
+        if not WORDING_RULES:
+            continue
         if fault := causal_fault(draft[span[0] : span[1]]):
             failures.setdefault(span, []).append(fault)
         if fault := _observation_fault(

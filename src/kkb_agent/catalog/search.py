@@ -113,6 +113,8 @@ class CatalogSearchOutput(ContractModel):
     snapshot_sha256: str
     retrieval_version: Literal["m13-04-lexical-v1", "m13-05-combined-v1"] = "m13-04-lexical-v1"
     top_candidate: TopCandidate = "none"
+    #: Filters the tool dropped because nothing matched with them (`tools.catalog_search`).
+    relaxed_filters: tuple[Literal["source", "frequency"], ...] = ()
     retrieval_mode: Literal["lexical_only", "hybrid", "lexical_degraded"] = "lexical_only"
     combination_policy: Literal[
         "lexical-v1", "reviewed-match-order-v1", "alternating-archive-tier-v1"
@@ -310,6 +312,9 @@ def _indexed(
     return kept
 
 
+_EVDS_NAMES = frozenset({"tcmb", "cbrt", "merkez bankasi", "central bank", "evds"})
+
+
 def source_matches(item: ReviewedSeries, source: str) -> bool:
     """`source` names the provider (EVDS, BDDK) or a publisher the reviewed text names.
 
@@ -320,6 +325,10 @@ def source_matches(item: ReviewedSeries, source: str) -> bool:
     """
     wanted = normalize_search_text(source)
     record = item.record
+    # EVDS is the central bank's own data system: a planner that asks for "TCMB" means it
+    # (live 2026-09-21: `source="TCMB"` emptied the search for the housing loan rate).
+    if wanted in _EVDS_NAMES and record.provider == "EVDS":
+        return True
     if normalize_search_text(record.provider) == wanted:
         return True
     named = normalize_search_text(" ".join([record.title, *record.labels]))

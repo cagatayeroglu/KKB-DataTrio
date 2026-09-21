@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from uuid import UUID, uuid5
 
-from kkb_agent.agent.claim_qualifiers import is_list_marker
+from kkb_agent.agent.claim_qualifiers import has_amount_context, is_list_marker
 from kkb_agent.agent.discovery import CLARIFICATION_TEXT, MISSING_SERIES_ROUTES
 from kkb_agent.agent.executor import ExecutionOutcome
 from kkb_agent.agent.loop import Answered
@@ -214,9 +214,18 @@ def _quotes_a_figure(text: str) -> bool:
     first turn showed the generic "several series fit" in place of the planner's own
     "(1) yeni kullandırılan, akım ... (2) stok ..." (stored trace, 2026-09-20).
     """
-    return any(
-        not is_list_marker(text, found.start(), found.end()) for found in re.finditer(r"\d+", text)
-    )
+    # A year or a date in the planner's own question measures nothing ("2020 sonrası
+    # için hangi seriyi kullanayım?", "2025-12 fiyatlarıyla mı?"); it used to send the
+    # whole question back to the fixed text. Any other number is a figure nothing computed.
+    undated = re.sub(r"\b\d{4}-\d{2}(?:-\d{2})?\b|\b\d{1,2}[./]\d{1,2}[./]\d{4}\b", " ", text)
+    for found in re.finditer(r"\d+(?:[.,]\d+)*", undated):
+        if is_list_marker(undated, found.start(), found.end()):
+            continue
+        token = found.group()
+        a_year = token.isdigit() and 1900 <= int(token) <= 2100
+        if not a_year or has_amount_context(undated, found.start(), found.end()):
+            return True
+    return False
 
 
 def clarification_text(
@@ -239,10 +248,13 @@ def clarification_text(
     # figures, and are the one kind of digit let through.
     if proposed is not None:
         specific = proposed.strip()
+        # The planner's own question is shown as it wrote it: "2020 sonrası için hangi
+        # seriyi kullanayım?" used to be replaced by a generic sentence because it holds a
+        # digit. An amount, a locator or a secret still sends it back to the fixed text.
         if (
             specific
             and not _quotes_a_figure(specific)
-            and not re.search(r"https?://|\b(?:nedeniyle|sebebiyle|yol açt[ıi])\b", specific, re.I)
+            and not re.search(r"https?://", specific, re.I)
             and "[gizli bilgi kaldırıldı]" not in safe_text(specific, limit=1500, secrets=secrets)
         ):
             return specific
@@ -339,7 +351,7 @@ def project_answer(
     result = None
     if published is not None:
         if (
-            gate.status is not AnswerStatus.ACCEPTED
+            gate.status is AnswerStatus.ABSTAINED
             or not answered.results
             or published.digest() != answered.results[-1].digest()
         ):

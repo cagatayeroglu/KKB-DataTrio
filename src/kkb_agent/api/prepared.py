@@ -48,6 +48,7 @@ from kkb_agent.catalog.inspection import PreparedSeriesInspector
 from kkb_agent.catalog.mappings import (
     MAX_SNAPSHOT_BYTES,
     ReviewedSnapshot,
+    is_source_group,
     load_reviewed_snapshot,
     series_display_names,
 )
@@ -1285,6 +1286,13 @@ class PreparedRunner:
                     selection=selected_table,
                     require_series_discovery=self._dense is not None,
                     proven_series=frozenset(self._proven.get(session_id, ())),
+                    # What the catalogue lists is a known identity; the inspector still
+                    # checks each one against its declaration when it is read.
+                    known_series=frozenset(
+                        item.record.series_id
+                        for item in catalog.series
+                        if not is_source_group(item)
+                    ),
                     repair_period_wording=True,
                     repair_unmatched_numbers=True,
                     repair_runtime_refusals=True,
