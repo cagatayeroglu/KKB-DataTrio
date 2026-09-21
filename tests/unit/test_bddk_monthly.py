@@ -231,6 +231,8 @@ def test_synthetic_fixture_row_is_not_promoted_and_finturk_is_not_million_try():
         {"caption": "Tüketici Kredileri, Dönem:2026/6"},
         {"column_headers": ("", "", "", "BasitFont", "YP", "TP", "Toplam")},
         {"column_headers": ("", "", "", "BasitFont", "TP", "YP", "TOTAL")},
+        # Other bulletin tables are wider; the reviewed housing table is these seven cells.
+        {"column_headers": COLUMN_HEADERS + ("extra",)},
         {"row_number": 3},
         {"row_label": "Tüketici Kredileri - Taşıt"},
         {"bank_group_label": "Mevduat"},
@@ -249,7 +251,8 @@ def test_metadata_mismatch_fails_closed_without_parsing_values(change):
         {"success": "true"},
         {"row_number": "2"},
         {"caption": "x" * 257},
-        {"column_headers": COLUMN_HEADERS + ("extra",)},
+        {"column_headers": COLUMN_HEADERS[:4]},  # no value column at all
+        {"column_headers": COLUMN_HEADERS + ("extra",) * 18},  # wider than any bulletin table
         {"retrieved_at": datetime(2026, 1, 1)},
         {"value": 801438},
     ],
