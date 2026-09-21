@@ -85,13 +85,35 @@ const denseFailureWords: Record<string, string> = {
   index_failed: "Vektör dizini okunamadı.",
 };
 
-const filters: [Filter, string][] = [
-  ["all", "Tümü"],
-  ["reviewed", "İncelenmiş Katalog"],
-  ["listed", "Kaynak Dizini (İncelenmemiş)"],
-  ["prepared", "Hazır Havuz"],
-  ["user", "Benim Eklediklerim"],
-  ["archived", "Arşiv"],
+// A name, and what is in the tab: "Hazır Havuz" and "Kaynak Dizini" said where a record
+// sits in the code, not what the reader gets from it.
+const filters: [Filter, string, string][] = [
+  ["all", "Tümü", "Arşivlenenler dahil bütün kayıtlar."],
+  [
+    "reviewed",
+    "İncelenmiş Katalog",
+    "Bir kişinin tek tek incelediği seriler: birimi, ölçeği, sıklığı ve anlamı onaylı.",
+  ],
+  [
+    "listed",
+    "İncelenmemiş Katalog",
+    "Kaynağın kendi listesinden gelen seriler (BDDK bültenleri, FinTürk, EVDS). Ajan sorulduğunda bulur ve veriyi kaynaktan çeker; kimse tek tek incelemedi.",
+  ],
+  [
+    "prepared",
+    "Verisi İndirilmiş",
+    "Gözlemleri bu bilgisayardaki veri havuzunda hazır olan seriler: kaynağa gitmeden hesaplanır.",
+  ],
+  [
+    "user",
+    "Benim Eklediklerim",
+    "Senin yüklediğin ya da sohbetten kaydettiğin veri setleri.",
+  ],
+  [
+    "archived",
+    "Arşivlenenler",
+    "Arşive aldığın kayıtlar: aramada ve hesaplamada kullanılmaz, geçmişi durur, geri alınabilir.",
+  ],
 ];
 const measures: Record<string, string> = {
   stock: "stok",
@@ -714,10 +736,11 @@ export function KnowledgePanel({
         </section>
       )}
       <div className="knowledge-filters" role="tablist">
-        {filters.map(([key, label]) => (
+        {filters.map(([key, label, about]) => (
           <button
             key={key}
             role="tab"
+            title={about}
             aria-selected={filter === key}
             className={filter === key ? "chosen" : ""}
             onClick={() => setFilter(key)}

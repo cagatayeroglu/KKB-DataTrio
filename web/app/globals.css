@@ -686,6 +686,9 @@ svg {
   color: var(--ink);
   margin: 0;
 }
+.answer-label {
+  font-weight: 600;
+}
 .answer-meta {
   display: flex;
   align-items: center;

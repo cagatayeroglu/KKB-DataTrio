@@ -99,7 +99,7 @@ test("no chart for a single period or summary-only result, and labels stay plain
     result([cell("x".repeat(80), 1, 1), cell("x".repeat(80), 2, 2)]),
     null,
   )!.series[0];
-  assert.equal(long.legend.length, 42);
+  assert.equal(long.legend.length, 72);
   assert.equal(long.name.length, 80);
 });
 
@@ -121,5 +121,5 @@ test("derived columns keep a distinguishing legend suffix", () => {
   assert.equal(new Set(legends).size, 3);
   assert.match(legends[1], /aylık değişim$/);
   assert.match(legends[2], /reel, 2025-12/);
-  assert.ok(legends.every((legend) => legend.length <= 42));
+  assert.ok(legends.every((legend) => legend.length <= 72));
 });

@@ -29,6 +29,7 @@ import {
   Table2,
   X,
 } from "lucide-react";
+import { AnswerText } from "@/components/answer-text";
 import { Button } from "@/components/ui/button";
 import { ResultTable } from "@/components/result-table";
 import { TracesPage } from "@/components/traces-page";
@@ -1717,7 +1718,7 @@ export function Workspace() {
                                 </span>
                               </div>
                             )}
-                            <p className="answer-text">{message.text}</p>
+                            <AnswerText text={message.text} />
                             {table ? (
                               <div
                                 className={`inline-result ${table.result_ref === selected ? "newest" : ""}`}
@@ -1856,9 +1857,7 @@ export function Workspace() {
                                       }[item.turn.answer.status]}
                                 </span>
                               </div>
-                              <p className="answer-text">
-                                {item.turn.answer.text}
-                              </p>
+                              <AnswerText text={item.turn.answer.text} />
                               {item.turn.answer.selection && (
                                 <SeriesChoiceCard
                                   selection={item.turn.answer.selection}
