@@ -103,16 +103,12 @@ INPUTS = ("silver_series", "silver_observations")
 NOMINAL_LIMITATION = "Values are nominal; no inflation adjustment was applied"
 
 
-#: Every table argument accepts a published result or a step of this plan (DEC-165).
-_SOURCE = (
-    "A published result from an earlier turn, or the step_id of an earlier step in this "
-    "plan that produced a table (then list that step in depends_on)"
-)
-_SOURCE_UNCHANGED = _SOURCE + "; its rows stay unchanged"
-_OTHER = (
-    "Another published result, or an earlier step of this plan such as a fetched or "
-    "uploaded table (then list that step in depends_on)"
-)
+#: Every table argument accepts a published result or a step of this plan (DEC-165). What
+#: that means is said once, in the tool's description; ten operations each repeated it in
+#: full (1.7 KB of the planner's prompt saying one thing).
+_SOURCE = "The table to work on: a published table's name, or a table step_id of this plan"
+_SOURCE_UNCHANGED = _SOURCE
+_OTHER = "The table to take columns from: a published table's name, or a table step_id of this plan"
 
 
 class DeflateArguments(BaseModel):
@@ -120,12 +116,7 @@ class DeflateArguments(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    operation: Literal["deflate"] = Field(
-        description=(
-            "deflate: add an inflation-adjusted copy of one currency column, in the prices of "
-            "reference_period, keeping every existing column unchanged"
-        )
-    )
+    operation: Literal["deflate"]
     source: str = Field(
         pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
         description=_SOURCE,
@@ -161,14 +152,7 @@ class ToFlowArguments(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    operation: Literal["to_flow"] = Field(
-        description=(
-            "to_flow: add a per-period flow copy of one column the store records as a "
-            "cumulative series (yearly_reset or since_inception), keeping every existing "
-            "column unchanged. The store's declaration decides; a column that only looks "
-            "cumulative is refused"
-        )
-    )
+    operation: Literal["to_flow"]
     source: str = Field(
         pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
         description=_SOURCE_UNCHANGED,
@@ -185,17 +169,7 @@ class ResampleArguments(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    operation: Literal["resample"] = Field(
-        description=(
-            "resample: produce a monthly-only table from one weekly or daily column, "
-            "reduced by the "
-            "aggregation the store declares for that series (a rate or an exchange rate "
-            "averaged, a flow summed, a stock at its last period); the weekly/daily source "
-            "remains upstream in lineage, not mixed into this table. join_table can put "
-            "the monthly result beside other monthly tables. A monthly "
-            "column is never spread onto weeks or days"
-        )
-    )
+    operation: Literal["resample"]
     source: str = Field(
         pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
         description=_SOURCE,
@@ -221,11 +195,7 @@ class SummarizeArguments(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    operation: Literal["summarize"] = Field(
-        description=(
-            "summarize one existing table column as mean, sum, min, max, first, last or count"
-        )
-    )
+    operation: Literal["summarize"]
     source: str = Field(pattern=r"^[A-Za-z0-9_.:-]{1,64}$", description=_SOURCE)
     column: str = Field(min_length=1, max_length=400, description="Exact target column label")
     aggregation: Literal["mean", "sum", "min", "max", "first", "last", "count"]
@@ -378,13 +348,7 @@ class ChangeArguments(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    operation: Literal["change"] = Field(
-        description=(
-            "change: add the period-over-period change of one column (month over month for a "
-            "monthly table, day over day for a daily one), keeping every existing column. It "
-            "answers how much a value rose or fell each period and which period moved most"
-        )
-    )
+    operation: Literal["change"]
     source: str = Field(pattern=r"^[A-Za-z0-9_.:-]{1,64}$", description=_SOURCE_UNCHANGED)
     column: str = Field(
         min_length=1,
@@ -833,44 +797,44 @@ def make_table_transform_tool(
     return ToolSpec(
         name="table_transform",
         description=(
-            "Change a table published in an earlier turn by producing a new result without "
-            "mutating the published source. deflate adds an "
-            "inflation-adjusted copy of one currency column (for example a credit balance) in "
-            "the prices of reference_period, using a registered monthly price index such as a "
-            "consumer price index. Refer to the published result by its name and to the column "
-            "by its exact label. add_series adds a registered monthly series (for example a "
-            "housing price index) on the table's exact months. Use source and series_id only "
-            "for add_series. It preserves every old column, records missing months without "
-            "filling them, and does not calculate a relationship or establish a cause. "
-            "to_flow adds a per-period flow copy of a column the store records as cumulative "
+            "Builds a new table from a table. One operation per step; chain steps to combine "
+            "them. `source` (and `other`) is the name of a published table, or the step_id of "
+            "an earlier step of this plan that returns a table (a lakehouse read, a web_url "
+            "read, another table_transform). A column is named by its exact label; the "
+            "column of a series read in this plan is labelled by its series_id. Every "
+            "operation keeps the old columns and leaves the source as it was; no empty cell "
+            "is ever filled and no SQL is accepted. Whether columns move together is "
+            "change_detection's table_co_movement, not this tool.\n"
+            "- deflate: inflation-adjusted copy of a currency column (a credit balance) in "
+            "the prices of reference_period, by a monthly price index series such as a "
+            "consumer price index.\n"
+            "- add_series: a catalogue monthly series (a housing price index) added as a "
+            "column on the table's own months; a month it lacks stays empty.\n"
+            "- join_table: the monthly columns of `other` added onto the months of `source`, "
+            "each in its own unit. This is how two reads of one plan become one table.\n"
+            "- change: how much a column rose or fell each period, month over month or day "
+            "over day (kind=difference in the "
+            "column's unit, or kind=percent; lag=12 for a year earlier on monthly data); "
+            "marks the largest rise and fall; the period after a gap stays empty.\n"
+            "- resample: a weekly or daily column reduced to months by the series' declared "
+            "aggregation - a rate averaged, a flow summed, a stock at its last period "
+            "(week_assignment is required for a weekly column) - so a weekly "
+            "rate or a daily exchange rate can be joined with monthly tables. Monthly data "
+            "is never spread onto weeks or days.\n"
+            "- summarize: one number from a column - mean, sum, min, max, first, last or "
+            "count - optionally within a date range ('ortalaması ne', 'en yüksek değer'). "
+            "Sum is refused for stocks, rates and indices.\n"
+            "- to_flow: per-period flow copy of a column the store declares cumulative "
             "(yearly_reset or since_inception). Such a column holds running totals, so "
-            "summarize sum/mean/min/max, change, deflate and table_co_movement refuse it: read "
-            "it, to_flow it, then apply them to the flow column in the same plan. "
-            "A column the store does "
-            "not declare cumulative is refused rather than differenced. "
-            "change adds the period-over-period change of one column (kind=difference in the "
-            "column's unit, or kind=percent; lag=12 for a year earlier on monthly data) and "
-            "marks the periods with the largest rise and fall; a period after a gap stays empty. "
-            "resample produces a monthly-only table from a weekly or daily column "
-            "by the series' declared "
-            "aggregation (state week_assignment for a weekly one), so a weekly rate or a daily "
-            "exchange rate can then be joined with monthly tables; a monthly column is never "
-            "spread onto weeks or days. "
-            "summarize computes a typed mean, sum, minimum, maximum, first, last or period "
-            "count from one existing column, optionally within an inclusive date range. "
-            "Use it for scalar questions such as 'ortalaması ne'; do not use raw SQL to "
-            "recompute a published table. Sum is refused for stocks, rates and indices. "
-            "rebase adds an explicitly based copy of an existing index column. align selects "
-            "existing exact periods using inner or explicitly anchored-left policy. join_table "
-            "adds the monthly columns of another published result or an earlier same-plan "
-            "table step onto the source table's exact months, keeping each column's own "
-            "unit. To compose two independent reads in one turn, name both step IDs as "
-            "source/other and list both in depends_on; an ordering edge alone does not "
-            "compose them. filter "
-            "selects an inclusive period-end range. These unary operations never fill cells, "
-            "convert frequency, or accept SQL."
+            "summarize sum/mean/min/max, change, deflate and table_co_movement refuse it: "
+            "read it, to_flow it, then apply them to the flow column in the same plan. A "
+            "column not declared cumulative is refused rather than differenced.\n"
+            "- rebase: copy of an index column with reference_period set to new_base.\n"
+            "- align: keeps the periods the chosen columns share (join=inner), or those of "
+            "anchor_column (join=left).\n"
+            "- filter: keeps an inclusive period-end range."
             + (
-                " add_document_column adds one column from a CSV, Excel, PDF or HTML table "
+                "\n- add_document_column: one column from a CSV, Excel, PDF or HTML table "
                 + (
                     "at a web address written in the question (give the address exactly as url)"
                     if document_fetch is not None

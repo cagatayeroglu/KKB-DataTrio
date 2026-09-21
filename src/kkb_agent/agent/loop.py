@@ -299,6 +299,28 @@ class Answered:
     tables: tuple[PeriodTable, ...] = ()
 
 
+#: The order a plan uses tools in: find, read, shape, analyse, then what is outside the
+#: store. A tool not named here follows them, by name.
+PLANNING_ORDER: Final = (
+    "catalog_search",
+    "lakehouse",
+    "table_transform",
+    "change_detection",
+    "anomaly",
+    "causality",
+    "web_search",
+    "web_url",
+    "document_read",
+    "promote_series",
+)
+
+
+def _planning_rank(name: str) -> tuple[int, str]:
+    if name in PLANNING_ORDER:
+        return PLANNING_ORDER.index(name), name
+    return len(PLANNING_ORDER), name
+
+
 def _results_by_step(outcome: ExecutionOutcome) -> list[tuple[str, AnalyticalResult]]:
     """`collect_results`, with the step each result came from."""
     found: list[tuple[str, AnalyticalResult]] = []
@@ -2181,22 +2203,26 @@ class Session:
         the product: asked what it could do during a discovery step, the planner
         answered "you have two tools" and named only those two (live 2026-09-20).
         """
-        return "Available tools:\n" + json.dumps(
-            [
-                item
-                for item in self.registry.descriptions()
-                if (
-                    (
-                        not continuation
-                        or item["name"] in CONTINUATION_TOOLS
-                        or (auxiliary_discovery_allowed and item["name"] == "catalog_search")
-                    )
-                    and (not discovery_only or item["name"] in {"catalog_search", "web_search"})
+        offered = [
+            item
+            for item in self.registry.descriptions()
+            if (
+                (
+                    not continuation
+                    or item["name"] in CONTINUATION_TOOLS
+                    or (auxiliary_discovery_allowed and item["name"] == "catalog_search")
                 )
-            ],
-            ensure_ascii=False,
-            sort_keys=True,
-        )
+                and (not discovery_only or item["name"] in {"catalog_search", "web_search"})
+            )
+        ]
+        # Keys are written as they were built - name, description, arguments - and never
+        # sorted: sorted, every tool began with its whole argument schema (15 KB for
+        # table_transform) and named itself only after it, so a model reading left to right
+        # met thousands of tokens of fields before learning what they belonged to. Tools
+        # come in the order a plan uses them. Both orders are fixed, so the text is as
+        # stable for a prefix cache as the sorted one was.
+        offered.sort(key=lambda item: _planning_rank(str(item["name"])))
+        return "Available tools:\n" + json.dumps(offered, ensure_ascii=False)
 
     def _other_tools_note(self) -> str | None:
         """The names this step may not call, for a message that asks what the system does.

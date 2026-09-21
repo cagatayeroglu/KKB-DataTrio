@@ -79,3 +79,18 @@ def test_a_turn_whose_plan_left_the_edge_out_runs_without_a_second_planner_call(
     # twice are ambiguous to the gate, and the writer could then quote none of them.
     writer_context = " ".join(message.content for message in provider.seen[-1])
     assert "tufe_bazli_ek_" not in writer_context and "display AMBIGUOUS" not in writer_context
+
+
+def test_a_tool_is_named_and_described_before_its_schema_and_in_the_order_a_plan_uses_it(pool):
+    # Sorted keys put every tool's whole argument schema (15 KB for table_transform) before
+    # its name: a model reading left to right learned what the fields belonged to last.
+    prompt = Session(scripted(), registry_for(pool))._tools_prompt()
+    tools = json.loads(prompt.removeprefix("Available tools:\n"))
+    assert [tool["name"] for tool in tools] == ["lakehouse", "table_transform"]
+    assert all(list(tool) == ["name", "description", "arguments"] for tool in tools)
+    transform = tools[1]
+    # What each operation does is said once, side by side, where one is chosen.
+    for operation in transform["arguments"]["discriminator"]["mapping"]:
+        assert f"\n- {operation}: " in transform["description"], operation
+    # Limits only the validator can act on are not the planner's reading.
+    assert '"pattern"' not in prompt and '"maxLength"' not in prompt

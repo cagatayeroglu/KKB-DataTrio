@@ -390,8 +390,10 @@ class TestThePlannerLoop:
         assert emitted_schema == AnalyticalPlan.model_json_schema()
         assert emitted_schema["required"] == ["question", "steps"]
         assert emitted_schema["$defs"]["PlanStep"]["required"] == ["step_id", "tool"]
-        # Only the plan contract is added; registry arguments already have one owner.
-        assert json.loads(initial[1].content.split("\n", 1)[1]) == reg.descriptions()
+        # Only the plan contract is added; registry arguments already have one owner. The
+        # prompt lists the same tools in the order a plan uses them, not by name.
+        offered = json.loads(initial[1].content.split("\n", 1)[1])
+        assert sorted(offered, key=lambda item: item["name"]) == reg.descriptions()
         assert sum(message.content.count(contract) for message in initial) == 1
         assert len(contract.encode("utf-8")) < 2048  # Regression budget for this fixed contract.
 

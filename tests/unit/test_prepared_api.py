@@ -166,9 +166,10 @@ def test_followup_reads_prior_workspace_in_same_session(pool, tmp_path):
     assert "column labels:" in published_contexts[0]
     assert QUESTION not in published_contexts[0]
     assert len(published_contexts[0]) < 1200
-    # The same unqualified numeric claim now matches two distinct result
-    # identities. Preserve the existing gate's refusal, not a weaker API matcher.
-    assert second.status.value == "abstained" and second.result is None
+    # The figure now stands in two results - the published table and this turn's - under
+    # one label. That is one fact, not a choice between two (DEC-186; it used to cost the
+    # reader the whole answer), so the sentence is kept and the turn publishes.
+    assert second.status.value == "accepted" and second.result is not None
     with open_lakehouse(prepared.run_root / sid / "lake") as lake:
         workspace = Workspace.open(lake.connection, sid)
         assert workspace.value_of("analiz_1").digest() == first.result.version

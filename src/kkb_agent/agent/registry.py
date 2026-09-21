@@ -144,13 +144,20 @@ class ToolRegistry:
         ]
 
 
+#: Limits the validator enforces and a planner cannot act on: the character class of a step
+#: id, the longest label. What a planner can act on stays (`maxItems`, `minimum`, `enum`,
+#: `format`), and where a shape matters the field's description says it in words.
+_VALIDATOR_MARKS = ("pattern", "minLength", "maxLength")
+
+
 def _without_titles(node: Any, *, names: bool = False) -> Any:
     """A tool's JSON schema as a planner needs it: what to write, without the validator's marks.
 
     Removed, because they tell a planner nothing it can act on (the validator keeps them):
     the `title` pydantic generates for every field ("Driver Column" beside `driver_column`),
     the `anyOf [X, null]` + `default null` wrapper of an optional field (`required` already
-    says which fields are not optional). `additionalProperties: false` stays, because it
+    says which fields are not optional), and `_VALIDATOR_MARKS`.
+    `additionalProperties: false` stays, because it
     tells a planner not to invent a field the validator would refuse, and so does the
     discriminator, whose mapping lists a tool's operations by name. Measured on the served
     tools: 29.4 KB to about 25 KB. Inside `properties` and
@@ -169,7 +176,9 @@ def _without_titles(node: Any, *, names: bool = False) -> Any:
             for key, value in node.items()
             if names
             or not (
-                (key == "title" and isinstance(value, str)) or (key == "default" and value is None)
+                (key == "title" and isinstance(value, str))
+                or (key == "default" and value is None)
+                or (key in _VALIDATOR_MARKS and not isinstance(value, dict))
             )
         }
     if isinstance(node, list):
