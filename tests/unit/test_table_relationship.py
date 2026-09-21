@@ -1114,3 +1114,36 @@ class TestAColumnIsFoundTheWayAPlannerNamesIt:
             )
         assert "'Konut fiyat endeksi'" in str(refusal.value)
         assert "The table's columns are:" in str(refusal.value) and present in str(refusal.value)
+
+
+def test_a_count_two_comparisons_share_is_one_fact_for_the_gate_and_the_writer(pool):
+    # Live 2026-09-21 (reference turn 3): two comparisons over one table count the same
+    # transitions, and each prefixes its counts with its own identity, so their labels
+    # never agree. Four sentences of the harness's own draft were withheld as ambiguous.
+    registry = registry_for(pool)
+    both = plan().model_dump(mode="json")
+    both["steps"].append(
+        {
+            "step_id": "second",
+            "tool": "change_detection",
+            "arguments": args(target_direction="up"),
+            "depends_on": ["add"],
+        }
+    )
+    outcome = execute(validate_plan(AnalyticalPlan.model_validate(both), registry), registry)
+    assert outcome.completed
+    by_step = {item.step_id: item.output for item in outcome.results}
+    named = {"first": by_step["comparison"], "second": by_step["second"]}
+    suffix = ": complete monthly transitions"
+    shared = next(v for v in named["first"].values if v.label.endswith(suffix))
+    twin = next(v for v in named["second"].values if v.label.endswith(suffix))
+    assert shared.label != twin.label and shared.value == twin.value
+    phrase = controlled_count_label(named["first"], shared)
+    assert phrase is not None
+
+    gated = gate_answer(f"{phrase} {shared.value:.0f}.", named, pool[0].connection)
+    assert gated.status is AnswerStatus.ACCEPTED, gated.omitted
+    assert f"{phrase}: display AMBIGUOUS" not in render_results(named)
+    # A bare figure that several different counts share still names none of them.
+    bare = gate_answer(f"Sonuç {shared.value:.0f} aydır.", named, pool[0].connection)
+    assert bare.status is AnswerStatus.ABSTAINED

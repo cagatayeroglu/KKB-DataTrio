@@ -39,6 +39,7 @@ from kkb_agent.agent.claim_qualifiers import (
     period_fault,
     table_count_identity_fault,
     unit_fault,
+    value_meaning,
 )
 from kkb_agent.agent.literal import exposes_literal_identity, literal_proof, literal_text
 from kkb_agent.agent.presentation import endpoint_observations
@@ -745,6 +746,7 @@ def _bind_to_results(
     sentence, sentence_start = _sentence_around(answer, number.start)
     clause, prefix = clause_context(sentence, number.start - sentence_start)
     candidates: list[NumberVerdict] = []
+    meanings: list[str] = []
     for name, result in named.items():
         node = result.evidence.lineage_node if result.evidence is not None else None
         for value in result.values:
@@ -777,6 +779,7 @@ def _bind_to_results(
             )
             # A number resting on a disqualified result is not presentable,
             # however well it matches: the result it came from is the problem.
+            meanings.append(value_meaning(result, value))
             candidates.append(
                 NumberVerdict(
                     number,
@@ -792,10 +795,15 @@ def _bind_to_results(
     supported = [candidate for candidate in candidates if candidate.supported]
     if len(supported) == 1:
         return supported[0]
-    if len(supported) > 1 and len({candidate.value_label for candidate in supported}) == 1:
+    if (
+        len(supported) > 1
+        and len({m for c, m in zip(candidates, meanings, strict=True) if c.supported}) == 1
+    ):
         # The same measure with the same figure in several results is one fact, not a choice
         # between two. Live 2026-09-21: two co-movements over one table both count "59
         # transitions compared"; every sentence quoting a count they share was withheld.
+        # Compared by what the value means, not by its label: each comparison prefixes its
+        # counts with its own identity, so their labels never agree.
         return supported[0]
     if len(supported) > 1:
         return NumberVerdict(
