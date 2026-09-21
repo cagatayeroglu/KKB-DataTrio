@@ -218,6 +218,19 @@ def amount_qualifiers(text: str, start: int, end: int) -> tuple[Scale | None, tu
     return scale, tuple(units)
 
 
+#: "2023=100": how an index names its base year. It is part of the series' name, not a
+#: figure: neither the year nor the hundred measures anything (live 2026-09-21: a note
+#: naming "TCMB Türkiye geneli endeksi (2023=100)" was withheld because 100 is no value).
+_BASE_NOTATION = re.compile(r"(?<![\d.,])(?:19|20)\d{2}\s*=\s*100(?![\d.,])")
+
+
+def is_base_notation(text: str, start: int, end: int) -> bool:
+    """Whether the number at [start, end) sits inside an index's base-year notation."""
+    return any(
+        found.start() <= start and end <= found.end() for found in _BASE_NOTATION.finditer(text)
+    )
+
+
 def has_amount_context(text: str, start: int, end: int) -> bool:
     scale, units = amount_qualifiers(text, start, end)
     return scale is not None or bool(units)

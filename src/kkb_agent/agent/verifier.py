@@ -33,6 +33,7 @@ from kkb_agent.agent.claim_qualifiers import (
     fold,
     has_amount_context,
     identity_fault,
+    is_base_notation,
     is_date_token,
     is_list_marker,
     period_fault,
@@ -208,7 +209,9 @@ def extract_numbers(text: str) -> list[WrittenNumber]:
         value = parse_written(match.group())
         if value is None:
             continue
-        if is_list_marker(text, match.start(), match.end()):
+        if is_list_marker(text, match.start(), match.end()) or is_base_notation(
+            text, match.start(), match.end()
+        ):
             continue
         found.append(WrittenNumber(match.group(), value, match.start()))
     return found
@@ -788,6 +791,11 @@ def _bind_to_results(
 
     supported = [candidate for candidate in candidates if candidate.supported]
     if len(supported) == 1:
+        return supported[0]
+    if len(supported) > 1 and len({candidate.value_label for candidate in supported}) == 1:
+        # The same measure with the same figure in several results is one fact, not a choice
+        # between two. Live 2026-09-21: two co-movements over one table both count "59
+        # transitions compared"; every sentence quoting a count they share was withheld.
         return supported[0]
     if len(supported) > 1:
         return NumberVerdict(

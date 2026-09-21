@@ -150,9 +150,10 @@ def _without_titles(node: Any, *, names: bool = False) -> Any:
     Removed, because they tell a planner nothing it can act on (the validator keeps them):
     the `title` pydantic generates for every field ("Driver Column" beside `driver_column`),
     the `anyOf [X, null]` + `default null` wrapper of an optional field (`required` already
-    says which fields are not optional), `additionalProperties: false`, and the
-    discriminator's mapping beside the `oneOf` it repeats. Measured on the served tools:
-    29.4 KB to 23.9 KB, a fifth of what the planner read about them. Inside `properties` and
+    says which fields are not optional). `additionalProperties: false` stays, because it
+    tells a planner not to invent a field the validator would refuse, and so does the
+    discriminator, whose mapping lists a tool's operations by name. Measured on the served
+    tools: 29.4 KB to about 25 KB. Inside `properties` and
     `$defs` a key is an argument's or a model's own name, never an annotation, and is kept.
     """
     if isinstance(node, dict):
@@ -168,9 +169,7 @@ def _without_titles(node: Any, *, names: bool = False) -> Any:
             for key, value in node.items()
             if names
             or not (
-                (key == "title" and isinstance(value, str))
-                or key in ("additionalProperties", "discriminator")
-                or (key == "default" and value is None)
+                (key == "title" and isinstance(value, str)) or (key == "default" and value is None)
             )
         }
     if isinstance(node, list):
