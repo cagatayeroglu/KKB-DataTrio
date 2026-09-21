@@ -170,6 +170,32 @@ def test_period_selects_the_correct_value_not_the_first_magnitude():
     assert verdict.accepted
 
 
+def _january_and_june():
+    january = result()
+    june = result(
+        value=250.0,
+        period=Period(start=date(2025, 6, 1), end=date(2025, 6, 30), frequency=Frequency.MONTHLY),
+    )
+    return january.model_copy(update={"values": [january.values[0], june.values[0]]})
+
+
+def test_each_dated_figure_is_read_under_the_date_that_introduces_it():
+    # How an analyst says it, with both figures right. Read as one context, each figure was
+    # refused for the other's month and the turn paid a second writer call (live E7).
+    natural = "Ocak 2025'te 100 milyon TL olan bakiye Haziran 2025'te 250 milyon TL'ye ulaştı."
+    assert verify_claims(natural, _january_and_june()).accepted
+    # The same two figures under each other's month are refused as before.
+    swapped = "Ocak 2025'te 250 milyon TL olan bakiye Haziran 2025'te 100 milyon TL'ye ulaştı."
+    assert not verify_claims(swapped, _january_and_june()).accepted
+
+
+def test_two_dates_that_share_one_figure_both_have_to_hold():
+    # Nothing stands between the two dates, so the clause pairs nothing: the figure is
+    # claimed for both months, and it is only January's.
+    shared = "Ocak 2025 ve Haziran 2025'te bakiye 100 milyon TL oldu."
+    assert not verify_claims(shared, _january_and_june()).accepted
+
+
 def test_known_conflicting_identity_cannot_borrow_another_value():
     table = {"credit": result(), "other": result(label="other_series", value=200.0)}
     assert not verify_claims("other: 100 milyon TL.", table).accepted

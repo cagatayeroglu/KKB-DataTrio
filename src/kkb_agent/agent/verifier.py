@@ -745,7 +745,13 @@ def _bind_to_results(
                 fault
                 for fault in (
                     _scale_fault(answer, number, value),
-                    period_fault(clause, prefix, value, _price_references(result, value)),
+                    period_fault(
+                        clause,
+                        prefix,
+                        value,
+                        _price_references(result, value),
+                        position=number.start - sentence_start - len(prefix),
+                    ),
                     unit_fault(answer, number.start, end, value),
                     identity_fault(clause, prefix, name, result, value, named),
                     table_count_identity_fault(clause, result, value),
