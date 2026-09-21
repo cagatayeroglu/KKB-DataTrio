@@ -12,7 +12,7 @@ import json
 from typing import Final
 
 DIRECTORY_SHA256: Final = "22bc797447af136c4308362c29c0ade565fe02ae72c274ffc33a1af35fd0c415"
-DIRECTORY_JSON: Final = r'''{
+DIRECTORY_JSON: Final = r"""{
  "bank_group": 10001,
  "evidence_years": [
   2024,
@@ -2356,5 +2356,5 @@ DIRECTORY_JSON: Final = r'''{
    "unit_text": "milyon TL"
   }
  }
-}'''
+}"""
 DIRECTORY: Final = json.loads(DIRECTORY_JSON)

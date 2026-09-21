@@ -508,11 +508,18 @@ def validate_monthly_directory_metadata(
     row = SUPPORTED_ROWS[selector.table, selector.row]
     metadata = MonthlyHousingMetadata.model_validate(metadata)
     period = MonthlyPeriod.model_validate(requested_period)
-    unit = f" ({row.unit_text})" if row.unit_text else ""
-    expected_caption = f"{row.table_title}{unit}, Dönem:{period.year}/{period.month}"
+    dated = f", Dönem:{period.year}/{period.month}"
+    # Measured: a table captioned with a unit also names its period; the three tables
+    # without one (Rasyolar, Diğer Bilgiler, Yurt Dışı Şube Rasyoları) are captioned by
+    # their title alone, in every month of the window.
+    captions = (
+        (f"{row.table_title} ({row.unit_text}){dated}",)
+        if row.unit_text
+        else (row.table_title, row.table_title + dated)
+    )
     if (
         not metadata.success
-        or _words(metadata.caption) != expected_caption
+        or _words(metadata.caption) not in captions
         or not _same_column(row, selector.value_dimension, metadata.column_headers)
         or row_key(metadata.row_label) != row_key(row.label)
         or (not row.by_label and metadata.row_number != selector.row)

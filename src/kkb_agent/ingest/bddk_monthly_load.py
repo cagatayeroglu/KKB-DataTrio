@@ -177,7 +177,10 @@ def parse_monthly(payload: bytes, request: MonthlyRequest) -> Observation:
                 raise ValueError("Invalid row identity")
             if not 1 <= number <= 99999 or row.get("id") != str(number):
                 raise ValueError("Inconsistent row id")
-            if (bank, number) in seen:
+            if (bank, number) in seen and not by_label:
+                # Measured: from 2021-11 to 2022-05 the capital table itself carries two
+                # rows numbered 28. A row found by its label does not depend on numbers;
+                # one found by its number does, and is refused.
                 raise ValueError("Duplicate row")
             seen.add((bank, number))
             wanted = (

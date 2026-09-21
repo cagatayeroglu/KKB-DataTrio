@@ -39,6 +39,27 @@ only when its own word is that behaviour: `never` → month-end position (STOCK,
 cumulative), `always` → year-to-date total that resets every January (FLOW, YEARLY_RESET).
 214 rows are supported, 642 identities with their TP / YP / Toplam components.
 
+## Every layout, and rows by label (DEC-185)
+
+The 2026-09-21 harvest measures year-boundary behaviour for every table that has a total the
+adapter reads, comparing rows by their label rather than their number:
+
+| Table | Layout read | Supported rows |
+| --- | --- | --- |
+| 1 Bilanço, 2 Kar Zarar, 4 Tüketici Kredileri, 7, 8 Menkul Kıymetler, 14 Bilanço Dışı | TP, YP, Toplam | 60, 45, 37, 3, 22, 47 |
+| 3 Krediler | Toplam TP, Toplam YP, Toplam (after maturity bands) | 20 |
+| 5 Sektörel Kredi Dağılımı (bin TL) | Toplam Nakdi Krediler | 70 |
+| 6 KOBİ Kredileri | Nakdi Kredi TP, Nakdi Kredi YP, Toplam Nakdi Krediler | 4 |
+| 9 Mevduat Türler, 10 Mevduat Vade, 11 Likidite | the closing Toplam | 26, 24, 43 |
+| 12 Sermaye Yeterliliği, 13 Yabancı Para Pozisyonu | Toplam (two capital ratios are percent) | 28, 9 |
+| 15 Rasyolar | Rasyo, rows labelled "(%)" that do not reset in January | 16 |
+| 16 Diğer Bilgiler | Adet (counts) | 7 |
+| 17 Yurt Dışı Şube Rasyoları | none: no unit anywhere | 0 |
+
+461 rows, 937 identities. A row is found in each month by its label without arithmetic or
+footnote marks, because the bulletin renumbers rows when it inserts one; a month that does
+not have the row yet is a missing value.
+
 ## Refreshing
 
 Run the harvest again (58 public requests, one a second) and review the diff of

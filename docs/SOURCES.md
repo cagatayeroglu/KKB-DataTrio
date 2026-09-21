@@ -43,8 +43,10 @@ Two things a reader may ask for are deliberately absent:
   at a time; a turn reads at most twelve series, so "the five provinces with
   the most credit" has no read that answers it. Provinces a question names are
   answered.
-- **The rest of the Monthly Bulletin layouts** (loans, deposits, sectoral,
-  ratios). The ones reviewed are prepared; the others are listed but not read.
+- **Yurt Dışı Şube Rasyoları and a few ratio rows of the Monthly Bulletin.** The
+  table names no unit anywhere, and ratios built on year-to-date amounts or
+  stated per head have no declaration ([DEC-185](DECISIONS.md)). Every other
+  table of the bulletin is read.
 
 This is a coverage decision, not a failure of the harness: an answer this system
 gives carries a reviewed identity, a unit and a frequency, and it would rather
