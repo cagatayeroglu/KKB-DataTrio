@@ -226,8 +226,8 @@ export const turnSchema = z
   .refine(
     (turn) =>
       !turn.answer?.result ||
-      (turn.state === "completed" && turn.answer.status === "accepted"),
-    "A published result requires an accepted completed turn",
+      (turn.state === "completed" && turn.answer.status !== "abstained"),
+    "A published result requires a completed turn that did not abstain",
   );
 
 export const healthSchema = z

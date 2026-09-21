@@ -726,9 +726,17 @@ export function readRunProgress(
     token,
   );
 }
+/**
+ * The table a finished turn published. A withheld sentence no longer unpublishes the
+ * table (DEC-186): the figures are what the tools computed and the verifier re-read, so a
+ * QUALIFIED turn publishes one too, and the next question may build on it. The server
+ * attaches a result to every status but ABSTAINED (api/projection.py); this said
+ * "accepted" alone, so every qualified turn with a table was rejected by `turnSchema` as
+ * an invalid response and the chat froze on "Analiz sürüyor" (live 2026-09-21).
+ */
 export function publishedResult(turn?: Turn) {
-  return turn?.state === "completed" && turn.answer?.status === "accepted"
-    ? (turn.answer.result ?? undefined)
+  return turn?.state === "completed" && turn.answer?.status !== "abstained"
+    ? (turn.answer?.result ?? undefined)
     : undefined;
 }
 export function restoredSelection(saved: Saved, turns: (Turn | undefined)[]) {

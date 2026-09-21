@@ -55,8 +55,12 @@ class SeriesInspection(ContractModel):
 
     def require_consistent(self) -> None:
         if self.status != "consistent":
+            # The identity is named: this text is what a refused step hands back to the
+            # planner, and "Series inspection refused: unresolved_catalog (cumulative)"
+            # told it neither which series had been refused nor that another catalogue
+            # candidate would do (live 2026-09-21, nine minutes and no recovery).
             raise InspectionRefused(
-                "Series inspection refused: "
+                f"Series inspection refused for {self.series_id!r}: "
                 + self.status
                 + (
                     " (" + ", ".join(self.unknown_fields or self.mismatch_fields) + ")"

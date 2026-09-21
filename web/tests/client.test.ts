@@ -381,7 +381,7 @@ test("reload restores an older exact selection and never substitutes a missing r
   assert.equal(restoredSelection(saved, [first, second]), 1);
   assert.equal(restoredSelection(saved, [undefined, second, undefined]), 1);
 });
-test("only accepted completed publications can ground a new request", () => {
+test("a finished turn that did not abstain can ground a new request", () => {
   const first = completed();
   for (const state of ["running", "failed"] as const) {
     assert.equal(turnSchema.safeParse({ ...first, state }).success, false);
@@ -394,6 +394,17 @@ test("only accepted completed publications can ground a new request", () => {
   });
   assert.throws(() => draftRequest("Devam", abstained));
   assert.equal(draftRequest("Serbest soru").selected_result_id, undefined);
+  // A withheld sentence does not unpublish the table (DEC-186). The server attaches a
+  // result to every status but abstained; rejecting it here froze the chat on a
+  // qualified turn with "Yanıt beklenen veri biçimine uymuyor" (live 2026-09-21).
+  const qualified = turnSchema.parse({
+    ...first,
+    answer: { ...first.answer, status: "qualified" },
+  });
+  const published = first.answer?.result?.result_ref;
+  assert.ok(published);
+  assert.equal(publishedResult(qualified)?.result_ref, published);
+  assert.equal(draftRequest("Devam", qualified).selected_result_id, published);
 });
 test("legacy recovery does not inherit the current view's selected source", async () => {
   const old = globalThis.fetch;

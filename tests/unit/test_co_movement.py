@@ -567,13 +567,16 @@ def test_planner_is_told_where_columns_live_and_to_avoid_redundant_steps(lake):
     assert "another planned step already returns" in SYSTEM_PROMPT
 
 
-def test_writer_reads_summaries_and_highlighted_periods_but_the_gate_sees_everything(lake):
+def test_writer_reads_a_short_table_whole_and_the_gate_still_sees_everything(lake):
     draft = "Mart 2021'de bakiye 1.010 milyon TL oldu."  # A tabled, non-highlighted month.
     answered, _, session = turn_one(lake, draft)
     writer_prompt = session.provider.seen[1][1].content
     assert "shown to the reader separately for:" in writer_prompt
     assert "period 2021-02-01..2021-02-28" in writer_prompt  # highlighted
-    assert "period 2021-03-01..2021-03-31" not in writer_prompt  # tabled only
+    # Six months is short enough to read: the writer is given every month, not only the
+    # highlighted ones. Denied the middle, it wrote that the table lacked it (2026-09-21).
+    assert "period 2021-03-01..2021-03-31" in writer_prompt
+    assert "Every one of its values is listed below." in writer_prompt
     # The direction counts reach the writer under their controlled phrases, which
     # is what lets a later turn name an inherited count instead of a bare number.
     assert "Birinci serinin düştüğü ay sayısı" in writer_prompt
@@ -669,3 +672,16 @@ def test_a_reading_with_an_invented_figure_loses_that_sentence_and_nothing_else(
     assert answered.answer.status is AnswerStatus.QUALIFIED
     assert "987" not in answered.answer.text and "faize duyarlı" in answered.answer.text
     assert workspace.names() == ["konut_kredisi_ve_faiz"]
+
+
+def test_causality_is_given_the_same_prepared_series_list_as_change_detection(lake):
+    # Live 2026-09-21: asked for the housing-loan rate in a causality question the planner
+    # wrote EVDS:TP.BKR.TRY.18 - the outstanding-portfolio rate, which no list offered it -
+    # and the turn spent nine minutes failing to recover. change_detection carried the
+    # list; causality, configured in the same call, carried none.
+    from kkb_agent.tools.causality import make_causality_tool
+
+    names = prepared_series_names(lake.connection)
+    tool = make_causality_tool(lake.connection, lineage=lake.lineage, series_names=names)
+    assert f"{TOTAL_ID}: {names[TOTAL_ID]}" in tool.description
+    assert make_causality_tool(lake.connection, lineage=lake.lineage).description.count(":") < 3
