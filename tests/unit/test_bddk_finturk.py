@@ -21,7 +21,7 @@ from kkb_agent.api.prepared import open_lakehouse
 from kkb_agent.catalog.directory import BDDK_FINTURK_EVIDENCE_ID, source_directory
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
 from kkb_agent.catalog.mappings import is_listed_series, load_reviewed_snapshot
-from kkb_agent.catalog.search import CatalogSearchArguments, search_catalog
+from kkb_agent.catalog.search import CatalogSearchArguments, named_places, search_catalog
 from kkb_agent.core import Aggregation, CumulativeKind, Frequency, Scale, StockFlow
 from kkb_agent.ingest import _fetch_process, _fetch_worker
 from kkb_agent.ingest.acquisition import (
@@ -551,6 +551,30 @@ def test_a_named_province_is_found_and_unnamed_provinces_are_one_row():
     assert found(effective, "konut kredisi bakiyesi") == found(
         load_reviewed_snapshot(CATALOG.read_bytes()), "konut kredisi bakiyesi"
     )
+
+
+def test_a_named_province_is_not_held_back_by_a_concept_reviewed_for_the_country():
+    # Live, 2026-09-21: "konut kredisi" is a reviewed concept mapped to the national series,
+    # so it bounded the search to them and the agent answered that the catalogue has no
+    # province data. A question that names provinces is searched among their series.
+    reviewed, effective = catalogue()
+    titles = found(effective, "İstanbul ve Ankara'da konut kredisi bakiyesi")
+    assert {"Konut Kredisi - İstanbul", "Konut Kredisi - Ankara"} <= set(titles[:4])
+    assert all(title.endswith((" - İstanbul", " - Ankara")) for title in titles)
+    output = search_catalog(effective, CatalogSearchArguments(query="İstanbul'da konut kredisi"))
+    assert not output.concepts and output.top_candidate != "unambiguous"
+    # Without a province the reviewed bound holds, and "yurt dışı" is two ordinary words.
+    national = search_catalog(effective, CatalogSearchArguments(query="konut kredisi bakiyesi"))
+    assert national.concepts and all(
+        not c.series.geography or c.series.geography == "Türkiye" for c in national.candidates
+    )
+    assert named_places(effective, "İstanbul'da ve Şanlıurfa'nın kredisi") == {
+        "istanbul",
+        "sanliurfa",
+    }
+    assert not named_places(effective, "yurt dışı yerleşiklere kullandırılan krediler")
+    # A catalogue without listed provinces is searched exactly as before.
+    assert found(reviewed, "İstanbul'da konut kredisi") == found(reviewed, "konut kredisi")
 
 
 # --- the worker protocol -------------------------------------------------------------------------
