@@ -109,11 +109,20 @@ def complete_with_repair(
     schema: type[BaseModel] | None,
     max_attempts: int,
     model: str,
+    tolerate_prose: bool = False,
 ) -> Completion:
     """Ask, validate against `schema`, and on failure ask again with the fault.
 
     Shared by every provider so the loop a test scripts is the loop that runs
     against the platform. Without a schema the first answer is returned.
+
+    `tolerate_prose` is for a caller that offered tools. Such a caller gave the
+    model two ways to answer — call something, or say something — and a schema is
+    only how the second one is carried when the platform cannot do the first. Live
+    2026-09-23 the model finished a turn in prose, as it is entitled to, and the
+    turn died here on a schema the prose was never meant to satisfy: the answer was
+    written and the reader got an error. With tools offered, prose is returned as
+    prose and the caller reads it.
     """
     max_attempts = min(max_attempts, 2)  # One correction, never an expanding repair loop.
     conversation = list(messages)
@@ -134,6 +143,13 @@ def complete_with_repair(
             parsed = parse_structured(text, schema)
         except SchemaViolation as error:
             last_problem = str(error)
+            if tolerate_prose:
+                return Completion(
+                    text=text,
+                    model=model,
+                    attempts=attempt,
+                    finish_reason=finish_reason,
+                )
             if attempt == max_attempts:
                 break
             # Feed the fault back rather than retrying the same prompt: an

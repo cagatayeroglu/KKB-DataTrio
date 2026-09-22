@@ -1368,6 +1368,7 @@ class PreparedRunner:
                             model=chosen.model,
                             connection=lake.connection,
                             tracer=tracer,
+                            today=self._clock(),
                         ).answer(
                             effective_question,
                             conversation=self._memory.setdefault(session_id, Conversation()),

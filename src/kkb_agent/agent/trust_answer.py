@@ -29,7 +29,7 @@ from kkb_agent.agent.trust_loop import TurnOutcome
 from kkb_agent.agent.trust_prompt import EXHAUSTED, WRITER
 from kkb_agent.agent.verifier import Binding, result_faults, verify_claims
 from kkb_agent.core import AnalyticalResult
-from kkb_agent.llm.provider import LLMProvider, Message, Role
+from kkb_agent.llm.provider import LLMProvider, Message, ProviderError, Role
 
 #: How much of one tool's output the writer is shown before it is clipped.
 MAX_EVIDENCE_CHARS = 20_000
@@ -43,6 +43,14 @@ UNVERIFIED: Final = "Şu sayı araç sonuçlarına bağlanamadı, okurken dikkat
 #: list was frozen, so a `table_compute` column computed from a tool's own cells
 #: raises it every time. Reported once, beside the answer; it does not unbind a figure.
 _UNATTESTED: Final = "Numeric analytical result lacks matching trusted producer execution evidence"
+
+#: Put before the evidence when the service that gathered it could not be asked to
+#: write about it. The turn is not lost for that: what the tools returned is here,
+#: and the table this turn computed is published as it would have been.
+INTERRUPTED: Final = (
+    "Modele yapılan yazım isteği geri dönmedi, bu yüzden aşağıda yorum yok. "
+    "Araçların döndürdüğü sonuçlar olduğu gibi veriliyor; tablo yayımlandı.\n\n"
+)
 
 #: Said once when results carry no execution attestation.
 UNATTESTED_NOTE: Final = (
@@ -126,9 +134,19 @@ def write_answer(
     ]
     if outcome.state:
         messages.insert(2, Message(Role.ASSISTANT, outcome.state))
-    draft = provider.complete(messages, model=model).text.strip()
-
-    answer = Answer(text=draft)
+    try:
+        draft = provider.complete(messages, model=model).text.strip()
+    except ProviderError:
+        # The turn already ended because the service stopped answering, and this is
+        # the same service. Losing what the tools returned to a second failure of the
+        # one thing already known to be down would throw away the whole turn's work:
+        # the table was computed, it is published, and the reader can have it with the
+        # harness saying plainly that no prose could be written for it. A turn that
+        # gathered nothing has nothing to deliver, so it fails as it did.
+        if not evidence:
+            raise
+        draft = INTERRUPTED + evidence
+    answer = Answer(text=draft.strip())
     return _checked(answer, outcome, results, connection)
 
 

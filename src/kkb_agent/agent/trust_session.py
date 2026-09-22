@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import date
 
 from duckdb import DuckDBPyConnection
 
@@ -42,6 +43,12 @@ class TrustSession:
     instructions: str = INSTRUCTIONS
     connection: DuckDBPyConnection | None = None
     tracer: Tracer | None = None
+    #: What day it is. A model with no clock reasons about what can exist: live
+    #: 2026-09-23, asked to read a report for August 2026, it answered that August
+    #: 2026 "has not happened yet, so no such report would be published" and stopped
+    #: looking — for a month that had ended three weeks earlier. The planned path was
+    #: told the date all along; the loop was not. This is a fact, not an instruction.
+    today: date | None = None
 
     def answer(
         self,
@@ -60,6 +67,9 @@ class TrustSession:
         this one stopped.
         """
         memory = conversation or Conversation()
+        known = dict(memory.context(dict(published)))
+        if self.today is not None:
+            known["today"] = f"Bugünün tarihi: {self.today.isoformat()}."
         outcome = run_turn(
             question,
             provider=self.provider,
@@ -67,7 +77,7 @@ class TrustSession:
             instructions=self.instructions,
             model=self.model,
             budget=self.budget,
-            context={**memory.context(dict(published)), **context},
+            context={**known, **context},
             published=dict(published),
             tracer=self.tracer,
         )

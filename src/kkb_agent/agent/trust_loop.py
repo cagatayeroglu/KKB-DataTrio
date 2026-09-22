@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import asdict, dataclass, field, is_dataclass
 from typing import Any, Final
 
@@ -69,6 +69,25 @@ class Action(BaseModel):
     call_id: str | None = Field(default=None, max_length=128)
 
 
+class Malformed(BaseModel):
+    """A call whose arguments could not be read, kept whole so it can be answered.
+
+    The platform's own id rides along because the tool turn that reports the refusal
+    has to answer the call the model actually made, and the text it sent rides along
+    because a model shown `{}` for its own bad arguments cannot see what was wrong
+    with them.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: str = Field(min_length=1, max_length=64)
+    tool: str = Field(min_length=1, max_length=64)
+    call_id: str | None = Field(default=None, max_length=128)
+    #: What the model sent, as it sent it. Clipped: a refusal is not a place for a
+    #: whole document, and what matters is the shape of the mistake.
+    sent: str | None = Field(default=None, max_length=2000)
+
+
 class AgentStep(BaseModel):
     """What the model decides this iteration.
 
@@ -87,8 +106,8 @@ class AgentStep(BaseModel):
     publish: str | None = Field(default=None, max_length=64)
     #: Asked only when the model genuinely cannot tell what is wanted.
     ask: str | None = Field(default=None, max_length=1500)
-    #: Calls whose arguments could not be read, as (id, tool). Reported, never run.
-    malformed: tuple[tuple[str, str], ...] = ()
+    #: Calls whose arguments could not be read. Reported to the model, never run.
+    malformed: tuple[Malformed, ...] = ()
     #: The answer itself, when the model wrote prose instead of calling anything.
     reply: str | None = None
 
@@ -296,7 +315,10 @@ DROPPED: Final = (
     "source olarak verebilirsin. Taşımak istediğin şeyi state notuna yaz."
 )
 
-#: Words this loop uses to talk about a call, which a tool's own schema never declares.
+#: Words this loop uses to talk about a call. Dropped only from a tool that does not
+#: declare them: `web_url` has no `id`, and a tool that does — a source addressed by its
+#: own identifier — must receive the one the model sent. Stripping it unconditionally
+#: made a required argument go missing and the call fail validation instead.
 PROTOCOL_KEYS: Final = frozenset({"id", "step_id", "note", "assumption"})
 
 
@@ -319,16 +341,38 @@ def _within(history: list[Message], budget: int) -> bool:
     return dropped
 
 
-def _without_protocol_keys(arguments: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
+def _without_protocol_keys(
+    arguments: Mapping[str, JsonValue], declared: Collection[str] = ()
+) -> dict[str, JsonValue]:
     """The arguments a tool declared, without the loop's own vocabulary.
 
     Results are named, so the model names things — live 2026-09-23 it sent `id`
     alongside `web_url`'s real arguments, and a schema that forbids extras refused
     the whole call. The address it had worked out was thrown away over a word the
-    harness had taught it. A key the loop owns is dropped; anything else the schema
-    does not declare is still the model's mistake and is still reported back.
+    harness had taught it.
+
+    Only a word this tool does not declare is dropped. A tool that really does take
+    an `id` gets the one the model sent: dropping it regardless made a required
+    argument go missing, so the call failed validation for the opposite reason.
+    Anything else the schema does not declare is still the model's mistake and is
+    still reported back.
     """
-    return {key: value for key, value in arguments.items() if key not in PROTOCOL_KEYS}
+    return {
+        key: value
+        for key, value in arguments.items()
+        if key not in PROTOCOL_KEYS or key in declared
+    }
+
+
+def _unreadable(identifier: str, call: ToolCall) -> Malformed:
+    """A call the loop could not read, kept with everything needed to answer it."""
+    sent = call.arguments or ""
+    return Malformed(
+        id=identifier,
+        tool=call.name,
+        call_id=call.id,
+        sent=sent[:2000] or None,
+    )
 
 
 def _asked_for(completion: Completion, taken: int = 0) -> AgentStep | None:
@@ -341,7 +385,7 @@ def _asked_for(completion: Completion, taken: int = 0) -> AgentStep | None:
     """
     if completion.tool_calls:
         actions: list[Action] = []
-        malformed: list[tuple[str, str]] = []
+        malformed: list[Malformed] = []
         for index, call in enumerate(completion.tool_calls):
             # Short, this turn's own, and counted across iterations so `a3` means one
             # thing for the whole turn. The platform's id rides along for the wire.
@@ -352,10 +396,10 @@ def _asked_for(completion: Completion, taken: int = 0) -> AgentStep | None:
                 # Unreadable arguments are not empty arguments. Running the tool on its
                 # defaults would answer a request the model never made, and the model
                 # would never learn that what it sent could not be read.
-                malformed.append((identifier, call.name))
+                malformed.append(_unreadable(identifier, call))
                 continue
             if not isinstance(arguments, dict):
-                malformed.append((identifier, call.name))
+                malformed.append(_unreadable(identifier, call))
                 continue
             actions.append(
                 Action(id=identifier, tool=call.name, arguments=arguments, call_id=call.id)
@@ -483,7 +527,7 @@ def run_turn(
                 publish=step.publish,
                 asked=step.ask is not None,
                 native=bool(completion.tool_calls),
-                malformed=[f"{i}:{n}" for i, n in step.malformed],
+                malformed=[f"{item.id}:{item.tool}" for item in step.malformed],
                 detail=step.state,
             )
         if step is None:
@@ -502,19 +546,21 @@ def run_turn(
             break
 
         carried = []
-        for identifier, tool in step.malformed:
+        for unread in step.malformed:
             # The model has to see that what it sent could not be read, or it will
-            # send it again unchanged.
+            # send it again unchanged — and it has to see *what* it sent, or it has
+            # nothing to correct. The platform's own id answers the call it made.
             refused = Observation(
-                Action(id=identifier, tool=tool),
+                Action(id=unread.id, tool=unread.tool, call_id=unread.call_id),
                 ToolResult(
                     ToolStatus.FAILURE,
-                    identifier,
-                    tool,
+                    unread.id,
+                    unread.tool,
                     error_category="arguments",
                     warnings=(
-                        "Bu çağrının argümanları geçerli JSON değildi; araç "
-                        "çalıştırılmadı. Argümanları yeniden yaz.",
+                        "Bu çağrının argümanları geçerli JSON nesnesi değildi; araç "
+                        "çalıştırılmadı. Gönderdiğin metin: "
+                        + (unread.sent if unread.sent is not None else "(boş)"),
                     ),
                 ),
             )
@@ -537,6 +583,14 @@ def run_turn(
                     status="ok" if item.ok else "failed",
                     step_id=action.id,
                     tool=action.tool,
+                    # What the model actually asked for. Without this the record said a
+                    # tool ran and never which question it was asked, so no reviewer
+                    # could tell a right answer from a right-looking one, or see that a
+                    # retry differed from the call before it.
+                    arguments=json.dumps(action.arguments, ensure_ascii=False)[:4000],
+                    # Which platform call this answers, so the exchange can be followed
+                    # back to the request the model made.
+                    call_id=action.call_id,
                     error_category=item.result.error_category,
                     warnings=list(item.result.warnings),
                     evidence=item.result.evidence,
@@ -580,7 +634,7 @@ def _dispatch(
         )
     spec = registry.get(action.tool)
     try:
-        parsed = spec.parse(_without_protocol_keys(action.arguments))
+        parsed = spec.parse(_without_protocol_keys(action.arguments, spec.arguments.model_fields))
     except ArgumentsRejected as error:
         return ToolResult(
             ToolStatus.FAILURE,

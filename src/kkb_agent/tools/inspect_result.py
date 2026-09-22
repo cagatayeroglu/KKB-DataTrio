@@ -71,21 +71,65 @@ def _rows(result: AnalyticalResult, wanted: list[str] | None) -> list[dict[str, 
     return [by_period[key] for key in sorted(by_period)]
 
 
+def _readable(held: object) -> str | None:
+    """The text of something this turn read, wherever the tool put it.
+
+    A page and a PDF come back inside a wrapper, under `document.text`; a plain
+    string is its own text. This is what makes a clipped observation recoverable:
+    the harness shows an observation up to a budget, and the way back to the rest
+    is to name the result and ask for a further window of it.
+    """
+    document = getattr(held, "document", None)
+    text = getattr(document, "text", None) if document is not None else None
+    if text is None:
+        text = held if isinstance(held, str) else getattr(held, "text", None)
+    return text if isinstance(text, str) and text else None
+
+
+def _window_of_text(arguments: InspectArguments, text: str) -> ToolResult:
+    """One window of a read text, measured in lines, with what follows still named."""
+    lines = text.splitlines()
+    window = lines[arguments.offset : arguments.offset + arguments.limit]
+    return ToolResult(
+        ToolStatus.SUCCESS,
+        arguments.source,
+        "inspect",
+        output=InspectOutput(
+            source=arguments.source,
+            kind="text",
+            columns=[],
+            rows=len(lines),
+            offset=arguments.offset,
+            values=[
+                {"line": arguments.offset + index, "text": line}
+                for index, line in enumerate(window)
+            ],
+            more=arguments.offset + len(window) < len(lines),
+        ),
+    )
+
+
 def make_inspect_tool() -> ToolSpec:
     """Bind the tool. It reads what the turn already has and fetches nothing."""
 
     def run(arguments: BaseModel, context: ExecutionContext) -> ToolResult:
         if not isinstance(arguments, InspectArguments):  # pragma: no cover - contract
             raise TypeError("inspect received arguments it did not declare")
-        found = analytical(context.outputs.get(arguments.source))
+        held = context.outputs.get(arguments.source)
+        found = analytical(held)
         if found is None:
+            if (text := _readable(held)) is not None:
+                return _window_of_text(arguments, text)
             known = ", ".join(sorted(context.outputs)) or "yok"
             return ToolResult(
                 ToolStatus.FAILURE,
                 arguments.source,
                 "inspect",
                 error_category="table_reference",
-                warnings=(f"{arguments.source!r} bir tablo değil. Elde olanlar: {known}",),
+                warnings=(
+                    f"{arguments.source!r} ne bir tablo ne de okunmuş bir metin. "
+                    f"Elde olanlar: {known}",
+                ),
             )
         rows = _rows(found, arguments.columns)
         window = rows[arguments.offset : arguments.offset + arguments.limit]
@@ -113,8 +157,10 @@ def make_inspect_tool() -> ToolSpec:
     return ToolSpec(
         name="inspect",
         description=(
-            "Look at a table you already have: its columns, how many periods it covers, "
-            "and a window of its rows. Give source=<an action id or a published table "
+            "Look at something you already have. For a table: its columns, how many "
+            "periods it covers, and a window of its rows. For a page or a document you "
+            "read: a window of its lines, which is how you read the rest of anything "
+            "that came back clipped. Give source=<an action id or a published table "
             "name>, optionally columns, offset and limit. Nothing is fetched and nothing "
             "is changed; ask again with a larger offset to read further."
         ),

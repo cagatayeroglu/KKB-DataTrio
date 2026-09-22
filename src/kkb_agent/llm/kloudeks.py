@@ -195,7 +195,12 @@ class KloudeksProvider:
             return reply
 
         completion = complete_with_repair(
-            ask, messages, schema=schema, max_attempts=self._config.max_attempts, model=chosen
+            ask,
+            messages,
+            schema=schema,
+            max_attempts=self._config.max_attempts,
+            model=chosen,
+            tolerate_prose=bool(tools),
         )
         return replace(
             completion,
