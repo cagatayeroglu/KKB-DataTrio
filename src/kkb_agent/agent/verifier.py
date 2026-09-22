@@ -343,6 +343,32 @@ def _scale_fault(answer: str, number: WrittenNumber, value: ResultValue) -> str 
     return None
 
 
+#: One comma and three digits after it: "512,259". Alone it is ambiguous, and the gate reads it
+#: as thousands grouping; after a scale word the value does not carry, Turkish means a decimal.
+_TURKISH_DECIMAL_OF_THREE = re.compile(r"[+-]?\d{1,3},\d{3}")
+
+
+def _rescaled(
+    number: WrittenNumber, written: Scale | None, value: ResultValue, tolerance: float
+) -> bool:
+    """Whether the figure is the value itself, written at another explicit scale.
+
+    "Bu değeri milyar TL olarak yaz": 512.259 milyon TL is 512,259 milyar TL, and the gate
+    withheld the correct conversion because the figure matched no stored number at the
+    stored scale (N44, live G3 2026-09-22). Only an explicit scale word that differs from a
+    known recorded scale is converted, and only by the exact power of ten between them, so
+    the model's own "0,512259 milyar TL" (a thousandfold error, live G3b) still matches
+    nothing. "512,259" after such a word is read the Turkish way, as a decimal; every
+    other written form keeps the reading `parse_written` gave it.
+    """
+    if written is None or value.scale in (Scale.UNKNOWN, written):
+        return False
+    reading = number.value
+    if _TURKISH_DECIMAL_OF_THREE.fullmatch(number.text.strip()):
+        reading = float(number.text.strip().replace(",", "."))
+    return _close(reading * written.factor, value.value * value.scale.factor, tolerance)
+
+
 def _semantics_fault(number: WrittenNumber, value: ResultValue) -> str | None:
     if not value.semantics_are_unresolved:
         return None
@@ -846,17 +872,19 @@ def _bind_to_results(
         return NumberVerdict(number, Binding.YEAR)
     sentence, sentence_start = _sentence_around(answer, number.start)
     clause, prefix = clause_context(sentence, number.start - sentence_start)
+    written_scale, _ = amount_qualifiers(answer, number.start, end)
     candidates: list[NumberVerdict] = []
     meanings: list[str] = []
     for name, result in named.items():
         node = result.evidence.lineage_node if result.evidence is not None else None
         for value in result.values:
-            if not _close(number.value, value.value, tolerance):
+            rescaled = _rescaled(number, written_scale, value, tolerance)
+            if not rescaled and not _close(number.value, value.value, tolerance):
                 continue
             faults = tuple(
                 fault
                 for fault in (
-                    _scale_fault(answer, number, value),
+                    None if rescaled else _scale_fault(answer, number, value),
                     period_fault(
                         clause,
                         prefix,

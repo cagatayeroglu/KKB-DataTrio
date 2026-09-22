@@ -277,7 +277,10 @@ REPLY_INSTRUCTIONS = (
     "A message that needs no data and no calculation (a greeting, what you can do, what an "
     "earlier answer or column means, rephrasing an earlier answer) is answered with "
     "steps=[] and `reply`: short, natural Turkish, with no figure that is not already in an "
-    "earlier answer. Anything that needs new or recomputed figures, a web address or an "
+    "earlier answer. Writing an earlier figure at another scale is such a rephrasing: move "
+    "the decimal point exactly three places per step and keep the Turkish comma for "
+    "decimals (512.259 milyon TL is 512,259 milyar TL). Anything that needs new or "
+    "recomputed figures, a web address or an "
     "uploaded document needs tool steps. When the person names a tool, plan that tool; a "
     "request to search the web ('webde ara', 'web search ile bul') is planned with "
     "web_search, never answered from what you already know. A question outside "
@@ -2550,7 +2553,10 @@ class Session:
                 status="skipped",
                 reason="a conversational reply publishes nothing",
             )
-        answer = gate_answer(text, available, connection, **gate)  # type: ignore[arg-type]
+        # The same recorded gate as every other answer: a reply's withheld sentence and its
+        # reason reach the trace. Live G3 (N44) showed only `omitted_claims: 1`, and telling a
+        # wrong conversion from a right one took a second live turn.
+        answer = self._gated(text, available, connection, gate)
         if not answer.verdict.numbers and not answer.omitted:
             # Binding limitations describe figures; a reply without any states none.
             answer = replace(answer, limitations=())

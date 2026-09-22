@@ -27,7 +27,23 @@ SCALE_WORDS = {
     "million": Scale.MILLION,
     "billion": Scale.BILLION,
 }
-SCALE = re.compile(r"\s*(" + "|".join(SCALE_WORDS) + r")(?:u|ı|ü|i)?\b", re.I)
+#: Turkish puts its case, possessive and "-lık" endings on the scale word itself: "512.259
+#: milyarlık bakiye", "milyara ulaştı", "milyonun üzerinde". The scale is the same word; read
+#: without its ending it was no scale at all, and a thousandfold error went unchecked (N44).
+#: "bin" takes front-vowel endings only, so "bina" stays a building.
+_BACK = r"(?:l[ıiuü](?:k|ğ[ıiuüae])|l[ae]r|l[ae]|[dt][ae]n?|n?[ıiuü]n|y[ae]|[ae]|[ıiuü])?"
+_SCALE_ENDINGS = {
+    "bin": r"(?:l[iı](?:k|ğ[ie])|ler|le|[dt]en?|[dt]e|n?in|e|i)?",
+    "milyon": _BACK,
+    "milyar": _BACK,
+    "thousand": "s?",
+    "million": "s?",
+    "billion": "s?",
+}
+SCALE = re.compile(
+    r"\s*(?:" + "|".join(f"({word}){ending}" for word, ending in _SCALE_ENDINGS.items()) + r")\b",
+    re.I,
+)
 UNITS = {
     "tl": "try",
     "try": "try",
@@ -222,7 +238,11 @@ def amount_qualifiers(text: str, start: int, end: int) -> tuple[Scale | None, tu
     """Only attached qualifiers; never borrow the next number's scale or unit."""
     suffix = text[end:]
     scale_match = SCALE.match(suffix)
-    scale = SCALE_WORDS[fold(scale_match[1])] if scale_match else None
+    scale = (
+        SCALE_WORDS[fold(next(word for word in scale_match.groups() if word))]
+        if scale_match
+        else None
+    )
     unit_tail = suffix[scale_match.end() :] if scale_match else suffix
     units = []
     for match in UNIT.finditer(text[:start]):
