@@ -242,3 +242,46 @@ def test_the_stores_declaration_outranks_what_the_values_look_like(tmp_path):
 
     assert compared.status is ResultStatus.ABSTAINED
     assert "yearly_reset" in compared.reason and "to_flow" in compared.reason
+
+
+def test_a_stock_is_told_where_its_per_period_amount_comes_from():
+    """Live 2026-09-22: "stok olmasın" read as to_flow, which a stock rightly refuses.
+
+    The refusal now names the operation that answers the question instead of leaving the
+    planner to find it, and the two descriptions say which column each one is for.
+    """
+    from kkb_agent.analytics.accumulation import AccumulationRefused, to_flow_column
+    from kkb_agent.core import (
+        Aggregation,
+        CumulativeKind,
+        Frequency,
+        Period,
+        ResultValue,
+        Scale,
+        StockFlow,
+    )
+    from kkb_agent.lakehouse.semantics import SeriesSemantics
+
+    stock = SeriesSemantics(
+        unit="TRY",
+        scale=Scale.MILLION,
+        frequency=Frequency.MONTHLY,
+        observation=StockFlow.STOCK,
+        cumulative=CumulativeKind.NONE,
+        aggregation=Aggregation.LAST,
+    )
+    column = [
+        ResultValue(
+            label="mevduat",
+            value=100.0,
+            unit="TRY",
+            scale=Scale.MILLION,
+            measure=StockFlow.STOCK,
+            period=Period(
+                start=date(2021, 1, 1), end=date(2021, 1, 31), frequency=Frequency.MONTHLY
+            ),
+        )
+    ]
+    with pytest.raises(AccumulationRefused) as refused:
+        to_flow_column(column, stock, column_label="mevduat")
+    assert "change" in str(refused.value) and "difference" in str(refused.value)

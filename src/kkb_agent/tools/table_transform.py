@@ -23,9 +23,18 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace as replace_semantics
 from datetime import UTC, date, datetime
+from math import isfinite
 from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, RootModel, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    RootModel,
+    ValidationError,
+    model_validator,
+)
 
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
 from kkb_agent.agent.registry import TableInput, ToolSpec
@@ -795,7 +804,15 @@ def make_table_transform_tool(
                 )
                 result = _documented(selected, source, column, document, source_node, csv)
         else:
-            result = _closed_transform(selected, source)
+            preceding: tuple[ResultValue, ...] = ()
+            if isinstance(selected, ChangeArguments):
+                # The period before the window, when the column is a stored series and the
+                # store reaches back: it completes the first change and is shown as no row
+                # (live 2026-09-22, a monthly window opened on an empty change).
+                preceding = _preceding_values(
+                    connection, selected.column, source, lag=selected.lag, inspector=inspector
+                )
+            result = _closed_transform(selected, source, preceding=preceding)
         if resolution is not None and result.status is ResultStatus.COMPUTED:
             result = result.model_copy(
                 update={
@@ -890,7 +907,12 @@ def make_table_transform_tool(
             "- change: how much a column rose or fell each period, month over month or day "
             "over day (kind=difference in the "
             "column's unit, or kind=percent; lag=12 for a year earlier on monthly data); "
-            "marks the largest rise and fall; the period after a gap stays empty.\n"
+            "marks the largest rise and fall; the period after a gap stays empty. This is "
+            "what a stock takes when the question asks for each period's own amount "
+            "rather than the balance: a stock reports the level it stands at, and its "
+            "difference is the amount that period added or took away. The first period of "
+            "the table is completed from the store when the series reaches back before "
+            "it.\n"
             "- resample: a weekly or daily column reduced to months by the series' declared "
             "aggregation - a rate averaged, a flow summed, a stock at its last period "
             "(week_assignment is required for a weekly column) - so a weekly "
@@ -904,7 +926,8 @@ def make_table_transform_tool(
             "(yearly_reset or since_inception). Such a column holds running totals, so "
             "summarize sum/mean/min/max, change, deflate and table_co_movement refuse it: "
             "read it, to_flow it, then apply them to the flow column in the same plan. A "
-            "column not declared cumulative is refused rather than differenced.\n"
+            "column not declared cumulative is refused rather than differenced: a stock "
+            "accumulates nothing, and each period's own amount is its change.\n"
             "- rebase: copy of an index column with reference_period set to new_base.\n"
             "- align: keeps the periods the chosen columns share (join=inner), or those of "
             "anchor_column (join=left).\n"
@@ -940,9 +963,66 @@ def make_table_transform_tool(
     )
 
 
+def _preceding_values(
+    connection: DuckDBPyConnection,
+    column: str,
+    source: AnalyticalResult,
+    *,
+    lag: int,
+    inspector: PreparedSeriesInspector | None,
+) -> tuple[ResultValue, ...]:
+    """The stored series' own values just before the table, for a change that starts on it.
+
+    A window is a window: its first row has no predecessor inside it, so the change the
+    reader asked for opened on an empty cell although the store held the month before it
+    (live 2026-09-22, the deposit question over 2021-2025). Only a column that is a stored
+    series is looked up, only periods before the table and only as many as the lag; a
+    column a document or an earlier transform produced is in no store and keeps the
+    behaviour it had. Nothing here is shown as a row: `period_change` uses these to
+    complete its first changes and records how many it read.
+    """
+    cells = [value for value in source.values if value.label == column and value.period is not None]
+    if not cells or lag < 1:
+        return ()
+    try:
+        series = read_series(connection, column, inspector=inspector)
+    except SeriesUnknown:
+        return ()  # a document or derived column: there is nothing to read
+    if series.semantics.unresolved or series.semantics.cumulative is not CumulativeKind.NONE:
+        return ()  # a cumulative series' per-period amount is to_flow, not a difference
+    opening = min(value.period.end for value in cells if value.period is not None)
+    found: list[ResultValue] = []
+    for item in series.observations:
+        if item.value is None or item.period_end >= opening or not isfinite(item.value):
+            continue
+        try:
+            period = Period(
+                start=item.period_start,
+                end=item.period_end,
+                frequency=series.semantics.frequency,
+                weekly_anchor=series.semantics.anchor,
+            )
+        except ValidationError:
+            continue
+        found.append(
+            ResultValue(
+                label=column,
+                value=item.value,
+                unit=series.semantics.unit,
+                scale=series.semantics.scale,
+                measure=series.semantics.observation,
+                period=period,
+            )
+        )
+    found.sort(key=lambda value: value.period.end if value.period is not None else opening)
+    return tuple(found[-lag:])
+
+
 def _closed_transform(
     arguments: RebaseArguments | ChangeArguments | AlignArguments | FilterArguments,
     source: AnalyticalResult,
+    *,
+    preceding: Sequence[ResultValue] = (),
 ) -> AnalyticalResult:
     """Apply one no-I/O operation and preserve the source as a separate artifact."""
     try:
@@ -951,7 +1031,11 @@ def _closed_transform(
                 arguments,
                 source,
                 period_change(
-                    source, column_label=arguments.column, kind=arguments.kind, lag=arguments.lag
+                    source,
+                    column_label=arguments.column,
+                    kind=arguments.kind,
+                    lag=arguments.lag,
+                    preceding=preceding,
                 ),
             )
         if isinstance(arguments, RebaseArguments):
