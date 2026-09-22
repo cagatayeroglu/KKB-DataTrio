@@ -286,13 +286,15 @@ def test_every_supported_selector_has_a_route_and_one_table_response_serves_its_
     store = AcquisitionStore(tmp_path / "acquired")
     acquirer = TurnAcquirer(lake, TODAY, sources=OfficialSources(bddk=source, store=store))
     first = acquirer.acquire(PERSONAL.internal_id())
-    assert first.code is AcquisitionCode.ACQUIRED and first.observations == 3
-    assert len(source.requests) == 3
+    # The window opens one month before the prepared period, so the first prepared month
+    # has a predecessor and its own change exists (DEC-192): four months here, not three.
+    assert first.code is AcquisitionCode.ACQUIRED and first.observations == 4
+    assert len(source.requests) == 4
     # Another row and another component of the same table: the kept responses answer them.
     for other in (selector(4, 3, "TP"), selector(4, 9, "TOTAL")):
         again = acquirer.acquire(other.internal_id())
         assert again.code is AcquisitionCode.ACQUIRED and again.from_store
-    assert len(source.requests) == 3
+    assert len(source.requests) == 4
     # The request identity still names the row; only the kept bytes are shared.
     one = MonthlyRequest(selector=PERSONAL, period=MonthlyPeriod(year=2021, month=1))
     two = MonthlyRequest(selector=selector(4, 3, "TP"), period=MonthlyPeriod(year=2021, month=1))
@@ -470,8 +472,10 @@ def test_a_served_question_on_a_listed_series_is_fetched_and_answered(tmp_path):
     )
     answer = runner(uuid4().hex, uuid4().hex, "İhtiyaç kredisi bakiyesini aylık getir.")
     assert answer.status.value == "accepted", answer
-    assert len(source.requests) == 3
-    assert [cell.value for cell in answer.result.cells] == [41.0, 82.0, 123.0]
+    # Four months: the window opens one month before the prepared period, so the first
+    # prepared month has a predecessor and its own change exists (DEC-192).
+    assert len(source.requests) == 4
+    assert [cell.value for cell in answer.result.cells] == [492.0, 41.0, 82.0, 123.0]
     assert {cell.unit for cell in answer.result.cells} == {"TRY"}
     # Without the operator's switch the same identity is unknown and nothing is asked.
     off = PreparedRunner(
@@ -537,8 +541,8 @@ def test_one_transient_failure_among_the_months_is_asked_again_not_fatal(lake):
     source, waits = StumblingSource(fail_at={2}), []
     acquirer = TurnAcquirer(lake, TODAY, sources=OfficialSources(bddk=source, pause=waits.append))
     outcome = acquirer.acquire(PERSONAL.internal_id())
-    assert outcome.code is AcquisitionCode.ACQUIRED and outcome.observations == 3
-    assert len(source.requests) == 4 and waits == [0.5]
+    assert outcome.code is AcquisitionCode.ACQUIRED and outcome.observations == 4
+    assert len(source.requests) == 5 and waits == [0.5]
 
 
 def test_a_source_that_stays_down_is_said_to_the_person(tmp_path):

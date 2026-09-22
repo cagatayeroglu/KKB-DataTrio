@@ -68,10 +68,13 @@ if TYPE_CHECKING:  # pragma: no cover
 EVDS_PREFIX: Final = "EVDS:"
 #: Years of EVDS history one acquisition covers, ending at the clock's date.
 WINDOW_YEARS: Final = 10
-#: First month of BDDK bulletin an acquisition covers (one request per month): the start of
-#: the period the product is prepared for (DEC-137), so a fetched series spans what the
-#: prepared ones span. Two years (the first policy) answered "2021-2025" with half the years.
-BDDK_FIRST_MONTH: Final = (2021, 1)
+#: First month of BDDK bulletin an acquisition covers (one request per month): one month
+#: before the period the product is prepared for (DEC-137), so a fetched series spans what
+#: the prepared ones span and the first prepared month still has a predecessor. Two years
+#: (the first policy) answered "2021-2025" with half the years; starting at 2021-01 (the
+#: second) answered "each month's own amount over 2021-2025" without 2021-01, because a
+#: stock's first change needs the month before the window (live 2026-09-22).
+BDDK_FIRST_MONTH: Final = (2020, 12)
 #: The request contract's own ceiling; the window never asks for more months than this.
 BDDK_MAX_MONTHS: Final = 120
 #: Months before the clock's month the BDDK window ends. The bulletin is published

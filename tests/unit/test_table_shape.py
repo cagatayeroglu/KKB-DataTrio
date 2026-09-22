@@ -448,3 +448,56 @@ def test_a_column_without_a_stated_unit_still_has_a_percent_change():
     difference = period_change(unitless, column_label="untouched", kind="difference")
     assert by_end(difference.values) == {MONTHS[1]: 1.0, MONTHS[2]: 1.0}
     assert {(v.unit, v.scale) for v in difference.values} == {(None, None)}
+
+
+def test_a_value_from_before_the_table_completes_the_first_change_and_shows_no_row():
+    """Live 2026-09-22: the window's first month had no change because its predecessor is
+    outside the window. What the caller reads from the store completes it, as no row."""
+    december = cell("untouched", date(2023, 12, 31), 0.5)
+    changed = period_change(
+        source(), column_label="untouched", kind="difference", preceding=[december]
+    )
+    dated = {value.period.end: value.value for value in changed.values if value.period}
+    assert dated[MONTHS[0]] == pytest.approx(1.0 - 0.5)  # January, from December
+    assert dated[MONTHS[1]] == pytest.approx(1.0)
+    assert date(2023, 12, 31) not in dated  # the read month is a row of nothing
+    assert changed.transformation.parameters["periods_read_before_the_table"] == 1
+    assert changed.transformation.parameters["periods_without_predecessor"] == 0
+
+
+@pytest.mark.parametrize(
+    "unusable",
+    [
+        cell("untouched", date(2023, 12, 31), 0.5, index=True),  # another unit and measure
+        cell("untouched", MONTHS[0], 0.5),  # not before the table
+        cell("untouched", date(2023, 11, 30), 0.5),  # too far back for lag 1
+    ],
+    ids=["another measure", "inside the table", "further back than the lag"],
+)
+def test_only_the_columns_own_measure_just_before_the_table_completes_it(unusable):
+    """A value that is not this column on this calendar just before the table is left out:
+    the change it would complete is one the table cannot show."""
+    changed = period_change(
+        source(), column_label="untouched", kind="difference", preceding=[unusable]
+    )
+    dated = {value.period.end: value.value for value in changed.values if value.period}
+    assert MONTHS[0] not in dated
+    assert changed.transformation.parameters["periods_without_predecessor"] == 1
+
+
+def test_only_as_many_periods_as_the_lag_are_read_before_the_table():
+    """The lag says how many predecessors the first rows need; a longer history read from
+    the store would otherwise arrive as rows of its own."""
+    changed = period_change(
+        source(),
+        column_label="untouched",
+        kind="difference",
+        preceding=[
+            cell("untouched", date(2023, 11, 30), 0.2),
+            cell("untouched", date(2023, 12, 31), 0.5),
+        ],
+    )
+    dated = {value.period.end: value.value for value in changed.values if value.period}
+    assert dated[MONTHS[0]] == pytest.approx(0.5)  # January, from December alone
+    assert date(2023, 12, 31) not in dated and date(2023, 11, 30) not in dated
+    assert changed.transformation.parameters["periods_read_before_the_table"] == 1
