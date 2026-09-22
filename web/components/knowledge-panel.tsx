@@ -214,6 +214,10 @@ export function KnowledgePanel({
   session?: { id: string; token: string } | null;
 }) {
   const [listing, setListing] = useState<KnowledgeList | null>(null);
+  // Catalogue notes reach every browser's search and planner, so only the operator
+  // opens them (--allow-catalog-edits, finding N43). A server that does not say is
+  // read as not editable, like every capability it omits.
+  const catalogEditable = listing?.catalog_editable ?? false;
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
   const [province, setProvince] = useState("");
@@ -354,11 +358,18 @@ export function KnowledgePanel({
           );
         }
       }
+      let skipped = 0;
       for (const item of parsed.data.listing.series) {
         // A reviewed entry travels as its annotations, never as its record.
         if (item.origin !== "reviewed") continue;
         if (!item.aliases.length && !item.note && item.status !== "archived")
           continue;
+        // Without the operator's --allow-catalog-edits the server refuses every
+        // one of these, so none is sent and the report counts them instead.
+        if (!catalogEditable) {
+          skipped++;
+          continue;
+        }
         // An annotation is the whole set, and a missing note deletes the stored
         // one, so an import used to wipe synonyms and notes that were only here
         // (finding F4-bt-6). Both sides are kept: the union of the synonyms, and
@@ -386,9 +397,16 @@ export function KnowledgePanel({
           problems.push(`${item.series_id}: ${describeKnowledgeError(error)}`);
         }
       }
-      const report = problems.length
-        ? `${imported} veri seti alındı; alınamayanlar - ${problems.slice(0, 3).join(" · ")}`
-        : `${imported} veri seti ve notlar içe aktarıldı; her biri yeni bir sürüm olarak kaydedildi.`;
+      const report = [
+        problems.length
+          ? `${imported} veri seti alındı; alınamayanlar - ${problems.slice(0, 3).join(" · ")}`
+          : `${imported} veri seti${skipped ? "" : " ve notlar"} içe aktarıldı; her biri yeni bir sürüm olarak kaydedildi.`,
+        skipped
+          ? `${skipped} katalog notu alınmadı: bu kurulumda katalog notları salt okunur (sunucu --allow-catalog-edits ile başlatılmadı).`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
       setIssue(report);
       // The list is read again, but the report stays: it used to be wiped in the
       // same tick it appeared, so nothing said what happened (finding F4-bt-6).
@@ -885,6 +903,7 @@ export function KnowledgePanel({
                 item={item}
                 owner={owner}
                 busy={busy}
+                editable={catalogEditable}
                 act={act}
                 stored={health(item, pool)}
                 vectored={
@@ -1087,6 +1106,7 @@ function SeriesDetail({
   item,
   owner,
   busy,
+  editable,
   act,
   stored: held,
   vectored,
@@ -1096,6 +1116,8 @@ function SeriesDetail({
   item: KnowledgeSeries;
   owner: string;
   busy: boolean;
+  /** Whether this installation takes catalogue notes (--allow-catalog-edits). */
+  editable: boolean;
   act: (work: () => Promise<unknown>) => Promise<void>;
   /** The window the store really holds, when the catalogue record declares none. */
   stored: ReturnType<typeof health>;
@@ -1293,11 +1315,19 @@ function SeriesDetail({
               Eş anlamlı ve açıklama eklemek onu aramada bulunur kılar.
             </p>
           )}
+          {!editable && (
+            <p className="helper">
+              Bu kurulumda katalog notları salt okunur; arşiv, eş anlamlı ve
+              açıklamayı yalnızca sunucuyu <code>--allow-catalog-edits</code>{" "}
+              ile başlatan operatör açabilir.
+            </p>
+          )}
           <label>
             Eş anlamlılar (virgülle)
             <input
               value={aliases}
               maxLength={600}
+              disabled={!editable}
               onChange={(e) => setAliases(e.target.value)}
               placeholder="ör. mortgage stoku"
             />
@@ -1307,6 +1337,7 @@ function SeriesDetail({
             <textarea
               value={note}
               maxLength={1000}
+              disabled={!editable}
               onChange={(e) => setNote(e.target.value)}
               placeholder="Bu seriyi kendi sözlerinle anlat; soruda bu sözler geçince bulunur"
             />
@@ -1321,7 +1352,7 @@ function SeriesDetail({
             <Button
               size="sm"
               variant="outline"
-              disabled={busy}
+              disabled={busy || !editable}
               onClick={() =>
                 void act(() =>
                   annotateSeries(owner, item.series_id, {
@@ -1337,7 +1368,7 @@ function SeriesDetail({
             <Button
               size="sm"
               variant="outline"
-              disabled={busy}
+              disabled={busy || !editable}
               onClick={() =>
                 void act(() =>
                   annotateSeries(owner, item.series_id, {
@@ -1516,6 +1547,13 @@ function SeriesDetail({
                       `v${v.version} · ${v.archived ? "arşivlendi" : "etkin"} · ` +
                       `${v.aliases.join(", ") || "eş anlamlı yok"} · ` +
                       `${new Date(v.created_at).toLocaleString("tr-TR")}` +
+                      // Who wrote it, as this key sees it: an archive from another
+                      // browser read like one's own (finding N43). Unknown says nothing.
+                      (v.by_you === true
+                        ? " · sen"
+                        : v.by_you === false
+                          ? " · başka bir tarayıcı"
+                          : "") +
                       (v.note ? ` · ${v.note}` : ""),
                   ),
                 );

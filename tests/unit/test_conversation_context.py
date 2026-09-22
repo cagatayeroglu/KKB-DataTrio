@@ -240,15 +240,16 @@ def test_the_planner_is_given_names_and_coverage_but_never_the_figures(pool, tmp
 
 
 def test_context_stays_bounded_as_the_conversation_gets_long(pool, tmp_path):
-    """Ten turns: history is the last six questions and shown answers, nothing more."""
+    """More turns than the budget: history is the last MAX_HISTORY_TURNS, nothing more."""
     from kkb_agent.agent.loop import HISTORY_HEADER, MAX_HISTORY_TURNS
 
-    provider = scripted(*[item for _ in range(10) for item in (reply("Buyurun."),)])
+    turns = MAX_HISTORY_TURNS + 3
+    provider = scripted(*[item for _ in range(turns) for item in (reply("Buyurun."),)])
     runner = PreparedRunner(
         provider, pool, tmp_path / "runtime", catalog_bytes=CATALOG.read_bytes()
     )
     sid = uuid4().hex
-    questions = [f"Önceki cevap için soru {index}: nasıl gidiyor?" for index in range(10)]
+    questions = [f"Önceki cevap için soru {index}: nasıl gidiyor?" for index in range(turns)]
     for question in questions:
         assert runner(sid, uuid4().hex, question).status.value == "accepted"
 
@@ -258,7 +259,7 @@ def test_context_stays_bounded_as_the_conversation_gets_long(pool, tmp_path):
         for message in messages
         if message.content.startswith(HISTORY_HEADER)
     ]
-    assert len(histories) == 9  # every turn after the first carries one
+    assert len(histories) == turns - 1  # every turn after the first carries one
     final = histories[-1]
     assert final.count("User: ") == MAX_HISTORY_TURNS
     assert questions[0] not in final and questions[-2] in final

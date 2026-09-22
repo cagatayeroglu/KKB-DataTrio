@@ -1,6 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { datasetRequestFromExport, parseMonthlyRows } from "../lib/client";
+import {
+  ApiError,
+  datasetRequestFromExport,
+  describeKnowledgeError,
+  parseMonthlyRows,
+} from "../lib/client";
+import { knowledgeListSchema, noteHistorySchema } from "../lib/contracts";
 import { forward, KNOWLEDGE_LIMIT, BODY_LIMIT } from "../lib/proxy";
 
 test("pasted monthly rows become month ends, and a bad line is named, not guessed", () => {
@@ -177,4 +183,55 @@ test("an exported dataset detail rebuilds the exact versioned save request", () 
     () => datasetRequestFromExport({ ...detail, weekly_anchor: null }),
     /weekly_anchor_not_importable/,
   );
+});
+
+test("the listing says whether catalogue notes are open here; an older server need not", () => {
+  const digest = "a".repeat(64);
+  const listing = {
+    api_version: 1,
+    catalog_digest: digest,
+    reviewed_digest: digest,
+    series: [],
+  };
+  for (const catalog_editable of [true, false])
+    assert.equal(
+      knowledgeListSchema.parse({ ...listing, catalog_editable })
+        .catalog_editable,
+      catalog_editable,
+    );
+  // Absent on an older server; the page reads that as not editable.
+  assert.equal(knowledgeListSchema.parse(listing).catalog_editable, undefined);
+  assert.equal(
+    knowledgeListSchema.safeParse({ ...listing, catalog_editable: "yes" })
+      .success,
+    false,
+  );
+});
+
+test("a note version says whether this key wrote it, and never who did", () => {
+  const version = {
+    version: 1,
+    archived: true,
+    aliases: [],
+    note: null,
+    created_at: "2026-09-22T08:00:00+00:00",
+  };
+  const history = (entry: object) =>
+    noteHistorySchema.safeParse({
+      api_version: 1,
+      series_id: "EVDS:TP.KFE.TR",
+      history: [entry],
+    }).success;
+  for (const by_you of [true, false, null])
+    assert.ok(history({ ...version, by_you }), String(by_you));
+  assert.ok(history(version)); // an older server
+  // Still strict: an author's owner id is nothing this page takes in.
+  assert.equal(history({ ...version, author: "0".repeat(32) }), false);
+});
+
+test("a read-only catalogue is said as such, not as a refused local origin", () => {
+  const text = describeKnowledgeError(new ApiError("catalog_read_only", 403));
+  assert.match(text, /salt okunur/);
+  assert.match(text, /--allow-catalog-edits/);
+  assert.notEqual(text, describeKnowledgeError(new ApiError("forbidden", 403)));
 });

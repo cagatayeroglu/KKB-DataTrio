@@ -50,6 +50,9 @@ ErrorCode = Literal[
     "invalid_document",
     "cancelled",
     "knowledge_rejected",
+    # A catalogue note on a server started without --allow-catalog-edits. Not
+    # `forbidden`: the page reads that as a refused local origin (finding N43).
+    "catalog_read_only",
 ]
 TurnState = Literal["queued", "running", "completed", "failed"]
 
@@ -655,6 +658,9 @@ class KnowledgeList(ContractModel):
     page_size: Annotated[int, Field(ge=1, le=100)] | None = None
     counts: dict[str, Annotated[int, Field(ge=0, le=MAX_CATALOG_SERIES)]] | None = None
     provinces: Annotated[tuple[str, ...], Field(max_length=128)] = ()
+    #: Whether a browser key may archive, alias or describe reviewed and listed entries
+    #: here: the operator's --allow-catalog-edits, never a browser's choice (DEC-162).
+    catalog_editable: bool = False
 
 
 class DirectoryRefreshResult(ContractModel):
@@ -875,6 +881,9 @@ class SeriesNoteVersion(ContractModel):
     aliases: tuple[str, ...]
     note: str | None
     created_at: AwareDatetime
+    #: Whether the reading key wrote this version; None for a row stored without an
+    #: author. The author's owner id itself is never shown.
+    by_you: bool | None = None
 
 
 class SeriesNoteHistory(ContractModel):

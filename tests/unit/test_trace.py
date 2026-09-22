@@ -122,6 +122,22 @@ def test_a_rejected_plan_and_its_repair_are_both_visible(launch):
     assert next(item for item in steps if item["name"] == "workspace.not_published")
 
 
+def test_a_reply_records_what_the_gate_withheld_and_why(launch):
+    # Live G3 (N44): the trace of a withheld reply showed only `omitted_claims: 1`, and
+    # telling a wrong conversion from a right one needed a second live turn.
+    _, client = launch(reply("Bakiye 0,512259 milyar TL idi."))
+    owner_token = owner(client)
+    sid, headers, _ = open_conversation(client, owner_token)
+    answer = ask(client, sid, headers, "Bu değeri milyar TL olarak yaz.")
+    assert answer["answer"]["status"] == "abstained", answer
+
+    run = client.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"][0]
+    steps = trace(client, sid, headers, run["run_id"])["steps"]
+    gate = next(item for item in steps if item["name"] == "answer.gate")
+    assert gate["attributes"]["omitted_sentences"] == 1
+    assert "0,512259" in gate["detail"] and "withheld:" in gate["detail"]
+
+
 def test_traces_survive_a_restart_and_opening_one_calls_no_model(launch):
     runner, client = launch(table_step(), "Tablo hazır.")
     owner_token = owner(client)

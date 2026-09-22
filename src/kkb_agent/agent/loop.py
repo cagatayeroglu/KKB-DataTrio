@@ -41,6 +41,7 @@ from kkb_agent.agent.discovery import (
     catalog_feedback,
     proven_identities,
     required_discovery_instructions,
+    validate_address_read,
     validate_discovery_phase,
 )
 from kkb_agent.agent.document_continuation import DocumentContinuation, continue_document
@@ -74,6 +75,7 @@ from kkb_agent.agent.presentation import (
     display_value,
     endpoint_observations,
     format_number,
+    period_label,
     period_table,
 )
 from kkb_agent.agent.registry import RegistryError, ToolRegistry
@@ -106,7 +108,7 @@ from kkb_agent.llm.provider import (
     SchemaViolation,
 )
 from kkb_agent.llm.structured import schema_instructions
-from kkb_agent.tools.web_url import searched_addresses
+from kkb_agent.tools.web_url import addresses_in, searched_addresses
 
 if TYPE_CHECKING:  # pragma: no cover
     from duckdb import DuckDBPyConnection
@@ -123,10 +125,13 @@ SYNTHESIS_PROMPT = (
     "Figures: every number you write is checked against the results. Copy a figure "
     "exactly as its display phrase gives it - number, unit and scale - and name the "
     "period and the series it belongs to by its meaningful series name, not its code, "
-    "pairing each figure with its own period. Do not "
+    "pairing each figure with its own period; a period shown with a name in parentheses "
+    "('Ocak 2025') is written by that name, not as its dates. Do not "
     "calculate new numbers (differences, percentages, averages, rounded values): if a "
     "figure is not displayed, describe the pattern in words instead. A figure shown as "
-    "UNAVAILABLE or AMBIGUOUS is not quoted. Copy a count together with its listed role "
+    "UNAVAILABLE or AMBIGUOUS is not quoted, but it exists: never say that such a column "
+    "or period has no value; say that its values are in the table and that the source "
+    "states no unit for them, so they are not quoted. Copy a count together with its listed role "
     "phrase, which is what tells one count from another. Keep a price-reference date "
     "separate from a different period's figure: say it ('Aralık 2025 fiyatlarıyla') in a "
     "sentence of its own. For dimensionless displays, write the figure without that unit "
@@ -301,7 +306,10 @@ REPLY_INSTRUCTIONS = (
     "A message that needs no data and no calculation (a greeting, what you can do, what an "
     "earlier answer or column means, rephrasing an earlier answer) is answered with "
     "steps=[] and `reply`: short, natural Turkish, with no figure that is not already in an "
-    "earlier answer. Anything that needs new or recomputed figures, a web address or an "
+    "earlier answer. Writing an earlier figure at another scale is such a rephrasing: move "
+    "the decimal point exactly three places per step and keep the Turkish comma for "
+    "decimals (512.259 milyon TL is 512,259 milyar TL). Anything that needs new or "
+    "recomputed figures, a web address or an "
     "uploaded document needs tool steps. When the person names a tool, plan that tool; a "
     "request to search the web ('webde ara', 'web search ile bul') is planned with "
     "web_search, never answered from what you already know. A question outside "
@@ -458,7 +466,12 @@ def collect_results(outcome: ExecutionOutcome) -> tuple[AnalyticalResult, ...]:
 SEARCH_HEADER: Final = (
     "Web aramasında bulunan kaynak adayları (doğrulanmamış keşif bilgisi; sayfalar okunmadı):"
 )
-SEARCH_FOOTER: Final = "Bir sayfadaki tabloyu okumamı istersen adresini sorunda yaz."
+#: A page a search found can be read in the same turn (`web_url found_by`), so the person is
+#: no longer told that writing the address out is the only way.
+SEARCH_FOOTER: Final = (
+    "Bir sayfayı okumamı istersen adresini sorunda yaz ya da aramayla birlikte o sayfayı "
+    "okumamı iste."
+)
 #: Shown to the reader beside the Turkish scope notes, so it is written in Turkish too.
 SEARCH_LIMITATION: Final = (
     "Arama sonuçları doğrulanmamış keşif bilgisidir: başlıklar ve adresler arama "
@@ -609,6 +622,28 @@ def search_listing(outcome: ExecutionOutcome) -> str | None:
     return "\n".join([SEARCH_HEADER, *lines[:10], SEARCH_FOOTER])
 
 
+def search_note(outcome: ExecutionOutcome) -> str | None:
+    """What the writer must know about a web search it never sees the results of.
+
+    Live S2 (N49, 2026-09-22): the turn read the official series and ran the search the
+    person asked for, and the writer, shown only computed values, wrote that the search
+    step had returned nothing - under the list of what it had found.
+    """
+    found = sum(
+        len(getattr(item.output, "candidates", ()) or ())
+        for item in outcome.results
+        if item.tool == "web_search" and item.status in (ToolStatus.SUCCESS, ToolStatus.PARTIAL)
+    )
+    if not found:
+        return None
+    return (
+        f"A web search ran in this turn and returned {found} candidate pages. The reader is "
+        "shown them, as addresses, beneath your answer; you are not shown them and no page "
+        "was read. Do not say what the search found or did not find, and do not say it "
+        "returned nothing."
+    )
+
+
 #: How to read the outline that follows it: which tool each document calls for.
 DOCUMENT_TABLES_NOTE: Final = (
     "The message below outlines every document in this conversation. A document whose "
@@ -645,7 +680,9 @@ def document_reading(outcome: ExecutionOutcome) -> tuple[str, str, str] | None:
         if not text:
             continue
         name = str(getattr(item.output, "document", "") or "belge")
-        digest = str(getattr(item.output, "sha256", "") or "")[:12]
+        # A fetched document's digest already reads "sha256:..." and the header names the
+        # algorithm itself: the reader saw "sha256 sha256:8e4b2" (N48, live W5 2026-09-22).
+        digest = str(getattr(item.output, "sha256", "") or "").removeprefix("sha256:")[:12]
         return text, name, digest
     return None
 
@@ -1026,12 +1063,20 @@ def render_result(result: AnalyticalResult, ambiguous: frozenset[int] = frozense
             elif display is not None:
                 parts = [f"{prefix} display {display}"]
             else:
-                parts = [f"{prefix} display UNAVAILABLE (unresolved or unsupported unit/scale)"]
+                # Present, not absent. Live J1 (N47, 2026-09-22): the writer read UNAVAILABLE on
+                # the transaction-count columns of the organizer's gold table as "no value in
+                # any period", beside a table showing eight values in each.
+                parts = [
+                    f"{prefix} display UNAVAILABLE (a value is present, but its unit or scale "
+                    "is unresolved or unsupported, so it is not quoted)"
+                ]
             if not grouped:
                 parts.append(metadata)
             if value.period is not None:
+                named = period_label(value.period)
                 parts.append(
                     f"period {value.period.start.isoformat()}..{value.period.end.isoformat()}"
+                    + (f" ({named})" if named is not None else "")
                 )
             lines.append(", ".join(parts))
     if result.samples is not None:
@@ -1268,6 +1313,10 @@ class Session:
     _source_notes: tuple[str, ...] = field(default=(), init=False, repr=False)
     _execution: tuple[ExecutionState, ...] = field(default=(), init=False, repr=False)
     _status_claims: set[str] = field(default_factory=set, init=False, repr=False)
+    #: Addresses of this turn's own question that a plan already tried to read (N46).
+    _addresses_tried: set[str] = field(default_factory=set, init=False, repr=False)
+    #: What this turn's web search returned, for a writer that is shown no candidate (N49).
+    _search_note: str | None = field(default=None, init=False, repr=False)
     _current_versions: frozenset[str] = field(default=frozenset(), init=False, repr=False)
 
     def plan(self, question: str, workspace: Workspace | None = None) -> Planned:
@@ -1448,6 +1497,22 @@ class Session:
                 )
                 if self.selection is not None:
                     self.selection.validate_plan(validated, self.registry)
+                if not discovery and self.address_note is not None:
+                    # The person's address first (N46). The outline exists only when this
+                    # turn read an address the question gives, so a read of it can succeed;
+                    # a catalogue continuation may not read an address at all. An address
+                    # this turn already tried is not asked for again: "search only if the
+                    # address is insufficient" is the rest of the rule, and live W5
+                    # (2026-09-22) ended in silence when the follow found no such link and
+                    # the search that would have answered was refused for the same address.
+                    validate_address_read(
+                        validated,
+                        [
+                            address
+                            for address in addresses_in(question)
+                            if address not in self._addresses_tried
+                        ],
+                    )
                 if self.catalog_continuation:
                     validate_discovery_phase(
                         validated,
@@ -1644,6 +1709,13 @@ class Session:
                 reason=refusal.reason,
             )
         refused = plan_signature(planned.plan)
+        # What this plan asked of the person's own address, whatever the tool answered:
+        # the repair may search when reading it did not work (N46).
+        self._addresses_tried |= {
+            str(getattr(item.arguments, "url", "") or "")
+            for item in planned.plan.steps
+            if item.step.tool == "web_url"
+        }
         # The catalog already vouched for what this turn's discovery returned.
         proven_before = self.proven_series
         self.proven_series = self.proven_series | frozenset(self.newly_proven)
@@ -1764,6 +1836,16 @@ class Session:
             )
             if refused is not None and plan_signature(planned.plan) == refused:
                 raise PlanningFailed("Planner repeated the plan the tools refused")
+        # A failed step leaves the document a sibling step fetched alone only while a
+        # corrected plan is still coming. Live 2026-09-22 (W5): the announcements page the
+        # person named loaded, the planner's second address was refused by the authority
+        # boundary, nothing about that is repairable by planning again, and the reader was
+        # told no verifiable result could be produced about a page already in hand.
+        pending = (
+            allow_repair
+            and self._can_repair(budget, planned, outcome)
+            and runtime_refusal(outcome) is not None
+        )
         outcome = continue_document(
             outcome,
             planned.plan,
@@ -1772,6 +1854,7 @@ class Session:
             budget=budget,
             choose=self._document_choice,
             tracer=self.tracer,
+            repair_pending=pending,
         )
         refusal = (
             runtime_refusal(outcome)
@@ -1790,9 +1873,15 @@ class Session:
             with self.tracer.span("planning", "document.continuation") as span:
                 span.set(prompt_bytes=sum(len(m.content.encode()) for m in messages))
                 self.tracer.event("model", "model.started", phase="document.continuation")
-                completion = self.provider.complete(
-                    messages, model=self.model, schema=DocumentContinuation
-                )
+                try:
+                    completion = self.provider.complete(
+                        messages, model=self.model, schema=DocumentContinuation
+                    )
+                except SchemaViolation as error:
+                    # The category alone left two live turns unexplained (2026-09-22): the
+                    # fault names fields and error types, never a document's content.
+                    span.set(schema_fault=str(error)[:200])
+                    raise
                 _record_cost(span, completion)
                 parent = span.sequence
             self._trace_exchange(messages, completion, parent)
@@ -1911,8 +2000,10 @@ class Session:
         self._execution = ()
         self._current_versions = frozenset()
         self._status_claims.clear()
+        self._addresses_tried.clear()
         planned, outcome = self.run(question, workspace)
         self._execution = execution_states(outcome)
+        self._search_note = search_note(outcome)
         if self.acquisition_notes is not None:
             self._source_notes = tuple(self.acquisition_notes())
         if planned.plan.reply is not None:
@@ -2440,6 +2531,8 @@ class Session:
         )
         if states:
             answer = replace(answer, text=(answer.text + "\n\n" + states).strip())
+        if answer.status is not AnswerStatus.ABSTAINED:
+            answer = self._with_search_listing(answer, planned, outcome, connection, gate)
         return Answered(planned, outcome, results, answer, tables, presented)
 
     def _consumed_steps(self, plan: ValidatedPlan) -> set[str]:
@@ -2550,6 +2643,63 @@ class Session:
             ),
         )
 
+    def _with_search_listing(
+        self,
+        answer: GatedAnswer,
+        planned: Planned,
+        outcome: ExecutionOutcome,
+        connection: DuckDBPyConnection | None,
+        gate: Mapping[str, object],
+    ) -> GatedAnswer:
+        """A computed answer with the search the person asked for kept beneath it.
+
+        Live 2026-09-22 (N49): "Web araması yap: Aralık 2025'te konut kredisi faiz oranı
+        kaç?" planned the search beside the official series, and the listing, shown only
+        when nothing was computed, vanished from the answer. The hits are gated on their own
+        with no result in reach, so a title's figure binds to nothing and its line is
+        withheld exactly as in a search-only answer (DEC-158): the list never adds to the
+        verified figures, and a withheld line is reported without changing the status, like
+        a withheld footnote. A plan that read a page the search found answers from that page,
+        and the list, which says its pages were not read, is not added then.
+        """
+        candidates = search_candidates(outcome)
+        if not candidates:
+            return answer
+        found_pages = searched_addresses(outcome)
+        if any(
+            getattr(item.arguments, "found_by", None) is not None
+            or getattr(item.arguments, "url", None) in found_pages
+            for item in planned.plan.steps
+        ):
+            return answer
+        # Titles only, as a search-only answer gates them: an address asserts nothing, and
+        # reading one as a claim deleted the most relevant pages live (2026-09-22).
+        judged = self._gated(search_title_draft(candidates), {}, connection, gate)
+        withheld = "\n".join(item.text for item in judged.omitted)
+        kept = [
+            f"- {title} — {domain}: {url}"
+            for title, domain, url in candidates
+            if f"- {title}" not in withheld
+        ]
+        if not kept:
+            # Every title was withheld: a header over no candidate says nothing.
+            return replace(answer, omitted=(*answer.omitted, *judged.omitted))
+        shown = "\n".join([SEARCH_HEADER, *kept[:10], SEARCH_FOOTER])
+        if self.tracer is not None:
+            self.tracer.event(
+                "answer",
+                "search.listing",
+                source="web_search",
+                withheld_titles=len(judged.omitted),
+                detail=shown,
+            )
+        return replace(
+            answer,
+            text=answer.text + "\n\n" + shown,
+            omitted=(*answer.omitted, *judged.omitted),
+            limitations=(*answer.limitations, SEARCH_LIMITATION),
+        )
+
     def _reading_answer(
         self,
         planned: Planned,
@@ -2628,7 +2778,10 @@ class Session:
                 status="skipped",
                 reason="a conversational reply publishes nothing",
             )
-        answer = gate_answer(text, available, connection, **gate)  # type: ignore[arg-type]
+        # The same recorded gate as every other answer: a reply's withheld sentence and its
+        # reason reach the trace. Live G3 (N44) showed only `omitted_claims: 1`, and telling a
+        # wrong conversion from a right one took a second live turn.
+        answer = self._gated(text, available, connection, gate)
         if not answer.verdict.numbers and not answer.omitted:
             # Binding limitations describe figures; a reply without any states none.
             answer = replace(answer, limitations=())
@@ -2685,6 +2838,8 @@ class Session:
             messages.append(Message(Role.SYSTEM, INCOMPLETE_STEPS_NOTE + "\n" + listed))
         if self._execution:
             messages.append(Message(Role.SYSTEM, writer_state(self._execution)))
+        if self._search_note is not None:
+            messages.append(Message(Role.SYSTEM, self._search_note))
         if self._source_notes:
             messages.append(
                 Message(

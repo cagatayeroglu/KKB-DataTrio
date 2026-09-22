@@ -8,6 +8,7 @@ import math
 import os
 import re
 import sys
+import time
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -124,6 +125,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             "(DEC-176: the BDDK monthly bulletin's tables and rows) are a second catalogue "
             "tier, searched after the reviewed one and fetched on first use by the same "
             "adapters. The vectors must be built once for the larger catalogue"
+        ),
+    )
+    parser.add_argument(
+        "--allow-catalog-edits",
+        action="store_true",
+        help=(
+            "Let the knowledge page archive, alias or describe reviewed and listed catalogue "
+            "entries. Such a note changes every browser's searches and turns, so it is the "
+            "operator's decision (DEC-162): without this flag every browser key reads the "
+            "catalogue notes but none may change them; with it, any browser key of this local "
+            "installation may, and every edit records its author"
         ),
     )
     parser.add_argument(
@@ -314,6 +326,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             if index is not None:
                 from kkb_agent.catalog.embedding import (
                     RUNTIME_QUERY_POLICY,
+                    EmbeddingStats,
                     embed_catalog,
                     profile_for,
                     query_embedder,
@@ -335,23 +348,49 @@ def main(argv: Sequence[str] | None = None) -> int:
                         query_embedder(provider, RUNTIME_QUERY_POLICY, origin="kloudeks"),
                     )
 
-                def rebuild(catalog: ReviewedSnapshot) -> CatalogDenseStage:
+                def rebuild(
+                    catalog: ReviewedSnapshot, previous: LocalCatalogIndex | None
+                ) -> CatalogDenseStage:
                     """A generation for exactly this catalogue, with the configured profile.
 
                     Generations are immutable and named by the catalogue they cover,
                     so an earlier one is reopened instead of embedded again, and a
-                    failed build never damages the one in use.
+                    failed build never damages the one in use. An entry whose text the
+                    generation in use embedded under this same profile keeps its vector;
+                    only new or changed entries are embedded.
                     """
                     existing = reopen(catalog)
                     if existing is not None:
                         return existing
+                    began = time.perf_counter()
+                    stats = EmbeddingStats()
                     vectors = embed_catalog(
-                        provider, catalog, RUNTIME_QUERY_POLICY, origin="kloudeks"
+                        provider,
+                        catalog,
+                        RUNTIME_QUERY_POLICY,
+                        origin="kloudeks",
+                        stats=stats,
+                        reuse=previous,
                     )
                     build_catalog_index(generations / catalog.content_sha256, catalog, vectors)
                     built = reopen(catalog)
                     if built is None:  # pragma: no cover - the build above wrote it
                         raise ValueError("generation was not written")
+                    # Counts and seconds only: what the build cost, never what it read.
+                    print(
+                        json.dumps(
+                            {
+                                "catalog_index_built": catalog.content_sha256[:12],
+                                "entries": len(vectors.vectors),
+                                "embedded": stats.texts,
+                                "reused": stats.reused,
+                                "embedding_requests": stats.requests,
+                                "embedding_seconds": round(stats.seconds, 1),
+                                "seconds": round(time.perf_counter() - began, 1),
+                            }
+                        ),
+                        flush=True,
+                    )
                     return built
 
             knowledge_service = KnowledgeService(
@@ -370,6 +409,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 source_directory=directory,
                 discovered=discovered,
                 install_directory=runner.use_directory,
+                catalog_edits=args.allow_catalog_edits,
             )
             # The one direction back into the runner: the knowledge base's own
             # validated write, so a conversation's save is the page's save (DEC-183).

@@ -214,3 +214,92 @@ def test_compact_writer_cells_keep_every_period_and_unknown_semantics():
     ambiguous = render_result(result, frozenset({1}))
     assert "display AMBIGUOUS" in ambiguous
     assert f"display {display_value(result.values[1])}" not in ambiguous
+
+
+def test_a_count_column_without_a_stated_unit_is_present_not_absent():
+    # Live J1 (N47, 2026-09-22): the organizer's gold table carries eight transaction counts
+    # per currency, headed "İşlem Sayısı/ Number of Trans." with no unit. The writer read
+    # UNAVAILABLE as "no value in any period" and told the reader the column was empty.
+    from datetime import date
+
+    from kkb_agent.agent.loop import SYNTHESIS_PROMPT, render_result
+    from kkb_agent.core import (
+        AnalyticalResult,
+        Frequency,
+        Period,
+        ResultEvidence,
+        ResultKind,
+        ResultStatus,
+        ResultValue,
+        Scale,
+    )
+
+    months = [
+        Period(start=date(2026, m, 1), end=date(2026, m, 28), frequency=Frequency.MONTHLY)
+        for m in (1, 2, 3)
+    ]
+    values = [
+        ResultValue(label="TL Miktar/Amount (KG)", value=v, unit="kg", scale=Scale.ONE, period=p)
+        for v, p in zip((13837.0, 12001.0, 6316.0), months, strict=True)
+    ] + [
+        ResultValue(label="TL İşlem Sayısı", value=v, unit=None, scale=Scale.ONE, period=p)
+        for v, p in zip((4821.0, 4410.0, 3977.0), months, strict=True)
+    ]
+    result = AnalyticalResult(
+        result_id="gold",
+        kind=ResultKind.SERIES,
+        status=ResultStatus.COMPUTED,
+        tool="web_url",
+        values=values,
+        evidence=ResultEvidence(input_refs=["document:gold"]),
+        unresolved_semantics=["TL İşlem Sayısı: the document states no unit or scale"],
+    )
+    rendered = render_result(result)
+    assert "display 13.837 kg" in rendered
+    count_lines = [line for line in rendered.splitlines() if "UNAVAILABLE" in line]
+    assert len(count_lines) == 3
+    assert all("a value is present" in line for line in count_lines)
+    assert "never say that such a column or period has no value" in SYNTHESIS_PROMPT
+
+
+def test_a_monthly_period_reaches_the_writer_with_the_name_a_reader_uses(monkeypatch):
+    # N48 (live DeepSeek, 2026-09-22): shown only "2025-01-01..2025-01-31", the writer wrote
+    # "2025-01-01..2025-01-31 döneminde" into Turkish prose.
+    from datetime import date
+
+    from kkb_agent.agent.loop import SYNTHESIS_PROMPT, render_result
+    from kkb_agent.agent.presentation import period_label
+    from kkb_agent.agent.verifier import AnswerStatus, gate_answer
+    from kkb_agent.core import (
+        AnalyticalResult,
+        Frequency,
+        Period,
+        ResultEvidence,
+        ResultKind,
+        ResultStatus,
+        ResultValue,
+        Scale,
+    )
+
+    may = Period(start=date(2025, 5, 1), end=date(2025, 5, 31), frequency=Frequency.MONTHLY)
+    value = ResultValue(label="credit", value=100.0, unit="TRY", scale=Scale.MILLION, period=may)
+    result = AnalyticalResult(
+        result_id="credit",
+        kind=ResultKind.LEVEL,
+        status=ResultStatus.COMPUTED,
+        tool="lakehouse",
+        values=[value],
+        evidence=ResultEvidence(input_refs=["gold_cells"]),
+    )
+    assert "period 2025-05-01..2025-05-31 (Mayıs 2025)" in render_result(result)
+    assert "('Ocak 2025') is written by that name" in SYNTHESIS_PROMPT
+    # A week that starts on the first of a month is not that month.
+    week = Period(start=date(2025, 12, 1), end=date(2025, 12, 1), frequency=Frequency.DAILY)
+    assert period_label(week) is None
+    # The name binds back to the value's own period, and to no other.
+    monkeypatch.setattr("kkb_agent.agent.verifier.execution_proof", lambda result, db: True)
+    named = {"credit": result}
+    assert gate_answer("Mayıs 2025'te 100 milyon TL.", named).status is AnswerStatus.ACCEPTED
+    assert gate_answer("Haziran 2025'te 100 milyon TL.", named).status is not (
+        AnswerStatus.ACCEPTED
+    )

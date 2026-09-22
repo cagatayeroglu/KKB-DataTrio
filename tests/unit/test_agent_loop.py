@@ -501,6 +501,18 @@ def test_reply_instructions_cover_an_asked_for_web_search_and_a_question_outside
     assert "outside finance" in REPLY_INSTRUCTIONS
 
 
+def test_web_instructions_pair_an_asked_for_search_with_the_official_series():
+    """Live 2026-09-22 (N49): "Web araması yap: Aralık 2025'te konut kredisi faiz oranı
+    kaç?" was planned as a search alone, though the catalogue lists the official series.
+    The search and a read of that series by its ID belong in one plan; catalog_search may
+    not share a plan with web_search, so the guidance says to read it without one."""
+    from kkb_agent.agent.discovery import WEB_ADDRESS_INSTRUCTIONS
+
+    assert "Read an explicit user URL first" in WEB_ADDRESS_INSTRUCTIONS
+    assert "plan the web_search and a lakehouse" in WEB_ADDRESS_INSTRUCTIONS
+    assert "in the same plan, without catalog_search" in WEB_ADDRESS_INSTRUCTIONS
+
+
 def test_today_instructions_ask_for_the_period_before_a_change_range():
     """A 2025-only table cannot show January's change (live finding L2-1)."""
     from datetime import date

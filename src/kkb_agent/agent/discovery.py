@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from typing import Final
 
 from kkb_agent.agent.executor import (
@@ -124,8 +124,42 @@ WEB_ADDRESS_INSTRUCTIONS = (
     "Use the address outline for table selection or bounded follow; if the read is "
     "insufficient, follow or search within the existing authority boundary. "
     "Honor an explicit request for web_search; official prepared data may complement "
-    "search when it supplies the requested financial values."
+    "search when it supplies the requested financial values: when the search is about a "
+    "figure that an official series listed in this prompt provides (a lakehouse prepared "
+    "series or another catalogue ID you were given), plan the web_search and a lakehouse "
+    "read of that series by its ID in the same plan, without catalog_search, so the reader "
+    "gets the verified official figure beside the search results."
 )
+#: Why a plan for a question with a readable address was refused (N46). Fed back verbatim.
+ADDRESS_FIRST = (
+    "This question gives a web address and no step of this plan reads it. Read the address "
+    "the person wrote first; search only if it is insufficient: plan web_url with url=<the "
+    "address exactly as written> (with follow=<a link's text> when the answer sits behind a "
+    "link on that page), or table_transform add_document_column with that url. A web_search "
+    "may stay in the same plan beside that read"
+)
+
+
+def validate_address_read(plan: ValidatedPlan, addresses: Collection[str]) -> None:
+    """Refuse a plan that runs tools but reads none of the addresses the person wrote.
+
+    Live 2026-09-22 (N46): the question named a TCMB announcements page and asked for the
+    rate decision of 21 March 2024 linked from it. The page had been read for its outline,
+    yet the planner searched the web, read a different page the search found and followed a
+    link there: the person's own address was never used. Which page answers is not the
+    model's choice once the person wrote one (DEC-135), so a step must name one of
+    `addresses` as its `url` (web_url, with or without follow, or table_transform
+    add_document_column). A web_search beside that read stays, because the person may ask
+    for both; a plan with no steps (a clarification) is not a read and is not refused.
+    """
+    if not addresses or not plan.steps:
+        return
+    wanted = set(addresses)
+    for step in plan.steps:
+        arguments = step.arguments.model_dump()
+        if isinstance(arguments, dict) and arguments.get("url") in wanted:
+            return
+    raise PlanRejected(ADDRESS_FIRST, category=RejectionCategory.DISCOVERY_RULE)
 
 
 def proven_identities(outcome: ExecutionOutcome) -> frozenset[str]:

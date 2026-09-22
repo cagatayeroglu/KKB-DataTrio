@@ -11,8 +11,9 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from test_catalog_continuation import CATALOG, seed_prepared
+from test_catalog_continuation import CATALOG, TOTAL, seed_prepared
 
+from kkb_agent.agent.loop import SEARCH_FOOTER, SEARCH_HEADER, SEARCH_LIMITATION
 from kkb_agent.api.prepared import PreparedRunner
 from kkb_agent.ingest.safe_fetch import FetchFailure, FetchSuccess, safe_fetch
 from kkb_agent.llm import scripted
@@ -127,6 +128,18 @@ class FixedBackend:
         )
 
 
+@dataclass(frozen=True)
+class EchoingBackend:
+    """The fixed hits, and one whose title repeats a figure the served turn computes."""
+
+    def search(self, request: SearchRequest) -> SearchReply:
+        echo = BackendHit(
+            title="Haziran 2026'da toplam konut kredisi 150 milyon TL",
+            url="https://news.example.com/konut",
+        )
+        return SearchReply(hits=(*FixedBackend().search(request).hits, echo))
+
+
 def test_a_served_search_is_shown_as_a_list_and_an_unverified_figure_is_withheld(tmp_path):
     root = tmp_path / "prepared"
     seed_prepared(root)
@@ -161,7 +174,100 @@ def test_a_served_search_is_shown_as_a_list_and_an_unverified_figure_is_withheld
     assert "adresini sorunda yaz" in answer.text
 
 
-def test_without_a_backend_there_is_no_web_search_tool(tmp_path):
+def test_a_search_asked_for_beside_an_official_series_keeps_its_list(tmp_path):
+    """Live 2026-09-22 (N49): "Web araması yap: ... konut kredisi faiz oranı kaç?" planned
+    the search and the official series, and the answer kept only the series: the list was
+    shown only when nothing was computed. Both are the answer now, and the list is still
+    gated on its own, so a title's figure stays withheld even when the computed table holds
+    that very figure."""
+    root = tmp_path / "prepared"
+    seed_prepared(root)
+    plan = json.dumps(
+        {
+            "question": "q",
+            "steps": [
+                {"step_id": "s", "tool": "web_search", "arguments": {"query": "konut kredisi"}},
+                {"step_id": "k", "tool": "lakehouse", "arguments": {"series": [TOTAL]}},
+            ],
+        }
+    )
+    draft = "Haziran 2026'da toplam konut kredisi 150 milyon TL."
+    runner = PreparedRunner(
+        scripted(plan, draft),
+        root,
+        tmp_path / "runtime",
+        catalog_bytes=CATALOG.read_bytes(),
+        search_backend=EchoingBackend(),
+    )
+
+    answer = runner(
+        uuid4().hex, uuid4().hex, "Web araması yap: Haziran 2026'da toplam konut kredisi ne?"
+    )
+
+    assert answer.status.value == "accepted", answer
+    assert answer.result is not None and len(answer.result.cells) == 3  # the official table
+    figures, found = answer.text.split("\n\n", 1)
+    assert figures == draft
+    assert found.startswith(SEARCH_HEADER) and found.endswith(SEARCH_FOOTER)
+    assert "BDDK aylık bülten — www.bddk.org.tr" in found
+    assert "TCMB EVDS — evds3.tcmb.gov.tr: https://evds3.tcmb.gov.tr/" in found
+    # Both figure-bearing titles are withheld: the one nothing holds, and the one repeating
+    # the official figure the answer itself states. A search title is never evidence.
+    assert "yüzde 45" not in found and "news.example.com" not in found
+    assert answer.omitted_claims == 2
+    assert SEARCH_LIMITATION in answer.notices
+    # The writer is shown no candidate, so it is told one ran: live S2 (N49) it wrote that
+    # the search step had returned nothing, under the list of what it had found.
+    written = runner._provider.seen[-1]
+    note = next(m.content for m in written if m.content.startswith("A web search ran"))
+    assert "4 candidate pages" in note and "do not say it returned nothing" in note
+
+
+def test_a_page_the_search_found_and_a_step_read_is_the_answer_without_the_list(tmp_path):
+    """The list says its pages were not read; after a step read one, that is not so."""
+    from test_document_check import CSV, DRAFT
+    from test_page_links import Site
+    from test_web_search_tool import FakeSearchBackend
+
+    from kkb_agent.agent import Session, ToolRegistry
+    from kkb_agent.lakehouse import open_lakehouse
+    from kkb_agent.tools.web_search import make_web_search_tool
+    from kkb_agent.tools.web_url import make_web_url_tool
+
+    found = "https://data.example.test/tablo.csv"
+    plan = json.dumps(
+        {
+            "question": "q",
+            "steps": [
+                {"step_id": "s", "tool": "web_search", "arguments": {"query": "tutar"}},
+                {
+                    "step_id": "r",
+                    "tool": "web_url",
+                    "arguments": {
+                        "found_by": "s",
+                        "delimiter": ",",
+                        "column": "Tutar",
+                        "row": "2026-01-31",
+                    },
+                    "depends_on": ["s"],
+                },
+            ],
+        }
+    )
+    with open_lakehouse(tmp_path / "lake") as lake:
+        registry = ToolRegistry()
+        registry.register(
+            make_web_search_tool(
+                backend=FakeSearchBackend(SearchReply(hits=(BackendHit(title="Tablo", url=found),)))
+            )
+        )
+        site = Site({found: (CSV, "text/csv")})
+        registry.register(make_web_url_tool(fetch=site, lineage=lake.lineage))
+        answered = Session(scripted(plan, DRAFT), registry).answer(
+            "Tutarı web'de ara ve bulduğun tabloyu oku", lake.connection
+        )
+    assert answered.answer.status.value == "accepted", answered.answer
+    assert answered.answer.text == DRAFT and SEARCH_HEADER not in answered.answer.text
     root = tmp_path / "prepared"
     seed_prepared(root)
     runner = PreparedRunner(
