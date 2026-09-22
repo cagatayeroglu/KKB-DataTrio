@@ -206,12 +206,19 @@ class StaticParser(HTMLParser):
         self.add_text(data)
         if self.cell is not None:
             self.add_cell(data)
-        elif self.row is not None and data.strip():
-            self.fail()
 
     def result(self) -> dict[str, object]:
-        if self.stack or self.rows is not None:
-            self.fail()
+        # An unclosed tag is ordinary in served HTML, and an unclosed table is simply not
+        # a table: the partial one is dropped and the page's text and links survive.
+        # Failing the whole document for it discarded a page the fetcher had already
+        # downloaded in full — live 2026-09-22, the ODMD market-report index came back
+        # MALFORMED_DOCUMENT at 113 KB, so the planner could not follow the link to the
+        # PDF it had been asked to read and the turn ended with nothing. Numbers still
+        # only ever come from a table that opened and closed as one.
+        if self.rows is not None:
+            self.rows = None
+            self.row = None
+            self.cell = None
         text = "\n".join(
             " ".join(line.split()) for line in "".join(self.text).splitlines() if line.strip()
         )
