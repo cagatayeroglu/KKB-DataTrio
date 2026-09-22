@@ -67,6 +67,7 @@ from kkb_agent.tools._document_value import (
     _text,
     header_matches,
     header_semantics,
+    is_annotation_label,
     is_total_label,
 )
 
@@ -259,7 +260,7 @@ def _daily(grid: Grid, period_index: int) -> bool:
     dated = False
     for cells in grid.rows:
         raw = cells[period_index] if period_index < len(cells) else None
-        if _empty(raw) or is_total_label(raw):
+        if _empty(raw) or is_total_label(raw) or is_annotation_label(raw):
             continue
         if calendar_day(raw) is None:
             return False

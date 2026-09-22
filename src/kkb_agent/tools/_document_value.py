@@ -109,7 +109,7 @@ _UNITS = {
     "index": "index",
 }
 _ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
-_DOTTED_DATE = re.compile(r"(\d{2})\.(\d{2})\.(\d{4})")
+_DOTTED_DATE = re.compile(r"(\d{2})[.-](\d{2})[.-](\d{4})")
 #: Folded Turkish and English month names (DEC-116 normaliser output).
 MONTH_NAMES = {
     name: number
@@ -132,9 +132,17 @@ MONTH_NAMES = {
     )
     for name in names
 }
-_YEAR_MONTH = re.compile(r"(\d{4})-(\d{2})")
-_MONTH_YEAR = re.compile(r"(\d{2})\.(\d{4})")
-_NAMED_MONTH = re.compile(r"([a-z]+) (\d{4})")
+MONTH_NAMES.update(
+    {
+        name: i
+        for i, name in enumerate(
+            ("oca", "sub", "mar", "nis", "may", "haz", "tem", "agu", "eyl", "eki", "kas", "ara"), 1
+        )
+    }
+)
+_YEAR_MONTH = re.compile(r"(\d{4})[-m](\d{1,2})")
+_MONTH_YEAR = re.compile(r"(\d{1,2})[./](\d{4})")
+_NAMED_MONTH = re.compile(r"([a-z]+)[ -](\d{4}|\d{2})")
 #: A digit convention a whole table establishes (DEC-148): Turkish groups with
 #: dots and decimals with a comma, English the other way round.
 type Convention = Literal["tr", "en"]
@@ -403,6 +411,13 @@ def total_checked(rows: Iterable[Iterable[object]]) -> tuple[bool, ...]:
     return tuple(checked)
 
 
+def is_annotation_label(raw: object) -> bool:
+    text = _text(raw).strip()
+    return normalize_search_text(text) in {"ortalama", "average"} or bool(
+        re.match(r"^(?:kaynak|source)\s*:", text, re.IGNORECASE)
+    )
+
+
 def is_total_label(label: object) -> bool:
     """A row label naming the table's total (`Toplam`, `TOPLAM / TOTAL`)."""
     if not isinstance(label, str):
@@ -554,7 +569,9 @@ def month_label(label: str, year: int | None = None) -> date | None:
     if match := _MONTH_YEAR.fullmatch(text):
         return last_day(int(match[2]), int(match[1]))
     if (match := _NAMED_MONTH.fullmatch(text)) and match[1] in MONTH_NAMES:
-        return last_day(int(match[2]), MONTH_NAMES[match[1]])
+        # The explicitly supported short-year document syntax is 20YY.
+        named_year = int(match[2]) + (2000 if len(match[2]) == 2 else 0)
+        return last_day(named_year, MONTH_NAMES[match[1]])
     if year is not None and text:
         months = {MONTH_NAMES.get(part.strip()) for part in text.split("/")}
         if len(months) == 1 and None not in months:

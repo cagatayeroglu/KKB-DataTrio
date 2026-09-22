@@ -121,7 +121,7 @@ def test_a_column_with_fewer_than_two_values_is_left_out():
         ([grid(headers=("Ay", "Ay", *HEADERS[2:]))], "AMBIGUOUS_COLUMN"),
         ([grid(), grid(location={"table": 2})], "AMBIGUOUS_COLUMN"),
         ([grid(rows=(*ROWS, ("2026-06", "1", "1", "1", "1")))], "DUPLICATE_PERIOD"),
-        ([grid(rows=(*ROWS, ("Ortalama", "1", "1", "1", "1")))], "PERIOD_NOT_RECOGNISED"),
+        ([grid(rows=(*ROWS, ("Belirsiz", "1", "1", "1", "1")))], "PERIOD_NOT_RECOGNISED"),
         # A period column names one kind of period; a day among month labels is neither.
         (
             [grid(rows=(("2026-04-15", "1", "1", "1", "1"), ("Mayıs", "2", "2", "2", "2")))],
