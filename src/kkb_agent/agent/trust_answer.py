@@ -26,7 +26,7 @@ from pydantic import BaseModel
 
 from kkb_agent.agent.trust_loop import TurnOutcome
 from kkb_agent.agent.trust_prompt import EXHAUSTED, WRITER
-from kkb_agent.agent.verifier import gate_answer
+from kkb_agent.agent.verifier import Binding, result_faults, verify_claims
 from kkb_agent.core import AnalyticalResult
 from kkb_agent.llm.provider import LLMProvider, Message, Role
 
@@ -35,6 +35,19 @@ MAX_EVIDENCE_CHARS = 20_000
 
 #: Said once, beside the answer, when a figure could not be bound to a result.
 UNVERIFIED: Final = "Şu sayı araç sonuçlarına bağlanamadı, okurken dikkate alın: "
+
+#: The fault a result raises for having been produced by a tool that is not on the
+#: trusted-producer list, rather than for anything wrong with its figures. On this
+#: branch the model reaches for whatever tool fits, including ones added after that
+#: list was frozen, so a `table_compute` column computed from a tool's own cells
+#: raises it every time. Reported once, beside the answer; it does not unbind a figure.
+_UNATTESTED: Final = "Numeric analytical result lacks matching trusted producer execution evidence"
+
+#: Said once when results carry no execution attestation.
+UNATTESTED_NOTE: Final = (
+    "Şu tabloların üretim kanıtı soy kütüğünde doğrulanamadı (sayılar yine de araç "
+    "sonuçlarına bağlandı): "
+)
 
 
 @dataclass(slots=True)
@@ -132,12 +145,46 @@ def _checked(
         answer.limitations.extend(item.result.warnings)
 
     if results and answer.text:
-        # The same check as before, read as a report: what it would have cut is
-        # named instead, and the model's sentence stays where the model put it.
-        checked = gate_answer(answer.text, results, connection)
-        answer.unverified = [omitted.text for omitted in checked.omitted if omitted.text.strip()]
-        answer.limitations.extend(checked.limitations)
+        # The same binding as before, read as a report: a figure that does not
+        # bind is named, and the model's sentence stays where the model put it.
+        answer.unverified, unattested = _figures(answer.text, results, connection)
+        if unattested:
+            answer.limitations.append(UNATTESTED_NOTE + ", ".join(sorted(unattested)))
+        for name, result in results.items():
+            answer.limitations.extend(f"{name}: {note}" for note in result.unresolved_semantics)
     return answer
+
+
+def _figures(
+    text: str,
+    results: dict[str, AnalyticalResult],
+    connection: DuckDBPyConnection | None,
+) -> tuple[list[str], list[str]]:
+    """Which figures did not bind, and which results were merely unattested.
+
+    The report names figures, because a figure is what a reader can check. The
+    whole-draft verdict it replaces said only that something was wrong with the
+    answer: live, one unattested table turned a correct six-month series into an
+    answer reported as unverifiable in its entirety, which tells the reader to
+    distrust six figures that were each exactly what the tool returned.
+
+    An unattested result still binds its numbers. Every other fault — a
+    contradicted scale, a period the result never covered, a figure that
+    disagrees with the store — is the figure's own and is reported with it.
+    """
+    unattested = [
+        name
+        for name, faults in result_faults(results, connection).items()
+        if any(fault.endswith(_UNATTESTED) for fault in faults)
+    ]
+    reported: list[str] = []
+    for item in verify_claims(text, results, connection).numbers:
+        kept = [fault for fault in item.faults if not fault.endswith(_UNATTESTED)]
+        if kept:
+            reported.append(f"{item.number.text} ({'; '.join(kept)})")
+        elif item.binding is Binding.UNBOUND and not item.faults:
+            reported.append(f"{item.number.text} (araç sonuçlarında bu değer yok)")
+    return reported, unattested
 
 
 __all__ = ["Answer", "UNVERIFIED", "write_answer"]

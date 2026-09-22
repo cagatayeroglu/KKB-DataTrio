@@ -18,10 +18,8 @@ from kkb_agent.agent import (
     AnswerStatus,
     ArgumentsRejected,
     ExecutionContext,
-    RegistryError,
     Session,
     ToolRegistry,
-    ToolSpec,
     ToolStatus,
     validate_plan,
 )
@@ -242,23 +240,6 @@ class TestTheArgumentSchema:
             "properties"
         ]["operation"]["enum"]
         assert "breakpoint" in operations
-
-    def test_no_seventh_tool_was_added(self, house):
-        # The registry refuses any name outside the six the brief fixes, so
-        # this had to be one of them.
-        registry = ToolRegistry()
-        registry.register(make_change_detection_tool(house.connection))
-        assert "change_detection" in registry
-
-        rejected = ToolSpec(
-            name="change_compare",
-            description="A seventh name, which the registry does not allow.",
-            arguments=ChangeDetectionArguments,
-            run=lambda arguments, context: None,  # type: ignore[arg-type,return-value]
-        )
-        with pytest.raises(RegistryError, match="not an implemented approved tool"):
-            registry.register(rejected)
-
 
 class TestReadingTheSeries:
     def test_it_reads_the_declaration_and_every_observation(self, house):

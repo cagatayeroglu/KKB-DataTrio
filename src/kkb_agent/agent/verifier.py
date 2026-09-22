@@ -360,13 +360,28 @@ def _rescaled(
     the model's own "0,512259 milyar TL" (a thousandfold error, live G3b) still matches
     nothing. "512,259" after such a word is read the Turkish way, as a decimal; every
     other written form keeps the reading `parse_written` gave it.
+
+    Writing a figure at a **coarser** scale spends digits: 49.046 milyon TL is 49,046
+    milyar, and an answer that says "49,0 milyar" has not approximated out of vagueness
+    but written the number that scale can hold. The binding tolerance is 0.05%, sized to
+    catch a mistyped digit, so it refused a conversion the answer was right to make (live
+    2026-09-22, six correct months reported as unbound). Such a figure binds when it is
+    the correct rounding at the precision it was written to — the same test
+    `_rounds_as_written` applies, justified here by the scale rather than by a hedge word,
+    because "49,0 milyar" already states how precise it is. A rounding that is wrong at
+    that precision, and the thousandfold error above, still match nothing.
     """
     if written is None or value.scale in (Scale.UNKNOWN, written):
         return False
     reading = number.value
     if _TURKISH_DECIMAL_OF_THREE.fullmatch(number.text.strip()):
         reading = float(number.text.strip().replace(",", "."))
-    return _close(reading * written.factor, value.value * value.scale.factor, tolerance)
+    exact = value.value * value.scale.factor
+    if _close(reading * written.factor, exact, tolerance):
+        return True
+    if written.factor <= value.scale.factor:
+        return False
+    return round(exact / written.factor, _written_decimals(number.text)) == reading
 
 
 def _semantics_fault(number: WrittenNumber, value: ResultValue) -> str | None:

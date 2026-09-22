@@ -85,7 +85,7 @@ def _gated(answer: Answer) -> GatedAnswer:
     if answer.unverified:
         limitations = (
             *limitations,
-            "Şu ifadeler araç sonuçlarına bağlanamadı: " + " / ".join(answer.unverified),
+            "Şu sayılar araç sonuçlarına bağlanamadı: " + " / ".join(answer.unverified),
         )
     status = AnswerStatus.QUALIFIED if (answer.unverified or limitations) else AnswerStatus.ACCEPTED
     if not answer.text.strip():

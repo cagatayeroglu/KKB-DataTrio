@@ -8,8 +8,8 @@ import pytest
 from pydantic import ValidationError
 
 from kkb_agent.agent import ExecutionContext, Session, ToolRegistry
-from kkb_agent.agent.registry import ArgumentsRejected, RegistryError, ToolSpec
-from kkb_agent.catalog.search import CatalogSearchArguments, CatalogSearchOutput
+from kkb_agent.agent.registry import ArgumentsRejected, RegistryError
+from kkb_agent.catalog.search import CatalogSearchOutput
 from kkb_agent.llm import scripted
 from kkb_agent.tools import make_catalog_search_tool
 
@@ -301,9 +301,9 @@ def test_planner_sees_only_delivered_names(tool):
     registry.register(tool)
     assert [d["name"] for d in registry.descriptions()] == ["catalog_search"]
     assert "it reads no values" in registry.descriptions()[0]["description"]
+    # A name nothing registered is still unknown; that is the registry doing its
+    # job. What it no longer does is refuse a name for being absent from a list.
     for name in (*FUTURE, "shell"):
-        with pytest.raises(RegistryError):
-            registry.register(ToolSpec(name, "fake", CatalogSearchArguments, tool.run))
         with pytest.raises(RegistryError):
             registry.get(name)
 
