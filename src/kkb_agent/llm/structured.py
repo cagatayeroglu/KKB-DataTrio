@@ -18,10 +18,10 @@ from collections.abc import Callable, Sequence
 
 from pydantic import BaseModel, ValidationError
 
-from kkb_agent.llm.provider import Completion, Message, Role, SchemaViolation
+from kkb_agent.llm.provider import Completion, Message, Role, SchemaViolation, ToolCall
 
-#: One model turn: the text it returned and, when the platform says, why it stopped.
-Ask = Callable[[list[Message]], tuple[str, str | None]]
+#: One model turn: the text, why it stopped, and any tools it asked to run.
+Ask = Callable[[list[Message]], tuple[str, str | None, tuple[ToolCall, ...]]]
 
 #: Only the first this many characters of a validation error are fed back. The
 #: message names fields and types, and a long one wastes a small context window.
@@ -119,9 +119,17 @@ def complete_with_repair(
     conversation = list(messages)
     last_problem = ""
     for attempt in range(1, max_attempts + 1):
-        text, finish_reason = ask(conversation)
-        if schema is None:
-            return Completion(text=text, model=model, attempts=attempt, finish_reason=finish_reason)
+        text, finish_reason, calls = ask(conversation)
+        if calls or schema is None:
+            # Tools asked for are the answer to this turn; there is no schema to
+            # satisfy and nothing to repair.
+            return Completion(
+                text=text,
+                model=model,
+                attempts=attempt,
+                finish_reason=finish_reason,
+                tool_calls=calls,
+            )
         try:
             parsed = parse_structured(text, schema)
         except SchemaViolation as error:

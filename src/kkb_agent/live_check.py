@@ -155,8 +155,9 @@ class _Counting:
         *,
         model: str | None = None,
         schema: type[BaseModel] | None = None,
+        tools: Sequence[Mapping[str, object]] | None = None,
     ) -> Completion:
-        completion = self.inner.complete(messages, model=model, schema=schema)
+        completion = self.inner.complete(messages, model=model, schema=schema, tools=tools)
         self.attempts.append(completion.attempts)
         return completion
 

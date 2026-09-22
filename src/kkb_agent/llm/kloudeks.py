@@ -28,7 +28,7 @@ from __future__ import annotations
 import base64
 import json
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from math import isfinite
 from typing import Any, Final
@@ -49,6 +49,7 @@ from kkb_agent.llm.provider import (
     RateLimited,
     Refused,
     Role,
+    ToolCall,
     TransportError,
     Usage,
 )
@@ -145,6 +146,7 @@ class KloudeksProvider:
         *,
         model: str | None = None,
         schema: type[BaseModel] | None = None,
+        tools: Sequence[Mapping[str, object]] | None = None,
     ) -> Completion:
         chosen = self._config.planner_model if model is None else model
         if chosen not in self._chat_models:
@@ -158,7 +160,9 @@ class KloudeksProvider:
         spent: list[Usage] = []
         reasoning: list[str] = []
 
-        def ask(conversation: list[Message]) -> tuple[str, str | None]:
+        def ask(
+            conversation: list[Message],
+        ) -> tuple[str, str | None, tuple[ToolCall, ...]]:
             body: dict[str, object] = {
                 "model": chosen,
                 "messages": _wire_messages(conversation),
@@ -169,6 +173,10 @@ class KloudeksProvider:
                 # call is never truncated (DEC-161 follow-up).
                 "max_tokens": self._config.max_output_tokens,
             }
+            if tools:
+                # The model decides what to run; the server only needs the menu.
+                body["tools"] = list(tools)
+                body["tool_choice"] = "auto"
             if json_mode:
                 # Opt-in only: Q-K-03 has not confirmed guaranteed JSON output,
                 # so strict local validation still decides.
@@ -253,7 +261,7 @@ class KloudeksProvider:
             ],
             "temperature": 0.0,
         }
-        text, finish_reason = _choice(self._post(CHAT_PATH, body))
+        text, finish_reason, _ = _choice(self._post(CHAT_PATH, body))
         return Completion(text=text, model=model, finish_reason=finish_reason)
 
     def ocr(self, images: Sequence[bytes]) -> Completion:
@@ -278,7 +286,7 @@ class KloudeksProvider:
                 {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{inline}"}}
             )
         blocks.append({"type": "text", "text": "<image>\ndocument parsing"})
-        text, finish = _choice(
+        text, finish, _ = _choice(
             self._post(
                 CHAT_PATH,
                 {
@@ -392,7 +400,7 @@ def _read_capped(response: httpx.Response, deadline: float) -> bytes:
     return b"".join(chunks)
 
 
-def _choice(document: dict[str, Any]) -> tuple[str, str | None]:
+def _choice(document: dict[str, Any]) -> tuple[str, str | None, tuple[ToolCall, ...]]:
     """The first choice's text and finish reason, or why there is none."""
     choices = document.get("choices")
     if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
@@ -407,9 +415,35 @@ def _choice(document: dict[str, Any]) -> tuple[str, str | None]:
     ):
         raise Refused("The model declined to answer")
     content = message.get("content") if isinstance(message, dict) else None
+    calls = _tool_calls(message if isinstance(message, dict) else {})
     if not isinstance(content, str):
+        # A model that asked for tools sends no prose with them: OpenAI-compatible
+        # servers put `content: null` beside `tool_calls`. Treating that as a
+        # transport fault made the whole turn unrepresentable.
+        if calls:
+            return "", finish_reason, calls
         raise ProviderError("Kloudeks returned no message content")
-    return content, finish_reason
+    return content, finish_reason, calls
+
+
+def _tool_calls(message: Mapping[str, Any]) -> tuple[ToolCall, ...]:
+    """The tool calls in one choice, skipping anything that is not one."""
+    raw = message.get("tool_calls")
+    if not isinstance(raw, list):
+        return ()
+    found: list[ToolCall] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        function = item.get("function")
+        identifier = item.get("id")
+        if not isinstance(function, dict) or not isinstance(identifier, str):
+            continue
+        name = function.get("name")
+        arguments = function.get("arguments")
+        if isinstance(name, str) and isinstance(arguments, str):
+            found.append(ToolCall(id=identifier, name=name, arguments=arguments))
+    return tuple(found)
 
 
 def _usage(document: dict[str, Any]) -> Usage | None:

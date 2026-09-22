@@ -13,7 +13,7 @@ that carries the key, and no hosted-LLM endpoint or key variable appears here.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Literal, Protocol, runtime_checkable
@@ -27,6 +27,22 @@ class Role(StrEnum):
     SYSTEM = "system"
     USER = "user"
     ASSISTANT = "assistant"
+    #: What a tool returned, addressed to the call that asked for it.
+    TOOL = "tool"
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCall:
+    """One tool the model asked for, as it named it.
+
+    `arguments` is the raw JSON string the model produced. It is parsed where the
+    tool is dispatched, so a malformed argument is that tool's observation rather
+    than a transport error that ends the turn.
+    """
+
+    id: str
+    name: str
+    arguments: str = field(repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +55,10 @@ class Message:
 
     role: Role
     content: str = field(repr=False)
+    #: Set on an assistant turn that asked for tools instead of writing prose.
+    tool_calls: tuple[ToolCall, ...] = ()
+    #: Set on a TOOL turn: which call this result answers.
+    tool_call_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +85,8 @@ class Completion:
     attempts: int = 1
     parsed: BaseModel | None = field(default=None, repr=False)
     finish_reason: str | None = None
+    #: What the model asked to run. Empty when it answered in prose instead.
+    tool_calls: tuple[ToolCall, ...] = ()
     #: Present only when the platform returned usage counts.
     usage: Usage | None = None
     #: The model's reasoning text, when it returned one beside the answer. It is
@@ -122,6 +144,7 @@ class LLMProvider(Protocol):
         *,
         model: str | None = None,
         schema: type[BaseModel] | None = None,
+        tools: Sequence[Mapping[str, object]] | None = None,
     ) -> Completion:
         """Generate text, optionally validated against a schema.
 

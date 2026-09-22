@@ -12,7 +12,7 @@ in credential-free CI.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 
 from pydantic import BaseModel
@@ -23,11 +23,12 @@ from kkb_agent.llm.provider import (
     EmbeddingKind,
     Message,
     ProviderError,
+    ToolCall,
 )
 from kkb_agent.llm.structured import complete_with_repair
 
 #: A scripted turn: text to return, or an error to raise instead.
-Scripted = str | ProviderError
+Scripted = str | ProviderError | tuple[ToolCall, ...]
 
 
 @dataclass
@@ -46,12 +47,14 @@ class ScriptedProvider:
     supports_vision: bool = False
     #: Every prompt seen, so a caller can assert what the model was told.
     seen: list[list[Message]] = field(default_factory=list, repr=False)
+    #: Tool names offered on each call, so a test can see what the model was shown.
+    offered: list[tuple[str, ...]] = field(default_factory=list, repr=False)
 
     def queue(self, *responses: Scripted) -> ScriptedProvider:
         self.responses.extend(responses)
         return self
 
-    def _next(self) -> str:
+    def _next(self) -> str | tuple[ToolCall, ...]:
         if not self.responses:
             raise ProviderError("Scripted provider ran out of responses")
         item = self.responses.pop(0)
@@ -65,10 +68,20 @@ class ScriptedProvider:
         *,
         model: str | None = None,
         schema: type[BaseModel] | None = None,
+        tools: Sequence[Mapping[str, object]] | None = None,
     ) -> Completion:
-        def ask(conversation: list[Message]) -> tuple[str, str | None]:
+        self.offered.append(tuple(str(t.get("name", "")) for t in (tools or ())))
+
+        def ask(
+            conversation: list[Message],
+        ) -> tuple[str, str | None, tuple[ToolCall, ...]]:
             self.seen.append(list(conversation))
-            return self._next(), None
+            item = self._next()
+            # A scripted turn may be tool calls instead of text, so a test can
+            # drive the whole loop without a live model.
+            if isinstance(item, tuple):
+                return "", None, item
+            return item, None, ()
 
         return complete_with_repair(
             ask,
@@ -98,7 +111,10 @@ class ScriptedProvider:
             raise CapabilityUnavailable("This deployment has no vision model")
         if not image_bytes:
             raise ProviderError("No image supplied")
-        return Completion(text=self._next(), model=self.model)
+        spoken = self._next()
+        if not isinstance(spoken, str):  # pragma: no cover - a vision turn is text
+            raise ProviderError("Scripted vision turn is not text")
+        return Completion(text=spoken, model=self.model)
 
 
 def scripted(*responses: Scripted, **kwargs: object) -> ScriptedProvider:
