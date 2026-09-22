@@ -73,8 +73,8 @@ from kkb_agent.agent.verifier import (
     GatedAnswer,
     OmittedSentence,
     Verdict,
-    extract_numbers,
     gate_answer,
+    prompt_counts,
     result_faults,
 )
 from kkb_agent.agent.workspace import Workspace
@@ -1670,16 +1670,8 @@ class Session:
         answer and candidate verification. QUALIFIED/ABSTAINED answers and errors
         leave trusted state unchanged; the writer/gate see only an in-memory publication preview.
         """
-        # A number the reader wrote ("son 8 hafta", "60 aylık veri") is theirs to read back:
-        # it is context, not a computed figure. The hook existed and was never filled, so
-        # the harness's own assumption note was withheld for repeating the question (live).
-        gate = {
-            **gate,
-            "allowed": (
-                *gate.get("allowed", ()),  # type: ignore[misc]
-                *(number.value for number in extract_numbers(question)),
-            ),
-        }
+        # User window/count context retains its role, never financial authority.
+        gate = {**gate, "context_counts": prompt_counts(question)}
         planned, outcome = self.run(question, workspace)
         if planned.plan.reply is not None:
             return self._reply(planned, outcome, planned.plan.reply, connection, workspace, gate)

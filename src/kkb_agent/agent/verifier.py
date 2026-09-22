@@ -502,6 +502,7 @@ def verify_claims(
     connection: DuckDBPyConnection | None = None,
     *,
     allowed: Iterable[float] = (),
+    context_counts: Iterable[WindowCount] = (),
     tolerance: float = DEFAULT_TOLERANCE,
     accept_years: bool = True,
     minimum_samples: int | None = None,
@@ -545,7 +546,7 @@ def verify_claims(
                 f"{name} declares unresolved semantics: " + "; ".join(result.unresolved_semantics)
             )
 
-    counted = window_counts(named.values())
+    counted = (*window_counts(named.values()), *context_counts)
     verdicts = [
         _bind_to_results(
             answer, number, named, disqualified, permitted, counted, tolerance, accept_years
@@ -671,6 +672,24 @@ class WindowCount:
             reversed(re.findall(r"\w+", fold(clause[:start]))), behind=True
         )
         return preceding == self.role
+
+
+def prompt_counts(question: str) -> tuple[WindowCount, ...]:
+    """Only explicit non-financial count roles may be quoted from a question.
+
+    Dates use the existing calendar binding. A prompt is never evidence of an
+    analytical amount, rate, scale or result; those must bind to typed producers.
+    """
+    found = []
+    for number in extract_numbers(question):
+        end = number.start + len(number.text)
+        if has_amount_context(question, number.start, end):
+            continue
+        for role in COUNT_WORDS:
+            count = WindowCount(number.value, role)
+            if count.named_in(question, number.start, end):
+                found.append(count)
+    return tuple(found)
 
 
 def window_counts(results: Iterable[AnalyticalResult]) -> tuple[WindowCount, ...]:
@@ -1100,6 +1119,7 @@ def gate_answer(
     connection: DuckDBPyConnection | None = None,
     *,
     allowed: Iterable[float] = (),
+    context_counts: Iterable[WindowCount] = (),
     tolerance: float = DEFAULT_TOLERANCE,
     accept_years: bool = True,
     minimum_samples: int | None = None,
@@ -1119,6 +1139,7 @@ def gate_answer(
         named,
         connection,
         allowed=allowed,
+        context_counts=context_counts,
         tolerance=tolerance,
         accept_years=accept_years,
         minimum_samples=minimum_samples,
