@@ -621,10 +621,32 @@ def verify_result(
 #: to its own word, so a true sentence passes and the same digits in the wrong role do
 #: not. The words are matched on folded text, so case and dotted/dotless i do not matter.
 _COUNT_WORDS: Final = {
-    "months": ("ay", "ayda", "ayı", "aylık", "aylar", "aylarda", "month", "months", "monthly"),
-    "years": ("yıl", "yılda", "yılı", "yıllık", "yıllar", "sene", "senede", "year", "years"),
-    "weeks": ("hafta", "haftada", "haftalık", "haftalar", "week", "weeks", "weekly"),
-    "days": ("gün", "günde", "günlük", "günler", "day", "days", "daily"),
+    "months": (
+        "ay",
+        "ayda",
+        "ayı",
+        "ayın",
+        "aylık",
+        "aylar",
+        "aylarda",
+        "month",
+        "months",
+        "monthly",
+    ),
+    "years": (
+        "yıl",
+        "yılda",
+        "yılı",
+        "yılın",
+        "yıllık",
+        "yıllar",
+        "sene",
+        "senede",
+        "year",
+        "years",
+    ),
+    "weeks": ("hafta", "haftada", "haftanın", "haftalık", "haftalar", "week", "weeks", "weekly"),
+    "days": ("gün", "günde", "günün", "günlük", "günler", "day", "days", "daily"),
     "used": ("gözlem", "gözlemi", "gözlemle", "gözlemde", "observation", "observations"),
     "missing": (
         "eksik",
