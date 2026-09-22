@@ -53,8 +53,8 @@ class _Manifest(ContractModel):
     snapshot_sha256: Digest
     snapshot_version: StrictStr
     profile: VectorProfile
-    # The catalogue's own bound: a generation covers one catalogue exactly,
-    # including the entries a knowledge base adds to it.
+    # The catalogue this generation was built for, and the rows it published for it. What
+    # it may answer for in some other catalogue is `covering`, per identity (DEC-187).
     row_count: Annotated[StrictInt, Field(ge=1, le=MAX_CATALOG_SERIES)]
     rows_sha256: Digest
 
