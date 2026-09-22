@@ -573,14 +573,9 @@ def incomplete_steps(outcome: ExecutionOutcome) -> tuple[str, ...]:
     )
 
 
-def search_listing(outcome: ExecutionOutcome) -> str | None:
-    """A fixed-format list of what `web_search` found, one candidate per line.
-
-    Deterministic, not model prose: nothing is summarized or interpreted, and
-    each candidate sits on its own line so the gate can withhold a single line
-    whose title carries a figure nothing verified.
-    """
-    lines: list[str] = []
+def search_candidates(outcome: ExecutionOutcome) -> tuple[tuple[str, str, str], ...]:
+    """What `web_search` found, as (title, domain, url), in the order returned."""
+    found: list[tuple[str, str, str]] = []
     for item in outcome.results:
         if item.tool != "web_search" or item.status not in (
             ToolStatus.SUCCESS,
@@ -589,7 +584,26 @@ def search_listing(outcome: ExecutionOutcome) -> str | None:
             continue
         for candidate in getattr(item.output, "candidates", ()):
             title = " ".join(str(candidate.title).split())[:160]
-            lines.append(f"- {title} — {candidate.domain}: {candidate.url}")
+            found.append((title, str(candidate.domain), str(candidate.url)))
+    return tuple(found)
+
+
+def search_title_draft(candidates: Sequence[tuple[str, str, str]]) -> str:
+    """The titles alone, one per line, for the gate to read.
+
+    A title is whatever the search service returned, so it is the one part of a
+    candidate an attacker can write: a planted "Q3 revenue is 999999" must not
+    reach the reader as a figure. An address is not a claim — nobody asserts the
+    digits in `.../press/58341/metadata` — and gating the whole line deleted the
+    two most relevant TÜİK pages live (2026-09-22) for carrying a publication id.
+    The gate reads the titles; the addresses ride along with the survivors.
+    """
+    return "\n".join(f"- {title}" for title, _, _ in candidates)
+
+
+def search_listing(outcome: ExecutionOutcome) -> str | None:
+    """A fixed-format list of what `web_search` found, one candidate per line."""
+    lines = [f"- {title} — {domain}: {url}" for title, domain, url in search_candidates(outcome)]
     if not lines:
         return None
     return "\n".join([SEARCH_HEADER, *lines[:10], SEARCH_FOOTER])
@@ -2485,22 +2499,55 @@ class Session:
         workspace: Workspace | None,
         gate: Mapping[str, object],
     ) -> Answered:
-        """Discovery results shown as found: gated like a reply, never published."""
+        """Discovery results shown as found, never published, gated by title.
+
+        A title is the search service's own text and therefore the part of a
+        candidate an attacker can write, so a planted figure in one is withheld
+        exactly as before. An address asserts nothing, and reading it as a claim
+        deleted the two most relevant TÜİK pages live (2026-09-22) because
+        `.../press/58341/metadata` carries a publication id. The gate reads the
+        titles alone and the addresses ride along with whichever titles survive.
+        """
         available = workspace.values() if workspace is not None else {}
+        candidates = search_candidates(outcome)
+        judged = gate_answer(
+            search_title_draft(candidates),
+            available,
+            connection,
+            **gate,  # type: ignore[arg-type]
+        )
+        withheld = "\n".join(item.text for item in judged.omitted)
+        kept = [
+            f"- {title} — {domain}: {url}"
+            for title, domain, url in candidates
+            if f"- {title}" not in withheld
+        ]
+        shown = "\n".join([SEARCH_HEADER, *kept, SEARCH_FOOTER]) if kept else listing
         if self.tracer is not None:
-            self.tracer.event("answer", "search.listing", source="web_search", detail=listing)
+            self.tracer.event(
+                "answer",
+                "search.listing",
+                source="web_search",
+                withheld_titles=len(judged.omitted),
+                detail=shown,
+            )
             self.tracer.event(
                 "publication",
                 "workspace.not_published",
                 status="skipped",
                 reason="search results are discovery metadata, not a result",
             )
-        answer = gate_answer(listing, available, connection, **gate)  # type: ignore[arg-type]
         return Answered(
             planned,
             outcome,
             (),
-            replace(answer, limitations=(*answer.limitations, SEARCH_LIMITATION)),
+            GatedAnswer(
+                AnswerStatus.QUALIFIED if kept else AnswerStatus.ABSTAINED,
+                shown if kept else "",
+                Verdict(True, ()),
+                omitted=judged.omitted,
+                limitations=(SEARCH_LIMITATION,),
+            ),
         )
 
     def _reading_answer(
