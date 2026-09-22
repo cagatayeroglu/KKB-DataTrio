@@ -93,6 +93,7 @@ from kkb_agent.tools import (
 from kkb_agent.tools._document_column import ColumnRefused, read_month_values
 from kkb_agent.tools._document_library import describe_document, document_name, document_outline
 from kkb_agent.tools._document_value import as_of, grids
+from kkb_agent.tools.inspect_result import make_inspect_tool
 from kkb_agent.tools.promotion import (
     PromotionProposal,
     PromotionReceipt,
@@ -1887,6 +1888,8 @@ class PreparedRunner:
                 ),
             )
         )
+        # A result travels by name; this is how a name becomes something readable.
+        registry.register(make_inspect_tool())
         registry.register(make_lakehouse_tool(connection, lineage=lineage, inspector=inspector))
         registry.register(
             make_change_detection_tool(
