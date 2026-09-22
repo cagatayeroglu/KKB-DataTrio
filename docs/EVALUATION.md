@@ -13,6 +13,59 @@ This file defines what correctness means and how to measure it. [ROADMAP M9](ROA
 
 Implementation boundary: merged unit tests exercise ingestion, semantics, lakehouse, planning, workspace definitions and numeric matching. [ROADMAP Current Project Status](ROADMAP.md#current-project-status) owns their revisions/results. They are not a benchmark scorecard. The Day 0 `evaluation/models.py`, case JSON and schema-test drafts are preserved in a local stash, not delivered or currently untracked files in dev. No executing benchmark runner, benchmark numerical-oracle schema, scorecard generator or eval Make target exists. This docs task runs document checks only.
 
+<a id="maturity-bands-live-2026-09-23"></a>
+
+## Maturity bands, live: the columns are addressable, the question is not — 2026-09-23
+
+Branch `feature/bddk-maturity-bands`, from `dev=6330800` (#319 merged). Isolated copy (`:8131`, own
+state root and lakehouse, official acquisition on, no web tools), DeepSeek-V4.1-Flash, catalogue
+8,952 entries. Decision: [DEC-193](DECISIONS.md#dec-193--the-bulletins-maturity-columns-are-series-and-named-columns-can-be-summed).
+
+**The rebuild this branch costs, measured.** One generation for the new catalogue: 8,952 entries,
+558 embedding requests, 369.7 s embedding, 423 s in total. It reused 37 vectors, not 8,374, because
+the generation in use in this isolated copy is the reviewed 37-row one; where the generation in use
+covers the whole catalogue, [DEC-188](DECISIONS.md#dec-188--a-rebuild-embeds-only-what-changed-every-other-vector-is-lent-by-the-generation-in-use)
+reuses it and only the new band entries are embedded. Searches probed at 11.7 s, 19.9 s and 27.9 s
+into the build answered `hybrid` with `dense: success` while `rebuilding` was still true: the
+generation in use kept serving throughout, which is what DEC-188 promised.
+
+**No regression.** The deposit question of 2026-09-22, asked again verbatim with the bands in the
+catalogue, completed in 24.2 s with the same 240 cells.
+
+**The bands are retrievable, and better than the row they belong to.** Same query, both branches:
+
+| Query | This branch, rank 1 | `dev`, rank 1 |
+| --- | --- | --- |
+| `1 aya kadar vadeli mevduat katılım fonu` | **TP Mevduat / Katılım Fonları - Yurt İçi Yerleşik (1 Aya Kadar)** | 3 Aya Kadar Vadede Faize Duyarlı Aktifler / … |
+| `3-6 ay arası vadeli mevduat katılım fonu` | **TP Mevduat / … - Yurt İçi Yerleşik (3-6 Ay Arası)** | — |
+| `bireysel kredi kartı bakiyesi` | Kredi Kartı Ödemelerinden Borçlar | Kredi Kartı Ödemelerinden Borçlar |
+
+The last row is the collapse rule doing its work: a question that names no maturity sees the same
+candidates it saw before the bands existed.
+
+**The question still cannot be answered.** Three turns — the two maturity groups alone, the
+operator's whole question, and a version naming all six columns — each ended `planning_failed`
+after four rounds of `catalog_search`. The planner reached the right bands only in its last round,
+with a query that had dropped the row's own words, and had no round left to read them.
+
+**Why, measured offline on both branches.** For `TP mevduat yurt içi yerleşik`:
+
+| Rank | Terms matched | BM25 | Title |
+| --- | --- | --- | --- |
+| 1 | `ici, tp, yurt` | 13.52 | Yurt İçi Bankalarca İhraç Edilen Tahviller |
+| 2 | `ici, tp, yurt` | 13.48 | e) Yurt İçi Bankalar Teminatı İle |
+| 3 | `tp, yurt` | 8.60 | Yurt Dışı Yerleşiklere Kullandırılan Krediler |
+
+Not one of them matches `mevduat`, and the row the query names is not among the ten candidates.
+`dev` ranks the same three rows in the same order (13.98, 13.93, 8.96), so this predates the bands
+and equally blocks a plain named row; the deposit question of 2026-09-22 only succeeded because the
+TP row arrived as the ninth candidate of the *other* row's search. A short title where a common
+word is most of the document outscores the long entry that carries every word of the query, and
+matching more of the query wins nothing.
+
+**Open, and not this branch's to fix:** a question that names a bulletin row by its own words does
+not retrieve that row. It is what stands between the reader and the maturity answer.
+
 <a id="deposit-flow-first-month-2026-09-22"></a>
 
 ## The first month of a window, live on the BDDK deposit question — 2026-09-22
