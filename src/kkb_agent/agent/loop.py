@@ -77,7 +77,14 @@ from kkb_agent.agent.verifier import (
     result_faults,
 )
 from kkb_agent.agent.workspace import Workspace
-from kkb_agent.core import DIMENSIONLESS, AnalyticalResult, ResultStatus, ResultValue, Scale
+from kkb_agent.core import (
+    DIMENSIONLESS,
+    AnalyticalResult,
+    ResultKind,
+    ResultStatus,
+    ResultValue,
+    Scale,
+)
 from kkb_agent.llm.provider import (
     Completion,
     LLMProvider,
@@ -1782,24 +1789,60 @@ class Session:
         fast_draft = deterministic_draft(result) if self.deterministic_presentation else None
         if self.tracer is not None and fast_draft is not None:
             self.tracer.event("answer", "draft.deterministic", source="harness", detail=fast_draft)
-        draft = (
-            fast_draft
-            if fast_draft is not None
-            else self.draft(question, available, incomplete=incomplete, current=name)
+        # A comparison is the one shape the harness words badly: its counts are about two
+        # columns, and the fixed wording calls them "birinci seri" and "ikinci seri". Live
+        # 2026-09-22 the jury's own first question came back as "Birinci serinin düştüğü ay
+        # sayısı 32", with nothing saying that the first series is the interest rate.
+        #
+        # Whenever the writer is going to be called anyway - for the interpretation the
+        # reader asked for - it writes the whole answer instead of a paragraph appended to
+        # the harness's wording: the same one call, and the series are named. Where no writer
+        # would run (the offline rehearsal, a plan that asked for no interpretation) the
+        # fixed wording stands, so a planner-only turn stays planner-only. Either way the
+        # fixed wording remains underneath, for a writer that returns nothing.
+        writer_words_it = (
+            fast_draft is not None
+            and result.kind is ResultKind.COMPARISON
+            and self.commentary
+            and planned.plan.interpret
         )
-        if self.tracer is not None and fast_draft is None:
-            self.tracer.event("answer", "draft.model", source="model", detail=draft)
+        if fast_draft is not None and not writer_words_it:
+            draft = fast_draft
+        else:
+            try:
+                draft = self.draft(question, available, incomplete=incomplete, current=name)
+            except ProviderError:
+                # The harness's own wording is the safety net, and a provider that fails must
+                # not cost a turn whose figures are already computed and verified.
+                if fast_draft is None:
+                    raise
+                draft = fast_draft
+            if self.tracer is not None:
+                self.tracer.event("answer", "draft.model", source="model", detail=draft)
         if not draft.strip():
             # A writer that thought until its tokens ran out returns nothing. The footnotes
             # alone then passed the gate, and the reader got an "accepted" answer that
             # answered nothing (live 2026-09-21). The table is computed and verified; say
             # that, and say that the prose is missing.
-            draft = EMPTY_DRAFT_NOTE
+            draft = fast_draft or EMPTY_DRAFT_NOTE
             if self.tracer is not None:
-                self.tracer.event("answer", "draft.empty", source="harness", detail=draft)
-        if fast_draft is not None and self.commentary and planned.plan.interpret:
+                self.tracer.event(
+                    "answer",
+                    "draft.empty" if fast_draft is None else "draft.fallback",
+                    source="harness",
+                    detail=draft,
+                )
+        if (
+            fast_draft is not None
+            and not writer_words_it
+            and self.commentary
+            and planned.plan.interpret
+        ):
             # The harness's wording is exact and says nothing about what it means. The
             # writer adds its interpretation; without one the verified figures stand as they are.
+            # Only when the harness wrote the figures: this branch rebuilds the answer from
+            # `fast_draft`, so running it after the writer has written the whole answer would
+            # pay for that draft and then throw it away.
             try:
                 interpretation = self.draft(
                     question,

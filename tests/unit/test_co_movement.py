@@ -624,18 +624,26 @@ def _served_like(lake, *responses, **plan_fields):
     return answered, workspace, session
 
 
-def test_the_writer_adds_its_reading_under_figures_the_harness_worded(lake):
-    # The jury: "nedenlerine ilişkin yorum ve açıklamaların çıktıya eklenmesi de katma değer".
-    reading = (
-        "Yorum: Faizin düştüğü ayların çoğunda bakiye artmış; bu, kredi talebinin faize "
-        "duyarlı olduğunu düşündürüyor ve muhtemelen para politikasıyla ilişkili."
+def test_the_writer_words_the_comparison_when_it_is_called_anyway(lake):
+    """The jury: "nedenlerine ilişkin yorum ... katma değer" — and the figures with it.
+
+    The harness's own wording counts the months of a "birinci seri" and an "ikinci seri" it
+    never names, which is how the jury's first question came back live on 2026-09-22. The
+    writer holds both names and is already being called for the interpretation the reader
+    asked for, so it writes the whole answer in that one call rather than a paragraph
+    appended under wording that names nothing.
+    """
+    written = (
+        "Faiz oranının düştüğü aylarda konut kredisi bakiyesi çoğunlukla artmış.\n"
+        "Yorum: Talep faize duyarlı görünüyor; muhtemelen para politikasıyla ilişkili."
     )
-    answered, workspace, session = _served_like(lake, reading)
+    answered, workspace, session = _served_like(lake, written)
     assert answered.answer.status is AnswerStatus.ACCEPTED
-    assert reading in answered.answer.text and answered.answer.text.index("Yorum:") > 0
+    assert written in answered.answer.text
+    assert "birinci seri" not in answered.answer.text.casefold()
     asked = session.provider.seen[1]
-    assert any("Write ONLY the 'Yorum:' paragraph" in item.content for item in asked)
-    assert any(item.content.startswith("written:") for item in asked)
+    assert not any("Write ONLY the 'Yorum:' paragraph" in item.content for item in asked)
+    assert len(session.provider.seen) == 2  # the planner and the writer, once each
     assert workspace.names() == ["konut_kredisi_ve_faiz"]
 
 
@@ -652,12 +660,19 @@ def test_a_request_that_asks_for_no_interpretation_gets_none_and_costs_no_writer
     assert workspace.names() == ["konut_kredisi_ve_faiz"]
 
 
-def test_the_figures_stand_each_on_its_own_line_above_the_reading(lake):
-    reading = "Yorum: Talep faize duyarlı görünüyor."
-    answered, _, _ = _served_like(lake, reading)
-    figures, _, rest = answered.answer.text.partition("\n\n")
-    assert figures.startswith("Aylık yön karşılaştırması hesaplandı.\n")
-    assert len(figures.splitlines()) >= 4 and rest.startswith("Yorum:")
+def test_the_harness_wording_says_which_series_each_count_is_about(lake):
+    """Where no writer runs, the fixed wording stands - and it must still name the series.
+
+    It leads with a line naming the pair, because "Birinci serinin düştüğü ay sayısı" alone
+    tells a reader nothing about which series fell. That line used to be dropped whenever a
+    name carried a digit, which every index name does ("... (2023=100)").
+    """
+    answered, _, _ = _served_like(lake, interpret=False)
+    lines = answered.answer.text.splitlines()
+    assert lines[0] == "Aylık yön karşılaştırması hesaplandı."
+    assert "Birinci seri:" in lines[1] and "İkinci seri:" in lines[1]
+    assert "Yorum:" not in answered.answer.text
+    assert len(lines) >= 5
 
 
 def test_without_a_reading_the_verified_figures_stand_as_they_are(lake):

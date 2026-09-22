@@ -852,17 +852,21 @@ class TestTheCountContractIsFollowable:
         assert "copy its listed phrase with the number" in NUMERIC_REPAIR_INSTRUCTIONS
 
 
-class TestTheDeflatedColumnIsWhatAChangeQuestionCompares:
-    """M11-11: a real column exists only because a turn was asked to deflate.
+class TestTheComparedColumnIsTheOneThePlanNamed:
+    """M11-11, narrowed on 2026-09-22: the plan picks the column, the answer says what else.
 
-    Measured on 2026-09-16: Turn 3 compared the nominal credit column and
-    published 4 joint months while the oracle's answer, over the deflated column
-    the previous turn had just built, is 22. The columns were the planner's to
-    pick and it kept picking nominal, so the tool now prefers the deflated
-    counterpart and a plan that wants nominal terms says so.
+    The tool used to move every selected column onto its deflated counterpart, because on
+    2026-09-16 a planner kept picking nominal where the question asked for real. Live
+    2026-09-22, the jury's third question showed the cost: the plan named the nominal
+    balance, the substitution counted the real one, and "faiz düşerken kredi artmadı" went
+    from the four months the reader had been shown a turn earlier to twenty-two -- a balance
+    that grows slower than inflation falls in real terms. The reader had asked about the
+    four. Both labels are in front of the planner and both descriptions tell it which one a
+    real question needs, so the plan is followed and the counterpart it passed over is
+    recorded for the answer to mention.
     """
 
-    def test_a_nominal_target_is_replaced_and_the_move_is_recorded(self):
+    def test_the_named_column_is_compared_and_the_untaken_real_one_is_recorded(self):
         source = table_with_real()
         arguments = TableRelationshipArguments(
             operation="table_co_movement",
@@ -874,9 +878,23 @@ class TestTheDeflatedColumnIsWhatAChangeQuestionCompares:
         )
         columns = _deflated_columns(source, arguments)
 
-        assert columns.target == REAL_LABEL
-        assert columns.moved == {"target_column": "credit"}
+        assert columns.target == "credit"
+        assert columns.moved == {"target_column": REAL_LABEL}
         assert columns.driver == "price"
+
+    def test_naming_the_real_column_compares_it_and_records_nothing(self):
+        source = table_with_real()
+        arguments = TableRelationshipArguments(
+            operation="table_co_movement",
+            input_step="earlier",
+            driver_column="price",
+            target_column=REAL_LABEL,
+            driver_direction="up",
+            target_direction="non_increasing",
+        )
+        columns = _deflated_columns(source, arguments)
+
+        assert (columns.target, columns.moved) == (REAL_LABEL, {})
 
     def test_the_plan_cannot_decline_the_deflated_column(self):
         # A planner-facing opt-out was tried and the planner set it on a question
