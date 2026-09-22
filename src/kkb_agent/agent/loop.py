@@ -139,6 +139,25 @@ EMPTY_DRAFT_NOTE = (
     "Hesap tamamlandı ve sonuç tablosu ayrı olarak gösteriliyor. Bu turda yazılı "
     "değerlendirme üretilemedi; aynı soruyu yeniden sorabilirsiniz."
 )
+
+
+def _finished_sentences(completion: Completion) -> str:
+    """The draft without a closing sentence the writer never finished.
+
+    A writer that thinks until its tokens run out and returns nothing is the note above;
+    this is its neighbour. Live 2026-09-22: the writer spent 16,256 of its 16,384 tokens on
+    reasoning, the 128 left ran out mid-word, and the published answer ended "Kon". A
+    fragment is worse than an absence, because it reads as prose and a reader cannot tell
+    it was cut. Whatever the model did finish is kept; when it finished no sentence at all,
+    nothing is kept and the empty-draft note takes over.
+    """
+    text = completion.text
+    if completion.finish_reason != "length" or not text.strip():
+        return text
+    cut = max(text.rfind(mark) for mark in ".!?")
+    return text[: cut + 1].rstrip() if cut >= 0 else ""
+
+
 COMMENTARY_INSTRUCTIONS = (
     "The verified figures of this answer are already written for the reader; they follow "
     "as `written`. Do not repeat or rephrase them. Write ONLY the 'Yorum:' paragraph "
@@ -2242,7 +2261,16 @@ class Session:
             _record_cost(span, completion)
             parent = span.sequence
         self._trace_exchange(messages, completion, parent)
-        return completion.text
+        finished = _finished_sentences(completion)
+        if finished != completion.text and self.tracer is not None:
+            self.tracer.event(
+                "answer",
+                "draft.truncated",
+                source="harness",
+                kept=len(finished),
+                dropped=len(completion.text) - len(finished),
+            )
+        return finished
 
     def _trace_exchange(
         self, messages: Sequence[Message], completion: Completion, parent: int | None

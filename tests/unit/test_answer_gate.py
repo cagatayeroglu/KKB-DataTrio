@@ -26,6 +26,7 @@ from kkb_agent.agent import (
     gate_answer,
     render_result,
 )
+from kkb_agent.agent.loop import _finished_sentences
 from kkb_agent.agent.presentation import display_value, format_number
 from kkb_agent.agent.verifier import (
     DEFAULT_TOLERANCE,
@@ -51,6 +52,7 @@ from kkb_agent.core import (
 )
 from kkb_agent.lakehouse import Observation, SeriesSemantics, open_lakehouse
 from kkb_agent.llm.doubles import scripted
+from kkb_agent.llm.provider import Completion
 from kkb_agent.tools import LakehouseArguments, make_lakehouse_tool
 
 NOW = datetime(2026, 9, 9, tzinfo=UTC)
@@ -656,6 +658,26 @@ class TestTheWholeSliceEndToEnd:
         )
         assert "yazılı değerlendirme üretilemedi" in answered.answer.text
         assert answered.results[-1].status is ResultStatus.COMPUTED
+
+    @pytest.mark.parametrize(
+        ("text", "kept"),
+        [
+            # Live 2026-09-22: 16,256 of 16,384 tokens went to reasoning and the published
+            # answer ended "Kon". A fragment reads as prose, so a reader cannot tell.
+            ("Bir cümle tam. Sonra yarım kal", "Bir cümle tam."),
+            ("Soru şu şekilde yanıtlanır! Ve sonra", "Soru şu şekilde yanıtlanır!"),
+            ("Tam mı? Evet.", "Tam mı? Evet."),
+            # Nothing was finished, so nothing is kept and the empty-draft note takes over.
+            ("Hiç bitmemiş bir cümle", ""),
+        ],
+        ids=["mid-word", "after-a-full-stop", "already-whole", "nothing-finished"],
+    )
+    def test_a_draft_the_writer_never_finished_keeps_only_whole_sentences(self, text, kept):
+        assert _finished_sentences(Completion(text, "m", finish_reason="length")) == kept
+
+    def test_a_draft_the_writer_did_finish_is_untouched(self):
+        whole = "Bir cümle tam. Başlıksız biten bir satır"
+        assert _finished_sentences(Completion(whole, "m", finish_reason="stop")) == whole
 
     def test_a_model_that_invents_a_figure_has_it_stripped(self, house):
         provider = scripted(plan_json(FULLY_TYPED), f"{SUPPORTED} {INVENTED}")
