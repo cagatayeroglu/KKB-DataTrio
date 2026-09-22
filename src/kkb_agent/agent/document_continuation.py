@@ -120,14 +120,17 @@ def continue_document(
         if not isinstance(output, WebUrlOutput) or output.source is None:
             break
         document = output.document
+        preview = _table_preview(output)
         text = (
             document.text
             if isinstance(document, HtmlDocument)
             else _pdf_text(document, 3)[0]
             if isinstance(document, PdfDocument)
-            else _table_preview(output) or ""
+            else preview or ""
         )
         links = output.links[:200] if not output.followed else ()
+        if not text.strip() and not links and not preview:
+            break  # No admitted content to inspect; a model call cannot add authority.
         payload = {
             "text": text[:6000],
             "links": [
@@ -138,7 +141,7 @@ def continue_document(
                 }
                 for i, link in enumerate(links, 1)
             ],
-            "tables": _table_preview(output),
+            "tables": preview,
         }
         checkpoint("document.continuation")
         try:
