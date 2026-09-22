@@ -110,9 +110,11 @@ class Span:
         """Attach the step's own text: a prompt, a model output, a tool preview."""
         self.detail = detail
 
-    def failed(self, category: str) -> None:
+    def failed(self, category: str, reason: str | None = None) -> None:
         self.status = "failed"
         self.attributes["error_category"] = category
+        if reason:
+            self.attributes["error_reason"] = reason[:400]
 
 
 class Tracer:
@@ -191,7 +193,13 @@ class Tracer:
         try:
             yield span
         except BaseException as error:
-            span.failed(type(error).__name__)
+            # These carry a deliberately value-free description — a field path and a
+            # constraint name, never the text that failed — so the reason can be kept.
+            # Without it a turn that died on validation says only "SchemaViolation",
+            # and 113 seconds of planning left nothing anyone could act on
+            # (live 2026-09-22). Everything else records its class alone.
+            told = type(error).__name__ in {"SchemaViolation", "PlanRejected", "PlanningFailed"}
+            span.failed(type(error).__name__, str(error) if told else None)
             self._record(span, started, max(0, round((time.monotonic() - begin) * 1000)), parent)
             raise
         self._record(span, started, max(0, round((time.monotonic() - begin) * 1000)), parent)
