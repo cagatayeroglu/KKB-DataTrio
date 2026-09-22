@@ -26,6 +26,8 @@ from kkb_agent.agent.cancellation import TurnCancelled
 from kkb_agent.agent.loop import MAX_HISTORY_TURNS, PlanningFailed
 from kkb_agent.agent.observer import Tracer
 from kkb_agent.agent.selection import SelectedTable, SelectionError
+from kkb_agent.agent.trust_adapter import as_answered
+from kkb_agent.agent.trust_session import TrustSession
 from kkb_agent.agent.verifier import AnswerStatus
 from kkb_agent.agent.workspace import WorkspaceError
 from kkb_agent.api.contracts import (
@@ -554,7 +556,10 @@ class PreparedRunner:
         search_backend: SearchBackend | None = None,
         source_directory: SourceDirectory | None = None,
         discovered: DiscoveredStore | None = None,
+        trust_loop: bool = False,
     ):
+        #: Run the question as one model-driven loop instead of the planned turn.
+        self._trust_loop = trust_loop
         self._catalog = load_reviewed_snapshot(catalog_bytes)
         # Operator switch (DEC-176): the sources' own listings as a second catalogue tier.
         self._directory = source_directory
@@ -1347,9 +1352,21 @@ class PreparedRunner:
                     ),
                 )
                 try:
-                    answered = session.answer(
-                        effective_question, lake.connection, workspace=workspace, remember=name
-                    )
+                    if self._trust_loop:
+                        # One model-driven loop in place of the planned turn. The
+                        # answer is translated into the same shape the projection
+                        # already reads, so nothing downstream changes.
+                        turn = TrustSession(
+                            provider=self._provider,
+                            registry=registry,
+                            model=chosen.model,
+                            connection=lake.connection,
+                        ).answer(effective_question)
+                        answered = as_answered(effective_question, turn.outcome, turn.answer)
+                    else:
+                        answered = session.answer(
+                            effective_question, lake.connection, workspace=workspace, remember=name
+                        )
                 except Exception as failure:
                     # The catalog vouched for whatever it returned, even if the turn
                     # failed afterwards, so the next turn need not ask again.

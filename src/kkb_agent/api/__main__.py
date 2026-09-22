@@ -145,6 +145,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--trust-loop",
+        action="store_true",
+        help=(
+            "Answer each question with one model-driven loop instead of the planned "
+            "turn: the model calls tools, reads what they returned, decides again, and "
+            "says when it has enough. The harness dispatches and counts; it does not "
+            "decide the order, the phase or when the question is answered"
+        ),
+    )
+    parser.add_argument(
         "--no-ocr",
         action="store_true",
         help=(
@@ -276,6 +286,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 root,
                 args.state_root.absolute(),
                 catalog_bytes=catalog_bytes,
+                trust_loop=args.trust_loop,
                 redactions=(config.credential.get_secret_value(),),
                 catalog_dense=dense,
                 web_url_fetch=safe_fetch if args.enable_web_url else None,
