@@ -70,6 +70,52 @@ export function arrange(cells: Cell[]) {
     }
     row.values[key] = cell;
   }
+  // A missing month in every column is still a gap. Only canonical monthly
+  // intervals justify this spine; no value or holiday calendar is inferred.
+  if (
+    rows.length > 1 &&
+    rows.every(({ period }) => {
+      if (!period || period.frequency !== "monthly") return false;
+      const end = new Date(`${period.end}T00:00:00Z`);
+      return (
+        period.start === `${period.end.slice(0, 7)}-01` &&
+        end.getUTCDate() ===
+          new Date(
+            Date.UTC(end.getUTCFullYear(), end.getUTCMonth() + 1, 0),
+          ).getUTCDate()
+      );
+    })
+  ) {
+    const ordered = [...rows].sort((a, b) =>
+      a.period!.end.localeCompare(b.period!.end),
+    );
+    const first = new Date(`${ordered[0].period!.start}T00:00:00Z`);
+    const last = ordered.at(-1)!.period!.end;
+    const observed = new Set(rows.map((row) => row.period!.end));
+    const gaps: TableRow[] = [];
+    for (let offset = 0; offset < 2048; offset++) {
+      const start = new Date(
+        Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + offset, 1),
+      )
+        .toISOString()
+        .slice(0, 10);
+      const end = new Date(
+        Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + offset + 1, 0),
+      )
+        .toISOString()
+        .slice(0, 10);
+      if (end > last) break;
+      if (!observed.has(end))
+        gaps.push({
+          key: `missing:${end}`,
+          period: { ...ordered[0].period!, start, end },
+          values: {},
+        });
+    }
+    if (gaps.length) rows.push(...gaps);
+    if (gaps.length)
+      rows.sort((a, b) => a.period!.end.localeCompare(b.period!.end));
+  }
   return { columns: [...columns.values()], rows, metrics };
 }
 const scales: Record<string, string> = {

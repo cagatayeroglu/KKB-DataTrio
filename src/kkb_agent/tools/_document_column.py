@@ -48,6 +48,7 @@ from kkb_agent.tools._document_value import (
     context_year,
     header_matches,
     header_semantics,
+    is_annotation_label,
     is_total_label,
     last_day,
     month_label,
@@ -68,7 +69,7 @@ def document_measure(unit: str | None, scale: Scale) -> StockFlow:
 
 
 _ISO_DAY = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
-_DOTTED_DAY = re.compile(r"(\d{2})\.(\d{2})\.(\d{4})")
+_DOTTED_DAY = re.compile(r"(\d{2})[.-](\d{2})[.-](\d{4})")
 
 
 class ColumnRefused(ValueError):
@@ -91,6 +92,7 @@ class RowRules:
     convention_used: bool = False
     #: Per column for an OCR table (DEC-149); None for text the document holds.
     checked: tuple[bool, ...] | None = None
+    normalizations: tuple[dict[str, JsonValue], ...] = ()
 
     @classmethod
     def for_grid(cls, grid: Grid, *, year: int | None, as_of: date | None) -> RowRules:
@@ -98,7 +100,13 @@ class RowRules:
             context = context_year(grid, year)
         except ValueNotSelected as error:
             raise ColumnRefused(error.code) from None
-        return cls(context, as_of, number_convention(grid.rows), checked=grid.checked)
+        return cls(
+            context,
+            as_of,
+            number_convention(grid.rows),
+            checked=grid.checked,
+            normalizations=grid.normalizations,
+        )
 
     def column_checked(self, index: int) -> bool:
         """False only for an OCR column that does not add up to its total row."""
@@ -106,6 +114,9 @@ class RowRules:
 
     def month(self, label: object) -> date | None:
         """The row's month end, or None when the row is skipped (and counted)."""
+        if is_annotation_label(label):
+            self.skipped["ANNOTATION_ROW"] += 1
+            return None
         if is_total_label(label):
             self.skipped["TOTAL_ROW"] += 1
             return None
@@ -122,6 +133,9 @@ class RowRules:
 
     def day(self, label: object) -> date | None:
         """The row's calendar day, or None when the row is skipped (and counted)."""
+        if is_annotation_label(label):
+            self.skipped["ANNOTATION_ROW"] += 1
+            return None
         if is_total_label(label):
             self.skipped["TOTAL_ROW"] += 1
             return None
@@ -142,6 +156,8 @@ class RowRules:
     def evidence(self) -> dict[str, JsonValue]:
         """The decisions to record; empty when none of these rules applied."""
         recorded: dict[str, JsonValue] = {}
+        if self.normalizations:
+            recorded["normalizations"] = list(self.normalizations)
         if self.checked is not None:
             recorded["extraction"] = "ocr"
             recorded["validation"] = "column total"
@@ -155,6 +171,10 @@ class RowRules:
 
     def warnings(self) -> list[str]:
         notes = []
+        if count := self.skipped.get("ANNOTATION_ROW"):
+            notes.append(
+                f"{count} explicit summary/source annotation row(s) were left out (ANNOTATION_ROW)"
+            )
         if count := self.skipped.get("TOTAL_ROW"):
             notes.append(f"{count} total row(s) were left out of the monthly rows (TOTAL_ROW)")
         if count := self.skipped.get("FUTURE_PERIOD"):
@@ -396,7 +416,9 @@ def column_snapshot(
 
 
 def _empty(value: object) -> bool:
-    return value is None or (isinstance(value, str) and not value.strip())
+    return value is None or (
+        isinstance(value, str) and value.strip().casefold() in {"", "-", "–", "...", "..", "n/a"}
+    )
 
 
 def _edge_day(year: int, month: int, day: int) -> date | None:

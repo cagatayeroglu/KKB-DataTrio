@@ -188,3 +188,42 @@ def execution_proof(result: AnalyticalResult, connection: DuckDBPyConnection | N
         RuntimeError,
     ):
         return False
+
+
+def result_ancestors(
+    result: AnalyticalResult, connection: DuckDBPyConnection | None
+) -> set[tuple[str, str]]:
+    """Workspace names and exact immutable result versions in validated producer input snapshots.
+
+    Used only to suppress repeated writer blocks. A label, name or matching
+    magnitude alone never proves ancestry. Missing/legacy evidence keeps context.
+    """
+    if connection is None:
+        return set()
+    graph = Lineage(connection)
+    pending = [result]
+    checked: set[str] = set()
+    found: set[tuple[str, str]] = set()
+    while pending and len(checked) < 64:
+        current = pending.pop()
+        digest = current.digest()
+        if digest in checked:
+            continue
+        checked.add(digest)
+        if not execution_proof(current, connection) or current.evidence is None:
+            continue
+        try:
+            node = graph.node(current.evidence.evidence_ids[0][len(PREFIX) :])
+            for reference in json.loads(node.attributes["inputs"]):
+                snapshot = json.loads(graph.node(reference).attributes["snapshot"])
+                if not isinstance(snapshot, dict) or not isinstance(snapshot.get("result"), dict):
+                    continue
+                ancestor = AnalyticalResult.model_validate(snapshot["result"])
+                if execution_proof(ancestor, connection):
+                    workspace_name = snapshot.get("workspace")
+                    if isinstance(workspace_name, str):
+                        found.add((workspace_name, ancestor.digest()))
+                    pending.append(ancestor)
+        except (duckdb.Error, LineageError, ValueError, TypeError, KeyError):
+            continue
+    return found

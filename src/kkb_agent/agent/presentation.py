@@ -31,6 +31,8 @@ from kkb_agent.core import (
     Scale,
     StockFlow,
 )
+from kkb_agent.lakehouse.periods import expected_periods
+from kkb_agent.lakehouse.semantics import SemanticsError
 
 _SCALES = {Scale.ONE: "", Scale.THOUSAND: "bin", Scale.MILLION: "milyon", Scale.BILLION: "milyar"}
 #: What a price is quoted per, in the words a Turkish reader uses (DEC-177).
@@ -155,6 +157,19 @@ def period_table(result: AnalyticalResult) -> PeriodTable | None:
                     title = title.replace(series_id, name)
         titles.append(title)
     periods = sorted({key for label in labels for key in series[label]})
+    calendars = {
+        (v.period.frequency, v.period.weekly_anchor)
+        for v in result.values
+        if v.label in labels and v.period is not None
+    }
+    if len(calendars) == 1:
+        frequency, anchor = next(iter(calendars))
+        try:
+            expected = expected_periods(frequency, periods[0][1], periods[-1][1], anchor=anchor)
+            if len(expected) <= 2048:
+                periods = sorted(set(periods) | set(expected))
+        except SemanticsError:
+            pass  # Irregular or unsupported calendars cannot invent periods.
     return PeriodTable(
         tuple(titles),
         tuple(
@@ -283,12 +298,33 @@ def deterministic_draft(result: AnalyticalResult) -> str | None:
             return None
         values = _controlled_counts(result, table_count_display_label, TABLE_COUNT_LABELS)
         if values is not None:
+            periods = result.evidence.transformations[-1].parameters.get("joint_periods")
+            if not isinstance(periods, list) or not all(isinstance(p, str) for p in periods):
+                return None
+            matched = [
+                v
+                for v in result.values
+                if table_count_display_label(result, v)
+                == TABLE_COUNT_LABELS["eligible transitions matching both directions"]
+            ]
+            if len(matched) != 1 or matched[0].value != len(periods):
+                return None
+            try:
+                dates = [date.fromisoformat(str(p)).isoformat() for p in periods]
+            except ValueError:
+                return None
+            period_text = (
+                "Koşulu sağlayan dönemler: " + ", ".join(dates) + "."
+                if dates
+                else "Koşulu sağlayan dönem yok."
+            )
             heading = comparison_heading(result)
             return "\n".join(
                 [
                     "Tablodaki aylık yönler karşılaştırıldı.",
                     *([heading] if heading else []),
                     *values,
+                    period_text,
                 ]
             )
     return None

@@ -13,6 +13,214 @@ This file defines what correctness means and how to measure it. [ROADMAP M9](ROA
 
 Implementation boundary: merged unit tests exercise ingestion, semantics, lakehouse, planning, workspace definitions and numeric matching. [ROADMAP Current Project Status](ROADMAP.md#current-project-status) owns their revisions/results. They are not a benchmark scorecard. The Day 0 `evaluation/models.py`, case JSON and schema-test drafts are preserved in a local stash, not delivered or currently untracked files in dev. No executing benchmark runner, benchmark numerical-oracle schema, scorecard generator or eval Make target exists. This docs task runs document checks only.
 
+<a id="second-final-pass-2026-09-22"></a>
+
+## Second final pass — core demo contracts, 2026-09-22
+
+Same implementation branch and draft PR [#315](https://github.com/cagatayeroglu/KKB-DataTrio/pull/315),
+continuing `76b6221`; not merged. No hosted model, embedding or live acquisition
+was invoked. The original checkout's generated file remains untouched. Full-suite
+and CI outcomes for the committed final revision are recorded in the PR validation
+section; the first-pass totals below are historical, not final acceptance.
+
+### Generality review of the first pass
+
+| Behavior / commits | Classification | Review and retained boundary |
+| --- | --- | --- |
+| Percentage cell formatting (`bea612b`) | SAFE NORMALIZATION | Standard Excel number formats, with raw/display conversion evidence; custom ambiguous formats still refuse. No workbook-specific rule. |
+| Static print/filter names (`b744ba5`) | SAFE NORMALIZATION + COVERAGE HARDENING | Finite Excel built-in names and static internal ranges; not permission for formulas, macros or external references. |
+| Missing markers, explicit period grammar, exact footer labels (`3e7cc46`, `a75061c`) | SAFE NORMALIZATION, with bounded SPECIAL-CASE vocabulary | Document grammar includes ordinary missing markers and Source/Average labels. It is intentionally not arbitrary header/layout inference. These are lexical parser cases, not financial dataset exceptions. Retained with negative tests. |
+| Prompt counts and Turkish window inflections (`d8ab7ba`, `3cee617`) | GENERAL CONTRACT + language normalization | A requested period count has a contextual role, never financial authority. Language-specific inflections do not dispatch tools or bless values. |
+| Unit/measure and future closed periods (`43a954f`, `56a94f9`) | GENERAL CONTRACT / INVARIANT | Contradictory metadata refuses; future observations use the injected operator clock, not a hard-coded date. Unknowns are not defaulted. |
+| Calendar/coverage (`6933a72`, `bbb977e`) | GENERAL CONTRACT / INVARIANT | Declared DAILY versus BUSINESS_DAY, expected month grid, missing weekdays remain gaps. No Monday/Friday or XTUMY branch. Coverage support does not grant analytical lag support. |
+| Table/document proof (`c772426`, `164dfc0`) | GENERAL CONTRACT + COVERAGE HARDENING | Actual immutable input snapshots, semantic declarations and resolvable lineage. No result-ID exemption or verifier bypass. |
+| Version-scoped gold (`d31d1ab`, `e11befd`) | GENERAL CONTRACT / INVARIANT | Exact result version/period/column key; own tampered gold still rejects. |
+| Cancel/truncation/fallback (`17f6fbd`, `1bf1e55`, `4b778af`, `1156527`, `af909a0`) | GENERAL CONTRACT + COVERAGE HARDENING | Execution checkpoints, numeric-safe sentence completion, normal proof gate for fallback. Literal/unverified document readings do not become analytical evidence. |
+| Deterministic period list, proof preflight, ancestor pruning (`5250fe3`, `45bcb87`) | GENERAL CONTRACT / INVARIANT | Period list is generated from result transformations for any dataset/window. Pruning needs declared lineage/version and exact value preservation; unrelated aliases and prior warnings remain. Writer still supplies interpretation. |
+
+No PHRASE/DATASET/DATE-SPECIFIC financial routing was found or added. No first-pass
+correctness fix was reverted. The old blanket bare-document refusal and associated
+full-replan instruction were removed: a fetched document now has a small continuation
+contract. The new operational-claim filter is explicitly a **bounded presentation
+language guard**, not a complete natural-language truth prover: recognized Turkish/
+English tool execution sentences are replaced by recorded states. It does not infer
+intent, force tools, suppress economic explanations, or relax numeric verification.
+
+### New contracts and focused evidence
+
+- **Web:** admitted `web_search → web_url → recorded same-origin link → web_url → reading`
+  works through Session with injected search/fetch and actual parsers. Two continuation
+  decisions maximum, sharing the remaining step budget; no general replan or free URL
+  field. Invalid/foreign/nested targets and failed follow refuse. Typed extraction is
+  also available. Reading remains QUALIFIED/unverified, source URL/hash visible, no
+  analytical publication. `test_document_continuation`, `test_prepared_web_url`, and
+  existing `test_page_links` retain the authority boundary.
+- **Tool status:** presentation records call status separately from analytical status,
+  sample used/minimum, and reason. A successful call returning INSUFFICIENT no longer
+  disappears behind a later table or becomes a claim that the tool never ran. Partial
+  answers are QUALIFIED. Deterministic status counts are execution metadata, not
+  financial numbers whitelisted for the writer. `test_execution_state` covers all
+  states and a real 11/12-sample anomaly call plus retained economic commentary.
+- **Derived anomaly:** raw positive levels use log-ratio MAD; simple percentage-change
+  MAD is not equivalent (an independent 12-transition counterexample flags zero versus
+  one). `anomaly(source, column)` scores verified column values directly, with the exact
+  producer snapshot; it never differences them again. `series_id` retains existing
+  behavior and fixed thresholds. A percentage-change column receives a declaration
+  only from resolved noncumulative source semantics; unknown/cumulative sources are
+  not invented away. Arbitrary older derived columns without a compatible declaration
+  still refuse. `test_anomaly_derived` checks real read/change/anomaly/proof/publication,
+  altered-input rejection, sample counts and ambiguous input refusal.
+- **Monthly chart:** actual month-end x coordinates remain unchanged. Explicit month
+  labels are anchored to those coordinates instead of Plotly's automatic next-month
+  ticks; long windows sample labels to avoid crowding. Daily/weekly axes and null gaps
+  retain their behavior. Both Jan–Jun and Jul–Dec fixtures pass `chart.test.ts`.
+- **Acquisition:** no transport/window/cache redesign. Real turn acquisition receipts
+  now supply writer context and deterministic provenance for newly fetched versus
+  cached-source reconstruction. USER/web source evidence remains as before; a complete
+  four-category provenance presentation is not claimed. Cold/persistence/warm live PASS
+  is user-reported evidence; this pass rechecks injected transport/persistence tests.
+
+Focused backend checks: 101 passed (core, status, derived anomaly, acquisition), then
+27 passed after follow-failure/provenance assertions. Strict mypy: 157 source files.
+These focused results do not replace the final full-suite run linked from the PR.
+
+### Canonical and latency acceptance
+
+Operator-local immutable seed copied to temporary storage, sockets forbidden, current
+Session/tools/proof/gold used with recorded plans: T1 `60 months; 59/32/28/4`; T2 all
+nominal cells preserved plus separate real credit; T3 old `4`, new `22`, exact 22 dates,
+causal limitation. ACCEPTED throughout, UI proof available, gold `240/300/360` cells;
+older versions remain valid after later gold writes. This is deterministic replay,
+not natural-language live planner acceptance.
+
+Same T3 replay: result context stays **10,240 bytes** (no repeated earlier full blocks).
+Writer input is **14,518 bytes**, including new execution facts (first pass 13,875).
+The paired pruning-disabled measurement is recorded in PR validation. No provider
+parameters, reasoning/output budgets or commentary limits changed. Scripted rich
+commentary survives beside facts and causal caveats, but model-generated richness,
+reasoning-token use and p50/p95 latency remain LIVE REQUIRED.
+
+### Core smoke and remaining live acceptance
+
+| Tool/path | Offline evidence | Live boundary |
+| --- | --- | --- |
+| Lakehouse, transformations, three turns | Canonical replay; table/proof/gold contracts | Natural planning and reference selection need served rehearsal. |
+| Web Search / Web URL | Injected search/read/follow; direct HTML/daily table/PDF extraction; authority negatives | Real provider ranking, current site layout and continuation decisions. |
+| Anomaly | Raw baseline and verified percentage-column path; computed/insufficient/refusal states | Model must select the requested derived column; no forced keyword routing. |
+| Causality | Weekly → monthly → joined table → association/Granger; resolvable proof | Served planner choice and economic explanation; never causal proof. |
+| Change Detection | Typed series comparison, canonical co-movement and acquisition tests | Natural-language invocation with current provider. |
+| Documents/images | Existing CSV/XLSX/PDF, attached-image/document reading tests | OCR/model interpretation and real layouts; image URLs remain unsupported. |
+| Acquisition | Strict loader, persistence and cached reconstruction tests | User-reported cold/warm/persistence LIVE PASS preserved; no historical extension. |
+
+Direct prompts for the isolated branch:
+
+1. **Web continuation:** “TCMB Mart 2024 PPK kararını web'de ara, resmi sonucu aç ve karar metnini özetle.” Expect search → root read → bounded document continuation → recorded link read → source/hash-labelled summary; no generic replan, arbitrary URL, or false analytical verification.
+2. **Derived anomaly / insufficient:** “Az önceki kredi tablosunun aylık yüzde değişim sütununu oluştur ve anomali analizini bu yeni sütun üzerinde yap. Tabloyu koru; kullanılan gözlem sayısını ve varsa minimum örneklem engelini açıkla.” Expect change → anomaly(source,column), `examined=supplied column values`, actual used/minimum; no raw-series substitution or “çağrılmadı” after execution.
+3. **Tool state negative:** Same prompt with a table holding exactly twelve consecutive monthly levels. Expect eleven derived values, minimum twelve, INSUFFICIENT; no invented findings or automatic historical extension.
+4. **Chart:** “2025 Ocak–Haziran aylık verilerini tablo ve çizgi grafik olarak göster.” Repeat with “2025 Temmuz–Aralık”. Expect labels Jan–Jun / Jul–Dec, original month-end dates, gap preservation.
+5. **Causality:** “Önceki tablodaki aylık faiz ile reel kredi sütunlarının gecikmeli ilişkisini ve Granger sonucunu incele; bunun nedensellik kanıtı olup olmadığını açıkla.” Expect exact selected columns or explicit semantic refusal, trusted execution proof, predictive-precedence caveat.
+6. **Change Detection:** “Hazır konut fiyat endeksi serisinde Nisan–Haziran 2021 değişimini hesapla ve yorumla.” Expect typed tool computation, stated window and units, retained economic interpretation.
+7. **Document:** With an actual PDF/table attached: “Bu belgedeki aylık tabloyu çıkar, birimini ve kaynağını göster; seçilen sütunun ortalamasını hesapla.” For an image: “Eklediğim görseldeki eğilimi ve sınırlamaları açıkla.” Expect typed verified extraction for the table; labelled unverified reading for model/OCR interpretation.
+8. **Writer quality/latency:** “Önceki karşılaştırmayı bozmadan ekonomik açıdan ayrıntılı yorumla; olası açıklamaları, alternatif etkenleri ve nedensellik sınırlamasını belirt.” Capture writer prompt bytes, input/output/reasoning tokens, elapsed time, retries, retained count/date/causal caveats; compare repeated like-for-like runs, not a single latency sample.
+
+Remaining coverage gaps: ambiguous locale `436.688`, cp1254/UTF-16, arbitrary headers,
+owner isolation, authoritative exchange holiday calendar and unrestricted derived
+semantics. No special-case fixes for these were added. Compatible requested capabilities
+omitted by a live planner are not automatically detectable from a scripted plan; no
+keyword router was introduced to claim otherwise.
+
+<a id="final-critical-fixes-2026-09-22"></a>
+
+## Final critical fixes — offline acceptance, 2026-09-22
+
+Implementation branch: `codex/final-critical-fixes`, from `dev=b243015`;
+[draft PR #315](https://github.com/cagatayeroglu/KKB-DataTrio/pull/315), not merged.
+The original checkout and its generated `web/next-env.d.ts` were preserved.
+No live model, embedding or source-acquisition requests were made. Tests use
+scripted providers and synthetic inputs; the canonical replay below uses an
+operator-local prepared pool copied to a temporary directory.
+
+| Root-cause family | Delivered behavior and regression |
+| --- | --- |
+| N32 XLSX display semantics | Numeric `0.476` with standard `0.0%` becomes `47.6`, with original value, format, row/column and multiplier in normalization evidence. General numeric/text `47.6` stays unchanged. Custom percentage formats refuse. `test_xlsx_loader` exercises the public loader and downstream column snapshot. |
+| F1 numeric context / N40 contradictory semantics | Prompt `777` can bind its requested window, never an unsupported money/rate/series-count claim. Existing date/count and Turkish window forms continue to work. Stock+percent, rate+TRY, stock+sum and index+currency declarations refuse before analytics. `test_context_number_roles`, `test_semantic_contradictions`, existing qualifier/assumption tests. |
+| F2 / N39 / live table-input causality | Real read → weekly resample → monthly join → association and Granger → gate → publication, including available UI proof and tampered-value rejection. CSV/XLSX upload → table → summarize → accepted publication. Missing cumulative metadata refuses; explicit YTD survives and remains inadmissible to association. `test_derived_proof_pipeline`. |
+| F3 versioned gold | Same label/month with different windows remains valid against each result's own immutable proof. Foreign/unversioned gold does not override it; tampered own gold still rejects. `test_gold_runtime`. |
+| Temporal coverage | Friday→Monday is consecutive only under BUSINESS_DAY; DAILY retains calendar-day semantics. Missing weekdays are not bridged. Change and anomaly/breakpoint basis share that rule; resampling counts the declared calendar. Jan+Mar yields one missing month and an empty Feb table/chart slot. Daily coverage does not enable unsupported daily lag/YTD analysis. `test_temporal_contract`, `test_resample`, `chart.test.ts`, existing association/Granger/cumulative refusals. |
+| N41 manual future observations | Manual KB future closed periods reject; upload `as_of` behavior retained. `test_knowledge_base`. |
+| F5/F6/F7 writer lifecycle | Stop during the final writer leaves no workspace binding or gold. Transport failure retains verified analytical tables/scalar results through the normal gate; literal-source failure behavior stays explicit. Truncation never ends a sentence inside `801.438`. `test_cancellation`, `test_writer_lifecycle`, derived pipeline failure variants. |
+| N33/N35/N36/N37 ingestion | Static internal built-in filter/print names are allowed, while formula/macro/external-link guards remain. Explicit missing markers become null; requested Turkish/date period forms parse; exact Average/Ortalama and Source:/Kaynak: footer rows are skipped with recorded evidence. `test_xlsx_loader`, `test_document_normalization`. |
+
+**Canonical offline oracle.** Actual prepared BDDK/EVDS silver rows were used,
+with the stored canonical plans scripted through current tools and Session.
+Socket connects were forbidden. T1: 60 months, 59 transitions, 32 rate declines,
+28 nominal rises, 4 nominal non-rises. T2: all prior values retained and a
+separate real column at 2025-12 prices. T3: all prior values retained, old 4,
+new 22, exact 22 period list in deterministic prose and causal limitation.
+All three answers accepted; execution proof and UI proof `available`; 240/300/360
+gold cells materialized respectively; all old result versions remained valid
+after later gold writes. The independent Decimal/SQL
+`tests/manual/organizer_oracle.py <prepared-seed>` agreed on the 22 months.
+The local seed and private traces are not committed; this is not proof that a
+fresh checkout contains the same prepared data or that live planning succeeds.
+
+The exact joint months are 2021-02, 2021-03, 2021-05, 2021-08, 2021-10,
+2021-11, 2022-02, 2022-06, 2022-12, 2023-02, 2023-12, 2024-01, 2024-02,
+2024-05, 2024-06, 2024-07, 2024-08, 2024-09, 2025-01, 2025-02, 2025-07,
+2025-09 (canonical month ends, including 2024-02-29).
+
+**Latency-safe scope.** The exact joint count/list is deterministic; invalid
+producer evidence fails before synthesis, with the final gate still mandatory;
+validated, fully preserved workspace ancestors are omitted from writer context
+while retaining version-specific notes/meanings and current assumptions.
+An apples-to-apples offline replay toggling only ancestor pruning measured T3
+writer input **27,127 → 13,875 UTF-8 bytes (-48.9%)**, data context
+**23,492 → 10,240 bytes**, and earlier full table blocks **2 → 0**. All facts
+and oracle assertions passed both ways. This replay did not inject the served
+runner's full alias catalogue, so these bytes are not the historical served
+35,986-byte prompt. Reasoning budgets, global thinking, output limits and
+provider settings were unchanged; no live latency or reasoning-token gain is
+claimed.
+
+**Validation.** `python -m pytest tests -v -p no:cacheprovider
+-o faulthandler_timeout=60 --disable-warnings` completed in 516.86 seconds:
+4,868 passed, 1 expected failure, 4 failures. Three are baseline eval failures
+described below. The fourth was the old publication expectation that a broken
+current candidate can consume a writer call to quote an unrelated older table;
+it now correctly abstains before synthesis. That expectation and the scalar
+writer-failure expectation were updated to the explicitly requested behavior.
+Final publication/proof/writer subset: 114 passed; the scalar/table fallback
+subset: 86 passed. These final subsets include the last code/test refinements;
+the entire 8.6-minute suite was not redundantly repeated. CI on the final head
+remains required. The large source-directory dense fixture passed both here
+and on baseline (90.75 seconds standalone on baseline). Frontend: 76 tests
+passed, TypeScript and changed-file Prettier checks passed. Local Node was 24,
+not the declared Node 22; the CI Node 22 gate remains authoritative. Ruff and
+format checks passed; strict mypy passed for 155 source files; Bandit and secret
+scan passed. No release dependency audit or live benchmark was run.
+
+Three `test_catalog_paraphrase_holdout::test_fixture_dense_order_never_becomes_selection_authority`
+variants also fail on untouched `b243015`: the `FixedDenseIndex` test double
+lacks `covering()`. They are baseline failures, not a successful retrieval
+acceptance claim, and were not hidden or repaired in this correctness pass.
+
+**Remaining limits.** Header/title discovery, ambiguous `436.688` locale and
+cp1254/UTF-16 expansion were skipped; no silent guessing was added. Raw XTUMY
+still needs a reviewed trading/calendar declaration and the cross-turn explicit
+date-range failure needs its own live trace. Unknown holidays remain gaps.
+Carrier admission is proven for read/resample/join, not every legacy/generated
+column; unknown document cumulative semantics remain unresolved. N42 owner
+isolation is outside this single-operator pass. Reasoning latency needs live A/B.
+
+| Live follow-up | Direct Turkish prompt / expected check |
+| --- | --- |
+| Canonical chain | “2021–2025 arasında konut kredisi faizi düşerken nominal konut kredisi bakiyesinin artmadığı ayları göster.” → “Nominal kolonu koru, Aralık 2025 fiyatlarıyla reel kolonu ekle.” → “KFE'yi ekle; faiz düşerken KFE arttığı halde reel kredinin artmadığı ayları listele.” Expect 4 preserved, 22 exact months, available proof, named real/nominal columns and causal caveat. |
+| Derived causality | “2021–2024 için haftalık konut kredi faizini ay sonuna göre aylık ortalamaya çevir, aylık KFE ile birleştir ve Granger testi uygula.” Expect real tool chain, producer proof, accepted publication or a justified sample/semantic refusal; no causal-effect claim. |
+| Document and fallback | “Ekli Ay–Faiz XLSX tablosunu oku; ortalama faizi hesapla.” Use numeric `0.476` with `0.0%`; inspect 47.6 and normalization evidence. Repeat CSV and writer-failure injection in the local harness. |
+| Calendar / reuse | “Bu XTUMY tablosunda 7–11 Mart 2025 değişimlerini hesapla; kullanılan takvimi belirt.” Repeat on the selected published table without fetching the URL. BUSINESS_DAY may use Friday→Monday only when explicitly declared; the next genuinely missing weekday must remain missing. |
+| Stop and latency | Run the canonical chain with trace timings, cancel while writer is running, then reload. Expect cancelled turn and no newly published result/gold. Compare reasoning tokens and time on the same provider/model settings; smaller input alone proves no latency gain. |
+
+
 ## Acceptance scope and evidence navigation
 
 The [historical handoff](https://github.com/cagatayeroglu/KKB-DataTrio/blob/1578b7ce0d20566784dba49d984b940424847721/docs/HANDOFF_ARDA_2026-09-14.md) records two-turn live Kloudeks acceptance and scripted three-turn/browser rehearsal, not full live Qwen three-turn acceptance or repeated-run reliability. The recorded 29-series / 4,124-observation pool and Bronze evidence are operator-local, absent from fresh Git checkout and not repository-reproducible as an identical snapshot today. Local LanceDB/hybrid fixture tests do not establish semantic retrieval quality; default prepared API retrieval has no real Qwen embedding injection. Prepared metadata inspection is mandatory/auto-wired, while broader quality/reconciliation remain unfinished. Dated run records below retain their original evidence and limitations.

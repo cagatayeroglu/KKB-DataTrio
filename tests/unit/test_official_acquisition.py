@@ -190,6 +190,10 @@ def test_a_served_question_on_a_series_outside_the_pool_is_answered(pool, tmp_pa
 
     assert answer.status.value == "accepted", answer
     assert len(source.requests) == 1
+    assert "resmi kaynaktan bu turda edinildi" in answer.text
+    assert any(
+        "Actual acquisition provenance" in message.content for message in runner._provider.seen[-1]
+    )
     events = store.events(store.runs(sid)[0].run_id)
     acquired = [event for event in events if event.name == "acquisition.acquired"]
     assert len(acquired) == 1

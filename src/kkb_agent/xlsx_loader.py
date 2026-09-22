@@ -12,15 +12,19 @@ import json
 import math
 import multiprocessing
 import os
+import re
 import sys
 import tempfile
 import time as clock
 import warnings
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, BinaryIO, Literal
 from uuid import uuid4
+
+from pydantic import JsonValue
 
 from kkb_agent._xlsx_package import XlsxRejected, inspect_package
 from kkb_agent.core import DataContract, SourceRef
@@ -46,6 +50,8 @@ class XlsxTable:
     selection: str = field(repr=False)
     headers: tuple[CellValue, ...] = field(repr=False)
     rows: tuple[tuple[CellValue, ...], ...] = field(repr=False)
+
+    normalizations: tuple[dict[str, JsonValue], ...] = field(default=(), repr=False)
 
     @property
     def column_ids(self) -> tuple[str, ...]:
@@ -119,6 +125,7 @@ def _parse(content: bytes, selection: str | None, limits: AdmissionLimits) -> di
                 raise XlsxRejected("EMPTY_TABLE")
             limits.check_table_size(rows=height - 1, columns=width)
             encoded = []
+            normalizations = []
             output_size = 0
             for ordinal, row in enumerate(
                 workbook[selected].iter_rows(min_row=1, max_row=height, min_col=1, max_col=width)
@@ -126,7 +133,26 @@ def _parse(content: bytes, selection: str | None, limits: AdmissionLimits) -> di
                 limits.check_table_size(rows=ordinal, columns=width)
                 if any(cell.data_type in {"f", "e"} for cell in row):
                     raise XlsxRejected("UNSUPPORTED_CELL")
-                values = [_encode_cell(cell.value, limits, header=ordinal == 0) for cell in row]
+                values = []
+                for column, cell in enumerate(row, 1):
+                    value = cell.value
+                    if ordinal and type(value) in {int, float} and "%" in cell.number_format:
+                        # Only plain percent displays have an unambiguous multiplier.
+                        # Text values are already literal numbers and are never scaled.
+                        if not re.fullmatch(r"0(?:\.0+)?%", cell.number_format):
+                            raise XlsxRejected("UNSUPPORTED_NUMBER_FORMAT")
+                        value = float(Decimal(str(value)) * 100)
+                        normalizations.append(
+                            {
+                                "operation": "excel_percent_points",
+                                "row": ordinal + 1,
+                                "column": column,
+                                "raw": cell.value,
+                                "format": cell.number_format,
+                                "multiplier": 100,
+                            }
+                        )
+                    values.append(_encode_cell(value, limits, header=ordinal == 0))
                 output_size += len(json.dumps(values, ensure_ascii=True, allow_nan=False).encode())
                 if output_size > limits.max_expanded_bytes:
                     raise XlsxRejected("LIMIT_EXCEEDED")
@@ -141,6 +167,7 @@ def _parse(content: bytes, selection: str | None, limits: AdmissionLimits) -> di
                 "sheets": choice.sheets,
                 "headers": encoded[0],
                 "rows": encoded[1:],
+                "normalizations": normalizations,
             }
         finally:
             workbook.close()
@@ -266,5 +293,6 @@ def load_xlsx(
         selected,
         tuple(_decode_cell(value) for value in result["headers"]),
         tuple(tuple(_decode_cell(value) for value in row) for row in result["rows"]),
+        tuple(result.get("normalizations", ())),
     )
     return XlsxLoadResult("loaded", source, sheets=tuple(result["sheets"]), table=table)

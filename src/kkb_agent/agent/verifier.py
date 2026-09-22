@@ -398,20 +398,33 @@ def _evidence_faults(result: AnalyticalResult, connection: DuckDBPyConnection) -
     return faults
 
 
-def _stored_value(connection: DuckDBPyConnection, label: str, period_end: date) -> float | None:
-    """Read the value the store holds for one series at one period.
+def _stored_value(
+    connection: DuckDBPyConnection,
+    label: str,
+    period_end: date,
+    *,
+    result_version: str,
+    period_start: date,
+) -> float | None:
+    """A source cell, or gold materialized from exactly this immutable result.
 
-    Keyed on identity rather than magnitude, and written here in fixed SQL, so
-    it is independent of whatever statement the model composed to produce the
-    result under test.
+    A derived label is reusable across windows and versions. Its spelling and
+    month cannot identify a materialization; the producer-signed result digest can.
     """
-    for statement in (
+    row = connection.execute(
         "SELECT value FROM silver_observations WHERE series_id = ? AND period_end = ?",
-        "SELECT value FROM gold_cells WHERE column_name = ? AND period_end = ?",
-    ):
-        row = connection.execute(statement, [label, period_end]).fetchone()
-        if row is not None and row[0] is not None:
-            return float(row[0])
+        [label, period_end],
+    ).fetchone()
+    if row is not None and row[0] is not None:
+        return float(row[0])
+    row = connection.execute(
+        "SELECT g.value FROM gold_cells g JOIN lineage_nodes n ON n.node_id = g.column_node_id "
+        "WHERE g.column_name = ? AND g.period_start = ? AND g.period_end = ? "
+        "AND json_extract_string(n.attributes, '$.result_version') = ?",
+        [label, period_start, period_end, result_version],
+    ).fetchone()
+    if row is not None and row[0] is not None:
+        return float(row[0])
     return None
 
 
@@ -430,10 +443,17 @@ def recheck_against_store(
     figure — and it does not catch a wrong number that was stored wrongly.
     """
     faults: list[str] = []
+    version = result.digest()
     for value in result.values:
         if value.period is None:
             continue
-        stored = _stored_value(connection, value.label, value.period.end)
+        stored = _stored_value(
+            connection,
+            value.label,
+            value.period.end,
+            result_version=version,
+            period_start=value.period.start,
+        )
         if stored is None:
             continue
         if not _close(value.value, stored, tolerance):
@@ -502,6 +522,7 @@ def verify_claims(
     connection: DuckDBPyConnection | None = None,
     *,
     allowed: Iterable[float] = (),
+    context_counts: Iterable[WindowCount] = (),
     tolerance: float = DEFAULT_TOLERANCE,
     accept_years: bool = True,
     minimum_samples: int | None = None,
@@ -545,7 +566,7 @@ def verify_claims(
                 f"{name} declares unresolved semantics: " + "; ".join(result.unresolved_semantics)
             )
 
-    counted = window_counts(named.values())
+    counted = (*window_counts(named.values()), *context_counts)
     verdicts = [
         _bind_to_results(
             answer, number, named, disqualified, permitted, counted, tolerance, accept_years
@@ -600,10 +621,32 @@ def verify_result(
 #: to its own word, so a true sentence passes and the same digits in the wrong role do
 #: not. The words are matched on folded text, so case and dotted/dotless i do not matter.
 _COUNT_WORDS: Final = {
-    "months": ("ay", "ayda", "ayı", "aylık", "aylar", "aylarda", "month", "months", "monthly"),
-    "years": ("yıl", "yılda", "yılı", "yıllık", "yıllar", "sene", "senede", "year", "years"),
-    "weeks": ("hafta", "haftada", "haftalık", "haftalar", "week", "weeks", "weekly"),
-    "days": ("gün", "günde", "günlük", "günler", "day", "days", "daily"),
+    "months": (
+        "ay",
+        "ayda",
+        "ayı",
+        "ayın",
+        "aylık",
+        "aylar",
+        "aylarda",
+        "month",
+        "months",
+        "monthly",
+    ),
+    "years": (
+        "yıl",
+        "yılda",
+        "yılı",
+        "yılın",
+        "yıllık",
+        "yıllar",
+        "sene",
+        "senede",
+        "year",
+        "years",
+    ),
+    "weeks": ("hafta", "haftada", "haftanın", "haftalık", "haftalar", "week", "weeks", "weekly"),
+    "days": ("gün", "günde", "günün", "günlük", "günler", "day", "days", "daily"),
     "used": ("gözlem", "gözlemi", "gözlemle", "gözlemde", "observation", "observations"),
     "missing": (
         "eksik",
@@ -671,6 +714,24 @@ class WindowCount:
             reversed(re.findall(r"\w+", fold(clause[:start]))), behind=True
         )
         return preceding == self.role
+
+
+def prompt_counts(question: str) -> tuple[WindowCount, ...]:
+    """Only explicit non-financial count roles may be quoted from a question.
+
+    Dates use the existing calendar binding. A prompt is never evidence of an
+    analytical amount, rate, scale or result; those must bind to typed producers.
+    """
+    found = []
+    for number in extract_numbers(question):
+        end = number.start + len(number.text)
+        if has_amount_context(question, number.start, end):
+            continue
+        for role in COUNT_WORDS:
+            count = WindowCount(number.value, role)
+            if count.named_in(question, number.start, end):
+                found.append(count)
+    return tuple(found)
 
 
 def window_counts(results: Iterable[AnalyticalResult]) -> tuple[WindowCount, ...]:
@@ -1100,6 +1161,7 @@ def gate_answer(
     connection: DuckDBPyConnection | None = None,
     *,
     allowed: Iterable[float] = (),
+    context_counts: Iterable[WindowCount] = (),
     tolerance: float = DEFAULT_TOLERANCE,
     accept_years: bool = True,
     minimum_samples: int | None = None,
@@ -1119,6 +1181,7 @@ def gate_answer(
         named,
         connection,
         allowed=allowed,
+        context_counts=context_counts,
         tolerance=tolerance,
         accept_years=accept_years,
         minimum_samples=minimum_samples,

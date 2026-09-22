@@ -57,6 +57,50 @@ def spine(
     return list(_walk(frequency, first_end, last_end, anchor=anchor))
 
 
+def daily_steps(frequency: Frequency, earlier: date, later: date) -> int:
+    """Expected day steps; BUSINESS_DAY is Mon–Fri, with no invented holidays.
+
+    A missing weekday remains a gap. A source holiday calendar, when absent,
+    cannot authorize treating an arbitrary missing weekday as a closure.
+    """
+    days = (later - earlier).days
+    if frequency is Frequency.DAILY:
+        return days
+    if (
+        frequency is not Frequency.BUSINESS_DAY
+        or days < 0
+        or earlier.weekday() > 4
+        or later.weekday() > 4
+    ):
+        return -1
+    weeks, tail = divmod(days, 7)
+    return weeks * 5 + sum((earlier.weekday() + offset) % 7 < 5 for offset in range(1, tail + 1))
+
+
+def expected_periods(
+    frequency: Frequency,
+    first_end: date,
+    last_end: date,
+    *,
+    anchor: WeeklyAnchor | None = None,
+) -> list[tuple[date, date]]:
+    """Bounded coverage/display calendar, without enabling daily lag or YTD analysis.
+
+    Business-day coverage counts weekdays only. An absent holiday calendar never
+    turns a missing weekday into an observed period.
+    """
+    if frequency not in (Frequency.DAILY, Frequency.BUSINESS_DAY):
+        return spine(frequency, first_end, last_end, anchor=anchor)
+    if not 0 <= (last_end - first_end).days <= 10000:
+        raise SemanticsError("Invalid or unbounded daily coverage window")
+    periods = []
+    for ordinal in range(first_end.toordinal(), last_end.toordinal() + 1):
+        day = date.fromordinal(ordinal)
+        if frequency is Frequency.DAILY or day.weekday() < 5:
+            periods.append((day, day))
+    return periods
+
+
 def weekly_window(
     requested_start: date, requested_end: date, *, anchor: WeeklyAnchor
 ) -> list[tuple[date, date]]:
@@ -95,8 +139,7 @@ def _walk(
         return
     months = _MONTH_STEP.get(frequency)
     if months is None:
-        # DAILY and BUSINESS_DAY need a holiday calendar nobody has supplied,
-        # and IRREGULAR has no spine by definition.
+        # IRREGULAR and UNKNOWN have no expected calendar.
         raise SemanticsError(f"No canonical spine is defined for {frequency.value}")
     end = first_end
     while end <= last_end:

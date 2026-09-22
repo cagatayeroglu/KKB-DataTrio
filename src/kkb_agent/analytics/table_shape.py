@@ -26,6 +26,7 @@ from kkb_agent.core import (
     StockFlow,
     TransformationRecord,
 )
+from kkb_agent.lakehouse.periods import daily_steps
 
 REBASE_METHOD: Final = "rebase-index-v1"
 ALIGN_METHOD: Final = "align-exact-periods-v1"
@@ -219,9 +220,8 @@ def rebase_index(
 def _steps_apart(earlier: Period, later: Period) -> int | None:
     """How many reporting periods separate two cells, or None when the calendar cannot say.
 
-    A trading-day or irregular column has no fixed spacing, so its predecessor is the
-    previous observation; every other frequency must be exactly `lag` periods apart, and a
-    gap is left empty rather than bridged.
+    DAILY counts calendar days; BUSINESS_DAY counts weekdays, without inventing
+    holiday closures. Only an explicitly irregular column uses previous observation.
     """
     months = (later.end.year - earlier.end.year) * 12 + (later.end.month - earlier.end.month)
     days = (later.end - earlier.end).days
@@ -236,8 +236,8 @@ def _steps_apart(earlier: Period, later: Period) -> int | None:
         return later.end.year - earlier.end.year
     if frequency is Frequency.WEEKLY:
         return days // 7 if days % 7 == 0 else -1
-    if frequency is Frequency.DAILY:
-        return days
+    if frequency in (Frequency.DAILY, Frequency.BUSINESS_DAY):
+        return daily_steps(frequency, earlier.end, later.end)
     return None
 
 

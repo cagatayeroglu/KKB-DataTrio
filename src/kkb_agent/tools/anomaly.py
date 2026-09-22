@@ -16,15 +16,18 @@ from __future__ import annotations
 from datetime import date
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
-from kkb_agent.agent.registry import ToolSpec
+from kkb_agent.agent.registry import TableInput, ToolSpec
+from kkb_agent.agent.verifier import result_faults
+from kkb_agent.agent.workspace import Workspace, WorkspaceError
 from kkb_agent.analytics import detect_anomalies
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
 from kkb_agent.core import AnalyticalResult, ResultStatus, SeriesId
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.lakehouse.result_evidence import _record_execution
+from kkb_agent.tools.causality import _column_of, _ReadColumn
 from kkb_agent.tools.change_detection import SeriesUnknown, read_series
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -36,12 +39,34 @@ INPUTS = ("silver_series", "silver_observations")
 class AnomalyArguments(BaseModel):
     """What the planner may ask for.
 
-    A window, and nothing that changes how the judgement is made.
+    A raw series or explicit table quantity and window, never a scoring threshold.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    series_id: SeriesId = Field(min_length=1, max_length=200)
+    series_id: SeriesId | None = Field(default=None, min_length=1, max_length=200)
+    source: str | None = Field(
+        default=None,
+        pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
+        description="Published table name or prior step_id; list the step in depends_on. "
+        "Scores the selected column VALUES directly, never their differences. "
+        "For anomalies in percentage changes, first derive that column with table_transform.",
+    )
+    column: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=400,
+        description="Exact label of the quantity to analyze in source",
+    )
+
+    @model_validator(mode="after")
+    def one_input(self) -> AnomalyArguments:
+        if self.series_id and not self.source and not self.column:
+            return self
+        if self.source and self.column and not self.series_id:
+            return self
+        raise ValueError("Give series_id OR source and column, never both")
+
     start: date | None = Field(
         default=None, description="Earliest period end to examine; omit for the whole series"
     )
@@ -55,6 +80,7 @@ def make_anomaly_tool(
     *,
     lineage: Lineage | None = None,
     inspector: PreparedSeriesInspector | None = None,
+    workspace: Workspace | None = None,
 ) -> ToolSpec:
     """Bind the tool to one database. The registry holds the closure, not the data."""
 
@@ -64,7 +90,41 @@ def make_anomaly_tool(
         if not isinstance(arguments, AnomalyArguments):  # pragma: no cover
             raise TypeError("anomaly received arguments it did not declare")
         try:
-            series = read_series(connection, arguments.series_id, inspector=inspector)
+            if arguments.source is not None:
+                source: object = None
+                if workspace is not None:
+                    try:
+                        source = workspace.value_of(arguments.source)
+                    except WorkspaceError:
+                        pass
+                if source is None:
+                    produced = context.outputs.get(arguments.source)
+                    source = getattr(produced, "result", produced)
+                if (
+                    not isinstance(source, AnalyticalResult)
+                    or source.status is not ResultStatus.COMPUTED
+                    or result_faults({"input": source}, connection)
+                ):
+                    return ToolResult(
+                        ToolStatus.FAILURE,
+                        "",
+                        "anomaly",
+                        error_category="table_reference",
+                        warnings=("The referenced table is unavailable or cannot be verified",),
+                    )
+                column = _column_of(source, arguments.column or "")
+                if isinstance(column, str):
+                    return ToolResult(
+                        ToolStatus.FAILURE,
+                        "",
+                        "anomaly",
+                        error_category="needs_input",
+                        warnings=(column,),
+                    )
+                series = column
+            else:
+                found = read_series(connection, arguments.series_id or "", inspector=inspector)
+                series = _ReadColumn(found.semantics, found.observations, found.snapshot)
         except SeriesUnknown as error:
             return ToolResult(
                 ToolStatus.FAILURE,
@@ -77,7 +137,8 @@ def make_anomaly_tool(
         result = detect_anomalies(
             series.observations,
             series.semantics,
-            series_id=arguments.series_id,
+            series_id=arguments.series_id or arguments.column or "",
+            basis="values" if arguments.source is not None else "changes",
             start=arguments.start,
             end=arguments.end,
             input_refs=INPUTS,
@@ -116,10 +177,18 @@ def make_anomaly_tool(
             "rising series does not flag its own present. Scored by median absolute "
             "deviation, which a few extreme points cannot inflate. Returns the count "
             "of unusual periods and each one's change; the count is zero when nothing "
-            "stands out. Needs at least a year of changes."
+            "stands out. Needs at least twelve samples. Raw positive levels are scored "
+            "on log ratios (rates on differences), NOT simple percentage changes. "
+            "With source and column, score the supplied values directly instead; use this "
+            "for a requested derived quantity. Never substitute raw levels for a derived column."
         ),
         arguments=AnomalyArguments,
         run=run,
+        table_input=lambda args: (
+            TableInput(source=args.source)
+            if isinstance(args, AnomalyArguments) and args.source is not None
+            else None
+        ),
     )
 
 
@@ -132,7 +201,8 @@ def _record(
         NodeKind.TRANSFORM,
         "anomaly_mad_zscore",
         attributes={
-            "series": arguments.series_id,
+            "series": arguments.series_id or arguments.column or "",
+            "source": arguments.source or "",
             "from": arguments.start.isoformat() if arguments.start else "",
             "to": arguments.end.isoformat() if arguments.end else "",
             "provenance": "series-level; the flagged periods are named in the result",

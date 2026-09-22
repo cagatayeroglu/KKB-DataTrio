@@ -3,7 +3,9 @@
 Two choices decide whether this is useful or theatre.
 
 **What is examined.** Anomalies are looked for in **period-over-period
-changes**, never in levels. Housing credit rises from 276,785 to 801,438 over
+changes** for a registered raw series. Explicit table-column inputs score their
+supplied values directly, so an already derived change is not differenced again.
+Housing credit rises from 276,785 to 801,438 over
 five years, so every recent level is "unusually high" against its own history
 and a level-based detector would flag the present and nothing else. The
 interesting event is a month that moved unlike other months.
@@ -37,7 +39,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import date
 from statistics import median
-from typing import Final
+from typing import Final, Literal
 
 from kkb_agent.analytics._basis import (
     DIFFERENCE_BASIS,
@@ -128,6 +130,7 @@ def detect_anomalies(
     result_id: str | None = None,
     input_refs: Sequence[str] = DEFAULT_INPUTS,
     lineage_node: str | None = None,
+    basis: Literal["changes", "values"] = "changes",
 ) -> AnalyticalResult:
     """Flag period-over-period changes that stand apart from the rest.
 
@@ -155,12 +158,17 @@ def detect_anomalies(
         )
 
     window = in_window(observations, start, end)
-    changes, missing, interrupted = consecutive_changes(window, semantics)
+    if basis == "values":
+        changes = [(item, 0.0, item.value) for item in window if item.value is not None]
+        missing, interrupted = len(window) - len(changes), 0
+    else:
+        changes, missing, interrupted = consecutive_changes(window, semantics)
+    examined = "supplied column values" if basis == "values" else "period-over-period changes"
     if len(changes) < minimum_changes:
         return _refuse(
             identifier,
             ResultStatus.INSUFFICIENT,
-            f"{len(changes)} period-over-period changes is below the {minimum_changes} "
+            f"{len(changes)} {examined} is below the {minimum_changes} "
             "this baseline requires for a stable median and spread",
             SampleCounts(
                 used=len(changes),
@@ -171,7 +179,7 @@ def detect_anomalies(
         )
 
     differences = [value - previous for _, previous, value in changes]
-    ratio_basis = scored_on_ratio(semantics, changes)
+    ratio_basis = basis == "changes" and scored_on_ratio(semantics, changes)
     # What is scored, against what is reported: the flag is decided on a comparable
     # basis, while the figure the answer quotes stays in the series' own unit.
     magnitudes = scored_magnitudes(changes, ratio=ratio_basis)
@@ -194,7 +202,7 @@ def detect_anomalies(
         return _refuse(
             identifier,
             ResultStatus.UNDEFINED,
-            "Every period-over-period change is identical, so there is no spread to "
+            f"Every {examined} entry is identical, so there is no spread to "
             "score against; the series moves by the same amount every period or not at all",
             SampleCounts(used=len(changes), missing=missing, excluded=interrupted),
         )
@@ -226,10 +234,11 @@ def detect_anomalies(
     ]
     values.extend(
         ResultValue(
-            label=f"{series_id} change at {observation.period_end.isoformat()}",
+            label=f"{series_id} {'value' if basis == 'values' else 'change'} at "
+            f"{observation.period_end.isoformat()}",
             value=value,
-            unit=_difference_unit(semantics),
-            scale=_difference_scale(semantics),
+            unit=semantics.unit if basis == "values" else _difference_unit(semantics),
+            scale=semantics.scale if basis == "values" else _difference_scale(semantics),
             measure=semantics.observation,
             period=Period(
                 start=observation.period_start,
@@ -245,7 +254,7 @@ def detect_anomalies(
         "An unusual change is not an error, an event or a cause; it is a period that "
         "moved unlike the others in this window"
     ]
-    if semantics.observation is StockFlow.STOCK:
+    if semantics.observation is StockFlow.STOCK and basis == "changes":
         warnings.append(
             "Changes are in an outstanding balance, so an unusual month is unusual net "
             "movement, not unusual new lending"
@@ -282,8 +291,14 @@ def detect_anomalies(
         parameters={
             "series": series_id,
             "method": "median absolute deviation, Iglewicz-Hoaglin modified z-score",
-            "examined": "period-over-period change",
-            "scored_on": RATIO_BASIS if ratio_basis else DIFFERENCE_BASIS,
+            "examined": "supplied column values"
+            if basis == "values"
+            else "period-over-period change",
+            "scored_on": "supplied values, without differencing"
+            if basis == "values"
+            else RATIO_BASIS
+            if ratio_basis
+            else DIFFERENCE_BASIS,
             "threshold": threshold,
             "minimum_changes": minimum_changes,
             "median_scored_change": centre,

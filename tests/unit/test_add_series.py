@@ -139,7 +139,11 @@ def test_refuses_ambiguous_or_incompatible_joins(pool, case):
         semantics = replace(semantics, frequency=Frequency.WEEKLY, anchor=WeeklyAnchor.FRIDAY)
     else:
         semantics = replace(
-            semantics, observation=StockFlow.FLOW, cumulative=CumulativeKind.YEARLY_RESET
+            semantics,
+            unit="TRY",
+            observation=StockFlow.FLOW,
+            cumulative=CumulativeKind.YEARLY_RESET,
+            base_year=None,
         )
     with pytest.raises(SeriesAdditionRefused):
         add(source, observations, semantics, identity)

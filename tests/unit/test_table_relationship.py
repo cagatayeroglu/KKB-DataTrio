@@ -258,6 +258,8 @@ def test_a_comparison_over_a_table_an_earlier_comparison_left_is_still_worded_by
         if controlled_count_label(second, value) is not None
     ]
     assert latest and all(phrase in draft for phrase in latest)
+    periods = second.evidence.transformations[-1].parameters["joint_periods"]
+    assert all(period in draft for period in periods)
 
 
 def args(**changes):
@@ -1273,3 +1275,22 @@ def test_a_lag_the_harness_applied_binds_where_a_clause_names_its_periods():
     assert any(item.value == 12.0 and item.role == "months" for item in counted)
     # The same table without that step licenses no such count.
     assert not any(item.value == 12.0 for item in window_counts([base]))
+
+
+def test_deterministic_comparison_includes_its_exact_nonempty_period_list():
+    from kkb_agent.agent.presentation import deterministic_draft
+
+    shown = table()
+    shown = shown.model_copy(
+        update={
+            "values": [
+                v.model_copy(update={"scale": Scale.ONE}) if v.unit == "index" else v
+                for v in shown.values
+            ]
+        }
+    )
+    result = compare(shown)
+    periods = result.evidence.transformations[-1].parameters["joint_periods"]
+    assert periods
+    draft = deterministic_draft(result)
+    assert draft is not None and all(period in draft for period in periods)

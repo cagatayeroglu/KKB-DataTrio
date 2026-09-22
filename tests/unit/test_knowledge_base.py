@@ -348,3 +348,9 @@ def test_the_knowledge_base_is_not_capped_by_the_reviewed_catalog_size(store):
     # Search over the grown catalog reports every candidate it counted.
     found = search_catalog(snapshot, CatalogSearchArguments(query="kullanıcı serisi"))
     assert found.total_candidates >= 60
+
+
+def test_future_closed_manual_period_is_not_an_actual_observation(store):
+    with pytest.raises(KnowledgeError, match="future_period"):
+        store.save_dataset(dataset(observations=monthly([12.0], start_year=2099)))
+    assert store.datasets() == []

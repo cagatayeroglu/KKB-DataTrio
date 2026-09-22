@@ -80,6 +80,16 @@ class SeriesSemantics:
     def __post_init__(self) -> None:
         if not known_unit(self.unit):
             raise SemanticsError(f"Unrecognized unit: {self.unit!r}")
+        if self.observation is StockFlow.STOCK and self.aggregation is Aggregation.SUM:
+            raise SemanticsError("A stock cannot be summed across periods")
+        if self.unit == "percent" and self.observation not in (StockFlow.RATE, StockFlow.UNKNOWN):
+            raise SemanticsError("Percent values require rate semantics")
+        if self.observation is StockFlow.RATE and self.unit not in ("percent", "ratio"):
+            raise SemanticsError("A rate requires a percent or ratio unit")
+        if self.observation is StockFlow.INDEX and self.unit != "index":
+            raise SemanticsError("An index requires an index unit")
+        if self.unit == "index" and self.observation not in (StockFlow.INDEX, StockFlow.UNKNOWN):
+            raise SemanticsError("Index units require index semantics")
         if self.frequency is Frequency.WEEKLY and self.anchor is None:
             raise SemanticsError("A weekly series must name the weekday its period ends on")
         if self.frequency is not Frequency.WEEKLY and self.anchor is not None:

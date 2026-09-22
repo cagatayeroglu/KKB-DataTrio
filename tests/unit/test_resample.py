@@ -160,10 +160,10 @@ def test_days_become_months_by_the_declared_aggregation_with_coverage():
     assert reduced.values[0].period.frequency is Frequency.MONTHLY
     assert reduced.label == "EVDS:TP.DK.USD.A.YTL monthly average"
     # Only the month the column ends inside is reported as resting on part of a month.
-    assert reduced.incomplete == (date(2026, 8, 31),)
+    assert reduced.incomplete == (date(2026, 6, 30), date(2026, 7, 31), date(2026, 8, 31))
     coverage = reduced.transformation.parameters["coverage"]
-    assert coverage["2026-06-30"] == {"expected": 22, "observed": 22}
-    assert coverage["2026-08-31"] == {"expected": 21, "observed": 12}
+    assert coverage["2026-06-30"] == {"expected": 30, "observed": 22}
+    assert coverage["2026-08-31"] == {"expected": 31, "observed": 12}
     assert reduced.transformation.parameters["method"] == "daily-to-monthly-v1"
     last = resample_column(
         values,

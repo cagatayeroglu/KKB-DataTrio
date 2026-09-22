@@ -1330,6 +1330,20 @@ class PreparedRunner:
                     # Named from this turn's catalog, knowledge-base entries included.
                     series_names=series_display_names(catalog),
                     today=self._clock(),
+                    acquisition_notes=lambda: (
+                        tuple(
+                            f"{item.series_id}: "
+                            + (
+                                "önceden edinilmiş resmi kaynak önbelleğinden bu turda yüklendi."
+                                if item.from_store
+                                else "resmi kaynaktan bu turda edinildi."
+                            )
+                            for item in acquirer.attempts
+                            if item.code is AcquisitionCode.ACQUIRED
+                        )
+                        if acquirer is not None
+                        else ()
+                    ),
                 )
                 try:
                     answered = session.answer(
@@ -1849,7 +1863,9 @@ class PreparedRunner:
                 library=library,
             )
         )
-        registry.register(make_anomaly_tool(connection, lineage=lineage, inspector=inspector))
+        registry.register(
+            make_anomaly_tool(connection, lineage=lineage, inspector=inspector, workspace=workspace)
+        )
         registry.register(
             make_causality_tool(
                 connection,

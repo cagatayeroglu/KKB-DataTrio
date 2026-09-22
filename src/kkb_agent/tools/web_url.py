@@ -10,13 +10,10 @@ with a fixed code.
 Three rules carry the security weight, and each is enforced here rather than
 asked of the model:
 
-1. **Only an address the user wrote.** The URL argument must be one of the
-   addresses in the question, character for character. A link inside a
-   fetched document, or one a model decides would be useful, cannot become a
-   request — so a cell saying "now fetch https://attacker/?data=..." has
-   nowhere to send anything. The check reads `ExecutionContext.question`,
-   which `Session` fills with the user's own words; a caller building its own
-   context must do the same, never pass a plan's restated question.
+1. **Explicit address authority.** A URL must come from the user's question or
+   an actual search result in this turn. A fetched page delegates only its recorded
+   same-origin links, at most one hop. `read_from` consumes that actual output;
+   model-generated or unrelated addresses never acquire authority.
 2. **One fetch boundary.** Every request goes through `safe_fetch`: public
    destinations only, DNS bound to the socket, bounded bytes and time, and
    bounded redirects with fresh validation/binding at every hop; no TLS downgrade.
@@ -28,9 +25,9 @@ What comes back is a table or a document. It becomes an answer only when the
 planner names one cell by its column header and row label (M7-18): then the
 output also carries a `LEVEL` `AnalyticalResult` for that cell, which
 `collect_results` finds and the answer gate binds like any other result. The
-unit, scale and period rules live in `_document_value`; without a selection
-nothing is read out of the content. The content is not persisted; retention
-permission is still an open question.
+unit, scale and period rules live in `_document_value`; without a selection the
+harness may inspect the document in a bounded continuation and show an explicitly
+unverified reading. Operator-configured retention uses the existing admission boundary.
 
 Registering the tool is the operator's switch: nothing registers it by
 default while the organizer's URL policy (Q-NET-02) is unanswered.
@@ -68,7 +65,7 @@ from kkb_agent.ingest.fetched import (
 )
 from kkb_agent.ingest.json_table import MEDIA_TYPE as JSON_MEDIA_TYPE
 from kkb_agent.ingest.json_table import JsonRejected, RecordTable, load_records
-from kkb_agent.ingest.page_links import LinkRefused, choose_link, page_links
+from kkb_agent.ingest.page_links import LinkRefused, PageLink, choose_link, page_links
 from kkb_agent.ingest.safe_fetch import (
     FetchFailure,
     FetchOutcome,
@@ -181,6 +178,14 @@ class WebUrlArguments(BaseModel):
             "followed, one hop; the address itself always comes from the page"
         ),
     )
+    read_from: str | None = Field(
+        default=None,
+        pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
+        description=(
+            "With follow: the step_id of an already fetched web_url page. "
+            "Follow only a link recorded in that page; declare it in depends_on."
+        ),
+    )
     document: str | None = Field(
         default=None,
         pattern=r"^belge_[0-9]{1,2}$",
@@ -279,9 +284,18 @@ class WebUrlArguments(BaseModel):
 
     @model_validator(mode="after")
     def _column_and_row_together(self) -> WebUrlArguments:
-        sources = sum((self.url is not None, self.attached, self.found_by is not None))
+        sources = sum(
+            (
+                self.url is not None,
+                self.attached,
+                self.found_by is not None,
+                self.read_from is not None,
+            )
+        )
         if sources != 1:
-            raise ValueError("give exactly one of url, attached=true or found_by")
+            raise ValueError("give exactly one of url, attached=true, found_by or read_from")
+        if self.read_from is not None and self.follow is None:
+            raise ValueError("read_from needs a follow target from the fetched page")
         if self.document is not None and not self.attached:
             raise ValueError("document names an upload; it needs attached=true")
         if self.follow is not None and self.attached:
@@ -364,6 +378,8 @@ class WebUrlOutput:
     document: PdfDocument | HtmlDocument | None = field(default=None, repr=False)
     #: The selected cell as a result, when the planner named one (M7-18).
     result: AnalyticalResult | None = field(default=None, repr=False)
+    links: tuple[PageLink, ...] = field(default=(), repr=False)
+    followed: bool = False
 
 
 @dataclass(frozen=True)
@@ -419,7 +435,9 @@ def _found_address(context: ExecutionContext, step_id: str, rank: int) -> str | 
 
 
 def _required_steps(arguments: BaseModel) -> tuple[str, ...]:
-    """The search step a read names, so the executor runs it first."""
+    """The earlier search or fetched page whose authority this read consumes."""
+    if isinstance(arguments, WebUrlArguments) and arguments.read_from is not None:
+        return (arguments.read_from,)
     if isinstance(arguments, WebUrlArguments) and arguments.found_by is not None:
         return (arguments.found_by,)
     return ()
@@ -459,6 +477,7 @@ def read_document(
     endpoints: Mapping[str, str] | None = None,
     keep: Callable[[str, bytes], None] | None = None,
     searched: frozenset[str] = frozenset(),
+    delegated: bool = False,
 ) -> DocumentRead:
     """The prompt-address boundary every document reader shares (M7-17, M7-14).
 
@@ -529,7 +548,7 @@ def read_document(
             url=SecretStr(url),
             accepted_media_types=DOCUMENT_MEDIA_TYPES,
             # Following a link is delegated authority: it may not leave the page's origin.
-            stay_within_origin=follow is not None,
+            stay_within_origin=follow is not None or delegated,
         )
     )
     if isinstance(outcome, FetchFailure):
@@ -555,7 +574,19 @@ def read_document(
         # documents so that keeping them later costs no second download (DEC-183).
         # Admission - media type, size, hash, capacity - is unchanged and decides.
         keep(outcome.media_type, outcome.content)
-    return _loaded(loaded, source, outcome.media_type)
+    read = _loaded(loaded, source, outcome.media_type)
+    if read.failure is None:
+        read = replace(
+            read,
+            output=replace(
+                read.output,
+                links=page_links(outcome.content, source.locator)
+                if isinstance(read.output.document, HtmlDocument) and follow is None
+                else (),
+                followed=follow is not None,
+            ),
+        )
+    return read
 
 
 def _loaded(
@@ -619,6 +650,29 @@ def make_web_url_tool(
             )
         elif fetch is None:
             return _failed("fetch_failed", WebUrlOutput("rejected", "NETWORK_DISABLED"))
+        elif arguments.read_from is not None:
+            parent = context.outputs.get(arguments.read_from)
+            if not isinstance(parent, WebUrlOutput) or parent.status != "loaded" or parent.followed:
+                return _failed(
+                    "navigation_refused", WebUrlOutput("rejected", "FOLLOW_SOURCE_INVALID")
+                )
+            try:
+                target = choose_link(parent.links, arguments.follow or "")
+            except LinkRefused as error:
+                return _failed("navigation_refused", WebUrlOutput("rejected", error.code))
+            read = read_document(
+                target.url,
+                context.question,
+                fetch=fetch,
+                delimiter=arguments.delimiter,
+                sheet=arguments.sheet,
+                ocr=ocr,
+                clock=clock,
+                keep=keep,
+                searched=frozenset({target.url}),
+                delegated=True,
+            )
+            read = replace(read, output=replace(read.output, followed=True, links=()))
         else:
             address = arguments.url
             if arguments.found_by is not None:

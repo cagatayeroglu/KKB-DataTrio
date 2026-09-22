@@ -271,6 +271,7 @@ def test_unproven_candidate_cannot_change_workspace(connection, comparison):
     )
     assert answer.answer.status is AnswerStatus.ABSTAINED
     assert snapshot() == before
+    assert len(provider.seen) == 1  # invalid producer proof never reaches the writer
 
 
 def test_valid_neighbor_never_launders_unproven_claim(connection, comparison):

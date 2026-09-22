@@ -30,7 +30,7 @@ from kkb_agent.lakehouse.alignment import (
     reducer_for,
     to_monthly,
 )
-from kkb_agent.lakehouse.periods import month_end
+from kkb_agent.lakehouse.periods import expected_periods, month_end
 from kkb_agent.lakehouse.records import Observation
 from kkb_agent.lakehouse.semantics import SeriesSemantics
 
@@ -98,14 +98,9 @@ def _days_to_months(
     for target in sorted(months):
         entries = sorted(months[target])
         begin = date(target.year, target.month, 1)
-        coverage[target.isoformat()] = {
-            "expected": _weekdays(begin, target),
-            "observed": len(entries),
-        }
-        # Weekdays of this month that lie outside what the column spans at all.
-        if _weekdays(begin, first - timedelta(days=1)) if first > begin else 0:
-            incomplete.append(target)
-        elif last < target and _weekdays(last + timedelta(days=1), target):
+        expected = len(expected_periods(semantics.frequency, begin, target))
+        coverage[target.isoformat()] = {"expected": expected, "observed": len(entries)}
+        if len(entries) < expected:
             incomplete.append(target)
         values.append(
             ResultValue(

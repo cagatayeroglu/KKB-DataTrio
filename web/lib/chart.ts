@@ -15,6 +15,11 @@ export type ChartSeries = {
 export type ChartModel = {
   groups: { key: string; label: string }[];
   series: ChartSeries[];
+  monthlyTicks: {
+    tickmode: "array";
+    tickvals: string[];
+    ticktext: string[];
+  } | null;
 };
 
 const LEGEND = 72;
@@ -84,9 +89,28 @@ export function chartModel(
   });
   const names = series.map((item) => item.name);
   for (const item of series) item.legend = legendName(item.name, names);
+  const labelled = rows.filter(
+    (_, index) =>
+      index % Math.max(1, Math.ceil(rows.length / 12)) === 0 ||
+      index === rows.length - 1,
+  );
   return {
     groups: [...groups].map(([key, label]) => ({ key, label })),
     series,
+    // Month-start auto ticks sit just after month-end observations, making January
+    // look like February. Anchor display labels to the actual semantic periods;
+    // the timestamps and gaps in the traces remain unchanged.
+    monthlyTicks: rows.every(
+      (row) =>
+        row.period!.frequency === "monthly" &&
+        row.period!.start.slice(0, 7) === row.period!.end.slice(0, 7),
+    )
+      ? {
+          tickmode: "array",
+          tickvals: labelled.map((row) => row.period!.end),
+          ticktext: labelled.map((row) => row.period!.end.slice(0, 7)),
+        }
+      : null,
   };
 }
 

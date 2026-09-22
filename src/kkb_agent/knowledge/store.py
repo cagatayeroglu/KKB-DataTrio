@@ -229,6 +229,8 @@ def validate_dataset(item: DatasetVersion) -> DatasetVersion:
         raise KnowledgeError("too_many_observations")
     seen: set[date] = set()
     for observation in item.observations:
+        if item.source_kind == "manual" and observation.period_end > datetime.now(UTC).date():
+            raise KnowledgeError("future_period")
         try:
             check_period(semantics, observation.period_start, observation.period_end)
         except SemanticsError:

@@ -299,4 +299,5 @@ def test_a_read_lost_after_every_attempt_is_said_in_the_outline():
     }
     assert served.requests.count(script) == 3 and waits == [0.5, 1.0]
     assert cache.transient_failures() == 1
-    assert "the listing may be incomplete" in note and "planned once" in note
+    assert "the listing may be incomplete" in note
+    assert "inspected once more" in note and "recorded link" in note

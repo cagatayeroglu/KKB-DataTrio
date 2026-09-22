@@ -170,6 +170,7 @@ export function ResultChart({
                   },
                   { dtickrange: [86400000 * 400, null], value: "%Y" },
                 ],
+                ...model.monthlyTicks,
                 gridcolor: "#edf1ee",
               },
               yaxis: {

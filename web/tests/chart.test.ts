@@ -190,3 +190,50 @@ test("a result made only of summary metrics is not charted", async () => {
   };
   assert.equal(chartModel(breakpoints as never, null), null);
 });
+
+test("a month absent from every column still breaks the line", () => {
+  const model = chartModel(
+    result([cell("balance", 1, 10), cell("balance", 3, 20)]),
+    null,
+  )!;
+  assert.deepEqual(model.series[0].x, [
+    "2021-01-31",
+    "2021-02-28",
+    "2021-03-31",
+  ]);
+  assert.deepEqual(model.series[0].y, [10, null, 20]);
+});
+
+for (const first of [1, 7]) {
+  test(`monthly labels match month-end observations for half-year starting ${first}`, () => {
+    const cells = Array.from({ length: 6 }, (_, i) => {
+      const value = cell("balance", first + i, 10 + i);
+      value.period!.start = value.period!.start.replace("2021", "2025");
+      value.period!.end = value.period!.end.replace("2021", "2025");
+      return value;
+    });
+    const before = structuredClone(cells);
+    const model = chartModel(result(cells), null)!;
+    assert.deepEqual(
+      model.monthlyTicks?.tickvals,
+      cells.map((c) => c.period!.end),
+    );
+    assert.deepEqual(
+      model.monthlyTicks?.ticktext,
+      cells.map((c) => c.period!.end.slice(0, 7)),
+    );
+    assert.deepEqual(
+      model.series[0].x,
+      cells.map((c) => c.period!.end),
+    );
+    assert.deepEqual(cells, before);
+  });
+}
+
+test("daily and weekly charts retain date-axis auto ticks", () => {
+  for (const frequency of ["daily", "weekly"] as const) {
+    const cells = [cell("balance", 1, 10), cell("balance", 2, 12)];
+    for (const c of cells) c.period!.frequency = frequency;
+    assert.equal(chartModel(result(cells), null)!.monthlyTicks, null);
+  }
+});

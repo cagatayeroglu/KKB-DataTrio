@@ -25,6 +25,7 @@ from datetime import timedelta
 from math import log
 
 from kkb_agent.core import Frequency, StockFlow
+from kkb_agent.lakehouse.periods import daily_steps
 from kkb_agent.lakehouse.records import Observation
 from kkb_agent.lakehouse.semantics import SeriesSemantics
 
@@ -66,11 +67,8 @@ def consecutive_changes(
     a weekend, so every Monday followed a break and the Friday-to-Monday move, the one
     a reader asks about, was never scored at all.
 
-    So a daily or business-day series treats its published days as consecutive - the
-    calendar gap between them is expected absence, not a hole - while every other
-    calendar has to meet the day-after rule. Measured over the whole prepared pool on
-    2026-09-20, every consecutive published pair of every series meets it, so this
-    leaves the prepared path exactly as it was.
+    DAILY requires the next calendar day; BUSINESS_DAY requires the next weekday.
+    Missing weekdays are never treated as inferred holidays or silently bridged.
 
     Returns the changes, how many rows carried no value, and how many pairs were left
     out because the periods did not follow one another.
@@ -81,7 +79,12 @@ def consecutive_changes(
     changes: list[tuple[Observation, float, float]] = []
     interrupted = 0
     for (earlier, before), (later, value) in zip(published, published[1:], strict=False):
-        if not daily and later.period_start != earlier.period_end + timedelta(days=1):
+        consecutive = (
+            daily_steps(semantics.frequency, earlier.period_end, later.period_end) == 1
+            if daily
+            else later.period_start == earlier.period_end + timedelta(days=1)
+        )
+        if not consecutive:
             interrupted += 1
             continue
         changes.append((later, before, value))

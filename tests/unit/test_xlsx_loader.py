@@ -518,3 +518,76 @@ def test_temporal_cells_survive_the_json_round_trip(temporal):
     encoded = loader._encode_cell(temporal, DEFAULT_LIMITS)
 
     assert loader._decode_cell(json.loads(json.dumps(encoded))) == temporal
+
+
+def percentage_workbook(number, fmt):
+    book = Workbook()
+    book.active.append(["Ay", "Faiz (%)"])
+    book.active.append(["2024-01", number])
+    book.active.append(["2024-02", 48.0])
+    book.active["B2"].number_format = fmt
+    stream = io.BytesIO()
+    book.save(stream)
+    book.close()
+    return stream.getvalue()
+
+
+@pytest.mark.parametrize(
+    "number,fmt,expected",
+    [(0.476, "0.0%", 47.6), (47.6, "General", 47.6), ("47.6", "0.0%", "47.6")],
+)
+def test_percentage_display_is_normalized_once_with_proof(number, fmt, expected):
+    result = load(percentage_workbook(number, fmt))
+    assert result.status == "loaded"
+    assert result.table.rows[0][1] == expected
+    from kkb_agent.tools._document_column import column_snapshot, read_column
+    from kkb_agent.tools._document_value import grids
+
+    column = read_column(grids(result.table, None), "Ay", "Faiz")
+    snapshot = json.loads(column_snapshot(column, SOURCE, MIME_TYPES[FileKind.XLSX]))
+    if number == 0.476:
+        assert snapshot["normalizations"][0]["operation"] == "excel_percent_points"
+    else:
+        assert not result.table.normalizations
+
+
+def test_custom_percentage_format_requires_explicit_support():
+    with pytest.raises(package.XlsxRejected, match="UNSUPPORTED_NUMBER_FORMAT"):
+        loader._parse(percentage_workbook(0.476, "[Red]0.0%"), None, DEFAULT_LIMITS)
+
+
+def test_builtin_static_print_and_filter_names_are_not_formulas():
+    book = Workbook()
+    sheet = book.active
+    sheet.append(["Ay", "Faiz (%)"])
+    sheet.append(["2024-01", 4])
+    sheet.append(["2024-02", 5])
+    sheet.auto_filter.ref = "A1:B3"
+    sheet.print_area = "A1:B3"
+    sheet.print_title_rows = "1:1"
+    output = io.BytesIO()
+    book.save(output)
+    book.close()
+    parsed = loader._parse(output.getvalue(), None, DEFAULT_LIMITS)
+    assert parsed["rows"] == [["2024-01", 4], ["2024-02", 5]]
+
+
+@pytest.mark.parametrize(
+    "expression", ["OFFSET(Sheet!$A$1,0,0,2,2)", "'[external.xlsx]Sheet'!$A$1:$B$3", "1+1"]
+)
+def test_builtin_name_cannot_hide_formula_or_external_reference(expression):
+    content = rewrite(
+        SINGLE,
+        {
+            "xl/workbook.xml": lambda data: data.replace(
+                b"<definedNames/>",
+                (
+                    '<definedNames><definedName name="_xlnm.Print_Area">'
+                    + expression
+                    + "</definedName></definedNames>"
+                ).encode(),
+            )
+        },
+    )
+    with pytest.raises(package.XlsxRejected):
+        loader._parse(content, None, DEFAULT_LIMITS)
