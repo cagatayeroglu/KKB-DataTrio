@@ -120,9 +120,30 @@ def test_follow_authority_is_exactly_the_loaded_page_and_only_one_hop():
     )
 
 
-def test_continuation_cannot_choose_a_url_or_two_actions():
+def test_continuation_names_no_destination_of_its_own():
+    """A key that says where to go is refused, however the rest of the object reads."""
+    for payload in (
+        {"follow": 1, "url": "https://evil.example.test"},
+        {"reading": "ok", "href": "https://evil.example.test"},
+    ):
+        with pytest.raises(ValueError):
+            DocumentContinuation.model_validate(payload)
+
+
+def test_two_fetching_actions_are_still_refused():
     with pytest.raises(ValueError):
-        DocumentContinuation.model_validate({"follow": 1, "reading": "fake"})
+        DocumentContinuation.model_validate({"follow": 1, "abstain": True})
+
+
+def test_a_reading_beside_another_key_keeps_the_reading():
+    """A model that answered and then said where it looked has still answered.
+
+    Failing the turn here discarded a document already downloaded — live 2026-09-22,
+    the TCMB decision page and the XTUMY table both. A reading is text shown beside
+    its source and fetches nothing, so it is taken and the rest dropped.
+    """
+    kept = DocumentContinuation.model_validate({"follow": 1, "reading": "özet"})
+    assert kept.reading == "özet" and kept.follow is None
 
 
 def test_a_failed_follow_cannot_degrade_to_a_successful_search_listing(tmp_path):

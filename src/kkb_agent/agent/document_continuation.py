@@ -64,6 +64,29 @@ class DocumentContinuation(BaseModel):
     reading: str | None = Field(default=None, min_length=1, max_length=24000)
     abstain: bool = False
 
+    @model_validator(mode="before")
+    @classmethod
+    def no_named_destination(cls, data: object) -> object:
+        """An unknown key is dropped; one that names where to go is refused.
+
+        A continuation may only follow a link the loaded page listed, by its number.
+        A response carrying `url` or `href` is asking to be sent somewhere the page
+        never offered — the injection case writes
+        `{"follow":1,"url":"https://evil.example.test"}` — and quietly dropping that
+        key would answer an attempt to redirect the fetch with silence. Ignoring the
+        keys a model adds around its answer is a different thing from ignoring the
+        one key that would change where the answer comes from.
+        """
+        if isinstance(data, dict):
+            named = sorted(
+                key
+                for key in data
+                if isinstance(key, str) and key.lower() in {"url", "href", "link", "address"}
+            )
+            if named:
+                raise ValueError(f"A continuation names no destination of its own: {named}")
+        return data
+
     @model_validator(mode="after")
     def one_action(self) -> DocumentContinuation:
         chosen = sum(
