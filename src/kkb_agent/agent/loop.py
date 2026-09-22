@@ -1864,6 +1864,8 @@ class Session:
             except ProviderError:
                 # The harness's own wording is the safety net, and a provider that fails must
                 # not cost a turn whose figures are already computed and verified.
+                if fast_draft is None and period_table(result) is None:
+                    raise
                 draft = fast_draft or EMPTY_DRAFT_NOTE
             if self.tracer is not None:
                 self.tracer.event("answer", "draft.model", source="model", detail=draft)

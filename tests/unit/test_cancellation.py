@@ -22,15 +22,16 @@ __all__ = ["launch"]
 class HeldProvider:
     """The scripted provider, with its first call held until released."""
 
-    def __init__(self, *responses):
+    def __init__(self, *responses, hold_at=1):
         self.inner = scripted(*responses)
         self.entered = threading.Event()
         self.release = threading.Event()
         self.calls = 0
+        self.hold_at = hold_at
 
     def complete(self, *args, **kwargs):
         self.calls += 1
-        if self.calls == 1:
+        if self.calls == self.hold_at:
             self.entered.set()
             assert self.release.wait(10), "the test never released the held call"
         return self.inner.complete(*args, **kwargs)
@@ -161,3 +162,29 @@ def test_checkpoints_do_nothing_outside_a_turn_and_stop_inside_a_cancelled_one()
             checkpoint("after")
     assert token.where == "after"
     checkpoint("outside again")
+
+
+def test_stop_while_final_writer_is_running_leaves_no_publication_or_gold(launch, monkeypatch):
+    from test_gold_runtime import table_step
+
+    from kkb_agent.lakehouse import open_lakehouse
+
+    held = HeldProvider(proposal(table_step()), "Tablo hazır.", hold_at=2)
+    monkeypatch.setattr("test_conversation_persistence.scripted", lambda *r: held)
+    runner, client = launch()
+    sid, headers, _ = open_conversation(client, owner(client))
+    path = f"/v1/sessions/{sid}/turns"
+    admitted = client.post(
+        path, json={"request_id": "f" * 32, "question": "Konut tablosunu getir"}, headers=headers
+    )
+    assert admitted.status_code == 202
+    turn_id = admitted.json()["turn_id"]
+    assert held.entered.wait(10)
+    assert client.post(f"{path}/{turn_id}/cancel", json={}, headers=headers).status_code == 202
+    held.release.set()
+    finished = wait_for(client, f"{path}/{turn_id}", headers)
+    assert (finished["state"], finished["error"]) == ("failed", "cancelled")
+    assert finished["answer"] is None and held.calls == 2
+    with open_lakehouse(runner.run_root / sid / "lake") as lake:
+        assert lake.connection.execute("SELECT count(*) FROM gold_cells").fetchone()[0] == 0
+        assert lake.connection.execute("SELECT count(*) FROM workspace_bindings").fetchone()[0] == 0
