@@ -77,9 +77,9 @@ INSTRUCTIONS = (
     "when it cannot answer. Do not calculate numbers, invent links or substitute a summary for "
     "requested calculations. Transcribed figures in a reading are unverified source statements. "
     "Only one same-origin hop is permitted. No URL or other tool can be proposed here. "
-    "`reached_through`, when given, names the link this document was opened by and the page "
-    "that link was on: a link was followed, so a reading never says that none was followed or "
-    "needed."
+    "The payload may carry `reached_through`: the link this document was opened by and the "
+    "page that link was on. It is what you were given, never a field of your answer, and it "
+    "means a link was followed, so a reading never says that none was followed or needed."
 )
 
 

@@ -578,6 +578,28 @@ def search_listing(outcome: ExecutionOutcome) -> str | None:
     return "\n".join([SEARCH_HEADER, *lines[:10], SEARCH_FOOTER])
 
 
+def search_note(outcome: ExecutionOutcome) -> str | None:
+    """What the writer must know about a web search it never sees the results of.
+
+    Live S2 (N49, 2026-09-22): the turn read the official series and ran the search the
+    person asked for, and the writer, shown only computed values, wrote that the search
+    step had returned nothing - under the list of what it had found.
+    """
+    found = sum(
+        len(getattr(item.output, "candidates", ()) or ())
+        for item in outcome.results
+        if item.tool == "web_search" and item.status in (ToolStatus.SUCCESS, ToolStatus.PARTIAL)
+    )
+    if not found:
+        return None
+    return (
+        f"A web search ran in this turn and returned {found} candidate pages. The reader is "
+        "shown them, as addresses, beneath your answer; you are not shown them and no page "
+        "was read. Do not say what the search found or did not find, and do not say it "
+        "returned nothing."
+    )
+
+
 #: How to read the outline that follows it: which tool each document calls for.
 DOCUMENT_TABLES_NOTE: Final = (
     "The message below outlines every document in this conversation. A document whose "
@@ -1246,6 +1268,10 @@ class Session:
     _source_notes: tuple[str, ...] = field(default=(), init=False, repr=False)
     _execution: tuple[ExecutionState, ...] = field(default=(), init=False, repr=False)
     _status_claims: set[str] = field(default_factory=set, init=False, repr=False)
+    #: Addresses of this turn's own question that a plan already tried to read (N46).
+    _addresses_tried: set[str] = field(default_factory=set, init=False, repr=False)
+    #: What this turn's web search returned, for a writer that is shown no candidate (N49).
+    _search_note: str | None = field(default=None, init=False, repr=False)
     _current_versions: frozenset[str] = field(default=frozenset(), init=False, repr=False)
 
     def plan(self, question: str, workspace: Workspace | None = None) -> Planned:
@@ -1429,8 +1455,19 @@ class Session:
                 if not discovery and self.address_note is not None:
                     # The person's address first (N46). The outline exists only when this
                     # turn read an address the question gives, so a read of it can succeed;
-                    # a catalogue continuation may not read an address at all.
-                    validate_address_read(validated, addresses_in(question))
+                    # a catalogue continuation may not read an address at all. An address
+                    # this turn already tried is not asked for again: "search only if the
+                    # address is insufficient" is the rest of the rule, and live W5
+                    # (2026-09-22) ended in silence when the follow found no such link and
+                    # the search that would have answered was refused for the same address.
+                    validate_address_read(
+                        validated,
+                        [
+                            address
+                            for address in addresses_in(question)
+                            if address not in self._addresses_tried
+                        ],
+                    )
                 if self.catalog_continuation:
                     validate_discovery_phase(
                         validated,
@@ -1627,6 +1664,13 @@ class Session:
                 reason=refusal.reason,
             )
         refused = plan_signature(planned.plan)
+        # What this plan asked of the person's own address, whatever the tool answered:
+        # the repair may search when reading it did not work (N46).
+        self._addresses_tried |= {
+            str(getattr(item.arguments, "url", "") or "")
+            for item in planned.plan.steps
+            if item.step.tool == "web_url"
+        }
         # The catalog already vouched for what this turn's discovery returned.
         proven_before = self.proven_series
         self.proven_series = self.proven_series | frozenset(self.newly_proven)
@@ -1894,8 +1938,10 @@ class Session:
         self._execution = ()
         self._current_versions = frozenset()
         self._status_claims.clear()
+        self._addresses_tried.clear()
         planned, outcome = self.run(question, workspace)
         self._execution = execution_states(outcome)
+        self._search_note = search_note(outcome)
         if self.acquisition_notes is not None:
             self._source_notes = tuple(self.acquisition_notes())
         if planned.plan.reply is not None:
@@ -2682,6 +2728,8 @@ class Session:
             messages.append(Message(Role.SYSTEM, INCOMPLETE_STEPS_NOTE + "\n" + listed))
         if self._execution:
             messages.append(Message(Role.SYSTEM, writer_state(self._execution)))
+        if self._search_note is not None:
+            messages.append(Message(Role.SYSTEM, self._search_note))
         if self._source_notes:
             messages.append(
                 Message(

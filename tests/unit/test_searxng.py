@@ -216,6 +216,11 @@ def test_a_search_asked_for_beside_an_official_series_keeps_its_list(tmp_path):
     assert "yüzde 45" not in found and "news.example.com" not in found
     assert answer.omitted_claims == 2
     assert SEARCH_LIMITATION in answer.notices
+    # The writer is shown no candidate, so it is told one ran: live S2 (N49) it wrote that
+    # the search step had returned nothing, under the list of what it had found.
+    written = runner._provider.seen[-1]
+    note = next(m.content for m in written if m.content.startswith("A web search ran"))
+    assert "4 candidate pages" in note and "do not say it returned nothing" in note
 
 
 def test_a_page_the_search_found_and_a_step_read_is_the_answer_without_the_list(tmp_path):

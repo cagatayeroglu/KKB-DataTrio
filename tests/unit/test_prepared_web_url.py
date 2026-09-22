@@ -493,3 +493,52 @@ def test_an_abstention_after_a_lost_read_says_the_address_could_not_be_read(pool
     assert turn["state"] == "completed", turn
     assert turn["answer"]["status"] == "abstained"
     assert any("okunamadı" in notice for notice in turn["answer"]["notices"])
+
+
+def test_a_search_answers_after_the_written_address_could_not_be_followed(pool, tmp_path):
+    """Live W5 (N46, 2026-09-22): the rest of the rule is "search only if it is insufficient".
+
+    The planner did read the address the person wrote, and the link it named was not on the
+    page (LINK_NOT_FOUND). Its corrected plan searched the web, was refused for not reading
+    that same address, and the turn ended in silence although the announcement was there.
+    """
+    from test_address_outline import ANNOUNCEMENTS, LISTING, Site
+    from test_searxng import FixedBackend
+
+    found = "https://www.bddk.org.tr/BultenAylik"
+    site = Site(
+        {
+            ANNOUNCEMENTS: (LISTING, "text/html"),
+            found: (b"<html><body><p>Kurul faizi sabit tuttu.</p></body></html>", "text/html"),
+        }
+    )
+    question = f"{ANNOUNCEMENTS} sayfasindaki 21 Mart 2024 kararini izle ve soyle"
+    missing = [
+        {
+            "step_id": "p",
+            "tool": "web_url",
+            "arguments": {"url": ANNOUNCEMENTS, "follow": "bu sayfada olmayan bir baglanti"},
+        }
+    ]
+    searched = [
+        {"step_id": "s1", "tool": "web_search", "arguments": {"query": "TCMB 21 Mart 2024"}},
+        {
+            "step_id": "p",
+            "tool": "web_url",
+            "arguments": {"found_by": "s1", "result": 1},
+            "depends_on": ["s1"],
+        },
+    ]
+    provider = scripted(
+        json.dumps({"question": question, "steps": missing}),
+        json.dumps({"question": question, "steps": searched}),
+        '{"reading": "Kurul politika faizini sabit tuttu."}',
+    )
+    prepared = served(pool, tmp_path, provider, site, search_backend=FixedBackend())
+    _, turn = ask(prepared, question)
+
+    assert turn["state"] == "completed", turn
+    assert "Kurul politika faizini sabit tuttu." in turn["answer"]["text"]
+    # The address was asked for first, and the search only followed its refusal.
+    assert ADDRESS_FIRST not in provider.seen[1][-1].content
+    assert site.requests[0] == ANNOUNCEMENTS and found in site.requests

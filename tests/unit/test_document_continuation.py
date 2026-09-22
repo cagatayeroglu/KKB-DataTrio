@@ -242,3 +242,15 @@ def test_plans_that_read_the_address_or_have_none_to_read_are_accepted(question,
     provider = scripted(json.dumps({"question": question, **proposal}))
     planned = Session(provider, rig(), address_note=outline).plan(question)
     assert planned.attempts == 1 and not planned.rejections
+
+
+def test_the_link_a_document_was_reached_by_is_input_and_never_an_answer_field():
+    """Live S1 (2026-09-22): naming `reached_through` without saying so cost a turn.
+
+    DeepSeek answered the inspection with a field its schema does not have, the call failed
+    as a SchemaViolation, and the turn abstained although the page had been fetched.
+    """
+    from kkb_agent.agent.document_continuation import INSTRUCTIONS
+
+    assert "never a field of your answer" in INSTRUCTIONS
+    assert "never says that none was followed" in INSTRUCTIONS
