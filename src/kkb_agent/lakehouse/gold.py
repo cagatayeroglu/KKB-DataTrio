@@ -86,6 +86,7 @@ def build_gold(
     anchor: WeeklyAnchor | None = None,
     lineage: Lineage,
     upstream: Mapping[str, Sequence[tuple[str, EdgeKind]]],
+    result_version: str | None = None,
 ) -> GoldTable:
     """Place each series on one spine and record a lineage node per column.
 
@@ -126,6 +127,7 @@ def build_gold(
             name,
             attributes={
                 "table_id": table_id,
+                **({"result_version": result_version} if result_version is not None else {}),
                 "frequency": frequency.value,
                 "first_period": period_ends[0].isoformat(),
                 "last_period": period_ends[-1].isoformat(),
@@ -197,4 +199,5 @@ def gold_from_result(
         anchor=anchors.pop(),
         lineage=lineage,
         upstream={label: [(node, EdgeKind.DERIVES_FROM)] for label in columns},
+        result_version=result.digest(),
     )

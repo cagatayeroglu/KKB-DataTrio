@@ -52,6 +52,7 @@ from kkb_agent.core import (
     ResultValue,
     Scale,
 )
+from kkb_agent.lakehouse.lineage import Lineage
 from kkb_agent.lakehouse.result_evidence import execution_proof
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -398,20 +399,37 @@ def _evidence_faults(result: AnalyticalResult, connection: DuckDBPyConnection) -
     return faults
 
 
-def _stored_value(connection: DuckDBPyConnection, label: str, period_end: date) -> float | None:
-    """Read the value the store holds for one series at one period.
+def _stored_value(
+    connection: DuckDBPyConnection,
+    label: str,
+    period_end: date,
+    *,
+    result_version: str,
+    period_start: date,
+) -> float | None:
+    """A source cell, or gold materialized from exactly this immutable result.
 
-    Keyed on identity rather than magnitude, and written here in fixed SQL, so
-    it is independent of whatever statement the model composed to produce the
-    result under test.
+    A derived label is reusable across windows and versions. Its spelling and
+    month cannot identify a materialization; the producer-signed result digest can.
     """
-    for statement in (
+    row = connection.execute(
         "SELECT value FROM silver_observations WHERE series_id = ? AND period_end = ?",
-        "SELECT value FROM gold_cells WHERE column_name = ? AND period_end = ?",
-    ):
-        row = connection.execute(statement, [label, period_end]).fetchone()
-        if row is not None and row[0] is not None:
-            return float(row[0])
+        [label, period_end],
+    ).fetchone()
+    if row is not None and row[0] is not None:
+        return float(row[0])
+    rows = connection.execute(
+        "SELECT value, column_node_id FROM gold_cells "
+        "WHERE column_name = ? AND period_start = ? AND period_end = ?",
+        [label, period_start, period_end],
+    ).fetchall()
+    graph = Lineage(connection)
+    for value, node in rows:
+        if (
+            graph.node(node).attributes.get("result_version") == result_version
+            and value is not None
+        ):
+            return float(value)
     return None
 
 
@@ -430,10 +448,17 @@ def recheck_against_store(
     figure — and it does not catch a wrong number that was stored wrongly.
     """
     faults: list[str] = []
+    version = result.digest()
     for value in result.values:
         if value.period is None:
             continue
-        stored = _stored_value(connection, value.label, value.period.end)
+        stored = _stored_value(
+            connection,
+            value.label,
+            value.period.end,
+            result_version=version,
+            period_start=value.period.start,
+        )
         if stored is None:
             continue
         if not _close(value.value, stored, tolerance):
