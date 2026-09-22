@@ -74,9 +74,9 @@ need relevance/semantic review or clarification. Under
 such a nonempty similarity-only result is `PARTIAL`, not `MATCH`, when no reviewed
 alias or phrase identified a catalog concept. Candidate order and visibility are unchanged.
 
-Snapshot mismatch, embedding/policy failure or invalid/native index output
-returns **`lexical_degraded`**, `dense_status=failed`, a fixed category and a tool
-warning. Private exceptions are not copied. Unknowns/ambiguity remain even when
+Embedding/policy failure, invalid/native index output, or a catalogue in which the
+generation covers no eligible identity at all, returns **`lexical_degraded`**,
+`dense_status=failed`, a fixed category and a tool warning. Private exceptions are not copied. Unknowns/ambiguity remain even when
 dense succeeds. The implemented bounded discovery/replan round is enabled in the
 prepared runtime; its retrieval is hybrid only when an index generation is configured.
 
@@ -96,11 +96,14 @@ same configured provider (same timeout and attempts); a bounded cache holds the 
 256 query vectors. Embedding or index failure yields `lexical_degraded` for that
 search, not a failed turn. Without `--catalog-index` retrieval stays lexical.
 
-A generation covers one exact catalogue, identified by its digest, and is offered
-only to that catalogue — the reviewed snapshot, or the reviewed snapshot with the
-knowledge base applied. A knowledge-base dataset, alias or archival therefore makes
-a catalogue the startup generation does not cover, and discovery over it is lexical
-until vectors exist for it. `GET /v1/knowledge/index` reports the generation in use
+A generation covers the identities it embedded, per identity: the series whose text,
+concepts and families in the catalogue being searched are still the ones that were
+embedded ([DEC-187](DECISIONS.md#dec-187--a-vector-generation-covers-the-identities-it-embedded-not-one-catalogue)).
+A knowledge-base dataset, alias or archival therefore costs meaning-based search for
+the entry it changed, and for that entry alone, until vectors exist for it; everything
+else in the catalogue is still searched by meaning. A generation is still *opened* only
+against the catalogue it was built for, whose digest names its directory, and a rebuild
+still produces one for the catalogue in use. `GET /v1/knowledge/index` reports the generation in use
 (model, input policy, dimension, digest, coverage, missing identities) and
 `POST /v1/knowledge/index` builds one for the catalogue in use now, with the same
 profile — the browser chooses none of it. Building embeds every catalogue entry, so
@@ -110,7 +113,9 @@ reopened instead of embedded again and a failed build leaves the one in use
 untouched. The catalogue trial (`GET /v1/knowledge/search`) runs the same retrieval
 and reports `retrieval_mode`, `dense_status` and `dense_failure`, so a catalogue the
 vectors no longer cover is visible rather than quietly lexical
-([DEC-163](DECISIONS.md#dec-163--a-vector-generation-covers-one-catalogue-and-the-knowledge-base-can-have-its-own)).
+([DEC-163](DECISIONS.md#dec-163--a-vector-generation-covers-one-catalogue-and-the-knowledge-base-can-have-its-own),
+narrowed by DEC-187). The trace says what ran for a turn: `hybrid`, `lexical`, or
+`hybrid over 8373 of 8374`.
 
 
 <a id="catalog_search-catalog-and-observation-boundary"></a>
