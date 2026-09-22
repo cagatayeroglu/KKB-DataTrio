@@ -916,3 +916,21 @@ def test_planning_failure_preserves_previously_selected_table_and_publishes_noth
         # Assert previously selected table is preserved in workspace and nothing new was published
         assert ws.names() == ["source_table"]
         assert selected.check() is not None
+
+
+@pytest.mark.parametrize("max_attempts", [1, 3])
+def test_truncated_discovery_continuation_is_repaired_once_and_traced(rig, max_attempts):
+    from kkb_agent.agent.observer import Tracer
+    from kkb_agent.llm import ScriptedProvider
+
+    reg, calls = rig
+    provider = ScriptedProvider(
+        responses=[proposal(discover()), '{"steps": [', proposal(calculate())],
+        max_attempts=max_attempts,
+    )
+    tracer = Tracer()
+    _, outcome = enabled(provider, reg, tracer=tracer).run(QUESTION)
+    assert len(calls) == 1 and outcome.completed
+    assert len(provider.seen) == 3
+    assert provider.seen[2][: len(provider.seen[1])] == provider.seen[1]
+    assert any(event.name == "schema.repair" for event in tracer.events)

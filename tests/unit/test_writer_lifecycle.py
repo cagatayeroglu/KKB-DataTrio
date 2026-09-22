@@ -86,3 +86,113 @@ def test_writer_transport_error_keeps_verified_table(house):  # noqa: F811
     assert answer.tables and workspace.names() == ["table"]
     assert result_faults({"table": workspace.value_of("table")}, house.connection) == {}
     assert "yazılı değerlendirme üretilemedi" in answer.answer.text
+
+
+def test_writer_receives_selected_chat_model_without_changing_publication(house):
+    from kkb_agent.llm.config import SELECTABLE_CHAT_MODELS
+
+    inner = scripted(plan(), "Tablo hazır.")
+    chosen = []
+
+    class RecordingProvider:
+        def complete(self, *args, **kwargs):
+            chosen.append(kwargs.get("model"))
+            return inner.complete(*args, **kwargs)
+
+    session = session_for(house, RecordingProvider())
+    session.model = SELECTABLE_CHAT_MODELS[1]
+    answer = session.answer("Tabloyu getir", house.connection)
+    assert answer.tables
+    assert chosen == [SELECTABLE_CHAT_MODELS[1]] * 2
+
+
+def test_writer_context_preserves_long_table_cells_meaning_and_provenance():
+    from datetime import date
+
+    from kkb_agent.agent.loop import _writer_values, render_result
+    from kkb_agent.core import (
+        AnalyticalResult,
+        Frequency,
+        Period,
+        ResultEvidence,
+        ResultKind,
+        ResultStatus,
+        ResultValue,
+        Scale,
+        StockFlow,
+    )
+    from kkb_agent.core.models import SourceRef, TransformationRecord
+
+    values = [
+        ResultValue(
+            label="quantity",
+            value=float(month),
+            unit="kg",
+            scale=Scale.ONE,
+            measure=StockFlow.FLOW,
+            period=Period(
+                start=date(2021 + (month - 1) // 12, (month - 1) % 12 + 1, 1),
+                end=date(2021 + (month - 1) // 12, (month - 1) % 12 + 1, 28),
+                frequency=Frequency.MONTHLY,
+            ),
+        )
+        for month in range(1, 61)
+    ]
+    transformation = TransformationRecord(
+        operation="resample",
+        parameters={"aggregation": "sum", "calendar": "business_day"},
+        input_refs=["raw"],
+        output_ref="monthly",
+    )
+    result = AnalyticalResult(
+        result_id="monthly",
+        kind=ResultKind.SERIES,
+        status=ResultStatus.COMPUTED,
+        tool="table_transform",
+        values=values,
+        evidence=ResultEvidence(
+            input_refs=["raw"],
+            transformations=[transformation],
+            sources=[SourceRef(source_id="source", source_type="synthetic", locator="fixture")],
+        ),
+        parameters={"series_names": {"quantity": "Traded mass"}},
+        warnings=["Partial final period"],
+        limitations=["No holiday calendar"],
+    )
+    context = render_result(result)
+    assert len(_writer_values(result)[0]) == 60
+    for detail in [
+        '"measure": "flow"',
+        '"frequency": "monthly"',
+        '"calendar": "business_day"',
+        '"aggregation": "sum"',
+        '"source_id": "source"',
+        "Traded mass",
+        "Partial final period",
+        "No holiday calendar",
+    ]:
+        assert detail in context
+    unknown = result.model_copy(
+        update={
+            "values": [values[0].model_copy(update={"unit": None})],
+            "unresolved_semantics": ["unit unknown"],
+        }
+    )
+    assert '"value_state": "value_present_unit_unresolved"' in render_result(unknown)
+
+
+def test_inherited_semantics_remove_only_exact_copies():
+    from kkb_agent.agent.loop import semantic_difference
+
+    current = {
+        "parameters": {"basis": "real", "calendar": "business_day"},
+        "sources": [{"source_id": "A"}],
+    }
+    ancestor = {
+        "parameters": {"basis": "nominal", "calendar": "business_day"},
+        "sources": [{"source_id": "A"}, {"source_id": "B"}],
+    }
+    assert semantic_difference(ancestor, current) == {
+        "parameters": {"basis": "nominal"},
+        "sources": [{"source_id": "B"}],
+    }

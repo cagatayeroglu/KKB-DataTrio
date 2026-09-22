@@ -1,9 +1,9 @@
 """Provider configuration from the environment (M4-06).
 
-Every platform-specific value is read here and nowhere else. Model identifiers,
-the base URL and capability flags come from the operator's environment, not
-source constants; DEC-129 supplies the confirmed values (see `.env.example`).
-The one rule fixed in source is where the key may go: `kloudeks` refuses any
+Platform configuration is resolved here. Role-default model identifiers,
+base URL and capability flags come from the operator's environment.
+The selectable chat IDs are declared here once and projected to the browser.
+The endpoint boundary also fixes where the key may go: `kloudeks` refuses any
 base URL but DEC-129's, because the environment is where a wrong one would hide.
 
 Errors name the setting that is wrong. They never carry its value, since the
@@ -45,6 +45,12 @@ WRITER_THINKING = f"{PREFIX}WRITER_THINKING"
 #: answers, so the floor is generous.
 MAX_OUTPUT_TOKENS = f"{PREFIX}MAX_OUTPUT_TOKENS"
 
+# Canonical browser-selectable chat IDs; role defaults still come from the environment.
+SELECTABLE_CHAT_MODELS = (
+    "kkbhackathon2026/Qwen3.8-27B",
+    "deepseek-ai/DeepSeek-V4.1-Flash",
+)
+
 REQUIRED = (BASE_URL, CREDENTIAL, PLANNER_MODEL, ROUTER_MODEL)
 
 _TRUE = frozenset({"1", "true", "yes", "on"})
@@ -72,6 +78,12 @@ class ProviderConfig:
     planner_thinking: bool = True
     writer_thinking: bool = True
     max_output_tokens: int = 16384
+
+    @property
+    def chat_models(self) -> tuple[str, ...]:
+        return tuple(
+            dict.fromkeys((self.planner_model, self.router_model, *SELECTABLE_CHAT_MODELS))
+        )
 
     def __post_init__(self) -> None:
         if not self.base_url.startswith("https://"):

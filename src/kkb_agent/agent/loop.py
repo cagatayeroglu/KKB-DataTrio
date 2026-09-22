@@ -19,6 +19,8 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import TYPE_CHECKING, Final, Literal
 
+from pydantic import JsonValue
+
 from kkb_agent.agent.cancellation import checkpoint
 from kkb_agent.agent.claim_qualifiers import (
     causal_fault,
@@ -121,7 +123,7 @@ SYNTHESIS_PROMPT = (
     "Figures: every number you write is checked against the results. Copy a figure "
     "exactly as its display phrase gives it - number, unit and scale - and name the "
     "period and the series it belongs to by its meaningful series name, not its code, "
-    "one period's figures per sentence. Do not "
+    "pairing each figure with its own period. Do not "
     "calculate new numbers (differences, percentages, averages, rounded values): if a "
     "figure is not displayed, describe the pattern in words instead. A figure shown as "
     "UNAVAILABLE or AMBIGUOUS is not quoted. Copy a count together with its listed role "
@@ -258,7 +260,9 @@ SYSTEM_PROMPT = (
     "basis, which window - choose the usual reading and write it in that step's "
     "`assumption`: one short Turkish sentence shown under the answer. Ask the reader "
     "(steps=[], a clarification reason and a specific Turkish clarification_text) only "
-    "when you cannot tell what is being asked. "
+    "when you cannot tell what is being asked. For an explicit period known to be "
+    "outside available coverage, return steps=[] and clarification=outside_coverage: "
+    "this is a terminal limitation, not a question. Never invent coverage or change the period. "
     "When a prompt contains both an original request and a user clarification "
     "(e.g. 'Orijinal istek:' and 'Açıklama:'), preserve the original request's date "
     "range, filters, and intent unless the user's clarification explicitly specifies "
@@ -695,13 +699,11 @@ def _writer_values(result: AnalyticalResult) -> tuple[list[ResultValue], tuple[s
     return kept, table.columns
 
 
-#: A table this short is given to the writer whole: three months, four quarters, thirteen
-#: weeks, a year of months. Longer than this and a listing would crowd out the reasoning,
-#: so it narrows - and says so in words the writer cannot read as "the table lacks them".
-MAX_LISTED_PERIODS: Final = 16
-#: And no more than this many dated values in total, so a short table of many columns
-#: cannot reach the writer as hundreds of lines.
-MAX_LISTED_VALUES: Final = 120
+#: Keep the full five-year demo window and longer ordinary tables available for interpretation.
+#: Beyond these resource bounds, retain explicit coverage, semantics and highlights.
+MAX_LISTED_PERIODS: Final = 120
+#: Bound wide tables without reducing ordinary multi-column analytical context to endpoints.
+MAX_LISTED_VALUES: Final = 1024
 #: Columns whose ends are listed when a longer table would otherwise list nothing. A table
 #: of more columns than this states its own coverage rather than listing every end.
 MAX_EDGE_COLUMNS: Final = 12
@@ -728,13 +730,88 @@ def _edge_values(result: AnalyticalResult, labels: Sequence[str]) -> list[Result
     return edges
 
 
+def _writer_semantic_context(result: AnalyticalResult) -> dict[str, JsonValue]:
+    """Semantic context without repeated cells; metadata is data, never numeric authority."""
+    columns: dict[str, JsonValue] = {}
+    for value in result.values:
+        metadata: dict[str, JsonValue] = {
+            "label": value.label,
+            "unit": value.unit,
+            "scale": value.scale.value,
+            "measure": value.measure.value,
+            "frequency": value.period.frequency.value if value.period else None,
+            "value_state": "value_present_unit_unresolved"
+            if value.semantics_are_unresolved
+            else "value_present_unit_known",
+            "display_supported": display_value(value) is not None,
+        }
+        columns[json.dumps(metadata, sort_keys=True)] = metadata
+    evidence = result.evidence
+    context: dict[str, JsonValue] = {
+        "status": result.status.value,
+        "reason": result.reason,
+        "coverage": result.coverage.model_dump(mode="json") if result.coverage else None,
+        "columns": list(columns.values()),
+        "parameters": result.parameters,
+        "sources": [item.model_dump(mode="json") for item in evidence.sources] if evidence else [],
+        "transformations": [item.model_dump(mode="json") for item in evidence.transformations]
+        if evidence
+        else [],
+        "samples": result.samples.model_dump(mode="json") if result.samples else None,
+    }
+    # Exact repeated metadata is redundant, not an excuse to drop different meaning.
+    for key in ("sources", "transformations"):
+        items = context[key]
+        if isinstance(items, list):
+            context[key] = list({json.dumps(item, sort_keys=True): item for item in items}.values())
+    return context
+
+
+def writer_semantics(
+    result: AnalyticalResult, *, already_shown: AnalyticalResult | None = None
+) -> str:
+    """Version-scoped metadata, without exact copies of context already supplied."""
+    context = _writer_semantic_context(result)
+    if already_shown is not None:
+        current = _writer_semantic_context(already_shown)
+        context = semantic_difference(context, current)
+        if not context:
+            return ""
+    return "Semantic context (metadata, not additional financial values): " + json.dumps(
+        context, ensure_ascii=False, sort_keys=True
+    )
+
+
+def semantic_difference(
+    context: dict[str, JsonValue], shown: dict[str, JsonValue]
+) -> dict[str, JsonValue]:
+    """Only exact field/list-item equality is deduplicated; changed meaning survives."""
+    delta: dict[str, JsonValue] = {}
+    for key, value in context.items():
+        previous = shown.get(key)
+        if key not in shown:
+            delta[key] = value
+        elif isinstance(value, dict) and isinstance(previous, dict):
+            if difference := semantic_difference(value, previous):
+                delta[key] = difference
+        elif isinstance(value, list) and isinstance(previous, list):
+            if remaining := [item for item in value if item not in previous]:
+                delta[key] = remaining
+        elif value != previous:
+            delta[key] = value
+    return delta
+
+
 def render_result(result: AnalyticalResult, ambiguous: frozenset[int] = frozenset()) -> str:
     """The values, as text the writer may quote and nothing more.
 
     Deliberately not the rows. A writer given rows will aggregate them, and a
     figure it computed itself is exactly what the gate has to reject.
     """
-    lines = [f"Analysis result ({result.kind.value}, tool {result.tool}):"]
+    lines = [
+        f"Analysis result ({result.kind.value}, tool {result.tool}):",
+        writer_semantics(result),
+    ]
     names = result.parameters.get("series_names")
     if isinstance(names, dict):
         # Reviewed code constants set by the producing tool, not source text.
@@ -1185,8 +1262,8 @@ class Session:
                         ),
                     )
                 )
-                if "web_url" in self.registry:
-                    messages.append(Message(Role.SYSTEM, WEB_ADDRESS_INSTRUCTIONS))
+        if "web_url" in self.registry or "web_search" in self.registry:
+            messages.append(Message(Role.SYSTEM, WEB_ADDRESS_INSTRUCTIONS))
         # The conversation is shown whenever there is one. It used to be shown only when a
         # word list found a reference in the question ("bu tablo", "önceki cevap"), so
         # "grafiği çiz bi" after an answer about a series reached the planner as four
@@ -1352,7 +1429,31 @@ class Session:
         )
 
     def _planner_call(self, messages: list[Message], phase: str, attempt: int) -> Completion:
-        """One planning request, recorded with the exact context and what came back."""
+        """At most one syntax/schema correction across provider and harness budgets."""
+        try:
+            return self._planner_request(messages, phase, attempt)
+        except SchemaViolation as error:
+            if error.attempts >= 2:
+                raise
+            if self.tracer is not None:
+                self.tracer.event("planning", "schema.repair", phase=phase, attempt=1)
+            retry = [
+                *messages,
+                Message(
+                    Role.USER,
+                    "The response was not complete schema-valid JSON. "
+                    "Emit one complete schema-valid JSON object only, using the same context.",
+                ),
+            ]
+            try:
+                return self._planner_request(retry, phase + ".schema_repair", attempt)
+            except SchemaViolation as second:
+                raise SchemaViolation(
+                    "Schema not satisfied after 2 attempts", attempts=2
+                ) from second
+
+    def _planner_request(self, messages: list[Message], phase: str, attempt: int) -> Completion:
+        """One provider invocation, recorded with the exact context and what came back."""
         checkpoint(f"planner.{phase}")
         if self.tracer is None:
             return self.provider.complete(messages, model=self.model, schema=AnalyticalPlan)
@@ -1373,6 +1474,11 @@ class Session:
                     messages, model=self.model, schema=AnalyticalPlan
                 )
             except SchemaViolation as error:
+                span.set(provider_attempts=error.attempts)
+                if error.attempts > 1:
+                    self.tracer.event(
+                        "planning", "schema.repair", phase=phase, attempt=1, source="provider"
+                    )
                 # What the model got wrong, after the provider's own repair attempts. Without
                 # it a failed planning call cannot be explained afterwards: live U2
                 # (2026-09-19) spent 486 s and left only "SchemaViolation" behind.
@@ -1380,6 +1486,10 @@ class Session:
                     prompt_outline(messages) + "\n\nSchema violation: " + str(error)[:4000]
                 )
                 raise
+            if completion.attempts > 1:
+                self.tracer.event(
+                    "planning", "schema.repair", phase=phase, attempt=1, source="provider"
+                )
             span.set(model=completion.model, provider_attempts=completion.attempts)
             _record_cost(span, completion)
             parent = span.sequence
@@ -1394,6 +1504,9 @@ class Session:
             decision=(
                 "reply"
                 if isinstance(plan, AnalyticalPlan) and plan.reply is not None
+                else "limitation"
+                if isinstance(plan, AnalyticalPlan)
+                and plan.clarification in ("outside_coverage", "unsupported_request")
                 else "clarify"
                 if isinstance(plan, AnalyticalPlan) and plan.clarification is not None
                 else "plan"
@@ -1887,6 +2000,8 @@ class Session:
                     for label, meaning in old_names.items()
                     if not isinstance(current_names, dict) or current_names.get(label) != meaning
                 )
+            if semantic_note := writer_semantics(ancestor, already_shown=result):
+                notes.append(semantic_note)
             if notes:
                 writer_notes.append(
                     f"Earlier version {key}@{ancestor.digest()[:12]} notes "

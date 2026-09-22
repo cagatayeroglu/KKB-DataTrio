@@ -301,6 +301,9 @@ def clarification_text(
     (DEC-172). The lines come from reviewed catalogue records this turn's own searches
     returned, in their order; nothing here is model text and no figure is quoted.
     """
+    # A terminal reason never turns back into a question through model wording.
+    if reason in ("outside_coverage", "unsupported_request"):
+        return CLARIFICATION_TEXT[reason]
     # Planner prose is not evidence. A numeric statement, locator or causal claim
     # in it cannot be bound by the ordinary answer verifier, so do not show it.
     # This intentionally rejects even a harmless date rather than certifying an
@@ -421,6 +424,9 @@ def project_answer(
         # A conversational reply never publishes, so saying so would be noise.
         notices.append("Bu turda yeni bir doğrulanmış tablo çalışma alanına yayımlanmadı.")
     answer = Answer(
+        needs_clarification=gate.status is AnswerStatus.ABSTAINED
+        and answered.planned.plan.clarification
+        in ("ambiguous_series", "missing_series", "unresolved_semantics"),
         status=gate.status,
         text=text,
         omitted_claims=len(gate.omitted),

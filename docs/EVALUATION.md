@@ -13,6 +13,77 @@ This file defines what correctness means and how to measure it. [ROADMAP M9](ROA
 
 Implementation boundary: merged unit tests exercise ingestion, semantics, lakehouse, planning, workspace definitions and numeric matching. [ROADMAP Current Project Status](ROADMAP.md#current-project-status) owns their revisions/results. They are not a benchmark scorecard. The Day 0 `evaluation/models.py`, case JSON and schema-test drafts are preserved in a local stash, not delivered or currently untracked files in dev. No executing benchmark runner, benchmark numerical-oracle schema, scorecard generator or eval Make target exists. This docs task runs document checks only.
 
+<a id="quick-quality-pass-2026-09-22"></a>
+
+## Quick quality pass — 2026-09-22
+
+Branch `codex/quality-pass`, based on `dev=9ee3f04` (PR #315 merged), draft
+[PR #316](https://github.com/cagatayeroglu/KKB-DataTrio/pull/316). No automatic merge.
+No hosted model, embedding, live web or live acquisition calls. Original `.env`,
+`dev`, `main`, generated `web/next-env.d.ts` and prepared data are preserved.
+
+Delivered contracts:
+
+- Incomplete/malformed planner JSON requires a new complete response, never guessed parser repair. One correction across provider/planner budgets, original context retained, concise feedback and explicit trace. Existing semantic validation and transport failure policies remain separate.
+- `outside_coverage` is a terminal reason; `needs_clarification` separates questions from limitations in the API/UI. Terminal responses clear pending state. No period/date-specific rule.
+- Writer receives column meaning, measure, unit/scale/resolution, frequency, coverage, samples, parameters, source metadata and transformation records. Existing execution-state/acquisition notes and warning/limitation carriers stay intact. Ancestor cell dedupe remains; only distinct ancestor semantics return. Full-table bounds change from 16 periods / 120 values to 120 / 1024. Interpretation and causal caveats remain model-authored, with the numerical gate unchanged in authority.
+- `YYYY-MM` period/value pairs are verified locally, including conjoined/comma/semicolon enumerations; swapped months fail. Typed lag roles cannot license financial amounts. KG/gram/ton are quantity-unit normalization, not financial inference; counts already supported remain visible. Present-but-unresolved remains distinct from absent.
+- Explicit URL/search preference reaches the planner even without dense discovery; bounded safe-fetch/follow authority stays unchanged. This is model-led guidance, not a domain-specific routing rule.
+- One canonical backend chat list supplies Qwen and DeepSeek to the selector. Owner settings carry the exact selected ID through PreparedRunner/Session to Kloudeks; new chats inherit the owner choice. Deployment defaults and vision/OCR/embedding settings remain unchanged. Selection is disabled during an active turn; submitting waits until model settings finish saving.
+
+### Offline evidence
+
+- Focused provider/planner/grounding/clarification/settings/writer group: **459 passed, 1 xfailed**, 14.82 s. Final trace/writer boundary group after schema-repair trace naming: **114 passed**, 9.57 s. Final terminal-projection/trace/restoration refinement: **51 passed**, 15.59 s.
+- Broader affected regression: **903 passed, 1 xfailed**, 166.13 s. Covers canonical synthetic T1–T3, F1/roles, derived anomaly, causality proof, acquisition cold/warm, direct URL, search/read/follow, document continuation, FinTürk directory, conversation restoration and writer failure paths.
+- Web: **81 passed**, TypeScript `tsc --noEmit` PASS. Backend strict mypy: **157 files PASS**. Ruff format/check, Bandit and secret scan PASS. Full Fast PR gate runs in CI once on the final code revision; CI status is separate from these local results.
+- Canonical replay: network explicitly disabled; existing prepared database copied into a temporary directory; three explicit scripted plans run real tools, verifier, workspace and gold. T1 **60 months, 59 transitions, 32 rate falls, 28 nominal increases, 4 non-increases**; T2 retains all nominal cells and adds the real column; T3 retains original **4**, computes **22**, verifies the exact 22 oracle period ends and retains the causal caveat. All three ACCEPTED with valid execution proof, available proof graph, preserved earlier versions and 240/300/360 gold cells. This proves deterministic contracts, not live planner choice or writer quality.
+
+Writer input comparison with the same payloads (baseline `9ee3f04` versus this change):
+
+| Payload | Before | After | Meaning |
+| --- | ---: | ---: | --- |
+| Synthetic 60-month × 3-column prompt, characters | 5,049 | 23,700 | Includes writer instruction and result context |
+| Approximate tokens (`chars/4`, not provider usage) | 1,262 | 5,925 | No latency claim from size |
+| Listed value cells | 6 | 180 | Full ordinary table, including quantity/count columns |
+| Canonical T3 entire writer input, UTF-8 bytes | 14,247 | 75,983 | Same plans/data; metadata + all 368 result values |
+| Canonical T3 result-context bytes | 10,240 | 71,970 | Repeated full ancestor blocks: 0 before and after |
+
+Quality is prioritized over input minimization. No model reasoning/output budget,
+writer fallback or deterministic factual scaffold was changed. Metadata does not
+become new numeric evidence. Physical-unit spelling and year-month recognition are
+normalization; retry/status/selection/context carriers are general contracts.
+
+### Remaining limits and live reruns
+
+**COVERAGE GAP:** No new million↔billion conversion tool/carrier. A wrong
+`0,512259 milyar TL` claim against a `512259 million TRY` result is rejected;
+correct but uncomputed rescaling can still be withheld. Do not ask the writer to
+perform it. A separate typed display-conversion contract needs its own review.
+
+**BY DESIGN:** Large tables above the documented bounds still project values;
+unknown units do not become quotable numbers; unsupported requests may terminate
+without a table. Coverage classification and URL/search intent are model decisions,
+not phrase/dataset/date whitelists. Historical stored answers lack the new flag and
+show a neutral terminal label rather than retroactively guessing intent.
+
+**LIVE REQUIRED:** Use DeepSeek first, then a short Qwen compatibility smoke:
+
+| Exact Turkish prompt / action | Expected trace and outcome |
+| --- | --- |
+| “İstanbul ve Ankara’daki toplam nakdi kredileri 2025 için aylık olarak karşılaştır ve tek tabloda göster.” | FinTürk discovery → continuation. If syntax/schema fails, one `schema.repair`, then complete validated plan or terminal failure; no invented JSON/tool execution. |
+| “2019 yılındaki toplam konut kredisi bakiyesini aylık göster.” | When discovered coverage excludes the year: `outside_coverage`, `needs_clarification=false`, no pending question, no fabricated acquisition. |
+| “Konut kredisi ölçümlerinden hangilerini karşılaştırabileceğimizi göster.” Then select an ambiguous measure; separately ask “2025 yılındaki toplam konut kredisi bakiyesini aylık göster.” | Genuine ambiguous measure may clarify; explicit supported period executes normally; terminal prior turn is not merged into the new request. |
+| “Yüklediğim BIST tablosundaki KG ve işlem adedi sütunlarını dönemleriyle göster ve yorumla.” | Present quantity/count cells visible to writer; unresolved unit distinguished from missing values; no invented numerical claims. |
+| “Tablodaki 2026-07 ve 2026-08 değerlerini tek cümlede, her değerin dönemini belirterek yaz.” | Each retained amount binds to its own actual month. Missing months must not be invented. |
+| “Bu tablo için lag 1 kullanarak ilişkiyi incele; kullanılan gözlem sayısını belirt.” | Lag/sample counts bind to typed analytical context; no financial-number exemption. |
+| “https://www.tcmb.gov.tr/ adresini önce oku; buradaki yayın bağlantılarını kullanarak konut fiyat endeksi kaynağını bul.” | Direct address read first; bounded follow/search only if needed, safe-fetch restrictions preserved. |
+| “Web araması yaparak BDDK’nın FinTürk verileri için resmi kaynağı bul ve oku.” | `web_search` → authorized read/follow; a prepared financial value may complement an explicit source search. |
+| T1: “2021–2025 döneminde konut kredisi faiz oranı ile toplam konut kredisi bakiyesini aylık karşılaştır. Faizin düştüğü aylarda bakiyenin arttığı ve artmadığı ayları say; aylık tabloyu ve artmayan ayları göster, yorumla.” | 60 months, 59 transitions, 32 rate falls, 28 nominal increases, 4 non-increases; publication and interpretation. |
+| T2: “Bu tabloyu bozmadan nominal konut kredisi bakiyesini koru; TÜFE ile Aralık 2025 fiyatlarına göre ayrı bir reel kredi sütunu ekle.” | Nominal preserved, separate deterministic real column and deflation evidence. |
+| T3: “Aynı tabloya Konut Fiyat Endeksi’ni ekle. Faizin düştüğü, KFE’nin arttığı ve reel kredi bakiyesinin artmadığı ayları say ve hepsini listele. Önceki nominal koşulun sonucunu da koru; nedensellik açısından yorumla.” | Old nominal 4/new joint 22, exact 22 periods, causal caveat, valid versioned publication. |
+| Choose DeepSeek, create a new chat and ask “Merhaba.”; choose Qwen and repeat | PATCH settings exact ID, then planner/provider trace uses that same ID; no changes to data, workspace, vision/OCR/embedding. |
+| Repeat one previously passing cold official acquisition, then the same request in a new chat | First acquisition receipt, persisted value, warm reuse, no second acquisition. Use the same live acceptance series so this does not invent a new coverage claim. |
+
 <a id="second-final-pass-2026-09-22"></a>
 
 ## Second final pass — core demo contracts, 2026-09-22

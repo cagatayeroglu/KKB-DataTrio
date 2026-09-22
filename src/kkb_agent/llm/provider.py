@@ -99,6 +99,10 @@ class Refused(ProviderError):
 class SchemaViolation(ProviderError):
     """Output did not satisfy the requested schema after the repair budget."""
 
+    def __init__(self, message: str, *, attempts: int = 1) -> None:
+        super().__init__(message)
+        self.attempts = attempts
+
 
 class CapabilityUnavailable(ProviderError):
     """A capability was used that this deployment has not confirmed it has."""

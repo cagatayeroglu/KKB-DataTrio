@@ -113,9 +113,7 @@ class KloudeksProvider:
         # The chat model also reads images (DEC-129), so any configured chat
         # identifier may be named by a caller; nothing else may.
         self._chat_models = frozenset(
-            name
-            for name in (config.planner_model, config.router_model, config.vision_model)
-            if name is not None
+            name for name in (*config.chat_models, config.vision_model) if name is not None
         )
         self._client = httpx.Client(
             base_url=approved_base_url(config.base_url),

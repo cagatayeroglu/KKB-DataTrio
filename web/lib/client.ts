@@ -250,7 +250,7 @@ export function readSettings(owner: string) {
 }
 export function saveSettings(
   owner: string,
-  change: { disabled?: string[]; history_turns?: number },
+  change: { disabled?: string[]; history_turns?: number; model?: string },
 ) {
   return api(
     "settings",

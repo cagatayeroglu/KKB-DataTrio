@@ -420,17 +420,17 @@ class TestThePlannerLoop:
         assert retry[-2].role is Role.ASSISTANT and retry[-2].content == bad
         assert retry[-1].role is Role.USER
         assert "question: missing" in retry[-1].content
-        assert retry[-1].content.endswith(contract)
+        assert "complete schema-valid JSON object only" in retry[-1].content
         assert len(provider.seen) == 2  # One invalid turn, one repair; no planner retry.
         assert planned.attempts == 1 and not planned.rejections
 
     @pytest.mark.parametrize("max_attempts", [1, 2, 3])
-    def test_invalid_schema_stops_at_existing_provider_budget(self, max_attempts):
+    def test_invalid_schema_stops_after_one_correction(self, max_attempts):
         provider = ScriptedProvider(responses=["{}"] * 4, max_attempts=max_attempts)
-        with pytest.raises(PlanningFailed, match=f"after {max_attempts} attempt"):
+        with pytest.raises(PlanningFailed, match="after 2 attempt"):
             Session(provider, registry()).plan("konut kredisi")
-        assert len(provider.seen) == max_attempts
-        assert len(provider.responses) == 4 - max_attempts
+        assert len(provider.seen) == 2
+        assert len(provider.responses) == 2
 
     def test_prompt_is_deterministic_and_user_content_cannot_change_contract(self):
         seen = []
@@ -511,3 +511,32 @@ def test_today_instructions_ask_for_the_period_before_a_change_range():
     text = today_instructions(date(2026, 9, 20))
     assert "period BEFORE the range" in text
     assert "narrow the table afterwards" in text
+
+
+@pytest.mark.parametrize("phase", ["initial", "continuation"])
+def test_unterminated_json_gets_one_schema_recovery_with_original_context(phase):
+    from kkb_agent.llm import Message, Role
+
+    provider = ScriptedProvider(
+        responses=['{"question": "partial"', plan_json(ONE_STEP)], max_attempts=1
+    )
+    session = Session(provider, registry())
+    messages = [Message(Role.USER, "Original discovery and candidate context")]
+    completion = session._planner_call(messages, phase, 1)
+    assert completion.parsed.steps[0].tool == "lakehouse"
+    assert len(provider.seen) == 2
+    assert provider.seen[1][0] == messages[0]
+    assert "complete schema-valid JSON" in provider.seen[1][-1].content
+
+
+def test_schema_retry_does_not_multiply_an_exhausted_provider_budget():
+    from kkb_agent.llm import Message, Role, SchemaViolation
+
+    provider = ScriptedProvider(
+        responses=['{"question":', "{}", plan_json(ONE_STEP)], max_attempts=3
+    )
+    session = Session(provider, registry())
+    with pytest.raises(SchemaViolation):
+        session._planner_call([Message(Role.USER, "context")], "continuation", 1)
+    assert len(provider.seen) == 2
+    assert len(provider.responses) == 1

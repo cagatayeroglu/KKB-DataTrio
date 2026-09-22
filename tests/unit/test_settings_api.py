@@ -191,3 +191,53 @@ def test_the_prompt_parts_are_readable_with_their_digests_and_nothing_is_editabl
     # No editor exists: a write to the surface is not a route.
     assert client.post("/v1/prompts", json={}, headers=key).status_code in (404, 405)
     assert client.get("/v1/prompts").status_code == 422  # the owner key is required
+
+
+def test_selected_model_reaches_transport_in_new_chats_and_preserves_other_settings(api):
+    import json
+
+    from test_kloudeks_provider import CHAT_MODEL, Server, chat, provider
+
+    from kkb_agent.llm.config import SELECTABLE_CHAT_MODELS
+
+    client, service = api
+    service._models = SELECTABLE_CHAT_MODELS
+    service._model = CHAT_MODEL
+    server = Server(
+        *[
+            chat(json.dumps({"question": "selam", "steps": [], "reply": "Merhaba."}))
+            for _ in range(3)
+        ]
+    )
+    target = provider(server)
+    service._runner._provider = target
+    key = {"X-KKB-Owner-Token": owner(client)}
+    other = {"X-KKB-Owner-Token": owner(client)}
+    try:
+        initial = client.get("/v1/settings", headers=key).json()
+        assert initial["models"] == list(SELECTABLE_CHAT_MODELS)
+        assert initial["model"] == CHAT_MODEL
+        for index, model in enumerate([CHAT_MODEL, SELECTABLE_CHAT_MODELS[1], CHAT_MODEL]):
+            changed = client.patch(
+                "/v1/settings", headers=key, json={"model": model, "history_turns": 2}
+            ).json()
+            assert changed["model"] == model and changed["disabled"] == []
+            assert client.get("/v1/settings", headers=other).json()["model"] == CHAT_MODEL
+            session = client.post("/v1/sessions", json={}, headers=key).json()
+            headers = {"X-KKB-Session-Token": session["token"]}
+            turns = f"/v1/sessions/{session['session_id']}/turns"
+            turn = client.post(
+                turns, json={"request_id": str(index) * 32, "question": "selam"}, headers=headers
+            ).json()
+            wait_http(client, f"{turns}/{turn['turn_id']}", headers)
+            assert server.bodies()[-1]["model"] == model
+        refused = client.patch("/v1/settings", headers=key, json={"model": "arbitrary/model"})
+        assert refused.status_code == 422
+        assert (
+            client.patch("/v1/settings", headers=key, json={"disabled": ["web_search"]}).json()[
+                "model"
+            ]
+            == CHAT_MODEL
+        )
+    finally:
+        target.close()

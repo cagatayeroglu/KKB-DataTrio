@@ -18,7 +18,11 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, StringConstraints,
 
 Identifier = Annotated[str, StringConstraints(strict=True, pattern=r"^[A-Za-z0-9_.:-]{1,64}$")]
 ClarificationReason = Literal[
-    "ambiguous_series", "missing_series", "unresolved_semantics", "unsupported_request"
+    "ambiguous_series",
+    "missing_series",
+    "unresolved_semantics",
+    "unsupported_request",
+    "outside_coverage",
 ]
 
 

@@ -50,6 +50,7 @@ _UNITS = {
     #: word is added. Without an entry here every cell of a "kişi" or "adet" series
     #: read "gösterilemiyor" and the writer could not quote one (finding DN-6.4).
     "count": "",
+    **{unit: label for unit, label in _QUANTITY_WORDS.items()},
     #: A price per quantity: "TRY/g" reads as "TL/gr".
     **{
         f"{currency}/{quantity}": f"{currency_word}/{quantity_word}"

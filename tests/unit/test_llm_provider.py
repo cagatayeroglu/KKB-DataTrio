@@ -154,8 +154,9 @@ class TestJsonExtraction:
     def test_preamble_prose_is_discarded(self):
         assert extract_json('Sure, here it is: {"a": 1} Hope that helps!') == '{"a": 1}'
 
-    def test_nesting_is_balanced_not_greedy(self):
-        assert extract_json('{"a": {"b": 2}} trailing {"c": 3}') == '{"a": {"b": 2}}'
+    def test_multiple_objects_are_rejected_rather_than_selecting_one(self):
+        with pytest.raises(SchemaViolation, match="multiple or partial"):
+            extract_json('{"a": {"b": 2}} trailing {"c": 3}')
 
     def test_braces_inside_strings_do_not_confuse_the_scan(self):
         assert extract_json('{"a": "} not the end {"}') == '{"a": "} not the end {"}'
@@ -173,8 +174,9 @@ class TestStrictValidation:
     def test_a_valid_object_parses(self):
         assert parse_structured('{"tool": "lakehouse", "limit": 5}', Plan).tool == "lakehouse"
 
-    def test_a_trailing_comma_is_repaired(self):
-        assert parse_structured('{"tool": "lakehouse", "limit": 5,}', Plan).limit == 5
+    def test_a_trailing_comma_requires_a_complete_replacement(self):
+        with pytest.raises(SchemaViolation, match="not valid JSON"):
+            parse_structured('{"tool": "lakehouse", "limit": 5,}', Plan)
 
     def test_an_extra_field_is_rejected_not_ignored(self):
         # A plan that deserializes is not a plan that may be executed.
@@ -194,7 +196,7 @@ class TestStrictValidation:
     def test_the_feedback_states_the_fault_and_the_schema(self):
         feedback = repair_feedback(Plan, "limit: greater_than_equal")
         assert "limit: greater_than_equal" in feedback
-        assert '"tool"' in feedback and '"limit"' in feedback
+        assert "complete schema-valid JSON object only" in feedback
 
 
 class TestTheRepairLoop:
@@ -213,9 +215,9 @@ class TestTheRepairLoop:
 
     def test_the_budget_is_bounded_and_the_failure_is_explicit(self):
         provider = ScriptedProvider(responses=["bad", "worse", "worst"], max_attempts=3)
-        with pytest.raises(SchemaViolation, match="after 3 attempt"):
+        with pytest.raises(SchemaViolation, match="after 2 attempt"):
             ask(provider, Plan)
-        assert provider.responses == []
+        assert provider.responses == ["worst"]
 
     def test_without_a_schema_the_text_is_returned_unparsed(self):
         completion = ask(scripted("free prose"))
@@ -309,3 +311,16 @@ class TestTheBoundaryHoldsTheLine:
         from kkb_agent.llm import LLMProvider
 
         assert isinstance(ScriptedProvider(), LLMProvider)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '[{"tool":"lakehouse","limit":5}]',
+        '{"tool":"lakehouse","limit":5} {',
+        '{"tool":"lakehouse","limit":5,}',
+    ],
+)
+def test_structural_damage_requires_replacement_not_silent_parser_repair(text):
+    with pytest.raises(SchemaViolation):
+        parse_structured(text, Plan)

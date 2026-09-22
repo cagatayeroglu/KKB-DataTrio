@@ -1300,6 +1300,7 @@ class PreparedRunner:
                 session = Session(
                     self._provider,
                     registry,
+                    model=chosen.model,
                     catalog_continuation=True,
                     selection=selected_table,
                     require_series_discovery=self._dense is not None,
@@ -1443,7 +1444,7 @@ class PreparedRunner:
                     # went on offering "bekleyen netleştirmeyi bırak" under a finished
                     # answer and the next free question was merged into the old prompt
                     # (live 2026-09-21).
-                    if answer.status != AnswerStatus.ABSTAINED:
+                    if not answer.needs_clarification:
                         self._pending_clarifications.pop(session_id, None)
                         if self._store is not None:
                             self._store.set_pending_clarification(session_id, None)

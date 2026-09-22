@@ -147,7 +147,7 @@ def test_explicit_clarification_overrides_original_date_range(pool, tmp_path):
 
 
 def test_cancellation_and_refusal_clears_established_pending_context(pool, tmp_path):
-    """Cancellation/new question clear context; refusal preserves it for retry."""
+    """Cancellation, new questions and terminal refusals clear pending context."""
     provider = scripted(
         # Turn 1: Establishes pending clarification state
         proposal(discover("d1")),
@@ -195,11 +195,11 @@ def test_cancellation_and_refusal_clears_established_pending_context(pool, tmp_p
     prepared(sid, uuid4().hex, q5)
     assert sid in prepared._pending_clarifications
 
-    # Turn 6: Refusal on unsupported request does NOT erase established pending context
+    # Turn 6: A terminal refusal clears the pending question
     turn6 = prepared(sid, uuid4().hex, "Gelecek yıl tahminleri için regresyon yap.")
     assert turn6.status.value == "abstained"
-    assert sid in prepared._pending_clarifications
-    assert prepared._pending_clarifications[sid].original_question == q5
+    assert not turn6.needs_clarification
+    assert sid not in prepared._pending_clarifications
 
 
 def test_back_to_back_clarifications_accumulate_without_nesting(pool, tmp_path):
@@ -751,3 +751,30 @@ def test_card_choice_is_merged_in_actual_trace_but_unrelated_question_replaces(p
         assert provider.seen[-1][-1].content == fresh
     finally:
         store.close()
+
+
+def test_known_coverage_limit_is_terminal_and_does_not_bind_the_next_question(pool, tmp_path):
+    provider = scripted(
+        proposal(discover("d1")),
+        proposal(clarification="outside_coverage"),
+        proposal(clarification="ambiguous_series"),
+    )
+    prepared = runner(pool, tmp_path, provider)
+    sid = uuid4().hex
+    answer = prepared(sid, uuid4().hex, "2019 konut bakiyesini aylık göster.")
+    assert answer.status.value == "abstained" and not answer.needs_clarification
+    assert "kapsamının dışında" in answer.text
+    assert sid not in prepared._pending_clarifications
+    prepared(sid, uuid4().hex, "Kredi ölçümlerini karşılaştır.")
+    assert "Orijinal istek:" not in provider.seen[-1][-1].content
+    assert sid in prepared._pending_clarifications
+
+
+def test_terminal_reason_cannot_be_reworded_into_another_period_question():
+    from kkb_agent.agent.executor import ExecutionOutcome
+    from kkb_agent.api.projection import clarification_text
+
+    text = clarification_text(
+        "outside_coverage", ExecutionOutcome((), True), "Başka bir dönem seçer misiniz?"
+    )
+    assert "kapsamının dışında" in text and "?" not in text

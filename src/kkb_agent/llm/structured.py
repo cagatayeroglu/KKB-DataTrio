@@ -3,7 +3,7 @@
 The platform's structured-output support is unresolved (Q-K-03), and the brief
 expects open-weight models, which malform JSON more often than large hosted
 ones. So the fallback is not a contingency, it is the likely path: extract the
-JSON from whatever came back, repair what can be repaired, validate strictly,
+JSON from whatever came back, validate strictly,
 and on failure tell the model exactly what was wrong and ask again.
 
 Strictly is the operative word. A plan that deserializes is not a plan that may
@@ -41,6 +41,8 @@ def extract_json(text: str) -> str:
         closing = fenced.rfind("```")
         if newline != -1 and closing > newline:
             fenced = fenced[newline + 1 : closing].strip()
+    if fenced.startswith("[") and "{" in fenced:
+        raise SchemaViolation("Response JSON must be an object, not an array")
     start = fenced.find("{")
     if start == -1:
         raise SchemaViolation("Response contains no JSON object")
@@ -64,12 +66,14 @@ def extract_json(text: str) -> str:
         elif character == "}":
             depth -= 1
             if depth == 0:
+                if any(c in fenced[index + 1 :] for c in "{}[]"):
+                    raise SchemaViolation("Response contains multiple or partial JSON objects")
                 return fenced[start : index + 1]
     raise SchemaViolation("Response contains an unterminated JSON object")
 
 
 def parse_structured[ModelT: BaseModel](text: str, schema: type[ModelT]) -> ModelT:
-    """Validate a response against `schema`, repairing malformed JSON first.
+    """Validate complete JSON against `schema`; malformed text requires a new response.
 
     Raises `SchemaViolation` with a message describing the fault, which is what
     the retry loop feeds back to the model.
@@ -77,8 +81,8 @@ def parse_structured[ModelT: BaseModel](text: str, schema: type[ModelT]) -> Mode
     document = extract_json(text)
     try:
         payload = json.loads(document)
-    except json.JSONDecodeError:
-        payload = _repair(document)
+    except json.JSONDecodeError as error:
+        raise SchemaViolation("Response is not valid JSON") from error
     if not isinstance(payload, dict):
         # Defensive: extraction guarantees a brace-balanced document, so this
         # only fires if the repair step ever returns something else.
@@ -102,6 +106,7 @@ def complete_with_repair(
     Shared by every provider so the loop a test scripts is the loop that runs
     against the platform. Without a schema the first answer is returned.
     """
+    max_attempts = min(max_attempts, 2)  # One correction, never an expanding repair loop.
     conversation = list(messages)
     last_problem = ""
     for attempt in range(1, max_attempts + 1):
@@ -129,7 +134,10 @@ def complete_with_repair(
             parsed=parsed,
             finish_reason=finish_reason,
         )
-    raise SchemaViolation(f"Schema not satisfied after {max_attempts} attempt(s): {last_problem}")
+    raise SchemaViolation(
+        f"Schema not satisfied after {max_attempts} attempt(s): {last_problem}",
+        attempts=max_attempts,
+    )
 
 
 def schema_instructions(schema: type[BaseModel]) -> str:
@@ -143,23 +151,13 @@ def schema_instructions(schema: type[BaseModel]) -> str:
 def repair_feedback(schema: type[BaseModel], problem: str) -> str:
     """The correction handed back to the model on a retry.
 
-    It states the fault and restates the schema, because a model that produced
-    the wrong shape once will usually produce it again without both.
+    The original schema and context remain in the conversation. Repeat only
+    the correction instruction, not another copy of the tool/plan schema.
     """
-    return f"The previous response was rejected: {problem}\n{schema_instructions(schema)}"
-
-
-def _repair(document: str) -> object:
-    """Second attempt at parsing, using json-repair for the usual malformations."""
-    try:
-        from json_repair import repair_json
-    except ImportError as error:  # pragma: no cover - declared in the manifest
-        raise SchemaViolation("Response is not valid JSON and no repair is available") from error
-    repaired = repair_json(document)
-    try:
-        return json.loads(repaired)
-    except json.JSONDecodeError as error:
-        raise SchemaViolation("Response is not valid JSON even after repair") from error
+    return (
+        f"The previous response was rejected: {problem[:FEEDBACK_LIMIT]}. "
+        "Emit one complete schema-valid JSON object only, using the same schema and context."
+    )
 
 
 def _summarize(error: ValidationError) -> str:

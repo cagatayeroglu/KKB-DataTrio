@@ -68,6 +68,13 @@ UNITS = {
     "adet": "count",
     "işlem": "count",
     "count": "count",
+    "kg": "kg",
+    "kilogram": "kg",
+    "gram": "g",
+    "gr": "g",
+    "g": "g",
+    "ton": "t",
+    "t": "t",
     # A quoted price is money per quantity (DEC-177), in both spellings a reader
     # uses. Series with these units had no display at all (finding DN-6.4).
     **{
@@ -592,8 +599,9 @@ def period_fault(
         if not has_amount_context(context, m.start(), m.end())
         and not any(d.start() <= m.start() < d.end() for d in dates)
     ]
+    year_months = list(YEAR_MONTH.finditer(context))
     months = list(MONTH.finditer(context))
-    if not dates and not years and not months:
+    if not dates and not years and not months and not year_months:
         return None
     period = value.period
     if period is None:
@@ -610,6 +618,14 @@ def period_fault(
             return fault
     if any(not period.start.year <= int(m[0]) <= period.end.year for m in years):
         return fault
+    for match in year_months:
+        year, month = map(int, match[0].split("-"))
+        if (
+            not (period.start.year, period.start.month)
+            <= (year, month)
+            <= (period.end.year, period.end.month)
+        ):
+            return fault
     for match in months:
         month = MONTHS[fold(match[1])]
         following = YEAR.match(context[match.end() :].lstrip())

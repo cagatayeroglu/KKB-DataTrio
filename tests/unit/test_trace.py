@@ -173,8 +173,9 @@ def test_a_trace_belongs_to_its_conversation_and_carries_no_secret(launch):
 
 
 @pytest.mark.parametrize("question", ["Merhaba", "Konut kredisini göster."])
-def test_every_turn_leaves_a_run_even_when_it_answers_nothing(launch, question):
-    _, client = launch(proposal(clarification="unsupported_request"), "-")
+@pytest.mark.parametrize("reason", ["unsupported_request", "outside_coverage", "ambiguous_series"])
+def test_every_turn_leaves_a_run_even_when_it_answers_nothing(launch, question, reason):
+    _, client = launch(proposal(clarification=reason), "-")
     owner_token = owner(client)
     sid, headers, _ = open_conversation(client, owner_token)
     answer = ask(client, sid, headers, question)
@@ -182,10 +183,11 @@ def test_every_turn_leaves_a_run_even_when_it_answers_nothing(launch, question):
     (run,) = client.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"]
     assert run["status"] == "completed" and run["answer_status"] == "abstained"
     steps = trace(client, sid, headers, run["run_id"])["steps"]
-    assert (
-        next(item for item in steps if item["name"] == "planner.output")["attributes"]["decision"]
-        == "clarify"
-    )
+    assert next(item for item in steps if item["name"] == "planner.output")["attributes"][
+        "decision"
+    ] == ("clarify" if reason == "ambiguous_series" else "limitation")
+
+    assert answer["answer"]["needs_clarification"] is (reason == "ambiguous_series")
 
 
 def test_events_are_readable_while_the_turn_is_still_running(launch):

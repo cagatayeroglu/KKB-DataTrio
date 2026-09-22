@@ -386,6 +386,7 @@ export function Workspace() {
   async function changeSetting(change: {
     disabled?: string[];
     history_turns?: number;
+    model?: string;
   }) {
     if (!ownerToken) return;
     setSavingSetting(Object.keys(change)[0] ?? "");
@@ -758,7 +759,7 @@ export function Workspace() {
     // clarification then (api/prepared.py), and this tab must stop offering to leave it.
     // It only ever cleared on reopening the chat, so the composer went on showing
     // "bekleyen netleştirmeyi bırak" under a finished answer (live 2026-09-21).
-    if (turn.answer && turn.answer.status !== "abstained") {
+    if (turn.answer && !turn.answer.needs_clarification) {
       setPendingOffered([]);
       setAsNewQuestion(false);
     }
@@ -1139,6 +1140,7 @@ export function Workspace() {
     }
   }
   async function submit(text = question) {
+    if (savingSetting === "model") return;
     if (uploading) {
       setIssue("Belge yükleniyor; bitince gönderebilirsin.");
       return;
@@ -1300,7 +1302,8 @@ export function Workspace() {
     ? "Bağlanıyor"
     : !health
       ? "Servis kapalı"
-      : (health.model ??
+      : (settings?.model ??
+        health.model ??
         (health.execution_mode === "scripted" ? "Prova modeli" : "Kloudeks"));
   const modelShort = modelLabel.split("/").pop() ?? modelLabel;
   //: A turn of this tab is out: the button is the way to stop it.
@@ -1732,7 +1735,7 @@ export function Workspace() {
                                     : {
                                         accepted: "Kontrolden geçti",
                                         qualified: "Sınırlı yanıt",
-                                        abstained: "Netleştirme gerekli",
+                                        abstained: "Sonuç üretilemedi",
                                         queued: "Bekliyor",
                                         running: "Çalışıyor",
                                         completed: "Tamamlandı",
@@ -1876,7 +1879,10 @@ export function Workspace() {
                                     : {
                                         accepted: "Kontrolden geçti",
                                         qualified: "Sınırlı yanıt",
-                                        abstained: "Netleştirme gerekli",
+                                        abstained: item.turn.answer
+                                          .needs_clarification
+                                          ? "Netleştirme gerekli"
+                                          : "Sonuç üretilemedi",
                                       }[item.turn.answer.status]}
                                 </span>
                               </div>
@@ -2154,7 +2160,8 @@ export function Workspace() {
                     pending
                       ? "Analiz sürüyor; bitince devam edebilirsin"
                       : items.length || transcript.length
-                        ? items.at(-1)?.turn?.answer?.status === "abstained"
+                        ? items.at(-1)?.turn?.answer?.needs_clarification ===
+                          true
                           ? "Kısa bir cevap netleştirmeye eklenir; soru yazarsan yeni soru sayılır"
                           : "Devam et…"
                         : "Finansal sorunu yaz…"
@@ -2206,7 +2213,7 @@ export function Workspace() {
                   </div>
                 )}
                 {(pendingOffered.length > 0 ||
-                  items.at(-1)?.turn?.answer?.status === "abstained") && (
+                  items.at(-1)?.turn?.answer?.needs_clarification === true) && (
                   <label className="composer-escape">
                     <input
                       type="checkbox"
@@ -2295,10 +2302,7 @@ export function Workspace() {
                         className="model-pick"
                         aria-haspopup="dialog"
                         aria-expanded={modelMenu}
-                        // It never chose anything: the deployment serves one model
-                        // and the contract has no model field. It says which models
-                        // are in use instead of pretending to be a chooser (F4-model).
-                        title="Bu dağıtımın kullandığı modeller"
+                        title="Sohbet modelini seç"
                         onClick={(e) => {
                           // The composer clips its children, so the menu is placed on the
                           // viewport from the button's own box instead of inside it.
@@ -2324,19 +2328,41 @@ export function Workspace() {
                       {modelMenu && (
                         <ul
                           className="model-options"
-                          aria-label="Kullanılan modeller"
+                          aria-label="Sohbet modeli"
                           style={{
                             left: modelMenuAt.left,
                             bottom: modelMenuAt.bottom,
                           }}
                         >
-                          <li className="model-current">
-                            <Check size={13} /> {modelLabel}
-                          </li>
+                          {(settings?.models.length
+                            ? settings.models
+                            : [modelLabel]
+                          ).map((model) => (
+                            <li key={model}>
+                              <button
+                                type="button"
+                                className="model-current"
+                                disabled={
+                                  busy ||
+                                  pending ||
+                                  !!savingSetting ||
+                                  !settings?.models.length
+                                }
+                                aria-pressed={model === modelLabel}
+                                onClick={() => {
+                                  void changeSetting({ model });
+                                  setModelMenu(false);
+                                }}
+                              >
+                                {model === modelLabel && <Check size={13} />}{" "}
+                                {model}
+                              </button>
+                            </li>
+                          ))}
                           <li className="model-note">
-                            Yarışma platformundaki en güçlü sohbet modeli.
-                            Anlamsal arama Qwen3-Embedding-8B, belge ve görsel
-                            okuma Unlimited-OCR ile yapılır.
+                            Seçim bu tarayıcıdaki sonraki turlara ve yeni
+                            sohbetlere uygulanır. Belge okuma ve anlamsal arama
+                            modelleri değişmez.
                           </li>
                         </ul>
                       )}
@@ -2384,6 +2410,7 @@ export function Workspace() {
                             !health ||
                             !dataset ||
                             uploading ||
+                            savingSetting === "model" ||
                             !validQuestion(question)
                       }
                       onClick={
