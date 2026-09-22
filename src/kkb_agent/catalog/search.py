@@ -20,7 +20,13 @@ from kkb_agent.catalog.mappings import (
     is_source_group,
 )
 from kkb_agent.catalog.normalization import normalize_search_text
-from kkb_agent.catalog.ranking import intent_key, named_measure_kind, rerank_by_reviewed_intent
+from kkb_agent.catalog.ranking import (
+    intent_key,
+    maturity_of,
+    named_measure_kind,
+    names_a_maturity,
+    rerank_by_reviewed_intent,
+)
 from kkb_agent.catalog.records import MAX_CATALOG_CONCEPTS, MAX_CATALOG_SERIES, CatalogStatus
 from kkb_agent.core import Frequency, StockFlow
 from kkb_agent.core.models import ContractModel
@@ -413,6 +419,15 @@ def one_per_listed_row[T](
         if is_listed_series(series):
             record = series.record
             title = record.title
+            maturity = maturity_of(record)
+            if maturity is not None and not names_a_maturity(
+                normalize_search_text(query), maturity
+            ):
+                # A row published by maturity is one row: its columns are told apart only
+                # when the question asks about maturity, exactly as a province is (DEC-193).
+                # Live 2026-09-22: three buckets of one liquidity row filled the results of
+                # a question that named no maturity at all.
+                title = title.rsplit(" (", 1)[0]
             if series.geography and title.endswith(" - " + series.geography):
                 if not _place_is_named(series, words):
                     title = title.removesuffix(" - " + series.geography)

@@ -484,3 +484,114 @@ def test_prepared_series_downstream_query_and_execution_gate(lake):
         gate_answer("Değer 987654 TL.", fabricated, lake.connection).status
         == AnswerStatus.ABSTAINED
     )
+
+
+def maturity_response(req, values=(11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 81.0)):
+    """The deposit maturity table as the bulletin publishes it: bands, then their total."""
+    return {
+        "success": True,
+        "Json": {
+            "caption": (
+                f"Mevduat Vade İtibarıyla (milyon TL), Dönem:{req.period.year}/{req.period.month}"
+            ),
+            "colNames": [
+                "",
+                "",
+                "",
+                "BasitFont",
+                "Vadesiz",
+                "1 Aya Kadar",
+                "1-3 Ay Arası",
+                "3-6 Ay Arası",
+                "6-12 Ay Arası",
+                "1 Yıl Üzeri",
+                "Toplam",
+            ],
+            "data": {
+                "page": "1",
+                "total": "1",
+                "records": "1",
+                "rows": [
+                    {
+                        "id": "1",
+                        "cell": [
+                            "Sektör",
+                            1,
+                            "TP Mevduat / Katılım Fonları - Yurt İçi Yerleşik",
+                            "",
+                            *values,
+                        ],
+                    }
+                ],
+            },
+        },
+    }
+
+
+def maturity_request(band, **updates):
+    from kkb_agent.ingest.bddk_monthly import BddkSelector
+
+    selector = BddkSelector(
+        bulletin_family="monthly",
+        table=10,
+        row=1,
+        bank_group=10001,
+        presentation_currency="TL",
+        value_dimension="TOTAL",
+        band=band,
+        **updates,
+    )
+    return MonthlyRequest(selector=selector, period=MonthlyPeriod(year=2026, month=1))
+
+
+@pytest.mark.parametrize(
+    "band,value",
+    [("Vadesiz", 11.0), ("1-3 Ay Arası", 13.0), ("1 Yıl Üzeri", 16.0)],
+)
+def test_a_maturity_selector_reads_its_own_column(band, value):
+    """Live 2026-09-22: the bulletin publishes maturity as columns and a row was readable
+    only as its total, so a question about deposits by maturity had nothing to read."""
+    req = maturity_request(band)
+    observation = load.parse_monthly(encoded(maturity_response(req)), req)
+    assert (observation.period_end, observation.value) == (date(2026, 1, 31), value)
+    # The total is still the total, and the bands are not it.
+    total = MonthlyRequest(
+        selector=req.selector.model_copy(update={"band": None}), period=req.period
+    )
+    assert load.parse_monthly(encoded(maturity_response(total)), total).value == 81.0
+
+
+def test_a_month_that_does_not_carry_the_band_is_refused():
+    """The column is found by its own listed name in this month's own answer."""
+    req = maturity_request("1-3 Ay Arası")
+    answer = maturity_response(req)
+    answer["Json"]["colNames"][6] = "1-3 Ay"  # renamed by the bulletin
+    with pytest.raises(load.MonthlyLoadError):
+        load.parse_monthly(encoded(answer), req)
+
+
+def test_a_selector_without_a_band_keeps_the_identity_it_always_had():
+    """Every stored series ID, prepared row and kept response predates the band field."""
+    from kkb_agent.ingest.acquisition import REVIEWED_SELECTORS
+
+    housing = [item for item in REVIEWED_SELECTORS.values() if item.value_dimension == "TOTAL"][0]
+    assert housing.internal_id() == (
+        "BDDK:selector:v1:fa6e3c79bc8c9ead8680507965533a20366829cdf7aab8aa754224beb82b0f66"
+    )
+    assert '"band"' not in housing.canonical_selector()
+    banded = housing.model_copy(update={"band": "1-3 Ay Arası"})
+    assert banded.internal_id() != housing.internal_id()
+    assert '"band":"1-3 Ay Arası"' in banded.canonical_selector()
+
+
+@pytest.mark.parametrize(
+    "change",
+    [{"band": "Bir Hafta"}, {"band": "1-3 Ay Arası", "value_dimension": "TP"}],
+    ids=["a band the row does not have", "a band beside a component"],
+)
+def test_an_unreviewed_band_is_refused_before_any_fetch(change):
+    from kkb_agent.ingest.bddk_monthly import UnreviewedSelector, monthly_directory_catalog
+
+    selector = maturity_request("1-3 Ay Arası").selector.model_copy(update=change)
+    with pytest.raises(UnreviewedSelector):
+        monthly_directory_catalog(selector)

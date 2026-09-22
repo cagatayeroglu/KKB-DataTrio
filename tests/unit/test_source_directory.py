@@ -277,7 +277,11 @@ def test_every_supported_selector_has_a_route_and_one_table_response_serves_its_
     tmp_path, lake
 ):
     assert all(has_reviewed_route(item.internal_id()) for item in supported_selectors())
-    assert len(supported_selectors()) == sum(len(row.columns) for row in SUPPORTED_ROWS.values())
+    # Every readable column of every supported row: its components, and the maturity
+    # bands of the layouts that publish them (DEC-193).
+    assert len(supported_selectors()) == sum(
+        len(row.columns) + len(row.bands) for row in SUPPORTED_ROWS.values()
+    )
     source = TableSource()
     store = AcquisitionStore(tmp_path / "acquired")
     acquirer = TurnAcquirer(lake, TODAY, sources=OfficialSources(bddk=source, store=store))
@@ -722,3 +726,53 @@ def test_two_rows_of_one_number_do_not_stop_a_row_found_by_its_label(lake):
 
     loaded = load.ingest_monthly(lake, CAPITAL_RATIO, window(), retrieve=Misnumbered())
     assert loaded.months == 3 and loaded.missing_values == 0
+
+
+def test_a_row_published_by_maturity_is_one_row_until_the_question_asks_about_maturity(
+    catalogue,
+):
+    """Live 2026-09-22: the bulletin publishes maturity as columns, so a deposit row is
+    seven entries with one title. A question that names no maturity is about the row."""
+    from kkb_agent.catalog.search import one_per_listed_row
+
+    _, effective = catalogue
+    row = [
+        item
+        for item in effective.series
+        if item.record.title.startswith("TP Mevduat / Katılım Fonları - Yurt İçi Yerleşik")
+        and item.record.group is not None
+        and item.record.group.group_id == "10"
+    ]
+    assert len(row) == 7  # the six maturity columns and the row's own total
+
+    plain = one_per_listed_row(row, reviewed_series=lambda item: item, query="tp mevduat bakiyesi")
+    assert [item.record.title for item in plain] == [row[0].record.title]
+
+    asked = one_per_listed_row(
+        row, reviewed_series=lambda item: item, query="tp mevduatın vade dağılımı"
+    )
+    assert len(asked) == 7
+    # A band named by its own words is told apart from its row; the five the question did
+    # not name stay inside it.
+    named = one_per_listed_row(
+        row, reviewed_series=lambda item: item, query="1-3 ay arası tp mevduat"
+    )
+    assert [item.record.title for item in named] == [
+        row[0].record.title,
+        row[0].record.title + " (1-3 Ay Arası)",
+    ]
+
+
+def test_a_maturity_column_never_outranks_its_own_row_for_a_question_about_the_row(catalogue):
+    """Live 2026-09-22: three buckets of one liquidity row filled the top of a question
+    that named no maturity at all."""
+    from kkb_agent.catalog.ranking import intent_key
+
+    _, effective = catalogue
+    by_title = {item.record.title: item for item in effective.series}
+    row = by_title["Kredi Kartı Ödemelerinden Borçlar"]
+    band = by_title["Kredi Kartı Ödemelerinden Borçlar (Yedi Gün)"]
+    question = "bireysel kredi kartı bakiyesi"
+    assert intent_key(question, row) < intent_key(question, band)
+    maturity = "yedi gün vadeli kredi kartı ödemelerinden borçlar"
+    assert intent_key(maturity, band) <= intent_key(maturity, row)
