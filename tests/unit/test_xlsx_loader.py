@@ -554,3 +554,40 @@ def test_percentage_display_is_normalized_once_with_proof(number, fmt, expected)
 def test_custom_percentage_format_requires_explicit_support():
     with pytest.raises(package.XlsxRejected, match="UNSUPPORTED_NUMBER_FORMAT"):
         loader._parse(percentage_workbook(0.476, "[Red]0.0%"), None, DEFAULT_LIMITS)
+
+
+def test_builtin_static_print_and_filter_names_are_not_formulas():
+    book = Workbook()
+    sheet = book.active
+    sheet.append(["Ay", "Faiz (%)"])
+    sheet.append(["2024-01", 4])
+    sheet.append(["2024-02", 5])
+    sheet.auto_filter.ref = "A1:B3"
+    sheet.print_area = "A1:B3"
+    sheet.print_title_rows = "1:1"
+    output = io.BytesIO()
+    book.save(output)
+    book.close()
+    parsed = loader._parse(output.getvalue(), None, DEFAULT_LIMITS)
+    assert parsed["rows"] == [["2024-01", 4], ["2024-02", 5]]
+
+
+@pytest.mark.parametrize(
+    "expression", ["OFFSET(Sheet!$A$1,0,0,2,2)", "'[external.xlsx]Sheet'!$A$1:$B$3", "1+1"]
+)
+def test_builtin_name_cannot_hide_formula_or_external_reference(expression):
+    content = rewrite(
+        SINGLE,
+        {
+            "xl/workbook.xml": lambda data: data.replace(
+                b"<definedNames/>",
+                (
+                    '<definedNames><definedName name="_xlnm.Print_Area">'
+                    + expression
+                    + "</definedName></definedNames>"
+                ).encode(),
+            )
+        },
+    )
+    with pytest.raises(package.XlsxRejected):
+        loader._parse(content, None, DEFAULT_LIMITS)

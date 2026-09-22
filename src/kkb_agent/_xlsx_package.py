@@ -17,6 +17,17 @@ PACKAGE_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 CELL = re.compile(r"([A-Z]{1,3})([1-9][0-9]{0,6})\Z")
 
 
+# These workbook UI settings hold static internal ranges, never executable names.
+_BUILTIN_NAMES = {"_xlnm._FilterDatabase", "_xlnm.Print_Area", "_xlnm.Print_Titles"}
+_SHEET_REF = r"(?:'(?:[^'\[\]]|'')+'|[A-Za-z_][A-Za-z0-9_]*)!"
+_CELL_REF = r"\$[A-Z]{1,3}\$[1-9][0-9]{0,6}"
+_RANGE_REF = (
+    rf"(?:{_CELL_REF}(?::{_CELL_REF})?|\$[A-Z]{{1,3}}:\$[A-Z]{{1,3}}"
+    r"|\$[1-9][0-9]{0,6}:\$[1-9][0-9]{0,6})"
+)
+_STATIC_RANGES = re.compile(rf"{_SHEET_REF}{_RANGE_REF}(?:,{_SHEET_REF}{_RANGE_REF})*\Z")
+
+
 class XlsxRejected(ValueError):
     """Fixed public code only, never document text or parser exceptions."""
 
@@ -83,6 +94,7 @@ class _XmlGuard:
         self.is_sheet = False
         self.row = self.column = self.max_column = 0
         self.nodes = 0
+        self.defined_text: str | None = None
 
     def start(self, name: str, attrs: dict[str, str]) -> None:
         self.nodes += 1
@@ -94,7 +106,17 @@ class _XmlGuard:
         if not self.stack:
             self.is_sheet = name == f"{SHEET_NS}}}worksheet"
         self.stack.append(name)
-        if local in {"f", "formula", "formula1", "formula2", "definedName"}:
+        if self.defined_text is not None:
+            _reject("FORMULA_UNSUPPORTED")
+        if local == "definedName":
+            if (
+                self.member != "xl/workbook.xml"
+                or name != f"{SHEET_NS}}}definedName"
+                or attrs.get("name") not in _BUILTIN_NAMES
+            ):
+                _reject("FORMULA_UNSUPPORTED")
+            self.defined_text = ""
+        if local in {"f", "formula", "formula1", "formula2"}:
             _reject("FORMULA_UNSUPPORTED")
         content_type = attrs.get("ContentType", "").lower()
         if any(word in content_type for word in ("macroenabled", "vbaproject", "activex")):
@@ -146,12 +168,19 @@ class _XmlGuard:
         links[rel_id] = kind, _target(self.member, target, self.names)
 
     def text(self, value: str) -> None:
+        if self.defined_text is not None:
+            self.defined_text += value
+            self.limits.check_field(self.defined_text)
         for i in range(len(self.text_lengths)):
             self.text_lengths[i] += len(value)
             if self.text_lengths[i] > self.limits.max_field_chars:
                 raise AdmissionError(RejectionCode.LIMIT_EXCEEDED)
 
     def end(self, name: str) -> None:
+        if name == f"{SHEET_NS}}}definedName":
+            if self.defined_text is None or not _STATIC_RANGES.fullmatch(self.defined_text):
+                _reject("FORMULA_UNSUPPORTED")
+            self.defined_text = None
         if name in {f"{SHEET_NS}}}c", f"{SHEET_NS}}}si"}:
             self.text_lengths.pop()
         self.stack.pop()
