@@ -42,7 +42,7 @@ from kkb_agent.catalog.directory import source_directory as build_source_directo
 from kkb_agent.catalog.discovered import DiscoveredStore, listed_entry
 from kkb_agent.catalog.expansion import expand_groups
 from kkb_agent.catalog.hybrid import CatalogDenseStage, search_hybrid_catalog
-from kkb_agent.catalog.lance_index import CatalogIndexError
+from kkb_agent.catalog.lance_index import CatalogIndexError, LocalCatalogIndex
 from kkb_agent.catalog.mappings import ReviewedSeries, ReviewedSnapshot, is_source_group
 from kkb_agent.catalog.normalization import normalize_search_text
 from kkb_agent.catalog.records import CatalogRecord, CatalogStatus
@@ -161,7 +161,9 @@ class KnowledgeService:
         acquisitions: Callable[[], dict[str, dict[str, object]]] | None = None,
         series_values: Callable[[str], tuple[tuple[date, date, float | None], ...]] | None = None,
         dense: CatalogDenseStage | None = None,
-        rebuild_index: Callable[[ReviewedSnapshot], CatalogDenseStage] | None = None,
+        rebuild_index: (
+            Callable[[ReviewedSnapshot, LocalCatalogIndex | None], CatalogDenseStage] | None
+        ) = None,
         install_index: Callable[[CatalogDenseStage], None] | None = None,
         reopen_index: Callable[[ReviewedSnapshot], CatalogDenseStage | None] | None = None,
         source_directory: SourceDirectory | None = None,
@@ -174,8 +176,9 @@ class KnowledgeService:
         # The EVDS series lists opened so far; a trial search opens datagroups as a turn does.
         self._discovered = discovered
         self._dense = dense
-        # Building a generation calls the embedding model once per catalogue entry,
-        # so it runs on its own thread and one at a time; reading never does.
+        # Building a generation calls the embedding model for every entry the generation in
+        # use does not already hold, so it runs on its own thread and one at a time; reading
+        # never does.
         self._rebuild = rebuild_index
         self._install = install_index
         self._reopen = reopen_index
@@ -426,12 +429,14 @@ class KnowledgeService:
     def rebuild(self, owner_token: str) -> VectorIndexStatus:
         """Build the vectors again for the catalogue in use now, with the same profile.
 
-        Accepted, not finished: the build calls the embedding model once per
-        catalogue entry and runs on its own thread, so the page polls the status.
-        One build runs at a time. The model, the input policy and the dimension are
-        the deployment's; nothing here selects them. A new generation is written and
-        installed for later turns only after it verifies against the catalogue it
-        was built for; on any failure the generation in use is left untouched.
+        Accepted, not finished: the build runs on its own thread, so the page polls the
+        status. One build runs at a time. The generation in use lends the build every
+        vector whose text and profile have not changed, so the embedding model is called
+        only for new or changed entries, and it keeps answering searches and turns until
+        its successor is installed. The model, the input policy and the dimension are the
+        deployment's; nothing here selects them. A new generation is written and installed
+        for later turns only after it verifies against the catalogue it was built for; on
+        any failure the generation in use is left untouched.
         """
         self._author(owner_token)
         if self._rebuild is None:
@@ -450,10 +455,11 @@ class KnowledgeService:
             self._building.release()
             return self.index_status(owner_token)
         build, install = self._rebuild, self._install
+        previous = self._dense.index if self._dense is not None else None
 
         def run() -> None:
             try:
-                stage = build(catalog)
+                stage = build(catalog, previous)
                 if stage.index.snapshot_sha256 != catalog.content_sha256:
                     raise CatalogIndexError("INDEX_CATALOG_DIGEST_MISMATCH")
                 if self._dense is not None and stage.index.profile != self._dense.index.profile:

@@ -521,7 +521,7 @@ def test_the_vectors_can_be_built_again_for_a_catalogue_the_knowledge_base_chang
     )
     generations = tmp_path.resolve() / "generations"
 
-    def rebuild(catalog):
+    def rebuild(catalog, previous):
         directory = generations / catalog.content_sha256
         if not (directory / "catalog-manifest.json").exists():
             vectors = embedding.embed_catalog(
@@ -596,7 +596,7 @@ def test_the_vectors_can_be_built_again_for_a_catalogue_the_knowledge_base_chang
                 runner.catalog,
                 prepared=frozenset(item.series_id for item in runner.status.series),
                 dense=dense,
-                rebuild_index=lambda catalog: pytest.fail("a restart must not build"),
+                rebuild_index=lambda catalog, previous: pytest.fail("a restart must not build"),
                 install_index=installed.append,
                 reopen_index=reopen,
             )
