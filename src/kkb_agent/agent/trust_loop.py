@@ -56,6 +56,10 @@ class Action(BaseModel):
     arguments: dict[str, JsonValue] = Field(default_factory=dict)
     #: A choice made on the reader's behalf, shown under the answer.
     note: str | None = Field(default=None, max_length=400)
+    #: The platform's own id for this call, when it made one. It addresses the tool
+    #: turn on the wire and nothing else: the model did not choose it and does not
+    #: see it, so it is never the name a result is known by.
+    call_id: str | None = Field(default=None, max_length=128)
 
 
 class AgentStep(BaseModel):
@@ -174,9 +178,19 @@ def tool_menu(registry: ToolRegistry) -> list[dict[str, Any]]:
     return menu
 
 
-def _describe(result: ToolResult) -> str:
-    """One observation, rendered for the model. Failures read like successes."""
+def _describe(result: ToolResult, identifier: str | None = None) -> str:
+    """One observation, rendered for the model. Failures read like successes.
+
+    The id leads, because it is the only name by which this result can be asked
+    for again. Live 2026-09-23 the model had no way to learn it: results were
+    addressed by the platform's own call id, which it never sees, so when a
+    follow-up asked it to add a column to the table it had just built it guessed
+    `s2`, then a digest, then the call ids themselves, and spent the turn's budget
+    on names that could not exist.
+    """
     body: dict[str, Any] = {"status": result.status.value}
+    if identifier is not None:
+        body = {"id": identifier, **body}
     if result.error_category is not None:
         body["error"] = result.error_category
     if result.warnings:
@@ -209,7 +223,7 @@ def _observed(carried: list[Observation], native: bool) -> list[Message]:
         "",
         tool_calls=tuple(
             ToolCall(
-                id=item.action.id,
+                id=_wire(item.action),
                 name=item.action.tool,
                 arguments=json.dumps(item.action.arguments, ensure_ascii=False),
             )
@@ -217,12 +231,18 @@ def _observed(carried: list[Observation], native: bool) -> list[Message]:
         ),
     )
     answers = [
-        Message(Role.TOOL, _describe(item.result), tool_call_id=item.action.id) for item in carried
+        Message(Role.TOOL, _describe(item.result, item.action.id), tool_call_id=_wire(item.action))
+        for item in carried
     ]
     return [asked, *answers]
 
 
-def _asked_for(completion: Completion) -> AgentStep | None:
+def _wire(action: Action) -> str:
+    """The id the platform pairs a tool turn by, which is its own when it made one."""
+    return action.call_id or action.id
+
+
+def _asked_for(completion: Completion, taken: int = 0) -> AgentStep | None:
     """The model's decision, however the platform let it express one.
 
     A server with native tool calling answers with `tool_calls` and no prose; one
@@ -234,7 +254,9 @@ def _asked_for(completion: Completion) -> AgentStep | None:
         actions: list[Action] = []
         malformed: list[tuple[str, str]] = []
         for index, call in enumerate(completion.tool_calls):
-            identifier = call.id or f"a{index + 1}"
+            # Short, this turn's own, and counted across iterations so `a3` means one
+            # thing for the whole turn. The platform's id rides along for the wire.
+            identifier = f"a{taken + index + 1}"
             try:
                 arguments = json.loads(call.arguments or "{}")
             except json.JSONDecodeError:
@@ -246,7 +268,9 @@ def _asked_for(completion: Completion) -> AgentStep | None:
             if not isinstance(arguments, dict):
                 malformed.append((identifier, call.name))
                 continue
-            actions.append(Action(id=identifier, tool=call.name, arguments=arguments))
+            actions.append(
+                Action(id=identifier, tool=call.name, arguments=arguments, call_id=call.id)
+            )
         finished = next((a for a in actions if a.tool == FINISH), None)
         if finished is not None:
             return AgentStep(
@@ -342,7 +366,7 @@ def run_turn(
                 span.set(model=completion.model, provider_attempts=completion.attempts)
         outcome.iterations += 1
         native = bool(completion.tool_calls)
-        step = _asked_for(completion)
+        step = _asked_for(completion, len(outcome.observations))
         if tracer is not None and step is not None:
             tracer.event(
                 "loop",
