@@ -128,6 +128,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--allow-catalog-edits",
+        action="store_true",
+        help=(
+            "Let the knowledge page archive, alias or describe reviewed and listed catalogue "
+            "entries. Such a note changes every browser's searches and turns, so it is the "
+            "operator's decision (DEC-162): without this flag every browser key reads the "
+            "catalogue notes but none may change them; with it, any browser key of this local "
+            "installation may, and every edit records its author"
+        ),
+    )
+    parser.add_argument(
         "--searxng-url",
         help=(
             "Register web_search over this publicly reachable SearXNG instance's JSON API "
@@ -398,6 +409,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 source_directory=directory,
                 discovered=discovered,
                 install_directory=runner.use_directory,
+                catalog_edits=args.allow_catalog_edits,
             )
             # The one direction back into the runner: the knowledge base's own
             # validated write, so a conversation's save is the page's save (DEC-183).

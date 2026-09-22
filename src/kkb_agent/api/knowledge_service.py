@@ -5,6 +5,8 @@ fetchable on first use, or catalog only) and user datasets — with where each
 one's meaning comes from. Writing never touches the reviewed catalog or the
 prepared pool: it appends a version to the knowledge base, which the next turn
 applies as its catalog. Every write names its author, the browser key's owner.
+A note on a reviewed or listed entry applies to every key's catalogue, so it is
+written only when the operator started the server with --allow-catalog-edits.
 """
 
 from __future__ import annotations
@@ -169,8 +171,12 @@ class KnowledgeService:
         source_directory: SourceDirectory | None = None,
         discovered: DiscoveredStore | None = None,
         install_directory: Callable[[SourceDirectory], None] | None = None,
+        catalog_edits: bool = False,
     ) -> None:
         self._knowledge = knowledge
+        # Whether a browser key may note reviewed and listed entries: the operator's
+        # --allow-catalog-edits. Off unless given, so a caller that forgets it fails closed.
+        self._catalog_edits = catalog_edits
         self._install_directory = install_directory
         self._refreshing = threading.Lock()
         # The EVDS series lists opened so far; a trial search opens datagroups as a turn does.
@@ -598,6 +604,7 @@ class KnowledgeService:
                 reviewed_digest=self._reviewed.content_sha256,
                 series=tuple(self._with_search_text(entries, catalog)),
                 listed_series=listed_total,
+                catalog_editable=self._catalog_edits,
             )
         counts = {name: sum(_in_tab(item, name) for item in entries) for name in KNOWLEDGE_TABS}
         provinces = sorted(
@@ -638,6 +645,7 @@ class KnowledgeService:
             page_size=size,
             counts=counts,
             provinces=tuple(provinces),
+            catalog_editable=self._catalog_edits,
         )
 
     def _opened(self) -> tuple[ReviewedSeries, ...]:
@@ -796,7 +804,13 @@ class KnowledgeService:
         )
 
     def note_history(self, owner_token: str, series_id: str) -> SeriesNoteHistory:
-        self._author(owner_token)
+        """Every version of a series' note, and whether the reading key wrote each one.
+
+        The store kept each version's author, yet the history showed none, so an archive
+        that came from another browser read like one's own (finding N43). Only the
+        comparison travels: an owner id is never shown to another key.
+        """
+        reader = self._author(owner_token)
         return SeriesNoteHistory(
             series_id=series_id,
             history=tuple(
@@ -806,6 +820,7 @@ class KnowledgeService:
                     aliases=note.aliases,
                     note=note.note,
                     created_at=note.created_at,
+                    by_you=None if note.author is None else note.author == reader,
                 )
                 for note in self._knowledge.note_history(series_id)
             ),
@@ -990,9 +1005,22 @@ class KnowledgeService:
     def annotate(
         self, owner_token: str, series_id: str, request: SeriesNoteRequest
     ) -> SeriesNoteHistory:
+        """Archive, alias or describe a reviewed or listed entry, when the operator allows it.
+
+        A note is not the writer's own: `effective_snapshot` applies it to every key's
+        searches and turns, and a reviewed series' description reaches every planner
+        prompt. Any key from the unauthenticated `POST /v1/owner` archived the BDDK
+        housing-loan TOTAL out of everyone's "konut kredisi bakiyesi" search, and one
+        alias made TÜFE the single unambiguous candidate for "toplam konut kredisi"
+        (finding N43, reproduced 2026-09-22). So these edits are the operator's authority
+        (DEC-162): without --allow-catalog-edits nothing is written. The refusal comes after
+        the key and series checks, so an unknown key or series still reads as not found.
+        """
         author = self._author(owner_token)
         if series_id not in self._annotatable():
             raise ServiceError("not_found", 404)
+        if not self._catalog_edits:
+            raise ServiceError("catalog_read_only", 403)
         try:
             with self._catalog_change:
                 self._knowledge.annotate(
