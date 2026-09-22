@@ -70,6 +70,9 @@ EXHAUSTED: Final = {
     "tool calls": "Araç çağrısı sınırına ulaşıldı; aşağıdaki sonuç o ana kadar toplananlardır.",
     "time": "Süre sınırına ulaşıldı; aşağıdaki sonuç o ana kadar toplananlardır.",
     "undecided": "Model bu turda bir karar üretemedi.",
+    "provider": (
+        "Modele yapılan bir istek geri dönmedi; aşağıdaki sonuç o ana kadar toplananlardır."
+    ),
 }
 
 WRITER: Final = (

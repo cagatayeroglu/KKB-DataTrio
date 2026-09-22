@@ -37,7 +37,14 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
 from kkb_agent.agent.observer import Tracer
 from kkb_agent.agent.registry import ArgumentsRejected, ToolRegistry
-from kkb_agent.llm.provider import Completion, LLMProvider, Message, Role, ToolCall
+from kkb_agent.llm.provider import (
+    Completion,
+    LLMProvider,
+    Message,
+    ProviderError,
+    Role,
+    ToolCall,
+)
 
 
 class Action(BaseModel):
@@ -94,6 +101,14 @@ class Budget:
     max_tool_calls: int = 20
     max_actions_per_iteration: int = 4
     max_wall_seconds: float = 300.0
+    #: How much of the accumulated exchange travels. A counter, like the others: the
+    #: harness never chooses *what* about an observation matters, only how much room
+    #: there is. Live 2026-09-23 a turn that searched the catalogue six times for a
+    #: series the catalogue does not hold grew its prompt 3 KB, 49, 96, 143, 169, and
+    #: the sixth request died in the transport — the reader got nothing although ten
+    #: observations had come back. Sized well above the runs that work, which peaked
+    #: around 30 KB.
+    max_exchange_bytes: int = 96_000
 
     def __post_init__(self) -> None:
         if self.max_iterations < 1 or self.max_tool_calls < 1:
@@ -242,8 +257,36 @@ def _wire(action: Action) -> str:
     return action.call_id or action.id
 
 
+#: Said once when the oldest of the exchange no longer fits. It names the two things
+#: that do survive, because both are the model's own: the note it writes itself, and
+#: a result, which is still there under its id whether or not its bytes are in view.
+DROPPED: Final = (
+    "Bu turun en eski araç sonuçları artık istemde değil (yer bütçesi). Silinmediler: "
+    "her sonuç kendi id'siyle duruyor, inspect ile yeniden açabilir ya da bir araca "
+    "source olarak verebilirsin. Taşımak istediğin şeyi state notuna yaz."
+)
+
 #: Words this loop uses to talk about a call, which a tool's own schema never declares.
 PROTOCOL_KEYS: Final = frozenset({"id", "step_id", "note", "assumption"})
+
+
+def _within(history: list[Message], budget: int) -> bool:
+    """Drop the oldest exchanges until what is left fits. True when any were dropped.
+
+    Whole exchanges, oldest first, because a tool turn without the assistant turn
+    that asked for it is not a conversation the protocol can read. The newest is
+    never dropped: a model that cannot see what just came back cannot act on it.
+    """
+    dropped = False
+    while len(history) > 1 and sum(len(m.content.encode()) for m in history) > budget:
+        following = next(
+            (index for index in range(1, len(history)) if history[index].tool_calls), len(history)
+        )
+        if following >= len(history):
+            break
+        del history[:following]
+        dropped = True
+    return dropped
 
 
 def _without_protocol_keys(arguments: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
@@ -364,22 +407,39 @@ def run_turn(
         # already done. Without native calls the model keeps its own `state` note
         # instead, so only the newest observations need repeating.
         history.extend(_observed(carried, native))
+        dropped = _within(history, limits.max_exchange_bytes)
         messages = [*preamble, Message(Role.USER, question)]
         if outcome.state:
             messages.append(Message(Role.ASSISTANT, outcome.state))
+        if dropped:
+            messages.append(Message(Role.SYSTEM, DROPPED))
         messages.extend(history if native else _observed(carried, native))
 
-        if tracer is None:
-            completion = provider.complete(messages, model=model, schema=AgentStep, tools=menu)
-        else:
-            with tracer.span("loop", "iteration") as span:
-                span.set(
-                    iteration=outcome.iterations + 1,
-                    prompt_bytes=sum(len(m.content.encode()) for m in messages),
-                    carried=len(carried),
-                )
+        try:
+            if tracer is None:
                 completion = provider.complete(messages, model=model, schema=AgentStep, tools=menu)
-                span.set(model=completion.model, provider_attempts=completion.attempts)
+            else:
+                with tracer.span("loop", "iteration") as span:
+                    span.set(
+                        iteration=outcome.iterations + 1,
+                        prompt_bytes=sum(len(m.content.encode()) for m in messages),
+                        carried=len(carried),
+                    )
+                    completion = provider.complete(
+                        messages, model=model, schema=AgentStep, tools=menu
+                    )
+                    span.set(model=completion.model, provider_attempts=completion.attempts)
+        except ProviderError:
+            # The request did not come back. That ends the deciding, not the turn: live
+            # 2026-09-23 the sixth request of a turn died in the transport and the reader
+            # was told the turn had failed, although ten observations had already come
+            # back and the answer could have been written from them. A turn with nothing
+            # in hand still fails, because there is nothing to write from.
+            if not outcome.observations:
+                raise
+            outcome.exhausted = "provider"
+            outcome.iterations += 1
+            break
         outcome.iterations += 1
         native = bool(completion.tool_calls)
         step = _asked_for(completion, len(outcome.observations))
