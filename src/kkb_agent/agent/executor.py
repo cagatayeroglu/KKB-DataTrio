@@ -368,12 +368,25 @@ def execute(
     return ExecutionOutcome(tuple(results), completed=not stopped and not unusable)
 
 
+def analytical(output: object) -> AnalyticalResult | None:
+    """The measurement in a tool's output, whether it returned one or wrapped one.
+
+    `lakehouse` and `web_url` answer with an object that carries the result beside
+    what it is for — the rows as a table, the page it was read from — because a
+    rendering convenience must not become an analytical claim. Every reader of a
+    result therefore has to look one level in, and a reader that does not sees no
+    result at all: live 2026-09-23 a turn answered straight from `lakehouse` was
+    neither published nor checked, because both the publication and the gate
+    tested the wrapper for being a result and it is not one.
+    """
+    candidate = getattr(output, "result", output)
+    return candidate if isinstance(candidate, AnalyticalResult) else None
+
+
 def _is_computed(output: object) -> bool:
     """Whether a step's output is a result a later step could compute from."""
-    candidate = getattr(output, "result", output)
-    if isinstance(candidate, AnalyticalResult):
-        return candidate.status is ResultStatus.COMPUTED
-    return True
+    candidate = analytical(output)
+    return candidate.status is ResultStatus.COMPUTED if candidate is not None else True
 
 
 def _reads(validated: ValidatedStep, registry: ToolRegistry) -> set[str]:

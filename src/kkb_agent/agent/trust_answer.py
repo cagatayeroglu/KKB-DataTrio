@@ -24,6 +24,7 @@ from typing import Final
 from duckdb import DuckDBPyConnection
 from pydantic import BaseModel
 
+from kkb_agent.agent.executor import analytical
 from kkb_agent.agent.trust_loop import TurnOutcome
 from kkb_agent.agent.trust_prompt import EXHAUSTED, WRITER
 from kkb_agent.agent.verifier import Binding, result_faults, verify_claims
@@ -66,8 +67,9 @@ def _computed(outcome: TurnOutcome) -> dict[str, AnalyticalResult]:
     """Every analytical result this turn produced, under the id the model gave it."""
     found: dict[str, AnalyticalResult] = {}
     for item in outcome.observations:
-        if item.ok and isinstance(item.result.output, AnalyticalResult):
-            found[item.action.id] = item.result.output
+        measured = analytical(item.result.output) if item.ok else None
+        if measured is not None:
+            found[item.action.id] = measured
     return found
 
 

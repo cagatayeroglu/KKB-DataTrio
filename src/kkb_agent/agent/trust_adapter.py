@@ -15,7 +15,12 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
-from kkb_agent.agent.executor import ExecutionOutcome, ValidatedPlan, ValidatedStep
+from kkb_agent.agent.executor import (
+    ExecutionOutcome,
+    ValidatedPlan,
+    ValidatedStep,
+    analytical,
+)
 from kkb_agent.agent.loop import Answered, Planned
 from kkb_agent.agent.plan import PlanStep
 from kkb_agent.agent.trust_answer import Answer
@@ -45,9 +50,9 @@ def as_answered(question: str, outcome: TurnOutcome, answer: Answer) -> Answered
         reply=None,
     )
     results = tuple(
-        item.result.output
+        measured
         for item in outcome.observations
-        if item.ok and isinstance(item.result.output, AnalyticalResult)
+        if item.ok and (measured := analytical(item.result.output)) is not None
     )
     published = _published(outcome, answer, results)
     return Answered(
@@ -69,8 +74,8 @@ def _published(
     wanted = answer.published or outcome.publish
     if wanted is not None:
         for item in outcome.observations:
-            if item.action.id == wanted and isinstance(item.result.output, AnalyticalResult):
-                return (item.result.output,)
+            if item.action.id == wanted and (measured := analytical(item.result.output)):
+                return (measured,)
     return results[-1:] if results else ()
 
 

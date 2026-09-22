@@ -28,7 +28,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
+from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus, analytical
 from kkb_agent.agent.registry import ToolSpec
 from kkb_agent.core import (
     DIMENSIONLESS,
@@ -225,8 +225,8 @@ def make_table_compute_tool() -> ToolSpec:
     def run(arguments: BaseModel, context: ExecutionContext) -> ToolResult:
         if not isinstance(arguments, ComputeArguments):  # pragma: no cover - contract
             raise TypeError("table_compute received arguments it did not declare")
-        found = context.outputs.get(arguments.source)
-        if not isinstance(found, AnalyticalResult) or found.status is not ResultStatus.COMPUTED:
+        found = analytical(context.outputs.get(arguments.source))
+        if found is None or found.status is not ResultStatus.COMPUTED:
             known = ", ".join(sorted(context.outputs)) or "yok"
             return ToolResult(
                 ToolStatus.FAILURE,

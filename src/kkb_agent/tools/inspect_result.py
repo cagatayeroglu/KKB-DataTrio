@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
+from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus, analytical
 from kkb_agent.agent.registry import ToolSpec
 from kkb_agent.core import AnalyticalResult
 
@@ -77,8 +77,8 @@ def make_inspect_tool() -> ToolSpec:
     def run(arguments: BaseModel, context: ExecutionContext) -> ToolResult:
         if not isinstance(arguments, InspectArguments):  # pragma: no cover - contract
             raise TypeError("inspect received arguments it did not declare")
-        found = context.outputs.get(arguments.source)
-        if not isinstance(found, AnalyticalResult):
+        found = analytical(context.outputs.get(arguments.source))
+        if found is None:
             known = ", ".join(sorted(context.outputs)) or "yok"
             return ToolResult(
                 ToolStatus.FAILURE,
