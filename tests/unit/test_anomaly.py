@@ -14,6 +14,7 @@ hides. The MAD-based test is checked against exactly that case.
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from math import log
@@ -512,9 +513,12 @@ class TestTheWindowSaysWhereItBegins:
             self.weeks(24), self.WEEKLY, series_id="bddk:haftalik", start=date(2021, 1, 1)
         )
         assert result.coverage is not None and result.coverage.start == date(2020, 12, 26)
-        reaching = [note for note in result.warnings if "2020-12-26" in note]
+        reaching = [note for note in result.warnings if "belongs to the window it ends in" in note]
         assert len(reaching) == 1
-        assert "belongs to the window it ends in" in reaching[0]
+        # The writer is asked to say a caution in words and without a figure, so a date in
+        # the note leaves it nothing it can say: live 2026-09-22 the answer named the window
+        # as starting 2020-12-26 and never explained it.
+        assert not re.search(r"\d", reaching[0])
 
     def test_a_window_whose_first_period_fits_says_nothing_extra(self):
         result = detect_anomalies(
@@ -526,5 +530,5 @@ class TestTheWindowSaysWhereItBegins:
         result = detect_anomalies(
             self.weeks(24), self.WEEKLY, series_id="bddk:haftalik", end=date(2021, 6, 1)
         )
-        left_out = [note for note in result.warnings if "end after it" in note]
-        assert len(left_out) == 1 and "1 period(s)" in left_out[0]
+        left_out = [note for note in result.warnings if "finishes after it" in note]
+        assert len(left_out) == 1 and not re.search(r"\d", left_out[0])
