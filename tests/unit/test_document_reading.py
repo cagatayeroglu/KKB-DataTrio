@@ -24,6 +24,22 @@ CSV = ("Ay;Kapanış (Puan)\n2026-04;9000\n2026-05;9100\n2026-06;9200\n").encode
 NOW = datetime(2026, 9, 20, tzinfo=UTC)
 
 
+class Recorded:
+    """A scripted provider that keeps every prompt it was handed."""
+
+    def __init__(self, answer: str) -> None:
+        self._inner = scripted(answer)
+        self.seen: list[str] = []
+
+    def complete(self, messages, **kwargs):
+        self.seen.extend(str(getattr(message, "content", message)) for message in messages)
+        return self._inner.complete(messages, **kwargs)
+
+    def vision(self, image, prompt, **kwargs):
+        self.seen.append(prompt)
+        return self._inner.vision(image, prompt, **kwargs)
+
+
 def upload(content: bytes = CSV, media_type: str = "text/csv") -> Attachment:
     return Attachment(
         content=content,
@@ -143,3 +159,32 @@ def no_network(monkeypatch):
         raise AssertionError("No live request in these tests")
 
     monkeypatch.setattr("socket.socket.connect", forbidden)
+
+
+class TestAReadingTranscribesAndDoesNotCalculate:
+    """A model asked an analytical question computed the percentage change itself.
+
+    Nothing it derives can reach an answer: a reading carries no values, so the gate binds
+    no figure to it and withholds the sentence that quotes one. Asking for arithmetic
+    therefore costs the reader a sentence and buys nothing, and both prompts now say so
+    (Eray's N23, 2026-09-22).
+    """
+
+    def prompts_of(self, provider, **kwargs):
+        tool = make_document_read_tool(provider=provider, library={"belge_1": upload()}, **kwargs)
+        read(tool, question="Nisan'dan Haziran'a yüzde kaç arttı?")
+        return provider
+
+    def test_the_text_prompt_forbids_deriving_a_figure(self):
+        provider = Recorded("Belge üç ayın kapanışlarını listeliyor.")
+        self.prompts_of(provider)
+        assert any("Hesap yapma" in text for text in provider.seen)
+        assert any("hesabı başka bir araç yapacak" in text for text in provider.seen)
+
+    def test_the_reading_says_a_derived_figure_reaches_nothing(self):
+        tool = make_document_read_tool(
+            provider=scripted("Belge üç ayın kapanışlarını listeliyor."),
+            library={"belge_1": upload()},
+        )
+        (warning,) = read(tool).warnings
+        assert "derives rather than transcribes" in warning
