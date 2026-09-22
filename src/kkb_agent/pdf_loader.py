@@ -59,7 +59,14 @@ from kkb_agent.ingestion_policy import (
     FileKind,
     admit_upload,
 )
-from kkb_agent.pdf_ocr import OcrError, OcrProvider, extract_text, ocr_tables, render_pages
+from kkb_agent.pdf_ocr import (
+    OcrError,
+    OcrProvider,
+    data_years,
+    extract_text,
+    ocr_tables,
+    render_pages,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - the parser is imported in the worker only
     from pdfplumber.pdf import PDF
@@ -260,13 +267,16 @@ def _mostly_inside(inner: list[float], outer: list[float]) -> bool:
 
 
 def _years_above(words: list[_Word], top: float) -> list[int]:
-    """Distinct years written in the page text above a table's top edge."""
-    found = {
-        int(match)
-        for word in words
-        if word["bottom"] <= top + _EDGE_TOLERANCE
-        for match in _YEAR.findall(word["text"])
-    }
+    """Distinct years written in the page text above a table's top edge.
+
+    Read line by line rather than word by word, because what a year means depends on what
+    sits beside it: "10 Şubat 2025" is the date the document carries, not the year its
+    figures are from (`data_years`).
+    """
+    above = [word for word in words if word["bottom"] <= top + _EDGE_TOLERANCE]
+    found: set[int] = set()
+    for line in _lines(above):
+        found.update(data_years(" ".join(word["text"] for word in line)))
     return sorted(found)
 
 
