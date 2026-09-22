@@ -41,8 +41,6 @@ def extract_json(text: str) -> str:
         closing = fenced.rfind("```")
         if newline != -1 and closing > newline:
             fenced = fenced[newline + 1 : closing].strip()
-    if fenced.startswith("[") and "{" in fenced:
-        raise SchemaViolation("Response JSON must be an object, not an array")
     start = fenced.find("{")
     if start == -1:
         raise SchemaViolation("Response contains no JSON object")
@@ -66,8 +64,12 @@ def extract_json(text: str) -> str:
         elif character == "}":
             depth -= 1
             if depth == 0:
-                if any(c in fenced[index + 1 :] for c in "{}[]"):
-                    raise SchemaViolation("Response contains multiple or partial JSON objects")
+                # Whatever follows the object is the model talking, not a second plan:
+                # a closing remark holding one bracket used to end the turn. Live
+                # 2026-09-22 the planner searched, `web_url` loaded the TCMB decision
+                # page, and the continuation that decides what to do with it was thrown
+                # away for what came after its own valid JSON. The first balanced object
+                # is the answer; strict validation still runs on it.
                 return fenced[start : index + 1]
     raise SchemaViolation("Response contains an unterminated JSON object")
 
