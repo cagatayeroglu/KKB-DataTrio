@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import TYPE_CHECKING, Final, Literal
@@ -39,6 +39,14 @@ from kkb_agent.agent.discovery import (
     proven_identities,
     required_discovery_instructions,
     validate_discovery_phase,
+)
+from kkb_agent.agent.document_continuation import DocumentContinuation, continue_document
+from kkb_agent.agent.execution_state import (
+    ExecutionState,
+    execution_states,
+    separate_status_claims,
+    status_text,
+    writer_state,
 )
 from kkb_agent.agent.executor import (
     DEFAULT_BUDGET,
@@ -419,16 +427,14 @@ SEARCH_LIMITATION: Final = (
 #: The E1 accepted run (2026-09-19) called raw balances "enflasyondan arındırılmış"
 #: after the deflate step had failed, and the gate accepted it: every number bound.
 INCOMPLETE_STEPS_NOTE: Final = (
-    "Some planned steps did NOT run or failed, so their effect is not in the results above. "
-    "Never describe such an operation as done: do not call the values deflated, resampled, "
-    "joined or rebased when that step is listed here. Say in one plain sentence, without "
-    "figures, that the operation was not applied in this turn (for example 'Enflasyondan "
-    "arındırma bu turda uygulanmadı') and that the values shown are the untransformed ones. "
-    "Do not write that values are missing or cannot be computed. Steps:"
+    "Some planned operations did not produce a computed result. Inspect the recorded execution "
+    "and result status separately: failure/not_run differ from a successful call returning "
+    "insufficient/abstained/undefined. Do not describe an incomplete transformation as applied. "
+    "Do not infer that an analysis was never called from its lack of findings. Steps:"
 )
 INCOMPLETE_LIMITATION: Final = (
-    "Planın bazı adımları çalışmadı; gösterilen sonuç sorunun tamamını kapsamıyor. "
-    "Çalışmayan adımlar: "
+    "Planın bazı adımları tamamlanamadı; gösterilen sonuç sorunun tamamını kapsamıyor. "
+    "Tamamlanamayan adımlar: "
 )
 
 
@@ -443,13 +449,6 @@ DOCUMENT_REFUSALS: Final = frozenset({"not_admitted"})
 DOCUMENT_REFUSAL_HINT: Final = (
     "; if the address or document outline lists a document link or a data endpoint, read "
     "that with follow=<its name>, otherwise return a clarification"
-)
-#: Live J1/J2 (2026-09-19): the planner read an address bare, expecting a second planning
-#: round to see the content. There is none, so the turn published nothing and abstained.
-BARE_READ_REASON: Final = (
-    "the document was read, but a read that names no follow target, no period_column with "
-    "value_columns and no column with row gives the answer nothing, and no planning round "
-    "sees what a read returned; name them from the address or document outline"
 )
 RUNTIME_REFUSAL_FEEDBACK: Final = (
     "That plan ran and step {step} ({tool}) refused it at run time: {reason}. Nothing was "
@@ -475,7 +474,6 @@ def runtime_refusal(outcome: ExecutionOutcome) -> RuntimeRefusal | None:
     label, a refused SQL), or a typed result the tool returned ABSTAINED with its
     reason. Environmental failures are not repairable by planning again.
     """
-    typed = False
     for item in outcome.results:
         if item.status is ToolStatus.FAILURE:
             reason = "; ".join(item.warnings) or str(item.error_category)
@@ -488,13 +486,8 @@ def runtime_refusal(outcome: ExecutionOutcome) -> RuntimeRefusal | None:
             continue
         candidate = getattr(item.output, "result", item.output)
         if isinstance(candidate, AnalyticalResult):
-            typed = True
             if candidate.status is ResultStatus.ABSTAINED and candidate.reason:
                 return RuntimeRefusal(item.step_id, item.tool, candidate.reason)
-    if not typed:
-        for item in outcome.results:
-            if item.tool == "web_url" and item.status is ToolStatus.SUCCESS:
-                return RuntimeRefusal(item.step_id, item.tool, BARE_READ_REASON)
     return None
 
 
@@ -524,10 +517,11 @@ def plan_signature(plan: ValidatedPlan) -> str:
 def incomplete_steps(outcome: ExecutionOutcome) -> tuple[str, ...]:
     """Steps whose effect is not in the results: failed, or never run after a failure."""
     return tuple(
-        f"{item.step_id} ({item.tool}) {item.status.value}"
-        + (f": {item.error_category}" if item.error_category else "")
-        for item in outcome.results
-        if item.status is not ToolStatus.SUCCESS
+        f"{state.step} ({state.tool}) {state.execution}"
+        + (f": {state.reason}" if state.execution != "success" and state.reason else "")
+        + (f" / {state.result}" if state.result else "")
+        for state in execution_states(outcome)
+        if state.incomplete
     )
 
 
@@ -1110,6 +1104,11 @@ class Session:
     #: "What is current date? Not given" and guessed from the prepared windows (DEC-178).
     today: date | None = None
 
+    acquisition_notes: Callable[[], Sequence[str]] | None = None
+    _source_notes: tuple[str, ...] = field(default=(), init=False, repr=False)
+    _execution: tuple[ExecutionState, ...] = field(default=(), init=False, repr=False)
+    _status_claims: set[str] = field(default_factory=set, init=False, repr=False)
+
     def plan(self, question: str, workspace: Workspace | None = None) -> Planned:
         """Obtain a plan the registry will accept, or fail with the reasons why.
 
@@ -1561,12 +1560,41 @@ class Session:
             )
             if refused is not None and plan_signature(planned.plan) == refused:
                 raise PlanningFailed("Planner repeated the plan the tools refused")
+        outcome = continue_document(
+            outcome,
+            planned.plan,
+            self.registry,
+            question,
+            budget=budget,
+            choose=self._document_choice,
+            tracer=self.tracer,
+        )
         refusal = (
             runtime_refusal(outcome)
             if allow_repair and self._can_repair(budget, planned, outcome)
             else None
         )
         return planned, outcome, refusal
+
+    def _document_choice(self, messages: list[Message]) -> DocumentContinuation:
+        """One small schema-bound inspection call; no catalogue or general replan."""
+        if self.tracer is None:
+            completion = self.provider.complete(
+                messages, model=self.model, schema=DocumentContinuation
+            )
+        else:
+            with self.tracer.span("planning", "document.continuation") as span:
+                span.set(prompt_bytes=sum(len(m.content.encode()) for m in messages))
+                self.tracer.event("model", "model.started", phase="document.continuation")
+                completion = self.provider.complete(
+                    messages, model=self.model, schema=DocumentContinuation
+                )
+                _record_cost(span, completion)
+                parent = span.sequence
+            self._trace_exchange(messages, completion, parent)
+        if not isinstance(completion.parsed, DocumentContinuation):
+            raise SchemaViolation("Document continuation did not return its declared schema")
+        return completion.parsed
 
     def _continue_after_discovery(
         self,
@@ -1675,11 +1703,37 @@ class Session:
         """
         # User window/count context retains its role, never financial authority.
         gate = {**gate, "context_counts": prompt_counts(question)}
+        self._source_notes = ()
+        self._execution = ()
+        self._status_claims.clear()
         planned, outcome = self.run(question, workspace)
+        self._execution = execution_states(outcome)
+        if self.acquisition_notes is not None:
+            self._source_notes = tuple(self.acquisition_notes())
         if planned.plan.reply is not None:
             return self._reply(planned, outcome, planned.plan.reply, connection, workspace, gate)
         results = collect_results(outcome)
         incomplete = incomplete_steps(outcome)
+        if not results and (reading := document_reading(outcome)) is not None:
+            return self._reading_answer(planned, outcome, reading)
+        if not results and any(
+            r.error_category in ("navigation_unresolved", "navigation_refused")
+            for r in outcome.results
+        ):
+            return Answered(
+                planned,
+                outcome,
+                (),
+                GatedAnswer(
+                    AnswerStatus.ABSTAINED,
+                    "",
+                    Verdict(False, ()),
+                    abstention=(
+                        "Belge okundu ancak istenen içerik veya takip hedefi "
+                        "güvenli biçimde çözümlenemedi."
+                    ),
+                ),
+            )
         if not results and (listing := search_listing(outcome)) is not None:
             return self._search_answer(planned, outcome, listing, connection, workspace, gate)
         if (offer := promotion_offer(outcome)) is not None:
@@ -1697,8 +1751,6 @@ class Session:
                     limitations=(OFFER_LIMITATION,),
                 ),
             )
-        if not results and (reading := document_reading(outcome)) is not None:
-            return self._reading_answer(planned, outcome, reading)
         if not results:
             return Answered(
                 planned,
@@ -1725,7 +1777,9 @@ class Session:
                     AnswerStatus.ABSTAINED,
                     "",
                     Verdict(False, ()),
-                    abstention=result.reason or f"The analysis is {result.status.value}",
+                    abstention=status_text(self._execution, set())
+                    + "\n"
+                    + (result.reason or f"The analysis is {result.status.value}"),
                 ),
             )
 
@@ -2146,6 +2200,11 @@ class Session:
             # The sentence is in the answer where the reader is; this records for the
             # proof panel whose sentence it is and why the turn carries one.
             answer = replace(answer, limitations=(*answer.limitations, CAUSE_LIMITATION))
+        states = "\n".join(
+            filter(None, (status_text(self._execution, self._status_claims), *self._source_notes))
+        )
+        if states:
+            answer = replace(answer, text=(answer.text + "\n\n" + states).strip())
         return Answered(planned, outcome, results, answer, tables)
 
     def _consumed_steps(self, plan: ValidatedPlan) -> set[str]:
@@ -2356,11 +2415,22 @@ class Session:
         if incomplete:
             listed = "\n".join(f"- {item}" for item in incomplete)
             messages.append(Message(Role.SYSTEM, INCOMPLETE_STEPS_NOTE + "\n" + listed))
+        if self._execution:
+            messages.append(Message(Role.SYSTEM, writer_state(self._execution)))
+        if self._source_notes:
+            messages.append(
+                Message(
+                    Role.SYSTEM,
+                    "Actual acquisition provenance for this turn; never call a newly acquired "
+                    "series already prepared or reused. Cached raw bytes are not a fresh fetch.\n"
+                    + "\n".join(self._source_notes),
+                )
+            )
         messages.append(Message(Role.USER, question))
         if self.tracer is None:
             completion = self.provider.complete(messages, model=self.model)
             checkpoint("writer.completed")
-            return _finished_sentences(completion)
+            return self._narrative(_finished_sentences(completion))
         with self.tracer.span("answer", "writer.call") as span:
             span.set(
                 messages=len(messages),
@@ -2383,7 +2453,14 @@ class Session:
                 kept=len(finished),
                 dropped=len(completion.text) - len(finished),
             )
-        return finished
+        return self._narrative(finished)
+
+    def _narrative(self, text: str) -> str:
+        if not self._execution:
+            return text
+        narrative, mentioned = separate_status_claims(text)
+        self._status_claims.update(mentioned)
+        return narrative
 
     def _trace_exchange(
         self, messages: Sequence[Message], completion: Completion, parent: int | None

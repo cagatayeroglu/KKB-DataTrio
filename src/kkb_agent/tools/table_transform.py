@@ -67,25 +67,29 @@ from kkb_agent.analytics.table_summary import METHOD as SUMMARY_METHOD
 from kkb_agent.analytics.table_summary import SummaryRefused, summarize_column
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
 from kkb_agent.core import (
+    Aggregation,
     AnalyticalResult,
+    CumulativeKind,
     Frequency,
     Period,
     ResultEvidence,
     ResultKind,
     ResultStatus,
     ResultValue,
+    Scale,
     SeriesId,
     SourceRef,
+    StockFlow,
     TransformationRecord,
 )
 from kkb_agent.ingest.attached import Attachment
 from kkb_agent.ingest.fetched import source_id_for
 from kkb_agent.lakehouse.alignment import WeekAssignment
-from kkb_agent.lakehouse.column_contract import KEY, declarations, encode
+from kkb_agent.lakehouse.column_contract import KEY, declarations, decode, encode
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.lakehouse.records import Observation
 from kkb_agent.lakehouse.result_evidence import _record_execution, canonical
-from kkb_agent.lakehouse.semantics import SeriesSemantics
+from kkb_agent.lakehouse.semantics import SemanticsError, SeriesSemantics
 from kkb_agent.pdf_ocr import OcrProvider
 from kkb_agent.tools._document_column import (
     ColumnRefused,
@@ -1010,6 +1014,26 @@ def _changed(
             end.isoformat() for end in changed.largest_decrease
         ]
     parameters["highlighted_periods"] = highlighted
+    if arguments.kind == "percent":
+        try:
+            original = decode(source, arguments.column)
+        except SemanticsError:
+            pass  # A numeric ratio alone cannot establish missing source semantics.
+        else:
+            if original.cumulative is CumulativeKind.NONE:
+                carrier = declarations(source)
+                carrier[changed.label] = encode(
+                    replace_semantics(
+                        original,
+                        unit="percent",
+                        scale=Scale.ONE,
+                        observation=StockFlow.RATE,
+                        aggregation=Aggregation.UNKNOWN,
+                        base_year=None,
+                    ),
+                    column_id=changed.label,
+                )
+                parameters[KEY] = carrier
     return AnalyticalResult(
         result_id=(
             f"table_transform:change:{arguments.source}:{arguments.column}:"

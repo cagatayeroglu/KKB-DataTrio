@@ -13,6 +13,122 @@ This file defines what correctness means and how to measure it. [ROADMAP M9](ROA
 
 Implementation boundary: merged unit tests exercise ingestion, semantics, lakehouse, planning, workspace definitions and numeric matching. [ROADMAP Current Project Status](ROADMAP.md#current-project-status) owns their revisions/results. They are not a benchmark scorecard. The Day 0 `evaluation/models.py`, case JSON and schema-test drafts are preserved in a local stash, not delivered or currently untracked files in dev. No executing benchmark runner, benchmark numerical-oracle schema, scorecard generator or eval Make target exists. This docs task runs document checks only.
 
+<a id="second-final-pass-2026-09-22"></a>
+
+## Second final pass — core demo contracts, 2026-09-22
+
+Same implementation branch and draft PR [#315](https://github.com/cagatayeroglu/KKB-DataTrio/pull/315),
+continuing `76b6221`; not merged. No hosted model, embedding or live acquisition
+was invoked. The original checkout's generated file remains untouched. Full-suite
+and CI outcomes for the committed final revision are recorded in the PR validation
+section; the first-pass totals below are historical, not final acceptance.
+
+### Generality review of the first pass
+
+| Behavior / commits | Classification | Review and retained boundary |
+| --- | --- | --- |
+| Percentage cell formatting (`bea612b`) | SAFE NORMALIZATION | Standard Excel number formats, with raw/display conversion evidence; custom ambiguous formats still refuse. No workbook-specific rule. |
+| Static print/filter names (`b744ba5`) | SAFE NORMALIZATION + COVERAGE HARDENING | Finite Excel built-in names and static internal ranges; not permission for formulas, macros or external references. |
+| Missing markers, explicit period grammar, exact footer labels (`3e7cc46`, `a75061c`) | SAFE NORMALIZATION, with bounded SPECIAL-CASE vocabulary | Document grammar includes ordinary missing markers and Source/Average labels. It is intentionally not arbitrary header/layout inference. These are lexical parser cases, not financial dataset exceptions. Retained with negative tests. |
+| Prompt counts and Turkish window inflections (`d8ab7ba`, `3cee617`) | GENERAL CONTRACT + language normalization | A requested period count has a contextual role, never financial authority. Language-specific inflections do not dispatch tools or bless values. |
+| Unit/measure and future closed periods (`43a954f`, `56a94f9`) | GENERAL CONTRACT / INVARIANT | Contradictory metadata refuses; future observations use the injected operator clock, not a hard-coded date. Unknowns are not defaulted. |
+| Calendar/coverage (`6933a72`, `bbb977e`) | GENERAL CONTRACT / INVARIANT | Declared DAILY versus BUSINESS_DAY, expected month grid, missing weekdays remain gaps. No Monday/Friday or XTUMY branch. Coverage support does not grant analytical lag support. |
+| Table/document proof (`c772426`, `164dfc0`) | GENERAL CONTRACT + COVERAGE HARDENING | Actual immutable input snapshots, semantic declarations and resolvable lineage. No result-ID exemption or verifier bypass. |
+| Version-scoped gold (`d31d1ab`, `e11befd`) | GENERAL CONTRACT / INVARIANT | Exact result version/period/column key; own tampered gold still rejects. |
+| Cancel/truncation/fallback (`17f6fbd`, `1bf1e55`, `4b778af`, `1156527`, `af909a0`) | GENERAL CONTRACT + COVERAGE HARDENING | Execution checkpoints, numeric-safe sentence completion, normal proof gate for fallback. Literal/unverified document readings do not become analytical evidence. |
+| Deterministic period list, proof preflight, ancestor pruning (`5250fe3`, `45bcb87`) | GENERAL CONTRACT / INVARIANT | Period list is generated from result transformations for any dataset/window. Pruning needs declared lineage/version and exact value preservation; unrelated aliases and prior warnings remain. Writer still supplies interpretation. |
+
+No PHRASE/DATASET/DATE-SPECIFIC financial routing was found or added. No first-pass
+correctness fix was reverted. The old blanket bare-document refusal and associated
+full-replan instruction were removed: a fetched document now has a small continuation
+contract. The new operational-claim filter is explicitly a **bounded presentation
+language guard**, not a complete natural-language truth prover: recognized Turkish/
+English tool execution sentences are replaced by recorded states. It does not infer
+intent, force tools, suppress economic explanations, or relax numeric verification.
+
+### New contracts and focused evidence
+
+- **Web:** admitted `web_search → web_url → recorded same-origin link → web_url → reading`
+  works through Session with injected search/fetch and actual parsers. Two continuation
+  decisions maximum, sharing the remaining step budget; no general replan or free URL
+  field. Invalid/foreign/nested targets and failed follow refuse. Typed extraction is
+  also available. Reading remains QUALIFIED/unverified, source URL/hash visible, no
+  analytical publication. `test_document_continuation`, `test_prepared_web_url`, and
+  existing `test_page_links` retain the authority boundary.
+- **Tool status:** presentation records call status separately from analytical status,
+  sample used/minimum, and reason. A successful call returning INSUFFICIENT no longer
+  disappears behind a later table or becomes a claim that the tool never ran. Partial
+  answers are QUALIFIED. Deterministic status counts are execution metadata, not
+  financial numbers whitelisted for the writer. `test_execution_state` covers all
+  states and a real 11/12-sample anomaly call plus retained economic commentary.
+- **Derived anomaly:** raw positive levels use log-ratio MAD; simple percentage-change
+  MAD is not equivalent (an independent 12-transition counterexample flags zero versus
+  one). `anomaly(source, column)` scores verified column values directly, with the exact
+  producer snapshot; it never differences them again. `series_id` retains existing
+  behavior and fixed thresholds. A percentage-change column receives a declaration
+  only from resolved noncumulative source semantics; unknown/cumulative sources are
+  not invented away. Arbitrary older derived columns without a compatible declaration
+  still refuse. `test_anomaly_derived` checks real read/change/anomaly/proof/publication,
+  altered-input rejection, sample counts and ambiguous input refusal.
+- **Monthly chart:** actual month-end x coordinates remain unchanged. Explicit month
+  labels are anchored to those coordinates instead of Plotly's automatic next-month
+  ticks; long windows sample labels to avoid crowding. Daily/weekly axes and null gaps
+  retain their behavior. Both Jan–Jun and Jul–Dec fixtures pass `chart.test.ts`.
+- **Acquisition:** no transport/window/cache redesign. Real turn acquisition receipts
+  now supply writer context and deterministic provenance for newly fetched versus
+  cached-source reconstruction. USER/web source evidence remains as before; a complete
+  four-category provenance presentation is not claimed. Cold/persistence/warm live PASS
+  is user-reported evidence; this pass rechecks injected transport/persistence tests.
+
+Focused backend checks: 101 passed (core, status, derived anomaly, acquisition), then
+27 passed after follow-failure/provenance assertions. Strict mypy: 157 source files.
+These focused results do not replace the final full-suite run linked from the PR.
+
+### Canonical and latency acceptance
+
+Operator-local immutable seed copied to temporary storage, sockets forbidden, current
+Session/tools/proof/gold used with recorded plans: T1 `60 months; 59/32/28/4`; T2 all
+nominal cells preserved plus separate real credit; T3 old `4`, new `22`, exact 22 dates,
+causal limitation. ACCEPTED throughout, UI proof available, gold `240/300/360` cells;
+older versions remain valid after later gold writes. This is deterministic replay,
+not natural-language live planner acceptance.
+
+Same T3 replay: result context stays **10,240 bytes** (no repeated earlier full blocks).
+Writer input is **14,518 bytes**, including new execution facts (first pass 13,875).
+The paired pruning-disabled measurement is recorded in PR validation. No provider
+parameters, reasoning/output budgets or commentary limits changed. Scripted rich
+commentary survives beside facts and causal caveats, but model-generated richness,
+reasoning-token use and p50/p95 latency remain LIVE REQUIRED.
+
+### Core smoke and remaining live acceptance
+
+| Tool/path | Offline evidence | Live boundary |
+| --- | --- | --- |
+| Lakehouse, transformations, three turns | Canonical replay; table/proof/gold contracts | Natural planning and reference selection need served rehearsal. |
+| Web Search / Web URL | Injected search/read/follow; direct HTML/daily table/PDF extraction; authority negatives | Real provider ranking, current site layout and continuation decisions. |
+| Anomaly | Raw baseline and verified percentage-column path; computed/insufficient/refusal states | Model must select the requested derived column; no forced keyword routing. |
+| Causality | Weekly → monthly → joined table → association/Granger; resolvable proof | Served planner choice and economic explanation; never causal proof. |
+| Change Detection | Typed series comparison, canonical co-movement and acquisition tests | Natural-language invocation with current provider. |
+| Documents/images | Existing CSV/XLSX/PDF, attached-image/document reading tests | OCR/model interpretation and real layouts; image URLs remain unsupported. |
+| Acquisition | Strict loader, persistence and cached reconstruction tests | User-reported cold/warm/persistence LIVE PASS preserved; no historical extension. |
+
+Direct prompts for the isolated branch:
+
+1. **Web continuation:** “TCMB Mart 2024 PPK kararını web'de ara, resmi sonucu aç ve karar metnini özetle.” Expect search → root read → bounded document continuation → recorded link read → source/hash-labelled summary; no generic replan, arbitrary URL, or false analytical verification.
+2. **Derived anomaly / insufficient:** “Az önceki kredi tablosunun aylık yüzde değişim sütununu oluştur ve anomali analizini bu yeni sütun üzerinde yap. Tabloyu koru; kullanılan gözlem sayısını ve varsa minimum örneklem engelini açıkla.” Expect change → anomaly(source,column), `examined=supplied column values`, actual used/minimum; no raw-series substitution or “çağrılmadı” after execution.
+3. **Tool state negative:** Same prompt with a table holding exactly twelve consecutive monthly levels. Expect eleven derived values, minimum twelve, INSUFFICIENT; no invented findings or automatic historical extension.
+4. **Chart:** “2025 Ocak–Haziran aylık verilerini tablo ve çizgi grafik olarak göster.” Repeat with “2025 Temmuz–Aralık”. Expect labels Jan–Jun / Jul–Dec, original month-end dates, gap preservation.
+5. **Causality:** “Önceki tablodaki aylık faiz ile reel kredi sütunlarının gecikmeli ilişkisini ve Granger sonucunu incele; bunun nedensellik kanıtı olup olmadığını açıkla.” Expect exact selected columns or explicit semantic refusal, trusted execution proof, predictive-precedence caveat.
+6. **Change Detection:** “Hazır konut fiyat endeksi serisinde Nisan–Haziran 2021 değişimini hesapla ve yorumla.” Expect typed tool computation, stated window and units, retained economic interpretation.
+7. **Document:** With an actual PDF/table attached: “Bu belgedeki aylık tabloyu çıkar, birimini ve kaynağını göster; seçilen sütunun ortalamasını hesapla.” For an image: “Eklediğim görseldeki eğilimi ve sınırlamaları açıkla.” Expect typed verified extraction for the table; labelled unverified reading for model/OCR interpretation.
+8. **Writer quality/latency:** “Önceki karşılaştırmayı bozmadan ekonomik açıdan ayrıntılı yorumla; olası açıklamaları, alternatif etkenleri ve nedensellik sınırlamasını belirt.” Capture writer prompt bytes, input/output/reasoning tokens, elapsed time, retries, retained count/date/causal caveats; compare repeated like-for-like runs, not a single latency sample.
+
+Remaining coverage gaps: ambiguous locale `436.688`, cp1254/UTF-16, arbitrary headers,
+owner isolation, authoritative exchange holiday calendar and unrestricted derived
+semantics. No special-case fixes for these were added. Compatible requested capabilities
+omitted by a live planner are not automatically detectable from a scripted plan; no
+keyword router was introduced to claim otherwise.
+
 <a id="final-critical-fixes-2026-09-22"></a>
 
 ## Final critical fixes — offline acceptance, 2026-09-22

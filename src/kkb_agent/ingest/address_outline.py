@@ -267,7 +267,7 @@ def address_outline(
         "label>. A page marked "
         "nothing_listed offers no document link or data endpoint: read it only for a table in "
         "its own HTML, and never guess column names. unread_resources counts page scripts or "
-        "data that could not be read this time, so the listing may be incomplete. The read is "
-        "planned once, in this plan: no later planning round sees what a read returned, and a "
-        "read that names no follow target, columns or cell publishes nothing. " + payload
+        "data that could not be read this time, so the listing may be incomplete. A loaded "
+        "document may be inspected once more to select a recorded link or typed "
+        "extraction, or to summarize its text as an unverified document reading. " + payload
     )

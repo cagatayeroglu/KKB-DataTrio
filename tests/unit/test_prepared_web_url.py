@@ -356,10 +356,22 @@ def test_check_reports_the_switch_without_fetching(pool, monkeypatch, capsys):
     assert URL not in capsys.readouterr().out
 
 
-def test_a_bare_read_is_planned_again_once_and_the_typed_read_publishes(pool, tmp_path):
-    """Live J1/J2 (2026-09-19): a bare read expected a second planning round; there is none."""
+def test_a_bare_read_is_inspected_once_and_the_typed_read_publishes(pool, tmp_path):
+    """A bare read receives bounded inspection, not a full general planning round."""
     fetch = FakeFetch(CSV)
-    provider = scripted(plan(selection=False), plan(), DRAFT)
+    provider = scripted(
+        plan(selection=False),
+        json.dumps(
+            {
+                "selection": {
+                    k: v
+                    for k, v in json.loads(plan())["steps"][0]["arguments"].items()
+                    if k in ("column", "row", "period_column", "value_columns")
+                }
+            }
+        ),
+        DRAFT,
+    )
     prepared = served(pool, tmp_path, provider, fetch)
     session_id, turn = ask(prepared)
 
@@ -367,8 +379,9 @@ def test_a_bare_read_is_planned_again_once_and_the_typed_read_publishes(pool, tm
     assert turn["answer"]["status"] == "accepted" and turn["answer"]["text"] == DRAFT
     assert len(provider.seen) == 3
     first, second = provider.seen[0], provider.seen[1]
-    assert any("no later planning round" in message.content for message in first)
-    assert "gives the answer nothing" in second[-1].content
+    assert any("typed" in message.content for message in first)
+    assert "Inspect this already fetched document" in second[0].content
+    assert "silver_observations" not in str(second)
     assert published_names(prepared, session_id) == ["analiz_1"]
     assert len(fetch.requests) == 1  # the turn's one read of the address is reused
 

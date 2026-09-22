@@ -476,7 +476,7 @@ class TestTheTool:
         # A model that can move a threshold will move it until something looks
         # interesting, and the output would not show that it had.
         described = self.registry(house).descriptions()[0]["arguments"]["properties"]
-        assert set(described) == {"series_id", "start", "end"}
+        assert set(described) == {"series_id", "source", "column", "start", "end"}
 
 
 class TestTheWindowSaysWhereItBegins:

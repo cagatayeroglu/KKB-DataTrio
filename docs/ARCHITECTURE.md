@@ -67,6 +67,27 @@ are unchanged. Validation and remaining live acceptance are recorded in
 [EVALUATION](EVALUATION.md#final-critical-fixes-2026-09-22).
 
 
+The second pass adds a bounded document inspection continuation after a successful
+unselected web read: select a recorded same-origin link, request typed extraction,
+or return a labelled unverified reading. At most two decisions share the remaining
+step budget; `read_from` depends on the actual earlier output and cannot delegate
+another hop. No generic planner inventory is resent for this continuation.
+
+Anomaly keeps its raw-series log-ratio/difference baseline. Its table-input form
+scores the explicit column values directly; the verified source version and complete
+column declaration are mandatory. Simple percentage changes are not mathematically
+interchangeable with log ratios. Resolved noncumulative percentage derivations carry
+their own percent/rate declaration for downstream consumers.
+
+Execution status and analytical status are separate presentation facts. The writer
+receives the actual ledger; recognized operational sentences are replaced by
+harness-owned status text while economic interpretation remains model-written.
+Successful calls returning insufficient/abstained/undefined remain visibly incomplete.
+Monthly chart ticks name the observation's semantic month at its actual end date.
+Second-pass evidence and remaining live cases are in
+[EVALUATION](EVALUATION.md#second-final-pass-2026-09-22).
+
+
 ## Organizer maturity chain
 
 This is the single product-evolution map for the organizer-relayed direction
