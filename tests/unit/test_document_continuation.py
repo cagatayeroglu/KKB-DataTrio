@@ -254,3 +254,9 @@ def test_the_link_a_document_was_reached_by_is_input_and_never_an_answer_field()
 
     assert "never a field of your answer" in INSTRUCTIONS
     assert "never says that none was followed" in INSTRUCTIONS
+    # And the keys it may answer with, because the prose above reads as a shape of its own:
+    # live 2026-09-22 the inspection answered `action` and `summary`, twice, and the turn
+    # lost an answer the fetched page held (S1 and W5).
+    assert "follow, selection, reading, abstain" in INSTRUCTIONS
+    assert "There is no action, summary or any other key" in INSTRUCTIONS
+    assert set(DocumentContinuation.model_fields) == {"follow", "selection", "reading", "abstain"}

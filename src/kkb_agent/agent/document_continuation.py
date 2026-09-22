@@ -79,8 +79,14 @@ INSTRUCTIONS = (
     "Only one same-origin hop is permitted. No URL or other tool can be proposed here. "
     "The payload may carry `reached_through`: the link this document was opened by and the "
     "page that link was on. It is what you were given, never a field of your answer, and it "
-    "means a link was followed, so a reading never says that none was followed or needed."
+    "means a link was followed, so a reading never says that none was followed or needed. "
+    "Answer with one JSON object whose keys are only those of the schema: follow, selection, "
+    "reading, abstain. There is no action, summary or any other key: a reading is "
+    '{"reading": "..."}, a link is {"follow": 3}, and giving up is {"abstain": true}.'
 )
+#: The keys are spelled out because a model reads the prose above as a shape of its own:
+#: live 2026-09-22, the inspection after a followed link answered with `action` and
+#: `summary`, twice, and the turn lost an answer the page held (S1, W5).
 
 
 def continue_document(

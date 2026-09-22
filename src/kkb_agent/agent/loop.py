@@ -1817,9 +1817,15 @@ class Session:
             with self.tracer.span("planning", "document.continuation") as span:
                 span.set(prompt_bytes=sum(len(m.content.encode()) for m in messages))
                 self.tracer.event("model", "model.started", phase="document.continuation")
-                completion = self.provider.complete(
-                    messages, model=self.model, schema=DocumentContinuation
-                )
+                try:
+                    completion = self.provider.complete(
+                        messages, model=self.model, schema=DocumentContinuation
+                    )
+                except SchemaViolation as error:
+                    # The category alone left two live turns unexplained (2026-09-22): the
+                    # fault names fields and error types, never a document's content.
+                    span.set(schema_fault=str(error)[:200])
+                    raise
                 _record_cost(span, completion)
                 parent = span.sequence
             self._trace_exchange(messages, completion, parent)
