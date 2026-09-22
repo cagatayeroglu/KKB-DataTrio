@@ -158,6 +158,39 @@ class TestReadingOcrTables:
         (table,) = ocr_tables(html, DEFAULT_LIMITS)
         assert table["rows"][0] == expected
 
+    @pytest.mark.parametrize(
+        ("above", "expected"),
+        [
+            ("Yayın tarihi: 10 Şubat 2025", []),
+            ("Yayin tarihi: 10 Subat 2025", []),
+            ("Yayım: 10.02.2025", []),
+            ("Rapor No: 2021/15", []),
+            # A founding year on its own is indistinguishable from a data year.
+            ("Kuruluş 1985", [1985]),
+            ("2024 yılı aylık veriler", [2024]),
+            # The valuable case: one real year survives beside a publication date, where two
+            # candidates used to leave the table with no year context at all.
+            ("Yayın tarihi: 10 Şubat 2025 — 2024 yılı verileri", [2024]),
+        ],
+        ids=[
+            "written-date",
+            "folded-written-date",
+            "numeric-date",
+            "report-number",
+            "founding-year",
+            "data-year",
+            "a-date-and-a-data-year",
+        ],
+    )
+    def test_only_a_year_that_could_date_the_figures_is_a_candidate(self, above, expected):
+        html = (
+            f"{above}\n<table><tr><td>Ay</td><td>Tutar (TL)</td></tr>"
+            "<tr><td>Ocak</td><td>100</td></tr>"
+            "<tr><td>Şubat</td><td>110</td></tr></table>"
+        )
+        (table,) = ocr_tables(html, DEFAULT_LIMITS)
+        assert table["years"] == expected
+
     def test_a_repeated_year_is_not_a_set_of_column_labels(self):
         html = (
             "<table><tr><td>Kalem</td><td>2023</td><td>2023</td></tr>"

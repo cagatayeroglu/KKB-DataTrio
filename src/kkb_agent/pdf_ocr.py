@@ -33,8 +33,36 @@ RENDER_SCALE = 2.0
 _LAYOUT_TAG = re.compile(r"<\|[^<>\r\n]{1,64}\|>")
 _NUMBER = re.compile(r"[+\-−]?\d[\d.,]*")
 _YEAR = re.compile(r"(?<![\d.,])(19\d{2}|20\d{2}|2100)(?![\d.,])")
+#: A year that belongs to something longer than itself: a date the document is stamped with
+#: ("Yayın tarihi: 10 Şubat 2025", "10.02.2025") or a compound identifier ("Rapor No:
+#: 2021/15"). Each of these was read as the year a table's month labels belong to, and one
+#: such year decides the periods of the whole table (`context_year`, Eray's N22 2026-09-22).
+#: A day, a word and a year is a written date whatever the word is, so no month vocabulary
+#: is needed here -- and excluding a year errs towards deciding nothing, which is the safe
+#: direction: the reader's own year is then used, or none at all.
+_YEAR_OF_SOMETHING_ELSE = re.compile(
+    # A written date: 10.02.2025, 10/02/2025, 10-02-2025.
+    r"\d{1,2}\s*[./-]\s*\d{1,2}\s*[./-]\s*(?:19|20)\d{2}"
+    # A written date whose month is a word: 10 Şubat 2025.
+    r"|\d{1,2}\s+[^\W\d_]{3,12}\s+(?:19|20)\d{2}"
+    # A compound identifier: 2021/15, 15/2021. The other side is no year, which is what
+    # separates it from a range of years -- "(2025-2026)" above a table states both.
+    r"|(?:19|20)\d{2}\s*[/-]\s*\d{1,3}(?!\d)"
+    r"|(?<!\d)\d{1,3}\s*[/-]\s*(?:19|20)\d{2}"
+)
 _MAX_HEADER_ROWS = 4
 _MAX_SPAN = 64
+
+
+def data_years(text: str) -> list[int]:
+    """The years in `text` that could label a table's periods, lowest first.
+
+    A year inside a written date or a compound identifier says when the document was
+    published or what it is called, not which year its figures are from. A founding year
+    written on its own is indistinguishable from a data year and stays a candidate;
+    `context_year` already refuses to decide whenever more than one survives.
+    """
+    return sorted({int(year) for year in _YEAR.findall(_YEAR_OF_SOMETHING_ELSE.sub(" ", text))})
 
 
 class OcrProvider(Protocol):
@@ -286,7 +314,7 @@ def ocr_tables(text: str, limits: AdmissionLimits) -> list[dict[str, object]]:
         if table is None:
             continue
         before = text[:offset]
-        table["years"] = sorted({int(year) for year in _YEAR.findall(_LAYOUT_TAG.sub(" ", before))})
+        table["years"] = data_years(_LAYOUT_TAG.sub(" ", before))
         found.append(table)
     return found
 
