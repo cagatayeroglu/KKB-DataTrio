@@ -1141,7 +1141,13 @@ class Session:
                 )
                 if "web_url" in self.registry:
                     messages.append(Message(Role.SYSTEM, WEB_ADDRESS_INSTRUCTIONS))
-        prior_context = self.selection is not None or references_prior_result(question)
+        # The conversation is shown whenever there is one. It used to be shown only when a
+        # word list found a reference in the question ("bu tablo", "önceki cevap"), so
+        # "grafiği çiz bi" after an answer about a series reached the planner as four
+        # words with no conversation at all, and was answered as a question about
+        # nothing (live 2026-09-22). The block is six turns, questions and answer text
+        # only, and measured at about 500 bytes beside a 42 KB prompt: cheap enough
+        # that guessing when it is wanted costs more than always sending it.
         # The tables this conversation published are always named to the planner: names and
         # column labels, never values. They used to be shown only when a word list found a
         # reference in the question; "Tabloya konut fiyat endeksini de ekle" has none it
@@ -1175,11 +1181,7 @@ class Session:
             messages.append(Message(Role.USER, self.documents_note))
         if self.address_note is not None and not discovery:
             messages.append(Message(Role.USER, self.address_note))
-        if (
-            not discovery
-            and prior_context
-            and (earlier := history_prompt(self.history)) is not None
-        ):
+        if not discovery and (earlier := history_prompt(self.history)) is not None:
             messages.append(Message(Role.USER, earlier))
         if self.selection is not None:
             messages.append(
@@ -1218,6 +1220,7 @@ class Session:
                 self.registry,
                 used_ids=used_ids,
                 known_tables=workspace.names() if workspace is not None else (),
+                known_series=self.known_series,
             )
             if mended and self.tracer is not None:
                 self.tracer.event(

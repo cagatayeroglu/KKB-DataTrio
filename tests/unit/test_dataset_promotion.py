@@ -467,3 +467,23 @@ def test_the_offer_says_the_scale_once_and_speaks_turkish():
     assert "milyon TL" in text and "milyon milyon" not in text
     # The sentence shown above the offer is the reader's language too.
     assert "kayıt teklifi" in OFFER_LIMITATION and "promotion offer" not in OFFER_LIMITATION
+
+
+def test_approving_a_save_does_not_leave_an_older_clarification_waiting(stack):
+    # Live 2026-09-22: a turn abstained asking which series was meant, the reader then
+    # uploaded a CSV and approved its save, and the next free question was still merged
+    # into the old prompt as "Orijinal istek:" - answered as the question before last.
+    from kkb_agent.api.prepared import PendingClarification
+
+    build, _store, _knowledge, _calls = stack
+    runner, _service = build()
+    session_id = uuid4().hex
+    runner._pending_clarifications[session_id] = PendingClarification(
+        original_question="2019 konut kredisi bakiyesi", offered=("Konut Kredisi",)
+    )
+    assert session_id in runner._pending_clarifications
+    try:
+        runner._save_offer(session_id, uuid4().hex, None)  # type: ignore[arg-type]
+    except Exception:
+        pass  # the save itself needs a held offer; the clarification is cleared first
+    assert session_id not in runner._pending_clarifications

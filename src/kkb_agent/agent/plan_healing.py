@@ -14,16 +14,52 @@ not exist, a cycle. Those say the plan is about something else, and the planner 
 
 from __future__ import annotations
 
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 
-from pydantic import JsonValue
+from pydantic import BaseModel, JsonValue
 
 from kkb_agent.agent.plan import AnalyticalPlan, PlanStep
 from kkb_agent.agent.registry import ArgumentsRejected, RegistryError, ToolRegistry
+from kkb_agent.core.identity import declared_series_identities
 
 #: The argument fields that name another step or a published table (registry `TableInput`).
 REFERENCE_FIELDS = ("source", "other", "input_step")
 MAX_IDENTIFIER = 64
+
+
+def _namespaced(arguments: BaseModel, known: Collection[str]) -> dict[str, str]:
+    """Identities the plan names without their namespace, and what the catalogue calls them.
+
+    A catalogue identity carries the provider that issued it: `USER:kart_harcamasi.v1`,
+    `EVDS:TP.KTF12`. A planner that writes the rest of one has named a series exactly, and
+    exactly one series; refusing it as "not in the catalogue" cost a whole planner call
+    over a prefix (live 2026-09-22: the reader asked for USER:promotion_test_konut_
+    bakiyesi.v1 by its full identity and the plan came back without the USER:). Mended only
+    when the tail matches one identity: two would be a choice, and choosing is the
+    planner's.
+    """
+    declared = declared_series_identities(arguments)
+    if not declared or not known:
+        return {}
+    mended: dict[str, str] = {}
+    for identity in declared:
+        if identity in known:
+            continue
+        matches = [item for item in known if item.endswith(f":{identity}")]
+        if len(matches) == 1:
+            mended[identity] = matches[0]
+    return mended
+
+
+def _rewritten(value: JsonValue, mapping: Mapping[str, str]) -> JsonValue:
+    """`value` with every string the mapping names replaced, however deeply it is nested."""
+    if isinstance(value, str):
+        return mapping.get(value, value)
+    if isinstance(value, list):
+        return [_rewritten(item, mapping) for item in value]
+    if isinstance(value, dict):
+        return {key: _rewritten(item, mapping) for key, item in value.items()}
+    return value
 
 
 def _fresh(step_id: str, taken: set[str]) -> str:
@@ -42,6 +78,7 @@ def heal_plan(
     *,
     used_ids: Collection[str] = (),
     known_tables: Collection[str] = (),
+    known_series: Collection[str] = (),
 ) -> tuple[AnalyticalPlan, tuple[str, ...]]:
     """`plan` with its own bookkeeping completed, and one note per thing that was mended."""
     ids = [step.step_id for step in plan.steps]
@@ -81,6 +118,12 @@ def heal_plan(
         except (RegistryError, ArgumentsRejected):
             spec, parsed = None, None  # Validation says what is wrong; nothing to mend here.
         if spec is not None and parsed is not None:
+            if mending := _namespaced(parsed, known_series):
+                arguments = {key: _rewritten(value, mending) for key, value in arguments.items()}
+                notes.extend(
+                    f"step {step_id!r}: read {wrong!r} as {right!r}"
+                    for wrong, right in sorted(mending.items())
+                )
             if spec.discovery_only and depends:
                 notes.append(f"step {step_id!r}: a catalogue search waits for no other step")
                 depends = []

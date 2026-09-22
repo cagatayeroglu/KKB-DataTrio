@@ -94,3 +94,35 @@ def test_a_tool_is_named_and_described_before_its_schema_and_in_the_order_a_plan
         assert f"\n- {operation}: " in transform["description"], operation
     # Limits only the validator can act on are not the planner's reading.
     assert '"pattern"' not in prompt and '"maxLength"' not in prompt
+
+
+def test_an_identity_written_without_its_namespace_is_read_as_the_one_it_names(pool):
+    # Live 2026-09-22: the reader asked for USER:promotion_test_konut_bakiyesi.v1 by its
+    # full identity; the plan came back without the USER:, and the turn was refused with
+    # "These series IDs are not in the catalogue" over a prefix.
+    lake, _ = pool
+    known = {"USER:promotion_test_konut_bakiyesi.v1", "EVDS:TP.KTF12"}
+    step = {
+        "step_id": "ekle",
+        "tool": "table_transform",
+        "arguments": {
+            "operation": "add_series",
+            "source": "fetch",
+            "series_id": "promotion_test_konut_bakiyesi.v1",
+        },
+        "depends_on": ["fetch"],
+    }
+    healed, notes = heal_plan(plan(fetch(), step), registry_for(pool), known_series=known)
+    assert healed.steps[1].arguments["series_id"] == "USER:promotion_test_konut_bakiyesi.v1"
+    assert any("read 'promotion_test_konut_bakiyesi.v1' as" in note for note in notes)
+
+    # An identity the catalogue already lists is left exactly as written.
+    exact = dict(step, arguments=dict(step["arguments"], series_id="EVDS:TP.KTF12"))
+    kept, _ = heal_plan(plan(fetch(), exact), registry_for(pool), known_series=known)
+    assert kept.steps[1].arguments["series_id"] == "EVDS:TP.KTF12"
+
+    # A tail that two identities share is a choice, and choosing is the planner's.
+    both = {"USER:x.v1", "EVDS:x.v1"}
+    ambiguous = dict(step, arguments=dict(step["arguments"], series_id="x.v1"))
+    left, _ = heal_plan(plan(fetch(), ambiguous), registry_for(pool), known_series=both)
+    assert left.steps[1].arguments["series_id"] == "x.v1"
