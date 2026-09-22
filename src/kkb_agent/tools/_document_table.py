@@ -250,8 +250,34 @@ def read_table(
         columns=tuple(columns),
         skipped=tuple(skipped),
         rules=rules,
-        calendar=Frequency.DAILY if daily else Frequency.MONTHLY,
+        calendar=_daily_calendar(tuple(end for end, _ in rows)) if daily else Frequency.MONTHLY,
     )
+
+
+def _daily_calendar(dates: Sequence[date]) -> Frequency:
+    """DAILY, or BUSINESS_DAY when the table's own dates are a trading calendar.
+
+    A document table had only these two readings: a calendar day or a month. An
+    exchange publishes on trading days, so Friday is followed by Monday, and read as
+    DAILY that three-day step is not the one-day step a change asks for: every Monday
+    came back empty, and the table said its own weekends were missing observations.
+
+    The calendar is read from the dates the table carries, not from the weekday of any
+    particular row: rows that all land Monday to Friday and skip at least one weekend
+    are a trading-day series. A table that does date a Saturday or Sunday stays DAILY,
+    and so does one too short to have skipped a weekend, because a weekday-only week is
+    not evidence of anything. A genuinely missing weekday is still a gap either way:
+    BUSINESS_DAY counts weekdays and invents no holiday.
+    """
+    if len(dates) < 2 or any(day.weekday() > 4 for day in dates):
+        return Frequency.DAILY
+    ordered = sorted(dates)
+    spans_weekend = any(
+        (later - earlier).days > 1
+        for earlier, later in zip(ordered, ordered[1:], strict=False)
+        if earlier.weekday() == 4
+    )
+    return Frequency.BUSINESS_DAY if spans_weekend else Frequency.DAILY
 
 
 def _daily(grid: Grid, period_index: int) -> bool:

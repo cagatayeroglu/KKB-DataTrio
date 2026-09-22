@@ -50,7 +50,9 @@ _UNITS = {
     #: word is added. Without an entry here every cell of a "kişi" or "adet" series
     #: read "gösterilemiyor" and the writer could not quote one (finding DN-6.4).
     "count": "",
-    **{unit: label for unit, label in _QUANTITY_WORDS.items()},
+    #: A mass on its own, not only under a price: a series quoted in grams had the
+    #: "TRY/g" spelling and none for "g". (Taken from PR #316.)
+    **dict(_QUANTITY_WORDS),
     #: A price per quantity: "TRY/g" reads as "TL/gr".
     **{
         f"{currency}/{quantity}": f"{currency_word}/{quantity_word}"
@@ -368,13 +370,20 @@ def _without_figures(name: str) -> str | None:
     count is about -- live 2026-09-22, the jury's third question counted months of "birinci
     seri" and "ikinci seri" and never named either. The base year is dropped; what the
     series is survives.
+
+    Dropping a whole comma-separated part for one digit was too coarse. A CPI component is
+    "Tüketici Fiyat Endeksi (2025=100): 01. Gıda Ve Alkolsüz İçecekler" and an equity index
+    "BIST 100 kapanış (XU100)": there the digit sits inside the only part there is, so the
+    entire heading disappeared for all thirteen CPI components and for every BIST series.
+    The word carrying the digit goes; the words around it stay.
     """
     without_base = re.sub(r"\s*\([^()]*\d[^()]*\)", "", name)
-    kept = [
-        part.strip()
-        for part in without_base.split(",")
-        if part.strip() and not any(character.isdigit() for character in part)
-    ]
+    kept: list[str] = []
+    for part in without_base.split(","):
+        words = [word for word in part.split() if not any(c.isdigit() for c in word)]
+        trimmed = " ".join(words).strip(" .:-")
+        if trimmed:
+            kept.append(trimmed)
     return ", ".join(kept) or None
 
 

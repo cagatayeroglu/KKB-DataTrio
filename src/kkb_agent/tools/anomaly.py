@@ -4,11 +4,15 @@ Same shape as `change_detection`: read the series' declared semantics from the
 lakehouse, hand them to the analytics package, return a typed result and
 record lineage for a computed one.
 
-The threshold and the minimum sample are **not** arguments. A planner that can
-move a threshold will move it until something looks interesting, and a flag
-produced that way is indistinguishable in the output from one that was not.
-The defaults are recorded in every result's `parameters` instead, so a reader
-can see what produced the flags without the model being able to choose them.
+The threshold and the minimum sample are optional arguments with the analytics
+package's defaults. They were withheld from the planner on the reasoning that a
+model able to move a threshold would move it until something looked interesting.
+What actually answers that worry is the record, not the refusal: every result
+carries the values it was scored with in `parameters`, alongside
+`threshold_status: "PROPOSED; no benchmark has measured it"`, so a flag produced
+at a loosened threshold is not indistinguishable from one produced at the
+default — it says so. Withholding them only meant a reader asking for finer or
+coarser sensitivity could not be served at all.
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ from kkb_agent.agent.registry import TableInput, ToolSpec
 from kkb_agent.agent.verifier import result_faults
 from kkb_agent.agent.workspace import Workspace, WorkspaceError
 from kkb_agent.analytics import detect_anomalies
+from kkb_agent.analytics.anomaly import DEFAULT_MINIMUM_CHANGES, DEFAULT_THRESHOLD
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
 from kkb_agent.core import AnalyticalResult, ResultStatus, SeriesId
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
@@ -39,7 +44,8 @@ INPUTS = ("silver_series", "silver_observations")
 class AnomalyArguments(BaseModel):
     """What the planner may ask for.
 
-    A raw series or explicit table quantity and window, never a scoring threshold.
+    A raw series or explicit table quantity, a window, and optionally the scoring
+    sensitivity. Whatever is used is recorded in the result's `parameters`.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -72,6 +78,22 @@ class AnomalyArguments(BaseModel):
     )
     end: date | None = Field(
         default=None, description="Latest period end to examine; omit for the whole series"
+    )
+    threshold: float | None = Field(
+        default=None,
+        gt=0,
+        le=20,
+        description="Robust score above which a period is flagged; omit for the default "
+        f"({DEFAULT_THRESHOLD}). Lower it when the reader asks for milder deviations too, "
+        "raise it when they want only the starkest. The value used is reported.",
+    )
+    minimum_changes: int | None = Field(
+        default=None,
+        ge=3,
+        le=240,
+        description="Fewest observations the window must hold before anything is scored; "
+        f"omit for the default ({DEFAULT_MINIMUM_CHANGES}). Below it the tool reports an "
+        "insufficient sample instead of flags.",
     )
 
 
@@ -142,6 +164,12 @@ def make_anomaly_tool(
             start=arguments.start,
             end=arguments.end,
             input_refs=INPUTS,
+            threshold=(DEFAULT_THRESHOLD if arguments.threshold is None else arguments.threshold),
+            minimum_changes=(
+                DEFAULT_MINIMUM_CHANGES
+                if arguments.minimum_changes is None
+                else arguments.minimum_changes
+            ),
         )
         node = _record(lineage, arguments, result)
         if node is not None and result.evidence is not None:
