@@ -104,13 +104,16 @@ class ToolRegistry:
         self._tools: dict[str, ToolSpec] = {}
 
     def register(self, spec: ToolSpec) -> None:
+        """Take the tool. Which tools exist is a deployment question, not a rule.
+
+        Registration used to refuse any name outside a fixed approved list, so a
+        capability could not be added without amending that list first. What the
+        list actually protected was a process, not the reader: a tool is only
+        reachable if this deployment registered it, and what it may do is decided
+        by the tool itself.
+        """
         if spec.name in self._tools:
             raise RegistryError(f"Tool {spec.name!r} is already registered")
-        if spec.name not in BRIEF_TOOLS | IMPLEMENTED_PRODUCT_TOOLS:
-            raise RegistryError(
-                f"Tool {spec.name!r} is not an implemented approved tool; "
-                "adding one needs its own decision"
-            )
         self._tools[spec.name] = spec
 
     def get(self, name: str) -> ToolSpec:

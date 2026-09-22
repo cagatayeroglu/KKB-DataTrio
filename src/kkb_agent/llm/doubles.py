@@ -70,12 +70,7 @@ class ScriptedProvider:
         schema: type[BaseModel] | None = None,
         tools: Sequence[Mapping[str, object]] | None = None,
     ) -> Completion:
-        self.offered.append(
-            tuple(
-                str(entry.get("function", entry).get("name", ""))  # type: ignore[union-attr]
-                for entry in (tools or ())
-            )
-        )
+        self.offered.append(tuple(_offered_name(entry) for entry in (tools or ())))
 
         def ask(
             conversation: list[Message],
@@ -132,3 +127,12 @@ def scripted(*responses: Scripted, **kwargs: object) -> ScriptedProvider:
 def transcript(provider: ScriptedProvider) -> Iterable[str]:
     """Roles seen in the last conversation, for asserting the repair loop ran."""
     return (message.role.value for message in (provider.seen[-1] if provider.seen else []))
+
+
+def _offered_name(entry: Mapping[str, object]) -> str:
+    """The tool name in one menu entry, whichever shape the caller used."""
+    function = entry.get("function")
+    if isinstance(function, Mapping):
+        entry = function
+    name = entry.get("name")
+    return name if isinstance(name, str) else ""
