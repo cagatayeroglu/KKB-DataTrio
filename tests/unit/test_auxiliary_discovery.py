@@ -286,10 +286,7 @@ def test_known_index_identity_does_not_need_another_catalog_or_planner_call(pool
     assert len(provider.seen) == 1
 
 
-@pytest.mark.parametrize(
-    "forbidden", ["promote_series", "web_url", "web_search", "table_transform"]
-)
-def test_auxiliary_phase_cannot_mix_search_with_privileged_or_analysis_tool(forbidden):
+def _mixed_phase(tool: str) -> None:
     class Arguments(BaseModel):
         pass
 
@@ -297,11 +294,28 @@ def test_auxiliary_phase_cannot_mix_search_with_privileged_or_analysis_tool(forb
         PlanStep(step_id="search", tool="catalog_search", arguments={"query": "TÜFE"}),
         CatalogSearchArguments(query="TÜFE"),
     )
-    other = ValidatedStep(PlanStep(step_id="other", tool=forbidden, arguments={}), Arguments())
-    with pytest.raises(PlanRejected, match="separate plan"):
-        validate_discovery_phase(
-            ValidatedPlan(TURN_TWO, (search, other)),
-            continuation=True,
-            auxiliary_discovery_allowed=True,
-            require_series_discovery=True,
-        )
+    other = ValidatedStep(PlanStep(step_id="other", tool=tool, arguments={}), Arguments())
+    validate_discovery_phase(
+        ValidatedPlan(TURN_TWO, (search, other)),
+        continuation=True,
+        auxiliary_discovery_allowed=True,
+        require_series_discovery=True,
+    )
+
+
+@pytest.mark.parametrize("forbidden", ["promote_series", "table_transform"])
+def test_auxiliary_phase_cannot_mix_search_with_privileged_or_analysis_tool(forbidden):
+    """Analysis waits: an identity this plan discovers is not proven while it validates."""
+    with pytest.raises(PlanRejected, match="Analysis waits"):
+        _mixed_phase(forbidden)
+
+
+@pytest.mark.parametrize("reader", ["web_url", "web_search"])
+def test_a_discovery_phase_may_read_a_source_the_question_names(reader):
+    """Reading an address resolves no catalogue identity, so it need not wait a round.
+
+    Refused, it cost a live turn (2026-09-22): asked to read an ODMD market report and
+    compare it with the loan series, the planner wrote one plan for both, was refused,
+    and by its third attempt had dropped the PDF and answered half the question.
+    """
+    _mixed_phase(reader)

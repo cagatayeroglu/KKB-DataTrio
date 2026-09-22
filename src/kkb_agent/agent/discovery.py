@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from typing import Final
 
 from kkb_agent.agent.executor import (
     ExecutionOutcome,
@@ -359,18 +360,33 @@ def validate_discovery_phase(
         )
 
 
+#: Tools that read a source the question already names. They resolve nothing through
+#: the catalogue, so they cannot depend on an identity this plan has yet to discover.
+SOURCE_READERS: Final = frozenset({"web_url", "web_search", "document_read"})
+
+
 def _validate_catalog_only(plan: ValidatedPlan, names: set[str]) -> None:
-    if names != {"catalog_search"}:
+    """A discovery plan searches the catalogue, and may read a source named in the question.
+
+    The separation exists because an identity a search returns in this plan is not yet
+    proven when an analysis step naming it is validated. A source reader resolves no
+    identity: the address or the upload is in the question already. Excluding it anyway
+    cost a live turn (2026-09-22) — asked to read an ODMD market report and compare it
+    with the loan series, the planner wrote one plan for both, was refused for it, and by
+    its third attempt had dropped the PDF and answered only half the question.
+    """
+    if not names or not names <= (SOURCE_READERS | {"catalog_search"}):
         raise PlanRejected(
-            "Catalog discovery must be a separate plan before analysis",
+            "A discovery plan holds catalog_search steps, and may also read an address or "
+            "an upload the question names. Analysis waits for the identities to come back",
             category=RejectionCategory.DISCOVERY_RULE,
         )
-    if len(plan.steps) > MAX_DISCOVERY_QUERIES:
+    if sum(v.step.tool == "catalog_search" for v in plan.steps) > MAX_DISCOVERY_QUERIES:
         raise PlanRejected(
             "Catalog discovery permits at most four queries",
             category=RejectionCategory.DISCOVERY_RULE,
         )
-    if any(v.step.depends_on for v in plan.steps):
+    if any(v.step.depends_on for v in plan.steps if v.step.tool == "catalog_search"):
         raise PlanRejected(
             "Catalog queries must be independent",
             category=RejectionCategory.DISCOVERY_RULE,
