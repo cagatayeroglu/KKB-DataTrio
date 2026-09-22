@@ -7,6 +7,7 @@ from test_page_links import Site
 from test_web_search_tool import FakeSearchBackend
 
 from kkb_agent.agent import ExecutionContext, Session, ToolRegistry
+from kkb_agent.agent.discovery import ADDRESS_FIRST
 from kkb_agent.agent.document_continuation import DocumentContinuation
 from kkb_agent.agent.executor import ToolStatus
 from kkb_agent.api.projection import project_answer
@@ -158,3 +159,55 @@ def test_a_failed_follow_cannot_degrade_to_a_successful_search_listing(tmp_path)
         assert answer.answer.status.value == "abstained"
         assert "çözümlenemedi" in answer.answer.abstention
         assert len(provider.seen) == 2
+
+
+#: Stands for the runner's outline: it exists only when the turn read an address it was given.
+OUTLINE = "What the web address in the question offers. (outline)"
+SEARCH = {"step_id": "search", "tool": "web_search", "arguments": {"query": "official decision"}}
+ASKED = f"{ROOT} sayfasındaki Mart kararının bağlantısını izle ve özetle"
+
+
+def read(**extra):
+    return {"step_id": "page", "tool": "web_url", "arguments": {"url": ROOT, **extra}}
+
+
+def rig():
+    registry = ToolRegistry()
+    registry.register(
+        make_web_search_tool(
+            backend=FakeSearchBackend(SearchReply(hits=(BackendHit(title="Karar", url=TARGET),)))
+        )
+    )
+    registry.register(make_web_url_tool(fetch=Site({})))
+    return registry
+
+
+def test_a_plan_that_searches_past_the_written_address_is_refused_then_reads_it():
+    """Live 2026-09-22 (N46): the page was read for its outline, and the planner searched
+    the web, read another page and followed a link there instead. The harness refuses that
+    plan by rule, through the ordinary repair, and the next plan reads the address."""
+    provider = scripted(plan(), json.dumps({"question": ASKED, "steps": [read(follow="March")]}))
+    planned = Session(provider, rig(), address_note=OUTLINE).plan(ASKED)
+    assert planned.attempts == 2 and planned.rejections == (ADDRESS_FIRST,)
+    assert f"That plan was rejected: {ADDRESS_FIRST}" in provider.seen[1][-1].content
+    (step,) = planned.plan.steps
+    assert (step.arguments.url, step.arguments.follow) == (ROOT, "March")
+
+
+@pytest.mark.parametrize(
+    ("question", "outline", "proposal"),
+    [
+        (ASKED, OUTLINE, {"steps": [read(follow="March decision")]}),
+        (ASKED, OUTLINE, {"steps": [read(), SEARCH]}),
+        (ASKED, OUTLINE, {"steps": [], "clarification": "unsupported_request"}),
+        # S1: nothing written to read first, so search-then-read stays the plan.
+        ("Mart kararını bul ve özetle", None, json.loads(plan())),
+        # An address the turn could not read has no outline; searching is what is left.
+        (ASKED, None, json.loads(plan())),
+    ],
+    ids=["follow", "read_and_search", "clarification", "no_address", "unreadable_address"],
+)
+def test_plans_that_read_the_address_or_have_none_to_read_are_accepted(question, outline, proposal):
+    provider = scripted(json.dumps({"question": question, **proposal}))
+    planned = Session(provider, rig(), address_note=outline).plan(question)
+    assert planned.attempts == 1 and not planned.rejections

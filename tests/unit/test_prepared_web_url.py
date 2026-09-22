@@ -13,7 +13,7 @@ from test_prepared_api import BASE, set_config, wait_http
 from test_prepared_dense import POLICY, Recording, build_index
 
 from kkb_agent.agent import Workspace
-from kkb_agent.agent.discovery import WEB_ADDRESS_INSTRUCTIONS
+from kkb_agent.agent.discovery import ADDRESS_FIRST, WEB_ADDRESS_INSTRUCTIONS
 from kkb_agent.api import __main__ as cli
 from kkb_agent.api.app import create_app
 from kkb_agent.api.contracts import Proof
@@ -199,12 +199,11 @@ def test_only_the_address_step_bypasses_discovery():
 @pytest.mark.parametrize(
     ("fetch", "planned"),
     [
-        (FakeFetch(CSV), plan(url="https://data.example.test/other.csv")),
         (FakeFetch(code=FetchCode.BLOCKED_DESTINATION), plan()),
         (FakeFetch(b"\x89PNG\r\n\x1a\n", media_type="image/png"), plan()),
         (FakeFetch(b"Tarih;Tutar\n2026-01-31;x\n"), plan()),
     ],
-    ids=["address_not_in_question", "blocked_destination", "unsupported_format", "unreadable"],
+    ids=["blocked_destination", "unsupported_format", "unreadable"],
 )
 def test_refused_documents_publish_nothing(pool, tmp_path, fetch, planned):
     provider = scripted(planned, DRAFT)
@@ -216,11 +215,28 @@ def test_refused_documents_publish_nothing(pool, tmp_path, fetch, planned):
     assert published_names(prepared, session_id) == []
     serialized = json.dumps(turn, ensure_ascii=False)
     assert not [item for item in PRIVATE if item in serialized]
-    if "other.csv" in planned:
-        # Only the address the user wrote may be read (for its outline); the planned
-        # address that is not in the question is never requested.
-        other = source_id_for("https://data.example.test/other.csv")
-        assert not [request for request in fetch.requests if request.source_ref == other]
+
+
+def test_a_plan_reading_another_address_is_refused_before_it_runs(pool, tmp_path):
+    """N46's rule: once the question gives a readable address, a plan must read that one.
+
+    A plan naming another address used to run and be refused by the tool, and the turn
+    abstained with no second chance. It is now refused before anything runs, the planner is
+    told the rule, and the corrected plan reads the address as written. The address the
+    planner proposed on its own is never requested either way.
+    """
+    fetch = FakeFetch(CSV)
+    provider = scripted(plan(url="https://data.example.test/other.csv"), plan(), DRAFT)
+    prepared = served(pool, tmp_path, provider, fetch)
+    session_id, turn = ask(prepared)
+
+    assert turn["state"] == "completed", turn
+    assert turn["answer"]["status"] == "accepted" and turn["answer"]["text"] == DRAFT
+    assert ADDRESS_FIRST in provider.seen[1][-1].content
+    other = source_id_for("https://data.example.test/other.csv")
+    assert not [request for request in fetch.requests if request.source_ref == other]
+    assert len(fetch.requests) == 1  # the outline's read of the written address, reused
+    assert published_names(prepared, session_id) == ["analiz_1"]
 
 
 def test_instructions_inside_a_cell_grant_no_second_request(pool, tmp_path):

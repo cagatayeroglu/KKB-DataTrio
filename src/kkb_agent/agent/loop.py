@@ -41,6 +41,7 @@ from kkb_agent.agent.discovery import (
     catalog_feedback,
     proven_identities,
     required_discovery_instructions,
+    validate_address_read,
     validate_discovery_phase,
 )
 from kkb_agent.agent.document_continuation import DocumentContinuation, continue_document
@@ -107,7 +108,7 @@ from kkb_agent.llm.provider import (
     SchemaViolation,
 )
 from kkb_agent.llm.structured import schema_instructions
-from kkb_agent.tools.web_url import searched_addresses
+from kkb_agent.tools.web_url import addresses_in, searched_addresses
 
 if TYPE_CHECKING:  # pragma: no cover
     from duckdb import DuckDBPyConnection
@@ -1420,6 +1421,11 @@ class Session:
                 )
                 if self.selection is not None:
                     self.selection.validate_plan(validated, self.registry)
+                if not discovery and self.address_note is not None:
+                    # The person's address first (N46). The outline exists only when this
+                    # turn read an address the question gives, so a read of it can succeed;
+                    # a catalogue continuation may not read an address at all.
+                    validate_address_read(validated, addresses_in(question))
                 if self.catalog_continuation:
                     validate_discovery_phase(
                         validated,
