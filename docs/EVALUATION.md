@@ -13,6 +13,98 @@ This file defines what correctness means and how to measure it. [ROADMAP M9](ROA
 
 Implementation boundary: merged unit tests exercise ingestion, semantics, lakehouse, planning, workspace definitions and numeric matching. [ROADMAP Current Project Status](ROADMAP.md#current-project-status) owns their revisions/results. They are not a benchmark scorecard. The Day 0 `evaluation/models.py`, case JSON and schema-test drafts are preserved in a local stash, not delivered or currently untracked files in dev. No executing benchmark runner, benchmark numerical-oracle schema, scorecard generator or eval Make target exists. This docs task runs document checks only.
 
+<a id="final-critical-fixes-2026-09-22"></a>
+
+## Final critical fixes — offline acceptance, 2026-09-22
+
+Implementation branch: `codex/final-critical-fixes`, from `dev=b243015`;
+[draft PR #315](https://github.com/cagatayeroglu/KKB-DataTrio/pull/315), not merged.
+The original checkout and its generated `web/next-env.d.ts` were preserved.
+No live model, embedding or source-acquisition requests were made. Tests use
+scripted providers and synthetic inputs; the canonical replay below uses an
+operator-local prepared pool copied to a temporary directory.
+
+| Root-cause family | Delivered behavior and regression |
+| --- | --- |
+| N32 XLSX display semantics | Numeric `0.476` with standard `0.0%` becomes `47.6`, with original value, format, row/column and multiplier in normalization evidence. General numeric/text `47.6` stays unchanged. Custom percentage formats refuse. `test_xlsx_loader` exercises the public loader and downstream column snapshot. |
+| F1 numeric context / N40 contradictory semantics | Prompt `777` can bind its requested window, never an unsupported money/rate/series-count claim. Existing date/count and Turkish window forms continue to work. Stock+percent, rate+TRY, stock+sum and index+currency declarations refuse before analytics. `test_context_number_roles`, `test_semantic_contradictions`, existing qualifier/assumption tests. |
+| F2 / N39 / live table-input causality | Real read → weekly resample → monthly join → association and Granger → gate → publication, including available UI proof and tampered-value rejection. CSV/XLSX upload → table → summarize → accepted publication. Missing cumulative metadata refuses; explicit YTD survives and remains inadmissible to association. `test_derived_proof_pipeline`. |
+| F3 versioned gold | Same label/month with different windows remains valid against each result's own immutable proof. Foreign/unversioned gold does not override it; tampered own gold still rejects. `test_gold_runtime`. |
+| Temporal coverage | Friday→Monday is consecutive only under BUSINESS_DAY; DAILY retains calendar-day semantics. Missing weekdays are not bridged. Change and anomaly/breakpoint basis share that rule; resampling counts the declared calendar. Jan+Mar yields one missing month and an empty Feb table/chart slot. Daily coverage does not enable unsupported daily lag/YTD analysis. `test_temporal_contract`, `test_resample`, `chart.test.ts`, existing association/Granger/cumulative refusals. |
+| N41 manual future observations | Manual KB future closed periods reject; upload `as_of` behavior retained. `test_knowledge_base`. |
+| F5/F6/F7 writer lifecycle | Stop during the final writer leaves no workspace binding or gold. Transport failure retains verified analytical tables/scalar results through the normal gate; literal-source failure behavior stays explicit. Truncation never ends a sentence inside `801.438`. `test_cancellation`, `test_writer_lifecycle`, derived pipeline failure variants. |
+| N33/N35/N36/N37 ingestion | Static internal built-in filter/print names are allowed, while formula/macro/external-link guards remain. Explicit missing markers become null; requested Turkish/date period forms parse; exact Average/Ortalama and Source:/Kaynak: footer rows are skipped with recorded evidence. `test_xlsx_loader`, `test_document_normalization`. |
+
+**Canonical offline oracle.** Actual prepared BDDK/EVDS silver rows were used,
+with the stored canonical plans scripted through current tools and Session.
+Socket connects were forbidden. T1: 60 months, 59 transitions, 32 rate declines,
+28 nominal rises, 4 nominal non-rises. T2: all prior values retained and a
+separate real column at 2025-12 prices. T3: all prior values retained, old 4,
+new 22, exact 22 period list in deterministic prose and causal limitation.
+All three answers accepted; execution proof and UI proof `available`; 240/300/360
+gold cells materialized respectively; all old result versions remained valid
+after later gold writes. The independent Decimal/SQL
+`tests/manual/organizer_oracle.py <prepared-seed>` agreed on the 22 months.
+The local seed and private traces are not committed; this is not proof that a
+fresh checkout contains the same prepared data or that live planning succeeds.
+
+The exact joint months are 2021-02, 2021-03, 2021-05, 2021-08, 2021-10,
+2021-11, 2022-02, 2022-06, 2022-12, 2023-02, 2023-12, 2024-01, 2024-02,
+2024-05, 2024-06, 2024-07, 2024-08, 2024-09, 2025-01, 2025-02, 2025-07,
+2025-09 (canonical month ends, including 2024-02-29).
+
+**Latency-safe scope.** The exact joint count/list is deterministic; invalid
+producer evidence fails before synthesis, with the final gate still mandatory;
+validated, fully preserved workspace ancestors are omitted from writer context
+while retaining version-specific notes/meanings and current assumptions.
+An apples-to-apples offline replay toggling only ancestor pruning measured T3
+writer input **27,127 → 13,875 UTF-8 bytes (-48.9%)**, data context
+**23,492 → 10,240 bytes**, and earlier full table blocks **2 → 0**. All facts
+and oracle assertions passed both ways. This replay did not inject the served
+runner's full alias catalogue, so these bytes are not the historical served
+35,986-byte prompt. Reasoning budgets, global thinking, output limits and
+provider settings were unchanged; no live latency or reasoning-token gain is
+claimed.
+
+**Validation.** `python -m pytest tests -v -p no:cacheprovider
+-o faulthandler_timeout=60 --disable-warnings` completed in 516.86 seconds:
+4,868 passed, 1 expected failure, 4 failures. Three are baseline eval failures
+described below. The fourth was the old publication expectation that a broken
+current candidate can consume a writer call to quote an unrelated older table;
+it now correctly abstains before synthesis. That expectation and the scalar
+writer-failure expectation were updated to the explicitly requested behavior.
+Final publication/proof/writer subset: 114 passed; the scalar/table fallback
+subset: 86 passed. These final subsets include the last code/test refinements;
+the entire 8.6-minute suite was not redundantly repeated. CI on the final head
+remains required. The large source-directory dense fixture passed both here
+and on baseline (90.75 seconds standalone on baseline). Frontend: 76 tests
+passed, TypeScript and changed-file Prettier checks passed. Local Node was 24,
+not the declared Node 22; the CI Node 22 gate remains authoritative. Ruff and
+format checks passed; strict mypy passed for 155 source files; Bandit and secret
+scan passed. No release dependency audit or live benchmark was run.
+
+Three `test_catalog_paraphrase_holdout::test_fixture_dense_order_never_becomes_selection_authority`
+variants also fail on untouched `b243015`: the `FixedDenseIndex` test double
+lacks `covering()`. They are baseline failures, not a successful retrieval
+acceptance claim, and were not hidden or repaired in this correctness pass.
+
+**Remaining limits.** Header/title discovery, ambiguous `436.688` locale and
+cp1254/UTF-16 expansion were skipped; no silent guessing was added. Raw XTUMY
+still needs a reviewed trading/calendar declaration and the cross-turn explicit
+date-range failure needs its own live trace. Unknown holidays remain gaps.
+Carrier admission is proven for read/resample/join, not every legacy/generated
+column; unknown document cumulative semantics remain unresolved. N42 owner
+isolation is outside this single-operator pass. Reasoning latency needs live A/B.
+
+| Live follow-up | Direct Turkish prompt / expected check |
+| --- | --- |
+| Canonical chain | “2021–2025 arasında konut kredisi faizi düşerken nominal konut kredisi bakiyesinin artmadığı ayları göster.” → “Nominal kolonu koru, Aralık 2025 fiyatlarıyla reel kolonu ekle.” → “KFE'yi ekle; faiz düşerken KFE arttığı halde reel kredinin artmadığı ayları listele.” Expect 4 preserved, 22 exact months, available proof, named real/nominal columns and causal caveat. |
+| Derived causality | “2021–2024 için haftalık konut kredi faizini ay sonuna göre aylık ortalamaya çevir, aylık KFE ile birleştir ve Granger testi uygula.” Expect real tool chain, producer proof, accepted publication or a justified sample/semantic refusal; no causal-effect claim. |
+| Document and fallback | “Ekli Ay–Faiz XLSX tablosunu oku; ortalama faizi hesapla.” Use numeric `0.476` with `0.0%`; inspect 47.6 and normalization evidence. Repeat CSV and writer-failure injection in the local harness. |
+| Calendar / reuse | “Bu XTUMY tablosunda 7–11 Mart 2025 değişimlerini hesapla; kullanılan takvimi belirt.” Repeat on the selected published table without fetching the URL. BUSINESS_DAY may use Friday→Monday only when explicitly declared; the next genuinely missing weekday must remain missing. |
+| Stop and latency | Run the canonical chain with trace timings, cancel while writer is running, then reload. Expect cancelled turn and no newly published result/gold. Compare reasoning tokens and time on the same provider/model settings; smaller input alone proves no latency gain. |
+
+
 ## Acceptance scope and evidence navigation
 
 The [historical handoff](https://github.com/cagatayeroglu/KKB-DataTrio/blob/1578b7ce0d20566784dba49d984b940424847721/docs/HANDOFF_ARDA_2026-09-14.md) records two-turn live Kloudeks acceptance and scripted three-turn/browser rehearsal, not full live Qwen three-turn acceptance or repeated-run reliability. The recorded 29-series / 4,124-observation pool and Bronze evidence are operator-local, absent from fresh Git checkout and not repository-reproducible as an identical snapshot today. Local LanceDB/hybrid fixture tests do not establish semantic retrieval quality; default prepared API retrieval has no real Qwen embedding injection. Prepared metadata inspection is mandatory/auto-wired, while broader quality/reconciliation remain unfinished. Dated run records below retain their original evidence and limitations.

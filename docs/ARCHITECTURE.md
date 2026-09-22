@@ -31,6 +31,42 @@ Non-goals for this window: arbitrary generated-code execution, a general autonom
 
 The stack is selected in DECISIONS and is not re-argued here: DuckDB with Parquet and Pandas (DEC-112), a custom bounded loop (DEC-113), initial hybrid retrieval with benchmark-gated extensions (DEC-130; DEC-127/115 superseded), an artifact DAG in DuckDB (DEC-117), FastAPI with SSE behind Next.js (DEC-123), and the excluded-technology list (DEC-124). Router fine-tuning and multi-agent topology remain out of scope.
 
+## Critical correctness contracts (PR #315 implementation)
+
+Typed silver reads carry a producer-bound `column_contracts` declaration: stable
+column identity, source artifact, unit/scale, measure, frequency/weekly anchor,
+cumulative/reset rule, aggregation and index base year. Resampling updates the
+declared frequency; joining preserves the selected declarations. Table-input
+causality consumes those declarations and snapshots the actual versioned input
+result, including transformations and its window. Missing or inconsistent
+declarations refuse analysis; no `cumulative=none` default is invented. This
+slice covers read → resample → join → association/Granger; it does not declare
+all older or newly generated columns safe for every downstream analysis.
+Document summaries retain their source's resolvable lineage instead of using a
+result identifier as a lineage node.
+
+Gold rechecks bind a cell to the exact immutable result digest, column and full
+period. Another result/window's identically named gold cell is not evidence
+against it. Trusted producer verification remains mandatory even without gold.
+
+DAILY changes require the previous calendar day; BUSINESS_DAY changes require
+the previous weekday. Missing weekdays remain gaps without a reviewed holiday
+calendar. Coverage/display calendars are separate from analytical lag/YTD
+support, so displaying daily gaps does not silently enable unsupported analyses.
+Absent canonical months appear as empty table/chart rows and count as missing
+in summaries; no value is imputed.
+
+Before synthesis, the harness rejects invalid producer evidence through the
+normal gate. Writer context may omit a workspace ancestor only when validated
+input lineage binds its name/version and every prior value remains in the final
+result; version-specific notes and meanings survive. The final gate still runs.
+Writer transport failure can retain a verified analytical result with a
+deterministic no-number fallback. Cancellation is checked after the writer and
+immediately before workspace publication. Provider reasoning/output budgets
+are unchanged. Validation and remaining live acceptance are recorded in
+[EVALUATION](EVALUATION.md#final-critical-fixes-2026-09-22).
+
+
 ## Organizer maturity chain
 
 This is the single product-evolution map for the organizer-relayed direction
