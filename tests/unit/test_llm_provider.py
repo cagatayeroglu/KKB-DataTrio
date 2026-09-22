@@ -174,9 +174,15 @@ class TestStrictValidation:
     def test_a_valid_object_parses(self):
         assert parse_structured('{"tool": "lakehouse", "limit": 5}', Plan).tool == "lakehouse"
 
-    def test_a_trailing_comma_requires_a_complete_replacement(self):
-        with pytest.raises(SchemaViolation, match="not valid JSON"):
-            parse_structured('{"tool": "lakehouse", "limit": 5,}', Plan)
+    def test_a_trailing_comma_is_punctuation_and_is_repaired(self):
+        """The keys and values are the model's own; only the comma is dropped.
+
+        Refusing this cost a whole turn live (2026-09-22): the planner had searched,
+        `web_url` had loaded the TCMB decision page, and the continuation that decides
+        what to do with it came back with a stray comma, so the answer abstained on a
+        page already in hand. Strict validation still runs on the repaired document.
+        """
+        assert parse_structured('{"tool": "lakehouse", "limit": 5,}', Plan).limit == 5
 
     def test_an_extra_field_is_rejected_not_ignored(self):
         # A plan that deserializes is not a plan that may be executed.
@@ -318,9 +324,13 @@ class TestTheBoundaryHoldsTheLine:
     [
         '[{"tool":"lakehouse","limit":5}]',
         '{"tool":"lakehouse","limit":5} {',
-        '{"tool":"lakehouse","limit":5,}',
     ],
 )
 def test_structural_damage_requires_replacement_not_silent_parser_repair(text):
+    """An array or a second object is a different answer, not a mistyped one.
+
+    A trailing comma is punctuation and is repaired; these are not, because guessing
+    which object was meant would be the harness writing the plan.
+    """
     with pytest.raises(SchemaViolation):
         parse_structured(text, Plan)
