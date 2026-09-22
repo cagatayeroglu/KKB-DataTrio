@@ -624,26 +624,28 @@ def _served_like(lake, *responses, **plan_fields):
     return answered, workspace, session
 
 
-def test_the_writer_words_the_comparison_when_it_is_called_anyway(lake):
-    """The jury: "nedenlerine ilişkin yorum ... katma değer" — and the figures with it.
+def test_the_reading_sits_under_figures_that_name_their_series(lake):
+    """The jury: "nedenlerine ilişkin yorum ... katma değer" - over figures a reader can place.
 
-    The harness's own wording counts the months of a "birinci seri" and an "ikinci seri" it
-    never names, which is how the jury's first question came back live on 2026-09-22. The
-    writer holds both names and is already being called for the interpretation the reader
-    asked for, so it writes the whole answer in that one call rather than a paragraph
-    appended under wording that names nothing.
+    Handing the whole answer to the writer was built and measured on 2026-09-22 and left
+    off: asked for it, the writer spent 1,550 seconds and all 16,384 of its tokens on
+    reasoning and returned nothing, while this narrow call succeeded in 91 seconds on the
+    same endpoint the same day. So the harness words the figures - and must say which series
+    each count is about, which is the half that was missing.
     """
-    written = (
-        "Faiz oranının düştüğü aylarda konut kredisi bakiyesi çoğunlukla artmış.\n"
-        "Yorum: Talep faize duyarlı görünüyor; muhtemelen para politikasıyla ilişkili."
+    reading = (
+        "Yorum: Faizin düştüğü ayların çoğunda bakiye artmış; bu, kredi talebinin faize "
+        "duyarlı olduğunu düşündürüyor ve muhtemelen para politikasıyla ilişkili."
     )
-    answered, workspace, session = _served_like(lake, written)
+    answered, workspace, session = _served_like(lake, reading)
     assert answered.answer.status is AnswerStatus.ACCEPTED
-    assert written in answered.answer.text
-    assert "birinci seri" not in answered.answer.text.casefold()
+    assert reading in answered.answer.text and answered.answer.text.index("Yorum:") > 0
+    named = answered.answer.text.splitlines()[1]
+    assert named.startswith("Birinci seri:") and "İkinci seri:" in named
+    assert "konut kredisi faiz oranı" in named and "konut kredisi bakiyesi" in named
     asked = session.provider.seen[1]
-    assert not any("Write ONLY the 'Yorum:' paragraph" in item.content for item in asked)
-    assert len(session.provider.seen) == 2  # the planner and the writer, once each
+    assert any("Write ONLY the 'Yorum:' paragraph" in item.content for item in asked)
+    assert any(item.content.startswith("written:") for item in asked)
     assert workspace.names() == ["konut_kredisi_ve_faiz"]
 
 

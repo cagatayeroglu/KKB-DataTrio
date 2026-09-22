@@ -81,7 +81,6 @@ from kkb_agent.agent.workspace import Workspace
 from kkb_agent.core import (
     DIMENSIONLESS,
     AnalyticalResult,
-    ResultKind,
     ResultStatus,
     ResultValue,
     Scale,
@@ -1798,23 +1797,16 @@ class Session:
         fast_draft = deterministic_draft(result) if self.deterministic_presentation else None
         if self.tracer is not None and fast_draft is not None:
             self.tracer.event("answer", "draft.deterministic", source="harness", detail=fast_draft)
-        # A comparison is the one shape the harness words badly: its counts are about two
-        # columns, and the fixed wording calls them "birinci seri" and "ikinci seri". Live
-        # 2026-09-22 the jury's own first question came back as "Birinci serinin düştüğü ay
-        # sayısı 32", with nothing saying that the first series is the interest rate.
-        #
-        # Whenever the writer is going to be called anyway - for the interpretation the
-        # reader asked for - it writes the whole answer instead of a paragraph appended to
-        # the harness's wording: the same one call, and the series are named. Where no writer
-        # would run (the offline rehearsal, a plan that asked for no interpretation) the
-        # fixed wording stands, so a planner-only turn stays planner-only. Either way the
-        # fixed wording remains underneath, for a writer that returns nothing.
-        writer_words_it = (
-            fast_draft is not None
-            and result.kind is ResultKind.COMPARISON
-            and self.commentary
-            and planned.plan.interpret
-        )
+        # Handing a comparison to the writer instead of wording it here was built and
+        # measured on 2026-09-22, because the fixed wording named its two series "birinci
+        # seri" and "ikinci seri". It is off, and the naming was fixed where it belonged
+        # (`comparison_heading`): asked for the whole answer, the writer spent 1,550 seconds
+        # and all 16,384 of its tokens on reasoning and returned nothing, while the narrow
+        # "write ONLY the 'Yorum:' paragraph" call succeeded in 91 seconds on the same
+        # endpoint the same day. The harness words the figures, the writer reads them.
+        # Flip this to `result.kind is ResultKind.COMPARISON` to try it again once a writer
+        # call is bounded (the open latency item).
+        writer_words_it = False
         if fast_draft is not None and not writer_words_it:
             draft = fast_draft
         else:
