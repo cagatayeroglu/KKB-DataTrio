@@ -136,10 +136,15 @@ def continue_document(
     budget: Budget,
     choose: Callable[[list[Message]], DocumentContinuation],
     tracer: Tracer | None,
+    repair_pending: bool = False,
 ) -> ExecutionOutcome:
-    if any(r.status is not ToolStatus.SUCCESS for r in outcome.results):
+    # With a corrected plan coming, the failed step is answered by planning again and this
+    # inspection would pay for a page the next plan may not even want. With none coming, a
+    # document already fetched is what the turn has, and dropping it for a sibling step's
+    # failure is how the reader was told nothing about a page in hand (live W5, 2026-09-22).
+    if repair_pending and any(r.status is not ToolStatus.SUCCESS for r in outcome.results):
         return outcome
-    successful = list(outcome.results)
+    successful = [r for r in outcome.results if r.status is ToolStatus.SUCCESS]
     if any(
         getattr(r.output, "result", None) is not None or r.tool == "document_read"
         for r in successful

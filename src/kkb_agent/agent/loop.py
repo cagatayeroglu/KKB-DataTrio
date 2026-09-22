@@ -1836,6 +1836,16 @@ class Session:
             )
             if refused is not None and plan_signature(planned.plan) == refused:
                 raise PlanningFailed("Planner repeated the plan the tools refused")
+        # A failed step leaves the document a sibling step fetched alone only while a
+        # corrected plan is still coming. Live 2026-09-22 (W5): the announcements page the
+        # person named loaded, the planner's second address was refused by the authority
+        # boundary, nothing about that is repairable by planning again, and the reader was
+        # told no verifiable result could be produced about a page already in hand.
+        pending = (
+            allow_repair
+            and self._can_repair(budget, planned, outcome)
+            and runtime_refusal(outcome) is not None
+        )
         outcome = continue_document(
             outcome,
             planned.plan,
@@ -1844,6 +1854,7 @@ class Session:
             budget=budget,
             choose=self._document_choice,
             tracer=self.tracer,
+            repair_pending=pending,
         )
         refusal = (
             runtime_refusal(outcome)

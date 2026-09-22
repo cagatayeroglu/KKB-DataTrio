@@ -11,6 +11,7 @@ from kkb_agent.agent.discovery import ADDRESS_FIRST
 from kkb_agent.agent.document_continuation import DocumentContinuation
 from kkb_agent.agent.executor import ToolStatus
 from kkb_agent.api.projection import project_answer
+from kkb_agent.ingest.safe_fetch import FetchFailure
 from kkb_agent.lakehouse import open_lakehouse
 from kkb_agent.llm import scripted
 from kkb_agent.tools.web_search import BackendHit, SearchReply, make_web_search_tool
@@ -154,7 +155,7 @@ def test_a_reading_beside_another_key_keeps_the_reading():
 
 
 def test_a_failed_follow_cannot_degrade_to_a_successful_search_listing(tmp_path):
-    from kkb_agent.ingest.safe_fetch import FetchCode, FetchFailure
+    from kkb_agent.ingest.safe_fetch import FetchCode
 
     site = Site({ROOT: (INDEX, "text/html")})
 
@@ -281,3 +282,124 @@ def test_the_link_a_document_was_reached_by_is_input_and_never_an_answer_field()
     assert "follow, selection, reading, abstain" in INSTRUCTIONS
     assert "There is no action, summary or any other key" in INSTRUCTIONS
     assert set(DocumentContinuation.model_fields) == {"follow", "selection", "reading", "abstain"}
+
+
+def test_a_refused_second_address_does_not_discard_the_page_already_fetched(tmp_path):
+    """Live W5 (2026-09-22): the page the person named loaded, and the turn said nothing.
+
+    The planner added a second `web_url` for an address the question never wrote; the
+    authority boundary refused it, which is right, and no plan repair follows a refusal of
+    that kind. The inspection was skipped because a sibling step had failed, so a fetched
+    page was thrown away and the reader was told no verifiable result could be produced.
+    """
+    site = Site({ROOT: (INDEX, "text/html"), TARGET: (PAGE, "text/html")})
+    steps = [
+        {"step_id": "page", "tool": "web_url", "arguments": {"url": ROOT}},
+        {
+            "step_id": "guessed",
+            "tool": "web_url",
+            "arguments": {"url": "https://official.example.test/invented"},
+            "depends_on": ["page"],
+        },
+    ]
+    with open_lakehouse(tmp_path / "lake") as lake:
+        registry = ToolRegistry()
+        registry.register(make_web_url_tool(fetch=site, lineage=lake.lineage))
+        provider = scripted(
+            json.dumps({"question": "Mart kararını özetle", "steps": steps}),
+            '{"reading": "Kurul politikasını korudu."}',
+        )
+        answer = Session(provider, registry, repair_runtime_refusals=True).answer(
+            f"{ROOT} sayfasındaki Mart kararını özetle", lake.connection
+        )
+
+    assert answer.answer.status.value == "qualified", answer.answer
+    assert "Kurul politikasını korudu." in answer.answer.text
+    # The invented address was never fetched, and its refusal is still reported.
+    assert [url for url, _ in site.requests] == [ROOT]
+    assert any(r.status is ToolStatus.FAILURE for r in answer.outcome.results)
+
+
+def test_a_repair_that_is_coming_keeps_the_inspection_waiting(tmp_path):
+    """While a corrected plan is coming, the failed step is the plan's to fix, not a
+    reason to pay for an inspection of a page the next plan may not even want."""
+    from dataclasses import replace
+
+    from kkb_agent.agent.document_continuation import continue_document
+    from kkb_agent.agent.executor import Budget, ExecutionOutcome, ToolResult, ToolStatus
+
+    site = Site({ROOT: (INDEX, "text/html")})
+    with open_lakehouse(tmp_path / "lake") as lake:
+        registry = ToolRegistry()
+        tool = make_web_url_tool(fetch=site, lineage=lake.lineage)
+        registry.register(tool)
+        loaded = tool.run(WebUrlArguments(url=ROOT), ExecutionContext(question=f"{ROOT} oku"))
+        loaded = replace(loaded, step_id="page")
+        failed = ToolResult(
+            status=ToolStatus.FAILURE, step_id="bad", tool="web_url", error_category="fetch_failed"
+        )
+        plan = json.dumps(
+            {
+                "question": "q",
+                "steps": [
+                    {"step_id": "page", "tool": "web_url", "arguments": {"url": ROOT}},
+                ],
+            }
+        )
+        session = Session(scripted(plan), registry)
+        validated = session._plan(f"{ROOT} oku", None, budget=Budget()).plan
+
+        def refuse(_messages):
+            raise AssertionError("no inspection while a repair is coming")
+
+        outcome = ExecutionOutcome((loaded, failed), completed=False)
+        kept = continue_document(
+            outcome,
+            validated,
+            registry,
+            f"{ROOT} oku",
+            budget=Budget(),
+            choose=refuse,
+            tracer=None,
+            repair_pending=True,
+        )
+    assert kept is outcome
+
+
+def test_the_turn_tells_the_inspection_whether_a_repair_is_coming(tmp_path, monkeypatch):
+    """The call site's own decision: a repairable refusal waits, an unrepairable one does not.
+
+    `series_unknown` is a refusal a corrected plan can answer; `fetch_failed` is not.
+    """
+    import kkb_agent.agent.loop as loop
+    from kkb_agent.agent.executor import ExecutionOutcome, ToolResult, ToolStatus
+
+    seen: list[bool] = []
+
+    def record(outcome, *args, repair_pending=False, **kwargs):
+        seen.append(repair_pending)
+        return outcome
+
+    monkeypatch.setattr(loop, "continue_document", record)
+    site = Site({ROOT: (INDEX, "text/html")})
+    plan = json.dumps(
+        {
+            "question": "q",
+            "steps": [{"step_id": "page", "tool": "web_url", "arguments": {"url": ROOT}}],
+        }
+    )
+    for category in ("series_unknown", "fetch_failed"):  # repairable, then not
+        with open_lakehouse(tmp_path / f"lake-{category}") as lake:
+            registry = ToolRegistry()
+            registry.register(make_web_url_tool(fetch=site, lineage=lake.lineage))
+            session = Session(scripted(plan), registry, repair_runtime_refusals=True)
+            failed = ToolResult(
+                status=ToolStatus.FAILURE, step_id="bad", tool="lakehouse", error_category=category
+            )
+            monkeypatch.setattr(
+                loop,
+                "execute",
+                lambda *a, only=failed, **k: ExecutionOutcome((only,), completed=False),
+            )
+            session.answer(f"{ROOT} oku", lake.connection)
+    assert seen == [True, False]
