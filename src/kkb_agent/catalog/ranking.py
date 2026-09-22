@@ -2,8 +2,9 @@
 
 This is a stable post-order policy: it never creates/removes candidates or
 changes similarity scores and it does not turn proximity into a reviewed match.
-Only explicit query qualifiers with a typed/reviewed counterpart can move an
-item. Unknown candidate semantics remain neutral rather than inferred.
+Explicit query qualifiers with a typed/reviewed counterpart decide compatibility.
+Complete required read declarations break remaining ties without resolving intent.
+Unknown candidate semantics are never inferred.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
+from kkb_agent.catalog.inspection import unresolved_read_fields
 from kkb_agent.catalog.mappings import ReviewedSeries
 from kkb_agent.catalog.normalization import normalize_search_text
 from kkb_agent.catalog.records import CatalogStatus
@@ -395,4 +397,13 @@ def rerank_by_reviewed_intent[T](
 ) -> list[T]:
     """Stable ordering by explicit query/candidate metadata compatibility."""
     intent = _query_intent(query)
-    return sorted(items, key=lambda item: _semantic_key(intent, reviewed_series(item)))
+    return sorted(
+        items,
+        key=lambda item: (
+            _semantic_key(intent, reviewed_series(item)),
+            # Only break semantic ties. An explicit portfolio/flow/currency request
+            # still wins over completeness; missing declarations are never filled in.
+            # Keep this outside intent_key: readiness cannot resolve semantic ambiguity.
+            bool(unresolved_read_fields(reviewed_series(item).record)),
+        ),
+    )

@@ -13,6 +13,7 @@ from kkb_agent.agent.executor import (
     ValidatedPlan,
     ValidatedStep,
 )
+from kkb_agent.catalog.inspection import unresolved_read_fields
 from kkb_agent.catalog.mappings import is_listed_series
 from kkb_agent.catalog.records import CatalogStatus
 from kkb_agent.catalog.search import CatalogCandidate, CatalogSearchOutput
@@ -493,6 +494,7 @@ def _candidate_planning_context(candidate: CatalogCandidate) -> dict[str, object
         "frequency": record.frequency,
         "weekly_anchor": record.weekly_anchor,
         "cumulative": record.cumulative,
+        "unresolved_read_fields": list(unresolved_read_fields(record)),
         "rate_basis": reviewed.rate_basis,
         "geography": reviewed.geography,
         "base_year": record.base_year,

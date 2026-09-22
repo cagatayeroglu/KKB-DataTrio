@@ -182,7 +182,11 @@ the user.
 
 `catalog_search` combines BM25, synonyms, concept families and LanceDB dense search. The ranking
 orders candidates; it does not choose for the model, which still selects the series. The harness
-then applies its semantic, provenance and verification checks. Bounds on catalog size are memory
+then applies its semantic, provenance and verification checks. After intent compatibility ties,
+complete required read declarations rank ahead of unresolved ones, using the inspector's same
+field requirements. This neither resolves flow/portfolio ambiguity nor implies prepared coverage;
+explicit qualifiers still win and continuation exposes unresolved read fields.
+Bounds on catalog size are memory
 guards, not product limits: `MAX_CATALOG_SERIES` and `MAX_CATALOG_CONCEPTS` are 10,000 and
 `MAX_CATALOG_GROUPS` is 1,000 (`catalog/records.py`).
 

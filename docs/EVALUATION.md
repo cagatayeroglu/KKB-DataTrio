@@ -113,6 +113,33 @@ Live acceptance (DeepSeek, then Qwen; no calls made in this addendum):
 Remaining gaps: live planner adherence to the new fields and live interpretation quality;
 complex/mixed XLSX number formats and the previously recorded general scale conversion.
 
+### PR #316 persisted USER + official composition follow-up
+
+Baseline `3b518e3` already bounded schema correction, but runtime-refusal feedback still
+serialized only `steps`, omitting required `question`. Feedback now carries a complete
+`AnalyticalPlan` with the original question and interpret flag; repeat detection and retry
+budgets are unchanged. Missing-question recovery and exhausted correction both have regressions.
+
+The reviewed rate candidates tied on intent, letting the unresolved portfolio candidate rank
+first. Lexical/hybrid ordering now prefers complete required read declarations only within
+semantic ties; the same inspector helper exposes missing fields to the continuation. No ID or
+phrase routing, availability inference, or change to flow/portfolio ambiguity/explicit intent.
+
+Offline regression persists a synthetic USER monthly series, opens a new conversation,
+discovers/reads it, discovers the reviewed official rate, then runs weekly resample → join →
+align → table co-movement → verified accepted publication: 24 monthly cells, 11 transitions,
+7 joint matches. Real EVDS parsing uses injected synthetic responses; networking is blocked.
+Both source identities and producer execution verify. Manual KB data retains the existing
+`source_lineage_missing` raw-source gap (`partial` proof); the official fixture has raw lineage.
+This exercises conversational reuse, not explicit pinned selection: that existing guard still
+requires every calculation to consume the selected table and refuses independent read steps.
+
+Validation: 386 affected catalog/hybrid/inspection/continuation/runtime repair/selection/KB
+tests passed (48.27 s); the served composition test passed separately. Strict mypy: 158 files
+PASS; touched-file Ruff PASS. Final Fast PR gate runs in CI. Live model choice remains to be
+checked with “Bu seriyi 2025 konut kredisi faiziyle aylık tek tabloda birleştir ve ikisinin yıl
+içindeki seyrini karşılaştır.” after reading the persisted USER series in a new conversation.
+
 ### Remaining limits and live reruns
 
 **COVERAGE GAP:** No new million↔billion conversion tool/carrier. A wrong

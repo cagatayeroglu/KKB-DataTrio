@@ -22,6 +22,35 @@ def result(snapshot, query, *, include_archived=False):
     )
 
 
+def test_complete_reviewed_semantics_break_ties_without_resolving_rate_basis(snapshot):
+    from kkb_agent.agent.discovery import _candidate_planning_context
+
+    found = result(snapshot, "2025 konut kredisi faizi")
+    first = found.candidates[0]
+    assert first.series.record.series_id == "EVDS:TP.KTF12"
+    assert first.series.rate_basis == "new_credit"
+    assert found.top_candidate == "ambiguous"  # completeness is not semantic identity
+    portfolio = next(c for c in found.candidates if c.series.rate_basis == "outstanding_portfolio")
+    assert "cumulative" in _candidate_planning_context(portfolio)["unresolved_read_fields"]
+    explicit = result(snapshot, "mevcut portföy konut kredisi faizi")
+    assert explicit.candidates[0].series.rate_basis == "outstanding_portfolio"
+
+
+def test_completeness_tiebreak_is_independent_of_id_and_query_vocabulary(snapshot):
+    from kkb_agent.catalog.ranking import rerank_by_reviewed_intent
+    from kkb_agent.core import CumulativeKind
+
+    original = result(snapshot, "yeni konut kredisi faizi").candidates[0].series
+    complete = original.model_copy(deep=True)
+    complete.record.series_id = "OTHER:complete"
+    unknown = original.model_copy(deep=True)
+    unknown.record.series_id = "OTHER:unknown"
+    unknown.record.cumulative = CumulativeKind.UNKNOWN
+    assert rerank_by_reviewed_intent(
+        "unfamiliar subject", [unknown, complete], reviewed_series=lambda item: item
+    ) == [complete, unknown]
+
+
 @pytest.mark.parametrize(
     ("query", "series_id", "status"),
     [

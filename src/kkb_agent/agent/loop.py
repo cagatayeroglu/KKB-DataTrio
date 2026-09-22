@@ -524,7 +524,7 @@ def today_instructions(today: date) -> str:
 
 
 def plan_signature(plan: ValidatedPlan) -> str:
-    """What ran, as the planner wrote it: shown back to it, and compared for repeats."""
+    """Stable execution signature for repeat detection, not a planner message."""
     return json.dumps(
         {"steps": [item.step.model_dump(mode="json") for item in plan.steps]},
         ensure_ascii=False,
@@ -1616,7 +1616,14 @@ class Session:
                 ),
                 allow_repair=False,
                 feedback=(
-                    Message(Role.ASSISTANT, refused),
+                    Message(
+                        Role.ASSISTANT,
+                        AnalyticalPlan(
+                            question=question,
+                            steps=[item.step for item in planned.plan.steps],
+                            interpret=planned.plan.interpret,
+                        ).model_dump_json(),
+                    ),
                     Message(
                         Role.USER,
                         RUNTIME_REFUSAL_FEEDBACK.format(
