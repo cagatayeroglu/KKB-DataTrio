@@ -56,7 +56,7 @@ def session(pool, *responses, budget=None, proven=frozenset()):
             catalog_continuation=True,
             require_series_discovery=True,
             proven_series=proven,
-            budget=budget or Budget(max_plan_repairs=0),
+            budget=budget or Budget(max_plan_repairs=0, max_discovery_rounds=2),
             series_names=prepared_series_names(lake.connection),
         ),
         provider,
@@ -223,9 +223,11 @@ def test_third_search_rejected_and_existing_table_unchanged(pool):  # noqa: F811
     assert workspace.value_of("konut_kredisi_ve_faiz") == before
 
 
-def test_discovery_budget_cannot_expand_beyond_one_auxiliary_round():
-    with pytest.raises(ValueError, match="at most two rounds"):
-        Budget(max_discovery_rounds=3)
+def test_discovery_budget_is_bounded_and_cannot_be_set_past_it():
+    """The planner may look again several times; it may not be handed an open loop."""
+    assert Budget(max_discovery_rounds=5).max_discovery_rounds == 5
+    with pytest.raises(ValueError, match="at most eight rounds"):
+        Budget(max_discovery_rounds=9)
 
 
 def test_an_auxiliary_query_that_reuses_a_step_id_runs_under_a_fresh_one(pool):  # noqa: F811
