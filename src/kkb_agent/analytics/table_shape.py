@@ -37,6 +37,10 @@ CHANGE_FORMULAS: Final = {
     "difference": "change[t] = value[t] - value[t - lag]",
     "percent": "change[t] = (value[t] / value[t - lag] - 1) * 100",
 }
+COMBINE_METHOD: Final = "combine-columns-v1"
+COMBINE_FORMULA: Final = "combined[t] = column_1[t] + ... + column_n[t]"
+#: How an unnamed group is labelled: the summed labels, in the order the reader gave them.
+COMBINE_SEPARATOR: Final = " + "
 #: A difference of rates is in points and of an index in index points (the convention
 #: `compare` and `co_movement` already use); a percent change is a plain percentage.
 PERCENTAGE_POINT: Final = "percentage point"
@@ -84,6 +88,16 @@ class RebasedColumn:
     values: tuple[ResultValue, ...]
     transformation: TransformationRecord
     label: str
+
+
+@dataclass(frozen=True, slots=True)
+class CombinedColumn:
+    values: tuple[ResultValue, ...]
+    transformation: TransformationRecord
+    label: str
+    #: Period ends where at least one summed column had no finite value, so the group
+    #: total was left empty rather than reported as a partial sum.
+    empty_periods: tuple[date, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -414,6 +428,105 @@ def period_change(
         rising,
         falling,
     )
+
+
+def combine_columns(
+    source: AnalyticalResult,
+    *,
+    columns: Sequence[str],
+    label: str | None = None,
+) -> CombinedColumn:
+    """Add the cell-by-cell sum of several columns as one column; every cell is kept.
+
+    Live 2026-09-22: a reader asked for TP deposits "up to three months" and "over three
+    months". Each group is the sum of several of the bulletin's maturity columns, and no
+    operation added columns together, so a table already on screen could not answer it.
+
+    The summed columns must share unit, scale and measure. A sum of different measures is
+    not a quantity - thousand TRY added to million TRY, or a balance added to a rate, is a
+    number with no meaning - so it is refused rather than reported, and a rate or an index
+    is refused even when both columns are one, as `StockFlow` states. A period that any of
+    the columns lacks stays empty and is counted: a group total missing one of its parts
+    is not that group's total, so nothing is bridged or read as zero.
+    """
+    if source.status is not ResultStatus.COMPUTED:
+        raise TableShapeRefused("The source table is not computed")
+    selected = tuple(columns)
+    if len(selected) < 2:
+        raise TableShapeRefused("Combining needs at least two column labels")
+    if len(set(selected)) != len(selected):
+        raise TableShapeRefused(
+            "Combining needs distinct column labels; a column is not summed twice"
+        )
+    held: dict[str, dict[PeriodKey, ResultValue]] = {}
+    semantics: set[tuple[str | None, Scale, StockFlow]] = set()
+    frequencies: set[Frequency] = set()
+    for name in selected:
+        column = [value for value in source.values if value.label == name]
+        if not column:
+            raise TableShapeRefused(f"No values are labelled {name!r}")
+        cells: dict[PeriodKey, ResultValue] = {}
+        for value in column:
+            if value.period is None or value.period.frequency is Frequency.UNKNOWN:
+                raise TableShapeRefused(f"{name} is not a period column")
+            key = _key(value)
+            if key in cells:
+                raise TableShapeRefused(f"{name} has duplicate periods")
+            cells[key] = value
+            semantics.add((value.unit, value.scale, value.measure))
+            frequencies.add(value.period.frequency)
+        held[name] = cells
+    if len(semantics) != 1:
+        raise TableShapeRefused(
+            "The columns to combine do not share one unit, scale and measure; their sum "
+            "would not be a quantity"
+        )
+    if len(frequencies) != 1:
+        raise TableShapeRefused("The columns to combine mix period frequencies")
+    measure = next(iter(semantics))[2]
+    # `StockFlow` states it: a rate and an index are neither stock nor flow, and adding
+    # two of them produces a number that means nothing. Only their parts' totals add up.
+    if measure in (StockFlow.RATE, StockFlow.INDEX):
+        raise TableShapeRefused(
+            f"A {measure.value} column is not summable; its total means nothing"
+        )
+    group = label if label is not None else COMBINE_SEPARATOR.join(selected)
+    if any(value.label == group for value in source.values):
+        raise TableShapeRefused(f"The source table already holds a column labelled {group!r}")
+    combined: list[ResultValue] = []
+    empty: list[date] = []
+    # Every period any named column reaches, so a period only some of them have is
+    # reported as left out rather than passing unseen.
+    universe = {key for known in held.values() for key in known}
+    ordered = sorted(universe, key=lambda item: (item[1], item[0], item[2].value, item[3] or ""))
+    for key in ordered:
+        parts = [
+            cell
+            for cell in (held[name].get(key) for name in selected)
+            if cell is not None and isfinite(cell.value)
+        ]
+        if len(parts) != len(selected):
+            empty.append(key[1])
+            continue
+        # Added in the order the reader named, so the total is reproducible by hand.
+        total = sum(part.value for part in parts)
+        combined.append(parts[0].model_copy(update={"label": group, "value": total}))
+    if not combined:
+        raise TableShapeRefused("No period has a value in every column to combine")
+    transformation = TransformationRecord(
+        operation="combine",
+        parameters={
+            "formula": COMBINE_FORMULA,
+            "columns": list(selected),
+            "frequency": next(iter(frequencies)).value,
+            "period_rows": len(combined),
+            "periods_missing_a_column": len(empty),
+            "fill": "none",
+        },
+        input_refs=[source.result_id, *selected],
+        output_ref=group,
+    )
+    return CombinedColumn(tuple(combined), transformation, group, tuple(empty))
 
 
 def align_periods(

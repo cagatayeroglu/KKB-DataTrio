@@ -26,10 +26,10 @@ from kkb_agent.ingest.bddk_monthly import (
     SUPPORTED_ROWS,
     BddkSelector,
     MonthlyHousingMetadata,
+    column_index,
     reviewed_monthly_catalog,
     row_key,
     validate_reviewed_monthly_metadata,
-    value_columns,
 )
 from kkb_agent.ingest.bddk_monthly_request import (
     MONTHLY_ENDPOINT,
@@ -222,9 +222,15 @@ def parse_monthly(payload: bytes, request: MonthlyRequest) -> Observation:
         if absent:
             return Observation(start, end, None)
         # The column is found by its header in this month's own answer: the bands before a
-        # total have changed over the years, the total's name has not (checked above).
-        columns = value_columns(headers) if listed is not None else _DIMENSION_INDEX
-        return Observation(start, end, _number(selected[columns[request.selector.value_dimension]]))
+        # total have changed over the years, the total's name has not (checked above). A
+        # selector that names a maturity band is read at that band's own cell (DEC-193).
+        if listed is not None:
+            cell = column_index(listed, request.selector, headers)
+        else:
+            cell = _DIMENSION_INDEX[request.selector.value_dimension]
+        if cell is None:
+            raise MonthlyLoadError(MonthlyLoadCode.RESPONSE_INVALID)
+        return Observation(start, end, _number(selected[cell]))
     except (ValueError, TypeError, KeyError, OverflowError, RecursionError):
         raise MonthlyLoadError(MonthlyLoadCode.RESPONSE_INVALID) from None
 

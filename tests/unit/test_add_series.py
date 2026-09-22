@@ -287,6 +287,7 @@ def test_planner_schema_exposes_separate_closed_operation_objects(pool):
         "join_table",
         "rebase",
         "change",
+        "combine",
         "align",
         "filter",
         "to_flow",
@@ -294,6 +295,10 @@ def test_planner_schema_exposes_separate_closed_operation_objects(pool):
         "summarize",
     }
     definitions = schema["$defs"]
+    # A group the reader names is at least two columns and never more than the table has.
+    assert definitions["CombineArguments"]["properties"]["columns"]["minItems"] == 2
+    assert set(definitions["CombineArguments"]["required"]) == {"operation", "source", "columns"}
+    assert definitions["CombineArguments"]["additionalProperties"] is False
     # A weekly-to-monthly reduction always states which month a straddling week joins.
     # A daily column needs no week assignment (DEC-177); a weekly one without it is refused
     # at run time, never defaulted (test_resample).

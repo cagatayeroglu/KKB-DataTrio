@@ -12,12 +12,12 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Literal
+from typing import Final, Literal
 
 from kkb_agent.catalog.inspection import unresolved_read_fields
 from kkb_agent.catalog.mappings import ReviewedSeries
 from kkb_agent.catalog.normalization import normalize_search_text
-from kkb_agent.catalog.records import CatalogStatus
+from kkb_agent.catalog.records import CatalogRecord, CatalogStatus
 from kkb_agent.core import StockFlow
 
 Currency = Literal["try", "foreign", "eur", "usd", "total"]
@@ -240,7 +240,38 @@ class _CandidateIntent:
     #: A reviewed TP/YP/TOTAL label: the series is one column of a split aggregate.
     #: A denomination in a title ("(TL, Akım, %)") is not a component.
     component: Literal["total", "tp", "yp"] | None
+    #: The maturity column of a listed row, when the series is one ("1-3 Ay Arası").
+    #: A row and its bands share one title, so without this a question about the row
+    #: would be answered by whichever of its maturities matched a word (DEC-193).
+    maturity: str | None
     credit_subject: bool
+
+
+#: How a listed maturity column names itself among the labels (DEC-193).
+MATURITY_LABEL: Final = "vade: "
+
+
+def maturity_of(record: CatalogRecord) -> str | None:
+    """The maturity column this series is, by its own label; None for every other series."""
+    for label in record.labels:
+        folded = normalize_search_text(label)
+        if folded.startswith(normalize_search_text(MATURITY_LABEL).rstrip() + " "):
+            return folded.split(" ", 1)[1]
+    return None
+
+
+def names_a_maturity(text: str, maturity: str | None) -> bool:
+    """Whether the question asks about maturity at all, or about this band by its name.
+
+    A question that says nothing of maturity is about the row, not about one of its
+    columns: "bireysel kredi kartı bakiyesi" must not be answered by the seven-day bucket
+    of a liquidity ladder. "Aylık" is a calendar, never a maturity, so what opens the bands
+    is `vade` in any of its forms, or the band's own words.
+    """
+    words = set(text.split())
+    if any(word.startswith("vade") for word in words):
+        return True
+    return maturity is not None and set(maturity.split()) <= words
 
 
 def _candidate_intent(item: ReviewedSeries) -> _CandidateIntent:
@@ -289,6 +320,7 @@ def _candidate_intent(item: ReviewedSeries) -> _CandidateIntent:
         currency=currency,
         rate_measure=rate_measure,
         component=component,
+        maturity=maturity_of(record),
         credit_subject=_credit_subject(
             normalize_search_text(" ".join([record.title, *record.labels]))
         ),
@@ -330,9 +362,20 @@ def _component_rank(intent: _QueryIntent, candidate: _CandidateIntent) -> int:
     return 0
 
 
+def _maturity_rank(intent: _QueryIntent, candidate: _CandidateIntent) -> int:
+    """A maturity column the question did not ask about sits below its row's total.
+
+    The same rule the currency columns follow: a row published by maturity is still the
+    row, and one of its columns answers only a question that asks about maturity (DEC-193).
+    """
+    if candidate.maturity is None:
+        return 0
+    return 0 if names_a_maturity(intent.text, candidate.maturity) else 1
+
+
 def _semantic_key(
     intent: _QueryIntent, item: ReviewedSeries
-) -> tuple[int, int, int, int, int, int, int, int, int]:
+) -> tuple[int, int, int, int, int, int, int, int, int, int]:
     candidate = _candidate_intent(item)
     conflicts = 0
     matches = 0
@@ -383,6 +426,7 @@ def _semantic_key(
         int(intent.credit_subject and not candidate.credit_subject),
         _geography_rank(intent, item),
         _component_rank(intent, candidate),
+        _maturity_rank(intent, candidate),
         base_missing,
         base_rank,
         -matches,

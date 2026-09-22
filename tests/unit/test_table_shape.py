@@ -8,6 +8,7 @@ from kkb_agent.analytics.table_shape import (
     REBASE_FORMULA,
     TableShapeRefused,
     align_periods,
+    combine_columns,
     filter_periods,
     names_only_excluded_months,
     period_change,
@@ -304,6 +305,128 @@ def test_a_nonpositive_predecessor_leaves_the_percentage_empty():
     percent = period_change(zeroed, column_label="untouched", kind="percent")
     assert by_end(percent.values) == {MONTHS[2]: 50.0}
     assert percent.transformation.parameters["periods_with_nonpositive_predecessor"] == 1
+
+
+def grouped(label="second", values=(4.0, 5.0, 6.0), **update):
+    """The fixture table plus one more million-TRY stock column, as a maturity bucket is."""
+    table = source()
+    added = [
+        cell(label, end, value).model_copy(update=update)
+        for end, value in zip(MONTHS, values, strict=True)
+    ]
+    return table.model_copy(update={"values": [*table.values, *added]})
+
+
+def test_combine_sums_the_named_columns_cell_by_cell_and_leaves_the_source_alone():
+    """untouched = 1, 2, 3 and second = 4, 5, 6: the group totals are 5, 7 and 9."""
+    original = grouped()
+    before = original.model_dump_json()
+    result = combine_columns(original, columns=("untouched", "second"))
+    assert by_end(result.values) == {MONTHS[0]: 5.0, MONTHS[1]: 7.0, MONTHS[2]: 9.0}
+    assert {(v.unit, v.scale, v.measure) for v in result.values} == {
+        ("TRY", Scale.MILLION, StockFlow.STOCK)
+    }
+    assert result.empty_periods == ()
+    record = result.transformation
+    assert record.operation == "combine"
+    assert record.parameters["columns"] == ["untouched", "second"]
+    assert record.parameters["period_rows"] == 3
+    assert record.parameters["periods_missing_a_column"] == 0
+    assert record.parameters["fill"] == "none"
+    assert original.model_dump_json() == before
+
+
+def test_a_period_one_column_lacks_is_left_empty_rather_than_counted_as_zero():
+    """amount has January and March only: February's group is not 2 on its own."""
+    result = combine_columns(source(), columns=("amount", "untouched"))
+    assert by_end(result.values) == {MONTHS[0]: 11.0, MONTHS[2]: 33.0}
+    assert result.empty_periods == (MONTHS[1],)
+    assert result.transformation.parameters["periods_missing_a_column"] == 1
+    assert result.transformation.parameters["period_rows"] == 2
+
+
+def test_the_reader_names_the_group_or_the_summed_labels_do():
+    """Live 2026-09-22: the reader asked for "3 aya kadar TP mevduat", not for "a + b"."""
+    named = combine_columns(
+        grouped(), columns=("untouched", "second"), label="3 aya kadar TP mevduat"
+    )
+    assert named.label == "3 aya kadar TP mevduat"
+    assert {value.label for value in named.values} == {"3 aya kadar TP mevduat"}
+    assert named.transformation.output_ref == "3 aya kadar TP mevduat"
+    # No label: the summed labels joined in the order the reader gave them, not sorted.
+    assert combine_columns(grouped(), columns=("second", "untouched")).label == (
+        "second + untouched"
+    )
+    assert combine_columns(grouped(), columns=("untouched", "second")).label == (
+        "untouched + second"
+    )
+
+
+def quarterly(label="second", values=(4.0, 5.0, 6.0)):
+    table = source()
+    added = [
+        cell(label, end, value).model_copy(
+            update={
+                "period": Period(start=end.replace(day=1), end=end, frequency=Frequency.QUARTERLY)
+            }
+        )
+        for end, value in zip(MONTHS, values, strict=True)
+    ]
+    return table.model_copy(update={"values": [*table.values, *added]})
+
+
+@pytest.mark.parametrize(
+    ("case", "match"),
+    [
+        ("unknown_column", "No values are labelled"),
+        ("other_unit", "do not share one unit"),
+        ("other_scale", "do not share one unit"),
+        ("other_measure", "do not share one unit"),
+        ("rate", "not summable"),
+        ("mixed_frequency", "mix period frequencies"),
+        ("one_column", "at least two column labels"),
+        ("duplicate_column", "not summed twice"),
+        ("label_exists", "already holds a column labelled"),
+    ],
+)
+def test_combine_refuses_what_it_cannot_add_up(case, match):
+    table = grouped()
+    columns = ("untouched", "second")
+    label = None
+    if case == "unknown_column":
+        columns = ("untouched", "absent")
+    elif case == "other_unit":
+        table = grouped(unit="USD")
+    elif case == "other_scale":
+        table = grouped(scale=Scale.THOUSAND)
+    elif case == "other_measure":
+        table = grouped(measure=StockFlow.FLOW)
+    elif case == "rate":
+        # Both columns are rates, so they share their semantics; a total of two rates
+        # is still not a quantity (StockFlow says so outright).
+        table = grouped(unit="percent", scale=Scale.ONE, measure=StockFlow.RATE)
+        table = table.model_copy(
+            update={
+                "values": [
+                    value.model_copy(
+                        update={"unit": "percent", "scale": Scale.ONE, "measure": StockFlow.RATE}
+                    )
+                    if value.label == "untouched"
+                    else value
+                    for value in table.values
+                ]
+            }
+        )
+    elif case == "mixed_frequency":
+        table = quarterly()
+    elif case == "one_column":
+        columns = ("untouched",)
+    elif case == "duplicate_column":
+        columns = ("untouched", "untouched")
+    else:
+        label = "amount"
+    with pytest.raises(TableShapeRefused, match=match):
+        combine_columns(table, columns=columns, label=label)
 
 
 def test_a_column_without_a_stated_unit_still_has_a_percent_change():

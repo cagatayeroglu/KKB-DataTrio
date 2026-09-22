@@ -60,13 +60,17 @@ from kkb_agent.analytics.table_shape import (
     ALIGN_METHOD,
     CHANGE_FORMULAS,
     CHANGE_METHOD,
+    COMBINE_FORMULA,
+    COMBINE_METHOD,
     FILTER_METHOD,
     REBASE_FORMULA,
     REBASE_METHOD,
     ChangedColumn,
+    CombinedColumn,
     ShapedTable,
     TableShapeRefused,
     align_periods,
+    combine_columns,
     filter_periods,
     names_only_excluded_months,
     period_change,
@@ -413,6 +417,48 @@ class ChangeArguments(BaseModel):
     replace: bool = Field(default=False, description=_REPLACE)
 
 
+class CombineArguments(BaseModel):
+    """Sum columns already in the table into the one group a reader asked for."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation: Literal["combine"] = Field(
+        description=(
+            "combine: add the cell-by-cell sum of two or more existing columns as one new "
+            "column, keeping every existing column. It answers for a group the reader names "
+            "out of columns the table already has, such as maturities up to three months"
+        )
+    )
+    source: str = Field(pattern=r"^[A-Za-z0-9_.:-]{1,64}$", description=_SOURCE_UNCHANGED)
+    columns: tuple[Annotated[str, Field(min_length=1, max_length=400)], ...] = Field(
+        min_length=2,
+        max_length=12,
+        description=(
+            "Exact labels of the columns to add together, in the order the group names them. "
+            "They must share unit, scale and measure; a column is never listed twice"
+        ),
+    )
+    label: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=120,
+        description=(
+            "The group's name as the reader wrote it, for example '3 aya kadar TP mevduat'; "
+            "omit it to label the new column by joining the summed labels with ' + '"
+        ),
+    )
+
+    @model_validator(mode="after")
+    def named_group(self) -> Self:
+        if len(set(self.columns)) != len(self.columns):
+            raise ValueError("columns must be distinct; a column is not summed twice")
+        if self.label is not None and (
+            not self.label.strip() or any(ord(c) < 32 or ord(c) == 127 for c in self.label)
+        ):
+            raise ValueError("label must be nonblank text without newlines or control characters")
+        return self
+
+
 class AlignArguments(BaseModel):
     """Select an exact shared or anchored period spine from existing cells."""
 
@@ -469,6 +515,7 @@ class TableTransformArguments(
             | JoinTableArguments
             | RebaseArguments
             | ChangeArguments
+            | CombineArguments
             | AlignArguments
             | FilterArguments,
             Field(discriminator="operation"),
@@ -490,6 +537,7 @@ class DocumentTableTransformArguments(
             | JoinTableArguments
             | RebaseArguments
             | ChangeArguments
+            | CombineArguments
             | AlignArguments
             | FilterArguments,
             Field(discriminator="operation"),
@@ -904,6 +952,11 @@ def make_table_transform_tool(
             "column on the table's own months; a month it lacks stays empty.\n"
             "- join_table: the monthly columns of `other` added onto the months of `source`, "
             "each in its own unit. This is how two reads of one plan become one table.\n"
+            "- combine: the cell-by-cell sum of two or more of the table's columns as one "
+            "column, for the group the reader names out of them (the maturities up to three "
+            "months). The columns must share unit, scale and measure, and may be neither "
+            "rates nor indices; a period any of them lacks stays empty rather than counting "
+            "the others as the group's total.\n"
             "- change: how much a column rose or fell each period, month over month or day "
             "over day (kind=difference in the "
             "column's unit, or kind=percent; lag=12 for a year earlier on monthly data); "
@@ -1019,13 +1072,21 @@ def _preceding_values(
 
 
 def _closed_transform(
-    arguments: RebaseArguments | ChangeArguments | AlignArguments | FilterArguments,
+    arguments: (
+        RebaseArguments | ChangeArguments | CombineArguments | AlignArguments | FilterArguments
+    ),
     source: AnalyticalResult,
     *,
     preceding: Sequence[ResultValue] = (),
 ) -> AnalyticalResult:
     """Apply one no-I/O operation and preserve the source as a separate artifact."""
     try:
+        if isinstance(arguments, CombineArguments):
+            return _combined(
+                arguments,
+                source,
+                combine_columns(source, columns=arguments.columns, label=arguments.label),
+            )
         if isinstance(arguments, ChangeArguments):
             return _changed(
                 arguments,
@@ -1079,6 +1140,7 @@ def _closed_transform(
             method={
                 "rebase": REBASE_METHOD,
                 "change": CHANGE_METHOD,
+                "combine": COMBINE_METHOD,
                 "align": ALIGN_METHOD,
                 "filter": FILTER_METHOD,
             }[arguments.operation],
@@ -1158,6 +1220,58 @@ def _changed(
                     *(
                         [f"{changed.label}: unit and scale are unresolved, as in its column"]
                         if any(value.semantics_are_unresolved for value in changed.values)
+                        else []
+                    ),
+                ]
+            )
+        ),
+    )
+
+
+def _combined(
+    arguments: CombineArguments, source: AnalyticalResult, combined: CombinedColumn
+) -> AnalyticalResult:
+    """The source table with one added column: the group total the reader asked for."""
+    refs, previous = _prior_evidence(source)
+    parameters = dict(source.parameters)
+    parameters.update(
+        {"source": arguments.source, "combination": combined.transformation.parameters}
+    )
+    warnings = list(source.warnings)
+    if combined.empty_periods:
+        warnings.append(
+            f"{len(combined.empty_periods)} period(s) have no value in at least one combined "
+            f"column, so {combined.label} is empty there; a missing part is never read as zero"
+        )
+    return AnalyticalResult(
+        result_id=f"table_transform:combine:{arguments.source}:{combined.label}",
+        kind=source.kind,
+        status=ResultStatus.COMPUTED,
+        tool="table_transform",
+        method=COMBINE_METHOD,
+        values=[*source.values, *combined.values],
+        coverage=source.coverage,
+        parameters=parameters,
+        samples=source.samples,
+        evidence=ResultEvidence(
+            input_refs=refs,
+            transformations=[*previous, combined.transformation],
+            sources=list(source.evidence.sources) if source.evidence is not None else [],
+        ),
+        warnings=warnings,
+        limitations=[
+            *source.limitations,
+            f"Only {combined.label} is new ({COMBINE_FORMULA}); it sums "
+            f"{', '.join(arguments.columns)} on the periods where each of them has a value, "
+            "and the summed columns are unchanged beside it",
+        ],
+        unresolved_semantics=list(
+            dict.fromkeys(
+                [
+                    *source.unresolved_semantics,
+                    *(
+                        [f"{combined.label}: unit and scale are unresolved, as in its columns"]
+                        if any(value.semantics_are_unresolved for value in combined.values)
                         else []
                     ),
                 ]
