@@ -624,8 +624,15 @@ def _served_like(lake, *responses, **plan_fields):
     return answered, workspace, session
 
 
-def test_the_writer_adds_its_reading_under_figures_the_harness_worded(lake):
-    # The jury: "nedenlerine ilişkin yorum ve açıklamaların çıktıya eklenmesi de katma değer".
+def test_the_reading_sits_under_figures_that_name_their_series(lake):
+    """The jury: "nedenlerine ilişkin yorum ... katma değer" - over figures a reader can place.
+
+    Handing the whole answer to the writer was built and measured on 2026-09-22 and left
+    off: asked for it, the writer spent 1,550 seconds and all 16,384 of its tokens on
+    reasoning and returned nothing, while this narrow call succeeded in 91 seconds on the
+    same endpoint the same day. So the harness words the figures - and must say which series
+    each count is about, which is the half that was missing.
+    """
     reading = (
         "Yorum: Faizin düştüğü ayların çoğunda bakiye artmış; bu, kredi talebinin faize "
         "duyarlı olduğunu düşündürüyor ve muhtemelen para politikasıyla ilişkili."
@@ -633,6 +640,9 @@ def test_the_writer_adds_its_reading_under_figures_the_harness_worded(lake):
     answered, workspace, session = _served_like(lake, reading)
     assert answered.answer.status is AnswerStatus.ACCEPTED
     assert reading in answered.answer.text and answered.answer.text.index("Yorum:") > 0
+    named = answered.answer.text.splitlines()[1]
+    assert named.startswith("Birinci seri:") and "İkinci seri:" in named
+    assert "konut kredisi faiz oranı" in named and "konut kredisi bakiyesi" in named
     asked = session.provider.seen[1]
     assert any("Write ONLY the 'Yorum:' paragraph" in item.content for item in asked)
     assert any(item.content.startswith("written:") for item in asked)
@@ -652,12 +662,19 @@ def test_a_request_that_asks_for_no_interpretation_gets_none_and_costs_no_writer
     assert workspace.names() == ["konut_kredisi_ve_faiz"]
 
 
-def test_the_figures_stand_each_on_its_own_line_above_the_reading(lake):
-    reading = "Yorum: Talep faize duyarlı görünüyor."
-    answered, _, _ = _served_like(lake, reading)
-    figures, _, rest = answered.answer.text.partition("\n\n")
-    assert figures.startswith("Aylık yön karşılaştırması hesaplandı.\n")
-    assert len(figures.splitlines()) >= 4 and rest.startswith("Yorum:")
+def test_the_harness_wording_says_which_series_each_count_is_about(lake):
+    """Where no writer runs, the fixed wording stands - and it must still name the series.
+
+    It leads with a line naming the pair, because "Birinci serinin düştüğü ay sayısı" alone
+    tells a reader nothing about which series fell. That line used to be dropped whenever a
+    name carried a digit, which every index name does ("... (2023=100)").
+    """
+    answered, _, _ = _served_like(lake, interpret=False)
+    lines = answered.answer.text.splitlines()
+    assert lines[0] == "Aylık yön karşılaştırması hesaplandı."
+    assert "Birinci seri:" in lines[1] and "İkinci seri:" in lines[1]
+    assert "Yorum:" not in answered.answer.text
+    assert len(lines) >= 5
 
 
 def test_without_a_reading_the_verified_figures_stand_as_they_are(lake):

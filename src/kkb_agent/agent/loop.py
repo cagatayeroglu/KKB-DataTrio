@@ -58,6 +58,7 @@ from kkb_agent.agent.plan import AnalyticalPlan
 from kkb_agent.agent.plan_healing import heal_plan
 from kkb_agent.agent.presentation import (
     PeriodTable,
+    comparison_heading,
     deterministic_draft,
     display_value,
     endpoint_observations,
@@ -77,7 +78,13 @@ from kkb_agent.agent.verifier import (
     result_faults,
 )
 from kkb_agent.agent.workspace import Workspace
-from kkb_agent.core import DIMENSIONLESS, AnalyticalResult, ResultStatus, ResultValue, Scale
+from kkb_agent.core import (
+    DIMENSIONLESS,
+    AnalyticalResult,
+    ResultStatus,
+    ResultValue,
+    Scale,
+)
 from kkb_agent.llm.provider import (
     Completion,
     LLMProvider,
@@ -837,6 +844,14 @@ def render_result(result: AnalyticalResult, ambiguous: frozenset[int] = frozense
                     f"{observation.direction} between {first.end.isoformat()} and "
                     f"{last.end.isoformat()}; this does not establish an all-period trend."
                 )
+    if (pair := comparison_heading(result)) is not None:
+        # The counts below are labelled by role - "Birinci serinin düştüğü ay sayısı" - and
+        # the writer is asked to copy that phrase, so without this line it would repeat an
+        # ordinal that names no series, which is what the reader got live on 2026-09-22.
+        lines.append(
+            "Which series each count below is about, to be named in the sentence that "
+            f"carries it rather than left as an ordinal: {pair}"
+        )
     positions = {id(value): index for index, value in enumerate(result.values)}
     for value in values:
         display = display_value(value)
@@ -1782,24 +1797,53 @@ class Session:
         fast_draft = deterministic_draft(result) if self.deterministic_presentation else None
         if self.tracer is not None and fast_draft is not None:
             self.tracer.event("answer", "draft.deterministic", source="harness", detail=fast_draft)
-        draft = (
-            fast_draft
-            if fast_draft is not None
-            else self.draft(question, available, incomplete=incomplete, current=name)
-        )
-        if self.tracer is not None and fast_draft is None:
-            self.tracer.event("answer", "draft.model", source="model", detail=draft)
+        # Handing a comparison to the writer instead of wording it here was built and
+        # measured on 2026-09-22, because the fixed wording named its two series "birinci
+        # seri" and "ikinci seri". It is off, and the naming was fixed where it belonged
+        # (`comparison_heading`): asked for the whole answer, the writer spent 1,550 seconds
+        # and all 16,384 of its tokens on reasoning and returned nothing, while the narrow
+        # "write ONLY the 'Yorum:' paragraph" call succeeded in 91 seconds on the same
+        # endpoint the same day. The harness words the figures, the writer reads them.
+        # Flip this to `result.kind is ResultKind.COMPARISON` to try it again once a writer
+        # call is bounded (the open latency item).
+        writer_words_it = False
+        if fast_draft is not None and not writer_words_it:
+            draft = fast_draft
+        else:
+            try:
+                draft = self.draft(question, available, incomplete=incomplete, current=name)
+            except ProviderError:
+                # The harness's own wording is the safety net, and a provider that fails must
+                # not cost a turn whose figures are already computed and verified.
+                if fast_draft is None:
+                    raise
+                draft = fast_draft
+            if self.tracer is not None:
+                self.tracer.event("answer", "draft.model", source="model", detail=draft)
         if not draft.strip():
             # A writer that thought until its tokens ran out returns nothing. The footnotes
             # alone then passed the gate, and the reader got an "accepted" answer that
             # answered nothing (live 2026-09-21). The table is computed and verified; say
             # that, and say that the prose is missing.
-            draft = EMPTY_DRAFT_NOTE
+            draft = fast_draft or EMPTY_DRAFT_NOTE
             if self.tracer is not None:
-                self.tracer.event("answer", "draft.empty", source="harness", detail=draft)
-        if fast_draft is not None and self.commentary and planned.plan.interpret:
+                self.tracer.event(
+                    "answer",
+                    "draft.empty" if fast_draft is None else "draft.fallback",
+                    source="harness",
+                    detail=draft,
+                )
+        if (
+            fast_draft is not None
+            and not writer_words_it
+            and self.commentary
+            and planned.plan.interpret
+        ):
             # The harness's wording is exact and says nothing about what it means. The
             # writer adds its interpretation; without one the verified figures stand as they are.
+            # Only when the harness wrote the figures: this branch rebuilds the answer from
+            # `fast_draft`, so running it after the writer has written the whole answer would
+            # pay for that draft and then throw it away.
             try:
                 interpretation = self.draft(
                     question,

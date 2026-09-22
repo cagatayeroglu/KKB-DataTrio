@@ -46,7 +46,16 @@ class TableRelationshipArguments(BaseModel):
             "input_step."
         ),
     )
-    driver_column: str = Field(min_length=1, max_length=400, description="Exact column label")
+    driver_column: str = Field(
+        min_length=1,
+        max_length=400,
+        description=(
+            "Exact column label. As with target_column, a "
+            "'<column> real, <month> prices (<index>)' counterpart is the column a question "
+            "about real change needs, and the nominal column the one a nominal question "
+            "needs; the column named here is the column compared"
+        ),
+    )
     target_column: str = Field(
         min_length=1,
         max_length=400,
@@ -86,33 +95,32 @@ class _Columns(NamedTuple):
 
 
 def _deflated_columns(source: AnalyticalResult, arguments: TableRelationshipArguments) -> _Columns:
-    """Move each selected column to its deflated counterpart when one exists.
+    """The columns the plan named, and which of them had a real counterpart it did not take.
 
-    A real column is only in the table because an earlier turn was asked to
-    remove inflation, so a later question about change means that column. This
-    is not a preference the plan can decline: a planner-facing opt-out was tried
-    and the planner set it on a question that never asked for nominal terms, so
-    the substitution is unconditional here. A nominal reading stays reachable by
-    comparing a table that carries no real counterpart, such as the one from
-    before the deflation turn.
+    This used to move every selected column onto its deflated counterpart, unconditionally,
+    on the reasoning that a real column is in the table only because someone asked for
+    inflation to be removed. Live 2026-09-22, the jury's third question: the plan named the
+    nominal balance, the substitution counted the real one, and "faiz düşerken kredi
+    artmadı" went from the four months the reader had been shown one turn earlier to
+    twenty-two -- because a balance that grows slower than inflation falls in real terms.
+    The reader was asked about the four.
 
-    A substitution that would collide with another selected column is skipped,
-    so a plan comparing a column against its own real counterpart still works.
+    Which column answers a question is the planner's decision, and it can see both labels.
+    So the plan is followed, and the counterpart it did not take is recorded, so the answer
+    can say a real reading of the same column was available.
     """
     driver, target = arguments.driver_column, arguments.target_column
     when: str | None = arguments.when_column
-    moved: dict[str, str] = {}
-    counterpart = real_counterpart(source, driver)
-    if counterpart is not None and counterpart not in {target, when}:
-        moved["driver_column"], driver = driver, counterpart
-    counterpart = real_counterpart(source, target)
-    if counterpart is not None and counterpart not in {driver, when}:
-        moved["target_column"], target = target, counterpart
-    if when is not None:
-        counterpart = real_counterpart(source, when)
-        if counterpart is not None and counterpart not in {driver, target}:
-            moved["when_column"], when = when, counterpart
-    return _Columns(driver, target, when, moved)
+    untaken: dict[str, str] = {}
+    for field, column in (
+        ("driver_column", driver),
+        ("target_column", target),
+        ("when_column", when),
+    ):
+        counterpart = real_counterpart(source, column) if column is not None else None
+        if counterpart is not None and counterpart not in {driver, target, when}:
+            untaken[field] = counterpart
+    return _Columns(driver, target, when, untaken)
 
 
 def _continued_condition(
@@ -279,7 +287,7 @@ def run_table_relationship(
         else arguments
     )
     columns = _deflated_columns(source, effective)
-    deflated = columns.moved
+    untaken = columns.moved
     try:
         for label in (columns.driver, columns.target, columns.when):
             # What the store declares outranks what the values look like. A year-to-date
@@ -313,9 +321,10 @@ def run_table_relationship(
         extra: dict[str, object] = {}
         if arguments.source is not None:
             extra["source"] = arguments.source
-        if deflated:
-            # The answer must be able to say the comparison moved to real terms.
-            extra["compared_in_real_terms_instead_of"] = deflated
+        if untaken:
+            # The comparison is the plan's; the answer must be able to say that the same
+            # column was also in the table with inflation removed, and was not the one read.
+            extra["a_real_column_of_the_same_series_was_not_compared"] = untaken
         if inherited is not None:
             extra["continued_prior_condition"] = {
                 "source_result_id": source.result_id,

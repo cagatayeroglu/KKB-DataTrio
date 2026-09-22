@@ -64,14 +64,16 @@ def first_two(second_draft="Tablo hazırlandı."):
     "case", ["complete", "inherited_condition", "only_added", "nominal", "wrong_direction"]
 )
 def test_three_turn_acceptance_requires_requested_real_comparison(lake, tmp_path, case):
-    """A plan naming the nominal column still produces the required real comparison.
+    """The rehearsal's question asks for the inflation-adjusted balance, so the plan must name it.
 
-    The tool resolves a column to its deflated counterpart when the table carries
-    one, so `nominal` and `complete` reach the same published comparison. What
-    still fails acceptance is adding the column without comparing it, or comparing
-    it in the wrong direction.
+    The tool used to move a nominal column onto its deflated counterpart, which made a plan
+    that named the wrong column pass anyway. Since 2026-09-22 the plan's column is the one
+    compared, so `nominal` fails here exactly as it should: the question says "enflasyondan
+    arındırılmış kredi bakiyesi" and the plan compared the nominal one. What still fails for
+    its own reasons is adding the column without comparing it, or comparing it in the wrong
+    direction.
     """
-    requested_real = case in {"complete", "inherited_condition", "nominal"}
+    requested_real = case in {"complete", "inherited_condition"}
     prepared(lake)
     third = [
         step(

@@ -8,7 +8,8 @@ by the finite float range and avoids exponents the answer parser cannot read.
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
+import re
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -256,7 +257,10 @@ def deterministic_draft(result: AnalyticalResult) -> str | None:
             return None
         values = _controlled_counts(result, comovement_count_display_label, COMOVEMENT_COUNT_LABELS)
         if values is not None:
-            return "Aylık yön karşılaştırması hesaplandı.\n" + "\n".join(values)
+            heading = comparison_heading(result)
+            return "\n".join(
+                ["Aylık yön karşılaştırması hesaplandı.", *([heading] if heading else []), *values]
+            )
     if (
         result.tool == "change_detection"
         and result.method == "table-direction-comparison-v1"
@@ -315,15 +319,45 @@ def _column_name(result: AnalyticalResult, label: str) -> str | None:
             name = str(names[max(held, key=len)])
             if " real, " in label:
                 name += " (reel)"
-    name = name or label
-    return None if any(character.isdigit() for character in name) else name
+    return _without_figures(name or label)
+
+
+def _without_figures(name: str) -> str | None:
+    """`name` with every part that carries a digit dropped; None when nothing is left.
+
+    A digit here is a figure the gate must bind, and a reviewed name carries one whenever
+    the series is an index: "Konut fiyat endeksi, Türkiye geneli (2023=100), TCMB, aylık".
+    Refusing the whole name for it cost the reader the entire line that says which series a
+    count is about -- live 2026-09-22, the jury's third question counted months of "birinci
+    seri" and "ikinci seri" and never named either. The base year is dropped; what the
+    series is survives.
+    """
+    without_base = re.sub(r"\s*\([^()]*\d[^()]*\)", "", name)
+    kept = [
+        part.strip()
+        for part in without_base.split(",")
+        if part.strip() and not any(character.isdigit() for character in part)
+    ]
+    return ", ".join(kept) or None
 
 
 def comparison_heading(result: AnalyticalResult) -> str | None:
-    """Which series the counts below are about, and in which direction, in one line."""
-    if result.evidence is None or not result.evidence.transformations:
+    """Which series the counts below are about, and in which direction, in one line.
+
+    A table comparison states the pair in its last transformation and a co-movement in its
+    own parameters. Both need this line: without it the counts are about a "birinci seri"
+    the answer never names, which is how the jury's first question came back (live
+    2026-09-22).
+    """
+    asked: Mapping[str, object] | None = None
+    if result.evidence is not None and result.evidence.transformations:
+        recorded = result.evidence.transformations[-1].parameters
+        asked = recorded if "driver_column" in recorded else None
+    if asked is None:
+        pair = result.parameters.get("direction_comparison")
+        asked = pair if isinstance(pair, dict) else None
+    if asked is None:
         return None
-    asked = result.evidence.transformations[-1].parameters
     parts: list[str] = []
     for position, column, direction in (
         ("Birinci seri", asked.get("driver_column"), asked.get("driver_direction")),
