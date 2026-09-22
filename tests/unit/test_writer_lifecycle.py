@@ -196,3 +196,21 @@ def test_inherited_semantics_remove_only_exact_copies():
         "parameters": {"basis": "nominal"},
         "sources": [{"source_id": "B"}],
     }
+
+
+def test_compact_writer_cells_keep_every_period_and_unknown_semantics():
+    from test_table_summary import source
+
+    from kkb_agent.agent.loop import render_result
+    from kkb_agent.agent.presentation import display_value
+
+    result = source()
+    rendered = render_result(result)
+    assert rendered.count("unit TRY, scale million") == 1
+    for value in result.values:
+        assert rendered.count(f"display {display_value(value)}") == 1
+        assert f"period {value.period.start}..{value.period.end}" in rendered
+    # Ambiguity still withholds the one affected cell, not an entire grouped column.
+    ambiguous = render_result(result, frozenset({1}))
+    assert "display AMBIGUOUS" in ambiguous
+    assert f"display {display_value(result.values[1])}" not in ambiguous

@@ -406,6 +406,30 @@ M7-19 extends `live_check` with opt-in `--document --question` mode. Its tempora
 
 Quality-pass presentation contracts (2026-09-22): `outside_coverage` is a typed terminal plan reason, while ambiguous/missing meaning remains clarification. `Answer.needs_clarification` drives the composer; a terminal abstention clears pending clarification, including persisted state. Writer projections retain column unit/scale/measure/frequency and value-presence state, parameters, source metadata, transformations, coverage, samples, warnings and version-specific meaning. Exact duplicated metadata and ancestor cell blocks remain removed. Ordinary tables up to 120 periods / 1024 dated values are shown fully; larger tables still state their limited projection. Numeric grounding remains against original proven results. `YYYY-MM` qualifiers bind locally to their own values and must match the proven month; physical quantity unit spellings are normalized, while unresolved units remain unresolved. Scale conversion is not inferred from writer arithmetic.
 
+PR #316 addendum: `PlanStep.present` marks independently requested deliverables.
+The last computed result remains implicit; declared outputs are verified individually.
+Only a proven ancestor whose exact cells remain visible in a descendant is deduplicated;
+equal cells in independent sources retain both proofs. The requested period table is
+primary, with separate `Result.related` artifacts for other outputs. One workspace
+transaction stores the bundle and immutable companion receipts; restoration rebuilds
+each version's proof, and follow-ups retain the primary table. Companion artifacts are
+also named workspace values. A faulty artifact or cancelled turn cannot publish a bundle.
+
+`summarize` requires both `requested_aggregation` (user intent before feasibility checks)
+and `aggregation`. A mismatch is a terminal refusal before aggregation; a typed non-flow
+sum is also terminal and never enters runtime repair. Alternatives require a new request.
+Natural-language intent extraction remains the planner's responsibility, not a phrase
+matcher. Plain XLSX percentage formats, when recorded for every nonempty column cell,
+can establish percent/scale-one/rate semantics; conflicting header/question units refuse.
+The outline exposes this format evidence before planning. Mixed or unsupported formatting
+does not establish a unit.
+
+Writer cells are grouped by exact column/semantic identity: the label, unit and scale
+are stated once, while each display remains paired with its full period. All ordinary
+cells, warnings, execution/acquisition state and lineage metadata remain available;
+this removes repetition without changing the numeric gate, budgets or factual fallback.
+
+
 DEC-122's three-method surface is:
 
 ```python

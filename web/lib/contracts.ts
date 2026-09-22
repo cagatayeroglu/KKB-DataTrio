@@ -156,7 +156,7 @@ export const proofSchema = z
           ),
     "Proof chain is inconsistent",
   );
-export const resultSchema = z
+const resultContentSchema = z
   .object({
     result_ref: ref,
     version: digest,
@@ -180,6 +180,9 @@ export const resultSchema = z
       result.proof.steps[0].result_version === result.version,
     "Proof must describe this exact result version",
   );
+export const resultSchema = resultContentSchema.safeExtend({
+  related: z.array(resultContentSchema).max(11).default([]),
+});
 const seriesChoiceSchema = z
   .object({
     series_id: z.string().min(1).max(200),

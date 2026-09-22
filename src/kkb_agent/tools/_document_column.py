@@ -346,6 +346,10 @@ def read_column(
     grid, period_index, value_index = _locate(tables, period_column, value_column)
     header = _text(grid.headers[value_index])
     unit, scale = header_semantics(header)
+    if grid.percent_column(value_index):
+        if unit is not None and (unit, scale) != ("percent", Scale.ONE):
+            raise ColumnRefused("UNIT_CONFLICT")
+        unit, scale = "percent", Scale.ONE
     if unit is None or scale is Scale.UNKNOWN:
         raise ColumnRefused("UNIT_NOT_STATED")
     rules = RowRules.for_grid(grid, year=year, as_of=as_of)

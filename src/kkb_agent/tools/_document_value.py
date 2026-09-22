@@ -189,6 +189,20 @@ class Grid:
     checked: tuple[bool, ...] | None = None
     normalizations: tuple[dict[str, JsonValue], ...] = ()
 
+    def percent_column(self, index: int) -> bool:
+        """Only a whole numeric XLSX column with recorded plain-percent formats qualifies."""
+        formatted = {
+            item["row"]
+            for item in self.normalizations
+            if item.get("operation") == "excel_percent_points" and item.get("column") == index + 1
+        }
+        present = {
+            row_number
+            for row_number, row in enumerate(self.rows, 2)
+            if index < len(row) and row[index] is not None and row[index] != ""
+        }
+        return bool(present) and present <= formatted
+
 
 @dataclass(frozen=True)
 class YearContext:

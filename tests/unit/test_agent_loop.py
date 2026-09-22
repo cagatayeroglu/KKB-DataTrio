@@ -399,10 +399,9 @@ class TestThePlannerLoop:
         offered = json.loads(initial[1].content.split("\n", 1)[1])
         assert sorted(offered, key=lambda item: item["name"]) == reg.descriptions()
         assert sum(message.content.count(contract) for message in initial) == 1
-        # Regression budget for this fixed contract. 2,048 until `interpret` was added (one
-        # boolean: whether the reader asked for an interpretation at all); a guard against
-        # the contract growing unnoticed, not a limit the planner has.
-        assert len(contract.encode("utf-8")) < 2176
+        # The two presentation booleans (`interpret`, `present`) have explicit jobs;
+        # budget their schema once, without duplicating tool arguments or instructions.
+        assert len(contract.encode("utf-8")) < 2304
         assert emitted_schema["properties"]["interpret"] == {
             "default": True,
             "title": "Interpret",

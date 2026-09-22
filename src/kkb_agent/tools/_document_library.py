@@ -61,6 +61,17 @@ def _tables(
                 "location": dict(grid.location),
                 "headers": [_header(h) for h in grid.headers[:MAX_HEADERS]],
                 "rows": len(grid.rows),
+                **(
+                    {
+                        "percentage_format_columns": [
+                            _header(h)
+                            for i, h in enumerate(grid.headers[:MAX_HEADERS])
+                            if grid.percent_column(i)
+                        ]
+                    }
+                    if any(grid.percent_column(i) for i in range(len(grid.headers)))
+                    else {}
+                ),
             }
         )
     return tables, sheets

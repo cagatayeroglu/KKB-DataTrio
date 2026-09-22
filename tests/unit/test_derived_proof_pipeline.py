@@ -185,6 +185,7 @@ def test_document_summary_publishes_with_resolvable_proof(tmp_path, kind):
             source="analiz_1",
             column="Faiz",
             aggregation="mean",
+            requested_aggregation="mean",
         ),
         "Özet hazır.",
     )

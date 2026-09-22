@@ -37,6 +37,7 @@ class PlanStep(BaseModel):
     tool: Identifier
     arguments: dict[str, JsonValue] = Field(default_factory=dict)
     depends_on: list[Identifier] = Field(default_factory=list)
+    present: bool = False
     assumption: str | None = Field(
         default=None,
         max_length=MAX_ASSUMPTION_CHARS,

@@ -152,6 +152,7 @@ class PublicationPreview:
     state_token: str
     named_json: tuple[tuple[str, str], ...]
     inputs: tuple[str, ...] = ()
+    related: tuple[tuple[str, str], ...] = ()
 
     def values(self) -> dict[str, AnalyticalResult]:
         return {
@@ -524,8 +525,23 @@ class Workspace:
                 current = Workspace(connection, self.workspace_id)
                 if current._publication_state() != preview.state_token:
                     raise WorkspaceError("Workspace changed since publication preview")
+                related = {}
+                for name, payload in preview.related:
+                    if name == preview.name or name in related or name in current.names():
+                        raise WorkspaceError("Related publication would overwrite a binding")
+                    child = current.record(
+                        name,
+                        ArtifactKind.VALUE,
+                        AnalyticalResult.model_validate_json(payload),
+                        inputs=preview.inputs,
+                    )
+                    related[name] = child.artifact_id
                 artifact = current.record(
-                    preview.name, ArtifactKind.VALUE, result, inputs=preview.inputs
+                    preview.name,
+                    ArtifactKind.VALUE,
+                    result,
+                    inputs=preview.inputs,
+                    parameters={"related_results": json.dumps(related)} if related else None,
                 )
                 # A fresh reader also catches commits made during our short
                 # write transaction, whose own reads use a snapshot.
@@ -552,6 +568,30 @@ class Workspace:
         if artifact.value_ref is None:
             raise WorkspaceError(f"{name!r} is a definition and holds no value")
         return self.read_result(artifact.value_ref)
+
+    def related_results(self, artifact: Artifact) -> dict[str, AnalyticalResult]:
+        """Read companion artifacts by their immutable identities, also after restart."""
+        refs = json.loads(artifact.parameters.get("related_results", "{}"))
+        if not isinstance(refs, dict) or len(refs) > 11:
+            raise WorkspaceError("Invalid related publication references")
+        results = {}
+        for name, identifier in refs.items():
+            related = self.artifact(identifier)
+            if (
+                related.name != name
+                or related.value_ref is None
+                or artifact_id(
+                    related.kind,
+                    related.name,
+                    related.parameters,
+                    related.inputs,
+                    related.value_ref,
+                )
+                != identifier
+            ):
+                raise WorkspaceError("Related publication does not match its receipt")
+            results[name] = self.read_result(related.value_ref)
+        return results
 
     def values(self) -> dict[str, AnalyticalResult]:
         """Every current, non-stale value, for an answer that spans several."""

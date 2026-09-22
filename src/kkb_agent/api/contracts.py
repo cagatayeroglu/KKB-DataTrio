@@ -261,7 +261,7 @@ def unavailable_proof(*gaps: ProofGap) -> Proof:
     return Proof(availability="unavailable", gaps=gaps)
 
 
-class Result(ContractModel):
+class ResultContent(ContractModel):
     result_ref: Reference
     version: Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{64}$")]
     kind: ResultKind
@@ -280,6 +280,11 @@ class Result(ContractModel):
     series_names: Annotated[dict[Label, Label], Field(max_length=64)] = Field(default_factory=dict)
     # Built only by the runner that owns the publication's connection.
     proof: Proof = Field(default_factory=unavailable_proof)
+
+
+class Result(ResultContent):
+    # Independently requested companion artifacts; each owns its cells and proof.
+    related: Annotated[tuple[ResultContent, ...], Field(max_length=11)] = ()
 
 
 class SeriesChoice(ContractModel):

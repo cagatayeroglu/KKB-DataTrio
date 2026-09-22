@@ -18,6 +18,7 @@ from kkb_agent.api.contracts import (
     Cell,
     Proof,
     Result,
+    ResultContent,
     SeriesChoice,
     SeriesSelection,
     unavailable_proof,
@@ -94,6 +95,7 @@ def project_result(
     turn_id: str,
     secrets: tuple[str, ...] = (),
     proof: Proof | None = None,
+    related: tuple[tuple[AnalyticalResult, Proof], ...] = (),
 ) -> Result:
     """The public table for a published value: deterministic from the turn and the digest.
 
@@ -106,7 +108,7 @@ def project_result(
     if len(canonical.values) > MAX_VALUES:
         raise OutputRefused("output_limit")
     version = canonical.digest()
-    return Result(
+    projected = Result(
         result_ref=uuid5(namespace, version).hex,
         version=version,
         kind=canonical.kind,
@@ -130,7 +132,18 @@ def project_result(
         hidden_columns=_hidden_columns(canonical, secrets),
         series_names=_series_names(canonical, secrets),
         proof=_owned_proof(proof, version),
+        related=tuple(
+            ResultContent.model_validate(
+                project_result(item, turn_id=turn_id, secrets=secrets, proof=item_proof).model_dump(
+                    exclude={"related"}
+                )
+            )
+            for item, item_proof in related
+        ),
     )
+    if len(projected.model_dump_json().encode()) > MAX_RESPONSE_BYTES - 4096:
+        raise OutputRefused("output_limit")
+    return projected
 
 
 def _series_names(result: AnalyticalResult, secrets: tuple[str, ...]) -> dict[str, str]:
@@ -375,6 +388,7 @@ def project_answer(
     published: AnalyticalResult | None,
     secrets: tuple[str, ...] = (),
     proof: Proof | None = None,
+    related: tuple[tuple[AnalyticalResult, Proof], ...] = (),
 ) -> Answer:
     """The caller proves publication by reading its own workspace, not by a flag.
 
@@ -402,6 +416,23 @@ def project_answer(
                 "Veri kapsamını ve tanımı kontrol edin."
             )
         )
+        if any(
+            item.parameters.get("semantic_limitation") == "invalid_aggregation"
+            for item in answered.results
+        ):
+            text = (
+                "İstenen toplam, sütunun ölçüm anlamına uygun değil: stok, oran ve endeks "
+                "düzeyleri dönemler boyunca toplanamaz. Başka bir metrik hesaplanmadı. "
+                "İsterseniz ortalama, en düşük veya en yüksek değeri ayrıca isteyebilirsiniz."
+            )
+        elif any(
+            item.parameters.get("semantic_limitation") == "aggregation_substitution"
+            for item in answered.results
+        ):
+            text = (
+                "İstenen agregasyonun yerine farklı bir metrik hesaplanamaz. "
+                "Alternatif hesaplama yapılmadı; farklı bir özet istiyorsanız ayrıca belirtin."
+            )
     else:
         text = safe_text(gate.text, secrets=secrets, shown_urls=_searched_urls(answered))
     if gate.omitted:
@@ -413,13 +444,17 @@ def project_answer(
         notices.extend(safe_text(item, limit=2048, secrets=secrets) for item in gate.limitations)
     result = None
     if published is not None:
+        expected = answered.presented or answered.results[-1:]
         if (
             gate.status is AnswerStatus.ABSTAINED
-            or not answered.results
-            or published.digest() != answered.results[-1].digest()
+            or not expected
+            or published.digest() != expected[0].digest()
+            or [item.digest() for item, _ in related] != [item.digest() for item in expected[1:]]
         ):
             raise OutputRefused("publication_mismatch")
-        result = project_result(published, turn_id=turn_id, secrets=secrets, proof=proof)
+        result = project_result(
+            published, turn_id=turn_id, secrets=secrets, proof=proof, related=related
+        )
     elif gate.status is not AnswerStatus.ABSTAINED and answered.planned.plan.reply is None:
         # A conversational reply never publishes, so saying so would be noise.
         notices.append("Bu turda yeni bir doğrulanmış tablo çalışma alanına yayımlanmadı.")

@@ -26,7 +26,7 @@ from kkb_agent.agent import (
     gate_answer,
     render_result,
 )
-from kkb_agent.agent.loop import _finished_sentences
+from kkb_agent.agent.loop import MAX_LISTED_PERIODS, _finished_sentences
 from kkb_agent.agent.presentation import display_value, format_number
 from kkb_agent.agent.verifier import (
     DEFAULT_TOLERANCE,
@@ -504,7 +504,7 @@ class TestAPlainTableStillAnswers:
             for index, period in enumerate(months)
         ]
         rendered = render_result(result(values=values))
-        quoted = [line for line in rendered.splitlines() if line.startswith("- konut:")]
+        quoted = [line for line in rendered.splitlines() if line.startswith("- display")]
         assert len(quoted) == 12
         assert "2025-01-01..2025-01-28" in quoted[0] and "1.000 milyon TL" in quoted[0]
         assert "2025-12-01..2025-12-28" in quoted[-1] and "1.110 milyon TL" in quoted[-1]
@@ -521,7 +521,7 @@ class TestAPlainTableStillAnswers:
                 end=date(2021 + index // 12, index % 12 + 1, 28),
                 frequency=Frequency.MONTHLY,
             )
-            for index in range(24)
+            for index in range(MAX_LISTED_PERIODS + 1)
         ]
         values = [
             ResultValue(
@@ -565,7 +565,7 @@ class TestAPlainTableStillAnswers:
         assert "Verified endpoint observation for konut: rose" in evidence
         # Twelve months is short enough to read, so the writer is given all twelve and
         # no longer has to guess what stands between the ends.
-        assert evidence.count(": display ") == 12
+        assert evidence.count("- display ") == 12
         assert "1.050 milyon TL" in evidence
         assert len(system.encode()) < 3200  # measured pre-workstream system prompt
         assert sum(len(part.encode()) for part in (system, evidence, question)) < 5200

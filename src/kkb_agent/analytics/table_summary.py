@@ -31,6 +31,10 @@ class SummaryRefused(ValueError):
     """The requested aggregate would invent a meaning or has no input."""
 
 
+class InvalidAggregation(SummaryRefused):
+    """A meaning violation, not an argument that replanning may repair."""
+
+
 @dataclass(frozen=True, slots=True)
 class Summarized:
     values: tuple[ResultValue, ...]
@@ -80,7 +84,9 @@ def summarize_column(
     if aggregation != "count" and (template.unit is None or template.scale is Scale.UNKNOWN):
         raise SummaryRefused("The column's unit or scale is unresolved")
     if aggregation == "sum" and template.measure is not StockFlow.FLOW:
-        raise SummaryRefused("Summing a stock, rate or index level over periods is not meaningful")
+        raise InvalidAggregation(
+            "Summing a stock, rate or index level over periods is not meaningful"
+        )
     first_period = selected[0].period
     last_period = selected[-1].period
     if first_period is None or last_period is None:

@@ -53,6 +53,66 @@ writer fallback or deterministic factual scaffold was changed. Metadata does not
 become new numeric evidence. Physical-unit spelling and year-month recognition are
 normalization; retry/status/selection/context carriers are general contracts.
 
+### PR #316 final addendum
+
+Baseline is `7efa159`; this is a same-branch follow-up, not a redesign. The live local
+trace for “2021–2025 konut kredisi faiz oranlarının toplamını hesapla.” showed the
+**initial** planner choosing `mean` and explaining it in `assumption`, with no runtime
+repair. The fix therefore includes a required `requested_aggregation` carrier and a
+pre-calculation mismatch refusal, in addition to making typed invalid sums terminal.
+It does not claim deterministic natural-language understanding: both supported models
+still need the live intent acceptance below.
+
+- Explicit deliverables use `PlanStep.present`; source table + mean/max survive as separate
+  proven artifacts. Source + change uses the derived table once if proven ancestry and
+  exact retained cells allow it. Unrelated equal tables retain separate source proofs.
+- All visible artifacts pass producer verification. Publication is atomic, companions are
+  stored by immutable artifact reference, API/UI retain their own proofs, and restart
+  returns the same bundle. Default follow-up selection retains the monthly table.
+- Synthetic XLSX with plain `0.0%` formats produces 12 rate observations, first 47.6%,
+  and mean 50.9666666667%, without a user unit clarification. Mixed formats remain
+  unresolved; header/question conflicts refuse; no arbitrary-format unit guessing.
+- Writer retains all 368 canonical T3 values and their date bindings. Repeated long
+  column identifiers/unit/scale are grouped once per column. Ancestor metadata,
+  warnings, nominal/real meaning, coverage, source and acquisition/execution state remain.
+
+| Same canonical T3 payload | Before addendum | After addendum |
+| --- | ---: | ---: |
+| Entire writer input, UTF-8 bytes | 75,983 | 41,201 |
+| Result-context bytes | 71,970 | 37,188 |
+| Writer messages | 5 | 5 |
+| Full ancestor table blocks | 0 | 0 |
+| Result values retained | 368 | 368 |
+
+Input bytes fall **45.8%**. This is not a measured latency improvement; no provider
+call, reasoning/output budget change or factual fallback change was made. Offline
+canonical replay still accepts `59/32/28/4 → real → 22`, the exact 22 periods, and
+240/300/360 gold cells with valid execution proof.
+
+Validation: **1,136 affected backend tests passed, 1 xfailed** (112.61 s); **37 final
+focused tests passed** after same-turn companion marking was added to writer context.
+Strict mypy (158 files) and Ruff pass. Web
+**83 tests PASS**, including actual server rendering of the primary monthly table and
+its summary with separate proof controls; TypeScript PASS. Atomic rollback and receipt
+mutation negatives pass. The old-head CI failure was a stale 24-row/2-endpoint expectation;
+its narrowing test now exercises the configured limit plus one, with a separate full-table
+assertion. The added plan flag's small schema budget is explicit. Final Fast PR gate is
+left to CI, not duplicated locally.
+
+Live acceptance (DeepSeek, then Qwen; no calls made in this addendum):
+
+| Turkish prompt / action | Required trace and UI outcome |
+| --- | --- |
+| “Bu dosyadaki aylık faiz oranlarını tablo halinde göster ve 2024 ortalamasını hesapla.” | Read has `present=true`; summarize carries `requested_aggregation=aggregation=mean`; 12 monthly rows plus summary, both proofs; restart and follow-up retain table. |
+| “Tabloyu göster ve en yüksek değeri söyle.” | Requested table and max artifact visible; tied maxima retain their dates. |
+| “Tabloyu göster ve değişimi hesapla.” | Original and derived columns in one proven table; no duplicate ancestor table. |
+| “2021–2025 konut kredisi faiz oranlarının toplamını hesapla.” | Terminal unsupported decision, or `requested_aggregation=sum` followed by typed sum refusal/mismatch; **no mean execution, writer or publication**. |
+| Then: “O zaman dönem ortalamasını hesapla.” | New explicit mean intent executes normally. |
+| Upload plain percentage-formatted XLSX without `%` in header. | Outline shows percentage format evidence; table cells use percent/rate/one without a unit question. |
+
+Remaining gaps: live planner adherence to the new fields and live interpretation quality;
+complex/mixed XLSX number formats and the previously recorded general scale conversion.
+
 ### Remaining limits and live reruns
 
 **COVERAGE GAP:** No new million↔billion conversion tool/carrier. A wrong

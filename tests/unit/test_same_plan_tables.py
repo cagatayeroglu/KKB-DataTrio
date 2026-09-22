@@ -104,6 +104,7 @@ def test_scalar_and_independent_table_are_not_implicitly_published_as_one(pool):
             "source": "fetch",
             "column": CPI_ID,
             "aggregation": "mean",
+            "requested_aggregation": "mean",
         },
         "depends_on": ["fetch"],
     }
