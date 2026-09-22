@@ -58,6 +58,7 @@ from kkb_agent.agent.plan import AnalyticalPlan
 from kkb_agent.agent.plan_healing import heal_plan
 from kkb_agent.agent.presentation import (
     PeriodTable,
+    comparison_heading,
     deterministic_draft,
     display_value,
     endpoint_observations,
@@ -844,6 +845,14 @@ def render_result(result: AnalyticalResult, ambiguous: frozenset[int] = frozense
                     f"{observation.direction} between {first.end.isoformat()} and "
                     f"{last.end.isoformat()}; this does not establish an all-period trend."
                 )
+    if (pair := comparison_heading(result)) is not None:
+        # The counts below are labelled by role - "Birinci serinin düştüğü ay sayısı" - and
+        # the writer is asked to copy that phrase, so without this line it would repeat an
+        # ordinal that names no series, which is what the reader got live on 2026-09-22.
+        lines.append(
+            "Which series each count below is about, to be named in the sentence that "
+            f"carries it rather than left as an ordinal: {pair}"
+        )
     positions = {id(value): index for index, value in enumerate(result.values)}
     for value in values:
         display = display_value(value)
