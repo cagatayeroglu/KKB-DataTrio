@@ -13,6 +13,41 @@ This file defines what correctness means and how to measure it. [ROADMAP M9](ROA
 
 Implementation boundary: merged unit tests exercise ingestion, semantics, lakehouse, planning, workspace definitions and numeric matching. [ROADMAP Current Project Status](ROADMAP.md#current-project-status) owns their revisions/results. They are not a benchmark scorecard. The Day 0 `evaluation/models.py`, case JSON and schema-test drafts are preserved in a local stash, not delivered or currently untracked files in dev. No executing benchmark runner, benchmark numerical-oracle schema, scorecard generator or eval Make target exists. This docs task runs document checks only.
 
+<a id="vector-rebuild-reuse-2026-09-22"></a>
+
+## Vector rebuild: what it cost, and reuse — 2026-09-22
+
+Branch `fix/vector-reuse-and-report-3`, from `dev=c8f6095` (#316 merged). Eray authorized the live requests. Decision: [DEC-188](DECISIONS.md#dec-188--a-rebuild-embeds-only-what-changed-every-other-vector-is-lent-by-the-generation-in-use).
+
+**Offline, on a copy of the served state root** (reviewed `prepared_v3` plus the source directory, knowledge base empty; the embedding provider replaced by a stand-in whose own time is subtracted; everything else the repository's code, called as the served rebuild calls it):
+
+| Question | Measured |
+| --- | --- |
+| Catalogue before / after one saved USER dataset | 8,374 / 8,375 entries; catalogue digest changes |
+| Catalogue texts changed by that save | 1 (the new entry) |
+| Vectors on disk (generation of 2026-09-21) reusable for the new catalogue | 8,374 of 8,374 (same identity and text digest) |
+| Sent to the embedding model by the old rebuild | 8,375 texts in 524 requests of 16; nothing reused |
+| Local: preparing and validating the vectors | 14.0 s |
+| Local: `build_catalog_index` | 17.8 s (validation 5.4, normalization and rows 6.2, text building 2.5, Arrow 1.3, Lance write 0.3) |
+| Local: reopening and verifying the new generation | 13.5 s |
+| Peak memory | about 2.9 GB |
+
+**Live embedding sample** (13 passage requests, 352 real catalogue texts spread over the catalogue, one attempt each, 18:53): batches of 16 took 0.50–0.74 s (median 0.55 s, 34 ms a text), batches of 64 took 1.93–2.08 s (32 ms a text). At that rate the old rebuild spent about 4.8 minutes embedding; at the rate measured on 2026-09-19 (1,356 entries in about seven minutes) the same catalogue takes about 43 minutes. Larger batches do not help.
+
+**Prototype with reuse, offline:** one request with one text; about 55 s in total, all of it the existing integrity checks.
+
+**Live, served, on an isolated copy** (`:8131`, own state root and lakehouse, the generation of 2026-09-21 in use):
+
+| Step | Result |
+| --- | --- |
+| Before | 8,374 of 8,374 vectored |
+| Save one USER dataset | 8,374 of 8,375; the one missing is the new entry |
+| "Yeniden vektörle" | 202 accepted; one embedding request with one text (0.1 s), 8,374 reused; installed after 98 s while two test suites ran on the same machine |
+| Three searches during the build | `hybrid`, dense stage `success` each time: the generation in use kept answering |
+| After | 8,375 of 8,375; a search for the new entry's alias finds it first, by meaning and words |
+
+Server line: `{"entries": 8375, "embedded": 1, "reused": 8374, "embedding_requests": 1, "embedding_seconds": 0.1, "seconds": 98.3}`. Repeated with a second saved dataset on a quiet machine: 8,376 entries, 1 embedded, 8,375 reused, installed in 61.4 s.
+
 <a id="quick-quality-pass-2026-09-22"></a>
 
 ## Quick quality pass — 2026-09-22
