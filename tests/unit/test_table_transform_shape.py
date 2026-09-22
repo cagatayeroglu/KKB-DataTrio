@@ -184,3 +184,46 @@ def test_incompatible_rebase_abstains_without_publishing_numbers(pool):
     assert result.status is ResultStatus.ABSTAINED
     assert result.values == []
     assert "no value at reference period" in result.reason
+
+
+def test_a_window_that_starts_later_still_has_its_first_change(pool):
+    """Live 2026-09-22: a question asked each month's own amount over a window, and the
+    window's first month came back empty because its predecessor sits outside the window.
+
+    The store holds it. It completes the first change and appears as no row of its own.
+    """
+    lake, workspace, source = published_index_table(pool)
+    windowed = (
+        bound_tool(pool)
+        .run(
+            operation("filter", start_period="2021-03-31"),
+            ExecutionContext("son aylar"),
+        )
+        .output
+    )
+    assert windowed.status is ResultStatus.COMPUTED
+    workspace.record("windowed", ArtifactKind.VALUE, windowed, inputs=("table",))
+    result = (
+        bound_tool(pool)
+        .run(
+            operation("change", source="windowed", column=CPI_ID, kind="difference"),
+            ExecutionContext("aylık değişim"),
+        )
+        .output
+    )
+
+    assert result.status is ResultStatus.COMPUTED, result.reason
+    label = f"{CPI_ID} change (lag 1)"
+    changes = {value.period.end: value.value for value in result.values if value.label == label}
+    # March is the window's first month and its change is February's rise, read from the
+    # store; February itself is in no row of the table.
+    assert changes[date(2021, 3, 31)] == pytest.approx(CPI[2] - CPI[1])
+    assert changes[date(2021, 4, 30)] == pytest.approx(CPI[3] - CPI[2])
+    assert date(2021, 2, 28) not in changes
+    assert not any(
+        value.period is not None and value.period.end < date(2021, 3, 31) for value in result.values
+    )
+    recorded = result.evidence.transformations[-1].parameters
+    assert recorded["periods_read_before_the_table"] == 1
+    assert recorded["periods_without_predecessor"] == 0
+    assert result_faults({"changed": result}, lake.connection) == {}

@@ -241,12 +241,44 @@ def _steps_apart(earlier: Period, later: Period) -> int | None:
     return None
 
 
+def _warm_up(
+    preceding: Sequence[ResultValue],
+    cells: Sequence[tuple[ResultValue, Period]],
+    frequency: Frequency,
+    lag: int,
+) -> list[tuple[ResultValue, Period]]:
+    """The values from before the table that may stand in for a missing predecessor.
+
+    Only the column's own measure, on the column's own calendar, strictly before the
+    table's first period, at most `lag` of them and each one distinct. A value that does
+    not answer that description is left out rather than reconciled: the change it would
+    complete is one the table cannot show.
+    """
+    if not preceding or not cells:
+        return []
+    opening = min(period.end for _, period in cells)
+    first = min(cells, key=lambda cell: cell[1].end)[0]
+    found: dict[PeriodKey, tuple[ResultValue, Period]] = {}
+    for value in preceding:
+        period = value.period
+        if period is None or period.frequency is not frequency or period.end >= opening:
+            continue
+        if (value.unit, value.scale, value.measure) != (first.unit, first.scale, first.measure):
+            continue
+        if not isfinite(value.value):
+            continue
+        found.setdefault(_key(value), (value, period))
+    ordered = sorted(found.values(), key=lambda cell: cell[1].end, reverse=True)
+    return ordered[:lag]
+
+
 def period_change(
     source: AnalyticalResult,
     *,
     column_label: str,
     kind: ChangeKind,
     lag: int = 1,
+    preceding: Sequence[ResultValue] = (),
 ) -> ChangedColumn:
     """Add the period-over-period change of one column; every existing cell is kept.
 
@@ -255,6 +287,12 @@ def period_change(
     predecessor, so it is refused for a rate (its change is read in points) and left empty
     where the predecessor is zero or negative. A period whose predecessor is missing - the
     first `lag` rows, or the row after a gap - gets no value: nothing is bridged.
+
+    `preceding` holds the column's own values from before the table, which the caller read
+    from the store. They complete the first rows and are shown as no row of their own: a
+    window that starts in January answers for January too, instead of opening on an empty
+    cell because its December sits outside it (live 2026-09-22: a question asking each
+    month's own deposit amount over 2021-2025 lost 2021-01).
 
     A column whose unit a document did not state is still a column of numbers: its percent
     change is a plain percentage, and its difference carries the same unresolved unit the
@@ -287,6 +325,7 @@ def period_change(
         cells.append((value, value.period))
     if len(frequencies) != 1:
         raise TableShapeRefused(f"{column_label} mixes period frequencies")
+    warm_up = _warm_up(preceding, cells, next(iter(frequencies)), lag)
     first = column[0]
     if kind == "percent" and first.measure is StockFlow.RATE:
         raise TableShapeRefused(
@@ -310,7 +349,10 @@ def period_change(
         unit, scale, measure = INDEX_POINT, Scale.ONE, first.measure
     else:
         unit, scale, measure = first.unit, first.scale, first.measure
-    ordered = sorted(cells, key=lambda cell: cell[1].end)
+    # At most `lag` values from before the table, each earlier than every cell, so the
+    # `position < lag` rule below is what keeps them out of the rows: they are read to
+    # complete the first changes and are never a row of their own.
+    ordered = sorted([*warm_up, *cells], key=lambda cell: cell[1].end)
     changed: list[ResultValue] = []
     gaps = 0
     undefined = 0
@@ -357,7 +399,8 @@ def period_change(
             "column": column_label,
             "kind": kind,
             "lag": lag,
-            "periods_without_predecessor": lag + gaps,
+            "periods_without_predecessor": max(0, lag - len(warm_up)) + gaps,
+            "periods_read_before_the_table": len(warm_up),
             "periods_with_nonpositive_predecessor": undefined,
             "fill": "none",
         },
