@@ -13,6 +13,64 @@ This file defines what correctness means and how to measure it. [ROADMAP M9](ROA
 
 Implementation boundary: merged unit tests exercise ingestion, semantics, lakehouse, planning, workspace definitions and numeric matching. [ROADMAP Current Project Status](ROADMAP.md#current-project-status) owns their revisions/results. They are not a benchmark scorecard. The Day 0 `evaluation/models.py`, case JSON and schema-test drafts are preserved in a local stash, not delivered or currently untracked files in dev. No executing benchmark runner, benchmark numerical-oracle schema, scorecard generator or eval Make target exists. This docs task runs document checks only.
 
+<a id="vector-rebuild-reuse-2026-09-22"></a>
+
+## Vector rebuild: what it cost, and reuse — 2026-09-22
+
+Branch `fix/vector-reuse-and-report-3`, from `dev=c8f6095` (#316 merged). Eray authorized the live requests. Decision: [DEC-188](DECISIONS.md#dec-188--a-rebuild-embeds-only-what-changed-every-other-vector-is-lent-by-the-generation-in-use).
+
+**Offline, on a copy of the served state root** (reviewed `prepared_v3` plus the source directory, knowledge base empty; the embedding provider replaced by a stand-in whose own time is subtracted; everything else the repository's code, called as the served rebuild calls it):
+
+| Question | Measured |
+| --- | --- |
+| Catalogue before / after one saved USER dataset | 8,374 / 8,375 entries; catalogue digest changes |
+| Catalogue texts changed by that save | 1 (the new entry) |
+| Vectors on disk (generation of 2026-09-21) reusable for the new catalogue | 8,374 of 8,374 (same identity and text digest) |
+| Sent to the embedding model by the old rebuild | 8,375 texts in 524 requests of 16; nothing reused |
+| Local: preparing and validating the vectors | 14.0 s |
+| Local: `build_catalog_index` | 17.8 s (validation 5.4, normalization and rows 6.2, text building 2.5, Arrow 1.3, Lance write 0.3) |
+| Local: reopening and verifying the new generation | 13.5 s |
+| Peak memory | about 2.9 GB |
+
+**Live embedding sample** (13 passage requests, 352 real catalogue texts spread over the catalogue, one attempt each, 18:53): batches of 16 took 0.50–0.74 s (median 0.55 s, 34 ms a text), batches of 64 took 1.93–2.08 s (32 ms a text). At that rate the old rebuild spent about 4.8 minutes embedding; at the rate measured on 2026-09-19 (1,356 entries in about seven minutes) the same catalogue takes about 43 minutes. Larger batches do not help.
+
+**Prototype with reuse, offline:** one request with one text; about 55 s in total, all of it the existing integrity checks.
+
+**Live, served, on an isolated copy** (`:8131`, own state root and lakehouse, the generation of 2026-09-21 in use):
+
+| Step | Result |
+| --- | --- |
+| Before | 8,374 of 8,374 vectored |
+| Save one USER dataset | 8,374 of 8,375; the one missing is the new entry |
+| "Yeniden vektörle" | 202 accepted; one embedding request with one text (0.1 s), 8,374 reused; installed after 98 s while two test suites ran on the same machine |
+| Three searches during the build | `hybrid`, dense stage `success` each time: the generation in use kept answering |
+| After | 8,375 of 8,375; a search for the new entry's alias finds it first, by meaning and words |
+
+Server line: `{"entries": 8375, "embedded": 1, "reused": 8374, "embedding_requests": 1, "embedding_seconds": 0.1, "seconds": 98.3}`. Repeated with a second saved dataset on a quiet machine: 8,376 entries, 1 embedded, 8,375 reused, installed in 61.4 s.
+
+<a id="report-3-fixes-live-2026-09-22"></a>
+
+## Report 3 findings N43–N49, live on DeepSeek-V4.1-Flash — 2026-09-22
+
+Branch `fix/vector-reuse-and-report-3`. Isolated copy (`:8131`, own state root and lakehouse, `--enable-web-url`, local SearXNG), planner/router/vision `deepseek-ai/DeepSeek-V4.1-Flash`, Eray authorized the runs. Each row is one live turn on the final revision; "before" is the same scenario in the operator's own live report of 2026-09-22 (findings N43-N49, kept outside the repository).
+
+| Turn | Before | After | What it shows |
+| --- | --- | --- | --- |
+| G1 monthly 2024 housing-loan table | ACCEPTED | ACCEPTED, 12 cells, 9 s | unchanged |
+| G3 "Bunu milyar TL olarak da yaz" | ABSTAINED (N44) | **ACCEPTED**, 6 s: "512.259 milyon TL … 512,259 milyar TL" | DEC-190 |
+| J1 organizer gold PDF (`kmp_au.pdf`) | QUALIFIED; the kg and count columns called empty (N47); raw ISO ranges (N48) | QUALIFIED, 80 cells, 18 s: kg quoted, counts "her ay için bir değeri var, ancak kaynak birim belirtmiyor", periods written "Ocak 2026" | N47, N48 |
+| J2 xtumy month ends | QUALIFIED (N45) | **ACCEPTED**, 12 cells, 15 s | N45: a written period range is one mention |
+| J3 monthly % change (lag 1) | QUALIFIED (N45) | **ACCEPTED**, 23 cells, 12 s | N45, and "lag 1" binds |
+| W5 TCMB page, follow the 21 March 2024 link | answered after searching past the person's address; header "[gizli bilgi kaldırıldı] sha256 sha256:…" | QUALIFIED reading, 60 s: the address is read first, and after its link was not found the search answers; header names the public address once | DEC-191, N48 |
+| S2 "Web araması yap: … faiz oranı kaç?" | no answer, only commercial links | **ACCEPTED**, 12 s: official 37,29 yüzde with the search candidates beneath it | DEC-191 |
+| S1 search → official source → read | ACCEPTED | QUALIFIED reading, 9 s: "yüzde 45'ten yüzde 50'ye" | regression held |
+
+Three faults were found by these runs and fixed in the same branch: the address rule refused the search that answers after the written address could not be followed (W5); the document inspection answered with keys its schema has no room for (`action`, `summary`) and lost two turns, so the instruction now names its four keys and a failed inspection records its fault; and the writer, shown no candidate, wrote that the search had returned nothing (S2).
+
+Remaining, not fixed here: one J1 sentence is withheld because it attributes a single figure (`0 EUR ve 0 kg`) to six periods at once, which no one value can carry; and a search-listing line whose title ends in a question mark loses its address to sentence-level gating.
+
+**After merging `dev`** (its own web, gate and continuation work of the same evening, ten commits): the four turns that carry this branch's decisions were run again — G1 and G3 ACCEPTED, S2 ACCEPTED with the official figure and the candidate list, W5 a QUALIFIED reading of the 21 March 2024 decision in 27 s. The first of those runs found one more fault, fixed here: the announcements page the person named loaded, the planner added a second address the question never wrote, the authority boundary refused it as it should, and the turn abstained about a page already in hand. The inspection of a fetched document now waits only while a corrected plan is actually coming. Four tests that were failing on `dev` before this merge pinned contracts `dev` itself changed (the scoring sensitivity is a planner argument, the planner prompt was rewritten, the history budget is twelve turns); each was updated to the new contract in the merge commit.
+
 <a id="quick-quality-pass-2026-09-22"></a>
 
 ## Quick quality pass — 2026-09-22

@@ -622,3 +622,53 @@ def test_addresses_a_web_search_returned_are_shown_and_any_other_is_not():
     shown = safe_text(text, shown_urls=frozenset({found}))
     assert found in shown and "other.example" not in shown
     assert found not in safe_text(text)
+
+
+def test_an_address_the_turn_read_is_shown_even_before_punctuation():
+    # Live W5 (N48, 2026-09-22): the reading's header named the public TCMB page it had read
+    # as "[gizli bilgi kaldırıldı]": the address was no search result, and the pattern had
+    # also taken the comma after it into the address.
+    from types import SimpleNamespace
+
+    from kkb_agent.api.projection import _read_urls, safe_text
+
+    page = "https://www.tcmb.gov.tr/wps/wcm/connect/TR/TCMB+TR/Main+Menu/Duyurular/Basin/2024"
+    read = SimpleNamespace(
+        tool="web_url", output=SimpleNamespace(source=SimpleNamespace(locator=page))
+    )
+    reading = SimpleNamespace(
+        tool="document_read",
+        output=SimpleNamespace(document="https://www.borsaistanbul.com/files/kmp_au.pdf"),
+    )
+    queried = SimpleNamespace(
+        tool="web_url",
+        output=SimpleNamespace(
+            source=SimpleNamespace(locator="https://example.org/data?token=abc")
+        ),
+    )
+    plain = SimpleNamespace(
+        tool="document_read", output=SimpleNamespace(document="http://example.org/a.pdf")
+    )
+    answered = SimpleNamespace(outcome=SimpleNamespace(results=(read, reading, queried, plain)))
+    shown = _read_urls(answered)
+    assert shown == frozenset({page, "https://www.borsaistanbul.com/files/kmp_au.pdf"})
+    header = f"Okuma ({page}, sha256 8e4b2)"
+    assert safe_text(header, shown_urls=shown) == header
+    assert page not in safe_text(header)
+    assert "token=abc" not in safe_text("bkz. https://example.org/data?token=abc", shown_urls=shown)
+
+
+def test_a_fetched_reading_names_its_digest_once():
+    from types import SimpleNamespace
+
+    from kkb_agent.agent.executor import ToolStatus
+    from kkb_agent.agent.loop import document_reading
+
+    output = SimpleNamespace(
+        text="Faiz yüzde 50'ye yükseltildi.",
+        document="https://www.tcmb.gov.tr/x",
+        sha256="sha256:8e4b2c0ffee1234567",
+    )
+    item = SimpleNamespace(tool="document_read", status=ToolStatus.SUCCESS, output=output)
+    text, name, digest = document_reading(SimpleNamespace(results=(item,)))
+    assert digest == "8e4b2c0ffee1" and not digest.startswith("sha256")

@@ -1,6 +1,7 @@
 """Offline USER catalog generation lifecycle and fail-closed rebuild diagnostics."""
 
 import json
+import threading
 from dataclasses import replace
 
 import pytest
@@ -43,12 +44,16 @@ def lifecycle(tmp_path):
             ),
         )
 
-    def build_stage(catalog):
+    def build_stage(catalog, previous=None):
         existing = open_stage(catalog)
         if existing is not None:
             return existing
         vectors = embedding.embed_catalog(
-            provider, catalog, embedding.RUNTIME_QUERY_POLICY, origin="offline_fixture"
+            provider,
+            catalog,
+            embedding.RUNTIME_QUERY_POLICY,
+            origin="offline_fixture",
+            reuse=previous,
         )
         build_catalog_index(generations / catalog.content_sha256, catalog, vectors)
         return open_stage(catalog)
@@ -130,8 +135,8 @@ def test_catalog_change_during_build_never_installs_stale_stage(lifecycle):
     service, knowledge, token, _, old, build_stage, installed = lifecycle
     knowledge.save_dataset(dataset())
 
-    def changed_during_build(catalog):
-        stage = build_stage(catalog)
+    def changed_during_build(catalog, previous):
+        stage = build_stage(catalog, previous)
         knowledge.save_dataset(dataset(observations=monthly([101.0, 110.0, 125.0])))
         return stage
 
@@ -165,7 +170,7 @@ def test_failed_rebuild_keeps_valid_generation_and_sanitizes_status(lifecycle, e
     unchanged = old_manifest.read_bytes()
     knowledge.save_dataset(dataset())
 
-    def fail(_catalog):
+    def fail(_catalog, _previous):
         raise error
 
     service._rebuild = fail
@@ -188,8 +193,8 @@ def test_wrong_generation_or_install_failure_preserves_active_stage(lifecycle, f
     service, knowledge, token, _, old, build_stage, installed = lifecycle
     knowledge.save_dataset(dataset())
 
-    def build(catalog):
-        stage = build_stage(catalog)
+    def build(catalog, previous):
+        stage = build_stage(catalog, previous)
         if failure == "digest":
             return old
         if failure == "profile":
@@ -257,3 +262,113 @@ def test_partial_or_wrong_dimension_fake_embedding_is_refused(monkeypatch, suppl
         embedding.embed_catalog(
             provider, REVIEWED, embedding.RUNTIME_QUERY_POLICY, origin="offline_fixture"
         )
+
+
+def _passages(provider, since=0):
+    return sum(len(texts) for kind, texts in provider.embedded[since:] if kind == "passage")
+
+
+def test_one_saved_entry_embeds_one_text_and_keeps_every_other_vector(lifecycle):
+    # Measured 2026-09-22 on the served catalogue: one saved dataset sent all 8,375 texts to
+    # the embedding model again, in 524 requests, although 8,374 of them had not changed.
+    service, knowledge, token, provider, old, build_stage, installed = lifecycle
+    knowledge.save_dataset(dataset())
+    before = len(provider.embedded)
+    service.rebuild(token)
+    service.close()
+    assert _passages(provider, before) == 1
+    status = service.index_status(token)
+    assert status.covers_catalog and status.last_error is None
+    assert installed and installed[-1] is service._dense
+    new = service._dense.index
+    assert new.snapshot_sha256 == status.catalog_sha256
+    # The entries that did not change carry the vectors of the generation that was in use.
+    kept = old.index.held_vectors(old.index.profile)
+    moved = new.held_vectors(new.profile)
+    assert set(kept) < set(moved)
+    for series_id, (text, values) in kept.items():
+        assert moved[series_id][0] == text
+        assert max(abs(a - b) for a, b in zip(values, moved[series_id][1], strict=True)) < 1e-6
+
+
+def test_a_changed_description_embeds_only_that_entry(lifecycle):
+    service, knowledge, token, provider, old, build_stage, installed = lifecycle
+    target = REVIEWED.series[0].record.series_id
+    knowledge.annotate(target, archived=False, aliases=(), note="Yeni açıklama.", author="test")
+    before = len(provider.embedded)
+    service.rebuild(token)
+    service.close()
+    assert _passages(provider, before) == 1
+    assert "yeni aciklama" in provider.embedded[-1][1][0]  # the normalized index text
+    assert service.index_status(token).covers_catalog
+
+
+def test_reuse_counts_what_it_kept_and_embeds_the_rest(lifecycle):
+    service, knowledge, token, provider, old, build_stage, installed = lifecycle
+    knowledge.save_dataset(dataset())
+    stats = embedding.EmbeddingStats()
+    vectors = embedding.embed_catalog(
+        provider,
+        service._effective(),
+        embedding.RUNTIME_QUERY_POLICY,
+        origin="offline_fixture",
+        stats=stats,
+        reuse=old.index,
+    )
+    assert (stats.texts, stats.requests, stats.reused) == (1, 1, len(REVIEWED.series))
+    assert len(vectors.vectors) == len(REVIEWED.series) + 1
+
+
+@pytest.mark.parametrize(
+    ("policy", "origin"),
+    [("qwen3-plain-v1", "offline_fixture"), (embedding.RUNTIME_QUERY_POLICY, "kloudeks")],
+)
+def test_another_profile_reuses_no_vector(lifecycle, policy, origin):
+    # A vector stands for its text under the profile it was made with, and nothing else.
+    service, knowledge, token, provider, old, build_stage, installed = lifecycle
+    assert old.index.held_vectors(embedding.profile_for(policy, origin)) == {}
+    stats = embedding.EmbeddingStats()
+    embedding.embed_catalog(provider, REVIEWED, policy, origin=origin, stats=stats, reuse=old.index)
+    assert stats.reused == 0 and stats.texts == len(REVIEWED.series)
+
+
+def test_a_vector_that_no_longer_matches_its_digest_is_embedded_again(lifecycle):
+    service, knowledge, token, provider, old, build_stage, installed = lifecycle
+    target = REVIEWED.series[0].record.series_id
+    tampered = replace(old.index, _vector_digests={**old.index._vector_digests, target: "0" * 64})
+    stats = embedding.EmbeddingStats()
+    embedding.embed_catalog(
+        provider,
+        REVIEWED,
+        embedding.RUNTIME_QUERY_POLICY,
+        origin="offline_fixture",
+        stats=stats,
+        reuse=tampered,
+    )
+    assert (stats.texts, stats.reused) == (1, len(REVIEWED.series) - 1)
+
+
+def test_the_generation_in_use_answers_until_its_successor_is_installed(lifecycle):
+    service, knowledge, token, provider, old, build_stage, installed = lifecycle
+    knowledge.save_dataset(dataset())
+    started, release = threading.Event(), threading.Event()
+
+    def slow(catalog, previous):
+        started.set()
+        assert release.wait(10)
+        return build_stage(catalog, previous)
+
+    service._rebuild = slow
+    service.rebuild(token)
+    assert started.wait(10)
+    try:
+        during = service.index_status(token)
+        assert during.rebuilding and not during.covers_catalog
+        assert service._dense is old and installed == []
+        assert service.search(token, "konut kredisi stok").retrieval_mode == "hybrid"
+    finally:
+        release.set()
+    service.close()
+    after = service.index_status(token)
+    assert not after.rebuilding and after.covers_catalog
+    assert installed[-1] is service._dense and service._dense is not old

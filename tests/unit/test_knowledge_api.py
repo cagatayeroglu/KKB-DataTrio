@@ -15,9 +15,13 @@ from kkb_agent.api.store import DATABASE_NAME, ConversationStore
 from kkb_agent.knowledge import KnowledgeStore
 from kkb_agent.llm import scripted
 
+#: The consumer price index (2025=100): what one alias turned into "toplam konut kredisi".
+CPI = "EVDS:TP.TUKFIY2025.GENEL"
+READ_ONLY = {"api_version": 1, "error": "catalog_read_only"}
 
-@pytest.fixture
-def api(tmp_path):
+
+def served(tmp_path, *, catalog_edits):
+    """The knowledge routes over a seeded pool; `catalog_edits` is the operator's flag."""
     root = tmp_path.resolve() / "prepared"
     seed(root)
     store = ConversationStore(tmp_path.resolve() / "state" / DATABASE_NAME)
@@ -45,15 +49,31 @@ def api(tmp_path):
         prepared=frozenset(item.series_id for item in runner.status.series),
         read_document_column=runner.document_column,
         series_values=runner.series_values,
+        catalog_edits=catalog_edits,
     )
     client = TestClient(
         create_app(service, prepared=runner.status, knowledge=knowledge_service), base_url=BASE
     )
     client.runner = runner  # type: ignore[attr-defined]
-    with client:
-        yield client
-    store.close()
-    knowledge.close()
+    client.stores = (store, knowledge)  # type: ignore[attr-defined]
+    try:
+        with client:
+            yield client
+    finally:
+        store.close()
+        knowledge.close()
+
+
+@pytest.fixture
+def api(tmp_path):
+    # Started with --allow-catalog-edits: these tests are about what a permitted edit does.
+    yield from served(tmp_path, catalog_edits=True)
+
+
+@pytest.fixture
+def read_only_api(tmp_path):
+    # Started as `serve` starts by default: every key reads the notes, none changes them.
+    yield from served(tmp_path, catalog_edits=False)
 
 
 def manual(**change):
@@ -200,6 +220,7 @@ def test_a_source_directory_record_takes_a_note_like_a_reviewed_one(tmp_path):
         load_reviewed_snapshot(CATALOG.read_bytes()),
         prepared=frozenset({TOTAL}),
         source_directory=directory,
+        catalog_edits=True,
     )
     try:
         reviewed = {series.record.series_id for series in service._reviewed.series}
@@ -215,6 +236,150 @@ def test_a_source_directory_record_takes_a_note_like_a_reviewed_one(tmp_path):
         assert entry.aliases == ("kendi adım",) and entry.origin == "listed"
         with pytest.raises(ServiceError):
             service.annotate(token, "EVDS:NOPE", SeriesNoteRequest(archived=True))
+    finally:
+        store.close()
+        knowledge.close()
+
+
+#: Each kind of catalogue note the page can send: an archive, synonyms, a description.
+NOTE_CHANGES = (
+    {"archived": True},
+    {"archived": False, "aliases": ["mortgage stoku"]},
+    {"archived": False, "note": "Bankaların ipotekli finansman alacakları"},
+)
+
+
+def test_without_the_operator_s_flag_no_key_changes_a_catalogue_note(read_only_api):
+    """A note applies to every key's catalogue, so it is the operator's (finding N43)."""
+    client = read_only_api
+    _, knowledge = client.stores
+    key = {"X-KKB-Owner-Token": owner(client)}
+    path = f"/v1/knowledge/series/{TOTAL}/notes"
+    before = client.get("/v1/knowledge", headers=key).json()
+    assert before["catalog_editable"] is False
+    for change in NOTE_CHANGES:
+        refused = client.post(path, json=change, headers=key)
+        assert (refused.status_code, refused.json()) == (403, READ_ONLY), change
+    # Nothing was written: no version, the same catalogue, and the history still reads.
+    assert knowledge.note_history(TOTAL) == [] and knowledge.notes() == []
+    after = client.get("/v1/knowledge", headers=key).json()
+    assert after["catalog_digest"] == before["catalog_digest"] == before["reviewed_digest"]
+    assert client.get(path, headers=key).json()["history"] == []
+    # Refused only after the key and the series are known: those still read as not found.
+    stranger = client.post(path, json={"archived": True}, headers={"X-KKB-Owner-Token": "x" * 43})
+    assert (stranger.status_code, stranger.json()["error"]) == (404, "not_found")
+    unknown = client.post(
+        "/v1/knowledge/series/EVDS:NOPE/notes", json={"archived": True}, headers=key
+    )
+    assert (unknown.status_code, unknown.json()["error"]) == (404, "not_found")
+    assert knowledge.notes() == []
+
+
+def test_a_listed_entry_is_read_only_too_and_the_service_fails_closed(tmp_path):
+    """No `catalog_edits` given, as a caller that forgot the operator's flag would do."""
+    from kkb_agent.catalog.directory import source_directory
+    from kkb_agent.catalog.mappings import load_reviewed_snapshot
+
+    store = ConversationStore(tmp_path / "c.sqlite")
+    knowledge = KnowledgeStore(tmp_path / "k.sqlite")
+    _, token = store.create_owner()
+    directory = source_directory()
+    service = KnowledgeService(
+        knowledge,
+        store,
+        load_reviewed_snapshot(CATALOG.read_bytes()),
+        prepared=frozenset({TOTAL}),
+        source_directory=directory,
+    )
+    try:
+        reviewed = {series.record.series_id for series in service._reviewed.series}
+        listed = sorted(directory.ids() - reviewed)[0]
+        before = service._effective().content_sha256
+        for change in NOTE_CHANGES:
+            with pytest.raises(ServiceError) as refused:
+                service.annotate(token, listed, SeriesNoteRequest.model_validate(change))
+            assert (refused.value.code, refused.value.status) == ("catalog_read_only", 403)
+        assert knowledge.notes() == [] and service._effective().content_sha256 == before
+    finally:
+        store.close()
+        knowledge.close()
+
+
+def test_one_browser_cannot_rewrite_the_catalogue_every_other_browser_searches(read_only_api):
+    """Finding N43, reproduced 2026-09-22 before this refusal existed.
+
+    Owner B, with a key from the unauthenticated POST /v1/owner, archived the housing-loan
+    TOTAL out of owner A's "konut kredisi bakiyesi" search, and one alias on TÜFE made it
+    the single unambiguous candidate for "toplam konut kredisi".
+    """
+    client = read_only_api
+    a = {"X-KKB-Owner-Token": owner(client)}
+    b = {"X-KKB-Owner-Token": owner(client)}
+    archive = client.post(f"/v1/knowledge/series/{TOTAL}/notes", json={"archived": True}, headers=b)
+    alias = client.post(
+        f"/v1/knowledge/series/{CPI}/notes",
+        json={"archived": False, "aliases": ["toplam konut kredisi"]},
+        headers=b,
+    )
+    assert (archive.status_code, archive.json()) == (403, READ_ONLY)
+    assert (alias.status_code, alias.json()) == (403, READ_ONLY)
+
+    def search(question):
+        return client.get("/v1/knowledge/search", params={"q": question}, headers=a).json()
+
+    balance = search("konut kredisi bakiyesi")
+    assert [hit["series_id"] for hit in balance["hits"]][:1] == [TOTAL]
+    assert balance["top_candidate"] == "unambiguous"
+    total = search("toplam konut kredisi")
+    assert [hit["series_id"] for hit in total["hits"]][:1] == [TOTAL]
+    assert CPI not in {hit["series_id"] for hit in total["hits"]}
+
+
+def test_the_note_history_says_whether_the_reading_key_wrote_each_version(api):
+    """The store kept each version's author and the history showed none (finding N43)."""
+    conversations, knowledge = api.stores
+    mine, theirs = owner(api), owner(api)
+    path = f"/v1/knowledge/series/{TOTAL}/notes"
+    assert api.get("/v1/knowledge", headers={"X-KKB-Owner-Token": mine}).json()["catalog_editable"]
+    written = api.post(
+        path,
+        json={"archived": False, "aliases": ["mortgage stoku"]},
+        headers={"X-KKB-Owner-Token": mine},
+    )
+    assert written.status_code == 200, written.text
+    assert [v["by_you"] for v in written.json()["history"]] == [True]
+    other = api.post(path, json={"archived": True}, headers={"X-KKB-Owner-Token": theirs})
+    assert [v["by_you"] for v in other.json()["history"]] == [False, True]
+    # A row stored without an author says nothing about who wrote it.
+    knowledge.annotate(TOTAL, archived=False, aliases=("eski",), author=None)
+    history = api.get(path, headers={"X-KKB-Owner-Token": mine})
+    assert [v["by_you"] for v in history.json()["history"]] == [True, False, None]
+    # Only the comparison travels, never the owner ids it was made with.
+    assert all("author" not in version for version in history.json()["history"])
+    for token in (mine, theirs):
+        assert conversations.owner_by_token(token) not in history.text
+
+
+@pytest.mark.parametrize(
+    ("flag", "editable"),
+    [({}, False), ({"catalog_edits": False}, False), ({"catalog_edits": True}, True)],
+)
+def test_the_listing_says_whether_this_installation_takes_catalogue_notes(tmp_path, flag, editable):
+    from kkb_agent.catalog.mappings import load_reviewed_snapshot
+
+    store = ConversationStore(tmp_path / "c.sqlite")
+    knowledge = KnowledgeStore(tmp_path / "k.sqlite")
+    _, token = store.create_owner()
+    service = KnowledgeService(
+        knowledge,
+        store,
+        load_reviewed_snapshot(CATALOG.read_bytes()),
+        prepared=frozenset({TOTAL}),
+        **flag,
+    )
+    try:
+        assert service.listing(token).catalog_editable is editable
+        assert service.listing(token, tab="reviewed", page=1).catalog_editable is editable
     finally:
         store.close()
         knowledge.close()
@@ -521,7 +686,7 @@ def test_the_vectors_can_be_built_again_for_a_catalogue_the_knowledge_base_chang
     )
     generations = tmp_path.resolve() / "generations"
 
-    def rebuild(catalog):
+    def rebuild(catalog, previous):
         directory = generations / catalog.content_sha256
         if not (directory / "catalog-manifest.json").exists():
             vectors = embedding.embed_catalog(
@@ -596,7 +761,7 @@ def test_the_vectors_can_be_built_again_for_a_catalogue_the_knowledge_base_chang
                 runner.catalog,
                 prepared=frozenset(item.series_id for item in runner.status.series),
                 dense=dense,
-                rebuild_index=lambda catalog: pytest.fail("a restart must not build"),
+                rebuild_index=lambda catalog, previous: pytest.fail("a restart must not build"),
                 install_index=installed.append,
                 reopen_index=reopen,
             )
@@ -890,6 +1055,7 @@ def test_a_page_does_not_rebuild_the_whole_catalogue_every_time(tmp_path, monkey
         load_reviewed_snapshot(CATALOG.read_bytes()),
         prepared=frozenset({TOTAL}),
         source_directory=source_directory(),
+        catalog_edits=True,
     )
     try:
         first = service.listing(token, tab="listed", page=1)
@@ -920,3 +1086,50 @@ def test_the_list_route_takes_its_view_as_a_bounded_query(api):
     assert len(body["series"]) == 5 and body["total"] == body["counts"]["reviewed"]
     assert api.get("/v1/knowledge?page=0", headers=key).status_code == 422
     assert api.get("/v1/knowledge?page_size=500&page=1", headers=key).status_code == 422
+
+
+@pytest.mark.parametrize("flag", [True, False])
+def test_serve_hands_the_operator_s_catalogue_flag_to_the_knowledge_base(
+    tmp_path, monkeypatch, flag
+):
+    """--allow-catalog-edits is the one way a browser key may change a catalogue note."""
+    from test_prepared_api import set_config
+
+    from kkb_agent.api import __main__ as cli
+
+    def no_network(*args, **kwargs):
+        raise AssertionError("No live request in this test")
+
+    set_config(monkeypatch)
+    monkeypatch.setattr("socket.socket.connect", no_network)
+    root = tmp_path.resolve() / "prepared"
+    seed(root)
+    seen = {}
+    real = cli.KnowledgeService
+
+    def capture(*args, **kwargs):
+        seen["catalog_edits"] = kwargs.get("catalog_edits")
+        return real(*args, **kwargs)
+
+    class Provider:
+        def __enter__(self):
+            return scripted()
+
+        def __exit__(self, *args):
+            return None
+
+    monkeypatch.setattr(cli, "KnowledgeService", capture)
+    monkeypatch.setattr(cli, "KloudeksProvider", lambda *a: Provider())
+    monkeypatch.setattr(cli.uvicorn, "run", lambda app, **kwargs: None)
+    arguments = [
+        "--serve",
+        "--enable-model-requests",
+        "--prepared-root",
+        str(root),
+        "--catalog",
+        str(CATALOG),
+        "--state-root",
+        str(tmp_path.resolve() / "runtime"),
+    ]
+    assert cli.main([*arguments, "--allow-catalog-edits"] if flag else arguments) == 0
+    assert seen["catalog_edits"] is flag

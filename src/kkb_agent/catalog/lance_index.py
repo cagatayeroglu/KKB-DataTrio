@@ -216,6 +216,8 @@ class LocalCatalogIndex:
     #: Coverage worked out per catalogue digest, because a catalogue is asked about many
     #: times and reading 8,374 documents to answer the same question again is waste.
     _covering: dict[str, frozenset[str]]
+    #: Each identity's vector digest, as checked against its vector when this was opened.
+    _vector_digests: dict[str, str]
 
     @property
     def snapshot_sha256(self) -> str:
@@ -256,6 +258,40 @@ class LocalCatalogIndex:
             self._covering.clear()
         self._covering[snapshot.content_sha256] = covers
         return covers
+
+    def held_vectors(self, profile: VectorProfile) -> dict[str, tuple[str, tuple[float, ...]]]:
+        """Each identity's embedded text digest and vector, for a build under `profile`.
+
+        A vector is what the model returned for one text under one profile, and it stands
+        for that text under that profile only. Under any other profile nothing is held, so a
+        change of model, input policy, origin or text recipe embeds every entry again. The
+        rows are read back from the version checked at `open`, and a vector whose bytes no
+        longer match the digest checked then is not held: it is embedded again. Nothing
+        here fails a build: a generation that cannot be read back lends nothing.
+        """
+        if VectorProfile.model_validate(profile) != self._profile:
+            return {}
+        try:
+            data = self._table.to_arrow().select(["series_id", "text_sha256", "vector"])
+            ids = data.column("series_id").to_pylist()
+            texts = data.column("text_sha256").to_pylist()
+            vectors = data.column("vector").combine_chunks()
+        except Exception:
+            return {}
+        held: dict[str, tuple[str, tuple[float, ...]]] = {}
+        for position, (series_id, text) in enumerate(zip(ids, texts, strict=True)):
+            expected = self._vector_digests.get(series_id)
+            embedded = self._embedded.get(series_id)
+            if expected is None or embedded is None or embedded[0] != text:
+                continue
+            row = vectors[position]
+            if not row.is_valid:
+                continue
+            values = tuple(row.values.to_pylist())
+            if len(values) != DIMENSION or vector_digest(values) != expected:
+                continue
+            held[series_id] = (text, values)
+        return held
 
     @property
     def snapshot_version(self) -> str:
@@ -323,9 +359,10 @@ class LocalCatalogIndex:
             embedded = {
                 row.series_id: (row.text_sha256, row.concept_ids, row.family_ids) for row in rows
             }
+            vector_digests = {row.series_id: row.vector_sha256 for row in rows}
         except Exception:
             raise CatalogIndexError("INDEX_CONTENT_INVALID") from None
-        index = cls(table, manifest, profile, ordinals, embedded, {})
+        index = cls(table, manifest, profile, ordinals, embedded, {}, vector_digests)
         index.covering(snapshot)  # The catalogue it was opened against is asked about first.
         return index
 

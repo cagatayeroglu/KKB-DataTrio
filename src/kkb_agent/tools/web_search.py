@@ -274,11 +274,13 @@ def make_web_search_tool(*, backend: SearchBackend, timeout_seconds: float = 5.0
         name="web_search",
         description=(
             "Public-page discovery using the operator-configured SearchBackend. "
-            "Returns bounded ranked untrusted metadata, not verified factual or numeric evidence. "
-            "URLs are redacted display locators; search does not fetch pages or authorize web_url. "
-            "web_url can fetch only an exact address the user wrote in the original question. "
-            "Use it to find where data is published: the person is shown the candidates as an "
-            "unverified list and can write an address into a question for web_url to read."
+            "Returns bounded ranked untrusted metadata, not verified factual or numeric evidence, "
+            "and fetches no page itself. To read a page it found, add a web_url step with "
+            "found_by=<this step's id> and result=<which hit>, and list this step in its "
+            "depends_on: the address is taken from what the search returned, never written out. "
+            "When the question gives a web address, read that address with web_url first; "
+            "search only if it is insufficient. The person is shown the candidates as an "
+            "unverified list, beside any computed answer."
         ),
         arguments=SearchRequest,
         run=run,

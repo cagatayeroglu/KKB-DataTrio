@@ -882,6 +882,10 @@ export const knowledgeErrorText: Record<string, string> = {
   forbidden:
     "Yerel bağlantı doğrulanamadı. Arayüzü 127.0.0.1:3000 adresinden aç.",
   body_too_large: "Dosya ya da satırlar boyut sınırını aşıyor.",
+  // Not `forbidden`: the key and the origin are fine; the operator has not
+  // opened catalogue notes on this installation (finding N43).
+  catalog_read_only:
+    "Bu kurulumda katalog notları salt okunur; arşiv, eş anlamlı ve açıklamayı yalnızca sunucuyu --allow-catalog-edits ile başlatan operatör açabilir.",
 };
 export function describeKnowledgeError(error: unknown) {
   if (error instanceof ApiError)

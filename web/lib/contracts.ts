@@ -726,6 +726,10 @@ export const knowledgeListSchema = z
     page_size: z.number().int().min(1).max(100).nullable().optional(),
     counts: z.record(z.string(), z.number().int().min(0)).nullable().optional(),
     provinces: z.array(z.string().max(200)).max(128).optional(),
+    // Whether this installation takes catalogue notes (the operator's
+    // --allow-catalog-edits). Absent on an older server: read as not editable,
+    // as an absent capability is everywhere else on the page.
+    catalog_editable: z.boolean().optional(),
   })
   .strict();
 export const datasetDetailSchema = z
@@ -775,6 +779,9 @@ export const noteHistorySchema = z
             aliases: z.array(z.string().max(120)).max(10),
             note: z.string().max(1000).nullable(),
             created_at: moment,
+            // Whether this browser's key wrote the version; null when the row
+            // has no author, absent on an older server. Never an owner id.
+            by_you: z.boolean().nullable().optional(),
           })
           .strict(),
       )

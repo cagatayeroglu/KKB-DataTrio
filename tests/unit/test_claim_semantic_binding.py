@@ -671,3 +671,108 @@ def test_typed_lag_observation_and_window_roles_do_not_license_money(connection)
         gate_answer("Lag 1 ile 1 milyon TL arttı.", {"credit": table}, connection).status
         is AnswerStatus.ABSTAINED
     )
+
+
+def _january_and_february():
+    january = result().values[0]
+    february = january.model_copy(
+        update={
+            "value": 200.0,
+            "period": Period(
+                start=date(2025, 2, 1), end=date(2025, 2, 28), frequency=Frequency.MONTHLY
+            ),
+        }
+    )
+    return result().model_copy(update={"values": [january, february]})
+
+
+@pytest.mark.parametrize("separator", [" ve ", ", ", "; "])
+def test_written_period_ranges_each_date_their_own_figure(connection, separator):
+    # N45 (live W1-W3, 2026-09-22): the writer is shown 2025-01-01..2025-01-31 and a model
+    # writes it back. Each range was read as two dates with nothing between them, so the
+    # clause paired nothing and both correct figures were refused for the other month.
+    table = {"credit": _january_and_february()}
+    correct = (
+        f"2025-01-01..2025-01-31 dönemi 100 milyon TL{separator}"
+        "2025-02-01..2025-02-28 dönemi 200 milyon TL."
+    )
+    assert gate_answer(correct, table, connection).status is AnswerStatus.ACCEPTED
+    swapped = (
+        f"2025-01-01..2025-01-31 dönemi 200 milyon TL{separator}"
+        "2025-02-01..2025-02-28 dönemi 100 milyon TL."
+    )
+    assert gate_answer(swapped, table, connection).status is AnswerStatus.ABSTAINED
+
+
+def test_two_written_ranges_that_share_one_figure_both_have_to_hold(connection):
+    shared = "2025-01-01..2025-01-31 ve 2025-02-01..2025-02-28 dönemlerinde 100 milyon TL."
+    table = {"credit": _january_and_february()}
+    assert gate_answer(shared, table, connection).status is AnswerStatus.ABSTAINED
+
+
+def test_one_written_range_still_bounds_its_figure(connection):
+    table = {"credit": _january_and_february()}
+    inside = "2025-02-01..2025-02-28 döneminde bakiye 200 milyon TL oldu."
+    assert gate_answer(inside, table, connection).status is AnswerStatus.ACCEPTED
+    # A range the value's own period does not contain is still refused.
+    wider = "2025-01-01..2025-02-28 döneminde bakiye 200 milyon TL oldu."
+    assert gate_answer(wider, table, connection).status is AnswerStatus.ABSTAINED
+
+
+@pytest.mark.parametrize(
+    "draft",
+    [
+        # Live G3 (N44): the model's own correct conversion lost the whole sentence.
+        "Ocak 2025'te 512.259 milyon TL idi; bu, 512,259 milyar TL'ye karşılık gelir.",
+        "Ocak 2025'te bakiye 512,259 milyar TL.",
+        "Ocak 2025'te bakiye 512,2590 milyar TL.",
+        "Ocak 2025'te 512,259 milyarlık bakiye.",
+        "Ocak 2025'te bakiye 512,259 milyara ulaştı.",
+        "Ocak 2025'te bakiye 512.259.000 bin TL.",
+    ],
+)
+def test_a_value_written_at_another_explicit_scale_binds_exactly(connection, draft):
+    table = {"credit": result(value=512259.0)}
+    assert gate_answer(draft, table, connection).status is AnswerStatus.ACCEPTED
+
+
+@pytest.mark.parametrize(
+    "draft",
+    [
+        "Ocak 2025'te bakiye 0,512259 milyar TL.",  # live G3b: a thousandfold error
+        "Ocak 2025'te bakiye 512.259 milyar TL.",  # Turkish thousands: 512 259 milyar
+        "Ocak 2025'te 512.259 milyarlık bakiye.",  # an inflected scale word is a scale word
+        "Ocak 2025'te bakiye 512.259 milyara ulaştı.",
+        "Ocak 2025'te bakiye 512,259 bin TL.",
+        "Ocak 2025'te bakiye 512,259 milyar USD.",
+        "Haziran 2025'te bakiye 512,259 milyar TL.",
+    ],
+)
+def test_a_wrong_conversion_or_its_qualifiers_still_fail(connection, draft):
+    table = {"credit": result(value=512259.0)}
+    assert gate_answer(draft, table, connection).status is AnswerStatus.ABSTAINED
+
+
+def test_a_conversion_needs_a_recorded_scale_on_both_sides(connection):
+    unresolved = result(value=512259.0).model_copy(
+        update={
+            "values": [
+                result().values[0].model_copy(update={"value": 512259.0, "scale": Scale.UNKNOWN})
+            ],
+            "unresolved_semantics": ["scale not stated by the source"],
+        }
+    )
+    unknown = {"credit": unresolved}
+    assert (
+        gate_answer("Ocak 2025'te bakiye 512,259 milyar TL.", unknown, connection).status
+        is AnswerStatus.ABSTAINED
+    )
+    thousands = {"credit": result(value=512259.0, scale=Scale.THOUSAND)}
+    assert (
+        gate_answer("Ocak 2025'te bakiye 512,259 milyon TL.", thousands, connection).status
+        is AnswerStatus.ACCEPTED
+    )
+    assert (
+        gate_answer("Ocak 2025'te bakiye 512.259 milyon TL.", thousands, connection).status
+        is AnswerStatus.ABSTAINED
+    )

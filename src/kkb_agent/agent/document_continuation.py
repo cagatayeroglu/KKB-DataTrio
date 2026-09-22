@@ -114,8 +114,17 @@ INSTRUCTIONS = (
     "reading with a useful Turkish summary of what this document actually says; or abstain=true "
     "when it cannot answer. Do not calculate numbers, invent links or substitute a summary for "
     "requested calculations. Transcribed figures in a reading are unverified source statements. "
-    "Only one same-origin hop is permitted. No URL or other tool can be proposed here."
+    "Only one same-origin hop is permitted. No URL or other tool can be proposed here. "
+    "The payload may carry `reached_through`: the link this document was opened by and the "
+    "page that link was on. It is what you were given, never a field of your answer, and it "
+    "means a link was followed, so a reading never says that none was followed or needed. "
+    "Answer with one JSON object whose keys are only those of the schema: follow, selection, "
+    "reading, abstain. There is no action, summary or any other key: a reading is "
+    '{"reading": "..."}, a link is {"follow": 3}, and giving up is {"abstain": true}.'
 )
+#: The keys are spelled out because a model reads the prose above as a shape of its own:
+#: live 2026-09-22, the inspection after a followed link answered with `action` and
+#: `summary`, twice, and the turn lost an answer the page held (S1, W5).
 
 
 def continue_document(
@@ -127,10 +136,15 @@ def continue_document(
     budget: Budget,
     choose: Callable[[list[Message]], DocumentContinuation],
     tracer: Tracer | None,
+    repair_pending: bool = False,
 ) -> ExecutionOutcome:
-    if any(r.status is not ToolStatus.SUCCESS for r in outcome.results):
+    # With a corrected plan coming, the failed step is answered by planning again and this
+    # inspection would pay for a page the next plan may not even want. With none coming, a
+    # document already fetched is what the turn has, and dropping it for a sibling step's
+    # failure is how the reader was told nothing about a page in hand (live W5, 2026-09-22).
+    if repair_pending and any(r.status is not ToolStatus.SUCCESS for r in outcome.results):
         return outcome
-    successful = list(outcome.results)
+    successful = [r for r in outcome.results if r.status is ToolStatus.SUCCESS]
     if any(
         getattr(r.output, "result", None) is not None or r.tool == "document_read"
         for r in successful
@@ -169,7 +183,7 @@ def continue_document(
         links = output.links[:200] if not output.followed else ()
         if not text.strip() and not links and not preview:
             break  # No admitted content to inspect; a model call cannot add authority.
-        payload = {
+        payload: dict[str, object] = {
             "text": text[:6000],
             "links": [
                 {
@@ -181,6 +195,15 @@ def continue_document(
             ],
             "tables": preview,
         }
+        if output.followed:
+            # A followed document lists no links of its own (one hop), and alone that read as
+            # "nothing to follow": live 2026-09-22 (N46), the reading of a press release
+            # reached through "21 Mart 2024" said no link had needed following. The page is
+            # its scheme, host and path, as recorded; never a query string.
+            payload["reached_through"] = {
+                "link_text": output.followed_text,
+                "from_page": output.followed_from,
+            }
         checkpoint("document.continuation")
         try:
             choice = choose(

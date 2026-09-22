@@ -27,7 +27,23 @@ SCALE_WORDS = {
     "million": Scale.MILLION,
     "billion": Scale.BILLION,
 }
-SCALE = re.compile(r"\s*(" + "|".join(SCALE_WORDS) + r")(?:u|ı|ü|i)?\b", re.I)
+#: Turkish puts its case, possessive and "-lık" endings on the scale word itself: "512.259
+#: milyarlık bakiye", "milyara ulaştı", "milyonun üzerinde". The scale is the same word; read
+#: without its ending it was no scale at all, and a thousandfold error went unchecked (N44).
+#: "bin" takes front-vowel endings only, so "bina" stays a building.
+_BACK = r"(?:l[ıiuü](?:k|ğ[ıiuüae])|l[ae]r|l[ae]|[dt][ae]n?|n?[ıiuü]n|y[ae]|[ae]|[ıiuü])?"
+_SCALE_ENDINGS = {
+    "bin": r"(?:l[iı](?:k|ğ[ie])|ler|le|[dt]en?|[dt]e|n?in|e|i)?",
+    "milyon": _BACK,
+    "milyar": _BACK,
+    "thousand": "s?",
+    "million": "s?",
+    "billion": "s?",
+}
+SCALE = re.compile(
+    r"\s*(?:" + "|".join(f"({word}){ending}" for word, ending in _SCALE_ENDINGS.items()) + r")\b",
+    re.I,
+)
 UNITS = {
     "tl": "try",
     "try": "try",
@@ -235,7 +251,11 @@ def amount_qualifiers(text: str, start: int, end: int) -> tuple[Scale | None, tu
     """Only attached qualifiers; never borrow the next number's scale or unit."""
     suffix = text[end:]
     scale_match = SCALE.match(suffix)
-    scale = SCALE_WORDS[fold(scale_match[1])] if scale_match else None
+    scale = (
+        SCALE_WORDS[fold(next(word for word in scale_match.groups() if word))]
+        if scale_match
+        else None
+    )
     unit_tail = suffix[scale_match.end() :] if scale_match else suffix
     units = []
     for match in UNIT.finditer(text[:start]):
@@ -533,7 +553,16 @@ def mask_price_references(text: str, references: Sequence[date]) -> str:
 
 def _dated_mentions(context: str) -> list[tuple[int, int]]:
     """Where a clause names a period: a date, a month with its year, or a year alone."""
-    spans = [(found.start(), found.end()) for found in ISO_DATE.finditer(context)]
+    # "2026-07-01..2026-07-31" is one period: the display this system writes for the writer,
+    # and the one a model copies back. Read as two dates with nothing between them, a clause
+    # that gave each period its own figure paired nothing, and every figure was refused for
+    # the other periods (N45, live W1-W3 on 2026-09-22).
+    spans = [(found.start(), found.end()) for found in DATE_RANGE.finditer(context)]
+    spans += [
+        (found.start(), found.end())
+        for found in ISO_DATE.finditer(context)
+        if not any(start <= found.start() < end for start, end in spans)
+    ]
     # "2026-06" is one mention. Read as a year with a stray "-06" after it, the "06" counted
     # as a figure standing after the last date, and a price month nobody recorded paired off.
     spans += [

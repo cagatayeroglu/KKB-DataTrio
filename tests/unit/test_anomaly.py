@@ -472,11 +472,28 @@ class TestTheTool:
         assert outcome.status is ToolStatus.FAILURE
         assert outcome.error_category == "series_unknown"
 
-    def test_the_threshold_is_not_a_planner_argument(self, house):
-        # A model that can move a threshold will move it until something looks
-        # interesting, and the output would not show that it had.
+    def test_a_moved_threshold_is_the_planner_s_but_never_silent(self, house):
+        # The sensitivity was withheld because a model able to move a threshold would move
+        # it until something looked interesting. It is an argument now, and what answers
+        # that better than the refusal did is the record: every result carries the value it
+        # was scored with and says the default is proposed, not measured.
         described = self.registry(house).descriptions()[0]["arguments"]["properties"]
-        assert set(described) == {"series_id", "source", "column", "start", "end"}
+        assert set(described) == {
+            "series_id",
+            "source",
+            "column",
+            "start",
+            "end",
+            "threshold",
+            "minimum_changes",
+        }
+        loosened = self.run(house, threshold=1.0)
+        assert loosened.status is ToolStatus.SUCCESS
+        parameters = loosened.output.parameters
+        assert parameters["threshold"] == 1.0
+        assert parameters["threshold_status"].startswith("PROPOSED")
+        # And the default still stands when the planner says nothing.
+        assert self.run(house).output.parameters["threshold"] != 1.0
 
 
 class TestTheWindowSaysWhereItBegins:

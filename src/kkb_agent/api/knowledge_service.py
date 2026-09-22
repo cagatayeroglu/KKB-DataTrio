@@ -5,6 +5,8 @@ fetchable on first use, or catalog only) and user datasets — with where each
 one's meaning comes from. Writing never touches the reviewed catalog or the
 prepared pool: it appends a version to the knowledge base, which the next turn
 applies as its catalog. Every write names its author, the browser key's owner.
+A note on a reviewed or listed entry applies to every key's catalogue, so it is
+written only when the operator started the server with --allow-catalog-edits.
 """
 
 from __future__ import annotations
@@ -42,7 +44,7 @@ from kkb_agent.catalog.directory import source_directory as build_source_directo
 from kkb_agent.catalog.discovered import DiscoveredStore, listed_entry
 from kkb_agent.catalog.expansion import expand_groups
 from kkb_agent.catalog.hybrid import CatalogDenseStage, search_hybrid_catalog
-from kkb_agent.catalog.lance_index import CatalogIndexError
+from kkb_agent.catalog.lance_index import CatalogIndexError, LocalCatalogIndex
 from kkb_agent.catalog.mappings import ReviewedSeries, ReviewedSnapshot, is_source_group
 from kkb_agent.catalog.normalization import normalize_search_text
 from kkb_agent.catalog.records import CatalogRecord, CatalogStatus
@@ -161,21 +163,28 @@ class KnowledgeService:
         acquisitions: Callable[[], dict[str, dict[str, object]]] | None = None,
         series_values: Callable[[str], tuple[tuple[date, date, float | None], ...]] | None = None,
         dense: CatalogDenseStage | None = None,
-        rebuild_index: Callable[[ReviewedSnapshot], CatalogDenseStage] | None = None,
+        rebuild_index: (
+            Callable[[ReviewedSnapshot, LocalCatalogIndex | None], CatalogDenseStage] | None
+        ) = None,
         install_index: Callable[[CatalogDenseStage], None] | None = None,
         reopen_index: Callable[[ReviewedSnapshot], CatalogDenseStage | None] | None = None,
         source_directory: SourceDirectory | None = None,
         discovered: DiscoveredStore | None = None,
         install_directory: Callable[[SourceDirectory], None] | None = None,
+        catalog_edits: bool = False,
     ) -> None:
         self._knowledge = knowledge
+        # Whether a browser key may note reviewed and listed entries: the operator's
+        # --allow-catalog-edits. Off unless given, so a caller that forgets it fails closed.
+        self._catalog_edits = catalog_edits
         self._install_directory = install_directory
         self._refreshing = threading.Lock()
         # The EVDS series lists opened so far; a trial search opens datagroups as a turn does.
         self._discovered = discovered
         self._dense = dense
-        # Building a generation calls the embedding model once per catalogue entry,
-        # so it runs on its own thread and one at a time; reading never does.
+        # Building a generation calls the embedding model for every entry the generation in
+        # use does not already hold, so it runs on its own thread and one at a time; reading
+        # never does.
         self._rebuild = rebuild_index
         self._install = install_index
         self._reopen = reopen_index
@@ -426,12 +435,14 @@ class KnowledgeService:
     def rebuild(self, owner_token: str) -> VectorIndexStatus:
         """Build the vectors again for the catalogue in use now, with the same profile.
 
-        Accepted, not finished: the build calls the embedding model once per
-        catalogue entry and runs on its own thread, so the page polls the status.
-        One build runs at a time. The model, the input policy and the dimension are
-        the deployment's; nothing here selects them. A new generation is written and
-        installed for later turns only after it verifies against the catalogue it
-        was built for; on any failure the generation in use is left untouched.
+        Accepted, not finished: the build runs on its own thread, so the page polls the
+        status. One build runs at a time. The generation in use lends the build every
+        vector whose text and profile have not changed, so the embedding model is called
+        only for new or changed entries, and it keeps answering searches and turns until
+        its successor is installed. The model, the input policy and the dimension are the
+        deployment's; nothing here selects them. A new generation is written and installed
+        for later turns only after it verifies against the catalogue it was built for; on
+        any failure the generation in use is left untouched.
         """
         self._author(owner_token)
         if self._rebuild is None:
@@ -450,10 +461,11 @@ class KnowledgeService:
             self._building.release()
             return self.index_status(owner_token)
         build, install = self._rebuild, self._install
+        previous = self._dense.index if self._dense is not None else None
 
         def run() -> None:
             try:
-                stage = build(catalog)
+                stage = build(catalog, previous)
                 if stage.index.snapshot_sha256 != catalog.content_sha256:
                     raise CatalogIndexError("INDEX_CATALOG_DIGEST_MISMATCH")
                 if self._dense is not None and stage.index.profile != self._dense.index.profile:
@@ -592,6 +604,7 @@ class KnowledgeService:
                 reviewed_digest=self._reviewed.content_sha256,
                 series=tuple(self._with_search_text(entries, catalog)),
                 listed_series=listed_total,
+                catalog_editable=self._catalog_edits,
             )
         counts = {name: sum(_in_tab(item, name) for item in entries) for name in KNOWLEDGE_TABS}
         provinces = sorted(
@@ -632,6 +645,7 @@ class KnowledgeService:
             page_size=size,
             counts=counts,
             provinces=tuple(provinces),
+            catalog_editable=self._catalog_edits,
         )
 
     def _opened(self) -> tuple[ReviewedSeries, ...]:
@@ -790,7 +804,13 @@ class KnowledgeService:
         )
 
     def note_history(self, owner_token: str, series_id: str) -> SeriesNoteHistory:
-        self._author(owner_token)
+        """Every version of a series' note, and whether the reading key wrote each one.
+
+        The store kept each version's author, yet the history showed none, so an archive
+        that came from another browser read like one's own (finding N43). Only the
+        comparison travels: an owner id is never shown to another key.
+        """
+        reader = self._author(owner_token)
         return SeriesNoteHistory(
             series_id=series_id,
             history=tuple(
@@ -800,6 +820,7 @@ class KnowledgeService:
                     aliases=note.aliases,
                     note=note.note,
                     created_at=note.created_at,
+                    by_you=None if note.author is None else note.author == reader,
                 )
                 for note in self._knowledge.note_history(series_id)
             ),
@@ -984,9 +1005,22 @@ class KnowledgeService:
     def annotate(
         self, owner_token: str, series_id: str, request: SeriesNoteRequest
     ) -> SeriesNoteHistory:
+        """Archive, alias or describe a reviewed or listed entry, when the operator allows it.
+
+        A note is not the writer's own: `effective_snapshot` applies it to every key's
+        searches and turns, and a reviewed series' description reaches every planner
+        prompt. Any key from the unauthenticated `POST /v1/owner` archived the BDDK
+        housing-loan TOTAL out of everyone's "konut kredisi bakiyesi" search, and one
+        alias made TÜFE the single unambiguous candidate for "toplam konut kredisi"
+        (finding N43, reproduced 2026-09-22). So these edits are the operator's authority
+        (DEC-162): without --allow-catalog-edits nothing is written. The refusal comes after
+        the key and series checks, so an unknown key or series still reads as not found.
+        """
         author = self._author(owner_token)
         if series_id not in self._annotatable():
             raise ServiceError("not_found", 404)
+        if not self._catalog_edits:
+            raise ServiceError("catalog_read_only", 403)
         try:
             with self._catalog_change:
                 self._knowledge.annotate(
