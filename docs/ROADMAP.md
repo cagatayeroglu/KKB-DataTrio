@@ -1,5 +1,7 @@
 # Mission / success criteria
 
+- [ ] **FINAL-CRITICAL-FIX-PASS**; Status: IN PROGRESS; Owner: Çağatay / Codex; Branch: `codex/final-critical-fixes` (base `b243015`); PR: pending; Commit: pending; Tests: pending per root-cause batch. Scope: user-authorized numeric semantics, derived proof, versioned gold, temporal gaps, ingestion and writer/publication reliability fixes; no model-budget changes or live model calls. Blocker: none; Handoff: isolated worktree; original generated file preserved.
+
 Deliver an evidence-backed financial analyst by the organizer's **20 September 2026** development deadline, with a live demo on **17 October 2026** for teams that advance ([DEC-131](DECISIONS.md#dec-131--organizer-kick-off-brief-schedule-delivery-form-and-demo-day-input-scope)). A teammate must be able to load a supported unfamiliar source, ask a financial question, inspect a typed plan, receive deterministically computed results, and trace every material claim to data, transformations, and validation. A follow-up question must reuse explicit analysis state correctly.
 
 Demo acceptance requires all of these observable outcomes:
