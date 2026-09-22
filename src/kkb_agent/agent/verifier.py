@@ -702,7 +702,41 @@ def window_counts(results: Iterable[AnalyticalResult]) -> tuple[WindowCount, ...
             )
         if result.coverage is not None:
             found.update(_span_counts(result.coverage))
+        found.update(_lag_counts(result))
     return tuple(sorted(found, key=lambda count: (count.value, count.role)))
+
+
+#: How a period unit is said, for a lag the harness itself applied.
+_LAG_ROLE: Final = {
+    Frequency.MONTHLY: "months",
+    Frequency.WEEKLY: "weeks",
+    Frequency.DAILY: "days",
+    Frequency.BUSINESS_DAY: "days",
+}
+
+
+def _lag_counts(result: AnalyticalResult) -> set[WindowCount]:
+    """A lag this result was computed with, in the periods its own table counts.
+
+    "12 aylık değişim 28,97" reports a change the harness computed with lag=12, and the
+    12 in it is that parameter, not a figure of any series. Withheld, the sentence took
+    the change with it (live 2026-09-22). It binds like any other count: only where a
+    clause names its role, and never with an amount word attached.
+    """
+    frequency = result.coverage.frequency if result.coverage is not None else None
+    if frequency is None:
+        frequency = next(
+            (value.period.frequency for value in result.values if value.period is not None), None
+        )
+    role = _LAG_ROLE.get(frequency) if frequency is not None else None
+    if role is None or result.evidence is None:
+        return set()
+    found: set[WindowCount] = set()
+    for record in result.evidence.transformations:
+        lag = record.parameters.get("lag")
+        if isinstance(lag, int) and not isinstance(lag, bool) and lag > 0:
+            found.add(WindowCount(float(lag), role))
+    return found
 
 
 def _span_counts(period: Period) -> set[WindowCount]:

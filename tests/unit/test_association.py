@@ -867,3 +867,109 @@ class TestTheTool:
         assert outcome.status is ToolStatus.SUCCESS
         assert outcome.output.status is ResultStatus.INSUFFICIENT
         assert outcome.evidence is None
+
+
+def test_two_columns_of_one_table_can_be_measured_when_the_series_cannot(tmp_path):
+    """The prepared rates are weekly and the balances monthly, so an association between
+    them can only be measured on a table that already brought them onto one calendar.
+
+    Until now the tool took registered series only: it refused with "align them explicitly"
+    and no tool could do the aligning, because no registered series is the resampled
+    column. The planner was told to do something it had no way of doing (live 2026-09-22,
+    and Eray's audit before it).
+    """
+    from pydantic import ValidationError
+
+    from kkb_agent.core import (
+        AnalyticalResult,
+        Period,
+        ResultEvidence,
+        ResultKind,
+        ResultStatus,
+        ResultValue,
+    )
+
+    months = [_month_end(2022, month) for month in range(1, 13)] + [
+        _month_end(2023, month) for month in range(1, 13)
+    ]
+
+    def column(label, values, unit, measure):
+        return [
+            ResultValue(
+                label=label,
+                value=float(value),
+                unit=unit,
+                scale=Scale.ONE if unit == "percent" else Scale.MILLION,
+                measure=measure,
+                period=Period(start=end.replace(day=1), end=end, frequency=Frequency.MONTHLY),
+            )
+            for end, value in zip(months, values, strict=True)
+        ]
+
+    rates = [20 + (index % 5) for index in range(24)]
+    balances = [100 + index * 3 for index in range(24)]
+    table = AnalyticalResult(
+        result_id="fixture:joined",
+        kind=ResultKind.SERIES,
+        status=ResultStatus.COMPUTED,
+        tool="table_transform",
+        method="join-monthly-table-v1",
+        evidence=ResultEvidence(input_refs=["silver_observations"]),
+        values=[
+            *column("EVDS:TP.KTF12 monthly average (by_end)", rates, "percent", StockFlow.RATE),
+            *column("BDDK:konut", balances, "TRY", StockFlow.STOCK),
+        ],
+    )
+    from kkb_agent.tools.causality import _column_of
+
+    # Each column is read as a series: its own observations, and the semantics its cells
+    # declare. The resampled rate is a column, not a registered series, which is why the
+    # identity-only contract could not reach it.
+    rate = _column_of(table, "EVDS:TP.KTF12 monthly average (by_end)")
+    balance = _column_of(table, "BDDK:konut")
+    assert not isinstance(rate, str) and not isinstance(balance, str)
+    assert len(rate.observations) == 24 and rate.semantics.frequency is Frequency.MONTHLY
+    assert rate.semantics.unit == "percent" and balance.semantics.scale is Scale.MILLION
+    assert [item.value for item in balance.observations] == [float(v) for v in balances]
+
+    # A column that is a summary, or absent, is refused in words that name it.
+    assert isinstance(_column_of(table, "yok"), str)
+    assert "yok" in _column_of(table, "yok")
+
+    # The measurement itself is the same one the identity path performs.
+    measured = associate(
+        rate.observations,
+        rate.semantics,
+        balance.observations,
+        balance.semantics,
+        left_id="EVDS:TP.KTF12 monthly average (by_end)",
+        right_id="BDDK:konut",
+        start=None,
+        end=None,
+        input_refs=("silver_observations",),
+    )
+    assert measured.status is ResultStatus.COMPUTED, measured.reason
+
+    arguments = CausalityArguments.model_validate(
+        {
+            "operation": "association",
+            "source": "birlesik",
+            "left_column": "EVDS:TP.KTF12 monthly average (by_end)",
+            "right_column": "BDDK:konut",
+        }
+    )
+    tool = make_causality_tool(open_lakehouse(tmp_path / "lake").__enter__().connection)
+    assert tool.table_input(arguments).source == "birlesik"
+    # Two identities still work, and naming both ways at once is refused.
+    assert (
+        tool.table_input(
+            CausalityArguments.model_validate(
+                {"operation": "association", "left_series_id": "A", "right_series_id": "B"}
+            )
+        )
+        is None
+    )
+    with pytest.raises(ValidationError):
+        CausalityArguments.model_validate(
+            {"operation": "association", "left_series_id": "A", "source": "analiz_1"}
+        )
