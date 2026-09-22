@@ -151,7 +151,6 @@ def session(candidate, draft="table: 999 TL.", *, later=None):
     "case",
     [
         "bad_evidence",
-        "writer_error",
         "wrong_number",
         "verifier_error",
         "failed_step",
@@ -166,13 +165,12 @@ def test_unsuccessful_turn_leaves_all_workspace_tables_unchanged(space, monkeypa
     draft = "table: 999 TL."
     expected = AnswerStatus.ABSTAINED
     later = None
-    if case == "writer_error":
-        draft = ProviderError("fixture provider failure")
-    elif case == "wrong_number":
+    if case == "wrong_number":
         draft = "table: 777 TL."
     elif case == "uncited_bad_candidate":
         draft = "other: 500 TL."
-        expected = AnswerStatus.ACCEPTED
+        # Invalid current execution stops before synthesis. The writer no longer
+        # spends a call answering from an unrelated old table instead.
     elif case in ("failed_step", "partial_step"):
         later = ToolStatus.FAILURE if case == "failed_step" else ToolStatus.PARTIAL
         # DEC-165: every figure binds, but a plan that did not run whole is QUALIFIED,
@@ -196,14 +194,28 @@ def test_unsuccessful_turn_leaves_all_workspace_tables_unchanged(space, monkeypa
     if case == "planner_error":
         turn.provider.responses[0] = ProviderError("fixture planner failure")
     before = snapshot(space)
-    if case in ("writer_error", "planner_error", "verifier_error"):
+    if case in ("planner_error", "verifier_error"):
         with pytest.raises((ProviderError, RuntimeError)):
             turn.answer("fixture", space.connection, workspace=space, remember="table")
     else:
         answer = turn.answer("fixture", space.connection, workspace=space, remember="table")
         assert answer.answer.status is expected
+        if case == "uncited_bad_candidate":
+            assert len(turn.provider.seen) == 1
     assert snapshot(space) == before
     assert space.value_of("table").values[0].value == 100.0
+    assert space.stale() == set()
+
+
+def test_verified_scalar_survives_writer_failure_without_changing_prior_tables(space):
+    previous = {name: space.value_of(name).digest() for name in ("table", "derived", "other")}
+    turn = session(result(), ProviderError("fixture provider failure"))
+    answer = turn.answer("fixture", space.connection, workspace=space, remember="new")
+    assert answer.answer.status is AnswerStatus.ACCEPTED
+    assert space.value_of("new").values[0].value == 999.0
+    assert "yazılı değerlendirme üretilemedi" in answer.answer.text
+    assert "tablosu" not in answer.answer.text
+    assert {name: space.value_of(name).digest() for name in previous} == previous
     assert space.stale() == set()
 
 
