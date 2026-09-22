@@ -91,6 +91,7 @@ class RowRules:
     convention_used: bool = False
     #: Per column for an OCR table (DEC-149); None for text the document holds.
     checked: tuple[bool, ...] | None = None
+    normalizations: tuple[dict[str, JsonValue], ...] = ()
 
     @classmethod
     def for_grid(cls, grid: Grid, *, year: int | None, as_of: date | None) -> RowRules:
@@ -98,7 +99,13 @@ class RowRules:
             context = context_year(grid, year)
         except ValueNotSelected as error:
             raise ColumnRefused(error.code) from None
-        return cls(context, as_of, number_convention(grid.rows), checked=grid.checked)
+        return cls(
+            context,
+            as_of,
+            number_convention(grid.rows),
+            checked=grid.checked,
+            normalizations=grid.normalizations,
+        )
 
     def column_checked(self, index: int) -> bool:
         """False only for an OCR column that does not add up to its total row."""
@@ -142,6 +149,8 @@ class RowRules:
     def evidence(self) -> dict[str, JsonValue]:
         """The decisions to record; empty when none of these rules applied."""
         recorded: dict[str, JsonValue] = {}
+        if self.normalizations:
+            recorded["normalizations"] = list(self.normalizations)
         if self.checked is not None:
             recorded["extraction"] = "ocr"
             recorded["validation"] = "column total"

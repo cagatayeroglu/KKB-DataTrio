@@ -47,6 +47,8 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Literal
 
+from pydantic import JsonValue
+
 from kkb_agent.catalog.normalization import normalize_search_text
 from kkb_agent.core import (
     AnalyticalResult,
@@ -177,6 +179,7 @@ class Grid:
     years: tuple[int, ...] = ()
     #: OCR tables only (DEC-149): per column, whether it adds up to the total row.
     checked: tuple[bool, ...] | None = None
+    normalizations: tuple[dict[str, JsonValue], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -199,6 +202,7 @@ class Cell:
     convention: Convention | None = None
     #: Read by OCR from a page without text, from a column that adds up (DEC-149).
     ocr: bool = False
+    normalizations: tuple[dict[str, JsonValue], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -222,7 +226,14 @@ def grids(
         location: dict[str, str | int] = {"table": 1}
         if isinstance(table, XlsxTable):
             location["sheet"] = table.selection
-        return [Grid(location, tuple(table.headers), tuple(table.rows))]
+        return [
+            Grid(
+                location,
+                tuple(table.headers),
+                tuple(table.rows),
+                normalizations=table.normalizations if isinstance(table, XlsxTable) else (),
+            )
+        ]
     if isinstance(document, HtmlDocument):
         return [
             Grid({"table": table.number}, table.rows[0], table.rows[1:])
@@ -438,6 +449,11 @@ def select_cell(tables: list[Grid], column: str, row: str, *, year: int | None =
                         used,
                         convention,
                         grid.checked is not None,
+                        tuple(
+                            n
+                            for n in grid.normalizations
+                            if n["row"] == number + 1 and n["column"] == target + 1
+                        ),
                     )
                 )
     if not matches:
@@ -672,6 +688,7 @@ def document_value(
             "header": cell.header,
             "row_label": cell.row_label,
             "cell_text": _text(cell.raw),
+            **({"normalizations": list(cell.normalizations)} if cell.normalizations else {}),
             "unit_source": "column header" if reading.unit is not None else None,
             "period_source": _period_source(reading, cell),
         },
