@@ -16,7 +16,7 @@ from kkb_agent.api.app import create_app
 from kkb_agent.api.prepared import PreparedRunner
 from kkb_agent.api.proof import build_proof
 from kkb_agent.api.service import AnalysisService
-from kkb_agent.core import Scale, StockFlow
+from kkb_agent.core import Frequency, Scale, StockFlow
 from kkb_agent.lakehouse import open_lakehouse
 from kkb_agent.llm import scripted
 from kkb_agent.tools._document_column import ColumnRefused
@@ -122,13 +122,77 @@ def test_a_column_with_fewer_than_two_values_is_left_out():
         ([grid(), grid(location={"table": 2})], "AMBIGUOUS_COLUMN"),
         ([grid(rows=(*ROWS, ("2026-06", "1", "1", "1", "1")))], "DUPLICATE_PERIOD"),
         ([grid(rows=(*ROWS, ("Ortalama", "1", "1", "1", "1")))], "PERIOD_NOT_RECOGNISED"),
-        ([grid(rows=(("2026-04-15", "1", "1", "1", "1"),))], "PERIOD_NOT_RECOGNISED"),
+        # A period column names one kind of period; a day among month labels is neither.
+        (
+            [grid(rows=(("2026-04-15", "1", "1", "1", "1"), ("Mayıs", "2", "2", "2", "2")))],
+            "PERIOD_NOT_RECOGNISED",
+        ),
+        (
+            [grid(rows=(("15.04.2026", "1", "1", "1", "1"), ("15.04.2026", "2", "2", "2", "2")))],
+            "DUPLICATE_PERIOD",
+        ),
     ],
 )
 def test_period_problems_refuse_the_whole_table(tables, code):
     with pytest.raises(ColumnRefused) as refused:
         read_table(tables, "Ay", ["Kapanış", "Faiz"])
     assert refused.value.code == code
+
+
+class TestDaysStayDays:
+    """A period column of single days publishes daily rows, reducing nothing.
+
+    Reducing days to months picks or derives a figure, which is why it needs the user's own
+    word for the rule (`daily_to_monthly`). Keeping the days as days invents nothing, so it
+    needs no word -- and until this existed there was no way at all to publish a daily
+    source table: every such column refused with PERIOD_NOT_RECOGNISED (Eray, 2026-09-22).
+    """
+
+    ROWS = (
+        ("15.04.2026", "9000", "4,5", "12.5", "1.234"),
+        ("16.04.2026", "9100", "4,25", "13", "2"),
+        ("17.04.2026", "9200", "4", "", "3"),
+    )
+
+    def test_the_rows_are_the_days_the_document_dates(self):
+        table = read_table([grid(self.ROWS)], "ay", ["Kapanış", "Faiz"])
+        assert table.calendar is Frequency.DAILY
+        assert table.months == (date(2026, 4, 15), date(2026, 4, 16), date(2026, 4, 17))
+        assert [value for _, value, _ in table.columns[1].cells] == [4.5, 4.25, 4.0]
+
+    def test_a_day_after_retrieval_is_left_out_like_a_future_month(self):
+        table = read_table([grid(self.ROWS)], "ay", ["Kapanış", "Faiz"], as_of=date(2026, 4, 16))
+        assert table.months == (date(2026, 4, 15), date(2026, 4, 16))
+        assert table.rules is not None and table.rules.skipped["FUTURE_PERIOD"] == 1
+
+    def test_months_written_on_their_first_day_are_still_months(self):
+        rows = tuple((f"01.0{month}.2026", "9000", "4,5", "1", "1") for month in (4, 5, 6))
+        table = read_table([grid(rows)], "ay", ["Kapanış", "Faiz"])
+        assert table.calendar is Frequency.MONTHLY
+        assert table.months == (date(2026, 4, 30), date(2026, 5, 31), date(2026, 6, 30))
+
+    def test_the_published_result_dates_every_value_to_its_day(self):
+        from datetime import UTC, datetime
+
+        from kkb_agent.ingest.fetched import fetched_source
+        from kkb_agent.tools._document_table import table_result
+
+        table = read_table([grid(self.ROWS)], "ay", ["Kapanış", "Faiz"])
+        source = fetched_source(
+            "https://data.example.test/daily.csv",
+            b"x",
+            retrieved_at=datetime(2026, 5, 1, tzinfo=UTC),
+        )
+        result = table_result(table, source, source_node=None)
+        periods = [value.period for value in result.values]
+        assert {period.frequency for period in periods} == {Frequency.DAILY}
+        assert all(period.start == period.end for period in periods)
+        assert result.coverage is not None and result.coverage.frequency is Frequency.DAILY
+        assert result.coverage.start == date(2026, 4, 15) and result.coverage.end == date(
+            2026, 4, 17
+        )
+        assert result.parameters["days"] == 3
+        assert any("as published on the days it dates" in note for note in result.limitations)
 
 
 def test_no_usable_column_refuses_the_table():

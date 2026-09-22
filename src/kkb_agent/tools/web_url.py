@@ -236,8 +236,9 @@ class WebUrlArguments(BaseModel):
         min_length=1,
         max_length=256,
         description=(
-            "To build a monthly table: the header of the column holding the months, as the "
-            "user named it. Needs value_columns."
+            "To build a table: the header of the column holding the periods, as the user "
+            "named it. A column of months publishes monthly rows and a column of single "
+            "days publishes daily rows, as the document dates them. Needs value_columns."
         ),
     )
     value_columns: list[Annotated[str, StringConstraints(min_length=1, max_length=256)]] | None = (
@@ -255,8 +256,9 @@ class WebUrlArguments(BaseModel):
     daily_to_monthly: Literal["last", "mean", "sum"] | None = Field(
         default=None,
         description=(
-            "With period_column when the rows are days: how each complete month is formed, only "
-            "as the user asked ('ay sonu' -> last, 'ortalama' -> mean, 'aylık toplam' -> sum)"
+            "Only when the rows are days and the user asked for months: how each complete "
+            "month is formed, in the user's own words ('ay sonu' -> last, 'ortalama' -> mean, "
+            "'aylık toplam' -> sum). Left out, the days publish as daily rows"
         ),
     )
     column_units: (

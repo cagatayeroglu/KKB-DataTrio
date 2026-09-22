@@ -1,4 +1,4 @@
-"""M10-04 slice 2: a monthly analytical table built from one document table.
+"""M10-04 slice 2: an analytical table built from one document table.
 
 `web_url` table mode turns a period column and up to twelve value columns of a
 fetched or uploaded document into a result that is published like any other
@@ -7,7 +7,8 @@ rules (M7-14, DEC-145/146), with one decision of their own (Eray, 2026-09-17):
 
 - **Table-level problems refuse the table.** The period column must be found
   once in exactly one table that also holds a requested value column; every
-  non-empty period cell must be an explicit month, once per month. Under
+  non-empty period cell must name the same kind of period, once each -- either an
+  explicit month, or a single calendar day when the column dates days. Under
   DEC-148 total rows and months ending after retrieval are skipped with a
   warning instead, and a month name without a year takes the year context.
 - **Column-level problems leave that column out.** A value column that is not
@@ -31,7 +32,7 @@ import calendar
 import hashlib
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 
 from pydantic import JsonValue
 
@@ -52,13 +53,13 @@ from kkb_agent.core import (
 from kkb_agent.ingest.bist_index_semantics import ReviewedMetric
 from kkb_agent.lakehouse.result_evidence import canonical
 from kkb_agent.tools._document_column import (
-    _DOTTED_DAY,
-    _ISO_DAY,
     ColumnRefused,
     RowRules,
     _empty,
+    calendar_day,
     document_measure,
     measure_limitation,
+    month_end,
 )
 from kkb_agent.tools._document_value import (
     Grid,
@@ -66,6 +67,7 @@ from kkb_agent.tools._document_value import (
     _text,
     header_matches,
     header_semantics,
+    is_total_label,
 )
 
 SNAPSHOT_KIND = "document_table_v1"
@@ -80,6 +82,14 @@ MAX_VALUE_COLUMNS = 12
 UNIT_FROM_HEADER = "column header"
 UNIT_FROM_QUESTION = "question"
 
+#: What one row of the table is, per calendar: the word a warning uses, and the recorded
+#: rule the rows were read under.
+_ROW_WORD = {Frequency.MONTHLY: "month", Frequency.DAILY: "day"}
+_PERIOD_RULE = {
+    Frequency.MONTHLY: "explicit month label, first or last day of a month",
+    Frequency.DAILY: "one calendar day per row, as the document dates it",
+}
+
 
 @dataclass(frozen=True)
 class TableColumn:
@@ -90,7 +100,7 @@ class TableColumn:
     unit: str | None
     scale: Scale
     measure: StockFlow
-    #: (month end, value or None for an empty cell, digest of the cell text)
+    #: (period end, value or None for an empty cell, digest of the cell text)
     cells: tuple[tuple[date, float | None, str], ...]
     unit_source: str | None = UNIT_FROM_HEADER
 
@@ -99,6 +109,7 @@ class TableColumn:
 class DocumentTable:
     location: dict[str, str | int]
     period_header: str
+    #: One period end per row, in order; days when `calendar` is DAILY.
     months: tuple[date, ...]
     columns: tuple[TableColumn, ...]
     #: (label as the user named it, fixed refusal code)
@@ -106,6 +117,8 @@ class DocumentTable:
     rules: RowRules | None = None
     #: Daily rows reduced to months: rule, days per month, incomplete months skipped.
     aggregation: dict[str, JsonValue] | None = None
+    #: The calendar the rows are on: months, or the days the document dates them to.
+    calendar: Frequency = Frequency.MONTHLY
 
 
 def read_table(
@@ -123,6 +136,10 @@ def read_table(
     `year` is a year from the user's question, `as_of` the document's retrieval date,
     `declared_units` the unit and scale the user wrote for a column label (the
     caller checks that the question contains them).
+
+    A period column that dates single days publishes a daily table (`_daily`). Nothing
+    is reduced, so nothing needs the user's word for how to reduce it; asking for days
+    as months is `read_daily_table`.
     """
     declared = dict(declared_units or {})
     found: list[tuple[Grid, int]] = []
@@ -156,6 +173,7 @@ def read_table(
             targets.append((label, matches[0]))
 
     rules = RowRules.for_grid(grid, year=year, as_of=as_of)
+    daily = _daily(grid, period_index)
     unchecked = [target for target in targets if not rules.column_checked(target[1])]
     skipped.extend((label, "OCR_NOT_VALIDATED") for label, _ in unchecked)
     targets = [target for target in targets if target not in unchecked]
@@ -168,7 +186,7 @@ def read_table(
             if all(_empty(value) for value in requested):
                 continue  # A blank spacer row carries nothing requested.
             raise ColumnRefused("PERIOD_NOT_RECOGNISED")
-        end = rules.month(raw_period)
+        end = rules.day(raw_period) if daily else rules.month(raw_period)
         if end is None:
             continue
         if end in seen:
@@ -224,7 +242,29 @@ def read_table(
         columns=tuple(columns),
         skipped=tuple(skipped),
         rules=rules,
+        calendar=Frequency.DAILY if daily else Frequency.MONTHLY,
     )
+
+
+def _daily(grid: Grid, period_index: int) -> bool:
+    """Whether this period column dates single days rather than months.
+
+    A monthly table is often written on the edge day of each month ("01.01.2026"), and that
+    reading is unchanged: rows become days only when at least one of them dates a day that
+    is no month at all. Until this existed, a daily source table could be read only by
+    asking for it as months, and only when the question itself carried the word for the
+    reduction -- so "the daily closes on this page" refused every time, with
+    PERIOD_NOT_RECOGNISED (Eray's audit, 2026-09-22).
+    """
+    dated = False
+    for cells in grid.rows:
+        raw = cells[period_index] if period_index < len(cells) else None
+        if _empty(raw) or is_total_label(raw):
+            continue
+        if calendar_day(raw) is None:
+            return False
+        dated = dated or month_end(raw) is None
+    return dated
 
 
 #: How daily observations become one monthly value, and the words that request each rule.
@@ -250,25 +290,6 @@ def daily_rule_in_question(rule: str, question: str) -> bool:
     """Whether the question itself asks for this monthly reduction (never the model's choice)."""
     folded = f" {normalize_search_text(question)} "
     return any(f" {word} " in folded or folded.find(f" {word}") >= 0 for word in DAILY_RULES[rule])
-
-
-def _day(raw: object) -> date | None:
-    if isinstance(raw, datetime):
-        return raw.date() if raw.time() == datetime.min.time() else None
-    if isinstance(raw, date):
-        return raw
-    if not isinstance(raw, str):
-        return None
-    text = raw.strip()
-    if text.endswith(("T00:00:00", " 00:00:00")):
-        text = text[:10]
-    for pattern, order in ((_ISO_DAY, (1, 2, 3)), (_DOTTED_DAY, (3, 2, 1))):
-        if match := pattern.fullmatch(text):
-            try:
-                return date(int(match[order[0]]), int(match[order[1]]), int(match[order[2]]))
-            except ValueError:
-                return None
-    return None
 
 
 def read_daily_table(
@@ -329,7 +350,7 @@ def read_daily_table(
         raw = cells[period_index] if period_index < len(cells) else None
         if _empty(raw):
             continue
-        day = _day(raw)
+        day = calendar_day(raw)
         if day is None:
             raise ColumnRefused("PERIOD_NOT_RECOGNISED")
         if day in days:
@@ -454,6 +475,7 @@ def table_snapshot(
             "location": table.location,
             "period_header": table.period_header,
             "months": list(table.months),
+            **({"calendar": "daily"} if table.calendar is Frequency.DAILY else {}),
             "columns": [
                 {
                     "label": column.label,
@@ -497,14 +519,15 @@ def table_result(
                     unit=column.unit,
                     scale=column.scale,
                     measure=column.measure,
-                    period=_month(end),
+                    period=_dated(end, table.calendar),
                 )
             )
     warnings = [
         f"Column {label!r} was left out of the table ({code})" for label, code in table.skipped
     ]
+    row = _ROW_WORD[table.calendar]
     warnings.extend(
-        f"Column {label!r} has {count} empty month(s); those cells are empty, never filled"
+        f"Column {label!r} has {count} empty {row}(s); those cells are empty, never filled"
         for label, count in missing.items()
     )
     aggregation = table.aggregation or {}
@@ -528,6 +551,11 @@ def table_result(
         ]
     )
     location = canonical(table.location)
+    published = (
+        "Read from one document table as published on the days it dates; no "
+        if table.calendar is Frequency.DAILY
+        else "Read from one document table as published on explicit months only; no "
+    ) + "resampling, filling, currency conversion, inflation adjustment or rebasing was applied"
     return AnalyticalResult(
         result_id=f"web_url:table:{source.source_id}:{location}",
         kind=ResultKind.SERIES,
@@ -535,15 +563,11 @@ def table_result(
         tool="web_url",
         method=METHOD,
         values=values,
-        coverage=Period(
-            start=date(table.months[0].year, table.months[0].month, 1),
-            end=table.months[-1],
-            frequency=Frequency.MONTHLY,
-        ),
+        coverage=_span(table),
         parameters={
             "columns": [column.label for column in table.columns],
             "skipped_columns": [{"label": label, "code": code} for label, code in table.skipped],
-            "months": len(table.months),
+            _ROW_WORD[table.calendar] + "s": len(table.months),
         },
         evidence=ResultEvidence(
             input_refs=[source_node or source.source_id],
@@ -551,7 +575,7 @@ def table_result(
                 TransformationRecord(
                     operation="document_table",
                     parameters={
-                        "period_rule": "explicit month label, first or last day of a month",
+                        "period_rule": _PERIOD_RULE[table.calendar],
                         "value_rule": "strict cell number; empty cells stay missing",
                         "unit_source": "per column",
                         "columns": [
@@ -568,7 +592,7 @@ def table_result(
                             for column in table.columns
                         ],
                         "skipped": [[label, code] for label, code in table.skipped],
-                        "months": len(table.months),
+                        _ROW_WORD[table.calendar] + "s": len(table.months),
                         "content_hash": source.content_hash or "",
                         "fill": "none",
                         **({"csv": dict[str, JsonValue](csv)} if csv is not None else {}),
@@ -591,9 +615,7 @@ def table_result(
                 _DAILY_LIMITATIONS[str(aggregation["rule"])]
                 + "; no filling, currency conversion, inflation adjustment or rebasing was applied"
                 if "rule" in aggregation
-                else "Read from one document table as published on explicit months only; no "
-                "resampling, filling, currency conversion, inflation adjustment or rebasing was "
-                "applied"
+                else published
             ),
             *_per_column(
                 [(column.label, measure_limitation(column.measure)) for column in table.columns]
@@ -632,5 +654,23 @@ def _month(end: date) -> Period:
     return Period(
         start=date(end.year, end.month, 1),
         end=date(end.year, end.month, calendar.monthrange(end.year, end.month)[1]),
+        frequency=Frequency.MONTHLY,
+    )
+
+
+def _dated(end: date, frequency: Frequency) -> Period:
+    """The period one row stands for: its month, or the single day it is dated to."""
+    if frequency is Frequency.DAILY:
+        return Period(start=end, end=end, frequency=Frequency.DAILY)
+    return _month(end)
+
+
+def _span(table: DocumentTable) -> Period:
+    """The whole range the rows cover, on the calendar they are dated to."""
+    if table.calendar is Frequency.DAILY:
+        return Period(start=table.months[0], end=table.months[-1], frequency=Frequency.DAILY)
+    return Period(
+        start=date(table.months[0].year, table.months[0].month, 1),
+        end=table.months[-1],
         frequency=Frequency.MONTHLY,
     )
