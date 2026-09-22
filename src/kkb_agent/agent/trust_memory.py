@@ -78,7 +78,7 @@ def _tables(published: dict[str, AnalyticalResult]) -> str:
     """What is already published, by name, without its values."""
     lines = [
         "Bu sohbette yayımlanmış tablolar. Değerlerini görmek ya da üzerinde işlem "
-        "yapmak için bir araca adıyla ver (örneğin source=\"analiz_2\"):"
+        'yapmak için bir araca adıyla ver (örneğin source="analiz_2"):'
     ]
     for name, result in published.items():
         labels = list(dict.fromkeys(value.label for value in result.values))

@@ -35,8 +35,9 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
+from kkb_agent.agent.observer import Tracer
 from kkb_agent.agent.registry import ArgumentsRejected, ToolRegistry
-from kkb_agent.llm.provider import Completion, LLMProvider, Message, Role
+from kkb_agent.llm.provider import Completion, LLMProvider, Message, Role, ToolCall
 
 
 class Action(BaseModel):
@@ -151,6 +152,40 @@ def _describe(result: ToolResult) -> str:
     return json.dumps(body, ensure_ascii=False, default=str)
 
 
+def _observed(carried: list[Observation], native: bool) -> list[Message]:
+    """The last iteration's results, addressed the way the calls were made.
+
+    With native tool calling a result belongs to a call, and the pairing is the id:
+    the assistant turn names what it asked for and each tool turn answers one of
+    them. Flattening both into user prose lost that, so a model reading three
+    results could not tell which was which. Without native calls the same
+    observations travel as text, which is what the JSON envelope expects.
+    """
+    if not carried:
+        return []
+    if not native:
+        return [
+            Message(Role.USER, f"{item.action.id} ({item.action.tool}): {_describe(item.result)}")
+            for item in carried
+        ]
+    asked = Message(
+        Role.ASSISTANT,
+        "",
+        tool_calls=tuple(
+            ToolCall(
+                id=item.action.id,
+                name=item.action.tool,
+                arguments=json.dumps(item.action.arguments, ensure_ascii=False),
+            )
+            for item in carried
+        ),
+    )
+    answers = [
+        Message(Role.TOOL, _describe(item.result), tool_call_id=item.action.id) for item in carried
+    ]
+    return [asked, *answers]
+
+
 def _asked_for(completion: Completion) -> AgentStep | None:
     """The model's decision, however the platform let it express one.
 
@@ -192,6 +227,7 @@ def run_turn(
     budget: Budget | None = None,
     context: Mapping[str, str] = {},
     published: Mapping[str, object] = {},
+    tracer: Tracer | None = None,
 ) -> TurnOutcome:
     """Drive one question to the point where the model says it can answer.
 
@@ -210,6 +246,10 @@ def run_turn(
     carried: list[Observation] = []
 
     menu = tool_menu(registry)
+    #: Whether the platform answered the last iteration with real tool calls. A result
+    #: is handed back the way the call was made, so a server that speaks the protocol
+    #: sees its own call ids and one that does not still gets readable text.
+    native = False
     preamble = [Message(Role.SYSTEM, instructions)]
     preamble += [Message(Role.SYSTEM, text) for text in context.values() if text]
 
@@ -224,16 +264,35 @@ def run_turn(
         messages = [*preamble, Message(Role.USER, question)]
         if outcome.state:
             messages.append(Message(Role.ASSISTANT, outcome.state))
-        for item in carried:
-            messages.append(
-                Message(
-                    Role.USER, f"{item.action.id} ({item.action.tool}): {_describe(item.result)}"
-                )
-            )
+        messages.extend(_observed(carried, native))
 
-        completion = provider.complete(messages, model=model, schema=AgentStep, tools=menu)
+        if tracer is None:
+            completion = provider.complete(messages, model=model, schema=AgentStep, tools=menu)
+        else:
+            with tracer.span("loop", "iteration") as span:
+                span.set(
+                    iteration=outcome.iterations + 1,
+                    prompt_bytes=sum(len(m.content.encode()) for m in messages),
+                    carried=len(carried),
+                )
+                completion = provider.complete(messages, model=model, schema=AgentStep, tools=menu)
+                span.set(model=completion.model, provider_attempts=completion.attempts)
         outcome.iterations += 1
+        native = bool(completion.tool_calls)
         step = _asked_for(completion)
+        if tracer is not None and step is not None:
+            tracer.event(
+                "loop",
+                "decision",
+                iteration=outcome.iterations,
+                actions=[f"{a.id}:{a.tool}" for a in step.actions],
+                done=step.done,
+                publish=step.publish,
+                asked=step.ask is not None,
+                native=bool(completion.tool_calls),
+                malformed=[f"{i}:{n}" for i, n in step.malformed],
+                detail=step.state,
+            )
         if step is None:
             outcome.exhausted = "undecided"
             break
@@ -276,11 +335,32 @@ def run_turn(
                 workspace[action.id] = item.result.output
             outcome.observations.append(item)
             carried.append(item)
+            if tracer is not None:
+                tracer.event(
+                    "tool",
+                    action.tool,
+                    status="ok" if item.ok else "failed",
+                    step_id=action.id,
+                    tool=action.tool,
+                    error_category=item.result.error_category,
+                    warnings=list(item.result.warnings),
+                    evidence=item.result.evidence,
+                    detail=_describe(item.result)[:4000],
+                )
         if outcome.exhausted or step.done:
             # `done` beside actions means finish after them, not instead of them: the
             # work was asked for and dropping it silently loses a turn's evidence.
             break
 
+    if tracer is not None:
+        tracer.event(
+            "loop",
+            "finished",
+            iterations=outcome.iterations,
+            tool_calls=calls,
+            exhausted=outcome.exhausted,
+            published=outcome.publish,
+        )
     return outcome
 
 

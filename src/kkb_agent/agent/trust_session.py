@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 
 from duckdb import DuckDBPyConnection
 
+from kkb_agent.agent.observer import Tracer
 from kkb_agent.agent.registry import ToolRegistry
 from kkb_agent.agent.trust_answer import Answer, write_answer
 from kkb_agent.agent.trust_loop import Budget, TurnOutcome, run_turn
@@ -40,6 +41,7 @@ class TrustSession:
     budget: Budget = Budget()
     instructions: str = INSTRUCTIONS
     connection: DuckDBPyConnection | None = None
+    tracer: Tracer | None = None
 
     def answer(
         self,
@@ -67,6 +69,7 @@ class TrustSession:
             budget=self.budget,
             context={**memory.context(dict(published)), **context},
             published=dict(published),
+            tracer=self.tracer,
         )
         answer = write_answer(
             question,

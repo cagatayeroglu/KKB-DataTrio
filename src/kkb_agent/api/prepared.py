@@ -1367,6 +1367,7 @@ class PreparedRunner:
                             registry=registry,
                             model=chosen.model,
                             connection=lake.connection,
+                            tracer=tracer,
                         ).answer(
                             effective_question,
                             conversation=self._memory.setdefault(session_id, Conversation()),

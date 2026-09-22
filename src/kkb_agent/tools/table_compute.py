@@ -200,6 +200,11 @@ def _apply(
     if b == 0:
         raise ZeroDivisionError
     if operation == "divide":
+        if other is None:
+            # Dividing by a plain number scales the quantity; it does not turn it into
+            # a ratio. Twelve million lira halved is six million lira, and calling that
+            # a dimensionless rate loses both the currency and the scale.
+            return a.value / b, a.unit, a.scale, a.measure
         if not alike:
             cautions.append("farklı birimlerin oranı: sonucun birimi taşınmadı")
         return a.value / b, _RATIO_UNIT, Scale.ONE, StockFlow.RATE
