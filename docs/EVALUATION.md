@@ -13,6 +13,28 @@ This file defines what correctness means and how to measure it. [ROADMAP M9](ROA
 
 Implementation boundary: merged unit tests exercise ingestion, semantics, lakehouse, planning, workspace definitions and numeric matching. [ROADMAP Current Project Status](ROADMAP.md#current-project-status) owns their revisions/results. They are not a benchmark scorecard. The Day 0 `evaluation/models.py`, case JSON and schema-test drafts are preserved in a local stash, not delivered or currently untracked files in dev. No executing benchmark runner, benchmark numerical-oracle schema, scorecard generator or eval Make target exists. This docs task runs document checks only.
 
+<a id="deposit-flow-first-month-2026-09-22"></a>
+
+## The first month of a window, live on the BDDK deposit question — 2026-09-22
+
+Branch `fix/change-warm-up-and-stock-wording`, from `dev=cfa0672`. Isolated copy (`:8131`, own state root and lakehouse, official acquisition on, no web tools), DeepSeek-V4.1-Flash. Decision: [DEC-192](DECISIONS.md#dec-192--a-change-may-read-the-period-before-the-window-and-a-stocks-per-period-amount-is-its-change).
+
+**Before.** Asked for each month's own deposit amount over 2021-01..2025-12 from the two named bulletin rows, the turn produced 59 of 60 months: 2021-01 was empty, and the turn said so because 2020-12 is outside the window. It is: `BDDK_FIRST_MONTH` began every acquisition at the first prepared month.
+
+**After.** One turn, 51 s, 240 cells: two levels and two per-month amounts, 60 months each, and the acquisition fetched only the one month it lacked (kept responses answer the rest).
+
+| Spot check (million TRY) | Operator's own reading | This turn |
+| --- | --- | --- |
+| TP level 2021-01 / 2023-06 / 2025-12 | 1,492,502 / 6,399,336 / 16,067,817 | same |
+| YP level 2021-01 / 2023-06 / 2025-12 | 1,438,605 / 3,637,077 / 5,915,570 | same |
+| TP per-month amount 2021-01 | −9,650 | **−9,650** |
+| TP per-month amount 2023-06 / 2025-12 | 397,773 / 687,299 | 397,772 / 687,299 |
+| YP per-month amount 2021-01 / 2023-06 / 2025-12 | −19,942 / 641,973 / 98,339 | same |
+
+The single 1-unit difference (2023-06) is the source's own rounding; the operator's own maturity columns for 2023-06 miss their total by 2 in the same way.
+
+**Found and not fixed here:** three sentences were withheld for the enumeration shape "Aralık 2022'de X, Aralık 2023'te Y, Aralık 2024'te Z; aynı aylarda sırasıyla A, B, C" — N dates followed by N figures, which the clause-pairing rule does not read (the same family as N45, a different shape). The maturity breakdown the question also asks for stays out of reach: the bulletin publishes maturity as columns and the selector has no column dimension.
+
 <a id="vector-rebuild-reuse-2026-09-22"></a>
 
 ## Vector rebuild: what it cost, and reuse — 2026-09-22
