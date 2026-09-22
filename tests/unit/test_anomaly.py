@@ -326,7 +326,7 @@ class TestGapsBreakTheChain:
         assert [v for v in result.values if "change at" in v.label] == []
         assert any("did not follow one another" in w for w in result.warnings)
 
-    def test_a_daily_series_is_not_cut_at_every_weekend(self):
+    def test_an_explicit_business_day_series_is_not_cut_at_every_weekend(self):
         # Published business days follow one another; the Friday-to-Monday move is
         # the one a reader asks about, and it used to be dropped as a gap.
         start = date(2024, 1, 1)  # a Monday
@@ -335,7 +335,7 @@ class TestGapsBreakTheChain:
         observations = [
             Observation(day, day, 100.0 + index * 2.0) for index, day in enumerate(business)
         ]
-        daily = replace(STOCK, frequency=Frequency.DAILY, aggregation=Aggregation.LAST)
+        daily = replace(STOCK, frequency=Frequency.BUSINESS_DAY, aggregation=Aggregation.LAST)
         result = detect(observations, daily)
 
         assert result.samples.excluded == 0

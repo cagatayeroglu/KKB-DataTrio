@@ -190,3 +190,16 @@ test("a result made only of summary metrics is not charted", async () => {
   };
   assert.equal(chartModel(breakpoints as never, null), null);
 });
+
+test("a month absent from every column still breaks the line", () => {
+  const model = chartModel(
+    result([cell("balance", 1, 10), cell("balance", 3, 20)]),
+    null,
+  )!;
+  assert.deepEqual(model.series[0].x, [
+    "2021-01-31",
+    "2021-02-28",
+    "2021-03-31",
+  ]);
+  assert.deepEqual(model.series[0].y, [10, null, 20]);
+});

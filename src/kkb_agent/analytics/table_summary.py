@@ -20,6 +20,8 @@ from kkb_agent.core import (
     StockFlow,
     TransformationRecord,
 )
+from kkb_agent.lakehouse.periods import spine
+from kkb_agent.lakehouse.semantics import SemanticsError
 
 SummaryKind = Literal["mean", "sum", "min", "max", "first", "last", "count"]
 METHOD = "typed-period-summary-v1"
@@ -133,6 +135,17 @@ def summarize_column(
                 scale=Scale.ONE,
             )
         ]
+    try:
+        expected = spine(
+            first_period.frequency,
+            first_period.end,
+            last_period.end,
+            anchor=first_period.weekly_anchor,
+        )
+    except SemanticsError:
+        raise SummaryRefused("The column has no bounded expected-period calendar") from None
+    observed = {value.period.end for value in selected if value.period is not None}
+    missing = [end.isoformat() for _, end in expected if end not in observed]
     transformation = TransformationRecord(
         operation="summarize",
         parameters={
@@ -143,8 +156,14 @@ def summarize_column(
             "first_used": first_period.end.isoformat(),
             "last_used": last_period.end.isoformat(),
             "used": len(selected),
+            "missing_periods": missing,
         },
         input_refs=[source.result_id, column_label],
         output_ref=f"{column_label} {aggregation}",
     )
-    return Summarized(tuple(answer), coverage, SampleCounts(used=len(selected)), transformation)
+    return Summarized(
+        tuple(answer),
+        coverage,
+        SampleCounts(used=len(selected), missing=len(missing)),
+        transformation,
+    )

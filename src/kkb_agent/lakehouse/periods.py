@@ -57,6 +57,26 @@ def spine(
     return list(_walk(frequency, first_end, last_end, anchor=anchor))
 
 
+def daily_steps(frequency: Frequency, earlier: date, later: date) -> int:
+    """Expected day steps; BUSINESS_DAY is Mon–Fri, with no invented holidays.
+
+    A missing weekday remains a gap. A source holiday calendar, when absent,
+    cannot authorize treating an arbitrary missing weekday as a closure.
+    """
+    days = (later - earlier).days
+    if frequency is Frequency.DAILY:
+        return days
+    if (
+        frequency is not Frequency.BUSINESS_DAY
+        or days < 0
+        or earlier.weekday() > 4
+        or later.weekday() > 4
+    ):
+        return -1
+    weeks, tail = divmod(days, 7)
+    return weeks * 5 + sum((earlier.weekday() + offset) % 7 < 5 for offset in range(1, tail + 1))
+
+
 def weekly_window(
     requested_start: date, requested_end: date, *, anchor: WeeklyAnchor
 ) -> list[tuple[date, date]]:
@@ -86,6 +106,14 @@ def weekly_window(
 def _walk(
     frequency: Frequency, first_end: date, last_end: date, *, anchor: WeeklyAnchor | None
 ) -> Iterator[tuple[date, date]]:
+    if frequency in (Frequency.DAILY, Frequency.BUSINESS_DAY):
+        if (last_end - first_end).days > 10000:
+            raise SemanticsError("Daily spine exceeds the bounded calendar window")
+        for ordinal in range(first_end.toordinal(), last_end.toordinal() + 1):
+            end = date.fromordinal(ordinal)
+            if frequency is Frequency.DAILY or end.weekday() < 5:
+                yield end, end
+        return
     if frequency is Frequency.WEEKLY:
         step = timedelta(days=7)
         end = first_end
@@ -95,8 +123,7 @@ def _walk(
         return
     months = _MONTH_STEP.get(frequency)
     if months is None:
-        # DAILY and BUSINESS_DAY need a holiday calendar nobody has supplied,
-        # and IRREGULAR has no spine by definition.
+        # IRREGULAR and UNKNOWN have no expected calendar.
         raise SemanticsError(f"No canonical spine is defined for {frequency.value}")
     end = first_end
     while end <= last_end:
