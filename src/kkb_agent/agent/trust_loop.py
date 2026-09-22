@@ -29,7 +29,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, is_dataclass
 from typing import Any, Final
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
@@ -146,6 +146,11 @@ class TurnOutcome:
         return {item.action.id: item.result for item in self.observations}
 
 
+#: How much of one observation the model is shown before it is clipped. A page or a
+#: sixty-row read is worth its room; a whole document is not, and the result stays
+#: addressable by its id for a second, narrower look.
+MAX_OBSERVATION_CHARS: Final = 40_000
+
 #: How a model says it is finished when tool calls are all it can send.
 FINISH: Final = "finish"
 
@@ -211,10 +216,35 @@ def _describe(result: ToolResult, identifier: str | None = None) -> str:
     if result.warnings:
         body["warnings"] = list(result.warnings)
     if result.output is not None:
-        payload = result.output
-        dumped = payload.model_dump() if isinstance(payload, BaseModel) else payload
-        body["output"] = dumped
-    return json.dumps(body, ensure_ascii=False, default=str)
+        body["output"] = _payload(result.output)
+    rendered = json.dumps(body, ensure_ascii=False, default=str)
+    if len(rendered) > MAX_OBSERVATION_CHARS:
+        # Clipped, and said so, rather than silently shortened: the model can ask for
+        # the rest by naming this result, which is what `inspect` and a window are for.
+        body["output"] = rendered[:MAX_OBSERVATION_CHARS]
+        body["clipped"] = True
+        rendered = json.dumps(body, ensure_ascii=False, default=str)
+    return rendered
+
+
+def _payload(output: object) -> Any:
+    """What a tool returned, as data the model can read.
+
+    A dataclass rendered by `str()` shows only the fields its author left in its
+    repr, and a tool that reads a source keeps the source out of its repr on
+    purpose — `WebUrlOutput` hides `document`, `table` and `links`. So a page the
+    fetcher had downloaded in full reached the model as
+    `WebUrlOutput(status='loaded', code=None, media_type='text/html',
+    followed=False)`: a success with nothing in it. Live 2026-09-23 the model then
+    spent fifteen calls guessing at links on a page whose text it already had, and
+    the report it was asked for was named in that text. `repr=False` is a choice
+    about logs; it was never a statement about what the model may see.
+    """
+    if isinstance(output, BaseModel):
+        return output.model_dump()
+    if is_dataclass(output) and not isinstance(output, type):
+        return asdict(output)
+    return output
 
 
 def _observed(carried: list[Observation], native: bool) -> list[Message]:
