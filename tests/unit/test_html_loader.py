@@ -134,7 +134,9 @@ def test_injection_text_is_data_and_cannot_create_claim(tmp_path):
 @pytest.mark.parametrize(
     "body,code",
     [
-        ("<div><p>x</div>", "MALFORMED_DOCUMENT"),
+        # An end tag for something never opened, which no browser can place either.
+        # `<div><p>x</div>` is not here any more: HTML closes that paragraph itself.
+        ("<div>x</span></div>", "MALFORMED_DOCUMENT"),
         ("<table><tr><td>x</td></tr></table>", "UNSUPPORTED_TABLE"),
         (HTML.decode().replace("<td>18.22", '<td colspan="2">18.22'), "UNSUPPORTED_TABLE"),
         (HTML.decode().replace("<td>18.22", '<td rowspan="2">18.22'), "UNSUPPORTED_TABLE"),
@@ -292,7 +294,7 @@ def test_caption_cannot_supply_financial_semantics(tmp_path):
 
 
 def test_parser_failure_operator_code_is_safe(tmp_path):
-    report = run(tmp_path, fetch=FakeFetch(b"<div>PRIVATE-CONTENT<p></div>", "text/html"))
+    report = run(tmp_path, fetch=FakeFetch(b"<div>PRIVATE-CONTENT</span></div>", "text/html"))
     assert not report["passed"]
     assert report["stages"][0]["document_code"] == "MALFORMED_DOCUMENT"
     assert not any(

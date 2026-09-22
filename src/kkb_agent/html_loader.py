@@ -32,6 +32,8 @@ MAX_TABLES = 20
 VOID = frozenset("area base br col embed hr img input link meta param source track wbr".split())
 IGNORE = frozenset("head script style noscript template form iframe object embed svg math".split())
 BLOCK = frozenset("p div section article h1 h2 h3 h4 h5 h6 li br hr tr table".split())
+#: Where a number comes from, so where nesting still has to be exact.
+TABLE_STRUCTURE = frozenset("table tr td th thead tbody tfoot caption colgroup".split())
 
 
 @dataclass(frozen=True)
@@ -160,11 +162,35 @@ class StaticParser(HTMLParser):
         if tag not in VOID:
             self.handle_endtag(tag)
 
+    def unwind_to(self, tag: str) -> None:
+        """Close what a page left open, or refuse when a table is what is open.
+
+        A mismatched end tag is ordinary in served HTML, and the same reasoning
+        that keeps a page whose table never closed keeps a page whose menu never
+        closed. Live 2026-09-23 the ODMD market-report index — the only route to
+        the report the question asked for — was discarded entire at 60 KB because
+        one anchor in its footer is written `<a/>` instead of `</a>`: the stray
+        self-closing tag balanced itself, the real anchor stayed open, and the
+        `</li>` after it did not match. Thirteen attempts to read that page failed
+        on those four characters.
+
+        A table is the exception, because a table is where the numbers come from.
+        Any structural tag of one still has to close in the order it opened, and
+        an end tag that would unwind past an open table row or cell is refused as
+        before.
+        """
+        if tag in TABLE_STRUCTURE or not any(name == tag for name, _ in self.stack):
+            self.fail()
+        while self.stack[-1][0] != tag:
+            if self.stack[-1][0] in TABLE_STRUCTURE:
+                self.fail()
+            self.stack.pop()
+
     def handle_endtag(self, tag: str) -> None:
         if tag in VOID:
             return
         if not self.stack or self.stack[-1][0] != tag:
-            self.fail()
+            self.unwind_to(tag)
         _, ignored = self.stack.pop()
         if ignored:
             return
