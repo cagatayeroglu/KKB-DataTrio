@@ -50,12 +50,12 @@ def decode(result: AnalyticalResult, label: str) -> SeriesSemantics:
     try:
         semantic = SeriesSemantics(
             unit=str(raw["unit"]),
-            scale=Scale(raw["scale"]),
-            frequency=Frequency(raw["frequency"]),
-            observation=StockFlow(raw["observation"]),
-            cumulative=CumulativeKind(raw["cumulative"]),
-            aggregation=Aggregation(raw["aggregation"]),
-            anchor=WeeklyAnchor(raw["anchor"]) if raw["anchor"] is not None else None,
+            scale=Scale(str(raw["scale"])),
+            frequency=Frequency(str(raw["frequency"])),
+            observation=StockFlow(str(raw["observation"])),
+            cumulative=CumulativeKind(str(raw["cumulative"])),
+            aggregation=Aggregation(str(raw["aggregation"])),
+            anchor=WeeklyAnchor(str(raw["anchor"])) if raw["anchor"] is not None else None,
             base_year=int(raw["base_year"]) if isinstance(raw["base_year"], int) else None,
         )
         semantic.require_resolved()

@@ -19,16 +19,20 @@ from kkb_agent.core import (
     WeeklyAnchor,
 )
 from kkb_agent.lakehouse import Observation, SeriesSemantics, open_lakehouse
+from kkb_agent.lakehouse.lineage import EdgeKind, NodeKind
 from kkb_agent.lakehouse.result_evidence import execution_proof
 from kkb_agent.llm import scripted
 from kkb_agent.tools import make_causality_tool, make_lakehouse_tool, make_table_transform_tool
 
 
-def test_weekly_monthly_join_causality_can_publish_with_real_proof(tmp_path):
+@pytest.mark.parametrize("operation", ["association", "granger"])
+def test_weekly_monthly_join_causality_can_publish_with_real_proof(tmp_path, operation):
     with open_lakehouse(tmp_path / "lake") as lake:
         artifact = lake.record_artifact(
             b"offline",
-            source=SourceRef(source_id="fixture", source_type="fixture", locator="opaque:test"),
+            source=SourceRef(
+                source_id="fixture", source_type="http-json", locator="https://example.test/series"
+            ),
             media_type="text/plain",
             recorded_at=datetime(2026, 1, 1, tzinfo=UTC),
         )
@@ -53,6 +57,21 @@ def test_weekly_monthly_join_causality_can_publish_with_real_proof(tmp_path):
         for identity, semantics in [("index", monthly), ("rate", weekly)]:
             lake.register_series(
                 identity, title=identity, semantics=semantics, artifact_id=artifact.artifact_id
+            )
+            raw_node = lake.lineage.record(
+                NodeKind.SOURCE_FILE,
+                "Synthetic offline source",
+                attributes={"artifact_id": artifact.artifact_id},
+            )
+            lake.lineage.record(
+                NodeKind.SERIES,
+                identity,
+                attributes={
+                    "artifact_id": artifact.artifact_id,
+                    "series_id": identity,
+                    "parser": "fixture",
+                },
+                upstream=[(raw_node, EdgeKind.DERIVES_FROM)],
             )
         months = [
             date(2021 + i // 12, i % 12 + 1, monthrange(2021 + i // 12, i % 12 + 1)[1])
@@ -106,7 +125,7 @@ def test_weekly_monthly_join_causality_can_publish_with_real_proof(tmp_path):
                 "c",
                 "causality",
                 {
-                    "operation": "association",
+                    "operation": operation,
                     "source": "j",
                     "left_column": "index",
                     "right_column": "rate monthly average (by_end)",
@@ -124,6 +143,11 @@ def test_weekly_monthly_join_causality_can_publish_with_real_proof(tmp_path):
         result = answer.results[-1]
         assert result.status.value == "computed", result
         assert execution_proof(result, lake.connection)
+        from kkb_agent.api.proof import build_proof
+
+        assert build_proof(lake.connection, result).availability == "available", build_proof(
+            lake.connection, result
+        ).gaps
         assert result_faults({"analysis": result}, lake.connection) == {}
         assert answer.answer.status is AnswerStatus.ACCEPTED
         assert workspace.names() == ["analysis"]
@@ -193,6 +217,7 @@ def test_document_summary_publishes_with_resolvable_proof(tmp_path, kind):
         assert second["answer"]["status"] == "accepted", json.dumps(
             second["answer"], ensure_ascii=False
         )
+        assert second["answer"]["result"]["proof"]["availability"] == "available"
         with open_lakehouse(runner.run_root / sid / "lake") as lake:
             result = Workspace.open(lake.connection, sid).value_of("analiz_2")
             assert result.status is ResultStatus.COMPUTED
