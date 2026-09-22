@@ -48,3 +48,18 @@ def test_stop_during_writer_cannot_publish(house):  # noqa: F811
         )
     assert workspace.names() == []
     assert house.connection.execute("SELECT count(*) FROM gold_cells").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("Bakiye 801.438 milyon TL ve", ""),
+        ("Tamam. Bakiye 801.438 milyon TL ve", "Tamam."),
+        ("Bakiye 801.438 milyon TL. Sonr", "Bakiye 801.438 milyon TL."),
+    ],
+)
+def test_truncation_does_not_cut_inside_a_number(text, expected):
+    from kkb_agent.agent.loop import _finished_sentences
+    from kkb_agent.llm.provider import Completion
+
+    assert _finished_sentences(Completion(text, "offline", finish_reason="length")) == expected

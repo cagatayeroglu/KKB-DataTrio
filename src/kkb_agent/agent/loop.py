@@ -161,7 +161,8 @@ def _finished_sentences(completion: Completion) -> str:
     text = completion.text
     if completion.finish_reason != "length" or not text.strip():
         return text
-    cut = max(text.rfind(mark) for mark in ".!?")
+    # A decimal/thousands separator is part of a number, never a sentence end.
+    cut = max((match.start() for match in re.finditer(r"[!?]|\.(?!\d)", text)), default=-1)
     return text[: cut + 1].rstrip() if cut >= 0 else ""
 
 
