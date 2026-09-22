@@ -46,6 +46,7 @@ from kkb_agent.analytics._basis import (
     scored_magnitudes,
     scored_on_ratio,
 )
+from kkb_agent.analytics._window import in_window, window_notes
 from kkb_agent.core import (
     DIMENSIONLESS,
     AnalyticalResult,
@@ -153,11 +154,7 @@ def detect_anomalies(
             SampleCounts(used=0),
         )
 
-    window = [
-        item
-        for item in sorted(observations, key=lambda entry: entry.period_end)
-        if (start is None or item.period_end >= start) and (end is None or item.period_end <= end)
-    ]
+    window = in_window(observations, start, end)
     changes, missing, interrupted = consecutive_changes(window, semantics)
     if len(changes) < minimum_changes:
         return _refuse(
@@ -262,6 +259,7 @@ def detect_anomalies(
         warnings.append(
             f"{missing} period(s) had no published value and were skipped; a gap is not zero"
         )
+    warnings.extend(window_notes(observations, window, start, end))
     if interrupted:
         warnings.append(
             f"{interrupted} pair(s) of periods did not follow one another and were left out; "

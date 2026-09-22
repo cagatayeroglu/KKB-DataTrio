@@ -38,6 +38,7 @@ from datetime import date
 from math import sqrt
 from typing import Final
 
+from kkb_agent.analytics._window import in_window
 from kkb_agent.core import (
     DIMENSIONLESS,
     AnalyticalResult,
@@ -199,7 +200,7 @@ def _prepare(
             f"({left_semantics.anchor} and {right_semantics.anchor}); "
             "align them explicitly rather than comparing across calendars"
         )
-    return _aligned(_window(left, start, end), _window(right, start, end))
+    return _aligned(in_window(left, start, end), in_window(right, start, end))
 
 
 def _calendar_positions(periods: Sequence[date], semantics: SeriesSemantics) -> list[int] | str:
@@ -238,16 +239,6 @@ def _calendar_positions(periods: Sequence[date], semantics: SeriesSemantics) -> 
     if len(set(positions)) != len(positions):
         return "A period appears more than once, so a lag pair would not be unique"
     return positions
-
-
-def _window(
-    items: Sequence[Observation], start: date | None, end: date | None
-) -> list[Observation]:
-    return [
-        item
-        for item in items
-        if (start is None or item.period_end >= start) and (end is None or item.period_end <= end)
-    ]
 
 
 def associate(

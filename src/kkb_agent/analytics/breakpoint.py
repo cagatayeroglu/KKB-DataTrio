@@ -33,6 +33,7 @@ from typing import Final
 from pydantic import JsonValue
 
 from kkb_agent.analytics._basis import consecutive_changes
+from kkb_agent.analytics._window import in_window, window_notes
 from kkb_agent.core import (
     DIMENSIONLESS,
     AnalyticalResult,
@@ -164,11 +165,7 @@ def detect_breakpoints(
             SampleCounts(used=0),
         )
 
-    window = [
-        item
-        for item in sorted(observations, key=lambda entry: entry.period_end)
-        if (start is None or item.period_end >= start) and (end is None or item.period_end <= end)
-    ]
+    window = in_window(observations, start, end)
     changes, missing, interrupted = consecutive_changes(window, semantics)
     required = 2 * minimum_segment
     if len(changes) < required:
@@ -286,6 +283,7 @@ def detect_breakpoints(
             f"{interrupted} pair(s) of periods did not follow one another and were left out; "
             "a regime is read from periods that actually succeed each other"
         )
+    warnings.extend(window_notes(observations, window, start, end))
 
     return AnalyticalResult(
         result_id=identifier,
