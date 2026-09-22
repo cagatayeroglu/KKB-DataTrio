@@ -135,7 +135,6 @@ def test_injection_text_is_data_and_cannot_create_claim(tmp_path):
     "body,code",
     [
         ("<div><p>x</div>", "MALFORMED_DOCUMENT"),
-        ("<p>x", "MALFORMED_DOCUMENT"),
         ("<table><tr><td>x</td></tr></table>", "UNSUPPORTED_TABLE"),
         (HTML.decode().replace("<td>18.22", '<td colspan="2">18.22'), "UNSUPPORTED_TABLE"),
         (HTML.decode().replace("<td>18.22", '<td rowspan="2">18.22'), "UNSUPPORTED_TABLE"),
@@ -304,3 +303,17 @@ def test_parser_failure_operator_code_is_safe(tmp_path):
 def test_empty_cell_preserved():
     doc = load(HTML.replace(b"18.22", b"")).document
     assert doc.tables[0].rows[1][1] == ""
+
+
+def test_an_unclosed_tag_does_not_discard_the_page():
+    """Served HTML rarely closes everything, and the text is still the text.
+
+    Live 2026-09-22: an ODMD market-report index the fetcher had downloaded in full
+    came back MALFORMED_DOCUMENT at 113 KB, so the planner could not follow the link
+    to the PDF it had been asked to read. A table left open is still dropped, because
+    a half-read table is where a wrong number would come from.
+    """
+    page = load("<html><body><p>ODMD Pazar<table><tr><td>a</td></tr>")
+    assert page.status == "loaded" and page.document is not None
+    assert "ODMD Pazar" in page.document.text
+    assert page.document.tables == ()

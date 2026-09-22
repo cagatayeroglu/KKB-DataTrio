@@ -74,7 +74,18 @@ UNITS = {
     "percentage point": "percentage_points",
     "index point": "index_points",
     "yüzde puan": "percentage_points",
+    # Turkish inflects the phrase, and the longest spelling wins only if it is spelled
+    # here: "yüzde puanlık" could not match "yüzde puan" (a letter follows it), so the
+    # matcher fell back to "yüzde" and read percent. The writer had used exactly the
+    # right words and the gate withheld the sentence for a unit conflict with itself
+    # (live 2026-09-22: "-0,0620 yüzde puanlık hareket").
+    "yüzde puanlık": "percentage_points",
+    "yüzde puanlik": "percentage_points",
+    "yüzde puanı": "percentage_points",
+    "yüzde puana": "percentage_points",
     "baz puan": "basis_points",
+    "baz puanlık": "basis_points",
+    "baz puanlik": "basis_points",
     "basis points": "basis_points",
     "index points": "index_points",
     "endeks puan": "index_points",
@@ -84,6 +95,8 @@ UNITS = {
     "adet": "count",
     "işlem": "count",
     "count": "count",
+    # A mass, which a precious-metal series is quoted in. Without these a sentence
+    # naming the unit could not bind to the value it described. (Taken from PR #316.)
     "kg": "kg",
     "kilogram": "kg",
     "gram": "g",
@@ -561,7 +574,21 @@ def _dated_mentions(context: str) -> list[tuple[int, int]]:
         rest = context[found.end() :]
         year = YEAR.match(rest.lstrip())
         end = found.end() + (len(rest) - len(rest.lstrip()) + year.end() if year else 0)
-        spans.append((found.start(), end))
+        start = found.start()
+        if year is None:
+            # Turkish writes the year first as readily as last: "2021 Şubat'ta" beside
+            # "Şubat 2021'de". Read only forwards, the year and the month became two
+            # mentions with no figure between them, which is the shape `own_dated_part`
+            # takes as "this clause does not pair dates with figures" — so it gave up and
+            # returned the whole sentence. Live 2026-09-22: an answer naming four months
+            # and their four correct real balances was withheld entire, each figure
+            # refused for another month's period.
+            leading = re.search(r"(?<![\w-])((?:19|20)\d{2})\s*$", context[: found.start()])
+            if leading is not None and not has_amount_context(
+                context, leading.start(1), leading.end(1)
+            ):
+                start = leading.start(1)
+        spans.append((start, end))
     for found in YEAR.finditer(context):
         if has_amount_context(context, found.start(), found.end()):
             continue
@@ -628,6 +655,9 @@ def period_fault(
         if not has_amount_context(context, m.start(), m.end())
         and not any(d.start() <= m.start() < d.end() for d in dates)
     ]
+    # A "2024-03" written on its own is a period like any other. It was matched by none
+    # of the three patterns below, so a claim attributed to a month outside the result's
+    # coverage passed unchecked. (Taken from PR #316.)
     year_months = list(YEAR_MONTH.finditer(context))
     months = list(MONTH.finditer(context))
     if not dates and not years and not months and not year_months:

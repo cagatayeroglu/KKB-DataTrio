@@ -154,9 +154,15 @@ class TestJsonExtraction:
     def test_preamble_prose_is_discarded(self):
         assert extract_json('Sure, here it is: {"a": 1} Hope that helps!') == '{"a": 1}'
 
-    def test_multiple_objects_are_rejected_rather_than_selecting_one(self):
-        with pytest.raises(SchemaViolation, match="multiple or partial"):
-            extract_json('{"a": {"b": 2}} trailing {"c": 3}')
+    def test_the_first_balanced_object_is_the_answer(self):
+        """What follows it is the model talking, not a second plan.
+
+        Rejecting the whole response for it ended a live turn (2026-09-22): the
+        planner had searched, `web_url` had loaded the TCMB decision page, and the
+        continuation that decides what to do with it was discarded for the prose
+        after its own valid JSON. Strict validation still runs on what is taken.
+        """
+        assert extract_json('{"a": {"b": 2}} trailing {"c": 3}') == '{"a": {"b": 2}}'
 
     def test_braces_inside_strings_do_not_confuse_the_scan(self):
         assert extract_json('{"a": "} not the end {"}') == '{"a": "} not the end {"}'
@@ -174,9 +180,15 @@ class TestStrictValidation:
     def test_a_valid_object_parses(self):
         assert parse_structured('{"tool": "lakehouse", "limit": 5}', Plan).tool == "lakehouse"
 
-    def test_a_trailing_comma_requires_a_complete_replacement(self):
-        with pytest.raises(SchemaViolation, match="not valid JSON"):
-            parse_structured('{"tool": "lakehouse", "limit": 5,}', Plan)
+    def test_a_trailing_comma_is_punctuation_and_is_repaired(self):
+        """The keys and values are the model's own; only the comma is dropped.
+
+        Refusing this cost a whole turn live (2026-09-22): the planner had searched,
+        `web_url` had loaded the TCMB decision page, and the continuation that decides
+        what to do with it came back with a stray comma, so the answer abstained on a
+        page already in hand. Strict validation still runs on the repaired document.
+        """
+        assert parse_structured('{"tool": "lakehouse", "limit": 5,}', Plan).limit == 5
 
     def test_an_extra_field_is_rejected_not_ignored(self):
         # A plan that deserializes is not a plan that may be executed.
@@ -318,9 +330,20 @@ class TestTheBoundaryHoldsTheLine:
     [
         '[{"tool":"lakehouse","limit":5}]',
         '{"tool":"lakehouse","limit":5} {',
-        '{"tool":"lakehouse","limit":5,}',
     ],
 )
-def test_structural_damage_requires_replacement_not_silent_parser_repair(text):
+def test_a_wrapped_or_trailed_object_is_still_read(text):
+    """The plan is the first balanced object, whatever the model wrapped it in.
+
+    A list of one and a stray opening brace after the object were refused outright,
+    and that refusal cost a turn whose page was already fetched (2026-09-22). The
+    object itself is unambiguous here, and what it contains is still validated
+    strictly: an extra field or a constraint violation is refused as before.
+    """
+    assert parse_structured(text, Plan).limit == 5
+
+
+@pytest.mark.parametrize("text", ["[1, 2, 3]", "no object at all"])
+def test_a_response_with_no_object_is_reported(text):
     with pytest.raises(SchemaViolation):
         parse_structured(text, Plan)

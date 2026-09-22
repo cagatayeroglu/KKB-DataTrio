@@ -810,6 +810,13 @@ def _lag_counts(result: AnalyticalResult) -> set[WindowCount]:
     12 in it is that parameter, not a figure of any series. Withheld, the sentence took
     the change with it (live 2026-09-22). It binds like any other count: only where a
     clause names its role, and never with an amount word attached.
+
+    A lag is also a count in its own right, whatever the frequency it was measured at:
+    "en fazla 4 gecikme" names the parameter, not four months. Reading it only through
+    the frequency's role left a causality answer unable to say how many lags it used,
+    because a result whose frequency has no role, or which records the lag on its values
+    instead of in a transformation, produced nothing to bind to.
+    (Taken from PR #316, which found the same gap.)
     """
     frequency = result.coverage.frequency if result.coverage is not None else None
     if frequency is None:
@@ -828,7 +835,6 @@ def _lag_counts(result: AnalyticalResult) -> set[WindowCount]:
         found.add(WindowCount(float(lag), "lags"))
         if role is not None:
             found.add(WindowCount(float(lag), role))
-
     return found
 
 
@@ -847,6 +853,59 @@ def _span_counts(period: Period) -> set[WindowCount]:
     if months >= MONTHS_IN_YEAR:
         counts.add(WindowCount(float(months // MONTHS_IN_YEAR), "years"))
     return counts
+
+
+#: Turkish puts the direction of a change in the verb, not in the figure's sign.
+_FELL = re.compile(r"(azal|düş|dus|gerile|geriled|eksil|daral|kayb)\w*", re.I)
+_ROSE = re.compile(r"(art[ıiy]|yüksel|yuksel|büyü|buyu|çık|cik)\w*", re.I)
+
+
+def _signed_as_written(clause: str, written: float, stored: float) -> bool:
+    """Whether a positive figure is this negative value said the Turkish way.
+
+    An analyst writes "faiz 0,40 puan geriledi", never "faiz -0,40 puan geriledi":
+    the minus sign lives in the verb, and writing both would say it twice. Matching
+    on the signed value alone, the gate refused "bakiye 522 milyon TL azalırken faiz
+    0,4030 yüzde puan geriledi" against the -522.0 and -0.403 the tool had returned,
+    and withheld four correct sentences of one answer (live 2026-09-22).
+
+    The magnitude still has to match exactly, and every other check — period, unit,
+    scale, identity — is applied to the value as before. Only the sign is read from
+    the words instead of from the digits.
+    """
+    if written <= 0 or stored == 0:
+        return False
+    return bool(_FELL.search(clause)) if stored < 0 else bool(_ROSE.search(clause))
+
+
+#: Wording that tells the reader the figure is rounded.
+_APPROXIMATE = re.compile(
+    r"(civar\w*|yaklaşık|yaklasik|dolay\w*|aşağı yukarı|asagi yukari|kabaca|~)", re.I
+)
+
+
+def _written_decimals(text: str) -> int:
+    """How precisely the figure was written, in decimal places."""
+    fraction = text.rsplit(",", 1)[-1] if "," in text else ""
+    return len(fraction) if fraction.isdigit() else 0
+
+
+def _rounds_as_written(clause: str, number: WrittenNumber, stored: float) -> bool:
+    """Whether a figure the clause calls approximate is this value, correctly rounded.
+
+    "faiz oranı yüzde 42 civarında" is how an analyst writes 42.088, and the reader is
+    told it is rounded. The binding tolerance is 0.05%, sized to catch a mistyped digit
+    rather than to permit rounding, so 42 found no value and 18 did not reach 17.985:
+    two sentences that were true, readable and honest about their own precision were
+    withheld (live 2026-09-22).
+
+    The rounding still has to be right at the precision the writer chose, so "yüzde 19
+    civarında" for 17.985 is refused exactly as before. Every other check on the value
+    is unchanged.
+    """
+    if not _APPROXIMATE.search(clause):
+        return False
+    return round(stored, _written_decimals(number.text)) == number.value
 
 
 def _bind_to_results(
@@ -878,14 +937,37 @@ def _bind_to_results(
     for name, result in named.items():
         node = result.evidence.lineage_node if result.evidence is not None else None
         for value in result.values:
+            approximate = _rounds_as_written(clause, number, value.value)
+            # The same value, written at another explicit scale, is still that value.
             rescaled = _rescaled(number, written_scale, value, tolerance)
-            if not rescaled and not _close(number.value, value.value, tolerance):
+            if (
+                not rescaled
+                and not _close(number.value, value.value, tolerance)
+                and not (
+                    _close(number.value, abs(value.value), tolerance)
+                    and _signed_as_written(clause, number.value, value.value)
+                )
+                and not approximate
+            ):
                 continue
+            # One rounded figure may stand for several months the clause names together
+            # ("Şubat ve Mayıs 2021'de faiz yüzde 18 civarında"), and it is true exactly
+            # when every one of them rounds to it. Checked here, the period is supported;
+            # checked one value at a time, each month refused the other's.
+            spread = approximate and all(
+                round(other.value, _written_decimals(number.text)) == number.value
+                for other in result.values
+                if other.label == value.label
+                and other.period is not None
+                and period_fault(clause, prefix, other) is None
+            )
             faults = tuple(
                 fault
                 for fault in (
                     None if rescaled else _scale_fault(answer, number, value),
-                    period_fault(
+                    None
+                    if spread
+                    else period_fault(
                         clause,
                         prefix,
                         value,

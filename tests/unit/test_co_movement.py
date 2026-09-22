@@ -564,7 +564,7 @@ def test_planner_is_told_where_columns_live_and_to_avoid_redundant_steps(lake):
     description = make_lakehouse_tool(lake.connection).description
     assert "silver_series declaration (series_id, unit, scale" in description
     assert "join silver_series s on series_id" in description
-    assert "another planned step already returns" in SYSTEM_PROMPT
+    assert "re-fetches what another step already returns" in SYSTEM_PROMPT
 
 
 def test_writer_reads_a_short_table_whole_and_the_gate_still_sees_everything(lake):

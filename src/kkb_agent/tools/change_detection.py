@@ -33,6 +33,12 @@ from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
 from kkb_agent.agent.registry import TableInput, ToolSpec
 from kkb_agent.agent.workspace import Workspace
 from kkb_agent.analytics import compare_periods
+from kkb_agent.analytics.breakpoint import (
+    DEFAULT_MINIMUM_SEGMENT as BREAKPOINT_MINIMUM_SEGMENT,
+)
+from kkb_agent.analytics.breakpoint import (
+    DEFAULT_THRESHOLD as BREAKPOINT_THRESHOLD,
+)
 from kkb_agent.analytics.breakpoint import detect_breakpoints
 from kkb_agent.analytics.comovement import co_movement
 from kkb_agent.catalog.inspection import InspectionRefused, PreparedSeriesInspector
@@ -75,7 +81,9 @@ class SeriesChangeArguments(BaseModel):
     more. `co_movement` (M6-25) compares month-over-month directions of two
     series; reducing a weekly series onto months is a policy the planner states.
     `breakpoint` (M6-05/06) searches for regime changes; its threshold and
-    minimum segment are harness constants, never planner arguments.
+    minimum segment are optional, defaulting to the analytics package's values
+    and recorded in the result either way, so a reader asking for subtler or
+    coarser shifts can be served without the flags becoming untraceable.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -119,12 +127,32 @@ class SeriesChangeArguments(BaseModel):
         ),
     )
 
+    threshold: float | None = Field(
+        default=None,
+        gt=0,
+        le=20,
+        description="breakpoint only: how far a segment must move before it counts as a "
+        f"regime change; omit for the default ({BREAKPOINT_THRESHOLD}). Lower it when the "
+        "reader wants subtler shifts too. The value used is reported in the result.",
+    )
+    minimum_segment: int | None = Field(
+        default=None,
+        ge=2,
+        le=120,
+        description="breakpoint only: fewest periods a segment must hold; omit for the "
+        f"default ({BREAKPOINT_MINIMUM_SEGMENT}). Lower it to allow shorter regimes.",
+    )
+
     @model_validator(mode="after")
     def operation_fields(self) -> Self:
         if self.operation in ("compare", "breakpoint") and (
             self.driver_series_id is not None or self.week_assignment is not None
         ):
             raise ValueError(f"{self.operation} takes no driver_series_id or week_assignment")
+        if self.operation != "breakpoint" and (
+            self.threshold is not None or self.minimum_segment is not None
+        ):
+            raise ValueError("threshold and minimum_segment belong to breakpoint")
         if self.operation == "co_movement" and self.driver_series_id is None:
             raise ValueError("co_movement needs driver_series_id")
         if self.operation == "breakpoint" and self.start > self.end:
@@ -298,6 +326,14 @@ def make_change_detection_tool(
                 start=arguments.start,
                 end=arguments.end,
                 input_refs=INPUTS,
+                threshold=(
+                    BREAKPOINT_THRESHOLD if arguments.threshold is None else arguments.threshold
+                ),
+                minimum_segment=(
+                    BREAKPOINT_MINIMUM_SEGMENT
+                    if arguments.minimum_segment is None
+                    else arguments.minimum_segment
+                ),
             )
             inputs = [series.snapshot]
         elif driver is None:

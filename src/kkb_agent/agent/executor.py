@@ -65,15 +65,21 @@ class Budget:
 
     # A document chain (read -> join -> align -> compare) plus discovery needs
     # more than the eight steps a prepared-only question used.
-    max_steps: int = 12
+    max_steps: int = 16
     max_plan_repairs: int = 2
     max_tool_retries: int = 1
-    # One initial catalog phase and, only when necessary, one auxiliary phase.
-    max_discovery_rounds: int = 2
+    #: How many times the planner may look at what its tools returned and plan again.
+    #: Two allowed one initial catalogue phase and a single auxiliary one, which was
+    #: sized for a planner call that cost a minute; on DeepSeek-V4.1-Flash the same
+    #: call takes about two seconds, so a question that needs three or four looks —
+    #: search, read what came back, search again for what it named, then analyse —
+    #: no longer has to be answered from the first guess. Still bounded, and still
+    #: bounded again by `max_steps`: each round must leave room for the analysis.
+    max_discovery_rounds: int = 5
 
     def __post_init__(self) -> None:
-        if self.max_discovery_rounds not in (0, 1, 2):
-            raise ValueError("Catalog discovery permits at most two rounds")
+        if not 0 <= self.max_discovery_rounds <= 8:
+            raise ValueError("Catalog discovery permits at most eight rounds")
 
 
 #: Frozen defaults, so a shared budget cannot be mutated by one caller.

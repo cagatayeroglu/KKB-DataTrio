@@ -41,8 +41,6 @@ def extract_json(text: str) -> str:
         closing = fenced.rfind("```")
         if newline != -1 and closing > newline:
             fenced = fenced[newline + 1 : closing].strip()
-    if fenced.startswith("[") and "{" in fenced:
-        raise SchemaViolation("Response JSON must be an object, not an array")
     start = fenced.find("{")
     if start == -1:
         raise SchemaViolation("Response contains no JSON object")
@@ -66,8 +64,12 @@ def extract_json(text: str) -> str:
         elif character == "}":
             depth -= 1
             if depth == 0:
-                if any(c in fenced[index + 1 :] for c in "{}[]"):
-                    raise SchemaViolation("Response contains multiple or partial JSON objects")
+                # Whatever follows the object is the model talking, not a second plan:
+                # a closing remark holding one bracket used to end the turn. Live
+                # 2026-09-22 the planner searched, `web_url` loaded the TCMB decision
+                # page, and the continuation that decides what to do with it was thrown
+                # away for what came after its own valid JSON. The first balanced object
+                # is the answer; strict validation still runs on it.
                 return fenced[start : index + 1]
     raise SchemaViolation("Response contains an unterminated JSON object")
 
@@ -81,8 +83,15 @@ def parse_structured[ModelT: BaseModel](text: str, schema: type[ModelT]) -> Mode
     document = extract_json(text)
     try:
         payload = json.loads(document)
-    except json.JSONDecodeError as error:
-        raise SchemaViolation("Response is not valid JSON") from error
+    except json.JSONDecodeError:
+        # Repairing a brace-balanced document is punctuation, not invention: the keys
+        # and values are the model's own and strict validation still follows. Removing
+        # it cost a whole turn live (2026-09-22) — the planner had searched, `web_url`
+        # had loaded the TCMB decision page, and the continuation that decides what to
+        # do with it came back malformed, so the answer abstained on a page already in
+        # hand. A response that cannot be repaired still raises, and the retry loop
+        # still tells the model what was wrong.
+        payload = _repair(document)
     if not isinstance(payload, dict):
         # Defensive: extraction guarantees a brace-balanced document, so this
         # only fires if the repair step ever returns something else.
@@ -158,6 +167,19 @@ def repair_feedback(schema: type[BaseModel], problem: str) -> str:
         f"The previous response was rejected: {problem[:FEEDBACK_LIMIT]}. "
         "Emit one complete schema-valid JSON object only, using the same schema and context."
     )
+
+
+def _repair(document: str) -> object:
+    """Second attempt at parsing, using json-repair for the usual malformations."""
+    try:
+        from json_repair import repair_json
+    except ImportError as error:  # pragma: no cover - declared in the manifest
+        raise SchemaViolation("Response is not valid JSON and no repair is available") from error
+    repaired = repair_json(document)
+    try:
+        return json.loads(repaired)
+    except json.JSONDecodeError as error:
+        raise SchemaViolation("Response is not valid JSON even after repair") from error
 
 
 def _summarize(error: ValidationError) -> str:
