@@ -57,6 +57,8 @@ class TestAMonthFormLabel:
             ("December 2025", date(2025, 12, 31)),
             ("Şubat 2024", date(2024, 2, 29)),
             ("02.2025", date(2025, 2, 28)),
+            ("Aralık 25", date(2025, 12, 31)),
+            ("12/2025", date(2025, 12, 31)),
         ],
     )
     def test_names_a_calendar_month(self, label, end):
@@ -76,8 +78,6 @@ class TestAMonthFormLabel:
             "2025",
             "Aralık",
             "2025 Aralık",
-            "Aralık 25",
-            "12/2025",
             "Q4 2025",
             "Toplam",
             "2025-12-31",
