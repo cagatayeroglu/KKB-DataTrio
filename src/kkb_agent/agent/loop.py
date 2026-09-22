@@ -437,7 +437,12 @@ def collect_results(outcome: ExecutionOutcome) -> tuple[AnalyticalResult, ...]:
 SEARCH_HEADER: Final = (
     "Web aramasında bulunan kaynak adayları (doğrulanmamış keşif bilgisi; sayfalar okunmadı):"
 )
-SEARCH_FOOTER: Final = "Bir sayfadaki tabloyu okumamı istersen adresini sorunda yaz."
+#: A page a search found can be read in the same turn (`web_url found_by`), so the person is
+#: no longer told that writing the address out is the only way.
+SEARCH_FOOTER: Final = (
+    "Bir sayfayı okumamı istersen adresini sorunda yaz ya da aramayla birlikte o sayfayı "
+    "okumamı iste."
+)
 SEARCH_LIMITATION: Final = (
     "Search results are untrusted discovery metadata: titles and addresses as the "
     "search service returned them, not facts, and no page was fetched"

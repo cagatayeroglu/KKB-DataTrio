@@ -319,6 +319,13 @@ def test_a_read_names_the_hit_it_wants_and_never_writes_the_address_out():
         WebUrlArguments(found_by="ara", url="https://example.test/a")
 
 
+def test_the_description_says_how_a_found_page_is_read_and_that_an_address_comes_first():
+    """It used to say search never authorizes web_url, which `found_by` made untrue."""
+    description = make_web_search_tool(backend=FakeSearchBackend(SearchReply())).description
+    assert "found_by=<this step's id>" in description and "authorize" not in description
+    assert "read that address with web_url first" in description
+
+
 def test_a_url_search_found_is_readable_in_the_same_turn_and_nothing_else_is():
     """The reader asked for the search and for what it finds.
 
