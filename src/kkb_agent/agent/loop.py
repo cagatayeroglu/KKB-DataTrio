@@ -755,7 +755,7 @@ def _writer_semantic_context(result: AnalyticalResult) -> dict[str, JsonValue]:
     columns: dict[str, JsonValue] = {}
     for value in result.values:
         metadata: dict[str, JsonValue] = {
-            "label": value.label,
+            "label": controlled_count_label(result, value) or value.label,
             "unit": value.unit,
             "scale": value.scale.value,
             "measure": value.measure.value,

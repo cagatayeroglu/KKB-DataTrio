@@ -158,6 +158,15 @@ archive leaks. Added inflection/false-prefix and renamed-identity regressions; t
 USER → resample/join/align/co-movement acceptance remains green. Touched Ruff/mypy pass.
 Final Fast PR gate runs in CI; no live requests or automatic merge.
 
+CI run `35746660824` at `ef5b388` exposed one further writer-context regression:
+`TestAnInheritedCountCanStillBeNamed::test_the_writer_is_shown_the_phrase_rather_than_the_raw_label`
+failed `INHERITED_LABEL not in context`. The added semantic column metadata reintroduced
+raw count labels despite controlled value prose. Its label now uses the same existing
+`controlled_count_label` function; stored result/lineage and ordinary labels stay unchanged.
+The exact test failed locally first, then passed unchanged in expectation. Immediate module
+and focused writer/presentation/deliverables tests: **133 PASS** (21.61 s); semantic grounding:
+**155 PASS, 1 existing XFAIL** (2.13 s). Touched Ruff/mypy PASS; final CI pending.
+
 ### Remaining limits and live reruns
 
 **COVERAGE GAP:** No new million↔billion conversion tool/carrier. A wrong
