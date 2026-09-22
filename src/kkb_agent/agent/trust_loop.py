@@ -242,6 +242,22 @@ def _wire(action: Action) -> str:
     return action.call_id or action.id
 
 
+#: Words this loop uses to talk about a call, which a tool's own schema never declares.
+PROTOCOL_KEYS: Final = frozenset({"id", "step_id", "note", "assumption"})
+
+
+def _without_protocol_keys(arguments: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
+    """The arguments a tool declared, without the loop's own vocabulary.
+
+    Results are named, so the model names things — live 2026-09-23 it sent `id`
+    alongside `web_url`'s real arguments, and a schema that forbids extras refused
+    the whole call. The address it had worked out was thrown away over a word the
+    harness had taught it. A key the loop owns is dropped; anything else the schema
+    does not declare is still the model's mistake and is still reported back.
+    """
+    return {key: value for key, value in arguments.items() if key not in PROTOCOL_KEYS}
+
+
 def _asked_for(completion: Completion, taken: int = 0) -> AgentStep | None:
     """The model's decision, however the platform let it express one.
 
@@ -474,7 +490,7 @@ def _dispatch(
         )
     spec = registry.get(action.tool)
     try:
-        parsed = spec.parse(dict(action.arguments))
+        parsed = spec.parse(_without_protocol_keys(action.arguments))
     except ArgumentsRejected as error:
         return ToolResult(
             ToolStatus.FAILURE,
