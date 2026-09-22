@@ -118,6 +118,15 @@ MONTHS = {
     for name in names.split()
 }
 MONTH = re.compile(r"\b(" + "|".join(MONTHS) + r")\b", re.I)
+#: A date as a person writes it: "5 Ocak 2024", "26 Aralık", "1 Şubat 2025 haftası". The
+#: day is not a figure, and neither is the year. Live 2026-09-22: "5 Ocak 2024 haftasında
+#: ... 42,1" lost its whole sentence because 5 matched no value of the result, and with it
+#: the one number the sentence was written to report.
+WRITTEN_DATE = re.compile(
+    r"(?<![\d.,])(?:[12]\d|3[01]|0?[1-9])\s+(?:" + "|".join(MONTHS) + r")"
+    r"(?:\s+(?:19|20)\d{2})?(?![\d.,])",
+    re.I,
+)
 CLAUSE_BREAK = re.compile(r";|(?<!\d),|,(?!\d)")
 EXPLICIT_ID = re.compile(
     r"\b(series_id|result_id|value_label)\s*=\s*[`\"']?([\w.:-]+?)(?=[`\"']?(?:\s|,|;|$|:\s))",
@@ -278,6 +287,9 @@ def is_date_token(text: str, start: int, end: int) -> bool:
                 date.fromisoformat(match[0])
             except ValueError:
                 return False
+            return not has_amount_context(text, match.start(), match.end())
+    for match in WRITTEN_DATE.finditer(text):
+        if match.start() <= start and end <= match.end():
             return not has_amount_context(text, match.start(), match.end())
     return False
 

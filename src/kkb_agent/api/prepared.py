@@ -1838,7 +1838,11 @@ class PreparedRunner:
         registry.register(make_anomaly_tool(connection, lineage=lineage, inspector=inspector))
         registry.register(
             make_causality_tool(
-                connection, lineage=lineage, series_names=names, inspector=inspector
+                connection,
+                lineage=lineage,
+                series_names=names,
+                inspector=inspector,
+                workspace=workspace,
             )
         )
         if self._search_backend is not None and "web_search" not in disabled:

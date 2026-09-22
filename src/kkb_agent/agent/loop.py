@@ -717,7 +717,11 @@ def render_result(result: AnalyticalResult, ambiguous: frozenset[int] = frozense
         # Reviewed code constants set by the producing tool, not source text.
         for series_id, name in names.items():
             if isinstance(name, str):
-                lines.append(f"Series {series_id} means: {name}")
+                lines.append(
+                    f"Series {series_id} means: {name}. Its identity is a code the "
+                    "issuer assigned: nothing in it describes the series, so read the "
+                    "meaning above and never a number inside the code."
+                )
     for transformation in result.evidence.transformations if result.evidence is not None else []:
         if transformation.operation == "table_co_movement":
             criteria = transformation.parameters
@@ -817,7 +821,13 @@ def render_result(result: AnalyticalResult, ambiguous: frozenset[int] = frozense
     positions = {id(value): index for index, value in enumerate(result.values)}
     for value in values:
         display = display_value(value)
+        # Named as a person would name it, with the identity kept beside it so the gate
+        # and the reader see the same column. Given the code alone, the writer read a
+        # digit in it as a fact: "TP.KTF12" became "12 ay vadeli konut kredisi faizi",
+        # where the 12 is the issuer's category number (live 2026-09-22).
         label = controlled_count_label(result, value) or value.label
+        if isinstance(names, dict) and (meaning := names.get(value.label)):
+            label = f"{value.label} ({meaning})"
         if positions.get(id(value)) in ambiguous:
             # No figure to copy: the gate could not bind it to one value anyway.
             parts = [

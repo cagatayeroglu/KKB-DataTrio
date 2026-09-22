@@ -1226,3 +1226,32 @@ def test_a_step_that_computed_nothing_blocks_the_steps_that_read_it(pool):
     assert not outcome.completed
     # An independent step is untouched: this blocks readers, not the rest of the plan.
     assert by_step["comparison"].status is ToolStatus.SUCCESS
+
+
+def test_a_lag_the_harness_applied_binds_where_a_clause_names_its_periods():
+    # Live 2026-09-22: "12 aylık değişim 28,97" lost its whole sentence, because the 12 is
+    # the lag the change was computed with and matched no value of the result.
+    from kkb_agent.agent.verifier import window_counts
+    from kkb_agent.core import TransformationRecord
+
+    base = table()
+    recorded = base.model_copy(
+        update={
+            "evidence": base.evidence.model_copy(
+                update={
+                    "transformations": [
+                        TransformationRecord(
+                            operation="change",
+                            parameters={"kind": "percent", "lag": 12, "column": "credit"},
+                            input_refs=["fixture"],
+                            output_ref="credit % change (lag 12)",
+                        )
+                    ]
+                }
+            )
+        }
+    )
+    counted = window_counts([recorded])
+    assert any(item.value == 12.0 and item.role == "months" for item in counted)
+    # The same table without that step licenses no such count.
+    assert not any(item.value == 12.0 for item in window_counts([base]))

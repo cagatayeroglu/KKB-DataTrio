@@ -124,6 +124,7 @@ def producer_fixture_for_sentence_tests(request, monkeypatch):
         TestTheInterpretationParagraph,
         TestWhatIsNotAFigureToChooseBetween,
         TestTheAnswerKeepsItsShape,
+        TestWhatIsADateAndWhatIsAFigure,
     }:
         return
     house = request.getfixturevalue("house")
@@ -914,3 +915,31 @@ class TestTheAnswerKeepsItsShape:
     def test_a_draft_written_on_one_line_is_joined_as_before(self, house):
         draft = f"{SUPPORTED} Seri aylık yayımlanmaktadır."
         assert gate_answer(draft, result(), house.connection).text == draft
+
+
+class TestWhatIsADateAndWhatIsAFigure:
+    """Live 2026-09-22: three correct sentences lost to numbers that measure nothing."""
+
+    def test_a_day_written_in_words_is_not_a_figure(self, house):
+        # The day and the year belong to the date; only 801.438 is a figure to bind. The
+        # fixture's value is June 2026, so the date names that month.
+        for dated in ("30 Haziran 2026'da", "1 Haziran 2026 itibarıyla", "30 Haziran"):
+            draft = f"{dated} konut kredisi stoğu 801.438 milyon TL."
+            gated = gate_answer(draft, result(), house.connection)
+            assert gated.status is AnswerStatus.ACCEPTED, (dated, gated.omitted)
+            assert gated.text == draft
+
+    def test_a_day_in_the_wrong_month_still_loses_the_sentence(self, house):
+        # Exempting the day from binding does not exempt the period it names.
+        gated = gate_answer(
+            "5 Ocak 2024 haftasında konut kredisi stoğu 801.438 milyon TL.",
+            result(),
+            house.connection,
+        )
+        assert gated.status is AnswerStatus.ABSTAINED
+
+    def test_a_number_that_only_looks_like_a_day_is_still_a_figure(self, house):
+        # The counter-test: no month beside it, so it is a quantity and must bind.
+        gated = gate_answer(f"{SUPPORTED} 12 ay vadeli kredi verildi.", result(), house.connection)
+        assert gated.status is AnswerStatus.QUALIFIED
+        assert "12 ay vadeli" not in gated.text
