@@ -52,7 +52,6 @@ from kkb_agent.core import (
     ResultValue,
     Scale,
 )
-from kkb_agent.lakehouse.lineage import Lineage
 from kkb_agent.lakehouse.result_evidence import execution_proof
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -418,18 +417,14 @@ def _stored_value(
     ).fetchone()
     if row is not None and row[0] is not None:
         return float(row[0])
-    rows = connection.execute(
-        "SELECT value, column_node_id FROM gold_cells "
-        "WHERE column_name = ? AND period_start = ? AND period_end = ?",
-        [label, period_start, period_end],
-    ).fetchall()
-    graph = Lineage(connection)
-    for value, node in rows:
-        if (
-            graph.node(node).attributes.get("result_version") == result_version
-            and value is not None
-        ):
-            return float(value)
+    row = connection.execute(
+        "SELECT g.value FROM gold_cells g JOIN lineage_nodes n ON n.node_id = g.column_node_id "
+        "WHERE g.column_name = ? AND g.period_start = ? AND g.period_end = ? "
+        "AND json_extract_string(n.attributes, '$.result_version') = ?",
+        [label, period_start, period_end, result_version],
+    ).fetchone()
+    if row is not None and row[0] is not None:
+        return float(row[0])
     return None
 
 

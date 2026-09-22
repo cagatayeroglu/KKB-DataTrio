@@ -184,8 +184,8 @@ def test_gold_recheck_is_scoped_to_result_version_not_label_and_month(tmp_path):
                         "step_id": "r",
                         "tool": "lakehouse",
                         "arguments": {
-                            "sql": "SELECT series_id,period_start,period_end,value FROM silver_observations o WHERE series_id='daily'"
-                            + filter_sql
+                            "sql": "SELECT series_id,period_start,period_end,value "
+                            "FROM silver_observations o WHERE series_id='daily'" + filter_sql
                         },
                     },
                     {
