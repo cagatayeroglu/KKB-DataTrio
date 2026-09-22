@@ -99,6 +99,7 @@ from kkb_agent.tools.promotion import (
     PromotionReceipt,
     make_promote_series_tool,
 )
+from kkb_agent.tools.table_compute import make_table_compute_tool
 from kkb_agent.tools.web_search import SearchBackend
 from kkb_agent.tools.web_url import Fetcher, addresses_in, read_attachment
 
@@ -1890,6 +1891,8 @@ class PreparedRunner:
         )
         # A result travels by name; this is how a name becomes something readable.
         registry.register(make_inspect_tool())
+        # A group, a ratio or a share: arithmetic the transform surface had no room for.
+        registry.register(make_table_compute_tool())
         registry.register(make_lakehouse_tool(connection, lineage=lineage, inspector=inspector))
         registry.register(
             make_change_detection_tool(
