@@ -89,8 +89,6 @@ def search_hybrid_catalog(
             }
         )
 
-    if dense.index.snapshot_sha256 != snapshot.content_sha256:
-        return lexical_result("failed", "snapshot_mismatch")
     eligible = {s.record.series_id: s for s in eligible_catalog_series(snapshot, args)}
     if lexical.concepts:
         matched = {c.concept_id for c in lexical.concepts}
@@ -107,6 +105,14 @@ def search_hybrid_catalog(
     eligible = {sid: item for sid, item in eligible.items() if sid not in containers}
     if not eligible:
         return lexical_result("skipped_no_eligible")
+    # A vector answers for the text it was made from. An entry added to the catalogue leaves
+    # every other entry's vector exactly as sound as it was, so meaning-based search keeps
+    # the identities this generation still covers instead of turning itself off (N27).
+    covered = dense.index.covering(snapshot)
+    dense_ids = frozenset(eligible) & covered
+    dense_groups_ids = frozenset(containers) & covered
+    if not dense_ids:
+        return lexical_result("failed", "snapshot_mismatch")
     try:
         query = QueryVector.model_validate(dense.embed_query(normalize_query_text(args.query)))
         if query.profile != profile:
@@ -114,13 +120,13 @@ def search_hybrid_catalog(
     except Exception:
         return lexical_result("failed", "embedding_failed")
     try:
-        hits = dense.index.search(query, eligible_ids=frozenset(eligible), limit=10)
+        hits = dense.index.search(query, eligible_ids=dense_ids, limit=10)
         # Recheck the public stage boundary even if an injected implementation fails.
         if (
-            len(hits) != min(len(eligible), 10)
+            len(hits) != min(len(dense_ids), 10)
             or len({hit.series_id for hit in hits}) != len(hits)
             or any(
-                hit.series_id not in eligible
+                hit.series_id not in dense_ids
                 or type(hit.rank) is not int
                 or hit.rank != i + 1
                 or not isinstance(hit.cosine_distance, float)
@@ -131,8 +137,8 @@ def search_hybrid_catalog(
         ):
             raise ValueError("invalid dense identities or ranks")
         group_hits = (
-            dense.index.search(query, eligible_ids=frozenset(containers), limit=MAX_GROUPS)
-            if containers
+            dense.index.search(query, eligible_ids=dense_groups_ids, limit=MAX_GROUPS)
+            if dense_groups_ids
             else []
         )
         if any(hit.series_id not in containers for hit in group_hits):
@@ -170,13 +176,13 @@ def search_hybrid_catalog(
     lexical_by_id = {c.series.record.series_id: c for c in lexical.candidates}
     dense_by_id = {h.series_id: h for h in hits}
     lexical_ids = [c.series.record.series_id for c in lexical.candidates]
-    dense_ids = [h.series_id for h in hits]
+    ranked_ids = [h.series_id for h in hits]
     # A reviewed alias/phrase match already bounded eligibility to its concepts;
     # without one, BM25 overlap is weaker evidence than the dense rank (M13-09).
     lexical_first = dense.combination_policy == "alternating-archive-tier-v1" or bool(
         lexical.concepts
     )
-    first, second = (lexical_ids, dense_ids) if lexical_first else (dense_ids, lexical_ids)
+    first, second = (lexical_ids, ranked_ids) if lexical_first else (ranked_ids, lexical_ids)
     order: list[str] = []
     for i in range(max(len(first), len(second))):
         for sid in (
@@ -243,6 +249,8 @@ def search_hybrid_catalog(
             "clarification_required": True,
             "retrieval_mode": "hybrid",
             "dense_status": "success",
-            "dense_total_candidates": len(eligible),
+            # What the second stage actually ranked, which is not every eligible series when
+            # the catalogue has moved on since the vectors were built.
+            "dense_total_candidates": len(dense_ids),
         }
     )

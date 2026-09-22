@@ -39,6 +39,8 @@ from kkb_agent.core.models import ContractModel
 
 MANIFEST = "catalog-manifest.json"
 MAX_MANIFEST_BYTES = 16 * 1024
+#: Catalogues whose coverage is remembered at once; a fifth clears them all.
+MAX_COVERAGE_CACHED = 4
 TIMEOUT = timedelta(seconds=10)
 
 
@@ -51,8 +53,8 @@ class _Manifest(ContractModel):
     snapshot_sha256: Digest
     snapshot_version: StrictStr
     profile: VectorProfile
-    # The catalogue's own bound: a generation covers one catalogue exactly,
-    # including the entries a knowledge base adds to it.
+    # The catalogue this generation was built for, and the rows it published for it. What
+    # it may answer for in some other catalogue is `covering`, per identity (DEC-187).
     row_count: Annotated[StrictInt, Field(ge=1, le=MAX_CATALOG_SERIES)]
     rows_sha256: Digest
 
@@ -206,13 +208,19 @@ class LocalCatalogIndex:
     """A checked version-1 table, with immutable operator-selected eligibility IDs."""
 
     _table: LanceTable
-    _snapshot: ReviewedSnapshot
+    _manifest: _Manifest
     _profile: VectorProfile
     _ordinals: dict[str, int]
+    #: What was embedded for each identity: (text digest, concept IDs, family IDs).
+    _embedded: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]]
+    #: Coverage worked out per catalogue digest, because a catalogue is asked about many
+    #: times and reading 8,374 documents to answer the same question again is waste.
+    _covering: dict[str, frozenset[str]]
 
     @property
     def snapshot_sha256(self) -> str:
-        return self._snapshot.content_sha256
+        """The digest of the catalogue this generation was built for."""
+        return self._manifest.snapshot_sha256
 
     @property
     def profile(self) -> VectorProfile:
@@ -223,9 +231,36 @@ class LocalCatalogIndex:
         """The identities this generation holds, checked when it was opened."""
         return frozenset(self._ordinals)
 
+    def covering(self, snapshot: ReviewedSnapshot) -> frozenset[str]:
+        """The identities this generation may answer for in `snapshot`.
+
+        A vector answers for the text it was made from, and for no other text. Coverage is
+        therefore per identity: the series whose text, concepts and families in this
+        catalogue are still the ones that were embedded. A catalogue that has gained an
+        entry has not changed the other 8,373, and searching those by meaning is exactly as
+        sound as it was before -- until this existed, one knowledge-base record turned every
+        meaning-based search in the system into a word search, until an operator rebuilt
+        every vector (F4-bt-10, live 2026-09-19, and Eray's N27).
+        """
+        snapshot = ReviewedSnapshot.model_validate(snapshot)
+        cached = self._covering.get(snapshot.content_sha256)
+        if cached is not None:
+            return cached
+        covers = frozenset(
+            document.series_id
+            for document in catalog_documents(snapshot)
+            if self._embedded.get(document.series_id)
+            == (document.text_sha256, document.concept_ids, document.family_ids)
+        )
+        if len(self._covering) >= MAX_COVERAGE_CACHED:
+            self._covering.clear()
+        self._covering[snapshot.content_sha256] = covers
+        return covers
+
     @property
     def snapshot_version(self) -> str:
-        return self._snapshot.snapshot_version
+        """The version of the catalogue this generation was built for."""
+        return self._manifest.snapshot_version
 
     @classmethod
     def open(
@@ -242,6 +277,9 @@ class LocalCatalogIndex:
             manifest = _Manifest.model_validate_json(raw)
         except Exception:
             raise CatalogIndexError("INDEX_MANIFEST_INVALID") from None
+        # A generation is opened against the catalogue it was built for -- its directory is
+        # that catalogue's digest. Searching a catalogue that has moved on since is
+        # `covering`, which answers per identity rather than for the whole generation.
         if (
             manifest.snapshot_sha256 != snapshot.content_sha256
             or manifest.snapshot_version != snapshot.snapshot_version
@@ -267,25 +305,29 @@ class LocalCatalogIndex:
             rows.sort(key=lambda r: r.catalog_ordinal)
             if len(rows) != manifest.row_count or _rows_digest(rows) != manifest.rows_sha256:
                 raise CatalogIndexError("INDEX_CONTENT_INVALID")
-            documents = catalog_documents(snapshot)
-            if len(documents) != len(rows):
+            # Every field but the vector floats is inside `rows_sha256`, so the rows are
+            # already known to be the rows this generation published. What is checked here
+            # is what that digest cannot prove: the order they carry, and that each vector
+            # is the finite unit vector its own digest claims.
+            ordinals = {row.series_id: row.catalog_ordinal for row in rows}
+            if len(ordinals) != len(rows):
                 raise CatalogIndexError("INDEX_CONTENT_INVALID")
-            for ordinal, (row, doc) in enumerate(zip(rows, documents, strict=True)):
+            for ordinal, row in enumerate(rows):
                 if (
                     row.catalog_ordinal != ordinal
-                    or row.series_id != doc.series_id
-                    or row.catalog_text != doc.text
-                    or row.text_sha256 != doc.text_sha256
-                    or row.concept_ids != doc.concept_ids
-                    or row.family_ids != doc.family_ids
                     or vector_digest(row.vector) != row.vector_sha256
                     or not all(math.isfinite(v) for v in row.vector)
                     or not math.isclose(math.hypot(*row.vector), 1.0, abs_tol=1e-6)
                 ):
                     raise CatalogIndexError("INDEX_CONTENT_INVALID")
+            embedded = {
+                row.series_id: (row.text_sha256, row.concept_ids, row.family_ids) for row in rows
+            }
         except Exception:
             raise CatalogIndexError("INDEX_CONTENT_INVALID") from None
-        return cls(table, snapshot, profile, {r.series_id: r.catalog_ordinal for r in rows})
+        index = cls(table, manifest, profile, ordinals, embedded, {})
+        index.covering(snapshot)  # The catalogue it was opened against is asked about first.
+        return index
 
     def search(
         self, query: QueryVector, *, eligible_ids: frozenset[str], limit: int = 10
