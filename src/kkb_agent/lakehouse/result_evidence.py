@@ -190,8 +190,10 @@ def execution_proof(result: AnalyticalResult, connection: DuckDBPyConnection | N
         return False
 
 
-def result_ancestors(result: AnalyticalResult, connection: DuckDBPyConnection | None) -> set[str]:
-    """Exact immutable result versions in validated producer input snapshots.
+def result_ancestors(
+    result: AnalyticalResult, connection: DuckDBPyConnection | None
+) -> set[tuple[str, str]]:
+    """Workspace names and exact immutable result versions in validated producer input snapshots.
 
     Used only to suppress repeated writer blocks. A label, name or matching
     magnitude alone never proves ancestry. Missing/legacy evidence keeps context.
@@ -201,7 +203,7 @@ def result_ancestors(result: AnalyticalResult, connection: DuckDBPyConnection | 
     graph = Lineage(connection)
     pending = [result]
     checked: set[str] = set()
-    found: set[str] = set()
+    found: set[tuple[str, str]] = set()
     while pending and len(checked) < 64:
         current = pending.pop()
         digest = current.digest()
@@ -218,7 +220,9 @@ def result_ancestors(result: AnalyticalResult, connection: DuckDBPyConnection | 
                     continue
                 ancestor = AnalyticalResult.model_validate(snapshot["result"])
                 if execution_proof(ancestor, connection):
-                    found.add(ancestor.digest())
+                    workspace_name = snapshot.get("workspace")
+                    if isinstance(workspace_name, str):
+                        found.add((workspace_name, ancestor.digest()))
                     pending.append(ancestor)
         except (duckdb.Error, LineageError, ValueError, TypeError, KeyError):
             continue

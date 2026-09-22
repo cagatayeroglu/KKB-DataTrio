@@ -92,7 +92,10 @@ def test_add_series_and_turn_three_counts_are_writer_free(pool):
     assert any("causal effect" in limitation for limitation in final.limitations)
     gated = gate_answer(draft, {"comparison": final}, lake.connection)
     assert gated.status is AnswerStatus.ACCEPTED
-    assert [item.number.value for item in gated.verdict.numbers] == [5, 0, 5, 2, 3, 1]
+    assert [
+        item.number.value for item in gated.verdict.numbers if item.binding.value != "year"
+    ] == [5, 0, 5, 2, 3, 1]
+    assert any(item.binding.value == "year" for item in gated.verdict.numbers)
     provider = scripted(plan().model_dump_json())
     before = source_of(pool).digest()
     answered = Session(provider, registry).answer(

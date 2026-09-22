@@ -1805,7 +1805,7 @@ class Session:
         for key, ancestor in list(available.items()):
             if (
                 key != name
-                and ancestor.digest() in ancestors
+                and (key, ancestor.digest()) in ancestors
                 and all(value in result.values for value in ancestor.values)
             ):
                 available.pop(key)
@@ -1814,7 +1814,7 @@ class Session:
         current_notes = {*result.warnings, *result.limitations, *result.unresolved_semantics}
         current_names = result.parameters.get("series_names")
         for key, ancestor in all_available.items():
-            if key in available or ancestor.digest() not in ancestors:
+            if key in available or (key, ancestor.digest()) not in ancestors:
                 continue
             notes = [
                 note
