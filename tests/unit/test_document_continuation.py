@@ -161,6 +161,37 @@ def test_a_failed_follow_cannot_degrade_to_a_successful_search_listing(tmp_path)
         assert len(provider.seen) == 2
 
 
+@pytest.mark.parametrize("planned_follow", [False, True], ids=["inspection", "plan"])
+def test_a_followed_document_is_inspected_as_reached_through_its_link(tmp_path, planned_follow):
+    """Live 2026-09-22 (N46): a press release reached through "21 Mart 2024" was read as
+    "ayrıca bir bağlantı izlemeye gerek yoktur": a followed document lists no links of its
+    own, and nothing said it had been reached through one. Whoever followed the link, the
+    inspection is now told which link, from which page."""
+    site = Site({ROOT: (INDEX, "text/html"), TARGET: (PAGE, "text/html")})
+    arguments = {"url": ROOT, "follow": "March decision"} if planned_follow else {"url": ROOT}
+    steps = [{"step_id": "page", "tool": "web_url", "arguments": arguments}]
+    responses = [json.dumps({"question": "q", "steps": steps})]
+    if not planned_follow:
+        responses.append('{"follow":1}')
+    responses.append('{"reading":"Kurul politikasını korudu."}')
+    with open_lakehouse(tmp_path / "lake") as lake:
+        registry = ToolRegistry()
+        registry.register(make_web_url_tool(fetch=site, lineage=lake.lineage))
+        provider = scripted(*responses)
+        answer = Session(provider, registry).answer(
+            f"{ROOT} sayfasındaki Mart kararının bağlantısını izle ve özetle", lake.connection
+        )
+    assert "Kurul politikasını korudu" in answer.answer.text
+    reading = provider.seen[-1]
+    assert "never says that none was followed or needed" in reading[0].content
+    payload = json.loads(reading[-1].content)
+    assert payload["links"] == []
+    assert payload["reached_through"] == {"link_text": "March decision", "from_page": ROOT}
+    if not planned_follow:
+        # The index itself was reached by nobody's link, and is not said to be.
+        assert "reached_through" not in json.loads(provider.seen[1][-1].content)
+
+
 #: Stands for the runner's outline: it exists only when the turn read an address it was given.
 OUTLINE = "What the web address in the question offers. (outline)"
 SEARCH = {"step_id": "search", "tool": "web_search", "arguments": {"query": "official decision"}}

@@ -40,6 +40,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Annotated, Literal
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, StringConstraints, model_validator
 
@@ -380,6 +381,23 @@ class WebUrlOutput:
     result: AnalyticalResult | None = field(default=None, repr=False)
     links: tuple[PageLink, ...] = field(default=(), repr=False)
     followed: bool = False
+    #: With `followed`: the visible text (or file name) of the link that was followed and the
+    #: page it sat on, scheme, host and path only. Live 2026-09-22 (N46): a reading of a
+    #: followed press release said no link had needed following, because nothing it was
+    #: shown said how the document was reached.
+    followed_text: str | None = field(default=None, repr=False)
+    followed_from: str | None = field(default=None, repr=False)
+
+
+def _link_name(link: PageLink) -> str:
+    """What a link is called on its page: its visible text, else its file name."""
+    return link.text or unquote(urlsplit(link.url).path.rsplit("/", 1)[-1])
+
+
+def _page_locator(url: str) -> str:
+    """Scheme, host and path of a page, without the query or fragment a token may sit in."""
+    parts = urlsplit(url)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path or "/", "", ""))
 
 
 @dataclass(frozen=True)
@@ -520,6 +538,7 @@ def read_document(
                 WebUrlOutput("rejected", error.code, source, JSON_MEDIA_TYPE), "not_admitted"
             )
         return DocumentRead(WebUrlOutput("loaded", None, source, JSON_MEDIA_TYPE, table=records))
+    via: tuple[str, str] | None = None
     if follow is not None:
         page = fetch(
             FetchRequest(
@@ -541,6 +560,7 @@ def read_document(
         except LinkRefused as error:
             return DocumentRead(WebUrlOutput("needs_input", error.code), "needs_input")
         url = link.url
+        via = (_link_name(link), _page_locator(base))
 
     outcome = fetch(
         FetchRequest(
@@ -584,6 +604,8 @@ def read_document(
                 if isinstance(read.output.document, HtmlDocument) and follow is None
                 else (),
                 followed=follow is not None,
+                followed_text=via[0] if via is not None else None,
+                followed_from=via[1] if via is not None else None,
             ),
         )
     return read
@@ -672,7 +694,16 @@ def make_web_url_tool(
                 searched=frozenset({target.url}),
                 delegated=True,
             )
-            read = replace(read, output=replace(read.output, followed=True, links=()))
+            read = replace(
+                read,
+                output=replace(
+                    read.output,
+                    followed=True,
+                    links=(),
+                    followed_text=_link_name(target),
+                    followed_from=parent.source.locator if parent.source is not None else None,
+                ),
+            )
         else:
             address = arguments.url
             if arguments.found_by is not None:
