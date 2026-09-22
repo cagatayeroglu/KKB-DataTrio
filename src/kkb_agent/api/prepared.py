@@ -1381,8 +1381,13 @@ class PreparedRunner:
                         # next question cannot name it: the loop built the table and the
                         # workspace never heard about it, so `analiz_1` did not exist and
                         # the reader saw no table at all.
+                        # An empty result is not a publication. Live 2026-09-23 a turn
+                        # whose every source read failed still published `analiz_3` with
+                        # no cells, so the reader was shown an empty table under an
+                        # answer that said plainly no data had been obtained.
                         for shown in answered.presented or answered.results[-1:]:
-                            workspace.publish(workspace.preview(name, shown))
+                            if shown.values:
+                                workspace.publish(workspace.preview(name, shown))
                             break
                     else:
                         answered = session.answer(
