@@ -207,6 +207,18 @@ _CONFIRMATIONS: Final = frozenset(
 )
 
 
+def _discovery_of(dense: CatalogDenseStage | None, catalog: ReviewedSnapshot) -> str:
+    """What the trace records discovery ran as, for this catalogue and this generation."""
+    if dense is None:
+        return "lexical"
+    covered = dense.index.covering(catalog)
+    if not covered:
+        return "lexical"
+    if len(covered) == len(catalog.series):
+        return "hybrid"
+    return f"hybrid over {len(covered)} of {len(catalog.series)}"
+
+
 def _confirms(question: str) -> bool:
     """Whether this message is the person saying yes to the offer they were shown."""
     return " ".join(question.strip().lower().split()) in _CONFIRMATIONS
@@ -926,9 +938,13 @@ class PreparedRunner:
         return self._dense
 
     def _dense_for(self, catalog: ReviewedSnapshot) -> CatalogDenseStage | None:
-        """A generation searches only the catalogue it was built for (its digest)."""
-        if self._dense is None or self._dense.index.snapshot_sha256 != catalog.content_sha256:
-            return None
+        """The generation this turn may search, whatever the catalogue has gained since.
+
+        A generation used to be dropped whenever the catalogue digest had moved, so one
+        knowledge-base entry made every turn's discovery lexical until someone rebuilt all
+        8,374 vectors. The generation is kept and the index decides per identity which
+        series its vectors can still answer for (N27).
+        """
         return self._dense
 
     def _keep_read(self, session_id: str, media_type: str, content: bytes) -> None:
@@ -1235,7 +1251,7 @@ class PreparedRunner:
                         catalog_digest=catalog.content_sha256,
                         reviewed=catalog is self._catalog,
                         loaded_datasets=list[JsonValue](knowledge_loaded),
-                        discovery="hybrid" if self._dense_for(catalog) is not None else "lexical",
+                        discovery=_discovery_of(self._dense_for(catalog), catalog),
                     )
                 tracer.event(
                     "request",
@@ -1799,11 +1815,9 @@ class PreparedRunner:
                     if catalog is self._catalog
                     else catalog.model_dump_json().encode("utf-8")
                 ),
-                # The dense index is bound to the reviewed digest; with knowledge-base
-                # entries applied, discovery is lexical for this turn.
-                # A generation is built for one exact catalogue: it is offered only
-                # to the catalogue whose digest it carries, reviewed or with the
-                # knowledge base applied. Otherwise discovery stays lexical.
+                # A generation answers for the identities whose text it embedded, so a
+                # catalogue that has gained an entry keeps meaning-based discovery for
+                # everything else in it.
                 dense=self._dense_for(catalog),
                 expand=(
                     (lambda query, output: expand_groups(query, output, opened))

@@ -337,9 +337,10 @@ class KnowledgeService:
     def index_status(self, owner_token: str) -> VectorIndexStatus:
         """What the meaning-based stage holds, against the catalogue in use now.
 
-        Reading only: no vector is computed here and no model is called. A
-        generation that no longer covers the catalogue is reported as such, with
-        the entries it is missing, because that is what turns the second stage off.
+        Reading only: no vector is computed here and no model is called. Coverage is
+        counted per identity, because that is what the second stage now searches by: a
+        series is vectored when the text embedded for it is still its catalogue text, and
+        the entries that are not are named.
         """
         self._author(owner_token)
         catalog = self._effective()
@@ -361,7 +362,8 @@ class KnowledgeService:
             )
         index = self._dense.index
         profile = index.profile
-        held = index.series_ids
+        # Held under other text is not vectored for the catalogue in use now.
+        held = index.covering(catalog)
         return VectorIndexStatus(
             configured=True,
             model=profile.model,
@@ -372,7 +374,7 @@ class KnowledgeService:
             generation_version=index.snapshot_version,
             catalog_sha256=catalog.content_sha256,
             catalog_version=catalog.snapshot_version,
-            covers_catalog=index.snapshot_sha256 == catalog.content_sha256,
+            covers_catalog=set(identities) <= held,
             series_total=len(identities),
             series_vectored=sum(sid in held for sid in identities),
             missing=tuple(sid for sid in identities if sid not in held)[:50],

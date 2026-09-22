@@ -70,14 +70,26 @@ def lifecycle(tmp_path):
     conversations.close()
 
 
+def _stage_of(trial, series_id: str) -> str | None:
+    """Which stage found one identity in a trial's hits."""
+    return next((hit.stage for hit in trial.hits if hit.series_id == series_id), None)
+
+
 def test_user_save_rebuild_reopen_archive_and_version_are_digest_bound(lifecycle):
     service, knowledge, token, provider, old, build_stage, installed = lifecycle
     first = knowledge.save_dataset(dataset())
     stale = service.index_status(token)
     assert not stale.covers_catalog and stale.missing == (first.series_id,)
+    # This question's own alias maps only to the entry that was just saved, and that one
+    # entry has no vector yet, so the meaning stage has nothing it can rank.
     lexical = service.search(token, "kart harcaması")
     assert lexical.retrieval_mode == "lexical_degraded"
     assert first.series_id in {hit.series_id for hit in lexical.hits}
+    # Every other entry is covered exactly as it was, so a question about one of them is
+    # still answered by meaning. One saved record used to turn the whole stage off (N27).
+    reviewed_question = service.search(token, "konut kredisi stok")
+    assert reviewed_question.retrieval_mode == "hybrid"
+    assert {"dense", "both"} & {hit.stage for hit in reviewed_question.hits}
 
     service.rebuild(token)
     service.close()
@@ -129,7 +141,10 @@ def test_catalog_change_during_build_never_installs_stale_stage(lifecycle):
     status = service.index_status(token)
     assert status.last_error == "concurrent_catalog_change"
     assert not status.covers_catalog and installed == [] and service._dense is old
+    # The stage that was kept is the reviewed one: it covers no entry this question is
+    # about, and still covers every reviewed series.
     assert service.search(token, "kart harcaması").retrieval_mode == "lexical_degraded"
+    assert service.search(token, "konut kredisi stok").retrieval_mode == "hybrid"
 
 
 @pytest.mark.parametrize(
