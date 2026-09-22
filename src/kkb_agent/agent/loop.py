@@ -85,6 +85,7 @@ from kkb_agent.core import (
     ResultValue,
     Scale,
 )
+from kkb_agent.lakehouse.result_evidence import result_ancestors
 from kkb_agent.llm.provider import (
     Completion,
     LLMProvider,
@@ -1728,6 +1729,18 @@ class Session:
             )
 
         name = remember or "result"
+        # A known invalid producer cannot be rescued by prose. Re-run the normal
+        # gate for the user-facing refusal; no writer call or publication occurs.
+        if result_faults(
+            {name: result},
+            connection,
+            tolerance=gate.get("tolerance", DEFAULT_TOLERANCE),  # type: ignore[arg-type]
+            minimum_samples=gate.get("minimum_samples"),  # type: ignore[arg-type]
+        ):
+            rejected = self._gated(
+                "Sonucun kaynak ve hesap kanıtı doğrulanamadı.", {name: result}, connection, gate
+            )
+            return Answered(planned, outcome, results, rejected)
         available: dict[str, AnalyticalResult] = {name: result}
         preview = None
         if workspace is not None:
@@ -1743,6 +1756,7 @@ class Session:
             else:
                 available = {**workspace.values(), **available}
 
+        all_available = dict(available)
         if self.selection is not None:
             available = {
                 key: value for key, value in available.items() if key in (name, self.selection.name)
@@ -1787,6 +1801,42 @@ class Session:
                 and not any(other is held for held in available.values())
             ):
                 available[f"{name}_ek_{position}"] = other
+        ancestors = result_ancestors(result, connection)
+        for key, ancestor in list(available.items()):
+            if (
+                key != name
+                and ancestor.digest() in ancestors
+                and all(value in result.values for value in ancestor.values)
+            ):
+                available.pop(key)
+        # Retain version-scoped warnings/meaning even when repeated cell blocks go.
+        writer_notes: list[str] = []
+        current_notes = {*result.warnings, *result.limitations, *result.unresolved_semantics}
+        current_names = result.parameters.get("series_names")
+        for key, ancestor in all_available.items():
+            if key in available or ancestor.digest() not in ancestors:
+                continue
+            notes = [
+                note
+                for note in (
+                    *ancestor.warnings,
+                    *ancestor.limitations,
+                    *ancestor.unresolved_semantics,
+                )
+                if note not in current_notes
+            ]
+            old_names = ancestor.parameters.get("series_names")
+            if isinstance(old_names, dict):
+                notes.extend(
+                    f"{label} means {meaning}"
+                    for label, meaning in old_names.items()
+                    if not isinstance(current_names, dict) or current_names.get(label) != meaning
+                )
+            if notes:
+                writer_notes.append(
+                    f"Earlier version {key}@{ancestor.digest()[:12]} notes "
+                    "(apply only to that preserved version): " + "; ".join(notes)
+                )
         fast_draft = deterministic_draft(result) if self.deterministic_presentation else None
         if self.tracer is not None and fast_draft is not None:
             self.tracer.event("answer", "draft.deterministic", source="harness", detail=fast_draft)
@@ -1804,7 +1854,13 @@ class Session:
             draft = fast_draft
         else:
             try:
-                draft = self.draft(question, available, incomplete=incomplete, current=name)
+                draft = self.draft(
+                    question,
+                    available,
+                    incomplete=incomplete,
+                    current=name,
+                    inherited_notes=writer_notes,
+                )
             except ProviderError:
                 # The harness's own wording is the safety net, and a provider that fails must
                 # not cost a turn whose figures are already computed and verified.
@@ -1842,6 +1898,7 @@ class Session:
                     incomplete=incomplete,
                     current=name,
                     commentary_for=fast_draft,
+                    inherited_notes=writer_notes,
                 ).strip()
             except ProviderError:
                 interpretation = ""
@@ -1940,6 +1997,7 @@ class Session:
                 rewritten = self.draft(
                     question,
                     available,
+                    inherited_notes=writer_notes,
                     repair_period=period_repair,
                     repair_numeric=numeric_repair,
                     incomplete=incomplete,
@@ -2252,6 +2310,7 @@ class Session:
         incomplete: Sequence[str] = (),
         current: str | None = None,
         commentary_for: str | None = None,
+        inherited_notes: Sequence[str] = (),
     ) -> str:
         """Ask the model to put the computed values into a sentence.
 
@@ -2275,7 +2334,15 @@ class Session:
             repair = COMMENTARY_INSTRUCTIONS
         messages = [
             Message(Role.SYSTEM, SYNTHESIS_PROMPT + ("\n" + repair if repair else "")),
-            Message(Role.SYSTEM, render_results(available, current)),
+            Message(
+                Role.SYSTEM,
+                render_results(available, current)
+                + (
+                    "\nVersion-scoped context:\n" + "\n".join(inherited_notes)
+                    if inherited_notes
+                    else ""
+                ),
+            ),
         ]
         if commentary_for is not None:
             messages.append(Message(Role.SYSTEM, "written:\n" + commentary_for))

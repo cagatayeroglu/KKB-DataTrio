@@ -298,12 +298,33 @@ def deterministic_draft(result: AnalyticalResult) -> str | None:
             return None
         values = _controlled_counts(result, table_count_display_label, TABLE_COUNT_LABELS)
         if values is not None:
+            periods = result.evidence.transformations[-1].parameters.get("joint_periods")
+            if not isinstance(periods, list) or not all(isinstance(p, str) for p in periods):
+                return None
+            matched = [
+                v
+                for v in result.values
+                if table_count_display_label(result, v)
+                == TABLE_COUNT_LABELS["eligible transitions matching both directions"]
+            ]
+            if len(matched) != 1 or matched[0].value != len(periods):
+                return None
+            try:
+                dates = [date.fromisoformat(str(p)).isoformat() for p in periods]
+            except ValueError:
+                return None
+            period_text = (
+                "Koşulu sağlayan dönemler: " + ", ".join(dates) + "."
+                if dates
+                else "Koşulu sağlayan dönem yok."
+            )
             heading = comparison_heading(result)
             return "\n".join(
                 [
                     "Tablodaki aylık yönler karşılaştırıldı.",
                     *([heading] if heading else []),
                     *values,
+                    period_text,
                 ]
             )
     return None
