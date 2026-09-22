@@ -103,10 +103,17 @@ TWO_STEPS = [
 
 
 class TestTheRegistryOwnsTheNames:
-    def test_only_the_brief_names_can_be_registered(self):
+    def test_a_deployment_decides_which_tools_exist(self):
+        """Registration takes the tool; reachability is what a name being here means.
+
+        It used to refuse any name outside a fixed list, so adding a capability meant
+        amending that list first. The list guarded a process rather than the reader:
+        a tool is reachable only where this deployment registered it, and what it may
+        do is the tool's own business.
+        """
         reg = ToolRegistry()
-        with pytest.raises(RegistryError, match="not an implemented approved tool"):
-            reg.register(ToolSpec("shell", "run anything", LakehouseArgs, lakehouse_run))
+        reg.register(ToolSpec("inspect", "look at a table", LakehouseArgs, lakehouse_run))
+        assert "inspect" in reg
 
     def test_a_duplicate_registration_is_refused(self):
         reg = registry()
