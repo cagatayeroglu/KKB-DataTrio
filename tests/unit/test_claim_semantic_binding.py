@@ -671,3 +671,49 @@ def test_typed_lag_observation_and_window_roles_do_not_license_money(connection)
         gate_answer("Lag 1 ile 1 milyon TL arttı.", {"credit": table}, connection).status
         is AnswerStatus.ABSTAINED
     )
+
+
+def _january_and_february():
+    january = result().values[0]
+    february = january.model_copy(
+        update={
+            "value": 200.0,
+            "period": Period(
+                start=date(2025, 2, 1), end=date(2025, 2, 28), frequency=Frequency.MONTHLY
+            ),
+        }
+    )
+    return result().model_copy(update={"values": [january, february]})
+
+
+@pytest.mark.parametrize("separator", [" ve ", ", ", "; "])
+def test_written_period_ranges_each_date_their_own_figure(connection, separator):
+    # N45 (live W1-W3, 2026-09-22): the writer is shown 2025-01-01..2025-01-31 and a model
+    # writes it back. Each range was read as two dates with nothing between them, so the
+    # clause paired nothing and both correct figures were refused for the other month.
+    table = {"credit": _january_and_february()}
+    correct = (
+        f"2025-01-01..2025-01-31 dönemi 100 milyon TL{separator}"
+        "2025-02-01..2025-02-28 dönemi 200 milyon TL."
+    )
+    assert gate_answer(correct, table, connection).status is AnswerStatus.ACCEPTED
+    swapped = (
+        f"2025-01-01..2025-01-31 dönemi 200 milyon TL{separator}"
+        "2025-02-01..2025-02-28 dönemi 100 milyon TL."
+    )
+    assert gate_answer(swapped, table, connection).status is AnswerStatus.ABSTAINED
+
+
+def test_two_written_ranges_that_share_one_figure_both_have_to_hold(connection):
+    shared = "2025-01-01..2025-01-31 ve 2025-02-01..2025-02-28 dönemlerinde 100 milyon TL."
+    table = {"credit": _january_and_february()}
+    assert gate_answer(shared, table, connection).status is AnswerStatus.ABSTAINED
+
+
+def test_one_written_range_still_bounds_its_figure(connection):
+    table = {"credit": _january_and_february()}
+    inside = "2025-02-01..2025-02-28 döneminde bakiye 200 milyon TL oldu."
+    assert gate_answer(inside, table, connection).status is AnswerStatus.ACCEPTED
+    # A range the value's own period does not contain is still refused.
+    wider = "2025-01-01..2025-02-28 döneminde bakiye 200 milyon TL oldu."
+    assert gate_answer(wider, table, connection).status is AnswerStatus.ABSTAINED

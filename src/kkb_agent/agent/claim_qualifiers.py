@@ -520,7 +520,16 @@ def mask_price_references(text: str, references: Sequence[date]) -> str:
 
 def _dated_mentions(context: str) -> list[tuple[int, int]]:
     """Where a clause names a period: a date, a month with its year, or a year alone."""
-    spans = [(found.start(), found.end()) for found in ISO_DATE.finditer(context)]
+    # "2026-07-01..2026-07-31" is one period: the display this system writes for the writer,
+    # and the one a model copies back. Read as two dates with nothing between them, a clause
+    # that gave each period its own figure paired nothing, and every figure was refused for
+    # the other periods (N45, live W1-W3 on 2026-09-22).
+    spans = [(found.start(), found.end()) for found in DATE_RANGE.finditer(context)]
+    spans += [
+        (found.start(), found.end())
+        for found in ISO_DATE.finditer(context)
+        if not any(start <= found.start() < end for start, end in spans)
+    ]
     # "2026-06" is one mention. Read as a year with a stray "-06" after it, the "06" counted
     # as a figure standing after the last date, and a price month nobody recorded paired off.
     spans += [
