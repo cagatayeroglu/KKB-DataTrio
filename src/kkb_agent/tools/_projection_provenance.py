@@ -47,6 +47,9 @@ _STORED_COLUMNS = (
     "anchor",
     "observation",
     "artifact_id",
+    "cumulative",
+    "aggregation",
+    "base_year",
 )
 _SHAPE_REASON = (
     "Unsupported projection provenance: select direct silver_observations columns "
@@ -170,7 +173,8 @@ def provenance_fault(
     for row in query.rows:
         stored = connection.execute(
             "SELECT o.series_id, o.period_start, o.period_end, o.value, s.title, "
-            "s.unit, s.scale, s.frequency, s.anchor, s.observation, s.artifact_id "
+            "s.unit, s.scale, s.frequency, s.anchor, s.observation, s.artifact_id, "
+            "s.cumulative, s.aggregation, s.base_year "
             "FROM silver_observations o JOIN silver_series s ON s.series_id = o.series_id "
             "WHERE o.series_id = ? AND o.period_end = ?",
             [row[positions["series_id"]], row[positions["period_end"]]],

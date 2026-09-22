@@ -21,6 +21,7 @@ the same boundary as `web_url`, and joins it on explicit months.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace as replace_semantics
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, Self
 
@@ -80,6 +81,7 @@ from kkb_agent.core import (
 from kkb_agent.ingest.attached import Attachment
 from kkb_agent.ingest.fetched import source_id_for
 from kkb_agent.lakehouse.alignment import WeekAssignment
+from kkb_agent.lakehouse.column_contract import KEY, declarations, encode
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.lakehouse.records import Observation
 from kkb_agent.lakehouse.result_evidence import _record_execution, canonical
@@ -1345,6 +1347,15 @@ def _resampled(
         )
     parameters = dict(source.parameters)
     parameters.update({"source": arguments.source, "resampled": arguments.column})
+    original = declarations(source).get(arguments.column)
+    artifact = original.get("artifact_id") if isinstance(original, dict) else None
+    parameters[KEY] = {
+        reduced.label: encode(
+            replace_semantics(semantics, frequency=Frequency.MONTHLY, anchor=None),
+            column_id=reduced.label,
+            artifact_id=artifact if isinstance(artifact, str) else None,
+        )
+    }
     warnings = list(source.warnings)
     if reduced.incomplete:
         warnings.append(
@@ -1418,12 +1429,7 @@ def _summarized(arguments: SummarizeArguments, source: AnalyticalResult) -> Anal
             method=SUMMARY_METHOD,
             reason=str(error),
         )
-    previous = source.evidence.transformations if source.evidence is not None else []
-    refs = (
-        [source.evidence.lineage_node]
-        if source.evidence is not None and source.evidence.lineage_node
-        else [source.result_id]
-    )
+    refs, previous = _prior_evidence(source)
     return AnalyticalResult(
         result_id=result_id,
         kind=ResultKind.LEVEL,
@@ -1560,6 +1566,10 @@ def _joined(
             "series_names": series_names,
             "source": arguments.source,
             "joined_table": joined.transformation.parameters,
+            KEY: {
+                **declarations(source),
+                **{k: v for k, v in declarations(other).items() if k in joined.columns},
+            },
         }
     )
     refs: list[str] = []

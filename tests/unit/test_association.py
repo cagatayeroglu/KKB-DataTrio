@@ -920,7 +920,39 @@ def test_two_columns_of_one_table_can_be_measured_when_the_series_cannot(tmp_pat
             *column("BDDK:konut", balances, "TRY", StockFlow.STOCK),
         ],
     )
+    from kkb_agent.lakehouse.column_contract import KEY, encode
     from kkb_agent.tools.causality import _column_of
+
+    table = table.model_copy(
+        update={
+            "parameters": {
+                KEY: {
+                    "EVDS:TP.KTF12 monthly average (by_end)": encode(
+                        SeriesSemantics(
+                            unit="percent",
+                            scale=Scale.ONE,
+                            frequency=Frequency.MONTHLY,
+                            observation=StockFlow.RATE,
+                            cumulative=CumulativeKind.NONE,
+                            aggregation=Aggregation.AVERAGE,
+                        ),
+                        column_id="rate",
+                    ),
+                    "BDDK:konut": encode(
+                        SeriesSemantics(
+                            unit="TRY",
+                            scale=Scale.MILLION,
+                            frequency=Frequency.MONTHLY,
+                            observation=StockFlow.STOCK,
+                            cumulative=CumulativeKind.NONE,
+                            aggregation=Aggregation.LAST,
+                        ),
+                        column_id="balance",
+                    ),
+                }
+            }
+        }
+    )
 
     # Each column is read as a series: its own observations, and the semantics its cells
     # declare. The resampled rate is a column, not a registered series, which is why the

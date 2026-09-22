@@ -45,16 +45,16 @@ from kkb_agent.analytics.table_relationship import resolve_label
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
 from kkb_agent.core import (
     DIMENSIONLESS,
-    Aggregation,
     AnalyticalResult,
-    CumulativeKind,
     ResultStatus,
     SeriesId,
 )
 from kkb_agent.ingest.prepared_series import prepared_series_coverage
 from kkb_agent.lakehouse import Observation, SeriesSemantics
+from kkb_agent.lakehouse.column_contract import decode
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
-from kkb_agent.lakehouse.result_evidence import _record_execution
+from kkb_agent.lakehouse.result_evidence import _record_execution, canonical
+from kkb_agent.lakehouse.semantics import SemanticsError
 from kkb_agent.tools.change_detection import SeriesUnknown, read_series
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -173,17 +173,33 @@ def _column_of(source: AnalyticalResult, label: str) -> _ReadColumn | str:
     frequencies = {value.period.frequency for value in selected if value.period is not None}
     if len(frequencies) != 1:
         return f"Column {label[:160]!r} mixes frequencies"
+    try:
+        semantics = decode(source, label)
+    except SemanticsError as error:
+        return f"Column {label[:160]!r}: {error}"
+    if (semantics.unit, semantics.scale, semantics.observation, semantics.frequency) != (
+        first.unit,
+        first.scale,
+        first.measure,
+        next(iter(frequencies)),
+    ):
+        return f"Column {label[:160]!r} disagrees with its semantic carrier"
+    if any(
+        value.period is not None and value.period.weekly_anchor != semantics.anchor
+        for value in selected
+    ):
+        return f"Column {label[:160]!r} disagrees with its calendar anchor"
     return _ReadColumn(
-        SeriesSemantics(
-            unit=first.unit or "",
-            scale=first.scale,
-            frequency=frequencies.pop(),
-            observation=first.measure,
-            cumulative=CumulativeKind.NONE,
-            aggregation=Aggregation.LAST,
-        ),
+        semantics,
         tuple(sorted(observations, key=lambda item: item.period_end)),
-        source.result_id,
+        canonical(
+            {
+                "kind": "table_column",
+                "column": label,
+                "result_version": source.digest(),
+                "result": source.model_dump(mode="json"),
+            }
+        ),
     )
 
 
