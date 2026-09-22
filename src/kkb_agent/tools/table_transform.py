@@ -64,7 +64,12 @@ from kkb_agent.analytics.table_shape import (
     rebase_index,
 )
 from kkb_agent.analytics.table_summary import METHOD as SUMMARY_METHOD
-from kkb_agent.analytics.table_summary import SummaryRefused, summarize_column
+from kkb_agent.analytics.table_summary import (
+    InvalidAggregation,
+    SummaryKind,
+    SummaryRefused,
+    summarize_column,
+)
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
 from kkb_agent.core import (
     Aggregation,
@@ -218,7 +223,10 @@ class SummarizeArguments(BaseModel):
     operation: Literal["summarize"]
     source: str = Field(pattern=r"^[A-Za-z0-9_.:-]{1,64}$", description=_SOURCE)
     column: str = Field(min_length=1, max_length=400, description="Exact target column label")
-    aggregation: Literal["mean", "sum", "min", "max", "first", "last", "count"]
+    aggregation: SummaryKind
+    requested_aggregation: SummaryKind = Field(
+        description="User's requested metric before checking validity; never an alternative."
+    )
     start_period: date | None = None
     end_period: date | None = None
 
@@ -890,7 +898,8 @@ def make_table_transform_tool(
             "is never spread onto weeks or days.\n"
             "- summarize: one number from a column - mean, sum, min, max, first, last or "
             "count - optionally within a date range ('ortalaması ne', 'en yüksek değer'). "
-            "Sum is refused for stocks, rates and indices.\n"
+            "requested_aggregation records the user's metric and must equal aggregation. "
+            "Sum is refused for stocks, rates and indices; never replace it with mean.\n"
             "- to_flow: per-period flow copy of a column the store declares cumulative "
             "(yearly_reset or since_inception). Such a column holds running totals, so "
             "summarize sum/mean/min/max, change, deflate and table_co_movement refuse it: "
@@ -1436,6 +1445,16 @@ def _summarized(arguments: SummarizeArguments, source: AnalyticalResult) -> Anal
     result_id = (
         f"table_transform:summarize:{arguments.source}:{arguments.column}:{arguments.aggregation}"
     )
+    if arguments.aggregation != arguments.requested_aggregation:
+        return AnalyticalResult(
+            result_id=result_id,
+            kind=ResultKind.LEVEL,
+            status=ResultStatus.ABSTAINED,
+            tool="table_transform",
+            method=SUMMARY_METHOD,
+            reason="A different aggregation cannot replace the user's requested metric",
+            parameters={"semantic_limitation": "aggregation_substitution"},
+        )
     try:
         summary = summarize_column(
             source,
@@ -1452,6 +1471,9 @@ def _summarized(arguments: SummarizeArguments, source: AnalyticalResult) -> Anal
             tool="table_transform",
             method=SUMMARY_METHOD,
             reason=str(error),
+            parameters={"semantic_limitation": "invalid_aggregation"}
+            if isinstance(error, InvalidAggregation)
+            else {},
         )
     refs, previous = _prior_evidence(source)
     return AnalyticalResult(
@@ -1467,6 +1489,7 @@ def _summarized(arguments: SummarizeArguments, source: AnalyticalResult) -> Anal
             "source": arguments.source,
             "column": arguments.column,
             "aggregation": arguments.aggregation,
+            "requested_aggregation": arguments.requested_aggregation,
             "start_period": arguments.start_period.isoformat() if arguments.start_period else None,
             "end_period": arguments.end_period.isoformat() if arguments.end_period else None,
         },

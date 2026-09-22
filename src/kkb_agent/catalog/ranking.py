@@ -2,8 +2,9 @@
 
 This is a stable post-order policy: it never creates/removes candidates or
 changes similarity scores and it does not turn proximity into a reviewed match.
-Only explicit query qualifiers with a typed/reviewed counterpart can move an
-item. Unknown candidate semantics remain neutral rather than inferred.
+Explicit query qualifiers with a typed/reviewed counterpart decide compatibility.
+Complete required read declarations break remaining ties without resolving intent.
+Unknown candidate semantics are never inferred.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
+from kkb_agent.catalog.inspection import unresolved_read_fields
 from kkb_agent.catalog.mappings import ReviewedSeries
 from kkb_agent.catalog.normalization import normalize_search_text
 from kkb_agent.catalog.records import CatalogStatus
@@ -128,6 +130,20 @@ def _contains(text: str, phrases: tuple[str, ...]) -> bool:
     return any(f" {phrase} " in padded for phrase in phrases)
 
 
+def _contains_nominal_qualifier(text: str, phrases: tuple[str, ...]) -> bool:
+    """Recognize locative noun qualifiers, without arbitrary prefix stemming.
+
+    Turkish uses -da/-de/-ta/-te, optionally followed by -ki, to qualify the
+    measure. Only the last word inflects; longer unrelated words must not match.
+    This refines query intent, not catalog identity or declared semantics.
+    """
+    return _contains(text, phrases) or any(
+        re.search(r"(?<!\S)" + re.escape(phrase) + r"[dt][ae](?:ki)?(?!\S)", text)
+        for phrase in phrases
+        if len(phrase.split()[-1]) >= 4
+    )
+
+
 def _currency(text: str) -> Currency | None:
     return next((value for value, phrases in CURRENCY if _contains(text, phrases)), None)
 
@@ -169,9 +185,9 @@ def _query_intent(query: str) -> _QueryIntent:
     )
     rate_basis: RateBasis | None = None
     if kind is StockFlow.RATE:
-        if _contains(text, OUTSTANDING):
+        if _contains_nominal_qualifier(text, OUTSTANDING):
             rate_basis = "outstanding_portfolio"
-        elif _contains(text, NEW):
+        elif _contains_nominal_qualifier(text, NEW):
             rate_basis = "new_credit"
     inclusion: Inclusion | None = None
     if _contains(text, EXCLUDED):
@@ -395,4 +411,13 @@ def rerank_by_reviewed_intent[T](
 ) -> list[T]:
     """Stable ordering by explicit query/candidate metadata compatibility."""
     intent = _query_intent(query)
-    return sorted(items, key=lambda item: _semantic_key(intent, reviewed_series(item)))
+    return sorted(
+        items,
+        key=lambda item: (
+            _semantic_key(intent, reviewed_series(item)),
+            # Only break semantic ties. An explicit portfolio/flow/currency request
+            # still wins over completeness; missing declarations are never filled in.
+            # Keep this outside intent_key: readiness cannot resolve semantic ambiguity.
+            bool(unresolved_read_fields(reviewed_series(item).record)),
+        ),
+    )

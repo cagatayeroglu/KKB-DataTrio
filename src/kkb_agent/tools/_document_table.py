@@ -82,6 +82,7 @@ MAX_VALUE_COLUMNS = 12
 #: Where a column's unit and scale came from.
 UNIT_FROM_HEADER = "column header"
 UNIT_FROM_QUESTION = "question"
+UNIT_FROM_FORMAT = "Excel percentage number format"
 
 #: What one row of the table is, per calendar: the word a warning uses, and the recorded
 #: rule the rows were read under.
@@ -203,6 +204,12 @@ def read_table(
         header = _text(grid.headers[index])
         unit, scale = header_semantics(header)
         source: str | None = UNIT_FROM_HEADER
+        if grid.percent_column(index):
+            if unit is not None and (unit, scale) != ("percent", Scale.ONE):
+                skipped.append((label, "UNIT_CONFLICT"))
+                continue
+            if unit is None:
+                unit, scale, source = "percent", Scale.ONE, UNIT_FROM_FORMAT
         if unit is None or scale is Scale.UNKNOWN:
             unit, scale, source = None, Scale.UNKNOWN, None
             if label in declared:
@@ -372,6 +379,12 @@ def read_daily_table(
         header = _text(grid.headers[index])
         unit, scale = header_semantics(header)
         source: str | None = UNIT_FROM_HEADER
+        if grid.percent_column(index):
+            if unit is not None and (unit, scale) != ("percent", Scale.ONE):
+                skipped.append((label, "UNIT_CONFLICT"))
+                continue
+            if unit is None:
+                unit, scale, source = "percent", Scale.ONE, UNIT_FROM_FORMAT
         metric = reviewed.get(label) if header == label else None
         measure = document_measure(unit, scale)
         if unit is None or scale is Scale.UNKNOWN:

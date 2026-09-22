@@ -104,6 +104,7 @@ def test_tool_summary_is_proof_bound_and_does_not_mutate_prior_table(pool):
             "source": "konut_kredisi_ve_faiz",
             "column": label,
             "aggregation": "mean",
+            "requested_aggregation": "mean",
         }
     )
     result = bound_tool(pool).run(arguments, ExecutionContext("Bu tablonun ortalaması ne?")).output
@@ -125,6 +126,7 @@ def test_evidence_backed_qualitative_summary_is_not_rejected(pool):
             "source": "konut_kredisi_ve_faiz",
             "column": label,
             "aggregation": "mean",
+            "requested_aggregation": "mean",
         }
     )
     result = bound_tool(pool).run(arguments, ExecutionContext("Ortalaması ne?")).output
@@ -161,6 +163,7 @@ def test_scalar_answer_must_surface_verified_value_or_not_publish(pool, draft, s
             "source": "konut_kredisi_ve_faiz",
             "column": label,
             "aggregation": "mean",
+            "requested_aggregation": "mean",
         },
     }
     registry = ToolRegistry()

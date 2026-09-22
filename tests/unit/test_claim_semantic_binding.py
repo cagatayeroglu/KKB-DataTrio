@@ -613,3 +613,61 @@ class TestACountIsOnlyQuotedAsWhatItIs:
     @pytest.mark.parametrize("draft", ["İlk 3 dönemde bakiye arttı.", "Seri 3. sırada yer aldı."])
     def test_ordinal_or_rank_without_typed_evidence_does_not_become_context(self, draft):
         assert not verify_claims(draft, self._window()).accepted
+
+
+@pytest.mark.parametrize("separator", [" ve ", ", ", "; ", " = "])
+def test_year_month_value_pairs_bind_locally_and_swapped_months_fail(connection, separator):
+    january = result().values[0]
+    february = january.model_copy(
+        update={
+            "value": 200.0,
+            "period": Period(
+                start=date(2025, 2, 1), end=date(2025, 2, 28), frequency=Frequency.MONTHLY
+            ),
+        }
+    )
+    table = result().model_copy(update={"values": [january, february]})
+    correct = f"2025-01 dönemi 100 milyon TL{separator}2025-02 dönemi 200 milyon TL."
+    assert gate_answer(correct, {"credit": table}, connection).status is AnswerStatus.ACCEPTED
+    wrong = f"2025-02 dönemi 100 milyon TL{separator}2025-01 dönemi 200 milyon TL."
+    assert gate_answer(wrong, {"credit": table}, connection).status is AnswerStatus.ABSTAINED
+
+
+def test_wrong_scale_conversion_is_not_new_numeric_authority(connection):
+    table = result(value=512259.0)
+    assert (
+        gate_answer("0,512259 milyar TL.", {"credit": table}, connection).status
+        is AnswerStatus.ABSTAINED
+    )
+
+
+@pytest.mark.parametrize("unit, phrase", [("kg", "100 kg"), ("count", "100 adet")])
+def test_resolved_nonfinancial_values_have_safe_display_and_numeric_binding(
+    connection, unit, phrase
+):
+    from kkb_agent.agent.loop import render_result
+    from kkb_agent.agent.presentation import display_value
+
+    table = result(unit=unit, scale=Scale.ONE)
+    assert display_value(table.values[0]) is not None
+    context = render_result(table)
+    assert '"value_state": "value_present_unit_known"' in context
+    assert "display UNAVAILABLE" not in context
+    assert gate_answer(phrase, {"credit": table}, connection).status is AnswerStatus.ACCEPTED
+
+
+def test_typed_lag_observation_and_window_roles_do_not_license_money(connection):
+    table = result().model_copy(
+        update={
+            "values": [result().values[0].model_copy(update={"lag": 1})],
+            "samples": SampleCounts(used=13, missing=0, excluded=0),
+        }
+    )
+    assert (
+        gate_answer("Lag 1 kullanıldı; 13 gözlem var.", {"credit": table}, connection).status
+        is AnswerStatus.ACCEPTED
+    )
+    assert (
+        gate_answer("Lag 1 ile 1 milyon TL arttı.", {"credit": table}, connection).status
+        is AnswerStatus.ABSTAINED
+    )

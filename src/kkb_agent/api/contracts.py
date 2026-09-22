@@ -261,7 +261,7 @@ def unavailable_proof(*gaps: ProofGap) -> Proof:
     return Proof(availability="unavailable", gaps=gaps)
 
 
-class Result(ContractModel):
+class ResultContent(ContractModel):
     result_ref: Reference
     version: Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{64}$")]
     kind: ResultKind
@@ -282,6 +282,11 @@ class Result(ContractModel):
     proof: Proof = Field(default_factory=unavailable_proof)
 
 
+class Result(ResultContent):
+    # Independently requested companion artifacts; each owns its cells and proof.
+    related: Annotated[tuple[ResultContent, ...], Field(max_length=11)] = ()
+
+
 class SeriesChoice(ContractModel):
     """One catalogue entry as a person reads it: what it is and how it is kept; never a value."""
 
@@ -300,6 +305,7 @@ class SeriesSelection(ContractModel):
 
 
 class Answer(ContractModel):
+    needs_clarification: bool = False
     status: AnswerStatus
     text: Text
     omitted_claims: Annotated[int, Field(strict=True, ge=0)]
@@ -360,11 +366,16 @@ class RuntimeSettings(ContractModel):
     #: Earlier turns of the conversation the planner is shown.
     history_turns: Annotated[int, Field(strict=True, ge=0, le=64)]
     max_history_turns: Annotated[int, Field(strict=True, ge=0, le=64)]
+    models: tuple[str, ...] = ()
+    model: str | None = None
 
 
 class SettingsUpdate(ContractModel):
     """A change to this browser's own settings; absent fields stay as they were."""
 
+    model: Annotated[str, StringConstraints(strict=True, min_length=1, max_length=200)] | None = (
+        None
+    )
     disabled: Annotated[tuple[str, ...], Field(max_length=16)] | None = None
     history_turns: Annotated[int, Field(strict=True, ge=0, le=64)] | None = None
 

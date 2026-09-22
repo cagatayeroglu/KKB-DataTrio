@@ -22,6 +22,35 @@ def result(snapshot, query, *, include_archived=False):
     )
 
 
+def test_complete_reviewed_semantics_break_ties_without_resolving_rate_basis(snapshot):
+    from kkb_agent.agent.discovery import _candidate_planning_context
+
+    found = result(snapshot, "2025 konut kredisi faizi")
+    first = found.candidates[0]
+    assert first.series.record.series_id == "EVDS:TP.KTF12"
+    assert first.series.rate_basis == "new_credit"
+    assert found.top_candidate == "ambiguous"  # completeness is not semantic identity
+    portfolio = next(c for c in found.candidates if c.series.rate_basis == "outstanding_portfolio")
+    assert "cumulative" in _candidate_planning_context(portfolio)["unresolved_read_fields"]
+    explicit = result(snapshot, "mevcut portföy konut kredisi faizi")
+    assert explicit.candidates[0].series.rate_basis == "outstanding_portfolio"
+
+
+def test_completeness_tiebreak_is_independent_of_id_and_query_vocabulary(snapshot):
+    from kkb_agent.catalog.ranking import rerank_by_reviewed_intent
+    from kkb_agent.core import CumulativeKind
+
+    original = result(snapshot, "yeni konut kredisi faizi").candidates[0].series
+    complete = original.model_copy(deep=True)
+    complete.record.series_id = "OTHER:complete"
+    unknown = original.model_copy(deep=True)
+    unknown.record.series_id = "OTHER:unknown"
+    unknown.record.cumulative = CumulativeKind.UNKNOWN
+    assert rerank_by_reviewed_intent(
+        "unfamiliar subject", [unknown, complete], reviewed_series=lambda item: item
+    ) == [complete, unknown]
+
+
 @pytest.mark.parametrize(
     ("query", "series_id", "status"),
     [
@@ -279,3 +308,35 @@ def test_a_short_alias_word_takes_no_suffix(snapshot):
     assert _phrase_in("tufe", ["tufeyi", "getir"])
     assert not _phrase_in("kfe", ["kfeler"])  # three letters: exact only
     assert not _phrase_in("konut kredisi", "konutlar kredisi".split())  # only the head inflects
+
+
+@pytest.mark.parametrize(
+    "qualifier,basis",
+    [
+        ("stokta", "outstanding_portfolio"),
+        ("stoktaki", "outstanding_portfolio"),
+        ("portföyde", "outstanding_portfolio"),
+        ("portföydeki", "outstanding_portfolio"),
+        ("akımdaki", "new_credit"),
+    ],
+)
+def test_locative_rate_basis_overrides_metadata_completeness(snapshot, qualifier, basis):
+    from kkb_agent.catalog.ranking import _query_intent, rerank_by_reviewed_intent
+
+    query = f"{qualifier} kredilerin faiz oranı"
+    assert _query_intent(query).rate_basis == basis
+    # Renamed identities: the result depends on the typed basis, not an EVDS ID.
+    candidates = result(snapshot, "konut kredisi faizi").candidates[:2]
+    items = [candidate.series.model_copy(deep=True) for candidate in candidates]
+    for i, item in enumerate(items):
+        item.record.series_id = f"SYNTHETIC:rate_{i}"
+    ordered = rerank_by_reviewed_intent(query, items, reviewed_series=lambda item: item)
+    assert ordered[0].rate_basis == basis
+    assert {item.record.series_id for item in ordered} == {item.record.series_id for item in items}
+
+
+@pytest.mark.parametrize("word", ["stokastik", "stokholm", "portföycü", "akımlarınmış"])
+def test_longer_unrelated_words_do_not_invent_rate_basis(word):
+    from kkb_agent.catalog.ranking import _query_intent
+
+    assert _query_intent(f"{word} kredi faizi").rate_basis is None

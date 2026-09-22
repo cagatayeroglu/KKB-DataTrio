@@ -575,7 +575,7 @@ def test_changed_result_makes_new_version_and_cell_reference(verified):
     changed.values[0].value += 1
     # A separately published changed result; this test checks identity, not gate quality.
     updated = project_answer(
-        replace(answered, results=(changed,)),
+        replace(answered, results=(changed,), presented=(changed,)),
         turn_id="a" * 32,
         published=changed,
     )

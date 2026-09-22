@@ -1300,6 +1300,7 @@ class PreparedRunner:
                 session = Session(
                     self._provider,
                     registry,
+                    model=chosen.model,
                     catalog_continuation=True,
                     selection=selected_table,
                     require_series_discovery=self._dense is not None,
@@ -1358,10 +1359,17 @@ class PreparedRunner:
                 try:
                     self._remember_proven(session_id, session.newly_proven)
                     published = workspace.value_of(name) if name in workspace.names() else None
+                    related = (
+                        workspace.related_results(workspace.resolve(name)) if published else {}
+                    )
                     answer = project_answer(
                         answered,
                         turn_id=turn_id,
                         published=published,
+                        related=tuple(
+                            (item, build_proof(lake.connection, item, secrets=self._redactions))
+                            for item in related.values()
+                        ),
                         secrets=self._redactions,
                         proof=(
                             build_proof(lake.connection, published, secrets=self._redactions)
@@ -1419,6 +1427,8 @@ class PreparedRunner:
                     # ownership map by scanning arbitrary stored result digests.
                     if answer.result is not None:
                         self._materialize_gold(lake, name, published, tracer)
+                        for related_name, item in related.items():
+                            self._materialize_gold(lake, related_name, item, tracer)
                         artifact = workspace.resolve(name).artifact_id
                         self._publications[session_id, turn_id] = _Publication(
                             SelectedResult(
@@ -1443,7 +1453,7 @@ class PreparedRunner:
                     # went on offering "bekleyen netleştirmeyi bırak" under a finished
                     # answer and the next free question was merged into the old prompt
                     # (live 2026-09-21).
-                    if answer.status != AnswerStatus.ABSTAINED:
+                    if not answer.needs_clarification:
                         self._pending_clarifications.pop(session_id, None)
                         if self._store is not None:
                             self._store.set_pending_clarification(session_id, None)
@@ -1772,12 +1782,21 @@ class PreparedRunner:
                     publication.selection.version,
                 ).check()
                 proof = build_proof(connection, value, secrets=self._redactions)
+                workspace = Workspace(connection, session_id)
+                related = tuple(
+                    (item, build_proof(connection, item, secrets=self._redactions))
+                    for item in workspace.related_results(
+                        workspace.artifact(publication.artifact_id)
+                    ).values()
+                )
             except (SelectionError, WorkspaceError, ValueError, duckdb.Error):
                 raise ServiceError("not_found", 404) from None
             finally:
                 connection.close()
             try:
-                return project_result(value, turn_id=turn_id, secrets=self._redactions, proof=proof)
+                return project_result(
+                    value, turn_id=turn_id, secrets=self._redactions, proof=proof, related=related
+                )
             except OutputRefused:
                 raise ServiceError("not_found", 404) from None
         finally:

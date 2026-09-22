@@ -84,9 +84,10 @@ class TurnSettings:
 
     disabled: frozenset[str] = frozenset()
     history_turns: int | None = None
+    model: str | None = None
 
     def chosen(self) -> bool:
-        return bool(self.disabled) or self.history_turns is not None
+        return bool(self.disabled) or self.history_turns is not None or self.model is not None
 
 
 # Executed only on the one worker. A runtime must own/open/close its connection
@@ -223,11 +224,13 @@ class AnalysisService:
         web_search: bool = False,
         web_url: bool = False,
         model: str | None = None,
+        models: tuple[str, ...] = (),
         stored_result: StoredResultReader | None = None,
         session_cleanup: SessionCleaner | None = None,
     ):
         if mode not in ("kloudeks", "scripted"):
             raise ValueError("An explicit execution mode is required")
+        self._models = models
         self._runner = runner
         # Until the prepared workspace integration is supplied, explicit selection
         # fails closed. Never hand it to the old runner that cannot respect it.
@@ -246,7 +249,7 @@ class AnalysisService:
         self._web_search = web_search
         # Reading an address written in a question is the operator's switch too.
         self._web_url = web_url
-        # The planner model's name, for the page's connection badge; never a switch.
+        # Deployment default; a validated owner choice overrides it for subsequent turns.
         self._model = model
         # A published table read back from its receipt, after any restart.
         self._stored_result = stored_result
@@ -323,7 +326,12 @@ class AnalysisService:
         )
         turns = stored.get("history_turns")
         history = turns if isinstance(turns, int) and 0 <= turns <= MAX_HISTORY_TURNS else None
-        return TurnSettings(disabled=chosen, history_turns=history)
+        model = stored.get("model")
+        return TurnSettings(
+            disabled=chosen,
+            history_turns=history,
+            model=model if isinstance(model, str) and model in self._models else None,
+        )
 
     def settings(self, owner_token: str) -> RuntimeSettings:
         """What this deployment offers and what this browser switched off."""
@@ -339,6 +347,8 @@ class AnalysisService:
                 chosen.history_turns if chosen.history_turns is not None else MAX_HISTORY_TURNS
             ),
             max_history_turns=MAX_HISTORY_TURNS,
+            models=self._models,
+            model=chosen.model or self._model,
         )
 
     def update_settings(self, owner_token: str, update: SettingsUpdate) -> RuntimeSettings:
@@ -350,6 +360,9 @@ class AnalysisService:
             if self._store is None:  # pragma: no cover - _owner refuses without a store
                 raise ServiceError("unavailable", 503)
             current = self._settings_of(owner)
+            if update.model is not None and update.model not in self._models:
+                raise ServiceError("invalid_request", 422)
+            model = update.model if update.model is not None else current.model
             offered = set(self._restrictable())
             if update.disabled is not None and not set(update.disabled) <= offered:
                 # Nothing outside what the operator enabled can be named at all,
@@ -368,6 +381,7 @@ class AnalysisService:
                     owner,
                     {
                         "disabled": sorted(disabled),
+                        **({} if model is None else {"model": model}),
                         **({} if history is None else {"history_turns": history}),
                     },
                 )

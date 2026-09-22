@@ -507,3 +507,37 @@ def test_preview_cannot_publish_into_another_workspace(space):
     with pytest.raises(WorkspaceError, match="another workspace"):
         Workspace(space.connection, "other").publish(preview)
     assert snapshot(space) == before
+
+
+def test_related_publications_rollback_together_and_keep_version_receipts(space, monkeypatch):
+    from dataclasses import replace
+
+    preview = replace(
+        space.preview("table", result(100)),
+        related=(
+            ("table_ek_1", result(200).model_dump_json()),
+            ("table_ek_2", result(300).model_dump_json()),
+        ),
+    )
+    before = snapshot(space)
+    record = Workspace.record
+
+    def fail_second(self, name, *args, **kwargs):
+        if name == "table_ek_2":
+            raise WorkspaceError("injected second artifact failure")
+        return record(self, name, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Workspace, "record", fail_second)
+        with pytest.raises(WorkspaceError, match="second artifact"):
+            space.publish(preview)
+    assert snapshot(space) == before
+    artifact = space.publish(preview)
+    assert list(space.related_results(artifact)) == ["table_ek_1", "table_ek_2"]
+    child = space.resolve("table_ek_1")
+    space.connection.execute(
+        "UPDATE workspace_artifacts SET value_ref=? WHERE artifact_id=?",
+        [result(300).digest(), child.artifact_id],
+    )
+    with pytest.raises(WorkspaceError, match="receipt"):
+        space.related_results(artifact)

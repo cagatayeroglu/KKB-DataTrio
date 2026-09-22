@@ -647,6 +647,7 @@ _COUNT_WORDS: Final = {
     ),
     "weeks": ("hafta", "haftada", "haftanın", "haftalık", "haftalar", "week", "weeks", "weekly"),
     "days": ("gün", "günde", "günün", "günlük", "günler", "day", "days", "daily"),
+    "lags": ("lag", "lags", "gecikme", "gecikmeli"),
     "used": ("gözlem", "gözlemi", "gözlemle", "gözlemde", "observation", "observations"),
     "missing": (
         "eksik",
@@ -790,13 +791,18 @@ def _lag_counts(result: AnalyticalResult) -> set[WindowCount]:
             (value.period.frequency for value in result.values if value.period is not None), None
         )
     role = _LAG_ROLE.get(frequency) if frequency is not None else None
-    if role is None or result.evidence is None:
-        return set()
     found: set[WindowCount] = set()
-    for record in result.evidence.transformations:
-        lag = record.parameters.get("lag")
-        if isinstance(lag, int) and not isinstance(lag, bool) and lag > 0:
+    lags = {value.lag for value in result.values if value.lag is not None}
+    if result.evidence is not None:
+        for record in result.evidence.transformations:
+            lag = record.parameters.get("lag")
+            if isinstance(lag, int) and not isinstance(lag, bool) and lag > 0:
+                lags.add(lag)
+    for lag in lags:
+        found.add(WindowCount(float(lag), "lags"))
+        if role is not None:
             found.add(WindowCount(float(lag), role))
+
     return found
 
 

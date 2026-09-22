@@ -156,7 +156,7 @@ export const proofSchema = z
           ),
     "Proof chain is inconsistent",
   );
-export const resultSchema = z
+const resultContentSchema = z
   .object({
     result_ref: ref,
     version: digest,
@@ -180,6 +180,9 @@ export const resultSchema = z
       result.proof.steps[0].result_version === result.version,
     "Proof must describe this exact result version",
   );
+export const resultSchema = resultContentSchema.safeExtend({
+  related: z.array(resultContentSchema).max(11).default([]),
+});
 const seriesChoiceSchema = z
   .object({
     series_id: z.string().min(1).max(200),
@@ -197,6 +200,7 @@ export const turnSchema = z
     answer: z
       .object({
         status: z.enum(["accepted", "qualified", "abstained"]),
+        needs_clarification: z.boolean().optional(),
         text: bounded,
         omitted_claims: z.number().int().nonnegative(),
         notices: z.array(bounded).max(16),
@@ -633,6 +637,8 @@ export const runtimeSettingsSchema = z
     disabled: z.array(z.string().max(60)).max(16),
     history_turns: z.number().int().min(0).max(64),
     max_history_turns: z.number().int().min(0).max(64),
+    models: z.array(z.string().max(200)).default([]),
+    model: z.string().max(200).nullable().optional(),
   })
   .strict();
 export type RuntimeSettings = z.infer<typeof runtimeSettingsSchema>;

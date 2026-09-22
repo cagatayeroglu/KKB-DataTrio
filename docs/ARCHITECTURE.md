@@ -182,7 +182,11 @@ the user.
 
 `catalog_search` combines BM25, synonyms, concept families and LanceDB dense search. The ranking
 orders candidates; it does not choose for the model, which still selects the series. The harness
-then applies its semantic, provenance and verification checks. Bounds on catalog size are memory
+then applies its semantic, provenance and verification checks. After intent compatibility ties,
+complete required read declarations rank ahead of unresolved ones, using the inspector's same
+field requirements. This neither resolves flow/portfolio ambiguity nor implies prepared coverage;
+explicit qualifiers still win and continuation exposes unresolved read fields.
+Bounds on catalog size are memory
 guards, not product limits: `MAX_CATALOG_SERIES` and `MAX_CATALOG_CONCEPTS` are 10,000 and
 `MAX_CATALOG_GROUPS` is 1,000 (`catalog/records.py`).
 
@@ -404,6 +408,32 @@ CURRENTLY IMPLEMENTED: [provider.py](../src/kkb_agent/llm/provider.py), [config.
 
 M7-19 extends `live_check` with opt-in `--document --question` mode. Its temporary lakehouse has no synthetic seed; the four analytical tools and `make_web_url_tool(lineage=lake.lineage)` share that store. The operator supplies the unchanged question to `Session.answer(question, lake.connection)`: planner → executor → `web_url` → `safe_fetch` → bounded CSV/XLSX/PDF loader → cell selection → `AnalyticalResult` → writer → answer gate. The command adds no fetch/parser bypass. Its bounded report resolves the selected transform/source edge and rechecks the retained answer against the same last result used by `Session.answer`; a document-bound numeric claim is mandatory. Raw source bytes are not persisted by this mode, and the temporary store is removed on exit. The existing synthetic command is unchanged. Offline tests cover this integration; **one live public CSV acceptance has passed** ([evidence and limits](EVALUATION.md#m7-19-live-csv-acceptance)), and later execution still needs explicit approval and an accepted Q-NET-01/02 boundary.
 
+Quality-pass presentation contracts (2026-09-22): `outside_coverage` is a typed terminal plan reason, while ambiguous/missing meaning remains clarification. `Answer.needs_clarification` drives the composer; a terminal abstention clears pending clarification, including persisted state. Writer projections retain column unit/scale/measure/frequency and value-presence state, parameters, source metadata, transformations, coverage, samples, warnings and version-specific meaning. Exact duplicated metadata and ancestor cell blocks remain removed. Ordinary tables up to 120 periods / 1024 dated values are shown fully; larger tables still state their limited projection. Numeric grounding remains against original proven results. `YYYY-MM` qualifiers bind locally to their own values and must match the proven month; physical quantity unit spellings are normalized, while unresolved units remain unresolved. Scale conversion is not inferred from writer arithmetic.
+
+PR #316 addendum: `PlanStep.present` marks independently requested deliverables.
+The last computed result remains implicit; declared outputs are verified individually.
+Only a proven ancestor whose exact cells remain visible in a descendant is deduplicated;
+equal cells in independent sources retain both proofs. The requested period table is
+primary, with separate `Result.related` artifacts for other outputs. One workspace
+transaction stores the bundle and immutable companion receipts; restoration rebuilds
+each version's proof, and follow-ups retain the primary table. Companion artifacts are
+also named workspace values. A faulty artifact or cancelled turn cannot publish a bundle.
+
+`summarize` requires both `requested_aggregation` (user intent before feasibility checks)
+and `aggregation`. A mismatch is a terminal refusal before aggregation; a typed non-flow
+sum is also terminal and never enters runtime repair. Alternatives require a new request.
+Natural-language intent extraction remains the planner's responsibility, not a phrase
+matcher. Plain XLSX percentage formats, when recorded for every nonempty column cell,
+can establish percent/scale-one/rate semantics; conflicting header/question units refuse.
+The outline exposes this format evidence before planning. Mixed or unsupported formatting
+does not establish a unit.
+
+Writer cells are grouped by exact column/semantic identity: the label, unit and scale
+are stated once, while each display remains paired with its full period. All ordinary
+cells, warnings, execution/acquisition state and lineage metadata remain available;
+this removes repetition without changing the numeric gate, budgets or factual fallback.
+
+
 DEC-122's three-method surface is:
 
 ```python
@@ -412,7 +442,9 @@ embed(texts: list[str], *, kind: Literal["query", "passage"])
 vision(image_bytes: bytes, prompt: str)
 ```
 
-Model identifier, base URL and whether structured output exists come from environment configuration, never from source constants. When the platform offers no structured-output mode, the provider validates against the schema, repairs with `json-repair`, and retries at most twice while feeding the validation error back to the model. The `kind` argument on `embed` preserves query/passage intent; the confirmed Qwen model's prefix convention remains Q-K-05. Do not assume an E5 convention applies.
+Role-default model identifiers, base URL and structured-output capability come from environment configuration. `llm/config.py` owns the additional selectable chat IDs; `/v1/settings` projects that list and validates/persists an owner-specific `model`. The frontend consumes it without its own model list. Prepared turns snapshot this setting into `Session.model` for planning and writing, including newly created conversations; no workspace/data/tool state is reset.
+
+Structured responses require complete syntactically valid JSON and schema validation; local guessing with `json-repair` is removed. The shared provider loop permits at most one replacement response. If an operator configured one provider attempt, the planner permits one schema-only correction using the original context; an already exhausted two-attempt provider failure gets no further correction. The trace records `schema.repair` and the corresponding provider attempt count or planner repair span. Semantic tool/argument validation keeps its existing separate bounded policy; transport errors are not retried by this recovery. The `kind` argument on `embed` preserves query/passage intent; the confirmed Qwen model's prefix convention remains Q-K-05. Do not assume an E5 convention applies.
 
 Model roles are assigned by measurement, not parameter count. A proposed live measurement is a twenty-case tool-selection smoke test — Turkish question in, expected tool and arguments out — against an eligible text model, scoring correct-tool rate, argument-schema validity, JSON malformation rate and latency. Use locally validated text responses unless native function/tool calling is separately confirmed; the compatible endpoint alone does not establish that feature. The router base is chosen from that score. Role/model splits and exact call budgets remain PROPOSED pending those measurements. Models may propose or summarize; deterministic code verifies material calculations. Reranking is optional under DEC-130. Vision, OCR and embedding availability are officially confirmed in [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy). The transport's embedding call passed one live request (M4-12) and its `vision` method sends one image with a prompt; M7-11 adds explicit `ocr` injection into the PDF loader/web_url, using the organizer's literal OCR request contract. It is off by default; no live OCR is validated.
 

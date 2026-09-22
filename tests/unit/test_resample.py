@@ -230,6 +230,7 @@ def test_a_served_weekly_rate_table_is_turned_monthly(tmp_path):
             "source": "analiz_2",
             "column": monthly_label,
             "aggregation": "mean",
+            "requested_aggregation": "mean",
         },
     }
     runner = PreparedRunner(

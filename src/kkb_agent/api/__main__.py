@@ -306,6 +306,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 web_search=search is not None,
                 web_url=args.enable_web_url,
                 model=config.planner_model,
+                models=config.chat_models,
                 stored_result=runner.published_result,
                 session_cleanup=runner.delete_session,
             )

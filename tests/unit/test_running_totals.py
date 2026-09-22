@@ -41,7 +41,13 @@ def transform(tool, **arguments):
 @pytest.mark.parametrize("aggregation", ["sum", "mean", "min", "max"])
 def test_a_running_total_is_not_summed_or_averaged_as_if_it_were_monthly(rig, aggregation):  # noqa: F811
     _, _, tool = rig
-    result = transform(tool, operation="summarize", column=SERIES, aggregation=aggregation)
+    result = transform(
+        tool,
+        operation="summarize",
+        column=SERIES,
+        aggregation=aggregation,
+        requested_aggregation=aggregation,
+    )
 
     assert result.status is ResultStatus.ABSTAINED and not result.values
     # The reason is what the planner gets for its one run-time re-plan (DEC-167).
@@ -51,7 +57,13 @@ def test_a_running_total_is_not_summed_or_averaged_as_if_it_were_monthly(rig, ag
 @pytest.mark.parametrize("aggregation", ["first", "last", "count"])
 def test_quoting_or_counting_its_cells_is_not_arithmetic_across_periods(rig, aggregation):  # noqa: F811
     _, _, tool = rig
-    result = transform(tool, operation="summarize", column=SERIES, aggregation=aggregation)
+    result = transform(
+        tool,
+        operation="summarize",
+        column=SERIES,
+        aggregation=aggregation,
+        requested_aggregation=aggregation,
+    )
 
     assert result.status is ResultStatus.COMPUTED
 
@@ -88,7 +100,13 @@ def test_the_flow_column_to_flow_adds_is_summed_like_any_other(rig):  # noqa: F8
 
     total = tool.run(
         TableTransformArguments.model_validate(
-            {"operation": "summarize", "source": "flow", "column": label, "aggregation": "sum"}
+            {
+                "operation": "summarize",
+                "source": "flow",
+                "column": label,
+                "aggregation": "sum",
+                "requested_aggregation": "sum",
+            }
         ),
         ExecutionContext("synthetic"),
     ).output
@@ -97,7 +115,13 @@ def test_the_flow_column_to_flow_adds_is_summed_like_any_other(rig):  # noqa: F8
     # The raw column rides along in the same table, and is still what it was.
     raw = tool.run(
         TableTransformArguments.model_validate(
-            {"operation": "summarize", "source": "flow", "column": SERIES, "aggregation": "sum"}
+            {
+                "operation": "summarize",
+                "source": "flow",
+                "column": SERIES,
+                "aggregation": "sum",
+                "requested_aggregation": "sum",
+            }
         ),
         ExecutionContext("synthetic"),
     ).output

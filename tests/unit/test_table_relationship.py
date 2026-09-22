@@ -740,10 +740,18 @@ class TestAnInheritedCountCanStillBeNamed:
         assert len(phrases) == len(equal)
 
     def test_the_writer_is_shown_the_phrase_rather_than_the_raw_label(self):
-        context = render_results({"comparison": with_inherited_count(3.0)})
+        result = with_inherited_count(3.0)
+        digest = result.digest()
+        context = render_results({"comparison": result})
 
         assert f"{INHERITED_PHRASE}: display 3" in context
         assert INHERITED_LABEL not in context
+        # Semantic metadata and value prose use the same controlled count identity.
+        assert f'"label": "{INHERITED_PHRASE}"' in context
+        assert f'"label": "{JOINT_PHRASE}"' in context
+        assert '"label": "credit"' in context  # ordinary column identities are retained
+        assert result.digest() == digest
+        assert any(value.label == INHERITED_LABEL for value in result.values)
 
     @pytest.mark.parametrize(
         ("label", "meaning"),

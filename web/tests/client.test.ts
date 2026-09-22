@@ -647,3 +647,57 @@ test("a key the server does not know is replaced; a known key and a network erro
     globalThis.fetch = original;
   }
 });
+
+test("model options come from settings and the selected exact ID is sent back", async () => {
+  const { readSettings, saveSettings } = await import("../lib/client");
+  const models = ["deployment/default", "deployment/second"];
+  const setting = {
+    api_version: 1,
+    available: [],
+    disabled: [],
+    history_turns: 6,
+    max_history_turns: 6,
+    models,
+    model: models[0],
+  };
+  const original = globalThis.fetch;
+  const sent: unknown[] = [];
+  globalThis.fetch = async (_url, init) => {
+    if (init?.body) {
+      sent.push(JSON.parse(String(init.body)));
+    }
+    return new Response(
+      JSON.stringify({ ...setting, ...((sent.at(-1) as object) ?? {}) }),
+      { status: 200 },
+    );
+  };
+  try {
+    const settings = await readSettings("o".repeat(43));
+    assert.deepEqual(settings.models, models);
+    assert.equal(
+      (await saveSettings("o".repeat(43), { model: settings.models[1] })).model,
+      models[1],
+    );
+    assert.deepEqual(sent, [{ model: models[1] }]);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("terminal limitations and clarification remain distinct answer contracts", () => {
+  for (const needs_clarification of [false, true]) {
+    const completed = turnSchema.parse({
+      ...turn,
+      state: "completed",
+      answer: {
+        status: "abstained",
+        text: "Kapsam sınırlı.",
+        omitted_claims: 0,
+        notices: [],
+        result: null,
+        needs_clarification,
+      },
+    });
+    assert.equal(completed.answer?.needs_clarification, needs_clarification);
+  }
+});

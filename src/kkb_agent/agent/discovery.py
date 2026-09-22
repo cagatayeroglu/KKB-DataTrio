@@ -13,6 +13,7 @@ from kkb_agent.agent.executor import (
     ValidatedPlan,
     ValidatedStep,
 )
+from kkb_agent.catalog.inspection import unresolved_read_fields
 from kkb_agent.catalog.mappings import is_listed_series
 from kkb_agent.catalog.records import CatalogStatus
 from kkb_agent.catalog.search import CatalogCandidate, CatalogSearchOutput
@@ -117,11 +118,12 @@ def required_discovery_instructions(
 
 
 WEB_ADDRESS_INSTRUCTIONS = (
-    "A web address written in the question is read with web_url, or its table column is "
-    "added to a published table with table_transform add_document_column; no catalog_search "
-    "is needed for it. Plan the read completely in this call: name follow and "
-    "period_column/value_columns (or column and row) from the address outline, because a "
-    "read without them publishes nothing and no later call sees what it returned."
+    "Read an explicit user URL first with web_url, or add its table column with "
+    "table_transform add_document_column. No catalog search is needed for that address. "
+    "Use the address outline for table selection or bounded follow; if the read is "
+    "insufficient, follow or search within the existing authority boundary. "
+    "Honor an explicit request for web_search; official prepared data may complement "
+    "search when it supplies the requested financial values."
 )
 
 
@@ -240,6 +242,9 @@ MISSING_SERIES_ROUTES = (
     "ya da Bilgi tabanı > Yeni veri ile ekleyebilirsiniz."
 )
 CLARIFICATION_TEXT = {
+    "outside_coverage": (
+        "İstenen dönem mevcut veri kapsamının dışında; bu dönem için sonuç üretilemedi."
+    ),
     "ambiguous_series": (
         "Birden fazla veri serisi uygun görünüyor. Hangi ölçümü istediğinizi netleştirin."
     ),
@@ -250,9 +255,7 @@ CLARIFICATION_TEXT = {
     "unresolved_semantics": (
         "Verinin anlamı yeterince açık değil. İstenen ölçümü, birimi veya dönemi netleştirin."
     ),
-    "unsupported_request": (
-        "Bu istek mevcut araçlarla karşılanamıyor. Analiz kapsamını netleştirin."
-    ),
+    "unsupported_request": ("Bu istek mevcut araçlarla karşılanamıyor."),
 }
 
 
@@ -491,6 +494,7 @@ def _candidate_planning_context(candidate: CatalogCandidate) -> dict[str, object
         "frequency": record.frequency,
         "weekly_anchor": record.weekly_anchor,
         "cumulative": record.cumulative,
+        "unresolved_read_fields": list(unresolved_read_fields(record)),
         "rate_basis": reviewed.rate_basis,
         "geography": reviewed.geography,
         "base_year": record.base_year,

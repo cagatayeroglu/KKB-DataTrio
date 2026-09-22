@@ -581,7 +581,9 @@ def test_writer_reads_a_short_table_whole_and_the_gate_still_sees_everything(lak
     # is what lets a later turn name an inherited count instead of a bare number.
     assert "Birinci serinin düştüğü ay sayısı" in writer_prompt
     assert "Birinci seri düşerken ikinci serinin artmadığı ay sayısı" in writer_prompt
-    assert "transitions where" not in writer_prompt
+    assert "transitions where" not in "\n".join(
+        line for line in writer_prompt.splitlines() if line.startswith("- ")
+    )
     # Narrowing the writer's view does not narrow verification.
     assert answered.answer.status is AnswerStatus.ACCEPTED
 

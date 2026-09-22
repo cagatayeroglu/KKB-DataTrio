@@ -68,6 +68,12 @@ export function ResultTable(props: {
         </p>
       )}
       <ResultTableView {...props} result={shown} full={props.result} />
+      {props.result.related.map((related) => (
+        <section key={related.result_ref} aria-label="Ek sonuç">
+          <p className="notice">Ek sonuç</p>
+          <ResultTable {...props} result={{ ...related, related: [] }} />
+        </section>
+      ))}
     </>
   );
 }
