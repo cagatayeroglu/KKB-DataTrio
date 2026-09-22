@@ -20,7 +20,7 @@ from kkb_agent.core import (
     StockFlow,
     TransformationRecord,
 )
-from kkb_agent.lakehouse.periods import spine
+from kkb_agent.lakehouse.periods import expected_periods
 from kkb_agent.lakehouse.semantics import SemanticsError
 
 SummaryKind = Literal["mean", "sum", "min", "max", "first", "last", "count"]
@@ -136,7 +136,7 @@ def summarize_column(
             )
         ]
     try:
-        expected = spine(
+        expected = expected_periods(
             first_period.frequency,
             first_period.end,
             last_period.end,
@@ -156,7 +156,7 @@ def summarize_column(
             "first_used": first_period.end.isoformat(),
             "last_used": last_period.end.isoformat(),
             "used": len(selected),
-            "missing_periods": missing,
+            "missing_periods": [*missing],
         },
         input_refs=[source.result_id, column_label],
         output_ref=f"{column_label} {aggregation}",

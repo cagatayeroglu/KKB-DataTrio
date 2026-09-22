@@ -30,7 +30,7 @@ from kkb_agent.lakehouse.alignment import (
     reducer_for,
     to_monthly,
 )
-from kkb_agent.lakehouse.periods import month_end, spine
+from kkb_agent.lakehouse.periods import expected_periods, month_end
 from kkb_agent.lakehouse.records import Observation
 from kkb_agent.lakehouse.semantics import SeriesSemantics
 
@@ -98,7 +98,7 @@ def _days_to_months(
     for target in sorted(months):
         entries = sorted(months[target])
         begin = date(target.year, target.month, 1)
-        expected = len(spine(semantics.frequency, begin, target))
+        expected = len(expected_periods(semantics.frequency, begin, target))
         coverage[target.isoformat()] = {"expected": expected, "observed": len(entries)}
         if len(entries) < expected:
             incomplete.append(target)

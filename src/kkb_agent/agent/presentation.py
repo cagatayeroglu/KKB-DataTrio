@@ -31,7 +31,7 @@ from kkb_agent.core import (
     Scale,
     StockFlow,
 )
-from kkb_agent.lakehouse.periods import spine
+from kkb_agent.lakehouse.periods import expected_periods
 from kkb_agent.lakehouse.semantics import SemanticsError
 
 _SCALES = {Scale.ONE: "", Scale.THOUSAND: "bin", Scale.MILLION: "milyon", Scale.BILLION: "milyar"}
@@ -165,7 +165,7 @@ def period_table(result: AnalyticalResult) -> PeriodTable | None:
     if len(calendars) == 1:
         frequency, anchor = next(iter(calendars))
         try:
-            expected = spine(frequency, periods[0][1], periods[-1][1], anchor=anchor)
+            expected = expected_periods(frequency, periods[0][1], periods[-1][1], anchor=anchor)
             if len(expected) <= 2048:
                 periods = sorted(set(periods) | set(expected))
         except SemanticsError:

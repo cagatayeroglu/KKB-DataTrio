@@ -77,6 +77,30 @@ def daily_steps(frequency: Frequency, earlier: date, later: date) -> int:
     return weeks * 5 + sum((earlier.weekday() + offset) % 7 < 5 for offset in range(1, tail + 1))
 
 
+def expected_periods(
+    frequency: Frequency,
+    first_end: date,
+    last_end: date,
+    *,
+    anchor: WeeklyAnchor | None = None,
+) -> list[tuple[date, date]]:
+    """Bounded coverage/display calendar, without enabling daily lag or YTD analysis.
+
+    Business-day coverage counts weekdays only. An absent holiday calendar never
+    turns a missing weekday into an observed period.
+    """
+    if frequency not in (Frequency.DAILY, Frequency.BUSINESS_DAY):
+        return spine(frequency, first_end, last_end, anchor=anchor)
+    if not 0 <= (last_end - first_end).days <= 10000:
+        raise SemanticsError("Invalid or unbounded daily coverage window")
+    periods = []
+    for ordinal in range(first_end.toordinal(), last_end.toordinal() + 1):
+        day = date.fromordinal(ordinal)
+        if frequency is Frequency.DAILY or day.weekday() < 5:
+            periods.append((day, day))
+    return periods
+
+
 def weekly_window(
     requested_start: date, requested_end: date, *, anchor: WeeklyAnchor
 ) -> list[tuple[date, date]]:
@@ -106,14 +130,6 @@ def weekly_window(
 def _walk(
     frequency: Frequency, first_end: date, last_end: date, *, anchor: WeeklyAnchor | None
 ) -> Iterator[tuple[date, date]]:
-    if frequency in (Frequency.DAILY, Frequency.BUSINESS_DAY):
-        if (last_end - first_end).days > 10000:
-            raise SemanticsError("Daily spine exceeds the bounded calendar window")
-        for ordinal in range(first_end.toordinal(), last_end.toordinal() + 1):
-            end = date.fromordinal(ordinal)
-            if frequency is Frequency.DAILY or end.weekday() < 5:
-                yield end, end
-        return
     if frequency is Frequency.WEEKLY:
         step = timedelta(days=7)
         end = first_end
