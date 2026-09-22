@@ -48,6 +48,27 @@ Branch `fix/vector-reuse-and-report-3`, from `dev=c8f6095` (#316 merged). Eray a
 
 Server line: `{"entries": 8375, "embedded": 1, "reused": 8374, "embedding_requests": 1, "embedding_seconds": 0.1, "seconds": 98.3}`. Repeated with a second saved dataset on a quiet machine: 8,376 entries, 1 embedded, 8,375 reused, installed in 61.4 s.
 
+<a id="report-3-fixes-live-2026-09-22"></a>
+
+## Report 3 findings N43–N49, live on DeepSeek-V4.1-Flash — 2026-09-22
+
+Branch `fix/vector-reuse-and-report-3`. Isolated copy (`:8131`, own state root and lakehouse, `--enable-web-url`, local SearXNG), planner/router/vision `deepseek-ai/DeepSeek-V4.1-Flash`, Eray authorized the runs. Each row is one live turn on the final revision; "before" is the same scenario in the operator's own live report of 2026-09-22 (findings N43-N49, kept outside the repository).
+
+| Turn | Before | After | What it shows |
+| --- | --- | --- | --- |
+| G1 monthly 2024 housing-loan table | ACCEPTED | ACCEPTED, 12 cells, 9 s | unchanged |
+| G3 "Bunu milyar TL olarak da yaz" | ABSTAINED (N44) | **ACCEPTED**, 6 s: "512.259 milyon TL … 512,259 milyar TL" | DEC-190 |
+| J1 organizer gold PDF (`kmp_au.pdf`) | QUALIFIED; the kg and count columns called empty (N47); raw ISO ranges (N48) | QUALIFIED, 80 cells, 18 s: kg quoted, counts "her ay için bir değeri var, ancak kaynak birim belirtmiyor", periods written "Ocak 2026" | N47, N48 |
+| J2 xtumy month ends | QUALIFIED (N45) | **ACCEPTED**, 12 cells, 15 s | N45: a written period range is one mention |
+| J3 monthly % change (lag 1) | QUALIFIED (N45) | **ACCEPTED**, 23 cells, 12 s | N45, and "lag 1" binds |
+| W5 TCMB page, follow the 21 March 2024 link | answered after searching past the person's address; header "[gizli bilgi kaldırıldı] sha256 sha256:…" | QUALIFIED reading, 60 s: the address is read first, and after its link was not found the search answers; header names the public address once | DEC-191, N48 |
+| S2 "Web araması yap: … faiz oranı kaç?" | no answer, only commercial links | **ACCEPTED**, 12 s: official 37,29 yüzde with the search candidates beneath it | DEC-191 |
+| S1 search → official source → read | ACCEPTED | QUALIFIED reading, 9 s: "yüzde 45'ten yüzde 50'ye" | regression held |
+
+Three faults were found by these runs and fixed in the same branch: the address rule refused the search that answers after the written address could not be followed (W5); the document inspection answered with keys its schema has no room for (`action`, `summary`) and lost two turns, so the instruction now names its four keys and a failed inspection records its fault; and the writer, shown no candidate, wrote that the search had returned nothing (S2).
+
+Remaining, not fixed here: one J1 sentence is withheld because it attributes a single figure (`0 EUR ve 0 kg`) to six periods at once, which no one value can carry; and a search-listing line whose title ends in a question mark loses its address to sentence-level gating.
+
 <a id="quick-quality-pass-2026-09-22"></a>
 
 ## Quick quality pass — 2026-09-22
