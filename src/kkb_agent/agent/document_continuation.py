@@ -170,7 +170,8 @@ def continue_document(
             target = link.text or unquote(urlsplit(link.url).path.rsplit("/", 1)[-1])
             arguments = WebUrlArguments(read_from=current.step_id, follow=target)
         else:
-            assert choice.selection is not None
+            if choice.selection is None:  # Defensive even if a caller bypasses model validation.
+                break
             try:
                 arguments = WebUrlArguments.model_validate(
                     {**original.model_dump(), **choice.selection.model_dump(exclude_none=True)}
