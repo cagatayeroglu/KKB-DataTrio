@@ -63,3 +63,26 @@ def test_truncation_does_not_cut_inside_a_number(text, expected):
     from kkb_agent.llm.provider import Completion
 
     assert _finished_sentences(Completion(text, "offline", finish_reason="length")) == expected
+
+
+def test_writer_transport_error_keeps_verified_table(house):  # noqa: F811
+    from kkb_agent.agent import AnswerStatus
+    from kkb_agent.agent.verifier import result_faults
+    from kkb_agent.llm.provider import TransportError
+
+    inner = scripted(plan())
+
+    class FailedWriter:
+        def complete(self, *args, **kwargs):
+            if kwargs.get("schema") is None:
+                raise TransportError("offline timeout")
+            return inner.complete(*args, **kwargs)
+
+    workspace = Workspace.open(house.connection, "fallback")
+    answer = session_for(house, FailedWriter()).answer(
+        "Tabloyu getir", house.connection, workspace=workspace, remember="table"
+    )
+    assert answer.answer.status is AnswerStatus.ACCEPTED
+    assert answer.tables and workspace.names() == ["table"]
+    assert result_faults({"table": workspace.value_of("table")}, house.connection) == {}
+    assert "yazılı değerlendirme üretilemedi" in answer.answer.text
