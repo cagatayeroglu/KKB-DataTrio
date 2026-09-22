@@ -701,7 +701,9 @@ def make_web_url_tool(
                     followed=True,
                     links=(),
                     followed_text=_link_name(target),
-                    followed_from=parent.source.locator if parent.source is not None else None,
+                    followed_from=(
+                        _page_locator(parent.source.locator) if parent.source is not None else None
+                    ),
                 ),
             )
         else:
