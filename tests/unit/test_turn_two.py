@@ -416,3 +416,50 @@ def test_period_range_headers_qualify_list_items_and_still_check_the_period(pool
     assert gate_answer(listed, available, lake.connection).status is AnswerStatus.ACCEPTED
     wrong = "Öne çıkan dönemler: 2021-03-01..2021-03-31: 1.055,75 milyon TL."
     assert gate_answer(wrong, available, lake.connection).status is not AnswerStatus.ACCEPTED
+
+
+def test_a_price_index_is_deflated_into_a_real_index():
+    """The organizer's third question asks how real house prices moved.
+
+    Deflating the housing price index by the CPI is that measure, and it was refused as
+    "not a currency-denominated stock or flow" while no other operation could produce it
+    (live 2026-09-22). The arithmetic is the one deflation already does; what changes is
+    which columns it will do it for.
+    """
+    from kkb_agent.analytics.deflation import DeflationRefused, deflate
+
+    index_values = credit_column(
+        [100.0 + number * 10 for number in range(len(MONTHS))],
+        label="EVDS:TP.KFE.TR",
+        unit="index",
+        scale=Scale.ONE,
+        measure=StockFlow.INDEX,
+    )
+    real = deflate(
+        index_values,
+        index(),
+        CPI_SEMANTICS,
+        column_label="EVDS:TP.KFE.TR",
+        index_id=CPI_ID,
+        reference_end=MONTHS[-1],
+    )
+    assert "real, deflated by" in real.label and CPI_ID in real.label
+    assert len(real.values) == len(index_values)
+    assert all(value.measure is StockFlow.INDEX for value in real.values)
+    # The last month is the reference, so its real value is its nominal value.
+    assert real.values[-1].value == pytest.approx(index_values[-1].value)
+
+    # A rate divided by a price level measures nothing, and is still refused.
+    rates = [
+        value.model_copy(update={"unit": "percent", "scale": Scale.ONE, "measure": StockFlow.RATE})
+        for value in index_values
+    ]
+    with pytest.raises(DeflationRefused, match="neither a currency"):
+        deflate(
+            rates,
+            index(),
+            CPI_SEMANTICS,
+            column_label="faiz",
+            index_id=CPI_ID,
+            reference_end=MONTHS[-1],
+        )
