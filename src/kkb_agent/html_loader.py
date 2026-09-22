@@ -30,7 +30,19 @@ from kkb_agent.ingestion_policy import (
 MAX_DEPTH = 64
 MAX_TABLES = 20
 VOID = frozenset("area base br col embed hr img input link meta param source track wbr".split())
-IGNORE = frozenset("head script style noscript template form iframe object embed svg math".split())
+# `form` is deliberately NOT here. An ASP.NET WebForms page puts its whole body inside
+# one `<form runat="server">`, and because being ignored is inherited by everything
+# below, ignoring the form discarded every byte of such a page: the reader then reported
+# NO_STATIC_CONTENT for a document full of visible text. Measured 2026-09-23 on the ODMD
+# market-report page the jury's question names (`neuralnetwork.aspx?type=35`, 113 KB,
+# `<body>` line 22, `<form name="Form1">` line 23, `</form>` line 1301): zero characters
+# of text survived. Turkish institutional sites are largely WebForms, so this blinded the
+# reader to a whole class of source. What a form holds that is data rather than prose —
+# the options of a select, a textarea's contents — is ignored on its own below.
+IGNORE = frozenset(
+    "head script style noscript template iframe object embed svg math "
+    "select option textarea".split()
+)
 BLOCK = frozenset("p div section article h1 h2 h3 h4 h5 h6 li br hr tr table".split())
 #: Where a number comes from, so where nesting still has to be exact.
 TABLE_STRUCTURE = frozenset("table tr td th thead tbody tfoot caption colgroup".split())
@@ -206,20 +218,29 @@ class StaticParser(HTMLParser):
             self.rows.append(self.row)
             self.row = None
         elif tag == "table":
-            if not self.rows or self.row is not None:
+            if self.rows is None or self.row is not None:
                 self.fail("UNSUPPORTED_TABLE")
-            headers = self.rows[0]
-            if (
-                len(self.rows) < 2
-                or not all(headers)
-                or len(set(h.casefold() for h in headers)) != len(headers)
-            ):
-                self.fail("UNSUPPORTED_TABLE")
-            if any(len(row) != len(headers) for row in self.rows):
-                self.fail("UNSUPPORTED_TABLE")
-            for header in headers:
-                self.limits.check_field(header, label=True)
-            self.tables.append(self.rows)
+            # What closed here either is a table or is not one. A page laid out with
+            # tables, or a list whose separator rows hold one empty cell, is not a
+            # table: it carries no header row and its rows do not agree on a width.
+            # Failing the document for it threw away the page — live 2026-09-23 the
+            # ODMD market-report page the jury's question names was discarded at 113 KB
+            # because its list of reports interleaves three-cell rows with one-cell
+            # separators, and the title of the report being asked for was in that list.
+            # Dropping it keeps the guarantee this module exists for: a number still
+            # only ever comes from a table that opened and closed as one, with a header
+            # row of distinct labels and rows of one width. Such a table never gets here.
+            headers = self.rows[0] if self.rows else []
+            usable = bool(self.rows) and (
+                len(self.rows) >= 2
+                and all(headers)
+                and len(set(h.casefold() for h in headers)) == len(headers)
+                and all(len(row) == len(headers) for row in self.rows)
+            )
+            if usable:
+                for header in headers:
+                    self.limits.check_field(header, label=True)
+                self.tables.append(self.rows)
             self.rows = None
         if tag in BLOCK:
             self.add_text("\n")

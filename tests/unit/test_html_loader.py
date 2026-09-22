@@ -94,11 +94,27 @@ def test_multiple_tables_stable_identity():
 
 
 @pytest.mark.parametrize(
-    "tag", ["script", "style", "noscript", "form", "iframe", "object", "template", "svg"]
+    "tag",
+    ["script", "style", "noscript", "iframe", "object", "template", "svg", "select", "textarea"],
 )
 def test_inactive_subtrees_ignored(tag):
     content = f"<{tag}>PRIVATE-CONTENT</{tag}><p>safe</p>"
     assert load(content).document.text == "safe"
+
+
+def test_a_form_is_the_page_not_furniture():
+    """An ASP.NET WebForms page puts its whole body in one form.
+
+    Live 2026-09-23: the ODMD market-report page the jury's question names is
+    113 KB with `<body>` on line 22 and `<form name="Form1">` on line 23, so
+    ignoring the form left the reader no text at all and it reported
+    NO_STATIC_CONTENT for a page full of it. What a form holds that is data
+    rather than prose is ignored on its own.
+    """
+    document = load("<form><p>yayımlanan metin</p><select><option>gizli</option></select></form>")
+    assert document.document is not None
+    assert "yayımlanan metin" in document.document.text
+    assert "gizli" not in document.document.text
 
 
 @pytest.mark.parametrize(
@@ -137,12 +153,9 @@ def test_injection_text_is_data_and_cannot_create_claim(tmp_path):
         # An end tag for something never opened, which no browser can place either.
         # `<div><p>x</div>` is not here any more: HTML closes that paragraph itself.
         ("<div>x</span></div>", "MALFORMED_DOCUMENT"),
-        ("<table><tr><td>x</td></tr></table>", "UNSUPPORTED_TABLE"),
         (HTML.decode().replace("<td>18.22", '<td colspan="2">18.22'), "UNSUPPORTED_TABLE"),
         (HTML.decode().replace("<td>18.22", '<td rowspan="2">18.22'), "UNSUPPORTED_TABLE"),
         (HTML.decode().replace("18.22", "<table></table>"), "UNSUPPORTED_TABLE"),
-        (HTML.decode().replace("<td>18.22</td>", ""), "UNSUPPORTED_TABLE"),
-        (HTML.decode().replace("Tutar", "Tarih"), "UNSUPPORTED_TABLE"),
         (
             '<html><head><script>render()</script></head><body><div id="root"></div></body></html>',
             "NO_STATIC_CONTENT",
@@ -159,6 +172,32 @@ def test_fixed_refusals(body, code):
     result = load(body)
     assert result.code == code and result.document is None
     assert body not in repr(result)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        # No header row at all.
+        "<p>metin</p><table><tr><td>x</td></tr></table>",
+        # A row that does not agree with the header on a width. This is the shape a
+        # list laid out as a table has, and the shape the ODMD report list has: three
+        # cells a report, one empty cell a separator.
+        HTML.decode().replace("<td>18.22</td>", ""),
+        # Two columns with the same label: which one a figure came from is not decidable.
+        HTML.decode().replace("Tutar", "Tarih"),
+    ],
+)
+def test_what_is_not_a_table_is_dropped_and_the_page_survives(body):
+    """A page is not discarded for holding something that is not a table.
+
+    The guarantee is about numbers, and it is unchanged: a table only reaches
+    `tables` when it opened and closed as one, with a header row of distinct
+    labels and rows of one width. Live 2026-09-23 the whole ODMD page was
+    refused over its report list, and the title being asked for was in it.
+    """
+    result = load(body)
+    assert result.document is not None, result.code
+    assert result.document.tables == ()
 
 
 def test_unit_spans_and_row_headers_supported():
