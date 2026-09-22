@@ -319,10 +319,30 @@ def _expand(rows: list[list[tuple[str, int, int]]], limits: AdmissionLimits) -> 
     return [[cell or "" for cell in row] for row in grid]
 
 
+def _dates_its_columns(row: list[str]) -> bool:
+    """Whether this row labels its columns with years instead of reporting figures.
+
+    A published table dates its columns to years far more often than it reports one as a
+    figure, and "Kalem | 2023 | 2024 | 2025" dropped the whole table: every year read as a
+    number, so no row was left to be the header and the document yielded nothing at all
+    (Eray's N21, 2026-09-22). Only a table's first row is read this way, and only when its
+    labels are distinct years -- once a row has been taken as a header, a row of numbers is
+    the data the table was published for.
+    """
+    labelled = [cell for cell in row[1:] if cell]
+    return (
+        len(labelled) > 1
+        and len(set(labelled)) == len(labelled)
+        and all(_YEAR.fullmatch(cell) for cell in labelled)
+    )
+
+
 def _headed(grid: list[list[str]]) -> dict[str, object] | None:
     header_count = 0
     for row in grid:
-        if any(_NUMBER.fullmatch(cell) for cell in row[1:]):
+        if any(_NUMBER.fullmatch(cell) for cell in row[1:]) and not (
+            header_count == 0 and _dates_its_columns(row)
+        ):
             break
         header_count += 1
     if not 1 <= header_count <= _MAX_HEADER_ROWS or len(grid) - header_count < 2:
