@@ -74,6 +74,7 @@ from kkb_agent.agent.presentation import (
     display_value,
     endpoint_observations,
     format_number,
+    period_label,
     period_table,
 )
 from kkb_agent.agent.registry import RegistryError, ToolRegistry
@@ -123,10 +124,13 @@ SYNTHESIS_PROMPT = (
     "Figures: every number you write is checked against the results. Copy a figure "
     "exactly as its display phrase gives it - number, unit and scale - and name the "
     "period and the series it belongs to by its meaningful series name, not its code, "
-    "pairing each figure with its own period. Do not "
+    "pairing each figure with its own period; a period shown with a name in parentheses "
+    "('Ocak 2025') is written by that name, not as its dates. Do not "
     "calculate new numbers (differences, percentages, averages, rounded values): if a "
     "figure is not displayed, describe the pattern in words instead. A figure shown as "
-    "UNAVAILABLE or AMBIGUOUS is not quoted. Copy a count together with its listed role "
+    "UNAVAILABLE or AMBIGUOUS is not quoted, but it exists: never say that such a column "
+    "or period has no value; say that its values are in the table and that the source "
+    "states no unit for them, so they are not quoted. Copy a count together with its listed role "
     "phrase, which is what tells one count from another. Keep a price-reference date "
     "separate from a different period's figure: say it ('Aralık 2025 fiyatlarıyla') in a "
     "sentence of its own. For dimensionless displays, write the figure without that unit "
@@ -604,7 +608,9 @@ def document_reading(outcome: ExecutionOutcome) -> tuple[str, str, str] | None:
         if not text:
             continue
         name = str(getattr(item.output, "document", "") or "belge")
-        digest = str(getattr(item.output, "sha256", "") or "")[:12]
+        # A fetched document's digest already reads "sha256:..." and the header names the
+        # algorithm itself: the reader saw "sha256 sha256:8e4b2" (N48, live W5 2026-09-22).
+        digest = str(getattr(item.output, "sha256", "") or "").removeprefix("sha256:")[:12]
         return text, name, digest
     return None
 
@@ -985,12 +991,20 @@ def render_result(result: AnalyticalResult, ambiguous: frozenset[int] = frozense
             elif display is not None:
                 parts = [f"{prefix} display {display}"]
             else:
-                parts = [f"{prefix} display UNAVAILABLE (unresolved or unsupported unit/scale)"]
+                # Present, not absent. Live J1 (N47, 2026-09-22): the writer read UNAVAILABLE on
+                # the transaction-count columns of the organizer's gold table as "no value in
+                # any period", beside a table showing eight values in each.
+                parts = [
+                    f"{prefix} display UNAVAILABLE (a value is present, but its unit or scale "
+                    "is unresolved or unsupported, so it is not quoted)"
+                ]
             if not grouped:
                 parts.append(metadata)
             if value.period is not None:
+                named = period_label(value.period)
                 parts.append(
                     f"period {value.period.start.isoformat()}..{value.period.end.isoformat()}"
+                    + (f" ({named})" if named is not None else "")
                 )
             lines.append(", ".join(parts))
     if result.samples is not None:

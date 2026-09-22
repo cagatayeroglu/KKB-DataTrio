@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from urllib.parse import urlsplit
 from uuid import UUID, uuid5
 
 from kkb_agent.agent.claim_qualifiers import has_amount_context, is_list_marker
@@ -57,7 +58,10 @@ def safe_text(
         raise OutputRefused("output_limit")
 
     def hidden(found: re.Match[str]) -> str:
-        return found.group() if found.group() in shown_urls else "[gizli bilgi kaldırıldı]"
+        # The pattern runs to the next space, so "(https://.../kmp_au.pdf, sha256 ...)" ended
+        # its address with the comma, and a shown address no longer matched (N48).
+        address = found.group().rstrip(".,;:!?)]}'\"")
+        return found.group() if address in shown_urls else "[gizli bilgi kaldırıldı]"
 
     cleaned = _INTERNAL.sub(hidden, text)
     for secret in secrets:
@@ -76,6 +80,35 @@ def _searched_urls(answered: Answered) -> frozenset[str]:
             url = str(getattr(candidate, "url", "") or "")
             if url.startswith("https://") and not any(c.isspace() for c in url):
                 found.add(url)
+    return frozenset(found)
+
+
+def _read_urls(answered: Answered) -> frozenset[str]:
+    """The public https addresses this turn itself read, and nothing else.
+
+    A page the turn fetched passed safe_fetch, so its address is a public one the reader
+    wrote or the turn followed; hiding it made the reading's own header say
+    "[gizli bilgi kaldırıldı]" where the TCMB address it had read belonged (N48, live W5).
+    An address with a query or credentials stays hidden.
+    """
+    found: set[str] = set()
+    for item in answered.outcome.results:
+        if item.tool == "web_url":
+            source = getattr(item.output, "source", None)
+            candidate = str(getattr(source, "locator", "") or "")
+        elif item.tool == "document_read":
+            candidate = str(getattr(item.output, "document", "") or "")
+        else:
+            continue
+        parts = urlsplit(candidate)
+        if (
+            parts.scheme == "https"
+            and parts.hostname
+            and not parts.query
+            and "@" not in parts.netloc
+            and not any(c.isspace() for c in candidate)
+        ):
+            found.add(candidate)
     return frozenset(found)
 
 
@@ -434,7 +467,11 @@ def project_answer(
                 "Alternatif hesaplama yapılmadı; farklı bir özet istiyorsanız ayrıca belirtin."
             )
     else:
-        text = safe_text(gate.text, secrets=secrets, shown_urls=_searched_urls(answered))
+        text = safe_text(
+            gate.text,
+            secrets=secrets,
+            shown_urls=_searched_urls(answered) | _read_urls(answered),
+        )
     if gate.omitted:
         notices.append("Doğrulanamayan bazı ifadeler yanıttan çıkarıldı.")
     if gate.limitations:

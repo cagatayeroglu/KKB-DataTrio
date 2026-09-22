@@ -9,6 +9,7 @@ from test_web_search_tool import FakeSearchBackend
 from kkb_agent.agent import ExecutionContext, Session, ToolRegistry
 from kkb_agent.agent.document_continuation import DocumentContinuation
 from kkb_agent.agent.executor import ToolStatus
+from kkb_agent.api.projection import project_answer
 from kkb_agent.lakehouse import open_lakehouse
 from kkb_agent.llm import scripted
 from kkb_agent.tools.web_search import BackendHit, SearchReply, make_web_search_tool
@@ -80,6 +81,11 @@ def test_fetched_index_is_inspected_then_followed_without_replanning(tmp_path, s
         assert "March decision" in provider.seen[1][-1].content
         assert "evil.example" not in provider.seen[1][-1].content
         assert "silver_observations" not in str(provider.seen[1])
+        # What the reader is shown names the public page this turn read, and its digest
+        # once (N48, live W5 2026-09-22: "([gizli bilgi kaldırıldı] sha256 sha256:8e4b2)").
+        shown = project_answer(answer, turn_id="0" * 32, published=None).text
+        assert TARGET in shown and "gizli bilgi" not in shown
+        assert "sha256 sha256" not in shown and "sha256:" not in shown
 
 
 @pytest.mark.parametrize(

@@ -25,6 +25,8 @@ from kkb_agent.agent.claim_qualifiers import (
 from kkb_agent.core import (
     DIMENSIONLESS,
     AnalyticalResult,
+    Frequency,
+    Period,
     ResultKind,
     ResultStatus,
     ResultValue,
@@ -35,6 +37,34 @@ from kkb_agent.lakehouse.periods import expected_periods
 from kkb_agent.lakehouse.semantics import SemanticsError
 
 _SCALES = {Scale.ONE: "", Scale.THOUSAND: "bin", Scale.MILLION: "milyon", Scale.BILLION: "milyar"}
+#: Month names as a Turkish reader writes them; the answer gate reads them back.
+_MONTH_NAMES = "Ocak Şubat Mart Nisan Mayıs Haziran Temmuz Ağustos Eylül Ekim Kasım Aralık".split()
+
+
+def period_label(period: Period) -> str | None:
+    """How a reader names one monthly or yearly period: "Ocak 2025", "2025"; else None.
+
+    The writer was shown only "2025-01-01..2025-01-31" and wrote that into Turkish prose
+    ("2025-01-01..2025-01-31 döneminde", N48, live DeepSeek 2026-09-22). A week or a day is
+    not named by its month, so only a period of that frequency covering one calendar month,
+    or one calendar year, gets a label.
+    """
+    start, end = period.start, period.end
+    if (
+        period.frequency is Frequency.MONTHLY
+        and start.day == 1
+        and (start.year, start.month) == (end.year, end.month)
+    ):
+        return f"{_MONTH_NAMES[start.month - 1]} {start.year}"
+    if (
+        period.frequency is Frequency.ANNUAL
+        and start.year == end.year
+        and (start.month, start.day, end.month, end.day) == (1, 1, 12, 31)
+    ):
+        return str(start.year)
+    return None
+
+
 #: What a price is quoted per, in the words a Turkish reader uses (DEC-177).
 _QUANTITY_WORDS = {"g": "gr", "kg": "kg", "oz": "ons", "t": "ton", "piece": "adet"}
 _CURRENCY_WORDS = {"try": "TL", "usd": "USD", "eur": "EUR"}
