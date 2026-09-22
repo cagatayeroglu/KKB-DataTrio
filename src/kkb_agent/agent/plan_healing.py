@@ -119,9 +119,7 @@ def heal_plan(
             spec, parsed = None, None  # Validation says what is wrong; nothing to mend here.
         if spec is not None and parsed is not None:
             if mending := _namespaced(parsed, known_series):
-                rewritten = _rewritten(arguments, mending)
-                assert isinstance(rewritten, dict)  # a mapping in is a mapping out
-                arguments = rewritten
+                arguments = {key: _rewritten(value, mending) for key, value in arguments.items()}
                 notes.extend(
                     f"step {step_id!r}: read {wrong!r} as {right!r}"
                     for wrong, right in sorted(mending.items())
