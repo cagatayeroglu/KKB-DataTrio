@@ -17,16 +17,21 @@ still visible, and a model that writes a correct sentence keeps it.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Final
 
 from duckdb import DuckDBPyConnection
+from pydantic import BaseModel
 
 from kkb_agent.agent.trust_loop import TurnOutcome
 from kkb_agent.agent.trust_prompt import EXHAUSTED, WRITER
 from kkb_agent.agent.verifier import gate_answer
 from kkb_agent.core import AnalyticalResult
 from kkb_agent.llm.provider import LLMProvider, Message, Role
+
+#: How much of one tool's output the writer is shown before it is clipped.
+MAX_EVIDENCE_CHARS = 20_000
 
 #: Said once, beside the answer, when a figure could not be bound to a result.
 UNVERIFIED: Final = "Şu sayı araç sonuçlarına bağlanamadı, okurken dikkate alın: "
@@ -53,6 +58,33 @@ def _computed(outcome: TurnOutcome) -> dict[str, AnalyticalResult]:
     return found
 
 
+def _evidence(outcome: TurnOutcome) -> str:
+    """Everything the tools returned, not only what happened to be a table.
+
+    Reporting only `AnalyticalResult` left the writer with nothing to say about a
+    page it had just read: a document, a search listing and an `inspect` window
+    are evidence too, and "bu PDF'teki verilerle yorumla" is answered from exactly
+    those. A failed observation travels as well, so the answer can say what did
+    not work rather than implying it was never tried.
+    """
+    blocks: list[str] = []
+    for item in outcome.observations:
+        payload = item.result.output
+        if payload is None:
+            if item.result.warnings:
+                blocks.append(
+                    f"{item.action.id} ({item.action.tool}) sonuç vermedi: "
+                    + "; ".join(item.result.warnings)
+                )
+            continue
+        if isinstance(payload, BaseModel):
+            body = payload.model_dump_json(exclude_none=True)
+        else:
+            body = json.dumps(payload, ensure_ascii=False, default=str)
+        blocks.append(f"{item.action.id} ({item.action.tool}): {body[:MAX_EVIDENCE_CHARS]}")
+    return "\n\n".join(blocks)
+
+
 def write_answer(
     question: str,
     outcome: TurnOutcome,
@@ -66,14 +98,11 @@ def write_answer(
         return Answer(text=outcome.ask)
 
     results = _computed(outcome)
-    evidence = "\n\n".join(
-        f"{identifier}: {result.model_dump_json(exclude_none=True)}"
-        for identifier, result in results.items()
-    )
+    evidence = _evidence(outcome)
     messages = [
         Message(Role.SYSTEM, WRITER),
         Message(Role.USER, question),
-        Message(Role.USER, evidence or "Bu turda hesaplanmış bir sonuç yok."),
+        Message(Role.USER, evidence or "Bu turda hiçbir araç sonuç döndürmedi."),
     ]
     if outcome.state:
         messages.insert(2, Message(Role.ASSISTANT, outcome.state))

@@ -1376,6 +1376,13 @@ class PreparedRunner:
                         )
                         self._memory[session_id] = turn.conversation
                         answered = as_answered(effective_question, turn.outcome, turn.answer)
+                        # A turn that computed something has to leave it behind, or the
+                        # next question cannot name it: the loop built the table and the
+                        # workspace never heard about it, so `analiz_1` did not exist and
+                        # the reader saw no table at all.
+                        for shown in answered.presented or answered.results[-1:]:
+                            workspace.publish(workspace.preview(name, shown))
+                            break
                     else:
                         answered = session.answer(
                             effective_question, lake.connection, workspace=workspace, remember=name

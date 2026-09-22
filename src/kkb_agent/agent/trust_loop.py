@@ -75,6 +75,8 @@ class AgentStep(BaseModel):
     publish: str | None = Field(default=None, max_length=64)
     #: Asked only when the model genuinely cannot tell what is wanted.
     ask: str | None = Field(default=None, max_length=1500)
+    #: Calls whose arguments could not be read, as (id, tool). Reported, never run.
+    malformed: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,18 +160,23 @@ def _asked_for(completion: Completion) -> AgentStep | None:
     and the other a fallback that behaves differently.
     """
     if completion.tool_calls:
-        actions = []
+        actions: list[Action] = []
+        malformed: list[tuple[str, str]] = []
         for index, call in enumerate(completion.tool_calls):
+            identifier = call.id or f"a{index + 1}"
             try:
                 arguments = json.loads(call.arguments or "{}")
             except json.JSONDecodeError:
-                arguments = {}
+                # Unreadable arguments are not empty arguments. Running the tool on its
+                # defaults would answer a request the model never made, and the model
+                # would never learn that what it sent could not be read.
+                malformed.append((identifier, call.name))
+                continue
             if not isinstance(arguments, dict):
-                arguments = {}
-            actions.append(
-                Action(id=call.id or f"a{index + 1}", tool=call.name, arguments=arguments)
-            )
-        return AgentStep(actions=actions)
+                malformed.append((identifier, call.name))
+                continue
+            actions.append(Action(id=identifier, tool=call.name, arguments=arguments))
+        return AgentStep(actions=actions, malformed=tuple(malformed))
     if isinstance(completion.parsed, AgentStep):
         return completion.parsed
     return None
@@ -237,10 +244,28 @@ def run_turn(
         if step.ask:
             outcome.ask = step.ask
             break
-        if step.done or not step.actions:
+        if not step.actions and not step.malformed:
             break
 
         carried = []
+        for identifier, tool in step.malformed:
+            # The model has to see that what it sent could not be read, or it will
+            # send it again unchanged.
+            refused = Observation(
+                Action(id=identifier, tool=tool),
+                ToolResult(
+                    ToolStatus.FAILURE,
+                    identifier,
+                    tool,
+                    error_category="arguments",
+                    warnings=(
+                        "Bu çağrının argümanları geçerli JSON değildi; araç "
+                        "çalıştırılmadı. Argümanları yeniden yaz.",
+                    ),
+                ),
+            )
+            outcome.observations.append(refused)
+            carried.append(refused)
         for action in step.actions[: limits.max_actions_per_iteration]:
             if calls >= limits.max_tool_calls:
                 outcome.exhausted = "tool calls"
@@ -251,7 +276,9 @@ def run_turn(
                 workspace[action.id] = item.result.output
             outcome.observations.append(item)
             carried.append(item)
-        if outcome.exhausted:
+        if outcome.exhausted or step.done:
+            # `done` beside actions means finish after them, not instead of them: the
+            # work was asked for and dropping it silently loses a turn's evidence.
             break
 
     return outcome

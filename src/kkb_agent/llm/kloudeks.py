@@ -339,7 +339,7 @@ class KloudeksProvider:
         return document
 
 
-def _wire_messages(conversation: Sequence[Message]) -> list[dict[str, str]]:
+def _wire_messages(conversation: Sequence[Message]) -> list[dict[str, Any]]:
     """The conversation in the shape the platform accepts.
 
     The served chat model rejects a request carrying more than one system
@@ -352,15 +352,34 @@ def _wire_messages(conversation: Sequence[Message]) -> list[dict[str, str]]:
     follow in their own order. Nothing else changes.
     """
     system = [message.content for message in conversation if message.role is Role.SYSTEM]
-    wire: list[dict[str, str]] = []
+    wire: list[dict[str, Any]] = []
     if system:
         wire.append({"role": Role.SYSTEM.value, "content": "\n\n".join(system)})
-    wire.extend(
-        {"role": message.role.value, "content": message.content}
-        for message in conversation
-        if message.role is not Role.SYSTEM
-    )
+    wire.extend(_wire_turn(message) for message in conversation if message.role is not Role.SYSTEM)
     return wire
+
+
+def _wire_turn(message: Message) -> dict[str, Any]:
+    """One non-system turn, keeping whatever ties it to a tool call.
+
+    An assistant turn that asked for tools and the tool turn answering it are a
+    pair, and the pairing is the id. Sent as plain role-and-content the ids went
+    missing, so the model saw a result with nothing saying which of its calls it
+    belonged to.
+    """
+    turn: dict[str, Any] = {"role": message.role.value, "content": message.content}
+    if message.tool_calls:
+        turn["tool_calls"] = [
+            {
+                "id": call.id,
+                "type": "function",
+                "function": {"name": call.name, "arguments": call.arguments},
+            }
+            for call in message.tool_calls
+        ]
+    if message.tool_call_id is not None:
+        turn["tool_call_id"] = message.tool_call_id
+    return turn
 
 
 def _check_status(status: int) -> None:
