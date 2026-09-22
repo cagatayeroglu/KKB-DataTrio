@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 from test_add_series import arguments as add_arguments
 from test_add_series import bound_tool
+from test_co_movement import CREDIT, TOTAL_ID
 from test_co_movement import lake as lake
 from test_turn_two import CPI, CPI_ID, MONTHS
 from test_turn_two import pool as pool
@@ -34,6 +35,123 @@ def published_index_table(pool):
         inputs=("konut_kredisi_ve_faiz",),
     )
     return lake, workspace, added
+
+
+#: The balance's own period change: the one other column of this pool that shares the
+#: balance's unit, scale and measure, which is all `combine` asks of the columns it adds.
+CHANGE_LABEL = f"{TOTAL_ID} change (lag 1)"
+GROUP = "3 aya kadar TP mevduat"
+
+
+def published_summable_table(pool):
+    """Publish a table with two columns that can be added together.
+
+    The pool's own columns are a balance, a rate and an index, and no two of them share
+    unit, scale and measure. The balance's period change does, and it has no January, so
+    it also gives the operation a period one of its columns genuinely lacks.
+    """
+    lake, workspace = pool
+    changed = (
+        bound_tool(pool)
+        .run(
+            operation("change", source="konut_kredisi_ve_faiz", column=TOTAL_ID, kind="difference"),
+            ExecutionContext("add the monthly change"),
+        )
+        .output
+    )
+    assert changed.status is ResultStatus.COMPUTED
+    workspace.record("table", ArtifactKind.VALUE, changed, inputs=("konut_kredisi_ve_faiz",))
+    return lake, workspace, changed
+
+
+def test_combine_adds_the_hand_calculated_group_total_and_is_independently_verifiable(pool):
+    """Live 2026-09-22: a reader's group is the sum of columns the table already has."""
+    lake, workspace, source = published_summable_table(pool)
+    before = source.digest()
+    result = (
+        bound_tool(pool)
+        .run(
+            operation("combine", columns=[TOTAL_ID, CHANGE_LABEL], label=GROUP),
+            ExecutionContext("sum two columns into one group"),
+        )
+        .output
+    )
+    assert result.status is ResultStatus.COMPUTED
+    assert result.values[: len(source.values)] == source.values
+    totals = {value.period.end: value.value for value in result.values if value.label == GROUP}
+    assert totals == {
+        end: CREDIT[position + 1] + (CREDIT[position + 1] - CREDIT[position])
+        for position, end in enumerate(MONTHS[1:])
+    }
+    combination = result.parameters["combination"]
+    assert combination["columns"] == [TOTAL_ID, CHANGE_LABEL]
+    assert combination["period_rows"] == len(MONTHS) - 1
+    assert combination["fill"] == "none"
+    assert [record.operation for record in result.evidence.transformations][-2:] == [
+        "change",
+        "combine",
+    ]
+    assert workspace.value_of("table").digest() == before
+    assert result_faults({"combined": result}, lake.connection) == {}
+
+    altered = result.model_copy(
+        update={
+            "values": [
+                *result.values[:-1],
+                result.values[-1].model_copy(update={"value": result.values[-1].value + 1.0}),
+            ]
+        }
+    )
+    assert result_faults({"altered": altered}, lake.connection)
+
+
+def test_a_month_one_column_lacks_has_no_group_total_and_is_reported(pool):
+    """January has a balance but no change: its group total is not the balance alone."""
+    _, _, _ = published_summable_table(pool)
+    run = bound_tool(pool).run(
+        operation("combine", columns=[TOTAL_ID, CHANGE_LABEL], label=GROUP),
+        ExecutionContext("sum two columns into one group"),
+    )
+    result = run.output
+    ends = {value.period.end for value in result.values if value.label == GROUP}
+    assert ends == set(MONTHS[1:]) and MONTHS[0] not in ends
+    assert result.parameters["combination"]["periods_missing_a_column"] == 1
+    assert any("never read as zero" in warning for warning in run.warnings)
+
+
+def test_an_unlabelled_group_is_named_by_the_columns_it_sums(pool):
+    _, _, _ = published_summable_table(pool)
+    result = (
+        bound_tool(pool)
+        .run(
+            operation("combine", columns=[TOTAL_ID, CHANGE_LABEL]),
+            ExecutionContext("sum two columns into one group"),
+        )
+        .output
+    )
+    assert result.status is ResultStatus.COMPUTED
+    assert any(value.label == f"{TOTAL_ID} + {CHANGE_LABEL}" for value in result.values)
+
+
+def test_columns_that_do_not_share_their_semantics_abstain_without_publishing_a_total(pool):
+    """The rate column is percent, not million TRY: their sum would not be a quantity."""
+    _, _, source = published_summable_table(pool)
+    rate = next(
+        value.label
+        for value in source.values
+        if value.label not in (TOTAL_ID, CHANGE_LABEL) and value.period is not None
+    )
+    result = (
+        bound_tool(pool)
+        .run(
+            operation("combine", columns=[TOTAL_ID, rate]),
+            ExecutionContext("sum a balance and a rate"),
+        )
+        .output
+    )
+    assert result.status is ResultStatus.ABSTAINED
+    assert result.values == []
+    assert "do not share one unit" in result.reason
 
 
 def test_rebase_adds_hand_calculated_index_column_and_is_independently_verifiable(pool):
@@ -159,6 +277,10 @@ def test_align_and_filter_select_existing_cells_and_record_their_policies(pool):
             "new_base": 100.0,
             "sql": "SELECT *",
         },
+        {"operation": "combine", "source": "table", "columns": ["a"]},
+        {"operation": "combine", "source": "table", "columns": ["a", "a"]},
+        {"operation": "combine", "source": "table", "columns": ["a", "b"], "label": "a\nb"},
+        {"operation": "combine", "source": "table", "columns": ["a", "b"], "label": "  "},
     ],
 )
 def test_new_operation_arguments_fail_closed(payload):

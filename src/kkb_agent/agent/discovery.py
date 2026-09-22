@@ -206,6 +206,7 @@ def needs_series_discovery(plan: ValidatedPlan, proven: frozenset[str] = frozens
         "table_transform": {
             "rebase",
             "change",
+            "combine",
             "align",
             "filter",
             "add_document_column",
