@@ -111,7 +111,10 @@ _OPERATION = re.compile(
 def separate_status_claims(text: str) -> tuple[str, set[str]]:
     kept: list[str] = []
     mentioned: set[str] = set()
-    for sentence in re.split(r"(?<=[.!?])\s+|\n+", text):
+    parts = re.split(r"((?<=[.!?])\s+|\n+)", text)
+    for index in range(0, len(parts), 2):
+        sentence = parts[index]
+        separator = parts[index + 1] if index + 1 < len(parts) else ""
         folded = sentence.casefold()
         tools = {
             name for name, label in LABELS.items() if name in folded or label.casefold() in folded
@@ -119,8 +122,8 @@ def separate_status_claims(text: str) -> tuple[str, set[str]]:
         if tools and _OPERATION.search(sentence):
             mentioned.update(tools)
         else:
-            kept.append(sentence)
-    return "\n".join(kept), mentioned
+            kept.append(sentence + separator)
+    return "".join(kept).strip() if mentioned else text, mentioned
 
 
 def status_text(states: tuple[ExecutionState, ...], mentioned: set[str]) -> str:

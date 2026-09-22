@@ -35,7 +35,7 @@ def test_operational_claims_are_replaced_without_suppressing_interpretation():
         "Bu ilişki nedensellik kanıtı değildir."
     )
     narrative, named = separate_status_claims("Anomali aracı çalıştırılmadı. " + rich)
-    assert "çalıştırılmadı" not in narrative and rich.replace(". ", ".\n") == narrative
+    assert "çalıştırılmadı" not in narrative and rich == narrative
     assert named == {"anomaly"}
     assert "çağrılmadı" in status_text((), {"causality"})
     narrative, named = separate_status_claims("Causality was executed. " + rich)
@@ -72,3 +72,10 @@ def test_real_insufficient_call_is_never_described_as_not_called(house, terminal
         assert answer.answer.status.value == "qualified"
         assert "alternatif bir açıklamadır" in text and "nedensellik kanıtı değildir" in text
         assert any('"result": "insufficient"' in m.content for m in provider.seen[-1])
+
+
+def test_prose_without_operational_claims_keeps_qualifiers_in_the_same_paragraph():
+    text = (
+        "Kaynak hücredeki değer: 18,22. Kaynak birim veya ölçek belirtmiyor.\n\nYorum: Sınırlıdır."
+    )
+    assert separate_status_claims(text) == (text, set())
