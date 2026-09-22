@@ -184,7 +184,7 @@ def run_turn(
     model: str | None = None,
     budget: Budget | None = None,
     context: Mapping[str, str] = {},
-
+    published: Mapping[str, object] = {},
 ) -> TurnOutcome:
     """Drive one question to the point where the model says it can answer.
 
@@ -196,7 +196,9 @@ def run_turn(
     outcome = TurnOutcome()
     started = time.monotonic()
     calls = 0
-    workspace: dict[str, object] = {}
+    # Seeded with what earlier turns published, under the names they carry, so a
+    # tool given "analiz_2" finds it without this turn having to read it again.
+    workspace: dict[str, object] = dict(published)
     searched: set[str] = set()
     carried: list[Observation] = []
 

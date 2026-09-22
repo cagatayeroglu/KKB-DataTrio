@@ -9,14 +9,16 @@ phase, no continuation and no separate writer to arbitrate between.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from duckdb import DuckDBPyConnection
 
 from kkb_agent.agent.registry import ToolRegistry
 from kkb_agent.agent.trust_answer import Answer, write_answer
 from kkb_agent.agent.trust_loop import Budget, TurnOutcome, run_turn
+from kkb_agent.agent.trust_memory import Conversation
 from kkb_agent.agent.trust_prompt import INSTRUCTIONS
+from kkb_agent.core import AnalyticalResult
 from kkb_agent.llm.provider import LLMProvider
 
 
@@ -26,6 +28,8 @@ class Turn:
 
     answer: Answer
     outcome: TurnOutcome
+    #: The conversation as this turn left it, ready for the next question.
+    conversation: Conversation = field(default_factory=Conversation)
 
 
 @dataclass(slots=True)
@@ -37,8 +41,23 @@ class TrustSession:
     instructions: str = INSTRUCTIONS
     connection: DuckDBPyConnection | None = None
 
-    def answer(self, question: str, *, context: Mapping[str, str] = {}) -> Turn:
-        """Run the loop for one question, then report what it found."""
+    def answer(
+        self,
+        question: str,
+        *,
+        context: Mapping[str, str] = {},
+        conversation: Conversation | None = None,
+        published: Mapping[str, AnalyticalResult] = {},
+    ) -> Turn:
+        """Run the loop for one question, then report what it found.
+
+        `conversation` is what earlier turns left: the model's own carry note and
+        the exchange as it was spoken. `published` is what those turns put on the
+        table, seeded into the workspace so a tool handed one of those names finds
+        it. Both are updated when the turn ends, so the next question starts where
+        this one stopped.
+        """
+        memory = conversation or Conversation()
         outcome = run_turn(
             question,
             provider=self.provider,
@@ -46,7 +65,8 @@ class TrustSession:
             instructions=self.instructions,
             model=self.model,
             budget=self.budget,
-            context=context,
+            context={**memory.context(dict(published)), **context},
+            published=dict(published),
         )
         answer = write_answer(
             question,
@@ -55,7 +75,8 @@ class TrustSession:
             model=self.model,
             connection=self.connection,
         )
-        return Turn(answer=answer, outcome=outcome)
+        memory.remember(question, answer.text, outcome.state)
+        return Turn(answer=answer, outcome=outcome, conversation=memory)
 
 
 __all__ = ["TrustSession", "Turn"]

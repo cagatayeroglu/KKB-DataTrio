@@ -27,6 +27,7 @@ from kkb_agent.agent.loop import MAX_HISTORY_TURNS, PlanningFailed
 from kkb_agent.agent.observer import Tracer
 from kkb_agent.agent.selection import SelectedTable, SelectionError
 from kkb_agent.agent.trust_adapter import as_answered
+from kkb_agent.agent.trust_memory import Conversation
 from kkb_agent.agent.trust_session import TrustSession
 from kkb_agent.agent.verifier import AnswerStatus
 from kkb_agent.agent.workspace import WorkspaceError
@@ -629,6 +630,9 @@ class PreparedRunner:
         # "önceki cevap" after an unrelated message; analytical state stays in
         # the workspace, never here.
         self._history: dict[str, list[tuple[str, str]]] = {}
+        #: What the loop left each conversation: the model's own carry note and
+        #: the exchange as it was said. Only read when --trust-loop is on.
+        self._memory: dict[str, Conversation] = {}
         # Series identities the catalog returned earlier in each conversation. A plan
         # naming only these may skip the discovery phase, which otherwise costs a
         # planner round trip per turn for an identity already proven. Bounded by the
@@ -1361,7 +1365,14 @@ class PreparedRunner:
                             registry=registry,
                             model=chosen.model,
                             connection=lake.connection,
-                        ).answer(effective_question)
+                        ).answer(
+                            effective_question,
+                            conversation=self._memory.setdefault(session_id, Conversation()),
+                            # Named results from earlier turns, so a tool given one of
+                            # those names finds it without reading the series again.
+                            published=workspace.values(),
+                        )
+                        self._memory[session_id] = turn.conversation
                         answered = as_answered(effective_question, turn.outcome, turn.answer)
                     else:
                         answered = session.answer(
