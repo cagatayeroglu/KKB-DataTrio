@@ -33,6 +33,7 @@ from kkb_agent.core import (
     Scale,
     SourceRef,
     StockFlow,
+    WeeklyAnchor,
 )
 from kkb_agent.lakehouse import Observation, SeriesSemantics, open_lakehouse
 from kkb_agent.tools import AnomalyArguments, make_anomaly_tool
@@ -475,3 +476,55 @@ class TestTheTool:
         # interesting, and the output would not show that it had.
         described = self.registry(house).descriptions()[0]["arguments"]["properties"]
         assert set(described) == {"series_id", "start", "end"}
+
+
+class TestTheWindowSaysWhereItBegins:
+    """A week ending inside the window began before it, and the answer says so.
+
+    Selecting by period end is the right rule: the week ending 1 January 2021 is the first
+    observation of 2021, and selecting by start would drop the first week of every year a
+    source publishes weekly. What it costs is a date nobody asked for -- the window then
+    begins 26 December 2020 -- and a reader could only read that as the requested start
+    being ignored (live 2026-09-22, Eray's N26).
+    """
+
+    WEEKLY = SeriesSemantics(
+        unit="TRY",
+        scale=Scale.MILLION,
+        frequency=Frequency.WEEKLY,
+        anchor=WeeklyAnchor.FRIDAY,
+        observation=StockFlow.STOCK,
+        cumulative=CumulativeKind.NONE,
+        aggregation=Aggregation.LAST,
+    )
+
+    def weeks(self, count: int) -> list[Observation]:
+        """Consecutive Friday-ended weeks, the first of them ending 2021-01-01."""
+        out: list[Observation] = []
+        end = date(2021, 1, 1)
+        for step in range(count):
+            out.append(Observation(end - timedelta(days=6), end, 1000.0 + 100 * step))
+            end += timedelta(days=7)
+        return out
+
+    def test_the_first_period_reaching_back_is_stated_once(self):
+        result = detect_anomalies(
+            self.weeks(24), self.WEEKLY, series_id="bddk:haftalik", start=date(2021, 1, 1)
+        )
+        assert result.coverage is not None and result.coverage.start == date(2020, 12, 26)
+        reaching = [note for note in result.warnings if "2020-12-26" in note]
+        assert len(reaching) == 1
+        assert "belongs to the window it ends in" in reaching[0]
+
+    def test_a_window_whose_first_period_fits_says_nothing_extra(self):
+        result = detect_anomalies(
+            self.weeks(24), self.WEEKLY, series_id="bddk:haftalik", start=date(2020, 12, 26)
+        )
+        assert not [note for note in result.warnings if "belongs to the window" in note]
+
+    def test_a_period_still_running_at_the_end_is_named_as_left_out(self):
+        result = detect_anomalies(
+            self.weeks(24), self.WEEKLY, series_id="bddk:haftalik", end=date(2021, 6, 1)
+        )
+        left_out = [note for note in result.warnings if "end after it" in note]
+        assert len(left_out) == 1 and "1 period(s)" in left_out[0]
