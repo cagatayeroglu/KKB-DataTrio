@@ -46,27 +46,42 @@ class DocumentSelection(BaseModel):
 
 
 class DocumentContinuation(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    """What to do with a document already fetched.
+
+    Unlike a plan, nothing here is executed: a reading is text shown to the reader
+    beside its source, and a follow and a selection are both bounded by what the
+    document itself holds. So an unexpected key is dropped rather than made to cost
+    the turn. Twice live (2026-09-22) this schema refused the continuation for the
+    TCMB decision page and for the XTUMY table — both already downloaded, both
+    discarded, the reader told no verifiable result could be produced.
+    """
+
+    model_config = ConfigDict(extra="ignore")
     follow: int | None = Field(default=None, ge=1, le=200)
     selection: DocumentSelection | None = None
-    reading: str | None = Field(default=None, min_length=1, max_length=4000)
+    #: A summary of a decision text runs longer than a table caption. The cap is a
+    #: sanity bound on one model turn, not an editorial limit.
+    reading: str | None = Field(default=None, min_length=1, max_length=24000)
     abstain: bool = False
 
     @model_validator(mode="after")
     def one_action(self) -> DocumentContinuation:
-        if (
-            sum(
-                (
-                    self.follow is not None,
-                    self.selection is not None,
-                    self.reading is not None,
-                    self.abstain,
-                )
+        chosen = sum(
+            (
+                self.follow is not None,
+                self.selection is not None,
+                self.reading is not None,
+                self.abstain,
             )
-            != 1
-        ):
-            raise ValueError("Choose exactly one recorded link, extraction, reading, or abstention")
-        return self
+        )
+        if chosen == 1:
+            return self
+        if chosen > 1 and self.reading is not None:
+            # A reading named beside a link or a table is a model that answered and
+            # then said where it had looked. The reading is the answer; the rest is
+            # dropped rather than costing a document already in hand.
+            return DocumentContinuation.model_construct(reading=self.reading, abstain=False)
+        raise ValueError("Choose exactly one recorded link, extraction, reading, or abstention")
 
 
 INSTRUCTIONS = (
