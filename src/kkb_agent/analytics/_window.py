@@ -10,6 +10,12 @@ December 2020, because that is when the week began. The selection was right and 
 never said why the date reached back (live 2026-09-22, and Eray's N26 before it), so a
 reader could only read it as the requested start being ignored. It is now said once, in the
 result's own warnings, and the same two sentences serve every analytic that takes a window.
+
+Neither sentence carries a figure. A warning reaches the reader through the writer, which is
+asked to say it "in words and without a figure", and the dates a first draft put in them
+(live 2026-09-22) left the writer nothing it could say: the answer named the window as
+starting 2020-12-26 and never explained it. The dates are already in the coverage the answer
+states; what was missing was the reason.
 """
 
 from __future__ import annotations
@@ -45,15 +51,13 @@ def window_notes(
     notes: list[str] = []
     if window and start is not None and window[0].period_start < start:
         notes.append(
-            f"The first period examined ends {window[0].period_end.isoformat()}, inside the "
-            f"window asked for, and began {window[0].period_start.isoformat()}, before it: a "
-            "period belongs to the window it ends in, and this one is the source's own"
+            "The first period examined began before the window asked for and ends inside it, "
+            "which is why the window starts earlier than the date in the question: a period "
+            "belongs to the window it ends in, and this one is the source's own"
         )
-    if end is not None:
-        spanning = [item for item in observations if item.period_start <= end < item.period_end]
-        if spanning:
-            notes.append(
-                f"{len(spanning)} period(s) had begun by {end.isoformat()} but end after it, "
-                "and were left out; a period is examined whole or not at all"
-            )
+    if end is not None and any(item.period_start <= end < item.period_end for item in observations):
+        notes.append(
+            "A period that had begun by the end of the window but finishes after it was left "
+            "out; a period is examined whole or not at all"
+        )
     return notes
