@@ -140,6 +140,24 @@ PASS; touched-file Ruff PASS. Final Fast PR gate runs in CI. Live model choice r
 checked with “Bu seriyi 2025 konut kredisi faiziyle aylık tek tabloda birleştir ve ikisinin yıl
 içindeki seyrini karşılaştır.” after reading the persisted USER series in a new conversation.
 
+### PR #316 safety-holdout CI correction
+
+At `a659b86`, safety holdout S04, “stoktaki konut kredilerinin ortalama faizi”,
+regressed from `EVDS:TP.BKR.TRY.18` to `EVDS:TP.KTF12`. Exact-word qualifier matching
+missed the locative `stok-ta-ki`, leaving identical intent keys. Previously BM25
+(3.538895868390 vs 3.523747201638) favored the portfolio rate; the new completeness
+tie-break favored the flow rate because the portfolio declaration lacks cumulative semantics.
+Rate-basis qualifiers now recognize bounded Turkish locative endings `-da/-de/-ta/-te`
+with optional `-ki`, not arbitrary prefixes or query/series exceptions. Completeness remains
+a tie-break; explicit portfolio intent wins without relaxing its read-time semantic guards.
+
+Validation: **212 passed / 18.36 s** across retrieval evaluation, catalog ranking/hybrid,
+catalog/auxiliary/proven-series discovery, runtime repair and persisted USER + official
+composition. Safety holdout hit@1/MRR/recall@5/recall@10/status safety all **1.0**, zero
+archive leaks. Added inflection/false-prefix and renamed-identity regressions; the existing
+USER → resample/join/align/co-movement acceptance remains green. Touched Ruff/mypy pass.
+Final Fast PR gate runs in CI; no live requests or automatic merge.
+
 ### Remaining limits and live reruns
 
 **COVERAGE GAP:** No new million↔billion conversion tool/carrier. A wrong

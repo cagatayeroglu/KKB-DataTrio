@@ -130,6 +130,20 @@ def _contains(text: str, phrases: tuple[str, ...]) -> bool:
     return any(f" {phrase} " in padded for phrase in phrases)
 
 
+def _contains_nominal_qualifier(text: str, phrases: tuple[str, ...]) -> bool:
+    """Recognize locative noun qualifiers, without arbitrary prefix stemming.
+
+    Turkish uses -da/-de/-ta/-te, optionally followed by -ki, to qualify the
+    measure. Only the last word inflects; longer unrelated words must not match.
+    This refines query intent, not catalog identity or declared semantics.
+    """
+    return _contains(text, phrases) or any(
+        re.search(r"(?<!\S)" + re.escape(phrase) + r"[dt][ae](?:ki)?(?!\S)", text)
+        for phrase in phrases
+        if len(phrase.split()[-1]) >= 4
+    )
+
+
 def _currency(text: str) -> Currency | None:
     return next((value for value, phrases in CURRENCY if _contains(text, phrases)), None)
 
@@ -171,9 +185,9 @@ def _query_intent(query: str) -> _QueryIntent:
     )
     rate_basis: RateBasis | None = None
     if kind is StockFlow.RATE:
-        if _contains(text, OUTSTANDING):
+        if _contains_nominal_qualifier(text, OUTSTANDING):
             rate_basis = "outstanding_portfolio"
-        elif _contains(text, NEW):
+        elif _contains_nominal_qualifier(text, NEW):
             rate_basis = "new_credit"
     inclusion: Inclusion | None = None
     if _contains(text, EXCLUDED):
