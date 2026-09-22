@@ -10,7 +10,7 @@ straddle a month boundary with the majority of their days on the earlier side.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -68,6 +68,20 @@ def align(rows=None, *, aggregation=Aggregation.AVERAGE, assignment=WeekAssignme
     )
 
 
+def _weeks_in(target, anchor):
+    """Every week of the declared calendar that this month owns by majority."""
+    from kkb_agent.lakehouse.periods import weekly_window
+
+    span = weekly_window(
+        date(target.year, target.month, 1) - timedelta(days=7),
+        target + timedelta(days=7),
+        anchor=anchor,
+    )
+    return sum(
+        1 for start, end in span if assign_month(start, end, WeekAssignment.BY_MAJORITY) == target
+    )
+
+
 def values(alignment):
     return {item.period_end: item.value for item in alignment.observations}
 
@@ -93,6 +107,54 @@ class TestWeekAssignmentIsAPolicy:
         by_majority = values(align(assignment=WeekAssignment.BY_MAJORITY))
         assert by_end[FEB] != by_majority[FEB]
         assert by_end[MAR] != by_majority[MAR]
+
+
+class TestAMonthTheRequestDidNotAskForIsNotScoredAsOne:
+    """A 2021-onwards request returned a December 2020 that read as complete.
+
+    The window selects a week by the date it ends on, so the week ending 1 January is inside
+    a 2021 request while six of its days are in December. Under BY_MAJORITY that is a
+    December week, and the week is not discarded — that was measured and decided on
+    2026-09-16. What was wrong is the score it carried: expecting one week of December and
+    observing it read as a complete December 2020 inside a request for 2021 onwards, a month
+    no reader could reproduce and nothing marked as partial (Eray's N26, 2026-09-22).
+    """
+
+    DECEMBER = date(2020, 12, 31)
+
+    def five_years(self):
+        rows = []
+        end = date(2021, 1, 1)
+        while end <= date(2026, 6, 26):
+            rows.append((end, 10.0))
+            end += timedelta(days=7)
+        return rows
+
+    def aligned(self, assignment):
+        return to_monthly(
+            weekly(self.five_years()),
+            requested_start=date(2021, 1, 1),
+            requested_end=date(2026, 6, 30),
+            frequency=WEEKLY,
+            aggregation=Aggregation.AVERAGE,
+            anchor=FRIDAY,
+            assignment=assignment,
+        )
+
+    def test_the_month_the_assignment_reached_is_scored_against_the_whole_month(self):
+        coverage = self.aligned(WeekAssignment.BY_MAJORITY).coverage[self.DECEMBER]
+        assert (coverage.expected, coverage.observed, coverage.complete) == (5, 1, False)
+
+    def test_it_is_named_as_incomplete_rather_than_left_to_look_ordinary(self):
+        result = self.aligned(WeekAssignment.BY_MAJORITY)
+        assert self.DECEMBER in result.incomplete_periods()
+        assert result.method["months_reached_outside_the_request"] == "2020-12-31"
+
+    def test_by_end_reaches_no_month_the_request_did_not_ask_for(self):
+        result = self.aligned(WeekAssignment.BY_END)
+        months = sorted(result.coverage)
+        assert len(months) == 66 and months[0] == date(2021, 1, 31)
+        assert "months_reached_outside_the_request" not in result.method
 
 
 class TestReductionUsesTheDeclaredAggregation:
@@ -406,12 +468,20 @@ class TestRequestedWeeklyCoverage:
         previous = date(2023, 12, 31) if end.month == 1 else date(2024, 2, 29)
         target = month_end(end.year, end.month) if policy is WeekAssignment.BY_END else previous
         result = requested([(end, 6.0)], start=end, end=end, anchor=anchor, assignment=policy)
-        assert sum(c.expected for c in result.coverage.values()) == 1
-        assert result.coverage[target].complete
         assert result.coverage[target].observed == 1
         assert values(result) == {target: 6.0}
         assert result.method["week_assignment"] == policy.value
-        if policy is WeekAssignment.BY_MAJORITY:
+        if policy is WeekAssignment.BY_END:
+            # The month asked for expects exactly the week asked for, and got it.
+            assert sum(c.expected for c in result.coverage.values()) == 1
+            assert result.coverage[target].complete
+        else:
+            # The week belongs to a month the request never named. It still counts there,
+            # and that month is scored against itself: one week of it was read, so it is
+            # partial rather than a complete month nobody asked for (N26).
+            assert not result.coverage[target].complete
+            assert result.coverage[target].expected == _weeks_in(target, anchor)
+            assert result.method["months_reached_outside_the_request"] == target.isoformat()
             current = result.coverage[month_end(end.year, end.month)]
             assert current.expected == 0 and not current.complete
 
