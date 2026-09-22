@@ -70,7 +70,12 @@ class ScriptedProvider:
         schema: type[BaseModel] | None = None,
         tools: Sequence[Mapping[str, object]] | None = None,
     ) -> Completion:
-        self.offered.append(tuple(str(t.get("name", "")) for t in (tools or ())))
+        self.offered.append(
+            tuple(
+                str(entry.get("function", entry).get("name", ""))  # type: ignore[union-attr]
+                for entry in (tools or ())
+            )
+        )
 
         def ask(
             conversation: list[Message],
