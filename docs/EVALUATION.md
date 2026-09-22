@@ -69,6 +69,8 @@ Three faults were found by these runs and fixed in the same branch: the address 
 
 Remaining, not fixed here: one J1 sentence is withheld because it attributes a single figure (`0 EUR ve 0 kg`) to six periods at once, which no one value can carry; and a search-listing line whose title ends in a question mark loses its address to sentence-level gating.
 
+**After merging `dev`** (its own web, gate and continuation work of the same evening, ten commits): the four turns that carry this branch's decisions were run again — G1 and G3 ACCEPTED, S2 ACCEPTED with the official figure and the candidate list, W5 a QUALIFIED reading of the 21 March 2024 decision in 27 s. The first of those runs found one more fault, fixed here: the announcements page the person named loaded, the planner added a second address the question never wrote, the authority boundary refused it as it should, and the turn abstained about a page already in hand. The inspection of a fetched document now waits only while a corrected plan is actually coming. Four tests that were failing on `dev` before this merge pinned contracts `dev` itself changed (the scoring sensitivity is a planner argument, the planner prompt was rewritten, the history budget is twelve turns); each was updated to the new contract in the merge commit.
+
 <a id="quick-quality-pass-2026-09-22"></a>
 
 ## Quick quality pass — 2026-09-22
