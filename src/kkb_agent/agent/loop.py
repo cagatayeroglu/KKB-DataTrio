@@ -2423,6 +2423,8 @@ class Session:
         )
         if states:
             answer = replace(answer, text=(answer.text + "\n\n" + states).strip())
+        if answer.status is not AnswerStatus.ABSTAINED:
+            answer = self._with_search_listing(answer, planned, outcome, connection, gate)
         return Answered(planned, outcome, results, answer, tables, presented)
 
     def _consumed_steps(self, plan: ValidatedPlan) -> set[str]:
@@ -2498,6 +2500,48 @@ class Session:
             outcome,
             (),
             replace(answer, limitations=(*answer.limitations, SEARCH_LIMITATION)),
+        )
+
+    def _with_search_listing(
+        self,
+        answer: GatedAnswer,
+        planned: Planned,
+        outcome: ExecutionOutcome,
+        connection: DuckDBPyConnection | None,
+        gate: Mapping[str, object],
+    ) -> GatedAnswer:
+        """A computed answer with the search the person asked for kept beneath it.
+
+        Live 2026-09-22 (N49): "Web araması yap: Aralık 2025'te konut kredisi faiz oranı
+        kaç?" planned the search beside the official series, and the listing, shown only
+        when nothing was computed, vanished from the answer. The hits are gated on their own
+        with no result in reach, so a title's figure binds to nothing and its line is
+        withheld exactly as in a search-only answer (DEC-158): the list never adds to the
+        verified figures, and a withheld line is reported without changing the status, like
+        a withheld footnote. A plan that read a page the search found answers from that page,
+        and the list, which says its pages were not read, is not added then.
+        """
+        listing = search_listing(outcome)
+        if listing is None:
+            return answer
+        found_pages = searched_addresses(outcome)
+        if any(
+            getattr(item.arguments, "found_by", None) is not None
+            or getattr(item.arguments, "url", None) in found_pages
+            for item in planned.plan.steps
+        ):
+            return answer
+        if self.tracer is not None:
+            self.tracer.event("answer", "search.listing", source="web_search", detail=listing)
+        gated = self._gated(listing, {}, connection, gate)
+        if not any(line.startswith("- ") for line in gated.text.splitlines()):
+            # Every hit was withheld: a header over no candidate says nothing.
+            return replace(answer, omitted=(*answer.omitted, *gated.omitted))
+        return replace(
+            answer,
+            text=answer.text + "\n\n" + gated.text,
+            omitted=(*answer.omitted, *gated.omitted),
+            limitations=(*answer.limitations, SEARCH_LIMITATION),
         )
 
     def _reading_answer(

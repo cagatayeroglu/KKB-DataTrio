@@ -123,7 +123,11 @@ WEB_ADDRESS_INSTRUCTIONS = (
     "Use the address outline for table selection or bounded follow; if the read is "
     "insufficient, follow or search within the existing authority boundary. "
     "Honor an explicit request for web_search; official prepared data may complement "
-    "search when it supplies the requested financial values."
+    "search when it supplies the requested financial values: when the search is about a "
+    "figure that an official series listed in this prompt provides (a lakehouse prepared "
+    "series or another catalogue ID you were given), plan the web_search and a lakehouse "
+    "read of that series by its ID in the same plan, without catalog_search, so the reader "
+    "gets the verified official figure beside the search results."
 )
 #: Why a plan for a question with a readable address was refused (N46). Fed back verbatim.
 ADDRESS_FIRST = (
