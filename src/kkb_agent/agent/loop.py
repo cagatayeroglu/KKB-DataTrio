@@ -81,6 +81,7 @@ from kkb_agent.agent.workspace import Workspace
 from kkb_agent.core import (
     DIMENSIONLESS,
     AnalyticalResult,
+    ClaimKind,
     ResultStatus,
     ResultValue,
     Scale,
@@ -1864,9 +1865,13 @@ class Session:
             except ProviderError:
                 # The harness's own wording is the safety net, and a provider that fails must
                 # not cost a turn whose figures are already computed and verified.
-                if fast_draft is None and period_table(result) is None:
+                if fast_draft is None and result.claim_kind is not ClaimKind.ANALYTICAL_VALUE:
                     raise
-                draft = fast_draft or EMPTY_DRAFT_NOTE
+                draft = fast_draft or (
+                    EMPTY_DRAFT_NOTE
+                    if period_table(result) is not None
+                    else "Hesaplama tamamlandı; bu turda yazılı değerlendirme üretilemedi."
+                )
             if self.tracer is not None:
                 self.tracer.event("answer", "draft.model", source="model", detail=draft)
         if not draft.strip():

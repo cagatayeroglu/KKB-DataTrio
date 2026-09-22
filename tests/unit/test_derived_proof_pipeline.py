@@ -22,11 +22,15 @@ from kkb_agent.lakehouse import Observation, SeriesSemantics, open_lakehouse
 from kkb_agent.lakehouse.lineage import EdgeKind, NodeKind
 from kkb_agent.lakehouse.result_evidence import execution_proof
 from kkb_agent.llm import scripted
+from kkb_agent.llm.provider import TransportError
 from kkb_agent.tools import make_causality_tool, make_lakehouse_tool, make_table_transform_tool
 
 
 @pytest.mark.parametrize("operation", ["association", "granger"])
-def test_weekly_monthly_join_causality_can_publish_with_real_proof(tmp_path, operation):
+@pytest.mark.parametrize("writer_failure", [False, True])
+def test_weekly_monthly_join_causality_can_publish_with_real_proof(
+    tmp_path, operation, writer_failure
+):
     with open_lakehouse(tmp_path / "lake") as lake:
         artifact = lake.record_artifact(
             b"offline",
@@ -135,7 +139,9 @@ def test_weekly_monthly_join_causality_can_publish_with_real_proof(tmp_path, ope
         ]
         provider = scripted(
             json.dumps({"question": "İlişkiyi ölç", "steps": steps}),
-            "İlişki hesaplandı; nedensellik göstermez.",
+            TransportError("offline")
+            if writer_failure
+            else "İlişki hesaplandı; nedensellik göstermez.",
         )
         answer = Session(provider, registry).answer(
             "İlişkiyi ölç", lake.connection, workspace=workspace, remember="analysis"
