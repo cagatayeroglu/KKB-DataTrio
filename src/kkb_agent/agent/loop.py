@@ -2048,6 +2048,7 @@ class Session:
         ):
             if self.selection is not None:
                 self.selection.check()
+            checkpoint("publication")
             workspace.publish(preview)
             if self.tracer is not None:
                 self.tracer.event(
@@ -2284,7 +2285,9 @@ class Session:
             messages.append(Message(Role.SYSTEM, INCOMPLETE_STEPS_NOTE + "\n" + listed))
         messages.append(Message(Role.USER, question))
         if self.tracer is None:
-            return self.provider.complete(messages, model=self.model).text
+            completion = self.provider.complete(messages, model=self.model)
+            checkpoint("writer.completed")
+            return _finished_sentences(completion)
         with self.tracer.span("answer", "writer.call") as span:
             span.set(
                 messages=len(messages),
@@ -2293,6 +2296,7 @@ class Session:
             )
             self.tracer.event("model", "model.started", phase="writer")
             completion = self.provider.complete(messages, model=self.model)
+            checkpoint("writer.completed")
             span.set(model=completion.model)
             _record_cost(span, completion)
             parent = span.sequence
