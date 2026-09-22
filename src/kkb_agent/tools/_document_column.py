@@ -120,6 +120,19 @@ class RowRules:
             return None
         return end
 
+    def day(self, label: object) -> date | None:
+        """The row's calendar day, or None when the row is skipped (and counted)."""
+        if is_total_label(label):
+            self.skipped["TOTAL_ROW"] += 1
+            return None
+        day = calendar_day(label)
+        if day is None:
+            raise ColumnRefused("PERIOD_NOT_RECOGNISED")
+        if self.as_of is not None and day > self.as_of:
+            self.skipped["FUTURE_PERIOD"] += 1
+            return None
+        return day
+
     def number(self, raw: object) -> float:
         value = read_number(raw, self.convention)
         if self.convention is not None and _ambiguous(raw):
@@ -222,6 +235,26 @@ def month_end(raw: object, year: int | None = None) -> date | None:
         return _edge_day(int(match[1]), int(match[2]), int(match[3]))
     if match := _DOTTED_DAY.fullmatch(text):
         return _edge_day(int(match[3]), int(match[2]), int(match[1]))
+    return None
+
+
+def calendar_day(raw: object) -> date | None:
+    """The single calendar day a period cell names; None when it names anything else."""
+    if isinstance(raw, datetime):
+        return raw.date() if raw.time() == datetime.min.time() else None
+    if isinstance(raw, date):
+        return raw
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    if text.endswith(("T00:00:00", " 00:00:00")):
+        text = text[:10]
+    for pattern, order in ((_ISO_DAY, (1, 2, 3)), (_DOTTED_DAY, (3, 2, 1))):
+        if match := pattern.fullmatch(text):
+            try:
+                return date(int(match[order[0]]), int(match[order[1]]), int(match[order[2]]))
+            except ValueError:
+                return None
     return None
 
 
