@@ -30,7 +30,7 @@ import json
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Final
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
@@ -78,6 +78,8 @@ class AgentStep(BaseModel):
     ask: str | None = Field(default=None, max_length=1500)
     #: Calls whose arguments could not be read, as (id, tool). Reported, never run.
     malformed: tuple[tuple[str, str], ...] = ()
+    #: The answer itself, when the model wrote prose instead of calling anything.
+    reply: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,15 +119,27 @@ class TurnOutcome:
     iterations: int = 0
     #: Set when a counter ran out. The turn still answers with what it has.
     exhausted: str | None = None
+    #: What the model wrote when it stopped calling tools; the answer itself.
+    reply: str | None = None
 
     @property
     def results(self) -> dict[str, ToolResult]:
         return {item.action.id: item.result for item in self.observations}
 
 
+#: How a model says it is finished when tool calls are all it can send.
+FINISH: Final = "finish"
+
+
 def tool_menu(registry: ToolRegistry) -> list[dict[str, Any]]:
-    """The tools, in the shape an OpenAI-compatible server expects."""
-    return [
+    """The tools, plus the one that ends the turn.
+
+    Native tool calling leaves a model two moves — call something or write prose —
+    and no field for `done` or `publish`. Live 2026-09-22 it reached for a tool
+    named `publish` that did not exist, which is the protocol asking for this: the
+    way to stop is a call like any other.
+    """
+    menu: list[dict[str, Any]] = [
         {
             "type": "function",
             "function": {
@@ -136,6 +150,28 @@ def tool_menu(registry: ToolRegistry) -> list[dict[str, Any]]:
         }
         for spec in registry
     ]
+    menu.append(
+        {
+            "type": "function",
+            "function": {
+                "name": FINISH,
+                "description": (
+                    "Yeterli kanitin oldugunda bunu cagir ve turu bitir. "
+                    "answer: okuyucuya gidecek Turkce cevap. "
+                    "publish: okuyucuya gosterilecek sonucun id'si."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "answer": {"type": "string"},
+                        "publish": {"type": "string"},
+                    },
+                    "required": ["answer"],
+                },
+            },
+        }
+    )
+    return menu
 
 
 def _describe(result: ToolResult) -> str:
@@ -211,9 +247,26 @@ def _asked_for(completion: Completion) -> AgentStep | None:
                 malformed.append((identifier, call.name))
                 continue
             actions.append(Action(id=identifier, tool=call.name, arguments=arguments))
+        finished = next((a for a in actions if a.tool == FINISH), None)
+        if finished is not None:
+            return AgentStep(
+                done=True,
+                reply=str(finished.arguments.get("answer") or "").strip() or None,
+                publish=str(finished.arguments.get("publish") or "") or None,
+                actions=[a for a in actions if a.tool != FINISH],
+                malformed=tuple(malformed),
+            )
         return AgentStep(actions=actions, malformed=tuple(malformed))
     if isinstance(completion.parsed, AgentStep):
         return completion.parsed
+    if completion.text.strip():
+        # Native tool calling gives a model two ways to answer and only two: call
+        # something, or say something. There is no field left for `done`, so prose
+        # with no call is the finish — and it is the answer, which is why no second
+        # writer call is needed for it. Live 2026-09-22 the model answered well on
+        # its third turn and the loop read that as "no decision", kept going, and
+        # spent its budget repeating work it had already done.
+        return AgentStep(done=True, reply=completion.text.strip())
     return None
 
 
@@ -244,6 +297,8 @@ def run_turn(
     workspace: dict[str, object] = dict(published)
     searched: set[str] = set()
     carried: list[Observation] = []
+    #: The native exchange so far: what was asked for and what came back.
+    history: list[Message] = []
 
     menu = tool_menu(registry)
     #: Whether the platform answered the last iteration with real tool calls. A result
@@ -261,10 +316,18 @@ def run_turn(
             outcome.exhausted = "time"
             break
 
+        # With native tool calling the exchange itself is the memory: the assistant
+        # turns that made the calls and the tool turns that answered them accumulate,
+        # exactly as the protocol expects. Carrying only the last iteration made the
+        # model amnesiac two steps back — live 2026-09-22 it searched, read, then
+        # searched and read the same series again and spent its budget on work it had
+        # already done. Without native calls the model keeps its own `state` note
+        # instead, so only the newest observations need repeating.
+        history.extend(_observed(carried, native))
         messages = [*preamble, Message(Role.USER, question)]
         if outcome.state:
             messages.append(Message(Role.ASSISTANT, outcome.state))
-        messages.extend(_observed(carried, native))
+        messages.extend(history if native else _observed(carried, native))
 
         if tracer is None:
             completion = provider.complete(messages, model=model, schema=AgentStep, tools=menu)
@@ -300,6 +363,8 @@ def run_turn(
             outcome.state = step.state
         if step.publish:
             outcome.publish = step.publish
+        if step.reply:
+            outcome.reply = step.reply
         if step.ask:
             outcome.ask = step.ask
             break

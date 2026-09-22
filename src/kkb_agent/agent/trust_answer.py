@@ -98,6 +98,11 @@ def write_answer(
         return Answer(text=outcome.ask)
 
     results = _computed(outcome)
+    if outcome.reply:
+        # The model already wrote the answer, in the same conversation that gathered
+        # the evidence. Asking a second call to say it again would cost a turn and
+        # separate the words from what they were written against.
+        return _checked(Answer(text=outcome.reply), outcome, results, connection)
     evidence = _evidence(outcome)
     messages = [
         Message(Role.SYSTEM, WRITER),
@@ -108,19 +113,28 @@ def write_answer(
         messages.insert(2, Message(Role.ASSISTANT, outcome.state))
     draft = provider.complete(messages, model=model).text.strip()
 
-    answer = Answer(
-        text=draft, published=outcome.publish or (list(results)[-1] if results else None)
-    )
+    answer = Answer(text=draft)
+    return _checked(answer, outcome, results, connection)
+
+
+def _checked(
+    answer: Answer,
+    outcome: TurnOutcome,
+    results: dict[str, AnalyticalResult],
+    connection: DuckDBPyConnection | None,
+) -> Answer:
+    """Attach what the turn knows, then report any figure that did not bind."""
+    answer.published = outcome.publish or (list(results)[-1] if results else None)
     if outcome.exhausted:
         answer.notes.append(EXHAUSTED.get(outcome.exhausted, outcome.exhausted))
     answer.notes.extend(item.action.note for item in outcome.observations if item.action.note)
     for item in outcome.observations:
         answer.limitations.extend(item.result.warnings)
 
-    if results and draft:
+    if results and answer.text:
         # The same check as before, read as a report: what it would have cut is
         # named instead, and the model's sentence stays where the model put it.
-        checked = gate_answer(draft, results, connection)
+        checked = gate_answer(answer.text, results, connection)
         answer.unverified = [omitted.text for omitted in checked.omitted if omitted.text.strip()]
         answer.limitations.extend(checked.limitations)
     return answer
