@@ -106,6 +106,23 @@ def approved_base_url(url: str) -> str:
 CONNECT_PAUSES: Final = (0.5, 1.5)
 
 
+def _time_left_after_pause(tried: int, deadline: float) -> float | None:
+    """Seconds left for one more attempt after its pause, or None when there is none.
+
+    Checked before the pause, so no pause runs into the deadline, and again after it,
+    because a sleep can overrun: an attempt started past the deadline was a request the
+    caller had already stopped waiting for (QA-25).
+    """
+    if tried > len(CONNECT_PAUSES):
+        return None
+    pause = CONNECT_PAUSES[tried - 1]
+    if deadline - time.monotonic() <= pause:
+        return None
+    time.sleep(pause)
+    left = deadline - time.monotonic()
+    return left if left > 0 else None
+
+
 def _connect_cause(error: BaseException) -> str:
     """Which part of connecting failed, as a fixed word: never a message, host or address.
 
@@ -383,6 +400,26 @@ class KloudeksProvider:
         )
         return Completion(text=text, model=model, finish_reason=finish)
 
+    def _request(self, path: str, body: dict[str, object], seconds: float) -> httpx.Request:
+        """One attempt's request, each HTTP phase allowed at most `seconds`.
+
+        httpx applies a timeout per phase — connect, write, pool and each read — so this
+        caps every phase at the time left without bounding their sum. The whole request is
+        bounded by the deadline `_post` holds, which the body read enforces; this only
+        keeps an attempt from starting with more time than remains.
+        """
+        request = self._client.build_request(
+            "POST",
+            path,
+            json=body,
+            headers={"Authorization": f"Bearer {self._config.credential.get_secret_value()}"},
+            timeout=httpx.Timeout(seconds),
+        )
+        # Checked again per request: an absolute URL would override base_url.
+        if request.url.scheme != "https" or request.url.host not in APPROVED_HOSTS:
+            raise ConfigurationError("Refusing to send the credential outside the DEC-129 endpoint")
+        return request
+
     def _post(
         self,
         path: str,
@@ -394,17 +431,8 @@ class KloudeksProvider:
         if path not in (CHAT_PATH, EMBEDDINGS_PATH):
             raise ProviderError("Unknown provider path")
         allowed = self._config.request_timeout if timeout is None else timeout
-        request = self._client.build_request(
-            "POST",
-            path,
-            json=body,
-            headers={"Authorization": f"Bearer {self._config.credential.get_secret_value()}"},
-            timeout=httpx.Timeout(allowed),
-        )
-        # Checked again per request: an absolute URL would override base_url.
-        if request.url.scheme != "https" or request.url.host not in APPROVED_HOSTS:
-            raise ConfigurationError("Refusing to send the credential outside the DEC-129 endpoint")
         deadline = time.monotonic() + allowed
+        request = self._request(path, body, allowed)
         # A connection that was never established is tried again, twice at most and within
         # the request's own deadline: nothing reached the server, so nothing was run or
         # billed and a second attempt cannot duplicate one. Live 2026-09-23 (QA-19, then
@@ -420,16 +448,17 @@ class KloudeksProvider:
                 break
             except (httpx.ConnectError, httpx.ConnectTimeout) as error:
                 failed.append(_connect_cause(error))
-                pause = (
-                    CONNECT_PAUSES[len(failed) - 1] if len(failed) <= len(CONNECT_PAUSES) else None
-                )
-                if pause is None or time.monotonic() + pause >= deadline:
+                left = _time_left_after_pause(len(failed), deadline)
+                if left is None:
                     attempts = f"{len(failed)} connection attempt" + (
                         "s" if len(failed) > 1 else ""
                     )
                     cause = f"{type(error).__name__}: {failed[-1]}"
                     raise TransportError(f"Kloudeks request failed ({cause}; {attempts})") from None
-                time.sleep(pause)
+                # The next attempt gets what is left of the deadline, not the whole of it
+                # again: it used to carry the full timeout after the first attempt had spent
+                # nearly all of it (QA-25).
+                request = self._request(path, body, left)
             except httpx.HTTPError as error:
                 raise TransportError(f"Kloudeks request failed ({type(error).__name__})") from None
         if reconnected is not None:

@@ -258,6 +258,55 @@ class TestAConnectionNeverMadeIsTriedAgain:
             assert _connect_cause(error) == word
 
 
+class TestAnotherAttemptGetsOnlyTheTimeLeft:
+    """QA-25: a retry carried the whole timeout again, and could start past the deadline.
+
+    A fake clock: the first connection fails after 29 of 30 seconds. The retry's every
+    phase timeout must fit the half second left, and a pause that overruns the deadline
+    must end the request instead of starting another one.
+    """
+
+    def run(self, monkeypatch, *, overrun: float) -> list[tuple[float, dict]]:
+        clock = [0.0]
+        monkeypatch.setattr(kloudeks, "CONNECT_PAUSES", (0.5, 1.5))
+        monkeypatch.setattr(kloudeks.time, "monotonic", lambda: clock[0])
+
+        def sleep(seconds: float) -> None:
+            clock[0] += seconds + overrun
+
+        monkeypatch.setattr(kloudeks.time, "sleep", sleep)
+        sends: list[tuple[float, dict]] = []
+
+        def server(request: httpx.Request) -> httpx.Response:
+            sends.append((clock[0], dict(request.extensions["timeout"])))
+            if len(sends) == 1:
+                clock[0] = 29.0
+                raise httpx.ConnectError("offline")
+            raise httpx.ReadError("no paid request in a test")
+
+        config = ProviderConfig(
+            base_url="https://mia.csp.kloudeks.com/v1",
+            credential=SecretStr("offline-canary"),
+            planner_model="m",
+            router_model="m",
+            request_timeout=30,
+        )
+        target = KloudeksProvider(config, transport=httpx.MockTransport(server))
+        with pytest.raises(TransportError):
+            target.complete([Message(Role.USER, "soru")])
+        return sends
+
+    def test_the_retry_is_bounded_by_what_is_left(self, monkeypatch):
+        sends = self.run(monkeypatch, overrun=0.0)
+        assert len(sends) == 2
+        started, timeouts = sends[1]
+        assert started == 29.5
+        assert max(timeouts.values()) <= 30 - started
+
+    def test_no_retry_starts_after_the_deadline(self, monkeypatch):
+        assert len(self.run(monkeypatch, overrun=1.0)) == 1
+
+
 @dataclass(frozen=True)
 class Table:
     rows: tuple[tuple[str, ...], ...]
