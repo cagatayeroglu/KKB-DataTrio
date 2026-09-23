@@ -116,6 +116,17 @@ class ToolRegistry:
             raise RegistryError(f"Tool {spec.name!r} is already registered")
         self._tools[spec.name] = spec
 
+    def replace(self, spec: ToolSpec) -> None:
+        """Put a newer binding of a registered tool in its place, under the same name.
+
+        A turn's catalogue can grow while the turn runs - a series saved in it (QA-34) -
+        and the tool that searches it was bound to the catalogue the turn began with.
+        Only a tool already registered can be replaced: this adds nothing new.
+        """
+        if spec.name not in self._tools:
+            raise RegistryError(f"Unknown tool {spec.name!r}")
+        self._tools[spec.name] = spec
+
     def get(self, name: str) -> ToolSpec:
         try:
             return self._tools[name]

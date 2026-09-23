@@ -26,6 +26,7 @@ from kkb_agent.agent import Session, ToolRegistry, Workspace
 from kkb_agent.agent.cancellation import TurnCancelled
 from kkb_agent.agent.loop import MAX_HISTORY_TURNS, PlanningFailed
 from kkb_agent.agent.observer import Tracer
+from kkb_agent.agent.registry import ToolSpec
 from kkb_agent.agent.selection import SelectedTable, SelectionError
 from kkb_agent.agent.trust_adapter import as_answered
 from kkb_agent.agent.trust_memory import Conversation, restored
@@ -51,6 +52,7 @@ from kkb_agent.catalog.expansion import expand_groups
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
 from kkb_agent.catalog.mappings import (
     MAX_SNAPSHOT_BYTES,
+    ReviewedSeries,
     ReviewedSnapshot,
     is_source_group,
     load_reviewed_snapshot,
@@ -1463,6 +1465,7 @@ class PreparedRunner:
                     disabled=chosen.disabled,
                     session_id=session_id,
                     references=_SessionReferences(self, session_id),
+                    lake=lake,
                 )
                 # One run per turn: what ran, with which context, and for how long.
                 run_id = uuid4().hex
@@ -2124,31 +2127,41 @@ class PreparedRunner:
         disabled: frozenset[str] = frozenset(),
         session_id: str | None = None,
         references: Mapping[str, str] | None = None,
+        lake: Lakehouse | None = None,
     ) -> ToolRegistry:
         fetch = turn_fetch if turn_fetch is not None else self._web_url_fetch
         catalog = catalog if catalog is not None else self._catalog
         # A datagroup is opened only when its series could then be fetched this turn.
         opened = self._discovered if acquirer is not None else None
-        inspector = PreparedSeriesInspector(
-            catalog, late=opened.entry if opened is not None else None
-        )
+        #: Series this turn saved to the knowledge base, known to every series reader from
+        #: the moment the save returns rather than from the next question (QA-34).
+        saved_now: dict[str, ReviewedSeries] = {}
+
+        def late(series_id: str) -> ReviewedSeries | None:
+            found = saved_now.get(series_id)
+            if found is None and opened is not None:
+                found = opened.entry(series_id)
+            return found
+
+        inspector = PreparedSeriesInspector(catalog, late=late)
         if acquirer is not None:
             inspector = AcquiringInspector(inspector, acquirer)
         # Existing code-reviewed names only. Free catalog/source metadata belongs
         # in catalog continuation's USER data, never a SYSTEM tool description.
         names = prepared_series_names(connection)
         registry = ToolRegistry()
-        registry.register(
-            make_catalog_search_tool(
+
+        def searching(known: ReviewedSnapshot) -> ToolSpec:
+            return make_catalog_search_tool(
                 snapshot_bytes=(
                     self._catalog_bytes
-                    if catalog is self._catalog
-                    else catalog.model_dump_json().encode("utf-8")
+                    if known is self._catalog
+                    else known.model_dump_json().encode("utf-8")
                 ),
                 # A generation answers for the identities whose text it embedded, so a
                 # catalogue that has gained an entry keeps meaning-based discovery for
                 # everything else in it.
-                dense=self._dense_for(catalog),
+                dense=self._dense_for(known),
                 expand=(
                     (lambda query, output: expand_groups(query, output, opened))
                     if self._directory is not None
@@ -2158,7 +2171,31 @@ class PreparedRunner:
                 # must not hide what it did not name (QA-24); the planned path keeps it.
                 bounded=not self._trust_loop,
             )
-        )
+
+        registry.register(searching(catalog))
+
+        def saved(series_id: str) -> None:
+            """What a save in this turn changes for the rest of it (QA-34).
+
+            The catalogue and this conversation's lake were settled when the turn began,
+            so live 2026-09-23 a series saved mid-turn was `unknown_identity` to the
+            lakehouse twice, the search did not list it, and the turn spent its budget
+            trying to read back what it had just written. The same step every turn begins
+            with now runs once more: versions this lake lacks are loaded - the one just
+            saved - and every version already here stays as it is; the new entry is
+            known to the series readers, and the search is bound to the grown catalogue.
+            """
+            if lake is None:
+                return
+            grown, _ = self._apply_knowledge(lake)
+            entry = next(
+                (item for item in grown.series if item.record.series_id == series_id), None
+            )
+            if entry is None:
+                return
+            saved_now[series_id] = entry
+            registry.replace(searching(grown))
+
         # A result travels by name; this is how a name becomes something readable.
         registry.register(make_inspect_tool())
         # A group, a ratio or a share: arithmetic the transform surface had no room for.
@@ -2206,6 +2243,13 @@ class PreparedRunner:
                 make_web_search_tool(backend=self._search_backend, timeout_seconds=20.0)
             )
 
+        def keep_saved(owner: str, proposal: PromotionProposal) -> PromotionReceipt | str:
+            """Save now, then let the rest of this turn read what was saved (QA-34)."""
+            receipt = self._save_now(owner, proposal)
+            if not isinstance(receipt, str):
+                saved(receipt.series_id)
+            return receipt
+
         def offer_document_tools() -> None:
             """The tools that work on the conversation's documents, once it has one.
 
@@ -2235,7 +2279,7 @@ class PreparedRunner:
                         references=references if references is not None else {},
                         propose=lambda proposal: self._offer(owner, proposal),
                         ocr=None if "document_ocr" in disabled else self._document_ocr,
-                        save=lambda proposal: self._save_now(owner, proposal),
+                        save=lambda proposal: keep_saved(owner, proposal),
                         origin=lambda reference: self._document_origin(owner, reference),
                     )
                 )

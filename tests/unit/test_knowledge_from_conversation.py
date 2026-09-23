@@ -452,3 +452,84 @@ def test_two_value_columns_ask_which_one_to_keep():
     refused = offer(two_value_csv())
     assert refused.warnings[0] == "VALUE_COLUMN_NOT_SETTLED"
     assert "tek sütun" in refused.warnings[1]
+
+
+def read_back(content: bytes, document: str):
+    """One message: read the address, save it, then find and read what was saved."""
+    return (
+        call("web_url", url=URL),
+        call(
+            "promote_series",
+            document=document,
+            title=TITLE,
+            unit="TL",
+            scale="million",
+            meaning="monthly_total",
+            save_now=True,
+        ),
+        call("catalog_search", query=TITLE),
+        call("lakehouse", series=[f"USER:{SLUG}.v{1 if document == 'belge_1' else 2}"]),
+        call(FINISH, answer="Kaydedildi ve geri okundu."),
+    )
+
+
+def outputs(runner) -> dict[str, str]:
+    """What each call of the last turn returned to the model, by its id."""
+    from kkb_agent.llm.provider import Role
+
+    found: dict[str, str] = {}
+    for message in runner._provider.seen[-1]:
+        if message.role is Role.TOOL:
+            found[json.loads(message.content)["id"]] = message.content
+    return found
+
+
+def read_values(seen: str, series_id: str) -> list[float]:
+    import re
+
+    pattern = (
+        rf"label='{re.escape(series_id)}', value=([0-9.]+), unit='TRY', "
+        r"scale=<Scale\.MILLION: 'million'>, measure=<StockFlow\.FLOW: 'flow'>"
+    )
+    return [float(value) for value in re.findall(pattern, seen)]
+
+
+def test_a_series_saved_in_a_turn_is_found_and_read_in_the_same_turn(stack):  # noqa: F811
+    """QA-34: after the save, the same turn's search lists it and the lakehouse reads it.
+
+    Live 2026-09-23 the lakehouse answered `unknown_identity` twice for the series just
+    saved and the search did not list it, so the person would have had to ask again.
+    """
+    build, store, knowledge, _ = stack
+    runner, _ = build(*read_back(csv(), "belge_1"))
+    runner._trust_loop = True
+    runner._web_url_fetch = TestAnAddressTheQuestionNamed._fetch(csv(), [])
+    runner(empty_conversation(store), uuid4().hex, f"{URL} adresindeki geliri kaydet, geri oku")
+    saved = knowledge.dataset(SLUG)
+    assert saved is not None and saved.series_id == f"USER:{SLUG}.v1"
+    seen = outputs(runner)
+    found = json.loads(seen["a3"])["output"]["candidates"]
+    assert found[0]["series"]["record"]["series_id"] == saved.series_id
+    assert json.loads(seen["a4"])["status"] == "success" and "unknown_identity" not in seen["a4"]
+    assert read_values(seen["a4"], saved.series_id) == [float(v) for v in ADMISSIONS]
+
+
+def test_a_new_version_saved_in_a_turn_is_read_and_the_old_one_stays(stack, tmp_path):  # noqa: F811
+    build, store, knowledge, _ = stack
+    session_id = empty_conversation(store)
+    first, _ = build(*read_back(csv(), "belge_1"))
+    first._trust_loop = True
+    first._web_url_fetch = TestAnAddressTheQuestionNamed._fetch(csv(), [])
+    first(session_id, uuid4().hex, f"{URL} adresindeki geliri kaydet")
+
+    doubled = csv(values=[value * 2 for value in ADMISSIONS])
+    later, _ = build(*read_back(doubled, "belge_2"))
+    later._trust_loop = True
+    later._web_url_fetch = TestAnAddressTheQuestionNamed._fetch(doubled, [])
+    later(session_id, uuid4().hex, f"{URL} adresindeki güncel geliri kaydet, geri oku")
+    v1, v2 = knowledge.dataset_history(SLUG)
+    seen = outputs(later)
+    assert read_values(seen["a4"], v2.series_id) == [2.0 * v for v in ADMISSIONS]
+    with open_lakehouse(later.run_root / session_id / "lake") as lake:
+        assert rows_of(lake, v1.series_id) == [float(v) for v in ADMISSIONS]
+        assert rows_of(lake, v2.series_id) == [2.0 * v for v in ADMISSIONS]
