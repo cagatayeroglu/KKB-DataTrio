@@ -72,6 +72,8 @@ MAX_RESPONSE_BYTES: Final = 16 * 1024 * 1024
 #: seconds when measured on 2026-09-21); a search without it still has the reviewed words,
 #: and the knowledge page gives a trial under thirty seconds in all.
 QUERY_EMBEDDING_SECONDS: Final = 10.0
+#: The least one connection attempt is given; see `_request`.
+CONNECT_FLOOR_SECONDS: Final = 2.0
 
 #: Images are sent inline only — DEC-129 forbids external image URLs. The
 #: platform's own size limit is undocumented, so this cap is conservative.
@@ -407,13 +409,21 @@ class KloudeksProvider:
         caps every phase at the time left without bounding their sum. The whole request is
         bounded by the deadline `_post` holds, which the body read enforces; this only
         keeps an attempt from starting with more time than remains.
+
+        The connect phase gets at most a third of it (never under CONNECT_FLOOR_SECONDS).
+        A connection that was never made is retried within the deadline (`_post`), but an
+        attempt allowed the whole deadline to connect left none for a retry: live
+        2026-09-23 a query embedding (10 s) failed as "ConnectTimeout; 1 connection
+        attempt" while DNS, TCP and TLS to the same host each took under 0.1 s, and the
+        search fell back to words.
         """
+        connect = min(seconds, max(CONNECT_FLOOR_SECONDS, seconds / 3))
         request = self._client.build_request(
             "POST",
             path,
             json=body,
             headers={"Authorization": f"Bearer {self._config.credential.get_secret_value()}"},
-            timeout=httpx.Timeout(seconds),
+            timeout=httpx.Timeout(seconds, connect=connect),
         )
         # Checked again per request: an absolute URL would override base_url.
         if request.url.scheme != "https" or request.url.host not in APPROVED_HOSTS:

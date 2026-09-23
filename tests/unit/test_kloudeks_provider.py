@@ -634,3 +634,28 @@ def test_a_completion_ceiling_below_a_real_call_is_refused_but_a_generous_one_is
     provider(server, max_output_tokens=20000).complete([Message(Role.USER, PROMPT)])
     (body,) = server.bodies()
     assert body["max_tokens"] == 20000
+
+
+class TestAConnectionThatHangsLeavesRoomForAnother:
+    """Live 2026-09-23 a query embedding failed as "ConnectTimeout; 1 connection attempt":
+    the first attempt was allowed the whole ten seconds to connect, so no retry fitted."""
+
+    def test_a_questions_vector_connects_again_within_its_budget(self, monkeypatch):
+        monkeypatch.setattr(kloudeks.time, "sleep", lambda _: None)
+        reply = {"data": [{"index": 0, "embedding": [0.5]}]}
+        server = Server(httpx.ConnectTimeout("timeout"), httpx.Response(200, json=reply))
+        vectors = provider(server, request_timeout=1800.0).embed(["konut"], kind="query")
+        assert vectors == [[0.5]] and len(server.requests) == 2
+        connects = [request.extensions["timeout"]["connect"] for request in server.requests]
+        assert connects[0] <= kloudeks.QUERY_EMBEDDING_SECONDS / 3 + 1e-9
+
+    def test_a_long_request_keeps_a_long_connect_allowance(self):
+        server = Server(chat("tamam"))
+        ask(provider(server, request_timeout=1800.0))
+        assert server.requests[0].extensions["timeout"]["connect"] == 600.0
+
+    def test_a_short_deadline_still_gives_the_floor(self):
+        reply = {"data": [{"index": 0, "embedding": [0.5]}]}
+        server = Server(httpx.Response(200, json=reply))
+        provider(server, request_timeout=3.0).embed(["konut"], kind="query")
+        assert server.requests[0].extensions["timeout"]["connect"] == kloudeks.CONNECT_FLOOR_SECONDS
