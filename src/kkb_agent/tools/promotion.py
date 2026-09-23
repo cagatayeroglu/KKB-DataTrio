@@ -36,11 +36,13 @@ from kkb_agent.ingest.attached import Attachment
 from kkb_agent.pdf_ocr import OcrProvider
 from kkb_agent.tools._document_column import ColumnRefused, RowRules, month_end, read_month_values
 from kkb_agent.tools._document_value import grids
-from kkb_agent.tools.web_url import choose_document, read_attachment
+from kkb_agent.tools.web_url import choose_document, library_name, read_attachment
 
 #: A promotion saves one monthly value series. More than that is more than one decision.
 FREQUENCY: Final = "monthly"
 MAX_TITLE_CHARS: Final = 80
+MAX_DESCRIPTION_CHARS: Final = 500
+MAX_ALIASES: Final = 8
 #: Half a column's readable cells deciding its kind is enough: a month column with a
 #: stray note in it is still the month column, and a value column with a blank is still
 #: the value column. Below that nothing is settled and the reader is asked.
@@ -186,6 +188,33 @@ class PromoteSeriesArguments(BaseModel):
     base_year: int | None = Field(
         default=None, ge=1900, le=2100, description="An index's base year; required for an index"
     )
+    table: int | None = Field(
+        default=None,
+        ge=1,
+        le=200,
+        description=(
+            "Which table of the document, numbered over the whole document as inspect numbers "
+            "them without a page; leave it out to use the first"
+        ),
+    )
+    description: str | None = Field(
+        default=None,
+        max_length=MAX_DESCRIPTION_CHARS,
+        description="One or two Turkish sentences on what the series is, for later searches",
+    )
+    aliases: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_ALIASES,
+        description="Other names a person might search it by, in Turkish",
+    )
+    save_now: bool = Field(
+        default=False,
+        description=(
+            "true only when the person's own message asked for this to be saved, kept or "
+            "added to the knowledge base; then it is saved at once. Reading or analysing a "
+            "document is not such a request: leave it false and the person approves a summary"
+        ),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,6 +242,23 @@ class PromotionProposal:
     year: int | None
     observations: tuple[tuple[date, float | None], ...]
     summary: str
+    description: str | None = None
+    aliases: tuple[str, ...] = ()
+    #: Where the numbers were read (`knowledge.store.DatasetVersion.provenance`).
+    provenance: tuple[tuple[str, str], ...] = ()
+
+
+#: What the vectors do after a save, as the receipt says it.
+IndexState = Literal["refreshing", "lexical", "unchanged"]
+
+_INDEX_SAID: Final[dict[str, str]] = {
+    "refreshing": (
+        "Anlamsal arama indeksi arka planda yenileniyor; o bitene kadar seri adıyla ve "
+        "takma adlarıyla bulunur."
+    ),
+    "lexical": "Bu kurulumda anlamsal arama indeksi yok; seri adıyla ve takma adlarıyla bulunur.",
+    "unchanged": "Anlamsal arama indeksi otomatik yenilenmedi; seri adıyla bulunur.",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,12 +267,14 @@ class PromotionReceipt:
 
     series_id: str
     observations: int
+    #: Whether meaning-based search will find it, and when; said, never assumed.
+    index: IndexState = "unchanged"
 
     def said(self) -> str:
         """The confirmation sentence, written by code and the same every time."""
         return (
             f"`{self.series_id}` bilgi tabanına kaydedildi. {self.observations} aylık gözlem "
-            "sonraki analizlerde kullanılabilir. Anlamsal arama indeksi otomatik yenilenmedi."
+            f"sonraki analizlerde kullanılabilir. {_INDEX_SAID[self.index]}"
         )
 
 
@@ -234,11 +282,13 @@ class PromotionReceipt:
 class PromotionOffer:
     """The tool's own output: a question to the reader, never an analytical result."""
 
-    status: Literal["proposed", "refused"]
+    status: Literal["proposed", "refused", "saved"]
     code: str | None = None
     summary: str = ""
     slug: str = ""
     observations: int = 0
+    #: With `saved`: the catalogue identity the series is now read by.
+    series_id: str = ""
 
 
 def slug_for(title: str) -> str:
@@ -328,16 +378,24 @@ def make_promote_series_tool(
     propose: Callable[[PromotionProposal], None],
     references: Mapping[str, str] | None = None,
     ocr: OcrProvider | None = None,
+    save: Callable[[PromotionProposal], PromotionReceipt | str] | None = None,
+    origin: Callable[[str], Sequence[tuple[str, str]]] | None = None,
 ) -> ToolSpec:
     """Bind the promotion to one conversation's documents and its proposal store.
 
     The session is the server's, never an argument: a model cannot name another
     conversation's document, and nothing here takes an owner or a session token.
+
+    `library` and `references` are read when the tool runs, not when it is bound: a
+    document read from an address during this very turn is one of the conversation's
+    documents by then (QA-29). `save` writes a proposal at once, for a person whose own
+    message asked for the save; it answers a receipt or a refusal code. `origin` says
+    where a stored document was read from, by its reference.
     """
-    documents = dict(library)
+    documents = library
     #: Display name to the server's own document reference. The proposal records the
     #: reference, because that is what the save looks the document up by again.
-    stored = dict(references or {})
+    stored: Mapping[str, str] = references if references is not None else {}
 
     def run(arguments: BaseModel, context: ExecutionContext) -> ToolResult:
         if not isinstance(arguments, PromoteSeriesArguments):  # pragma: no cover - contract
@@ -345,9 +403,7 @@ def make_promote_series_tool(
         chosen = choose_document(arguments.document, attachment, documents)
         if isinstance(chosen, str):
             return _refused(chosen)
-        name = arguments.document or next(
-            (label for label, item in documents.items() if item is chosen), ""
-        )
+        name = arguments.document or library_name(chosen, documents) or ""
         reference = stored.get(name, name)
         read = read_attachment(chosen, sheet=arguments.sheet, ocr=ocr)
         if read.failure is not None or read.output.source is None:
@@ -358,7 +414,13 @@ def make_promote_series_tool(
             return _refused("DOCUMENT_REJECTED")
         if not tables:
             return _refused("NO_TABLE_IN_DOCUMENT")
-        grid = tables[0]
+        if arguments.table is not None and arguments.table > len(tables):
+            return _refused("TABLE_NOT_FOUND")
+        # The first table was the only one ever read, so a PDF whose monthly table was
+        # its third could not be kept at all.
+        grid = tables[(arguments.table or 1) - 1]
+        if arguments.table is not None:
+            tables = [grid]
         rules = RowRules.for_grid(grid, year=arguments.year, as_of=None)
         months, values = _kinds(grid.headers, grid.rows, rules, arguments.year)
         period_column = arguments.period_column or (months[0] if len(months) == 1 else None)
@@ -414,7 +476,41 @@ def make_promote_series_tool(
             year=arguments.year,
             observations=observations,
             summary=summary,
+            description=" ".join((arguments.description or "").split()) or None,
+            aliases=tuple(" ".join(alias.split()) for alias in arguments.aliases if alias.strip()),
+            provenance=_provenance(
+                origin(reference) if origin is not None else (),
+                name=name,
+                media_type=chosen.media_type,
+                location=grid.location,
+                sheet=arguments.sheet,
+                period_column=period_column,
+                value_column=value_column,
+            ),
         )
+        if arguments.save_now:
+            # The person asked for the save in their own message, so asking them again
+            # to approve it only made a second turn out of one request. Everything a
+            # proposal is checked for was checked above; the save checks the document's
+            # digest again and writes through the knowledge base's one validated route.
+            if save is None:
+                return _refused("SAVE_UNAVAILABLE")
+            receipt = save(proposal)
+            if isinstance(receipt, str):
+                return _refused(receipt)
+            return ToolResult(
+                ToolStatus.SUCCESS,
+                "promote",
+                "promote_series",
+                PromotionOffer(
+                    "saved",
+                    None,
+                    receipt.said(),
+                    proposal.slug,
+                    receipt.observations,
+                    receipt.series_id,
+                ),
+            )
         propose(proposal)
         return ToolResult(
             ToolStatus.SUCCESS,
@@ -426,14 +522,44 @@ def make_promote_series_tool(
     return ToolSpec(
         name="promote_series",
         description=(
-            "Offer to keep a monthly table of this conversation as a saved series. It writes "
-            "nothing: it returns a short Turkish summary for the person to approve, and the "
-            "save happens only if they say so in their next message. Call it when the person "
-            "asks for a document's numbers to be kept, saved or added to the knowledge base, "
-            "never because a document was analysed. One call keeps one value column."
+            "Keep one monthly value column of a document in this conversation (uploaded, or "
+            "read from an address in this conversation) as a series in the knowledge base, "
+            "so later conversations find it by name or meaning. With save_now=true - only "
+            "when the person's own message asked for it to be saved, kept or added - it is "
+            "saved at once and the result says what was saved. Otherwise it writes nothing "
+            "and returns a short Turkish summary for the person to approve in their next "
+            "message. Never call it because a document was merely read or analysed. The "
+            "columns, months, unit and meaning are checked against the document's cells; a "
+            "refusal names what is unsettled, so ask the person only about that. Give a "
+            "title, and a description and aliases for later searches. One call keeps one "
+            "monthly value column: a table of another frequency cannot be kept this way, "
+            "say so rather than saving it as monthly."
         ),
         arguments=PromoteSeriesArguments,
         run=run,
+    )
+
+
+def _provenance(
+    origin: Sequence[tuple[str, str]],
+    *,
+    name: str,
+    media_type: str,
+    location: Mapping[str, object],
+    sheet: str | None,
+    period_column: str,
+    value_column: str,
+) -> tuple[tuple[str, str], ...]:
+    """Where the numbers were read: the document's origin, then the place inside it."""
+    inside = [(f"location_{key}", str(value)) for key, value in location.items()]
+    return (
+        *origin,
+        ("document", name),
+        ("media_type", media_type),
+        *inside,
+        *((("sheet", sheet),) if sheet else ()),
+        ("period_column", period_column),
+        ("value_column", value_column),
     )
 
 

@@ -886,6 +886,10 @@ def run_turn(
             gone,
             extra,
         )
+        # Offered again each iteration: a tool can join the registry during the turn - the
+        # document tools do when an address read becomes one of the conversation's
+        # documents (QA-29) - and a menu fixed at the start would never show it.
+        menu = tool_menu(registry)
         try:
             completion = traced_complete(
                 provider,

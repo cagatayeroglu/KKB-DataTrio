@@ -69,7 +69,7 @@ from kkb_agent.knowledge import (
 from kkb_agent.lakehouse.records import Observation
 from kkb_agent.lakehouse.semantics import SemanticsError, period_bounds
 from kkb_agent.llm.provider import ConfigurationError, ProviderError, TransportError
-from kkb_agent.tools.promotion import PromotionProposal, PromotionReceipt
+from kkb_agent.tools.promotion import IndexState, PromotionProposal, PromotionReceipt
 
 #: (session_id, document_ref, period_column, value_column, sheet, year) -> monthly
 #: (period end, value) pairs and the document's content digest. Owned by the runner.
@@ -190,6 +190,8 @@ class KnowledgeService:
         self._reopen = reopen_index
         self._directory = source_directory
         self._building = threading.Lock()
+        #: A save arrived while a build was running from the catalogue before it.
+        self._stale = False
         # Serialize catalog edits with the final digest check and installation.
         self._catalog_change = threading.RLock()
         self._build_thread: threading.Thread | None = None
@@ -447,8 +449,21 @@ class KnowledgeService:
         self._author(owner_token)
         if self._rebuild is None:
             raise ServiceError("unavailable", 503)
-        if not self._building.acquire(blocking=False):
+        if not self._start_build():
             raise ServiceError("busy", 409)
+        return self.index_status(owner_token)
+
+    def _start_build(self, lender: LocalCatalogIndex | None = None) -> bool:
+        """Start a build for the catalogue in use now; False when one is already running.
+
+        Shared by the page's button and by a save from a conversation, which is the
+        same need: an entry the vectors do not hold is found by words alone until they do.
+        `lender` lends its vectors to the build in place of the generation in use.
+        """
+        if self._rebuild is None:
+            return False
+        if not self._building.acquire(blocking=False):
+            return False
         try:
             catalog = self._effective()
         except BaseException:
@@ -459,17 +474,19 @@ class KnowledgeService:
             raise
         if self._dense is not None and self._dense.index.snapshot_sha256 == catalog.content_sha256:
             self._building.release()
-            return self.index_status(owner_token)
+            return True
         build, install = self._rebuild, self._install
-        previous = self._dense.index if self._dense is not None else None
+        previous = lender or (self._dense.index if self._dense is not None else None)
 
         def run() -> None:
+            built: LocalCatalogIndex | None = None
             try:
                 stage = build(catalog, previous)
                 if stage.index.snapshot_sha256 != catalog.content_sha256:
                     raise CatalogIndexError("INDEX_CATALOG_DIGEST_MISMATCH")
                 if self._dense is not None and stage.index.profile != self._dense.index.profile:
                     raise CatalogIndexError("INDEX_PROFILE_MISMATCH")
+                built = stage.index
                 with self._catalog_change:
                     if self._effective().content_sha256 != catalog.content_sha256:
                         raise CatalogIndexError("INDEX_CATALOG_CHANGED_DURING_BUILD")
@@ -482,6 +499,16 @@ class KnowledgeService:
                 self._build_error = _index_failure(error)
             finally:
                 self._building.release()
+            if self._stale:
+                # A conversation saved a series while this ran from the catalogue before
+                # it. What was built is never installed for a catalogue it was not built
+                # for; one more build runs, borrowing the vectors just made, so only the
+                # new entry is embedded again rather than every entry of a full build.
+                self._stale = False
+                try:
+                    self._start_build(built)
+                except Exception as error:  # noqa: BLE001 - recorded, never raised on a thread
+                    self._build_error = _index_failure(error)
 
         thread = threading.Thread(target=run, name="catalog-index", daemon=True)
         self._build_thread = thread
@@ -491,7 +518,25 @@ class KnowledgeService:
             self._build_thread = None
             self._building.release()
             raise
-        return self.index_status(owner_token)
+        return True
+
+    def _refresh_after_save(self) -> IndexState:
+        """Make a just-saved series findable by meaning, and say how that stands.
+
+        A save left the vectors as they were and said so, so a series kept from a
+        conversation was found by its words only until someone pressed the rebuild
+        button. The build embeds only the new entry; while one is already running
+        (it started before this save), one more runs when it ends.
+        """
+        if self._rebuild is None:
+            return "lexical"
+        try:
+            if not self._start_build():
+                self._stale = True
+        except Exception as error:  # noqa: BLE001 - the save stands; the vectors are said
+            self._build_error = _index_failure(error)
+            return "unchanged"
+        return "refreshing"
 
     def refresh_directory(self, owner_token: str) -> DirectoryRefreshResult:
         """Read the sources' own directories again: what is new becomes searchable.
@@ -898,6 +943,7 @@ class KnowledgeService:
         source_kind: str,
         digest: str | None,
         owner_token: str | None = None,
+        provenance: tuple[tuple[str, str], ...] = (),
     ) -> DatasetDetail:
         """The one validated write, shared by the knowledge page and the agent.
 
@@ -923,6 +969,7 @@ class KnowledgeService:
             source_kind="upload" if source_kind == "upload" else "manual",
             source_sha256=digest,
             author=author,
+            provenance=provenance,
         )
         try:
             with self._catalog_change:
@@ -957,7 +1004,8 @@ class KnowledgeService:
             author,
             slug=proposal.slug,
             title=proposal.title,
-            description=None,
+            # What the model proposed for later searches; the store bounds and cleans it.
+            description=proposal.description,
             unit=proposal.unit,
             scale=Scale(proposal.scale),
             frequency=Frequency.MONTHLY,
@@ -966,14 +1014,16 @@ class KnowledgeService:
             aggregation=Aggregation(proposal.aggregation),
             base_year=proposal.base_year,
             anchor=None,
-            aliases=(),
+            aliases=proposal.aliases,
             observations=observations,
             source_kind="upload",
             digest=proposal.document_sha256,
+            provenance=proposal.provenance,
         )
         return PromotionReceipt(
             series_id=detail.series.series_id,
             observations=len(detail.observations),
+            index=self._refresh_after_save(),
         )
 
     def set_status(self, owner_token: str, slug: str, *, archived: bool) -> DatasetDetail:

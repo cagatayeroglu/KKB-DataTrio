@@ -670,7 +670,8 @@ def make_table_transform_tool(
     `document_ocr` reads PDF pages without text (DEC-149 column-total check).
     """
     names = dict(series_names or {})
-    documents = dict(library or {})
+    # Read when a call runs: a document admitted during this turn is one of them then.
+    documents: Mapping[str, Attachment] = library if library is not None else {}
     readable = attachment is not None or bool(documents)
 
     def failure(category: str, message: str) -> ToolResult:

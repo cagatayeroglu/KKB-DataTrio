@@ -347,6 +347,25 @@ def choose_document(
     return "DOCUMENT_NOT_NAMED" if library else "NO_ATTACHMENT"
 
 
+def library_name(chosen: Attachment, library: Mapping[str, Attachment]) -> str | None:
+    """The conversation's name for a chosen document, matched by the hash of its bytes.
+
+    Identity was enough while the library was a copy made at the start of the turn. A
+    library read when a tool asks (QA-29) returns each document freshly re-read, so
+    `is` never matched and a save of the question's attachment named no document. A
+    conversation admits a given set of bytes once, so the hash names one document.
+    """
+    digest = chosen.source.content_hash
+    return next(
+        (
+            label
+            for label, item in library.items()
+            if item is chosen or (digest is not None and item.source.content_hash == digest)
+        ),
+        None,
+    )
+
+
 def declared_units(
     column_units: dict[str, str] | None, question: str
 ) -> dict[str, tuple[str, Scale]] | str:
@@ -402,6 +421,9 @@ class WebUrlOutput:
     unresolved_navigation: tuple[str, ...] = ()
     #: Scripted targets read and then refused for leaving the page's authority.
     refused_navigation: int = 0
+    #: The name the conversation now keeps this document under (belge_N), which every
+    #: tool working on the conversation's documents takes. None when it was not kept.
+    kept_as: str | None = None
 
 
 def _link_name(link: PageLink) -> str:
@@ -508,7 +530,7 @@ def read_document(
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     follow: str | None = None,
     endpoints: Mapping[str, str] | None = None,
-    keep: Callable[[str, bytes], None] | None = None,
+    keep: Callable[[str, bytes, str], str | None] | None = None,
     searched: frozenset[str] = frozenset(),
     delegated: bool = False,
 ) -> DocumentRead:
@@ -613,12 +635,15 @@ def read_document(
             WebUrlOutput("rejected", error.code.value, source, outcome.media_type), "not_admitted"
         )
 
+    kept_as = None
     if keep is not None:
         # The same bytes this turn just read, offered once to the conversation's
         # documents so that keeping them later costs no second download (DEC-183).
         # Admission - media type, size, hash, capacity - is unchanged and decides.
-        keep(outcome.media_type, outcome.content)
+        kept_as = keep(outcome.media_type, outcome.content, source.locator)
     read = _loaded(loaded, source, outcome.media_type)
+    if kept_as is not None:
+        read = replace(read, output=replace(read.output, kept_as=kept_as))
     if read.failure is None:
         listing = isinstance(read.output.document, HtmlDocument) and follow is None
         scripted = (
@@ -675,7 +700,7 @@ def make_web_url_tool(
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     library: Mapping[str, Attachment] | None = None,
     endpoints: Mapping[str, str] | None = None,
-    keep: Callable[[str, bytes], None] | None = None,
+    keep: Callable[[str, bytes, str], str | None] | None = None,
 ) -> ToolSpec:
     """Bind the tool to a fetch boundary: the real `safe_fetch` unless a test substitutes it.
 
@@ -683,7 +708,8 @@ def make_web_url_tool(
     user uploaded with this question (M10-04), if any; `library` holds every
     document admitted in the conversation by server-owned name.
     """
-    documents = dict(library or {})
+    # Read when a call runs: a document admitted during this turn is one of them then.
+    documents: Mapping[str, Attachment] = library if library is not None else {}
 
     def run(arguments: BaseModel, context: ExecutionContext) -> ToolResult:
         # The registry parses arguments before dispatch, so this is a contract

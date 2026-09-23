@@ -16,6 +16,7 @@ from datetime import UTC, date, datetime
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Final, Literal
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 import duckdb
@@ -145,6 +146,8 @@ class _Document:
     size: int
     path: Path
     admitted_at: datetime
+    #: Scheme, host and path of the address it was read from; None for an upload.
+    origin: str | None = None
 
 
 _UPLOAD_KINDS = {media_type: kind for kind, media_type in MIME_TYPES.items()}
@@ -265,8 +268,11 @@ def _offer_payload(proposal: PromotionProposal) -> dict[str, object]:
                 "sheet",
                 "year",
                 "summary",
+                "description",
             )
         },
+        "aliases": list(proposal.aliases),
+        "provenance": [list(pair) for pair in proposal.provenance],
         "observations": [[end.isoformat(), value] for end, value in proposal.observations],
     }
 
@@ -302,9 +308,23 @@ def _offer_from_payload(payload: Mapping[str, object]) -> PromotionProposal | No
             year=None if payload["year"] is None else int(str(payload["year"])),
             observations=observations,
             summary=str(payload["summary"]),
+            # Absent from an offer held before these were kept; the offer still stands.
+            description=(
+                None if payload.get("description") is None else str(payload["description"])
+            ),
+            aliases=tuple(str(alias) for alias in _listed(payload.get("aliases"))),
+            provenance=tuple(
+                (str(pair[0]), str(pair[1]))
+                for pair in _listed(payload.get("provenance"))
+                if isinstance(pair, list) and len(pair) == 2
+            ),
         )
     except (KeyError, TypeError, ValueError):
         return None
+
+
+def _listed(value: object) -> list[object]:
+    return value if isinstance(value, list) else []
 
 
 def _is_cancellation(question: str) -> bool:
@@ -568,6 +588,57 @@ def stored_conversation(store: ConversationStore, session_id: str) -> Conversati
     )
 
 
+def address_origin(url: str) -> str:
+    """Where a document came from: scheme, host, port and path, never the query.
+
+    A query can carry a key or a token, and whatever is kept here can end up in the
+    knowledge base, so it is left out; the content hash still says which bytes were read.
+    """
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    port = f":{parts.port}" if parts.port else ""
+    return f"{parts.scheme}://{host}{port}{parts.path}"[:512]
+
+
+class _SessionDocuments(Mapping[str, Attachment]):
+    """One conversation's documents by name, as they are when a tool asks.
+
+    Tools were handed a copy made when the turn began, so a document read from an
+    address during the turn - admitted to the conversation on the spot - was invisible
+    to every tool that works on the conversation's documents until the next question
+    (QA-29). Each document is still re-read and checked against its admitted hash.
+    """
+
+    def __init__(self, runner: PreparedRunner, session_id: str) -> None:
+        self._runner, self._session_id = runner, session_id
+
+    def __getitem__(self, name: str) -> Attachment:
+        reference = self._runner._names(self._session_id)[name]
+        return self._runner._attachment(self._session_id, reference)
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._runner._names(self._session_id))
+
+    def __len__(self) -> int:
+        return len(self._runner._names(self._session_id))
+
+
+class _SessionReferences(Mapping[str, str]):
+    """The same documents' server-owned references by name, read when asked."""
+
+    def __init__(self, runner: PreparedRunner, session_id: str) -> None:
+        self._runner, self._session_id = runner, session_id
+
+    def __getitem__(self, name: str) -> str:
+        return self._runner._names(self._session_id)[name]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._runner._names(self._session_id))
+
+    def __len__(self) -> int:
+        return len(self._runner._names(self._session_id))
+
+
 def selection_note(selected: SelectedTable | None) -> str | None:
     """Which published table the reader asked about, for the loop, or None.
 
@@ -757,6 +828,7 @@ class PreparedRunner:
                     document.byte_count,
                     document.path,
                     document.admitted_at,
+                    document.origin,
                 )
         self._history[session_id] = list(self._store.history(session_id, MAX_HISTORY_TURNS))
         # The catalog vouched for these in an earlier turn of this conversation; without
@@ -856,18 +928,24 @@ class PreparedRunner:
             raise ServiceError("document_rejected", 422)
         if not isinstance(outcome, FetchSuccess):  # pragma: no cover - FetchOutcome is closed
             raise TypeError("fetch returned neither a success nor a failure")
-        return self.admit_document(session_id, outcome.media_type, outcome.content)
+        return self.admit_document(
+            session_id, outcome.media_type, outcome.content, origin=address_origin(url)
+        )
 
-    def admit_document(self, session_id: str, media_type: str, content: bytes) -> DocumentAdmitted:
+    def admit_document(
+        self, session_id: str, media_type: str, content: bytes, *, origin: str | None = None
+    ) -> DocumentAdmitted:
         """Admit through the upload checks and store by opaque reference; no filename is kept."""
         if not self._document_uploads:
             raise ServiceError("unavailable", 503)
         if not _IDENTIFIER.fullmatch(session_id):
             raise ServiceError("not_found", 404)
         self._restore(session_id)
-        return self._admit_locked(session_id, media_type, content)
+        return self._admit_locked(session_id, media_type, content, origin=origin)
 
-    def _admit_locked(self, session_id: str, media_type: str, content: bytes) -> DocumentAdmitted:
+    def _admit_locked(
+        self, session_id: str, media_type: str, content: bytes, *, origin: str | None = None
+    ) -> DocumentAdmitted:
         """The admission itself, for a caller that has already restored the session.
 
         A turn holds the runner's lock, and `_restore` takes it: calling the public
@@ -925,6 +1003,7 @@ class PreparedRunner:
                 len(admitted.content),
                 path,
                 admitted_at,
+                origin,
             )
             position = sum(1 for owner, _ in self._documents if owner == session_id)
         if self._store is not None:
@@ -938,6 +1017,7 @@ class PreparedRunner:
                 byte_count=len(admitted.content),
                 path=path,
                 admitted_at=admitted_at,
+                origin=origin,
             )
         return DocumentAdmitted(
             document_ref=reference,
@@ -1014,19 +1094,37 @@ class PreparedRunner:
         """
         return self._dense
 
-    def _keep_read(self, session_id: str, media_type: str, content: bytes) -> None:
-        """Admit the bytes a turn just read from an address, without reading them again.
+    def _keep_read(
+        self, session_id: str, media_type: str, content: bytes, locator: str | None = None
+    ) -> str | None:
+        """Admit the bytes a turn just read from an address; answer the name it now has.
 
         Taking an address into the conversation is not keeping it: this is the same
         admission an upload meets - media type, size, hash, the conversation's document
         capacity - and the same sha256 dedup, so the same table read twice is one
         document. Persisting it into the knowledge base still needs the person's word.
         A refusal here is not the turn's problem: the answer was already read.
+
+        The name (belge_N) is what every document tool takes, so the read says it: the
+        model had no way to name the document it had just read to keep or re-read it.
         """
         try:
-            self._admit_locked(session_id, media_type, content)
+            admitted = self._admit_locked(
+                session_id,
+                media_type,
+                content,
+                origin=address_origin(locator) if locator else None,
+            )
         except (ServiceError, PreparedError):
-            return
+            return None
+        return next(
+            (
+                name
+                for name, reference in self._names(session_id).items()
+                if reference == admitted.document_ref
+            ),
+            None,
+        )
 
     def _offer(self, session_id: str, proposal: PromotionProposal) -> None:
         """Hold what a turn offered to save, in memory and on disk. No write happens."""
@@ -1105,12 +1203,61 @@ class PreparedRunner:
 
     def _library(self, session_id: str) -> dict[str, tuple[str, Attachment]]:
         """This conversation's documents by server-owned name, each rehashed on read."""
+        return {
+            name: (reference, self._attachment(session_id, reference))
+            for name, reference in self._names(session_id).items()
+        }
+
+    def _names(self, session_id: str) -> dict[str, str]:
+        """This conversation's documents: server-owned name to reference, nothing read."""
         with self._documents_lock:
             references = [ref for owner, ref in self._documents if owner == session_id]
         return {
-            document_name(position): (reference, self._attachment(session_id, reference))
-            for position, reference in enumerate(references, 1)
+            document_name(position): reference for position, reference in enumerate(references, 1)
         }
+
+    def _document_origin(self, session_id: str, reference: str) -> tuple[tuple[str, str], ...]:
+        """Where a stored document came from, for what is saved from it.
+
+        The knowledge base kept a saved series' document hash and nothing else about
+        where it was read, so a series taken from an address carried no address.
+        """
+        with self._documents_lock:
+            stored = self._documents.get((session_id, reference))
+        if stored is None:
+            return ()
+        read = stored.admitted_at.isoformat()
+        if stored.origin:
+            return (
+                ("source_url", stored.origin),
+                ("retrieved_at", read),
+                ("sha256", stored.sha256),
+            )
+        return (("uploaded_at", read), ("sha256", stored.sha256))
+
+    def _save_now(self, session_id: str, proposal: PromotionProposal) -> PromotionReceipt | str:
+        """A save the person asked for in this very message: written now, not offered.
+
+        The same write the confirmed offer makes (`_save_offer`), with the same check that
+        the document is still the one the numbers were read from. A refusal answers a
+        fixed code the model can say back; nothing is half-written.
+        """
+        if self._promote is None:
+            return "SAVE_UNAVAILABLE"
+        try:
+            attachment = self._attachment(session_id, proposal.document_ref)
+        except ServiceError:
+            return "DOCUMENT_NOT_FOUND"
+        digest = (attachment.source.content_hash or "").removeprefix("sha256:")
+        if not digest or digest != proposal.document_sha256:
+            return "DOCUMENT_CHANGED"
+        try:
+            receipt = self._promote(proposal)
+        except ServiceError:
+            return "SAVE_REFUSED"
+        # An offer still waiting for a yes is not what the person asked for now.
+        self._drop_offer(session_id)
+        return receipt
 
     def selected(
         self,
@@ -1288,13 +1435,15 @@ class PreparedRunner:
                     workspace,
                     lake.lineage,
                     attachment,
-                    library,
+                    # Read when a tool asks, so a document this turn reads from an
+                    # address is one of the conversation's documents at once (QA-29).
+                    _SessionDocuments(self, session_id),
                     turn_fetch,
                     acquirer=acquirer,
                     catalog=catalog,
                     disabled=chosen.disabled,
                     session_id=session_id,
-                    references={name: ref for name, (ref, _) in named.items()},
+                    references=_SessionReferences(self, session_id),
                 )
                 # One run per turn: what ran, with which context, and for how long.
                 run_id = uuid4().hex
@@ -1948,7 +2097,7 @@ class PreparedRunner:
         workspace: Workspace,
         lineage: Lineage,
         attachment: Attachment | None = None,
-        library: dict[str, Attachment] | None = None,
+        library: Mapping[str, Attachment] | None = None,
         turn_fetch: TurnFetchCache | None = None,
         *,
         acquirer: TurnAcquirer | None = None,
@@ -2037,6 +2186,63 @@ class PreparedRunner:
             registry.register(
                 make_web_search_tool(backend=self._search_backend, timeout_seconds=20.0)
             )
+
+        def offer_document_tools() -> None:
+            """The tools that work on the conversation's documents, once it has one.
+
+            Offered only where there is something to read or keep and somewhere to keep
+            it. A document read from an address during this turn is such a thing too:
+            the registry used to be settled before the first call, so a conversation
+            that began with an address never saw either tool in the turn that read it,
+            and "read this address and save it" could not be done in one message (QA-29).
+            """
+            if attachment is None and not library:
+                return
+            if "document_upload" in disabled:
+                return
+            if (
+                "promote_series" not in registry
+                and self._promote is not None
+                and self._knowledge is not None
+                and session_id is not None
+                and "knowledge_base" not in disabled
+            ):
+                owner = session_id
+                registry.register(
+                    make_promote_series_tool(
+                        session_id=owner,
+                        attachment=attachment,
+                        library=library if library is not None else {},
+                        references=references if references is not None else {},
+                        propose=lambda proposal: self._offer(owner, proposal),
+                        ocr=None if "document_ocr" in disabled else self._document_ocr,
+                        save=lambda proposal: self._save_now(owner, proposal),
+                        origin=lambda reference: self._document_origin(owner, reference),
+                    )
+                )
+            if "document_read" not in registry:
+                # Meaning from a document that holds no table to compute from: a chart, a
+                # scanned page, a passage. Its output is a reading, never a result, so it
+                # is bound to the same admitted bytes and to nothing else.
+                registry.register(
+                    make_document_read_tool(
+                        provider=self._provider,
+                        attachment=attachment,
+                        library=library,
+                        ocr=None if "document_ocr" in disabled else self._document_ocr,
+                        vision=self._vision,
+                    )
+                )
+
+        def keep(media_type: str, content: bytes, locator: str) -> str | None:
+            """A read the conversation keeps; its document tools follow it into the menu."""
+            if session_id is None:
+                return None
+            name = self._keep_read(session_id, media_type, content, locator)
+            if name is not None:
+                offer_document_tools()
+            return name
+
         if self._web_url_fetch is not None or attachment is not None or library:
             # The cell proof lives in this session's own lineage, where the gate
             # and the proof builder re-read it; the document itself is not kept.
@@ -2048,49 +2254,8 @@ class PreparedRunner:
                     ocr=None if "document_ocr" in disabled else self._document_ocr,
                     library=library,
                     endpoints=turn_fetch.endpoints if turn_fetch is not None else None,
-                    keep=(
-                        (
-                            lambda media_type, content: self._keep_read(
-                                session_id, media_type, content
-                            )
-                        )
-                        if session_id is not None and self._document_uploads
-                        else None
-                    ),
+                    keep=keep if session_id is not None and self._document_uploads else None,
                 )
             )
-        if (
-            (attachment is not None or library)
-            and self._promote is not None
-            and self._knowledge is not None
-            and session_id is not None
-            and "document_upload" not in disabled
-            and "knowledge_base" not in disabled
-        ):
-            # Offered only where there is something to keep and somewhere to keep it:
-            # a turn with no document, or a deployment with no knowledge base, never
-            # sees this tool at all.
-            registry.register(
-                make_promote_series_tool(
-                    session_id=session_id,
-                    attachment=attachment,
-                    library=library or {},
-                    references=references or {},
-                    propose=lambda proposal: self._offer(session_id, proposal),
-                    ocr=None if "document_ocr" in disabled else self._document_ocr,
-                )
-            )
-        if (attachment is not None or library) and "document_upload" not in disabled:
-            # Meaning from a document that holds no table to compute from: a chart, a
-            # scanned page, a passage. Its output is a reading, never a result, so it
-            # is bound to the same admitted bytes and to nothing else.
-            registry.register(
-                make_document_read_tool(
-                    provider=self._provider,
-                    attachment=attachment,
-                    library=library,
-                    ocr=None if "document_ocr" in disabled else self._document_ocr,
-                    vision=self._vision,
-                )
-            )
+        offer_document_tools()
         return registry

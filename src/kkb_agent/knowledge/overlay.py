@@ -96,8 +96,20 @@ def _dataset_series(item: DatasetVersion) -> ReviewedSeries:
         ),
         evidence_ids=(EVIDENCE_ID,),
         title_basis="documented_title",
-        note=USER_NOTE,
+        note=_note(item),
     )
+
+
+def _note(item: DatasetVersion) -> str:
+    """The standing note, and where the numbers were read when a conversation saved them.
+
+    A series saved from an address carried no trace of that address once it was in the
+    catalogue: a later conversation could find it and never say where it came from.
+    """
+    if not item.provenance:
+        return USER_NOTE
+    said = "; ".join(f"{key}={value}" for key, value in item.provenance)
+    return f"{USER_NOTE} Read from: {said}"[:1024]
 
 
 def _user_concept(concept_id: str, series_id: str, aliases: Sequence[str]) -> Concept | None:

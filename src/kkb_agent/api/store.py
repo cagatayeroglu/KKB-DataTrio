@@ -225,6 +225,8 @@ class StoredDocument:
     byte_count: int
     path: Path
     admitted_at: datetime
+    #: Scheme, host and path of the address it was read from; None for an upload.
+    origin: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -328,6 +330,13 @@ class ConversationStore:
         }
         if "deleted_at" not in conversations:
             self._connection.execute("ALTER TABLE conversations ADD COLUMN deleted_at TEXT")
+        documents = {
+            row["name"] for row in self._connection.execute("PRAGMA table_info(documents)")
+        }
+        if "origin" not in documents:
+            # Where a document read from an address came from (scheme, host and path).
+            # An upload has none, and a document admitted before this has none recorded.
+            self._connection.execute("ALTER TABLE documents ADD COLUMN origin TEXT")
 
     def _interrupt_stale_runs(self) -> None:
         """At single-process startup, close attempts left open by the prior process.
@@ -898,10 +907,13 @@ class ConversationStore:
         byte_count: int,
         path: Path,
         admitted_at: datetime,
+        origin: str | None = None,
     ) -> None:
         with self._write() as connection:
             connection.execute(
-                "INSERT OR REPLACE INTO documents VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO documents (conversation_id, document_ref, name, "
+                "document_format, media_type, sha256, byte_count, path, admitted_at, origin) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [
                     conversation_id,
                     document_ref,
@@ -912,6 +924,7 @@ class ConversationStore:
                     byte_count,
                     str(path),
                     admitted_at.isoformat(),
+                    origin,
                 ],
             )
 
@@ -931,6 +944,7 @@ class ConversationStore:
                 int(row["byte_count"]),
                 Path(row["path"]),
                 _moment(row["admitted_at"]),
+                row["origin"],
             )
             for row in rows
         ]

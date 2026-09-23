@@ -162,7 +162,8 @@ class TestTheOfferWritesNothing:
         saved = runner(session_id, uuid4().hex, "evet")
 
         assert f"USER:{SLUG}.v1" in saved.text
-        assert "otomatik yenilenmedi" in saved.text
+        # This deployment has no vector index; the receipt says how the series is found.
+        assert "anlamsal arama indeksi yok" in saved.text
         stored = knowledge.dataset(SLUG)
         assert stored is not None and len(stored.observations) == len(ADMISSIONS)
 
@@ -292,7 +293,7 @@ class TestAfterTheSave:
         assert any(
             item.series.record.series_id == f"USER:{SLUG}.v1" for item in found.candidates
         ), [item.series.record.series_id for item in found.candidates]
-        assert "otomatik yenilenmedi" in saved.text
+        assert "anlamsal arama indeksi yok" in saved.text
 
 
 def test_a_document_cannot_ask_to_be_saved(stack):
@@ -353,7 +354,7 @@ class TestAnAddressTheQuestionNamed:
             "https://example.org/gelir.csv",
             "https://example.org/gelir.csv adresindeki tabloyu oku",
             fetch=self._fetch(content, fetched),
-            keep=lambda media_type, body: kept.append((media_type, body)),
+            keep=lambda media_type, body, _locator: kept.append((media_type, body)),
         )
 
         assert read.failure is None, read.output

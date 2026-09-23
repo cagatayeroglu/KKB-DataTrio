@@ -1,0 +1,251 @@
+"""An address read in a conversation, kept in the knowledge base, found from another one.
+
+QA-29: a conversation that began with an address could read it but not keep it in the
+same turn, because the registry was settled before the first read and the document
+tools are offered only once there is a document. And what was kept lost where it came
+from: no address, no time, no place in the document. These tests hold the whole path -
+read, save when the person asked, find it again after a restart in another
+conversation - and what the knowledge base records about the source.
+"""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+import threading
+from datetime import date
+from uuid import uuid4
+
+from test_dataset_promotion import (  # noqa: F401
+    SLUG,
+    TITLE,
+    TestAnAddressTheQuestionNamed,
+    csv,
+    stack,
+)
+
+from kkb_agent.agent.trust_loop import FINISH
+from kkb_agent.api.knowledge_service import KnowledgeService
+from kkb_agent.api.prepared import address_origin
+from kkb_agent.api.store import ConversationStore
+from kkb_agent.catalog.search import CatalogSearchArguments, search_catalog
+from kkb_agent.core import Aggregation, CumulativeKind, Frequency, Scale, StockFlow
+from kkb_agent.knowledge.store import DatasetVersion, _body
+from kkb_agent.lakehouse import open_lakehouse
+from kkb_agent.llm.provider import ToolCall
+from kkb_agent.tools.promotion import PromotionProposal
+
+URL = "https://example.org/veri/gelir.csv?token=SECRET-QUERY"
+
+
+def call(tool: str, **arguments: object) -> tuple[ToolCall, ...]:
+    return (ToolCall(id=f"c{uuid4().hex[:6]}", name=tool, arguments=json.dumps(arguments)),)
+
+
+def empty_conversation(store: ConversationStore) -> str:
+    owner_id, _ = store.create_owner()
+    session_id = uuid4().hex
+    store.create_conversation(
+        owner_id=owner_id, conversation_id=session_id, token=uuid4().hex, title="URL"
+    )
+    return session_id
+
+
+def save_from_address(build, store, *, save_now: bool = True):
+    """One message: read the address, keep it under a name; nothing uploaded before."""
+    runner, _ = build(
+        call("web_url", url=URL),
+        call(
+            "promote_series",
+            document="belge_1",
+            title=TITLE,
+            unit="TL",
+            scale="million",
+            meaning="monthly_total",
+            description="Şirketin her ay elde ettiği gelir.",
+            aliases=["aylık ciro"],
+            save_now=save_now,
+        ),
+        call(FINISH, answer="Tamam."),
+    )
+    runner._trust_loop = True
+    runner._web_url_fetch = TestAnAddressTheQuestionNamed._fetch(csv(), [])
+    session_id = empty_conversation(store)
+    runner(session_id, uuid4().hex, f"{URL} adresindeki geliri getir ve bilgi tabanına kaydet")
+    return runner, session_id
+
+
+def test_an_address_read_in_an_empty_conversation_is_saved_in_the_same_turn(stack):  # noqa: F811
+    build, store, knowledge, _ = stack
+    runner, session_id = save_from_address(build, store)
+
+    saved = knowledge.dataset(SLUG)
+    assert saved is not None, "the address was read, but the save the person asked for is absent"
+    assert runner._pending_promotions.get(session_id) is None  # saved, not offered
+    assert saved.description == "Şirketin her ay elde ettiği gelir."
+    assert saved.aliases == ("aylık ciro",)
+    where = dict(saved.provenance)
+    # Where it came from, without the query: a query can carry a key.
+    assert where["source_url"] == "https://example.org/veri/gelir.csv"
+    assert "SECRET" not in json.dumps(where)
+    assert where["document"] == "belge_1" and where["media_type"] == "text/csv"
+    assert where["period_column"] == "Ay" and where["value_column"] == "Gelir (milyon TL)"
+    assert where["retrieved_at"] and len(where["sha256"]) == 64
+
+
+def test_the_read_says_which_name_the_document_is_kept_under(stack):  # noqa: F811
+    build, store, _, _ = stack
+    runner, _ = build(call("web_url", url=URL), call(FINISH, answer="Okundu."))
+    runner._trust_loop = True
+    runner._web_url_fetch = TestAnAddressTheQuestionNamed._fetch(csv(), [])
+    runner(empty_conversation(store), uuid4().hex, f"{URL} adresini oku")
+    shown = "\n".join(message.content for message in runner._provider.seen[1])
+    assert '"kept_as": "belge_1"' in shown
+
+
+def test_without_the_persons_request_it_is_only_offered(stack):  # noqa: F811
+    build, store, knowledge, _ = stack
+    runner, session_id = save_from_address(build, store, save_now=False)
+    assert knowledge.dataset(SLUG) is None
+    held = runner._pending_promotions[session_id]
+    assert dict(held.provenance)["source_url"] == "https://example.org/veri/gelir.csv"
+
+
+def test_another_conversation_after_a_restart_finds_it_by_its_alias(stack, tmp_path):  # noqa: F811
+    build, store, knowledge, _ = stack
+    first, session_id = save_from_address(build, store)
+    saved = knowledge.dataset(SLUG)
+    assert saved is not None
+
+    restarted, _ = build()  # a new process over the same stores
+    restarted._restore(session_id)
+    (document,) = [d for (owner, _), d in restarted._documents.items() if owner == session_id]
+    assert document.origin == "https://example.org/veri/gelir.csv"
+    with open_lakehouse(tmp_path / "another-conversation") as lake:
+        catalog, loaded = restarted._apply_knowledge(lake)
+        assert saved.series_id in loaded
+        found = search_catalog(catalog, CatalogSearchArguments(query="aylık ciro"))
+        assert saved.series_id in [c.series.record.series_id for c in found.candidates]
+        (record,) = [s for s in catalog.series if s.record.series_id == saved.series_id]
+        assert "source_url=https://example.org/veri/gelir.csv" in record.note
+
+
+def test_a_version_saved_before_provenance_keeps_its_identity():
+    old = DatasetVersion(
+        slug="eski_veri",
+        version=1,
+        title="Eski",
+        unit="TRY",
+        scale=Scale.ONE,
+        frequency=Frequency.MONTHLY,
+        stock_flow=StockFlow.FLOW,
+        cumulative=CumulativeKind.NONE,
+        aggregation=Aggregation.SUM,
+        observations=(),
+        source_kind="manual",
+    )
+    assert "provenance" not in _body(old)
+
+
+def test_a_store_from_before_origin_is_migrated_in_place(tmp_path):
+    path = tmp_path / "old.sqlite"
+    with sqlite3.connect(path) as old:
+        old.execute(
+            "CREATE TABLE documents (conversation_id TEXT NOT NULL, document_ref TEXT NOT NULL, "
+            "name TEXT NOT NULL, document_format TEXT NOT NULL, media_type TEXT NOT NULL, "
+            "sha256 TEXT NOT NULL, byte_count INTEGER NOT NULL, path TEXT NOT NULL, "
+            "admitted_at TEXT NOT NULL, PRIMARY KEY (conversation_id, document_ref))"
+        )
+    store = ConversationStore(path)
+    columns = {row[1] for row in store._connection.execute("PRAGMA table_info(documents)")}
+    store.close()
+    assert "origin" in columns
+
+
+def test_an_address_origin_keeps_host_port_and_path_only():
+    assert (
+        address_origin("https://a.example:8443/x/y.pdf?k=1#f") == "https://a.example:8443/x/y.pdf"
+    )
+
+
+class _Index:
+    def __init__(self, digest: str) -> None:
+        self.snapshot_sha256, self.profile = digest, "profile"
+
+
+class _Stage:
+    def __init__(self, digest: str) -> None:
+        self.index = _Index(digest)
+
+
+def proposal(session_id: str, slug: str) -> PromotionProposal:
+    return PromotionProposal(
+        slug=slug,
+        title=slug.replace("_", " "),
+        unit="TRY",
+        scale="million",
+        stock_flow="flow",
+        aggregation="sum",
+        cumulative="none",
+        base_year=None,
+        session_id=session_id,
+        document_ref="r",
+        document_sha256="0" * 64,
+        period_column="Ay",
+        value_column="Gelir",
+        sheet=None,
+        year=None,
+        observations=((date(2026, 1, 31), 1.0), (date(2026, 2, 28), 2.0)),
+        summary="",
+    )
+
+
+def test_a_save_refreshes_the_vectors_and_a_save_during_a_build_is_not_lost(stack):  # noqa: F811
+    """A save used to leave the vectors as they were; now it starts a build of what is new.
+
+    A save that lands while a build runs makes that build refuse to install (it was built
+    for the catalogue before the save), and one more build then runs for the catalogue as
+    it is, borrowing the vectors the refused build made instead of embedding them again.
+    """
+    build, store, knowledge, _ = stack
+    runner, _ = build()
+    session_id = empty_conversation(store)
+    built: list[str] = []
+    lent: list[object] = []
+    release = threading.Event()
+
+    def rebuild(catalog, previous):
+        built.append(catalog.content_sha256)
+        lent.append(previous)
+        release.wait(10)
+        return _Stage(catalog.content_sha256)
+
+    service = KnowledgeService(
+        knowledge,
+        store,
+        runner.catalog,
+        prepared=frozenset(item.series_id for item in runner.status.series),
+        rebuild_index=rebuild,
+    )
+    first = service.promote(proposal(session_id, "birinci_seri"))
+    second = service.promote(proposal(session_id, "ikinci_seri"))  # while the first builds
+    assert first.index == "refreshing" and second.index == "refreshing"
+    release.set()
+    for _ in range(200):
+        thread = service._build_thread
+        if thread is not None:
+            thread.join(5)
+        if len(built) == 2 and not service._building.locked():
+            break
+    assert len(built) == 2 and built[0] != built[1]
+    # The second build borrowed what the first made, never installed for the wrong catalogue.
+    assert lent[1] is not None and lent[1].snapshot_sha256 == built[0]
+    assert service._dense is not None
+    assert service._dense.index.snapshot_sha256 == service._effective().content_sha256
+
+
+def test_without_an_index_the_receipt_says_words_find_it(stack):  # noqa: F811
+    build, store, knowledge, _ = stack
+    runner, service = build()
+    receipt = service.promote(proposal(empty_conversation(store), "kelime_serisi"))
+    assert receipt.index == "lexical" and "anlamsal arama indeksi yok" in receipt.said()

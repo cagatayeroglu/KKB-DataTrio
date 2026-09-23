@@ -28,7 +28,7 @@ from kkb_agent.llm.provider import LLMProvider, ProviderError
 from kkb_agent.pdf_loader import PdfDocument
 from kkb_agent.pdf_ocr import MAX_OCR_PAGES, OcrError, OcrProvider, page_images
 from kkb_agent.tools._document_value import grids
-from kkb_agent.tools.web_url import choose_document, read_attachment
+from kkb_agent.tools.web_url import choose_document, library_name, read_attachment
 
 #: What the model may write back about one document, and what a page may hand it.
 MAX_READING_CHARS = 4000
@@ -158,7 +158,8 @@ def make_document_read_tool(
     `vision` says the deployment configured a vision model; without it a page
     with no text layer is reported as unreadable rather than guessed at.
     """
-    documents = dict(library or {})
+    # Read when a call runs: a document admitted during this turn is one of them then.
+    documents: Mapping[str, Attachment] = library if library is not None else {}
 
     def run(arguments: BaseModel, context: ExecutionContext) -> ToolResult:
         if type(arguments) is not DocumentReadArguments:  # pragma: no cover - registry parses
@@ -166,10 +167,7 @@ def make_document_read_tool(
         chosen = choose_document(arguments.document, attachment, documents)
         if isinstance(chosen, str):
             return _failed(DocumentReading("rejected", chosen))
-        name = next(
-            (label for label, item in documents.items() if item is chosen),
-            arguments.document,
-        )
+        name = library_name(chosen, documents) or arguments.document
         digest = hashlib.sha256(chosen.content).hexdigest()
         read = read_attachment(chosen, ocr=ocr)
         if read.failure is not None:
