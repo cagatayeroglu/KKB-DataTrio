@@ -362,6 +362,12 @@ def source_matches(item: ReviewedSeries, source: str) -> bool:
 #: The one-word places the listed series of a catalogue are published for, by its digest.
 _PLACES: dict[str, frozenset[str]] = {}
 
+#: The country is where every national series is, not a place a question narrows to. The
+#: monthly and weekly bulletins' entries say "Türkiye", so "Türkiye" became a place, and
+#: "Türkiye'de enflasyon" was searched among series marked Türkiye only: every EVDS
+#: datagroup, which declares no place, was held back (measured 2026-09-23: 0 of 678).
+_COUNTRY = normalize_search_text("Türkiye")
+
 
 def named_places(snapshot: ReviewedSnapshot, query: str) -> frozenset[str]:
     """The provinces a question names, among those a listed source publishes (DEC-184).
@@ -381,7 +387,7 @@ def named_places(snapshot: ReviewedSnapshot, query: str) -> frozenset[str]:
                 for item in snapshot.series
                 if is_listed_series(item)
             )
-            if place and " " not in place
+            if place and " " not in place and place != _COUNTRY
         )
         while len(_PLACES) >= _INDEXED_KEPT:
             _PLACES.pop(next(iter(_PLACES)))
@@ -395,7 +401,10 @@ def eligible_catalog_series(
     """Shared declared metadata filtering, independent of ranking method.
 
     A question that names provinces is searched among the series of those provinces, in the
-    word search and the combined search alike.
+    word search and the combined search alike. An entry that declares no place stays: an
+    EVDS datagroup declares none and may hold exactly the province's series ("İstanbul
+    konut satışları" is an EVDS datagroup of per-province sales), so only an entry known to
+    be another place's is held back.
     """
     places = named_places(snapshot, args.query)
     return tuple(
@@ -404,7 +413,7 @@ def eligible_catalog_series(
         if (args.include_archived or s.record.status is not CatalogStatus.ARCHIVED)
         and (args.source is None or source_matches(s, args.source))
         and (args.frequency is None or s.record.frequency is args.frequency)
-        and (not places or normalize_search_text(s.geography or "") in places)
+        and (not places or not s.geography or normalize_search_text(s.geography) in places)
     )
 
 
