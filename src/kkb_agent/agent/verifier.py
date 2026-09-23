@@ -36,6 +36,7 @@ from kkb_agent.agent.claim_qualifiers import (
     is_base_notation,
     is_date_token,
     is_list_marker,
+    is_location,
     is_movement_origin,
     period_fault,
     table_count_identity_fault,
@@ -231,12 +232,28 @@ def extract_numbers(text: str) -> list[WrittenNumber]:
             continue
         if any(start <= match.start() < end for start, end in addresses):
             continue
-        if is_list_marker(text, match.start(), match.end()) or is_base_notation(
-            text, match.start(), match.end()
+        if (
+            is_list_marker(text, match.start(), match.end())
+            or is_base_notation(text, match.start(), match.end())
+            or is_location(text, match.start(), match.end())
         ):
             continue
+        if _signed_before_percent(text, match.start()) and value > 0:
+            value = -value
         found.append(WrittenNumber(match.group(), value, match.start()))
     return found
+
+
+def _signed_before_percent(text: str, start: int) -> bool:
+    """Turkish writes a negative percentage with the sign before the percent sign.
+
+    Live 2026-09-23 (A1) "−%5,76", "−%1,30" and "−%17,26" were read as positive, found
+    in no tool result, and reported to the reader although the table held exactly those
+    negative changes. A minus glued to a preceding digit or letter is not a sign.
+    """
+    if start < 2 or text[start - 1] != "%" or text[start - 2] not in ("-", MINUS):
+        return False
+    return start < 3 or not text[start - 3].isalnum()
 
 
 def verify(

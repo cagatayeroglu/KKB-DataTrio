@@ -35,9 +35,7 @@ def registry() -> ToolRegistry:
 
 
 def rounds(count: int) -> list[tuple[ToolCall, ...]]:
-    return [
-        (ToolCall(f"c{i}", "step", json.dumps({"text": str(i)})),) for i in range(count)
-    ]
+    return [(ToolCall(f"c{i}", "step", json.dumps({"text": str(i)})),) for i in range(count)]
 
 
 def test_nine_dependent_rounds_finish_within_the_default_budget():

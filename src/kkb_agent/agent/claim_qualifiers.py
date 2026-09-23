@@ -323,6 +323,25 @@ def is_list_marker(text: str, start: int, end: int) -> bool:
     return False
 
 
+#: Where something is in a source, not how much: "satır 3", "sayfa 8", "Tablo 1", "s. 2",
+#: "Ek 3", "3. satır". Live 2026-09-23 (A1) "tablosu, satır 3: Tüketici Kredileri - Taşıt"
+#: told the reader where the figure came from, and "3" was reported as a figure no tool
+#: had returned.
+#: "Ek" only capitalised: "ek 3 ay" is three more months, "Ek 3" is an annex.
+_PLACES = r"(?i:satır|sayfa|tablo|sütun|s\.|row|page|table|column)|Ek"
+_PLACE_BEFORE = re.compile(r"(?<!\w)(?:" + _PLACES + r")\s*$")
+#: "3. satır" only lower case and on the same line: "sayısı 5." followed by a line
+#: "Eksik gözlem ...", or "sayısı 5. Tablo aşağıda", ends a sentence with a count.
+_PLACE_AFTER = re.compile(r"\.[ \t]*(?:satır|sayfa|tablo|sütun)")
+
+
+def is_location(text: str, start: int, end: int) -> bool:
+    """Whether the number at this position says where in a source, not how much."""
+    if end - start > 3 or not text[start:end].isdigit() or has_amount_context(text, start, end):
+        return False
+    return bool(_PLACE_BEFORE.search(text, 0, start) or _PLACE_AFTER.match(text, end))
+
+
 def is_date_token(text: str, start: int, end: int) -> bool:
     for match in YEAR_MONTH.finditer(text):
         if match.start() <= start and end <= match.end():
@@ -485,8 +504,21 @@ def value_meaning(result: AnalyticalResult, value: ResultValue) -> str:
     complete monthly transitions"), so two comparisons over one table never share a label
     although both count the same 59 transitions. The controlled role phrase is what the
     count means, and what a sentence can say; any other value means its label.
+
+    A comparison also names each endpoint level "<series> at <date>", where a read of
+    the same series names it "<series>": the same observation under two labels. Live
+    2026-09-23 (A1) a table and a comparison of one balance both held its December and
+    June levels, and the two figures the answer quoted from them were reported to the
+    reader as ambiguous. A label naming its own period's last day means the series.
     """
-    return controlled_count_label(result, value) or value.label
+    controlled = controlled_count_label(result, value)
+    if controlled:
+        return controlled
+    if value.period is not None:
+        own_day = f" at {value.period.end.isoformat()}"
+        if value.label.endswith(own_day):
+            return value.label[: -len(own_day)]
+    return value.label
 
 
 def comovement_count_identity_fault(
