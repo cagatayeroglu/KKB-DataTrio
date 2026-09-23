@@ -48,6 +48,17 @@ class InspectArguments(BaseModel):
     limit: int = Field(
         default=20, ge=1, le=MAX_ROWS, description=f"How many rows, at most {MAX_ROWS}"
     )
+    page: int | None = Field(
+        default=None, ge=1, description="A document read by page (a PDF): only this page"
+    )
+    table: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "A table of a document you read, by number: with page, the n-th table on that "
+            "page; without, the n-th in the whole document"
+        ),
+    )
 
 
 class InspectOutput(BaseModel):
@@ -183,6 +194,106 @@ def _window_of_text(
     )
 
 
+def _tables(held: object, page: int | None) -> list[tuple[dict[str, object], list[list[str]]]]:
+    """The tables of a read document, in document order, each with where it is.
+
+    A PDF keeps its tables per page; a web page numbers its own. Either way a table
+    is rows of cells, and that is all a window needs.
+    """
+    document = getattr(held, "document", None)
+    pages = getattr(document, "pages", None)
+    found: list[tuple[dict[str, object], list[list[str]]]] = []
+    if isinstance(pages, tuple):
+        for sheet in pages:
+            number = getattr(sheet, "number", None)
+            if page is not None and number != page:
+                continue
+            for index, table in enumerate(getattr(sheet, "tables", ()), 1):
+                rows = [["" if cell is None else str(cell) for cell in row] for row in table.rows]
+                found.append(({"page": number, "table_on_page": index}, rows))
+        return found
+    if page is None:
+        for table in getattr(document, "tables", None) or ():
+            rows = [[str(cell) for cell in row] for row in table.rows]
+            found.append(({"table": getattr(table, "number", None)}, rows))
+    return found
+
+
+def _pages(held: object) -> int:
+    pages = getattr(getattr(held, "document", None), "pages", None)
+    return len(pages) if isinstance(pages, tuple) else 0
+
+
+def _window_of_table(
+    arguments: InspectArguments, where: dict[str, object], rows: list[list[str]]
+) -> ToolResult:
+    """One window of a document's table: its rows, each with its cells."""
+    window: list[dict[str, object]] = []
+    used = 0
+    for number, cells in enumerate(rows[arguments.offset : arguments.offset + arguments.limit]):
+        row: dict[str, object] = {**where, "row": arguments.offset + number, "cells": cells}
+        size = len(json.dumps(row, ensure_ascii=False, default=str))
+        if window and used + size > MAX_WINDOW_CHARS:
+            break
+        window.append(row)
+        used += size
+    following = arguments.offset + len(window)
+    return ToolResult(
+        ToolStatus.SUCCESS,
+        arguments.source,
+        "inspect",
+        output=InspectOutput(
+            source=arguments.source,
+            kind="document_table",
+            columns=[],
+            rows=len(rows),
+            offset=arguments.offset,
+            values=window,
+            more=following < len(rows),
+            next_offset=following if following < len(rows) else None,
+        ),
+    )
+
+
+def _missing(arguments: InspectArguments, what: str) -> ToolResult:
+    return ToolResult(
+        ToolStatus.FAILURE,
+        arguments.source,
+        "inspect",
+        error_category="table_reference",
+        warnings=(what,),
+    )
+
+
+def _document_part(arguments: InspectArguments, held: object) -> ToolResult | None:
+    """A page or a table of a read document, when one was asked for."""
+    if arguments.table is not None:
+        tables = _tables(held, arguments.page)
+        if arguments.table > len(tables):
+            scope = f"{arguments.page}. sayfada" if arguments.page is not None else "belgede"
+            return _missing(
+                arguments,
+                f"{arguments.source!r} {scope} {len(tables)} tablo var; "
+                f"{arguments.table}. tablo yok.",
+            )
+        located, rows = tables[arguments.table - 1]
+        return _window_of_table(arguments, located, rows)
+    if arguments.page is not None:
+        passages = [
+            (where, text)
+            for where, text in (_passages(held) or [])
+            if where.get("page") == arguments.page
+        ]
+        if not passages:
+            return _missing(
+                arguments,
+                f"{arguments.source!r} içinde {arguments.page}. sayfa yok ya da metni yok; "
+                f"belge {_pages(held)} sayfa.",
+            )
+        return _window_of_text(arguments, passages)
+    return None
+
+
 def make_inspect_tool() -> ToolSpec:
     """Bind the tool. It reads what the turn already has and fetches nothing."""
 
@@ -192,6 +303,10 @@ def make_inspect_tool() -> ToolSpec:
         held = context.outputs.get(arguments.source)
         found = analytical(held)
         if found is None:
+            # A page or a table of a document, asked for by number (QA-23): a long
+            # PDF reaches the model as an index, and this is how any part of it is read.
+            if (part := _document_part(arguments, held)) is not None:
+                return part
             if (passages := _passages(held)) is not None:
                 return _window_of_text(arguments, passages)
             known = ", ".join(sorted(context.outputs)) or "yok"
@@ -239,10 +354,12 @@ def make_inspect_tool() -> ToolSpec:
             "Look at something you already have. For a table: its columns, how many "
             "periods it covers, and a window of its rows. For a page or a document you "
             "read (a PDF by page): a window of its lines, a very long line cut into "
-            "numbered parts; this is how you read the rest of anything that came back "
-            "clipped. Give source=<an action id or a published table name>, optionally "
-            "columns, offset and limit. Nothing is fetched and nothing is changed; "
-            "continue with offset=next_offset while more is true."
+            "numbered parts; page=N reads one page, table=J (with page=N, the J-th table "
+            "on that page) reads one of its tables row by row. This is how you read the "
+            "rest of anything that came back clipped. Give source=<an action id or a "
+            "published table name>, optionally columns, page, table, offset and limit. "
+            "Nothing is fetched and nothing is changed; continue with offset=next_offset "
+            "while more is true."
         ),
         arguments=InspectArguments,
         run=run,

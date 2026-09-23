@@ -33,6 +33,13 @@ class OutputRefused(ValueError):
     """Fixed boundary failure; never include the rejected output."""
 
 
+#: The longest answer text shown to a reader, in characters (and four bytes each).
+MAX_TEXT_CHARS = 8192
+#: How many notices may stand beside an answer, and how long each may be.
+MAX_NOTICES = 12
+MAX_NOTICE_CHARS = 2048
+
+
 # Prevent accidental locator/path/credential presentation. This is deliberately
 # conservative and not a general secret detector; raw internals are excluded by
 # construction. Literal credentials known to the operator can be supplied too.
@@ -46,7 +53,7 @@ _INTERNAL = re.compile(
 def safe_text(
     text: str,
     *,
-    limit: int = 8192,
+    limit: int = MAX_TEXT_CHARS,
     secrets: tuple[str, ...] = (),
     shown_urls: frozenset[str] = frozenset(),
 ) -> str:
@@ -476,9 +483,11 @@ def project_answer(
         notices.append("Doğrulanamayan bazı ifadeler yanıttan çıkarıldı.")
     if gate.limitations:
         # These are gate-owned qualifications, still treated as untrusted text.
-        if len(gate.limitations) > 12:
+        if len(gate.limitations) > MAX_NOTICES:
             raise OutputRefused("output_limit")
-        notices.extend(safe_text(item, limit=2048, secrets=secrets) for item in gate.limitations)
+        notices.extend(
+            safe_text(item, limit=MAX_NOTICE_CHARS, secrets=secrets) for item in gate.limitations
+        )
     result = None
     if published is not None:
         expected = answered.presented or answered.results[-1:]

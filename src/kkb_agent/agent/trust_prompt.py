@@ -79,7 +79,7 @@ WRITER: Final = (
     "Yukarıdaki araç sonuçlarına dayanarak okuyucuya Türkçe cevabı yaz. Sayıların "
     "hepsi bu sonuçlardan gelir. Ne bulduğunu, neyin öne çıktığını ve varsa sınırını "
     "anlat. Birlikte hareket ile nedensellik aynı şey değildir; veri neyi gösteriyorsa "
-    "onu söyle."
+    "onu söyle. Cevap en fazla 8000 karakter olabilir."
 )
 
 __all__ = ["EXHAUSTED", "INSTRUCTIONS", "WRITER"]

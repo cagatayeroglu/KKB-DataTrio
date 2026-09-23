@@ -24,7 +24,8 @@ from typing import Final
 from duckdb import DuckDBPyConnection
 
 from kkb_agent.agent.executor import analytical
-from kkb_agent.agent.trust_loop import TurnOutcome, observed_payload
+from kkb_agent.agent.observer import Tracer
+from kkb_agent.agent.trust_loop import TurnOutcome, observed_payload, traced_complete
 from kkb_agent.agent.trust_prompt import EXHAUSTED, WRITER
 from kkb_agent.agent.verifier import Binding, result_faults, verify_claims
 from kkb_agent.core import AnalyticalResult
@@ -124,6 +125,7 @@ def write_answer(
     provider: LLMProvider,
     model: str | None = None,
     connection: DuckDBPyConnection | None = None,
+    tracer: Tracer | None = None,
 ) -> Answer:
     """Ask the model to report what its own tools returned, then check the figures."""
     if outcome.ask:
@@ -144,7 +146,16 @@ def write_answer(
     if outcome.state:
         messages.insert(2, Message(Role.ASSISTANT, outcome.state))
     try:
-        draft = provider.complete(messages, model=model).text.strip()
+        draft = traced_complete(
+            provider,
+            messages,
+            model=model,
+            tools=None,
+            schema=None,
+            tracer=tracer,
+            stage="answer",
+            name="writer",
+        ).text.strip()
     except ProviderError:
         # The turn already ended because the service stopped answering, and this is
         # the same service. Losing what the tools returned to a second failure of the
@@ -207,7 +218,9 @@ def _figures(
         if any(fault.endswith(_UNATTESTED) for fault in faults)
     ]
     reported: list[str] = []
-    for item in verify_claims(text, results, connection).numbers:
+    # A figure rounded correctly to the decimals it is written with binds here (QA-22):
+    # this report names what does not bind, it does not withhold it.
+    for item in verify_claims(text, results, connection, written_precision=True).numbers:
         kept = [fault for fault in item.faults if not fault.endswith(_UNATTESTED)]
         if kept:
             reported.append(f"{item.number.text} ({'; '.join(kept)})")

@@ -178,6 +178,10 @@ MAX_TRACE_ARGUMENT_CHARS: Final = MAX_ATTRIBUTE_CHARS
 #: How a model says it is finished when tool calls are all it can send.
 FINISH: Final = "finish"
 
+#: How long an answer the reader can be shown, told to the model as a fact. The
+#: product's own ceiling (`api.projection.MAX_TEXT_CHARS`) is a little above it.
+MAX_ANSWER_CHARS: Final = 8_000
+
 
 def tool_menu(registry: ToolRegistry) -> list[dict[str, Any]]:
     """The tools, plus the one that ends the turn.
@@ -205,7 +209,8 @@ def tool_menu(registry: ToolRegistry) -> list[dict[str, Any]]:
                 "name": FINISH,
                 "description": (
                     "Yeterli kanitin oldugunda bunu cagir ve turu bitir. "
-                    "answer: okuyucuya gidecek Turkce cevap. "
+                    f"answer: okuyucuya gidecek Turkce cevap, en fazla {MAX_ANSWER_CHARS} "
+                    "karakter. "
                     "publish: okuyucuya gosterilecek sonucun id'si."
                 ),
                 "parameters": {
@@ -242,13 +247,72 @@ def _describe(result: ToolResult, identifier: str | None = None) -> str:
     if result.output is not None:
         body["output"] = observed_payload(result.output)
     rendered = json.dumps(body, ensure_ascii=False, default=str)
-    if len(rendered) > MAX_OBSERVATION_CHARS:
-        # Clipped, and said so, rather than silently shortened: the model can ask for
-        # the rest by naming this result, which is what `inspect` and a window are for.
-        body["output"] = rendered[:MAX_OBSERVATION_CHARS]
-        body["clipped"] = True
-        rendered = json.dumps(body, ensure_ascii=False, default=str)
-    return rendered
+    if len(rendered) <= MAX_OBSERVATION_CHARS:
+        return rendered
+    # Too long to show whole. It used to be cut at a character count, so a PDF reached
+    # the model as one string of JSON that stopped mid-page: sixteen of twenty pages,
+    # no word of the rest, nothing saying where a table was (live 2026-09-23, QA-23).
+    # Now the structure stays whole and its leaves give way — every text and every list
+    # shortened alike, each cut saying how much it left out — until it fits. What comes
+    # back is an index of the result: every page, every table, the start and end of
+    # each, under the id that `inspect` reads the full thing by.
+    plain = json.loads(json.dumps(body["output"], ensure_ascii=False, default=str))
+    body["clipped"] = True
+    body["read_more"] = READ_MORE
+    for text, items in _FITS:
+        body["output"] = _shortened(plain, text, items)
+        rendered = json.dumps(body, ensure_ascii=False)
+        if len(rendered) <= MAX_OBSERVATION_CHARS:
+            return rendered
+    # Even the index does not fit: cut, and said so, as before.
+    body["output"] = json.dumps(plain, ensure_ascii=False)[:MAX_OBSERVATION_CHARS]
+    return json.dumps(body, ensure_ascii=False)
+
+
+#: Ever shorter limits for one text and for one list, tried in turn until an observation
+#: fits. Texts give way first and lists later, so a document keeps every page in its
+#: index for as long as it can. Generic: nothing here knows what a page or a table is.
+_FITS: Final = (
+    (4_000, 200),
+    (2_000, 100),
+    (1_000, 60),
+    (500, 60),
+    (300, 50),
+    (200, 40),
+    (120, 30),
+    (80, 20),
+    (60, 10),
+)
+
+#: Beside a shortened observation: what happened to it and how to read the rest.
+READ_MORE: Final = (
+    "Bu sonuç sığmadığı için kısaltıldı: yapısı tam, uzun metinler ve listeler kısaltıldı "
+    "ve her kesim ne kadarını dışarıda bıraktığını yazıyor. Tamamı bu id'yle duruyor; "
+    "inspect ile oku: bir belgenin sayfası için page=N, o sayfadaki bir tablo için page=N "
+    "ve table=J; uzun bir metinde offset ile devam et."
+)
+
+
+def _shortened(value: Any, text: int, items: int) -> Any:
+    """The same structure, with every string and list no longer than the limits.
+
+    A string keeps its start and its end, because a page's heading is at the top and
+    its caption, total or page number is often at the bottom.
+    """
+    if isinstance(value, str):
+        if len(value) <= text:
+            return value
+        head = text * 2 // 3
+        tail = text - head
+        return f"{value[:head]} … [+{len(value) - text} karakter] … {value[-tail:]}"
+    if isinstance(value, list):
+        kept = [_shortened(item, text, items) for item in value[:items]]
+        if len(value) > items:
+            kept.append(f"… [+{len(value) - items} öğe daha]")
+        return kept
+    if isinstance(value, dict):
+        return {key: _shortened(item, text, items) for key, item in value.items()}
+    return value
 
 
 def observed_payload(output: object) -> Any:
@@ -331,23 +395,68 @@ DROPPED: Final = (
 PROTOCOL_KEYS: Final = frozenset({"id", "step_id", "note", "assumption"})
 
 
-def _within(history: list[Message], budget: int) -> bool:
-    """Drop the oldest exchanges until what is left fits. True when any were dropped.
+def _within(history: list[Message], budget: int) -> list[Message]:
+    """Drop the oldest exchanges until what is left fits, and return what was dropped.
 
     Whole exchanges, oldest first, because a tool turn without the assistant turn
     that asked for it is not a conversation the protocol can read. The newest is
     never dropped: a model that cannot see what just came back cannot act on it.
     """
-    dropped = False
+    dropped: list[Message] = []
     while len(history) > 1 and sum(len(m.content.encode()) for m in history) > budget:
         following = next(
             (index for index in range(1, len(history)) if history[index].tool_calls), len(history)
         )
         if following >= len(history):
             break
+        dropped.extend(history[:following])
         del history[:following]
-        dropped = True
     return dropped
+
+
+def _inventory(observations: list[Observation], gone: Collection[str]) -> str:
+    """One line for every result whose exchange is out of view: what it is, by name.
+
+    The note alone said results were still there under their ids, and gave none. Live
+    2026-09-23 the exchange that had read a PDF was dropped for room, and two requests
+    later the model fetched the same listing and the same PDF again (QA-23): nothing in
+    front of it said the document was already in hand as `a3`.
+    """
+    lines = [
+        f"- {item.action.id} ({item.action.tool} "
+        f"{json.dumps(item.action.arguments, ensure_ascii=False)[:200]}): "
+        f"{item.result.status.value}; {_outline(item.result.output)}"
+        for item in observations
+        if _wire(item.action) in gone
+    ]
+    return "\nİstemden çıkan sonuçlar:\n" + "\n".join(lines) if lines else ""
+
+
+def _outline(output: object) -> str:
+    """What a result holds, as sizes and short facts, never its content.
+
+    Generic: every short scalar and the length of every list, two levels deep, so a
+    document reads as its page count and a series as its value count and coverage.
+    """
+    if output is None:
+        return "çıktı yok"
+    try:
+        plain = json.loads(json.dumps(observed_payload(output), ensure_ascii=False, default=str))
+    except (TypeError, ValueError):
+        return type(output).__name__
+    facts: list[str] = []
+
+    def walk(value: Any, path: str, depth: int) -> None:
+        if isinstance(value, list):
+            facts.append(f"{path}: {len(value)} öğe")
+        elif isinstance(value, dict) and depth < 2:
+            for key, item in value.items():
+                walk(item, f"{path}.{key}" if path else str(key), depth + 1)
+        elif isinstance(value, str | int | float | bool) and len(str(value)) <= 80:
+            facts.append(f"{path}={value}")
+
+    walk(plain, "", 0)
+    return ", ".join(facts)[:600] or type(output).__name__
 
 
 def _without_protocol_keys(
@@ -441,7 +550,11 @@ def _calls(calls: tuple[ToolCall, ...]) -> list[dict[str, str]]:
 
 
 def _request(
-    provider: LLMProvider, messages: list[Message], model: str | None, menu: list[dict[str, Any]]
+    provider: LLMProvider,
+    messages: list[Message],
+    model: str | None,
+    menu: list[dict[str, Any]] | None,
+    schema: type[BaseModel] | None = AgentStep,
 ) -> tuple[str, dict[str, Any]]:
     """What this iteration sends the model, for the trace, and where the record came from.
 
@@ -452,9 +565,7 @@ def _request(
     """
     if isinstance(provider, ShowsRequests):
         try:
-            return "wire", provider.request_body(
-                messages, model=model, schema=AgentStep, tools=menu
-            )
+            return "wire", provider.request_body(messages, model=model, schema=schema, tools=menu)
         except Exception:  # noqa: BLE001, S110 - a trace must not end a turn
             pass
     turns: list[dict[str, Any]] = []
@@ -465,7 +576,148 @@ def _request(
         if message.tool_call_id is not None:
             turn["tool_call_id"] = message.tool_call_id
         turns.append(turn)
-    return "loop", {"model": model, "schema": AgentStep.__name__, "messages": turns, "tools": menu}
+    return "loop", {
+        "model": model,
+        "schema": schema.__name__ if schema is not None else None,
+        "messages": turns,
+        "tools": menu,
+    }
+
+
+def traced_complete(
+    provider: LLMProvider,
+    messages: list[Message],
+    *,
+    model: str | None,
+    tools: list[dict[str, Any]] | None,
+    schema: type[BaseModel] | None,
+    tracer: Tracer | None,
+    stage: str = "loop",
+    name: str = "iteration",
+    **attributes: JsonValue,
+) -> Completion:
+    """One model request, recorded both ways when there is a tracer.
+
+    The whole protocol, so every request can be read and replayed: live 2026-09-23 the
+    step recorded sizes only, and what the model had been shown could not be checked
+    (QA-21). The request is written before the call, so one that never comes back is
+    still on record; the tracer redacts it and caps it, and the length says whether the
+    cap was reached. Every model request of a turn goes through here, the answer's too:
+    the one that wrote A3's answer was the one request with no record (QA-23).
+    """
+    if tracer is None:
+        return provider.complete(messages, model=model, schema=schema, tools=tools)
+    with tracer.span(stage, name) as span:
+        span.set(**attributes, prompt_bytes=sum(len(m.content.encode()) for m in messages))
+        source, request = _request(provider, messages, model, tools, schema)
+        sent = json.dumps(request, ensure_ascii=False, default=str)
+        detail = '{"request": ' + sent + "}"
+        span.describe(detail)
+        span.set(
+            request_source=source,
+            detail_chars=len(detail),
+            detail_clipped=len(detail) > MAX_DETAIL_CHARS,
+        )
+        completion = provider.complete(messages, model=model, schema=schema, tools=tools)
+        # The reply first: were the record ever capped, it is the request's tail that
+        # goes, and the request is rebuilt from the steps before.
+        received = json.dumps(_received(completion), ensure_ascii=False)
+        detail = '{"response": ' + received + ', "request": ' + sent + "}"
+        span.describe(detail)
+        span.set(
+            model=completion.model,
+            provider_attempts=completion.attempts,
+            finish_reason=completion.finish_reason,
+            detail_chars=len(detail),
+            detail_clipped=len(detail) > MAX_DETAIL_CHARS,
+        )
+        return completion
+
+
+#: Said in the last iteration that may still run tools, so the model spends it knowing.
+LAST_ROUND: Final = (
+    "Bu, araç çağırabileceğin son tur (kalan araç çağrısı: {calls}). Bu turda "
+    "çağırdığın araçların sonuçlarını bir sonraki adımda göreceksin; ondan sonra araç "
+    "çalıştırılamaz ve cevabı elindekilerle yazacaksın. Yeterli kanıtın varsa şimdi "
+    "finish ile bitirebilirsin."
+)
+
+#: Said when a counter ran out and the model is asked once more, with no tools, to answer.
+CLOSING: Final = (
+    "Araç bütçesi doldu; bu adımda hiçbir araç çalıştırılamaz. Son araç sonuçları dahil "
+    "elindeki bütün sonuçları değerlendir ve okuyucuya cevabı şimdi yaz (finish ile ya da "
+    "düz metin olarak): ne bulduğunu, sayıların hangi sonuçtan geldiğini ve neyin eksik "
+    "kaldığını açıkça söyle. Elde olmayan bir sayıyı tahmin etme."
+)
+
+#: Counters whose running out still leaves the model able to write from what it has.
+CLOSABLE: Final = frozenset({"iterations", "tool calls", "time"})
+
+
+def _compose(
+    preamble: list[Message],
+    question: str,
+    outcome: TurnOutcome,
+    history: list[Message],
+    carried: list[Observation],
+    native: bool,
+    budget: int,
+    gone: set[str],
+    extra: list[Message],
+) -> list[Message]:
+    """The request for one iteration, with the newest observations in it.
+
+    With native tool calling the exchange itself is the memory: the assistant turns
+    that made the calls and the tool turns that answered them accumulate, exactly as
+    the protocol expects. Carrying only the last iteration made the model amnesiac two
+    steps back — live 2026-09-22 it searched, read, then searched and read the same
+    series again and spent its budget on work it had already done. Without native calls
+    the model keeps its own `state` note instead, so only the newest observations need
+    repeating.
+
+    What the budget pushes out is remembered in `gone`, and every later request names
+    it, so a result out of view is still a result the model knows it has.
+    """
+    history.extend(_observed(carried, native))
+    gone.update(
+        message.tool_call_id
+        for message in _within(history, budget)
+        if message.tool_call_id is not None
+    )
+    messages = [*preamble, Message(Role.USER, question)]
+    if outcome.state:
+        messages.append(Message(Role.ASSISTANT, outcome.state))
+    if gone:
+        messages.append(Message(Role.SYSTEM, DROPPED + _inventory(outcome.observations, gone)))
+    messages.extend(history if native else _observed(carried, native))
+    messages.extend(extra)
+    return messages
+
+
+def _decided(
+    tracer: Tracer,
+    outcome: TurnOutcome,
+    step: AgentStep,
+    completion: Completion,
+    *,
+    closing: bool = False,
+) -> None:
+    tracer.event(
+        "loop",
+        "decision",
+        iteration=outcome.iterations,
+        actions=[f"{a.id}:{a.tool}" for a in step.actions],
+        done=step.done,
+        publish=step.publish,
+        asked=step.ask is not None,
+        native=bool(completion.tool_calls),
+        malformed=[f"{item.id}:{item.tool}" for item in step.malformed],
+        # How the loop read the reply: the ids it gave each call, the arguments it will
+        # run, and the note, ask or answer. The note alone was here, and with native
+        # calls there is none, so every decision recorded nothing.
+        detail=step.model_dump_json(exclude_defaults=True),
+        closing=closing,
+    )
 
 
 def _received(completion: Completion) -> dict[str, Any]:
@@ -517,6 +769,8 @@ def run_turn(
     native = False
     preamble = [Message(Role.SYSTEM, instructions)]
     preamble += [Message(Role.SYSTEM, text) for text in context.values() if text]
+    #: Platform call ids of tool turns the exchange budget pushed out of view.
+    gone: set[str] = set()
 
     while True:
         if outcome.iterations >= limits.max_iterations:
@@ -526,62 +780,33 @@ def run_turn(
             outcome.exhausted = "time"
             break
 
-        # With native tool calling the exchange itself is the memory: the assistant
-        # turns that made the calls and the tool turns that answered them accumulate,
-        # exactly as the protocol expects. Carrying only the last iteration made the
-        # model amnesiac two steps back — live 2026-09-22 it searched, read, then
-        # searched and read the same series again and spent its budget on work it had
-        # already done. Without native calls the model keeps its own `state` note
-        # instead, so only the newest observations need repeating.
-        history.extend(_observed(carried, native))
-        dropped = _within(history, limits.max_exchange_bytes)
-        messages = [*preamble, Message(Role.USER, question)]
-        if outcome.state:
-            messages.append(Message(Role.ASSISTANT, outcome.state))
-        if dropped:
-            messages.append(Message(Role.SYSTEM, DROPPED))
-        messages.extend(history if native else _observed(carried, native))
-
+        extra: list[Message] = []
+        if outcome.iterations + 1 == limits.max_iterations:
+            extra.append(
+                Message(Role.SYSTEM, LAST_ROUND.format(calls=max(0, limits.max_tool_calls - calls)))
+            )
+        messages = _compose(
+            preamble,
+            question,
+            outcome,
+            history,
+            carried,
+            native,
+            limits.max_exchange_bytes,
+            gone,
+            extra,
+        )
         try:
-            if tracer is None:
-                completion = provider.complete(messages, model=model, schema=AgentStep, tools=menu)
-            else:
-                with tracer.span("loop", "iteration") as span:
-                    span.set(
-                        iteration=outcome.iterations + 1,
-                        prompt_bytes=sum(len(m.content.encode()) for m in messages),
-                        carried=len(carried),
-                    )
-                    # The whole protocol, both ways, so every iteration can be read and
-                    # replayed: live 2026-09-23 this step recorded sizes only, and what
-                    # the model had been shown could not be checked (QA-21). The request
-                    # is written before the call, so one that never comes back is still
-                    # on record; the tracer redacts it and caps it, and the length says
-                    # whether the cap was reached.
-                    source, request = _request(provider, messages, model, menu)
-                    sent = json.dumps(request, ensure_ascii=False, default=str)
-                    detail = '{"request": ' + sent + "}"
-                    span.describe(detail)
-                    span.set(
-                        request_source=source,
-                        detail_chars=len(detail),
-                        detail_clipped=len(detail) > MAX_DETAIL_CHARS,
-                    )
-                    completion = provider.complete(
-                        messages, model=model, schema=AgentStep, tools=menu
-                    )
-                    # The reply first: were the record ever capped, it is the request's
-                    # tail that goes, and the request is rebuilt from the steps before.
-                    received = json.dumps(_received(completion), ensure_ascii=False)
-                    detail = '{"response": ' + received + ', "request": ' + sent + "}"
-                    span.describe(detail)
-                    span.set(
-                        model=completion.model,
-                        provider_attempts=completion.attempts,
-                        finish_reason=completion.finish_reason,
-                        detail_chars=len(detail),
-                        detail_clipped=len(detail) > MAX_DETAIL_CHARS,
-                    )
+            completion = traced_complete(
+                provider,
+                messages,
+                model=model,
+                tools=menu,
+                schema=AgentStep,
+                tracer=tracer,
+                iteration=outcome.iterations + 1,
+                carried=len(carried),
+            )
         except ProviderError:
             # The request did not come back. That ends the deciding, not the turn: live
             # 2026-09-23 the sixth request of a turn died in the transport and the reader
@@ -597,21 +822,7 @@ def run_turn(
         native = bool(completion.tool_calls)
         step = _asked_for(completion, len(outcome.observations))
         if tracer is not None and step is not None:
-            tracer.event(
-                "loop",
-                "decision",
-                iteration=outcome.iterations,
-                actions=[f"{a.id}:{a.tool}" for a in step.actions],
-                done=step.done,
-                publish=step.publish,
-                asked=step.ask is not None,
-                native=bool(completion.tool_calls),
-                malformed=[f"{item.id}:{item.tool}" for item in step.malformed],
-                # How the loop read the reply: the ids it gave each call, the arguments
-                # it will run, and the note, ask or answer. The note alone was here, and
-                # with native calls there is none, so every decision recorded nothing.
-                detail=step.model_dump_json(exclude_defaults=True),
-            )
+            _decided(tracer, outcome, step, completion)
         if step is None:
             outcome.exhausted = "undecided"
             break
@@ -699,6 +910,59 @@ def run_turn(
             # work was asked for and dropping it silently loses a turn's evidence.
             break
 
+    closed = False
+    if (
+        outcome.exhausted in CLOSABLE
+        and outcome.reply is None
+        and outcome.ask is None
+        and outcome.observations
+    ):
+        # A counter ran out with the model's last results still unseen. Live 2026-09-23
+        # the eighth iteration's two calls ran, the loop stopped, and those results never
+        # reached the model; a separate writer was handed every observation clipped and
+        # the turn ended with no answer at all (QA-23). The model is asked once more, in
+        # the same exchange with those results in it, and with nothing left to call but
+        # `finish`: what it writes is the answer, limits and all.
+        messages = _compose(
+            preamble,
+            question,
+            outcome,
+            history,
+            carried,
+            native,
+            limits.max_exchange_bytes,
+            gone,
+            [Message(Role.SYSTEM, CLOSING)],
+        )
+        last: Completion | None
+        try:
+            last = traced_complete(
+                provider,
+                messages,
+                model=model,
+                tools=[entry for entry in menu if entry["function"]["name"] == FINISH],
+                schema=AgentStep,
+                tracer=tracer,
+                iteration=outcome.iterations + 1,
+                carried=len(carried),
+                closing=True,
+            )
+        except ProviderError:
+            last = None
+        if last is not None:
+            closed = True
+            outcome.iterations += 1
+            answer = _asked_for(last, len(outcome.observations))
+            if tracer is not None and answer is not None:
+                _decided(tracer, outcome, answer, last, closing=True)
+            if answer is not None:
+                # Only what answers: a tool asked for now could not be run.
+                if answer.state:
+                    outcome.state = answer.state
+                if answer.publish:
+                    outcome.publish = answer.publish
+                outcome.reply = answer.reply
+
     if tracer is not None:
         tracer.event(
             "loop",
@@ -707,6 +971,7 @@ def run_turn(
             tool_calls=calls,
             exhausted=outcome.exhausted,
             published=outcome.publish,
+            closing=closed,
         )
     return outcome
 

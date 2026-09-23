@@ -576,8 +576,14 @@ def verify_claims(
     tolerance: float = DEFAULT_TOLERANCE,
     accept_years: bool = True,
     minimum_samples: int | None = None,
+    written_precision: bool = False,
 ) -> Verdict:
     """Gate an answer against the results it claims to describe.
+
+    `written_precision` also binds a figure written with decimals that is the value
+    correctly rounded to those decimals (QA-22). Off by default: the planned path hands
+    its writer display phrases to copy exactly and withholds a rounded one by design;
+    the loop's report, which names an unbound figure instead of removing it, turns it on.
 
     Unlike `verify`, a number here must belong to one of **these** results, to
     the caller's justified context, or be a year. There is deliberately no
@@ -619,7 +625,15 @@ def verify_claims(
     counted = (*window_counts(named.values()), *context_counts)
     verdicts = [
         _bind_to_results(
-            answer, number, named, disqualified, permitted, counted, tolerance, accept_years
+            answer,
+            number,
+            named,
+            disqualified,
+            permitted,
+            counted,
+            tolerance,
+            accept_years,
+            written_precision,
         )
         for number in extract_numbers(answer)
     ]
@@ -932,6 +946,27 @@ def _rounds_as_written(clause: str, number: WrittenNumber, stored: float) -> boo
     return round(stored, _written_decimals(number.text)) == number.value
 
 
+def _rounded_to_written_places(number: WrittenNumber, stored: float) -> bool:
+    """Whether a figure written with decimals is this value, rounded to those decimals.
+
+    "−3,73" is how a report writes −3.7271133; the decimals are the writer's own
+    statement of precision, just as a hedge word is for a whole number. The binding
+    tolerance is 0.05% of the value, sized to catch a mistyped digit, so on a small
+    rate it is narrower than half a unit in the second decimal: live 2026-09-23 three
+    correct monthly changes (−3,73, −1,30, −2,45) were reported to the reader as figures
+    no tool had returned (QA-22).
+
+    Limited to what was written: at least one decimal, a figure that is not zero, the
+    sign the value has, and the rounding exactly right at that precision — so −3,80 for
+    −3.727 and +3,73 for it are still refused, and a whole number still needs its hedge
+    word. Scale, unit, period and identity are checked afterwards exactly as before.
+    """
+    places = _written_decimals(number.text)
+    if places < 1 or number.value == 0 or (number.value < 0) != (stored < 0):
+        return False
+    return round(stored, places) == number.value
+
+
 def _bind_to_results(
     answer: str,
     number: WrittenNumber,
@@ -941,6 +976,7 @@ def _bind_to_results(
     counted: Sequence[WindowCount],
     tolerance: float,
     accept_years: bool,
+    written_precision: bool = False,
 ) -> NumberVerdict:
     end = number.start + len(number.text)
     amount_context = has_amount_context(answer, number.start, end)
@@ -964,6 +1000,15 @@ def _bind_to_results(
             approximate = _rounds_as_written(clause, number, value.value)
             # The same value, written at another explicit scale, is still that value.
             rescaled = _rescaled(number, written_scale, value, tolerance)
+            # Rounded to the decimals it was written with, its direction in the figure
+            # or, for an unsigned figure, in the verb, as an exact match may be.
+            rounded = written_precision and (
+                _rounded_to_written_places(number, value.value)
+                or (
+                    _rounded_to_written_places(number, abs(value.value))
+                    and _signed_as_written(clause, number.value, value.value)
+                )
+            )
             if (
                 not rescaled
                 and not _close(number.value, value.value, tolerance)
@@ -972,6 +1017,7 @@ def _bind_to_results(
                     and _signed_as_written(clause, number.value, value.value)
                 )
                 and not approximate
+                and not rounded
             ):
                 continue
             # One rounded figure may stand for several months the clause names together

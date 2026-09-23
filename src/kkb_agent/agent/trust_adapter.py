@@ -13,6 +13,8 @@ deleted the day the projection reads the loop's own shape.
 
 from __future__ import annotations
 
+from typing import Final
+
 from pydantic import BaseModel, ConfigDict
 
 from kkb_agent.agent.executor import (
@@ -26,6 +28,7 @@ from kkb_agent.agent.plan import PlanStep
 from kkb_agent.agent.trust_answer import Answer
 from kkb_agent.agent.trust_loop import TurnOutcome
 from kkb_agent.agent.verifier import AnswerStatus, GatedAnswer, Verdict
+from kkb_agent.api.projection import MAX_NOTICE_CHARS, MAX_NOTICES, MAX_TEXT_CHARS
 from kkb_agent.core import AnalyticalResult
 
 
@@ -85,17 +88,69 @@ def _gated(answer: Answer) -> GatedAnswer:
     The status says what happened to the turn, not what happened to a sentence:
     nothing is removed, so an unbound figure qualifies the answer instead of
     shortening it.
+
+    Everything here fits what the reader can be shown. The projection refuses a turn
+    whose text or notices exceed its ceilings, and a refused turn shows nothing: live
+    2026-09-23 a turn that had read the right PDF ended in `output_limit` and the reader
+    got no answer at all (QA-23). So an overlong answer is cut where the reader can see
+    it was, and the notices are bounded — never dropped without saying how many.
     """
+    text, cut = _fitted(answer.text)
     limitations = tuple(dict.fromkeys((*answer.limitations, *answer.notes)))
+    if cut:
+        limitations = (*limitations, CUT_NOTE)
     if answer.unverified:
-        limitations = (
-            *limitations,
-            "Şu sayılar araç sonuçlarına bağlanamadı: " + " / ".join(answer.unverified),
-        )
+        limitations = (*limitations, _unbound(answer.unverified))
+    limitations = _bounded(limitations)
     status = AnswerStatus.QUALIFIED if (answer.unverified or limitations) else AnswerStatus.ACCEPTED
-    if not answer.text.strip():
+    if not text.strip():
         status = AnswerStatus.ABSTAINED
-    return GatedAnswer(status, answer.text, Verdict(True, ()), limitations=limitations)
+    return GatedAnswer(status, text, Verdict(True, ()), limitations=limitations)
+
+
+#: Where an answer longer than the reader can be shown was cut, in the text itself.
+CUT: Final = "\n\n[Cevap gösterilebilecek uzunluğu aştığı için burada kesildi.]"
+CUT_NOTE: Final = "Cevap uzunluk sınırını aştığı için kısaltıldı; kesildiği yer metinde yazıyor."
+UNBOUND: Final = "Şu sayılar araç sonuçlarına bağlanamadı: "
+
+
+def _fitted(text: str) -> tuple[str, bool]:
+    """The text, or as much of it as can be shown, cut at a paragraph or sentence."""
+    if len(text) <= MAX_TEXT_CHARS:
+        return text, False
+    room = MAX_TEXT_CHARS - len(CUT)
+    head = text[:room]
+    for mark in ("\n\n", ". ", "\n"):
+        at = head.rfind(mark)
+        if at > room * 2 // 3:
+            head = head[: at + len(mark.rstrip())]
+            break
+    return head.rstrip() + CUT, True
+
+
+def _unbound(figures: list[str]) -> str:
+    """The figures that did not bind, as many as one notice holds, and how many more."""
+    line = UNBOUND
+    for index, figure in enumerate(figures):
+        rest = len(figures) - index
+        addition = (" / " if index else "") + figure
+        if len(line) + len(addition) + len(f" / … ve {rest} sayı daha") > MAX_NOTICE_CHARS:
+            return f"{line} / … ve {rest} sayı daha"
+        line += addition
+    return line
+
+
+def _bounded(notices: tuple[str, ...]) -> tuple[str, ...]:
+    """At most as many notices as can be shown, each no longer than one may be."""
+
+    def clipped(text: str) -> str:
+        return text if len(text) <= MAX_NOTICE_CHARS else text[: MAX_NOTICE_CHARS - 1] + "…"
+
+    kept = [clipped(item) for item in notices]
+    if len(kept) <= MAX_NOTICES:
+        return tuple(kept)
+    rest = kept[MAX_NOTICES - 1 :]
+    return (*kept[: MAX_NOTICES - 1], clipped(f"Diğer {len(rest)} not: " + " | ".join(rest)))
 
 
 class _Arguments(BaseModel):
