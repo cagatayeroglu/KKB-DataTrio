@@ -642,6 +642,13 @@ class KnowledgeSeries(ContractModel):
     geography: str | None = None
 
 
+#: How many entries the knowledge base may count. A count, not a payload: one page travels,
+#: and the whole directory is browsable. Live 2026-09-23 the entries a search had opened in
+#: the EVDS directory took the count past MAX_CATALOG_SERIES, and every page of the
+#: knowledge base failed with 500 while the page showed "Analiz tamamlanamadı".
+MAX_KNOWLEDGE_ENTRIES: Final = 1_000_000
+
+
 class KnowledgeList(ContractModel):
     api_version: Literal[1] = 1
     #: Digest of the catalog a turn searches now; equals the reviewed one when nothing is added.
@@ -650,13 +657,13 @@ class KnowledgeList(ContractModel):
     series: Annotated[tuple[KnowledgeSeries, ...], Field(max_length=MAX_CATALOG_SERIES)] = ()
     #: Entries of the sources' own directory that search finds and turns fetch on first use.
     #: Only the ones a person annotated or a turn fetched are in `series`.
-    listed_series: Annotated[int, Field(ge=0, le=MAX_CATALOG_SERIES)] = 0
+    listed_series: Annotated[int, Field(ge=0, le=MAX_KNOWLEDGE_ENTRIES)] = 0
     #: Set when one page was asked for: how many entries the filters match, which page
     #: this is, how many each tab holds, and the provinces a province selector can offer.
-    total: Annotated[int, Field(ge=0, le=MAX_CATALOG_SERIES)] | None = None
+    total: Annotated[int, Field(ge=0, le=MAX_KNOWLEDGE_ENTRIES)] | None = None
     page: Annotated[int, Field(ge=1)] | None = None
     page_size: Annotated[int, Field(ge=1, le=100)] | None = None
-    counts: dict[str, Annotated[int, Field(ge=0, le=MAX_CATALOG_SERIES)]] | None = None
+    counts: dict[str, Annotated[int, Field(ge=0, le=MAX_KNOWLEDGE_ENTRIES)]] | None = None
     provinces: Annotated[tuple[str, ...], Field(max_length=128)] = ()
     #: Whether a browser key may archive, alias or describe reviewed and listed entries
     #: here: the operator's --allow-catalog-edits, never a browser's choice (DEC-162).

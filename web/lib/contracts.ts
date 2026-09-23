@@ -720,8 +720,9 @@ export const knowledgeListSchema = z
     // Mirrors MAX_CATALOG_SERIES: a guard against a malformed body, not a catalog size.
     series: z.array(knowledgeSeriesSchema).max(10000),
     // Directory entries search finds and turns fetch on first use; absent on an older server.
-    listed_series: z.number().int().min(0).max(10000).optional(),
-    total: z.number().int().min(0).max(10000).nullable().optional(),
+    // Counts, not payloads (MAX_KNOWLEDGE_ENTRIES): the directory outgrows the catalogue.
+    listed_series: z.number().int().min(0).max(1_000_000).optional(),
+    total: z.number().int().min(0).max(1_000_000).nullable().optional(),
     page: z.number().int().min(1).nullable().optional(),
     page_size: z.number().int().min(1).max(100).nullable().optional(),
     counts: z.record(z.string(), z.number().int().min(0)).nullable().optional(),

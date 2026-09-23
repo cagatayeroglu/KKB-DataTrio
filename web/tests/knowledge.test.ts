@@ -340,3 +340,20 @@ test("a read-only catalogue is said as such, not as a refused local origin", () 
   assert.match(text, /--allow-catalog-edits/);
   assert.notEqual(text, describeKnowledgeError(new ApiError("forbidden", 403)));
 });
+
+test("a knowledge base larger than the catalogue bound still parses its counts", () => {
+  // Live 2026-09-23: the directory's opened entries took the count past 10,000.
+  const digest = "a".repeat(64);
+  const page = knowledgeListSchema.parse({
+    api_version: 1,
+    catalog_digest: digest,
+    reviewed_digest: digest,
+    series: [],
+    listed_series: 12_345,
+    total: 12_345,
+    page: 1,
+    page_size: 50,
+    counts: { all: 12_345 },
+  });
+  assert.equal(page.total, 12_345);
+});
