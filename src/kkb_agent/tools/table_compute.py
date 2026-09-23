@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus, analytical
-from kkb_agent.agent.registry import ToolSpec
+from kkb_agent.agent.registry import TableInput, ToolSpec
 from kkb_agent.core import (
     DIMENSIONLESS,
     AnalyticalResult,
@@ -395,6 +395,11 @@ def make_table_compute_tool(connection: DuckDBPyConnection | None = None) -> Too
         ),
         arguments=ComputeArguments,
         run=run,
+        table_input=lambda arguments: (
+            TableInput(source=arguments.source)
+            if isinstance(arguments, ComputeArguments)
+            else None
+        ),
     )
 
 

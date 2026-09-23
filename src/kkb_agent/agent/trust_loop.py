@@ -36,9 +36,11 @@ from typing import Any, Final
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, PrivateAttr
 
-from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
+from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus, analytical
 from kkb_agent.agent.observer import MAX_ATTRIBUTE_CHARS, MAX_DETAIL_CHARS, Tracer
 from kkb_agent.agent.registry import ArgumentsRejected, ToolRegistry
+from kkb_agent.catalog.normalization import normalize_search_text
+from kkb_agent.core import ResultStatus, StockFlow
 from kkb_agent.llm.provider import (
     Completion,
     LLMProvider,
@@ -175,6 +177,9 @@ class TurnOutcome:
     exhausted: str | None = None
     #: What the model wrote when it stopped calling tools; the answer itself.
     reply: str | None = None
+    #: A requested final derivation was not present in the selected table. The answer may
+    #: still explain the limitation, but no intermediate table may be published as final.
+    publication_blocked: bool = False
 
     @property
     def results(self) -> dict[str, ToolResult]:
@@ -694,6 +699,14 @@ REVIEW: Final = (
     "yeniden çağır. Sayıların doğru olduğundan eminsen aynı cevabı yeniden verebilirsin."
 )
 
+INCOMPLETE_DERIVATION: Final = (
+    "Bu soru stok seviyelerini değil dönemsel hareketi istiyor, fakat seçtiğin tabloda "
+    "istenen difference sütunları eksik ya da ara stok sütunları hâlâ görünür. Aynı "
+    "çalışma tablosunda bütün hedef sütunlara change(kind='difference', lag=1) uygula; "
+    "sonra filter ile istenen dönemi ve yalnız nihai difference sütunlarını seçip finish "
+    "çağır. Ham stok tablosunu yayımlama."
+)
+
 #: Said again when the closing request was answered with tool calls.
 CLOSING_AGAIN: Final = (
     "İstediğin araçlar çalıştırılmadı: araç bütçesi doldu ve kapanışta araç çalışmaz. "
@@ -714,7 +727,7 @@ CLOSED: Final = (
 
 #: Error categories of calls answered without being run. Bookkeeping between the loop
 #: and the model; nothing a reader is told.
-NOT_RUN: Final = frozenset({"deferred", "closed", "review"})
+NOT_RUN: Final = frozenset({"deferred", "closed", "review", "completion"})
 
 
 def _not_run(action: Action, reason: str, *, category: str = "deferred") -> Observation:
@@ -724,6 +737,112 @@ def _not_run(action: Action, reason: str, *, category: str = "deferred") -> Obse
         ToolResult(
             ToolStatus.FAILURE, action.id, action.tool, error_category=category, warnings=(reason,)
         ),
+    )
+
+
+_MOVEMENT_REQUESTS: Final = (
+    "stok olmasin",
+    "aylik hareket",
+    "aylik degisim",
+    "onceki aya gore degisim",
+    "monthly movement",
+    "month over month change",
+)
+
+
+def _movement_requested(question: str) -> bool:
+    """Whether the reader asks for period movement rather than stock levels."""
+    words = normalize_search_text(question)
+    return any(phrase in words for phrase in _MOVEMENT_REQUESTS)
+
+
+def _difference_targets(outcome: TurnOutcome) -> tuple[str, ...]:
+    """Lag-one difference columns the model has said this movement answer needs."""
+    targets: list[str] = []
+    for item in outcome.observations:
+        asked = item.action.arguments
+        if (
+            item.action.tool != "table_transform"
+            or asked.get("operation") != "change"
+            or asked.get("kind") != "difference"
+        ):
+            continue
+        columns = asked.get("columns")
+        if not isinstance(columns, list):
+            column = asked.get("column")
+            columns = [column] if isinstance(column, str) and column else []
+        for column in columns:
+            if isinstance(column, str) and column:
+                label = f"{column} change (lag 1)"
+                if label not in targets:
+                    targets.append(label)
+    return tuple(targets)
+
+
+def _completion_issue(
+    question: str,
+    publish: str | None,
+    current_table: str | None,
+    workspace: Mapping[str, object],
+    outcome: TurnOutcome,
+) -> str | None:
+    """Why a stock-movement turn's selected table is still an intermediate."""
+    if not _movement_requested(question):
+        return None
+    selected = publish or current_table
+    result = analytical(workspace.get(selected)) if selected is not None else None
+    if result is None or result.status is not ResultStatus.COMPUTED:
+        return None
+    labels = {
+        value.label
+        for value in result.values
+        if value.period is not None
+    }
+    if not labels or not any(value.measure is StockFlow.STOCK for value in result.values):
+        return None
+    required = _difference_targets(outcome)
+    if not required:
+        # A stock table exists, but the requested movement has not been attempted yet.
+        return INCOMPLETE_DERIVATION
+    if set(required) != labels:
+        # Missing differences are incomplete; extra stock/helper columns are an internal
+        # working table, not the final four-column (or N-column) publication requested.
+        return INCOMPLETE_DERIVATION
+    return None
+
+
+def _completion_refusal(step: AgentStep, outcome: TurnOutcome, reason: str) -> Observation:
+    finish = step._finished or Action(
+        id=f"a{len(outcome.observations) + 1}", tool=FINISH, arguments={}
+    )
+    return Observation(
+        finish,
+        ToolResult(
+            ToolStatus.FAILURE,
+            finish.id,
+            FINISH,
+            error_category="completion",
+            warnings=(reason,),
+        ),
+    )
+
+
+def _is_working_table(value: object) -> bool:
+    result = analytical(value)
+    return bool(
+        result is not None
+        and result.status is ResultStatus.COMPUTED
+        and any(item.period is not None for item in result.values)
+    )
+
+
+def _descends_from(current: object, source: str) -> bool:
+    """Whether the current table records a transformation from `source`."""
+    result = analytical(current)
+    return bool(
+        result is not None
+        and result.evidence is not None
+        and any(source in record.input_refs for record in result.evidence.transformations)
     )
 
 
@@ -879,6 +998,7 @@ def run_turn(
     # Seeded with what earlier turns published, under the names they carry, so a
     # tool given "analiz_2" finds it without this turn having to read it again.
     workspace: dict[str, object] = dict(published)
+    current_table: str | None = None
     searched: set[str] = set()
     carried: list[Observation] = []
     #: The native exchange so far: what was asked for and what came back.
@@ -956,7 +1076,7 @@ def run_turn(
             break
         if step.state:
             outcome.state = step.state
-        if step.publish:
+        if step.publish and not step.done:
             outcome.publish = step.publish
         if step.reply:
             outcome.reply = step.reply
@@ -964,6 +1084,23 @@ def run_turn(
             outcome.ask = step.ask
             break
         if not step.actions and not step.malformed:
+            issue = _completion_issue(
+                question, step.publish, current_table, workspace, outcome
+            )
+            if issue is not None:
+                item = _completion_refusal(step, outcome, issue)
+                outcome.reply = None
+                outcome.publish = None
+                outcome.publication_blocked = True
+                outcome.observations.append(item)
+                carried = [item]
+                if tracer is not None:
+                    tracer.event("loop", "completion", status="incomplete")
+                    _recorded(tracer, item)
+                continue
+            outcome.publication_blocked = False
+            if step.publish:
+                outcome.publish = step.publish
             figures = (
                 review(step.reply, outcome)
                 if review is not None
@@ -1034,18 +1171,54 @@ def run_turn(
             else:
                 calls += 1
                 item = Observation(
-                    action, _dispatch(action, registry, question, workspace, searched)
+                    action,
+                    _dispatch(
+                        action,
+                        registry,
+                        question,
+                        workspace,
+                        searched,
+                        current_table=current_table,
+                    ),
                 )
                 if item.ok and item.result.output is not None:
                     workspace[action.id] = item.result.output
+                    if _is_working_table(item.result.output):
+                        current_table = action.id
             outcome.observations.append(item)
             carried.append(item)
             if tracer is not None:
                 _recorded(tracer, item)
+        if step.done and not outcome.exhausted:
+            issue = _completion_issue(
+                question, step.publish, current_table, workspace, outcome
+            )
+            if issue is not None:
+                item = _completion_refusal(step, outcome, issue)
+                outcome.reply = None
+                outcome.publish = None
+                outcome.publication_blocked = True
+                outcome.observations.append(item)
+                carried.append(item)
+                if tracer is not None:
+                    tracer.event("loop", "completion", status="incomplete")
+                    _recorded(tracer, item)
+                continue
+            outcome.publication_blocked = False
+            if step.publish:
+                outcome.publish = step.publish
         if outcome.exhausted or step.done:
             # `done` beside actions means finish after them, not instead of them: the
             # work was asked for and dropping it silently loses a turn's evidence.
             break
+
+    if outcome.exhausted and _completion_issue(
+        question, outcome.publish, current_table, workspace, outcome
+    ) is not None:
+        # The closing writer may explain incomplete work, but exhausting a counter cannot
+        # turn the last raw/intermediate stock table into the requested movement answer.
+        outcome.publish = None
+        outcome.publication_blocked = True
 
     closed = 0
     if (
@@ -1105,7 +1278,7 @@ def run_turn(
                 _decided(tracer, outcome, answer, last, closing=True)
             if answer.state:
                 outcome.state = answer.state
-            if answer.publish:
+            if answer.publish and not outcome.publication_blocked:
                 outcome.publish = answer.publish
             asked = [
                 *answer.actions,
@@ -1152,6 +1325,8 @@ def _dispatch(
     question: str,
     workspace: dict[str, object],
     searched: set[str],
+    *,
+    current_table: str | None = None,
 ) -> ToolResult:
     """Run one action. Every way it can go wrong is a result, never an exception."""
     if action.tool not in registry:
@@ -1176,6 +1351,32 @@ def _dispatch(
             error_category="arguments",
             warnings=(str(error),),
         )
+    # A derived table is the working continuation of the table it names. If the model
+    # names that ancestor again, continue from the newest proven descendant instead of
+    # forking two computed columns into detached results that later need a fragile join.
+    # Metadata/discovery outputs never qualify: they are not AnalyticalResult tables.
+    table_input = spec.table_input(parsed) if spec.table_input is not None else None
+    source = table_input.source if table_input is not None else None
+    if (
+        current_table is not None
+        and source is not None
+        and source != current_table
+        and _is_working_table(workspace.get(source))
+        and _descends_from(workspace.get(current_table), source)
+    ):
+        action.arguments = {**action.arguments, "source": current_table}
+        try:
+            parsed = spec.parse(
+                _without_protocol_keys(action.arguments, spec.arguments.model_fields)
+            )
+        except ArgumentsRejected as error:  # pragma: no cover - only the source changed
+            return ToolResult(
+                ToolStatus.FAILURE,
+                action.id,
+                action.tool,
+                error_category="arguments",
+                warnings=(str(error),),
+            )
     context = ExecutionContext(question, outputs=dict(workspace), searched=frozenset(searched))
     try:
         result = spec.run(parsed, context)

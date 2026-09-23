@@ -453,7 +453,7 @@ class AlignArguments(BaseModel):
 
 
 class FilterArguments(BaseModel):
-    """Keep cells in an inclusive period-end range; no free-form predicate."""
+    """Keep selected columns in an inclusive period-end range; no free-form predicate."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -461,6 +461,15 @@ class FilterArguments(BaseModel):
     source: str = Field(pattern=r"^[A-Za-z0-9_.:-]{1,64}$", description=_SOURCE_UNCHANGED)
     start_period: date | None = None
     end_period: date | None = None
+    columns: tuple[Annotated[str, Field(min_length=1, max_length=400)], ...] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=32,
+        description=(
+            "Exact final columns to keep; use this after calculations to exclude raw/helper "
+            "columns from the published table. Omit only when every current column is wanted"
+        ),
+    )
 
     @model_validator(mode="after")
     def bounded_range(self) -> Self:
@@ -472,6 +481,8 @@ class FilterArguments(BaseModel):
             and self.start_period > self.end_period
         ):
             raise ValueError("start_period must not be after end_period")
+        if self.columns is not None and len(set(self.columns)) != len(self.columns):
+            raise ValueError("columns must be distinct")
         return self
 
 
@@ -1169,7 +1180,9 @@ def make_table_transform_tool(
             "- rebase: copy of an index column with reference_period set to new_base.\n"
             "- align: keeps the periods the chosen columns share (join=inner), or those of "
             "anchor_column (join=left).\n"
-            "- filter: keeps an inclusive period-end range."
+            "- filter: keeps an inclusive period-end range and, with columns, only the "
+            "named final columns; after deriving an answer, use columns to keep raw/helper "
+            "columns internal instead of publishing them."
             + (
                 "\n- add_document_column: one column from a CSV, Excel, PDF or HTML table "
                 + (
@@ -1314,6 +1327,7 @@ def _closed_transform(
             source,
             start_period=arguments.start_period,
             end_period=arguments.end_period,
+            columns=arguments.columns,
         )
         return _shaped(arguments, source, shaped, method=FILTER_METHOD)
     except TableShapeRefused as error:
@@ -1500,7 +1514,8 @@ def _shaped(
     else:
         identity = (
             f"{arguments.start_period.isoformat() if arguments.start_period else '-'}:"
-            f"{arguments.end_period.isoformat() if arguments.end_period else '-'}"
+            f"{arguments.end_period.isoformat() if arguments.end_period else '-'}:"
+            f"{'|'.join(arguments.columns or ())}"
         )
     # A narrowed range outlives the warnings about months it no longer holds: they
     # read as limitations of this table, which they are not (finding L2-4). A warning

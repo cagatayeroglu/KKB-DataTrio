@@ -325,7 +325,9 @@ def _checked(
     figures: bool = True,
 ) -> Answer:
     """Attach what the turn knows, then report any figure that did not bind."""
-    answer.published = outcome.publish or _default_publication(results)
+    answer.published = (
+        None if outcome.publication_blocked else outcome.publish or _default_publication(results)
+    )
     if outcome.exhausted:
         answer.notes.append(EXHAUSTED.get(outcome.exhausted, outcome.exhausted))
     answer.notes.extend(item.action.note for item in outcome.observations if item.action.note)

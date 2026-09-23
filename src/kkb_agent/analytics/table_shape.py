@@ -499,17 +499,24 @@ def filter_periods(
     *,
     start_period: date | None,
     end_period: date | None,
+    columns: Sequence[str] | None = None,
 ) -> ShapedTable:
-    """Keep existing cells whose period end is inside an explicit inclusive range."""
+    """Keep selected existing columns inside an explicit inclusive period range."""
     named, frequency, non_period = _period_columns(source)
     if start_period is None and end_period is None:
         raise TableShapeRefused("Period filtering needs a start_period or end_period")
     if start_period is not None and end_period is not None and start_period > end_period:
         raise TableShapeRefused("start_period must not be after end_period")
+    selected = tuple(columns) if columns is not None else tuple(named)
+    if not selected or len(selected) != len(set(selected)):
+        raise TableShapeRefused("Filter columns must be a non-empty list of distinct labels")
+    missing = [label for label in selected if label not in named]
+    if missing:
+        raise TableShapeRefused(f"Filter columns are absent: {', '.join(missing)}")
     values = tuple(
         value
         for value in source.values
-        if value.label in named
+        if value.label in selected
         and value.period is not None
         and (start_period is None or value.period.end >= start_period)
         and (end_period is None or value.period.end <= end_period)
@@ -523,6 +530,7 @@ def filter_periods(
             "predicate": "period_end_inclusive",
             "start_period": start_period.isoformat() if start_period is not None else None,
             "end_period": end_period.isoformat() if end_period is not None else None,
+            "columns": list(selected),
             "period_rows": len(kept_periods),
             "dropped_non_period_values": non_period,
         },
