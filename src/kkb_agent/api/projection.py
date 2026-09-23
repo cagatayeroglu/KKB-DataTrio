@@ -66,8 +66,11 @@ def safe_text(
 
     def hidden(found: re.Match[str]) -> str:
         # The pattern runs to the next space, so "(https://.../kmp_au.pdf, sha256 ...)" ended
-        # its address with the comma, and a shown address no longer matched (N48).
-        address = found.group().rstrip(".,;:!?)]}'\"")
+        # its address with the comma, and a shown address no longer matched (N48). Markdown
+        # closes an address the same way: live 2026-09-23 "`https://raw.../a.csv`" ended in
+        # the backtick, and the address the turn had just read was hidden. Only the match
+        # to the turn's own addresses loosens; every other address is hidden as before.
+        address = found.group().rstrip(".,;:!?)]}'\"`*_>")
         return found.group() if address in shown_urls else "[gizli bilgi kaldırıldı]"
 
     cleaned = _INTERNAL.sub(hidden, text)
