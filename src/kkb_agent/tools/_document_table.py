@@ -69,6 +69,7 @@ from kkb_agent.tools._document_value import (
     header_semantics,
     is_annotation_label,
     is_total_label,
+    number_convention,
 )
 
 SNAPSHOT_KIND = "document_table_v1"
@@ -121,6 +122,9 @@ class DocumentTable:
     aggregation: dict[str, JsonValue] | None = None
     #: The calendar the rows are on: months, or the days the document dates them to.
     calendar: Frequency = Frequency.MONTHLY
+    #: When the months were read across one row (`read_row`): which row, how its cells were
+    #: laid out and where its year came from. None for a table read down a period column.
+    row: dict[str, JsonValue] | None = None
 
 
 def read_table(
@@ -252,6 +256,213 @@ def read_table(
         rules=rules,
         calendar=_daily_calendar(tuple(end for end, _ in rows)) if daily else Frequency.MONTHLY,
     )
+
+
+#: Where a unit the model named for a row came from: the document's own text.
+UNIT_FROM_DOCUMENT = "document text"
+#: Words that name a number of things, with no currency or rate.
+_COUNT_WORDS = frozenset({"adet", "count", "units", "kisi", "islem", "arac"})
+_SCALE_OF = {"bin": Scale.THOUSAND, "milyon": Scale.MILLION, "milyar": Scale.BILLION}
+
+
+def unit_of(text: str) -> tuple[str, Scale] | None:
+    """A unit and scale as written ("milyon TL", "adet", "%"), or None when it names none."""
+    unit, scale = header_semantics(f"x ({text})")
+    if unit is not None and scale is not Scale.UNKNOWN:
+        return unit, scale
+    words = normalize_search_text(text).split()
+    if words and set(words) - set(_SCALE_OF) <= _COUNT_WORDS and set(words) & _COUNT_WORDS:
+        scales = [_SCALE_OF[word] for word in words if word in _SCALE_OF]
+        return "count", scales[0] if len(scales) == 1 else Scale.ONE
+    return None
+
+
+def _is_month(token: str) -> bool:
+    """Whether one header word names a single month (any year)."""
+    return month_end(token, 2000) is not None
+
+
+def _the_row(grid: Grid, row: str) -> int:
+    """The one row whose first cell is `row`, or begins with it as whole words."""
+    wanted = normalize_search_text(row)
+    matches = [
+        index
+        for index, cells in enumerate(grid.rows)
+        if cells
+        and (
+            header_matches(_text(cells[0]), row)
+            or normalize_search_text(_text(cells[0])).startswith(wanted + " ")
+        )
+    ]
+    if not matches:
+        raise ColumnRefused("ROW_NOT_FOUND")
+    if len(matches) > 1:
+        raise ColumnRefused("AMBIGUOUS_ROW")
+    return matches[0]
+
+
+def read_row(
+    grid: Grid,
+    row: str,
+    *,
+    label: str,
+    year: int | None = None,
+    columns: Sequence[str] | None = None,
+    unit: tuple[str, Scale] | None = None,
+    as_of: date | None = None,
+) -> DocumentTable:
+    """One row of a table whose columns are months, read as a monthly column.
+
+    The shape of a yearly report: a row per year (or per series), a column per month,
+    and a total at the end. `read_table` reads months down a period column and had no way
+    across, so a model holding such a table could quote its cells and compute nothing
+    from them (A3, 2026-09-23). Everything here is read from the table as it stands:
+
+    - **Which row.** The one row whose first cell is `row`, or begins with it.
+    - **Which months.** Every header that names one month; a header naming a range
+      ("Ocak-Ağustos"), a total or anything else is left out and said so. `columns`
+      narrows to headers the model names, and one it names that is not there refuses.
+    - **Which year.** A header's own year first; else `year`; else the row's own label
+      when it is a year; else the one year the page states above the table. Two that
+      disagree, or none where one is needed, refuse (`YEAR_CONFLICT`, `YEAR_NEEDED`).
+    - **Which values.** The cells under those headers, read in the table's own digit
+      convention. An empty cell stays missing, never zero; a month ending after the
+      document was retrieved is left out and counted; two headers for one month refuse.
+    - **A collapsed layout.** A PDF extractor can leave a whole row of months in one
+      cell under one header cell ("YIL Ocak Şubat …"). Such a cell is split on spaces
+      only when its values fill the months in order, and a row with fewer values than
+      months only when the months it lacks are exactly those not yet ended at retrieval:
+      a gap in the middle would shift every later value into the wrong month, so it
+      refuses (`CELLS_NOT_ALIGNED`) rather than guess.
+    """
+    index = _the_row(grid, row)
+    cells = grid.rows[index]
+    wanted = normalize_search_text(row)
+    row_year = int(wanted) if len(wanted) == 4 and wanted.isdigit() else None
+    if year is not None and row_year is not None and year != row_year:
+        raise ColumnRefused("YEAR_CONFLICT")
+    known: int | None = year if year is not None else row_year
+    year_from = "argument" if year is not None else "row label" if row_year is not None else None
+    if known is None and len(set(grid.years)) == 1:
+        known, year_from = grid.years[0], "page text above the table"
+
+    # (header, raw cell) in column order; the row's own label column is not a value.
+    pairs: list[tuple[str, object]] = []
+    collapsed = False
+    for position, header in enumerate(grid.headers):
+        text = _text(header)
+        raw = cells[position] if position < len(cells) else None
+        words = text.split()
+        if sum(_is_month(word) for word in words) >= 2:
+            collapsed = True
+            values = _text(raw).split()
+            if position == 0:
+                # The row's label leads its cell, as the label column's name ("YIL") leads
+                # the header cell; both are left before the months are paired.
+                values = values[len(_text(row).split()) :]
+                words = words[next(at for at, word in enumerate(words) if _is_month(word)) :]
+            pairs.extend(_aligned(words, values, known, as_of))
+        elif position > 0:
+            pairs.append((text, raw))
+
+    if collapsed:
+        tokens = [
+            " ".join(_text(cell) for cell in line).replace("%", " ").split() for line in grid.rows
+        ]
+        convention = number_convention(tokens)
+    else:
+        convention = number_convention(grid.rows)
+    rules = RowRules(None, as_of, convention)
+
+    chosen = list(columns) if columns is not None else None
+    if chosen is not None:
+        missing = [name for name in chosen if not any(header_matches(h, name) for h, _ in pairs)]
+        if missing:
+            raise ColumnRefused("COLUMN_NOT_FOUND")
+    read: list[tuple[date, float | None, str]] = []
+    left_out: list[str] = []
+    yearless = False
+    for header, raw in pairs:
+        if chosen is not None and not any(header_matches(header, name) for name in chosen):
+            continue
+        own = month_end(header)
+        if own is None and not _is_month(header):
+            left_out.append(header or "(unnamed column)")
+            continue
+        if own is None and known is None:
+            raise ColumnRefused("YEAR_NEEDED")
+        end = own if own is not None else month_end(header, known)
+        yearless = yearless or own is None
+        if end is None:  # pragma: no cover - a month word with a year always has an end
+            raise ColumnRefused("PERIOD_NOT_RECOGNISED")
+        if any(end == seen for seen, _, _ in read):
+            raise ColumnRefused("DUPLICATE_PERIOD")
+        if as_of is not None and end > as_of:
+            rules.skipped["FUTURE_PERIOD"] += 1
+            continue
+        try:
+            value = None if _empty(raw) else rules.number(raw)
+        except ValueNotSelected as error:
+            raise ColumnRefused(error.code) from None
+        read.append((end, value, hashlib.sha256(_text(raw).encode()).hexdigest()))
+    if sum(1 for _, value, _ in read if value is not None) < 2:
+        raise ColumnRefused("TOO_FEW_VALUES")
+    read.sort(key=lambda cell: cell[0])
+    unit_name, scale = unit if unit is not None else (None, Scale.UNKNOWN)
+    return DocumentTable(
+        location=dict(grid.location),
+        period_header="(months across the header row)",
+        months=tuple(end for end, _, _ in read),
+        columns=(
+            TableColumn(
+                label,
+                _text(row),
+                index + 1,
+                unit_name,
+                scale,
+                document_measure(unit_name, scale),
+                tuple(read),
+                UNIT_FROM_DOCUMENT if unit is not None else None,
+            ),
+        ),
+        skipped=tuple((header, "NOT_A_MONTH") for header in left_out),
+        rules=rules,
+        row={
+            "label": _text(row),
+            "row_number": index + 1,
+            "orientation": "months across columns",
+            "layout": "space-aligned cells" if collapsed else "one cell per column",
+            "year": known if yearless else None,
+            "year_from": year_from if yearless else "header",
+        },
+    )
+
+
+def _aligned(
+    words: list[str], values: list[str], year: int | None, as_of: date | None
+) -> list[tuple[str, object]]:
+    """Header words of a collapsed row paired with its values, or a refusal.
+
+    Values fill the header words in order. A trailing word that is not a month (a
+    total) may hold a value or none. Fewer values than months is accepted only when
+    every month left without one ends after the document was retrieved.
+    """
+    months = [word for word in words if _is_month(word)]
+    last = max(at for at, word in enumerate(words) if _is_month(word))
+    if words[: last + 1] != months:
+        raise ColumnRefused("CELLS_NOT_ALIGNED")
+    trailing = words[last + 1 :]
+    if len(months) <= len(values) <= len(words):
+        return [(word, values[at] if at < len(values) else None) for at, word in enumerate(words)]
+    if len(values) < len(months) and as_of is not None and year is not None:
+        unfilled = months[len(values) :]
+        if all((end := month_end(word, year)) is not None and end > as_of for word in unfilled):
+            return [
+                *zip(months, values, strict=False),
+                *((word, None) for word in unfilled),
+                *((word, None) for word in trailing),
+            ]
+    raise ColumnRefused("CELLS_NOT_ALIGNED")
 
 
 def _daily_calendar(dates: Sequence[date]) -> Frequency:
@@ -533,6 +744,7 @@ def table_snapshot(
             **({"csv": csv} if csv is not None else {}),
             **(table.rules.evidence() if table.rules is not None else {}),
             **({"aggregation": table.aggregation} if table.aggregation is not None else {}),
+            **({"row": table.row} if table.row is not None else {}),
         }
     )
 
@@ -543,8 +755,13 @@ def table_result(
     *,
     source_node: str | None,
     csv: dict[str, str] | None = None,
+    tool: str = "web_url",
 ) -> AnalyticalResult:
-    """The published table: every read value, periods explicit, gaps never filled."""
+    """The published table: every read value, periods explicit, gaps never filled.
+
+    `tool` is the tool that read it: `web_url` down a period column, `table_transform`
+    across a row of a document already read (`read_row`).
+    """
     values: list[ResultValue] = []
     missing: dict[str, int] = {}
     for column in table.columns:
@@ -597,10 +814,10 @@ def table_result(
         else "Read from one document table as published on explicit months only; no "
     ) + "resampling, filling, currency conversion, inflation adjustment or rebasing was applied"
     return AnalyticalResult(
-        result_id=f"web_url:table:{source.source_id}:{location}",
+        result_id=f"{tool}:table:{source.source_id}:{location}",
         kind=ResultKind.SERIES,
         status=ResultStatus.COMPUTED,
-        tool="web_url",
+        tool=tool,
         method=METHOD,
         values=values,
         coverage=_span(table),
@@ -608,6 +825,7 @@ def table_result(
             "columns": [column.label for column in table.columns],
             "skipped_columns": [{"label": label, "code": code} for label, code in table.skipped],
             _ROW_WORD[table.calendar] + "s": len(table.months),
+            **({"row": table.row} if table.row is not None else {}),
         },
         evidence=ResultEvidence(
             input_refs=[source_node or source.source_id],
@@ -642,9 +860,10 @@ def table_result(
                             if table.aggregation is not None
                             else {}
                         ),
+                        **({"row": table.row} if table.row is not None else {}),
                     },
                     input_refs=[source.source_id],
-                    output_ref=f"web_url:table:{source.source_id}",
+                    output_ref=f"{tool}:table:{source.source_id}",
                 )
             ],
             sources=[source],

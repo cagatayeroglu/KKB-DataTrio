@@ -71,6 +71,7 @@ from kkb_agent.analytics.table_summary import (
     summarize_column,
 )
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
+from kkb_agent.catalog.normalization import normalize_search_text
 from kkb_agent.core import (
     Aggregation,
     AnalyticalResult,
@@ -103,9 +104,17 @@ from kkb_agent.tools._document_column import (
     measure_limitation,
     read_column,
 )
-from kkb_agent.tools._document_value import as_of, csv_parsing, grids, year_in_question
+from kkb_agent.tools._document_table import read_row, table_result, table_snapshot, unit_of
+from kkb_agent.tools._document_value import (
+    _text,
+    as_of,
+    csv_parsing,
+    grids,
+    year_in_question,
+)
 from kkb_agent.tools._running_totals import declared_accumulation, running_total_refusal
 from kkb_agent.tools.change_detection import SeriesUnknown, read_series
+from kkb_agent.tools.inspect_result import document_passages
 from kkb_agent.tools.web_url import Fetcher, choose_document, read_attachment, read_document
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -449,6 +458,69 @@ class FilterArguments(BaseModel):
         return self
 
 
+class DocumentRowArguments(BaseModel):
+    """One row of a table in a document read this turn, its month columns as one column."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation: Literal["document_row"]
+    source: str = Field(
+        min_length=1,
+        max_length=64,
+        description="The id of the step that read the document (its web_url or upload read)",
+    )
+    page: int | None = Field(default=None, ge=1, description="The page the table is on (a PDF)")
+    table: int = Field(
+        default=1,
+        ge=1,
+        description="Which table: with page, the n-th on that page; without, the n-th in the "
+        "document",
+    )
+    row: str = Field(
+        min_length=1,
+        max_length=200,
+        description="The row as its first cell reads it, such as a year or a series name",
+    )
+    label: str = Field(min_length=1, max_length=200, description="Name of the new monthly column")
+    year: int | None = Field(
+        default=None,
+        ge=1900,
+        le=2100,
+        description="Year for month headers that carry none, when neither the row's label nor "
+        "the page above the table states it",
+    )
+    columns: tuple[Annotated[str, Field(min_length=1, max_length=100)], ...] | None = Field(
+        default=None,
+        max_length=24,
+        description="Only these month headers; omit for every month the row has",
+    )
+    unit: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=40,
+        description="The unit and scale the document states for this table, such as 'adet', "
+        "'milyon TL' or '%'; it must appear in the document. Omit when it states none",
+    )
+
+
+#: What a refusal of `document_row` means, said to the model with its code.
+_ROW_REFUSALS: Final = {
+    "ROW_NOT_FOUND": "no row of that table begins with that label",
+    "AMBIGUOUS_ROW": "more than one row begins with that label; give more of it",
+    "YEAR_NEEDED": "its month headers carry no year and nothing states one; give year",
+    "YEAR_CONFLICT": "the year given differs from the row's own year",
+    "DUPLICATE_PERIOD": "two headers name the same month",
+    "CELLS_NOT_ALIGNED": "the row's values sit in one cell and cannot be matched to its months "
+    "without guessing",
+    "COLUMN_NOT_FOUND": "a month header named in columns is not in that table",
+    "TOO_FEW_VALUES": "fewer than two months of that row hold a value",
+    "AMBIGUOUS_NUMBER": "the table's numbers have more than one reading",
+    "NOT_A_NUMBER": "a month cell of that row is not a number",
+    "UNIT_NOT_RECOGNISED": "the unit is not one this reads ('adet', 'milyon TL', '%', ...)",
+    "UNIT_NOT_IN_DOCUMENT": "the document does not state that unit",
+}
+
+
 class TableTransformArguments(
     RootModel[
         Annotated[
@@ -478,6 +550,7 @@ class DocumentTableTransformArguments(
             | ResampleArguments
             | SummarizeArguments
             | AddDocumentColumnArguments
+            | DocumentRowArguments
             | JoinTableArguments
             | RebaseArguments
             | ChangeArguments
@@ -544,6 +617,8 @@ def _named(source: AnalyticalResult, requested: str) -> str:
 def _table_input(arguments: BaseModel) -> TableInput | None:
     if isinstance(arguments, (TableTransformArguments, DocumentTableTransformArguments)):
         selected = arguments.root
+        if isinstance(selected, DocumentRowArguments):
+            return None  # Its source is a document, not a table.
         others = (selected.other,) if isinstance(selected, JoinTableArguments) else ()
         return TableInput(source=selected.source, others=others)
     return None
@@ -632,12 +707,118 @@ def make_table_transform_tool(
             return failure("workspace_evidence", f"The {role} table cannot be verified")
         return table, origin
 
+    def document_row(selected: DocumentRowArguments, context: ExecutionContext) -> ToolResult:
+        """A row of months across a table the turn already holds, as a monthly column.
+
+        Nothing is fetched: the document is the one a step of this turn read, under its id,
+        and the table is chosen by page and position as `inspect` shows them.
+        """
+        held = context.outputs.get(selected.source)
+        document, table_file = getattr(held, "document", None), getattr(held, "table", None)
+        origin = getattr(held, "source", None)
+        media_type = getattr(held, "media_type", None)
+        if (document is None and table_file is None) or origin is None or media_type is None:
+            return failure(
+                "table_reference",
+                f"{selected.source!r} is not a document read in this turn; read it first, then "
+                "give the id of that read",
+            )
+        found = [
+            grid
+            for grid in grids(table_file, document)
+            if selected.page is None or grid.location.get("page") == selected.page
+        ]
+        if selected.table > len(found):
+            where = f"page {selected.page}" if selected.page is not None else "the document"
+            return failure(
+                "table_reference",
+                f"{where} has {len(found)} table(s); there is no table {selected.table}",
+            )
+        grid = found[selected.table - 1]
+        unit = None
+        if selected.unit is not None:
+            unit = unit_of(selected.unit)
+            stated = normalize_search_text(
+                " ".join(
+                    [text for _, text in document_passages(held) or ()]
+                    + [" ".join(_text(cell) for cell in row) for row in grid.rows]
+                    + [" ".join(_text(header) for header in grid.headers)]
+                )
+            )
+            code = (
+                "UNIT_NOT_RECOGNISED"
+                if unit is None
+                else "UNIT_NOT_IN_DOCUMENT"
+                if f" {normalize_search_text(selected.unit)} " not in f" {stated} "
+                else None
+            )
+            if code is not None:
+                return failure("needs_input", f"document_row {code}: {_ROW_REFUSALS[code]}")
+        try:
+            read = read_row(
+                grid,
+                selected.row,
+                label=selected.label,
+                year=selected.year,
+                columns=selected.columns,
+                unit=unit,
+                as_of=as_of(origin),
+            )
+        except ColumnRefused as error:
+            reason = _ROW_REFUSALS.get(error.code, "the row could not be read")
+            return failure("needs_input", f"document_row {error.code}: {reason}")
+        csv = csv_parsing(table_file)
+        source_node = (
+            lineage.record(
+                NodeKind.SOURCE_FILE,
+                origin.source_id,
+                attributes={
+                    "source_type": origin.source_type,
+                    "locator": origin.locator,
+                    "content_hash": origin.content_hash or "",
+                    "media_type": media_type,
+                },
+            )
+            if lineage is not None
+            else None
+        )
+        result = table_result(
+            read, origin, source_node=source_node, csv=csv, tool="table_transform"
+        )
+        recorded = {**selected.model_dump(mode="json"), "document_source_id": origin.source_id}
+        node = None
+        if lineage is not None:
+            node = lineage.record(
+                NodeKind.TRANSFORM, "table_transform_document_row", attributes=recorded
+            )
+            if result.evidence is not None:
+                result = result.model_copy(
+                    update={"evidence": result.evidence.model_copy(update={"lineage_node": node})}
+                )
+        result = _record_execution(
+            connection,
+            producer="table_transform",
+            arguments=canonical(recorded),
+            inputs=[table_snapshot(read, origin, media_type, csv=csv)],
+            result=result,
+        )
+        return ToolResult(
+            ToolStatus.SUCCESS,
+            step_id="",
+            tool="table_transform",
+            output=result,
+            warnings=tuple(result.warnings),
+            evidence=node,
+        )
+
     def run(arguments: BaseModel, context: ExecutionContext) -> ToolResult:
         if not isinstance(
             arguments, (TableTransformArguments, DocumentTableTransformArguments)
         ):  # pragma: no cover
             raise TypeError("table_transform received arguments it did not declare")
         selected = arguments.root
+        if isinstance(selected, DocumentRowArguments):
+            return document_row(selected, context)
         resolved = resolve(selected.source, context, "source")
         if isinstance(resolved, ToolResult):
             return resolved
@@ -926,6 +1107,14 @@ def make_table_transform_tool(
                 + ", with the header of its month column and of the value column. Months must "
                 "be explicit, one row per month; the value header must state its unit in "
                 "parentheses. It needs no catalog_search and does not convert frequency."
+                "\n- document_row: the other shape of a document table, months across the "
+                "header and one row per year or series. source is the id of the step that "
+                "read the document, page and table as inspect shows them, row the row's "
+                "label (a year, a series name) and label the new column's name; year when "
+                "neither the row nor the page states it, unit as the document states it. "
+                "The row's month cells become a monthly column that summarize and change "
+                "read (its highest and lowest month, month-over-month changes); totals and "
+                "ranges such as 'Ocak-Ağustos' are left out, an empty cell stays empty."
                 if document_fetch is not None or readable
                 else ""
             )
