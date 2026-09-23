@@ -37,3 +37,16 @@ def test_an_operator_secret_is_still_removed_beside_a_shown_address():
     secret = "sk-local-0123456789abcdef"
     shown = safe_text(f"`{READ}` anahtar {secret}", secrets=(secret,), shown_urls=frozenset({READ}))
     assert READ in shown and secret not in shown
+
+
+def test_only_bare_https_addresses_can_be_known():
+    from kkb_agent.api.projection import public_addresses
+
+    offered = [
+        READ,
+        f"{READ}?token=1",
+        f"{READ}#k=1",
+        "https://u:p@x.example/a",
+        "http://x.example/a",
+    ]
+    assert public_addresses(offered) == frozenset({READ})

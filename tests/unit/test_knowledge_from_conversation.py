@@ -533,3 +533,23 @@ def test_a_new_version_saved_in_a_turn_is_read_and_the_old_one_stays(stack, tmp_
     with open_lakehouse(later.run_root / session_id / "lake") as lake:
         assert rows_of(lake, v1.series_id) == [float(v) for v in ADMISSIONS]
         assert rows_of(lake, v2.series_id) == [2.0 * v for v in ADMISSIONS]
+
+
+def test_a_new_conversation_may_name_where_a_saved_series_came_from(stack):  # noqa: F811
+    """Live 2026-09-23 the answer named the address a saved series was read from, and the
+    reader saw "[gizli bilgi kaldırıldı]": nothing in that turn had read the address. The
+    knowledge base's record of it is the evidence; an address nothing vouches for stays hidden.
+    """
+    build, store, knowledge, _ = stack
+    save_from_address(build, store)
+    saved = knowledge.dataset(SLUG)
+    source = "https://example.org/veri/gelir.csv"
+    stray = "https://elsewhere.example/phish"
+    reader, _ = build(
+        call("lakehouse", series=[saved.series_id]),
+        call(FINISH, answer=f"Kaynak: `{source}` ve ayrıca {stray} adresine bakın."),
+    )
+    reader._trust_loop = True
+    shown = reader(empty_conversation(store), uuid4().hex, "Şirket geliri serisini oku").text
+    assert source in shown
+    assert stray not in shown and "[gizli bilgi kaldırıldı]" in shown

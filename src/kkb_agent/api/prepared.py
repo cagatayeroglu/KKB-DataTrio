@@ -1237,6 +1237,22 @@ class PreparedRunner:
             document_name(position): reference for position, reference in enumerate(references, 1)
         }
 
+    def _known_addresses(self, question: str) -> tuple[str, ...]:
+        """Addresses an answer may show beyond this turn's reads, each with its evidence.
+
+        The person's own question, and the recorded source of every saved series in the
+        knowledge base (scheme, host and path; the query was never kept). Any other
+        address in an answer - one a model took from a document's text, say - stays
+        hidden: nothing vouches for it.
+        """
+        found = list(addresses_in(question))
+        if self._knowledge is not None:
+            for item in self._knowledge.datasets(include_archived=False):
+                source = dict(item.provenance).get("source_url")
+                if source:
+                    found.append(source)
+        return tuple(found)
+
     def _document_origin(self, session_id: str, reference: str) -> tuple[tuple[str, str], ...]:
         """Where a stored document came from, for what is saved from it.
 
@@ -1654,6 +1670,7 @@ class PreparedRunner:
                         answered,
                         turn_id=turn_id,
                         published=published,
+                        known_urls=self._known_addresses(effective_question),
                         related=tuple(
                             (item, build_proof(lake.connection, item, secrets=self._redactions))
                             for item in related.values()

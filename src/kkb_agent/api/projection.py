@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from urllib.parse import urlsplit
 from uuid import UUID, uuid5
 
@@ -101,20 +102,32 @@ def _read_urls(answered: Answered) -> frozenset[str]:
     "[gizli bilgi kaldırıldı]" where the TCMB address it had read belonged (N48, live W5).
     An address with a query or credentials stays hidden.
     """
-    found: set[str] = set()
+    found: list[str] = []
     for item in answered.outcome.results:
         if item.tool == "web_url":
             source = getattr(item.output, "source", None)
-            candidate = str(getattr(source, "locator", "") or "")
+            found.append(str(getattr(source, "locator", "") or ""))
         elif item.tool == "document_read":
-            candidate = str(getattr(item.output, "document", "") or "")
-        else:
-            continue
+            found.append(str(getattr(item.output, "document", "") or ""))
+    return public_addresses(found)
+
+
+def public_addresses(candidates: Iterable[str]) -> frozenset[str]:
+    """The https addresses among `candidates` that carry no query, fragment or credentials.
+
+    Only these may stand in an answer as written: a query or a fragment is where a signed
+    link keeps its token, and credentials are credentials. Which candidates are offered
+    at all is the caller's evidence - read, searched, written by the person, or recorded
+    as a saved series' source - never whatever address an answer happens to contain.
+    """
+    found: set[str] = set()
+    for candidate in candidates:
         parts = urlsplit(candidate)
         if (
             parts.scheme == "https"
             and parts.hostname
             and not parts.query
+            and not parts.fragment
             and "@" not in parts.netloc
             and not any(c.isspace() for c in candidate)
         ):
@@ -432,8 +445,15 @@ def project_answer(
     secrets: tuple[str, ...] = (),
     proof: Proof | None = None,
     related: tuple[tuple[AnalyticalResult, Proof], ...] = (),
+    known_urls: Iterable[str] = (),
 ) -> Answer:
     """The caller proves publication by reading its own workspace, not by a flag.
+
+    `known_urls` are addresses the caller holds evidence for beyond this turn's reads:
+    those the person wrote in the question, and the recorded sources of the knowledge
+    base's saved series. Live 2026-09-23 a new conversation read a saved series, the
+    answer named the address it had been saved from, and the reader was shown
+    "[gizli bilgi kaldırıldı]" in its place.
 
     No candidate result, raw outcome, omitted sentence, verdict exception,
     locator, transformation parameters or source content is serialized.
@@ -480,7 +500,9 @@ def project_answer(
         text = safe_text(
             gate.text,
             secrets=secrets,
-            shown_urls=_searched_urls(answered) | _read_urls(answered),
+            shown_urls=(
+                _searched_urls(answered) | _read_urls(answered) | public_addresses(known_urls)
+            ),
         )
     if gate.omitted:
         notices.append("Doğrulanamayan bazı ifadeler yanıttan çıkarıldı.")
