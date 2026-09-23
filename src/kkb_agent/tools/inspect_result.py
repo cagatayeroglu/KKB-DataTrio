@@ -38,7 +38,10 @@ class InspectArguments(BaseModel):
     source: str = Field(
         min_length=1,
         max_length=64,
-        description="The id of an earlier action, or the name of a published table",
+        description=(
+            "The id of a call made for this question (a1, ...), or the name of a table "
+            "published in this conversation (analiz_1, ...)"
+        ),
     )
     columns: list[str] | None = Field(
         default=None,
@@ -317,7 +320,9 @@ def make_inspect_tool() -> ToolSpec:
                 error_category="table_reference",
                 warnings=(
                     f"{arguments.source!r} ne bir tablo ne de okunmuş bir metin. "
-                    f"Elde olanlar: {known}",
+                    f"Elde olanlar: {known}. Sohbetteki bir belgeyi ya da bir sayfayı bu "
+                    "soruda henüz hiçbir çağrı okumadıysa önce onu okuyan aracı çağır, "
+                    "sonra o çağrının kimliğini ver.",
                 ),
             )
         rows = _rows(found, arguments.columns)
@@ -357,11 +362,15 @@ def make_inspect_tool() -> ToolSpec:
             "numbered parts; page=N reads one page, table=J (with page=N, the J-th table "
             "on that page) reads one of its tables row by row. This is how you read the "
             "rest of anything that came back clipped, and how you pick rows or cells out "
-            "of a document you already fetched: fetching it again is not how. Give "
-            "source=<an action id or a "
-            "published table name>, optionally columns, page, table, offset and limit. "
-            "Nothing is fetched and nothing is changed; continue with offset=next_offset "
-            "while more is true."
+            "of a document you already fetched: fetching it again is not how. "
+            "source is either the id of a call made for this question (a1, a2, ...) or "
+            "the name of a table published in this conversation (analiz_1, ...). It is not "
+            "the conversation's history, it does not know the ids of earlier questions, "
+            "and it does not open a document that no call of this question has read: to "
+            "read a conversation document (belge_1, ...) or a page again, call the tool "
+            "that reads it, then inspect that call's id. Optionally columns, page, table, "
+            "offset and limit. Nothing is fetched and nothing is changed; continue with "
+            "offset=next_offset while more is true."
         ),
         arguments=InspectArguments,
         run=run,

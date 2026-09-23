@@ -17,18 +17,20 @@ What the harness does here is narrow and mechanical:
 It decides nothing about order, phase, sufficiency or when a question is
 answered. Those are stated in the system prompt and left to the model.
 
-Context is the model's too. Each iteration it may write `state`: a note to its
-own next turn. What travels forward is that note plus the observations of the
-last iteration, not a projection the harness chose. Results themselves never
-expire — every action has an id and its output stays in the workspace, so a
-later action reads it by name instead of carrying its bytes.
+The served model calls tools natively, so the exchange itself is what travels
+from one iteration to the next: the calls it made and the results that answered
+them, oldest dropped first when they no longer fit. Results themselves never
+expire — every call gets an id (a1, a2, …) and its output stays in the workspace,
+so a later call reads it by that id instead of carrying its bytes. A reply in the
+structured form (`AgentStep` as JSON) is still read, and its `state` note carried,
+for a platform without native calls; the served model is not told about it.
 """
 
 from __future__ import annotations
 
 import json
 import time
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, is_dataclass
 from typing import Any, Final
 
@@ -211,13 +213,17 @@ def tool_menu(registry: ToolRegistry) -> list[dict[str, Any]]:
                     "Yeterli kanitin oldugunda bunu cagir ve turu bitir. "
                     f"answer: okuyucuya gidecek Turkce cevap, en fazla {MAX_ANSWER_CHARS} "
                     "karakter. "
-                    "publish: okuyucuya gosterilecek sonucun id'si."
+                    "publish: okuyucuya gosterilecek sonucun id'si (a1, a2, ...) ya da "
+                    "yayimlanmis bir tablonun adi. "
+                    "ask: yalniz sorunun ne istedigini gercekten anlamadiginda, okuyucuya "
+                    "soracagin tek soru; o zaman answer neyi bilmedigini kisaca soyler."
                 ),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "answer": {"type": "string"},
                         "publish": {"type": "string"},
+                        "ask": {"type": "string"},
                     },
                     "required": ["answer"],
                 },
@@ -379,13 +385,13 @@ def _wire(action: Action) -> str:
     return action.call_id or action.id
 
 
-#: Said once when the oldest of the exchange no longer fits. It names the two things
-#: that do survive, because both are the model's own: the note it writes itself, and
-#: a result, which is still there under its id whether or not its bytes are in view.
+#: Said once when the oldest of the exchange no longer fits. It names what does survive:
+#: a result is still there under its id whether or not its bytes are in view. It used to
+#: say to write what mattered into a `state` note, a field no natively calling model has.
 DROPPED: Final = (
     "Bu turun en eski araç sonuçları artık istemde değil (yer bütçesi). Silinmediler: "
-    "her sonuç kendi id'siyle duruyor, inspect ile yeniden açabilir ya da bir araca "
-    "source olarak verebilirsin. Taşımak istediğin şeyi state notuna yaz."
+    "her sonuç kendi id'siyle duruyor ve aşağıda listeleniyor; inspect ile yeniden "
+    "açabilir ya da bir araca source olarak verebilirsin."
 )
 
 #: Words this loop uses to talk about a call. Dropped only from a tool that does not
@@ -528,6 +534,10 @@ def _asked_for(completion: Completion, taken: int = 0) -> AgentStep | None:
                 done=True,
                 reply=str(finished.arguments.get("answer") or "").strip() or None,
                 publish=str(finished.arguments.get("publish") or "") or None,
+                # The one way a natively calling model can ask: the prompt told it to
+                # use `ask` and the menu had no such field, so a genuine question
+                # could only be written as an answer and never became a clarification.
+                ask=str(finished.arguments.get("ask") or "").strip()[:1500] or None,
                 actions=[a for a in actions if a.tool != FINISH],
                 malformed=tuple(malformed),
             )
@@ -814,14 +824,20 @@ def run_turn(
     model: str | None = None,
     budget: Budget | None = None,
     context: Mapping[str, str] = {},
+    data: Sequence[str] = (),
     published: Mapping[str, object] = {},
     tracer: Tracer | None = None,
 ) -> TurnOutcome:
     """Drive one question to the point where the model says it can answer.
 
-    `context` is whatever the caller already knows — the conversation so far, the
-    table the reader has selected — passed through without interpretation. The
-    loop adds nothing to it and removes nothing from it.
+    `context` is what the system itself states (today's date): it travels as
+    instructions. `data` is what the conversation holds — its earlier questions and
+    answers, its tables, its documents, the page an address in the question leads to,
+    the table the reader selected — and it travels as user turns before the question,
+    never as instructions: a document's headers are text someone else wrote. The
+    served platform folds every system turn into one leading system message, so a
+    document note sent as a system turn would have become part of the instructions.
+    The loop adds nothing to either and removes nothing from them.
     """
     limits = budget or Budget()
     outcome = TurnOutcome()
@@ -842,6 +858,7 @@ def run_turn(
     native = False
     preamble = [Message(Role.SYSTEM, instructions)]
     preamble += [Message(Role.SYSTEM, text) for text in context.values() if text]
+    preamble += [Message(Role.USER, text) for text in data if text]
     #: Platform call ids of tool turns the exchange budget pushed out of view.
     gone: set[str] = set()
 

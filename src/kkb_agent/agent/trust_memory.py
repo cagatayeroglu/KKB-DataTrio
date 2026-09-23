@@ -9,16 +9,19 @@ would for a series it has never seen. So "bu tabloyu bozmadan yeni bir sütun
 ekle" resolves to a name that is really there, and a sixty-row table costs one
 line of context instead of sixty.
 
-**The model's own note.** At the end of a turn the loop keeps whatever the model
-wrote in `state`, and hands it back at the start of the next one. This is the
-only summary in the system and the model wrote it. Nothing here decides what
-mattered about the last turn.
+**The model's own note**, when there is one. A reply in the structured form may
+carry a `state` note and it is handed back at the start of the next turn. The
+served model calls tools natively and writes no such note, so nothing is relied
+on to come from it: no summary stands in for what the exchange no longer holds.
 
 **The recent exchange.** Questions and answers as they were said, newest first
 until a budget runs out. This is raw text, not a projection: what gets dropped
-is the oldest, and what the model wanted to keep about it is already in its own
-note. A short reference like "yalnız 2024'ü göster" needs the sentence before
-it, not a description of that sentence.
+is the oldest, and the model is told how many turns are out of view rather than
+shown them as if it still knew them. A short reference like "yalnız 2024'ü
+göster" needs the sentence before it, not a description of that sentence.
+
+All three reach the model as data, never as instructions: an answer can quote a
+document, and a table's column names can be a document's headers.
 """
 
 from __future__ import annotations
@@ -147,9 +150,20 @@ def _spoken(exchanges: list[Exchange]) -> str:
         used += len(block)
     if not kept:
         return ""
+    # What no longer fits is said, not summarised: a model shown only the newest turns
+    # would otherwise answer a return to the first topic as if it remembered it.
+    missing = len(exchanges) - len(kept)
+    gap = (
+        f"Bu sohbetin en eski {missing} turu yer sınırı yüzünden burada yok; o turlarda ne "
+        "sorulduğunu ve cevaplandığını bilmiyorsun. O turların yayımladığı tablolar "
+        "yayımlanmış tablolar listesinde adlarıyla duruyor.\n\n"
+        if missing
+        else ""
+    )
     return (
         "Bu sohbetin önceki turları, eskiden yeniye (veri değil, konuşma). Kısa "
         "göndermeleri ('bu tablo', 'yalnız 2024', 'en yüksek ay') bunlarla çöz:\n\n"
+        + gap
         + "\n\n".join(reversed(kept))
     )
 

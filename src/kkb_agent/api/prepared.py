@@ -568,6 +568,23 @@ def stored_conversation(store: ConversationStore, session_id: str) -> Conversati
     )
 
 
+def selection_note(selected: SelectedTable | None) -> str | None:
+    """Which published table the reader asked about, for the loop, or None.
+
+    The planned turn enforced the selection in code; the loop was told nothing, so
+    "bu tabloya ekle" asked with `analiz_1` selected had only the table list to go on,
+    and the newest table in it was `analiz_3`. The selection was resolved and checked
+    against its version before the turn started, so the name here is that version.
+    """
+    if selected is None:
+        return None
+    return (
+        f"Okuyucu bu soruyu yayımlanmış {selected.name} tablosunu seçerek sordu. Sorudaki "
+        "'bu tablo', 'seçili tablo' gibi göndermeler bu tabloyu gösterir; sohbette en son "
+        f'yayımlanan tablo değildir. Araçlara source="{selected.name}" olarak verilir.'
+    )
+
+
 def _recent(history: Sequence[tuple[str, str]], turns: int | None) -> tuple[tuple[str, str], ...]:
     """The earlier turns a planner is shown: the owner's count, or every kept turn."""
     if turns is None:
@@ -1414,6 +1431,20 @@ class PreparedRunner:
                             # Named results from earlier turns, so a tool given one of
                             # those names finds it without reading the series again.
                             published=workspace.values(),
+                            # What the planned turn was always shown and the loop was
+                            # not (QA-30): the conversation's documents by name with
+                            # their tables' headers, what the address in the question
+                            # offers, and the table the reader picked. As data, never
+                            # as instructions.
+                            data=[
+                                note
+                                for note in (
+                                    document_note,
+                                    address_note,
+                                    selection_note(selected_table),
+                                )
+                                if note
+                            ],
                         )
                         self._memory[session_id] = turn.conversation
                         answered = as_answered(effective_question, turn.outcome, turn.answer)

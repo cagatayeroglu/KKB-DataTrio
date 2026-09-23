@@ -8,7 +8,7 @@ phase, no continuation and no separate writer to arbitrate between.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -55,19 +55,25 @@ class TrustSession:
         question: str,
         *,
         context: Mapping[str, str] = {},
+        data: Sequence[str] = (),
         conversation: Conversation | None = None,
         published: Mapping[str, AnalyticalResult] = {},
     ) -> Turn:
         """Run the loop for one question, then report what it found.
 
-        `conversation` is what earlier turns left: the model's own carry note and
-        the exchange as it was spoken. `published` is what those turns put on the
-        table, seeded into the workspace so a tool handed one of those names finds
-        it. Both are updated when the turn ends, so the next question starts where
-        this one stopped.
+        `conversation` is what earlier turns left: the exchange as it was spoken, and
+        the model's carry note when it wrote one. `published` is what those turns put
+        on the table, seeded into the workspace so a tool handed one of those names
+        finds it. Both are updated when the turn ends, so the next question starts
+        where this one stopped. `data` is what this turn brings besides: the
+        conversation's documents, the page an address in the question leads to, the
+        table the reader selected.
+
+        Everything the conversation holds reaches the model as data, not as
+        instructions; only the date is the system's own statement.
         """
         memory = conversation or Conversation()
-        known = dict(memory.context(dict(published)))
+        known = dict(context)
         if self.today is not None:
             known["today"] = f"Bugünün tarihi: {self.today.isoformat()}."
         outcome = run_turn(
@@ -77,7 +83,8 @@ class TrustSession:
             instructions=self.instructions,
             model=self.model,
             budget=self.budget,
-            context={**known, **context},
+            context=known,
+            data=[*memory.context(dict(published)).values(), *data],
             published=dict(published),
             tracer=self.tracer,
         )
