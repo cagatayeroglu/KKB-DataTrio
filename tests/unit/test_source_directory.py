@@ -780,3 +780,38 @@ def test_a_maturity_column_never_outranks_its_own_row_for_a_question_about_the_r
     assert intent_key(question, row) < intent_key(question, band)
     maturity = "yedi gün vadeli kredi kartı ödemelerinden borçlar"
     assert intent_key(maturity, band) <= intent_key(maturity, row)
+
+
+DEPOSIT_ROW = "TP Mevduat / Katılım Fonları - Yurt İçi Yerleşik"
+COMPONENT_ROW = "Yurt İçi Bankalarca İhraç Edilen Tahviller"
+
+
+def test_a_row_the_source_names_in_a_currency_is_about_that_currency(catalogue):
+    """Measured 2026-09-23: the deposit rows publish maturity as their columns, so the
+    row's own total is their only cell. Reading that cell as `total` made the `TP` in a
+    question a conflict, and conflicts outrank every score."""
+    from kkb_agent.catalog.ranking import _candidate_intent
+
+    _, effective = catalogue
+    named = [item for item in effective.series if item.record.title == DEPOSIT_ROW]
+    assert named
+    assert {_candidate_intent(item).currency for item in named} == {"try"}
+    assert {_candidate_intent(item).component for item in named} == {"total"}
+    # A row the source names in no currency still reads as the total it is, and an
+    # explicit TP or YP cell still decides its own currency.
+    siblings = {
+        _candidate_intent(item).component: _candidate_intent(item).currency
+        for item in effective.series
+        if item.record.title == COMPONENT_ROW
+    }
+    assert siblings == {"total": "total", "tp": "try", "yp": "foreign"}
+
+
+def test_a_question_that_names_a_row_retrieves_that_row(catalogue):
+    """Measured 2026-09-23: the row scored highest of every document in the catalogue
+    and the intent order then dropped it out of the ten candidates altogether, leaving
+    rows that match `mevduat` nowhere."""
+    _, effective = catalogue
+    candidates = found(effective, "TP mevduat yurt içi yerleşik").candidates
+    assert candidates[0].series.record.title == DEPOSIT_ROW
+    assert "mevduat" in candidates[0].matched_terms
