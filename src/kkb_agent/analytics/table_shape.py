@@ -241,20 +241,55 @@ def _steps_apart(earlier: Period, later: Period) -> int | None:
     return None
 
 
+def _predecessor(
+    ordered: Sequence[tuple[ResultValue, Period]],
+    position: int,
+    outside: Sequence[tuple[ResultValue, Period]],
+    lag: int,
+) -> tuple[ResultValue, bool] | None:
+    """The value `lag` calendar steps before a cell, and whether the store supplied it.
+
+    Where the calendar cannot count steps (an irregular column), the row `lag` above is
+    the predecessor, as it always was.
+    """
+    _, period = ordered[position]
+    for earlier, earlier_period in reversed(ordered[:position]):
+        apart = _steps_apart(earlier_period, period)
+        if apart is None:
+            return (ordered[position - lag][0], False) if position >= lag else None
+        if apart == lag:
+            return earlier, False
+        if apart > lag:
+            break
+    for earlier, earlier_period in outside:
+        if _steps_apart(earlier_period, period) == lag:
+            return earlier, True
+    return None
+
+
 def period_change(
     source: AnalyticalResult,
     *,
     column_label: str,
     kind: ChangeKind,
     lag: int = 1,
+    preceding: Sequence[ResultValue] = (),
 ) -> ChangedColumn:
     """Add the period-over-period change of one column; every existing cell is kept.
 
     `difference` is value[t] - value[t-lag] in the column's own unit (points for a rate or
     an index); `percent` is (value[t] / value[t-lag] - 1) * 100 and needs a positive
     predecessor, so it is refused for a rate (its change is read in points) and left empty
-    where the predecessor is zero or negative. A period whose predecessor is missing - the
-    first `lag` rows, or the row after a gap - gets no value: nothing is bridged.
+    where the predecessor is zero or negative.
+
+    Each period's predecessor is the period `lag` steps before it on the calendar, never
+    merely the row above it: a table of three separate months does not subtract one from
+    another. It is taken from the table, else from `preceding` — the same series' own
+    values the caller read from the store, in the column's unit, scale, measure and
+    calendar — and a value read that way completes a change and is never a row of its own.
+    So a window of 2021-2025 answers for January 2021 from December 2020, and a table of
+    three chosen months compares each with its own previous month (B1, 2026-09-23). A
+    period whose predecessor is in neither gets no value: nothing is bridged.
 
     A column whose unit a document did not state is still a column of numbers: its percent
     change is a plain percentage, and its difference carries the same unresolved unit the
@@ -267,7 +302,7 @@ def period_change(
     column = [value for value in source.values if value.label == column_label]
     if not column:
         raise TableShapeRefused(f"No values are labelled {column_label!r}")
-    if len(column) <= lag:
+    if len(column) <= lag and not preceding:
         raise TableShapeRefused(
             f"{column_label} has too few rows for a change over {lag} period(s)"
         )
@@ -311,17 +346,28 @@ def period_change(
     else:
         unit, scale, measure = first.unit, first.scale, first.measure
     ordered = sorted(cells, key=lambda cell: cell[1].end)
+    frequency = next(iter(frequencies))
+    held = {period.end for _, period in ordered}
+    outside = [
+        (value, value.period)
+        for value in preceding
+        if value.period is not None
+        and value.period.frequency is frequency
+        and value.period.end not in held
+        and (value.unit, value.scale, value.measure) == (first.unit, first.scale, first.measure)
+        and isfinite(value.value)
+    ]
     changed: list[ResultValue] = []
-    gaps = 0
+    missing = 0
+    from_store = 0
     undefined = 0
-    for position, (value, period) in enumerate(ordered):
-        if position < lag:
+    for position, (value, _period) in enumerate(ordered):
+        found = _predecessor(ordered, position, outside, lag)
+        if found is None:
+            missing += 1
             continue
-        earlier, earlier_period = ordered[position - lag]
-        apart = _steps_apart(earlier_period, period)
-        if apart is not None and apart != lag:
-            gaps += 1
-            continue
+        earlier, stored = found
+        from_store += stored
         if kind == "percent":
             if earlier.value <= 0:
                 undefined += 1
@@ -357,8 +403,10 @@ def period_change(
             "column": column_label,
             "kind": kind,
             "lag": lag,
-            "periods_without_predecessor": lag + gaps,
+            "periods_without_predecessor": missing,
+            "predecessors_read_from_store": from_store,
             "periods_with_nonpositive_predecessor": undefined,
+            "predecessor": "the period lag steps earlier on the calendar",
             "fill": "none",
         },
         input_refs=[source.result_id, column_label],

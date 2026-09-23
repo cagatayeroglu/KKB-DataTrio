@@ -62,7 +62,9 @@ def to_flow_column(
         raise AccumulationRefused(
             f"{column_label} is declared {semantics.cumulative.value}; only a series recorded as "
             "yearly_reset or since_inception may be converted, and the declaration decides, "
-            "not the shape of the values"
+            "not the shape of the values. A stock accumulates nothing: the amount each "
+            "period added or took away is its change (table_transform change, "
+            "kind=difference)"
         )
     if semantics.frequency is not Frequency.MONTHLY:
         raise AccumulationRefused(f"{column_label} is not monthly; no other frequency is converted")

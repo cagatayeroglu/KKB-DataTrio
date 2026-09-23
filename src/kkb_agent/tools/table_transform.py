@@ -23,6 +23,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace as replace_semantics
 from datetime import UTC, date, datetime
+from math import isfinite
 from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, RootModel, model_validator
@@ -976,7 +977,15 @@ def make_table_transform_tool(
                 )
                 result = _documented(selected, source, column, document, source_node, csv)
         else:
-            result = _closed_transform(selected, source)
+            preceding: tuple[ResultValue, ...] = ()
+            if isinstance(selected, ChangeArguments):
+                # Each period's own predecessor, when the column is a stored series and the
+                # table does not hold it: December 2020 for January 2021, or the month before
+                # each of three chosen months. Read to complete changes, never a row.
+                preceding = _preceding_values(
+                    connection, selected.column, source, inspector=inspector
+                )
+            result = _closed_transform(selected, source, preceding=preceding)
         if resolution is not None and result.status is ResultStatus.COMPUTED:
             result = result.model_copy(
                 update={
@@ -1071,7 +1080,14 @@ def make_table_transform_tool(
             "- change: how much a column rose or fell each period, month over month or day "
             "over day (kind=difference in the "
             "column's unit, or kind=percent; lag=12 for a year earlier on monthly data); "
-            "marks the largest rise and fall; the period after a gap stays empty.\n"
+            "marks the largest rise and fall. Each period is compared with the period lag "
+            "steps before it on the calendar, never with the row above: from the table, or "
+            "from the store when the column is a stored series (the month before a window, "
+            "the month before each chosen month), and those are never added as rows. A "
+            "grouped or derived column is in no store: read the month before the window "
+            "too, group, change, then filter to the months to show. For a stock (a "
+            "balance) a difference is the net change of the balance, not new deposits or "
+            "new lending, which a balance does not record.\n"
             "- resample: a weekly or daily column reduced to months by the series' declared "
             "aggregation - a rate averaged, a flow summed, a stock at its last period "
             "(week_assignment is required for a weekly column) - so a weekly "
@@ -1129,9 +1145,66 @@ def make_table_transform_tool(
     )
 
 
+def _preceding_values(
+    connection: DuckDBPyConnection,
+    column: str,
+    source: AnalyticalResult,
+    *,
+    inspector: PreparedSeriesInspector | None,
+) -> tuple[ResultValue, ...]:
+    """The stored series' own values for periods the table does not hold.
+
+    A change needs each period's predecessor, and a table holds the periods the reader
+    asked to see: its first month's predecessor, or the month before each of three chosen
+    months, is outside it although the store holds it. Only a column that is itself a
+    stored series is looked up; a column a document or an earlier transform produced is
+    in no store and keeps the behaviour it had — for a grouped column, the base month has
+    to travel through the chain (read it, group it, change it, then filter to the months
+    shown). A cumulative series' per-period amount is to_flow, not a difference, so it
+    is not completed here. `period_change` uses these only to complete changes, never as
+    rows, and records how many it used.
+    """
+    cells = {value.period.end for value in source.values if value.label == column and value.period}
+    if not cells:
+        return ()
+    try:
+        series = read_series(connection, column, inspector=inspector)
+    except SeriesUnknown:
+        return ()
+    semantics = series.semantics
+    if semantics.cumulative is not CumulativeKind.NONE:
+        return ()
+    found: list[ResultValue] = []
+    for item in series.observations:
+        if item.value is None or item.period_end in cells or not isfinite(item.value):
+            continue
+        try:
+            period = Period(
+                start=item.period_start,
+                end=item.period_end,
+                frequency=semantics.frequency,
+                weekly_anchor=semantics.anchor,
+            )
+        except ValueError:
+            continue
+        found.append(
+            ResultValue(
+                label=column,
+                value=item.value,
+                unit=semantics.unit,
+                scale=semantics.scale,
+                measure=semantics.observation,
+                period=period,
+            )
+        )
+    return tuple(found)
+
+
 def _closed_transform(
     arguments: RebaseArguments | ChangeArguments | AlignArguments | FilterArguments,
     source: AnalyticalResult,
+    *,
+    preceding: Sequence[ResultValue] = (),
 ) -> AnalyticalResult:
     """Apply one no-I/O operation and preserve the source as a separate artifact."""
     try:
@@ -1140,7 +1213,11 @@ def _closed_transform(
                 arguments,
                 source,
                 period_change(
-                    source, column_label=arguments.column, kind=arguments.kind, lag=arguments.lag
+                    source,
+                    column_label=arguments.column,
+                    kind=arguments.kind,
+                    lag=arguments.lag,
+                    preceding=preceding,
                 ),
             )
         if isinstance(arguments, RebaseArguments):
@@ -1255,6 +1332,20 @@ def _changed(
             *source.limitations,
             f"Only {changed.label} is new ({CHANGE_FORMULAS[arguments.kind]}); a period whose "
             "predecessor is missing has no change value, and existing columns are unchanged",
+            *(
+                # A balance's difference is how much the balance moved, net. It is not the
+                # period's new deposits or new lending, which a balance does not record.
+                [
+                    f"{changed.label} is the net change of a balance (closing minus the "
+                    "previous closing); it is not the gross amount newly deposited or lent"
+                ]
+                if arguments.kind == "difference"
+                and any(
+                    value.label == arguments.column and value.measure is StockFlow.STOCK
+                    for value in source.values
+                )
+                else []
+            ),
         ],
         unresolved_semantics=list(
             dict.fromkeys(
