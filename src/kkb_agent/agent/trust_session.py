@@ -16,7 +16,7 @@ from duckdb import DuckDBPyConnection
 
 from kkb_agent.agent.observer import Tracer
 from kkb_agent.agent.registry import ToolRegistry
-from kkb_agent.agent.trust_answer import Answer, write_answer
+from kkb_agent.agent.trust_answer import Answer, unsupported_figures, write_answer
 from kkb_agent.agent.trust_loop import Budget, TurnOutcome, run_turn
 from kkb_agent.agent.trust_memory import Conversation
 from kkb_agent.agent.trust_prompt import INSTRUCTIONS
@@ -87,6 +87,7 @@ class TrustSession:
             data=[*memory.context(dict(published)).values(), *data],
             published=dict(published),
             tracer=self.tracer,
+            review=lambda text, done: unsupported_figures(text, done, self.connection),
         )
         answer = write_answer(
             question,

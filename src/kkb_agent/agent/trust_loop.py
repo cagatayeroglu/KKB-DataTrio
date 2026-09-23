@@ -30,11 +30,11 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, is_dataclass
 from typing import Any, Final
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, PrivateAttr
 
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
 from kkb_agent.agent.observer import MAX_ATTRIBUTE_CHARS, MAX_DETAIL_CHARS, Tracer
@@ -113,6 +113,9 @@ class AgentStep(BaseModel):
     malformed: tuple[Malformed, ...] = ()
     #: The answer itself, when the model wrote prose instead of calling anything.
     reply: str | None = None
+    #: The `finish` call itself, when the model made one: a reply to it is how the loop
+    #: can say something about the answer before the turn ends. Never in the schema.
+    _finished: Action | None = PrivateAttr(default=None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,7 +127,10 @@ class Budget:
     #: join per column - and one look at the table before joining ran the default of
     #: eight out; the turn closed while the model was still checking pages. Every cell
     #: was right. The time and call counters below still bound a turn that wanders.
-    max_iterations: int = 12
+    #: Twelve ran out on the same question again (live 2026-09-23 18:18, 8011): two rounds
+    #: went to a refused join and a stray argument, and the reader was told a column could
+    #: not be recomputed. The answer's review (`REVIEW`) may take one round more.
+    max_iterations: int = 16
     max_tool_calls: int = 20
     max_actions_per_iteration: int = 4
     max_wall_seconds: float = 300.0
@@ -535,7 +541,7 @@ def _asked_for(completion: Completion, taken: int = 0) -> AgentStep | None:
             )
         finished = next((a for a in actions if a.tool == FINISH), None)
         if finished is not None:
-            return AgentStep(
+            step = AgentStep(
                 done=True,
                 reply=str(finished.arguments.get("answer") or "").strip() or None,
                 publish=str(finished.arguments.get("publish") or "") or None,
@@ -546,6 +552,8 @@ def _asked_for(completion: Completion, taken: int = 0) -> AgentStep | None:
                 actions=[a for a in actions if a.tool != FINISH],
                 malformed=tuple(malformed),
             )
+            step._finished = finished
+            return step
         return AgentStep(actions=actions, malformed=tuple(malformed))
     if isinstance(completion.parsed, AgentStep):
         return completion.parsed
@@ -671,6 +679,19 @@ CLOSABLE: Final = frozenset({"iterations", "tool calls", "time"})
 #: Closing requests at most: the first, and one more when the first asked for tools.
 CLOSING_ATTEMPTS: Final = 2
 
+#: The reply to a `finish` whose answer holds figures no tool of the turn returned. Said
+#: once a turn, and it refuses nothing: finishing with the same answer again ends the turn
+#: with it, and the reader is told about those figures as before. Live 2026-09-23 (A3) the
+#: model wrote "the light-commercial share stayed within 19-23%" from the table by eye; the
+#: share was 24.1% in August, and the reader was only told afterwards that 19 and 23 had
+#: no tool behind them.
+REVIEW: Final = (
+    "Cevabındaki şu sayılar bu turdaki hiçbir araç sonucunda yok: {figures}. Bir hesap "
+    "gerekiyorsa (fark, oran, pay, en yüksek/en düşük, toplam) onu yapan aracı çağır ve "
+    "sayıyı onun sonucundan al; gerekmiyorsa o sayıları cevaptan çıkar. Sonra `finish`'i "
+    "yeniden çağır. Sayıların doğru olduğundan eminsen aynı cevabı yeniden verebilirsin."
+)
+
 #: Said again when the closing request was answered with tool calls.
 CLOSING_AGAIN: Final = (
     "İstediğin araçlar çalıştırılmadı: araç bütçesi doldu ve kapanışta araç çalışmaz. "
@@ -691,7 +712,7 @@ CLOSED: Final = (
 
 #: Error categories of calls answered without being run. Bookkeeping between the loop
 #: and the model; nothing a reader is told.
-NOT_RUN: Final = frozenset({"deferred", "closed"})
+NOT_RUN: Final = frozenset({"deferred", "closed", "review"})
 
 
 def _not_run(action: Action, reason: str, *, category: str = "deferred") -> Observation:
@@ -832,8 +853,13 @@ def run_turn(
     data: Sequence[str] = (),
     published: Mapping[str, object] = {},
     tracer: Tracer | None = None,
+    review: Callable[[str, TurnOutcome], Sequence[str]] | None = None,
 ) -> TurnOutcome:
     """Drive one question to the point where the model says it can answer.
+
+    `review` reads an answer the model finished with and names the figures in it that no
+    tool returned; the first time it names any, the model is shown them and asked once to
+    compute or drop them (`REVIEW`), and decides again.
 
     `context` is what the system itself states (today's date): it travels as
     instructions. `data` is what the conversation holds — its earlier questions and
@@ -866,6 +892,7 @@ def run_turn(
     preamble += [Message(Role.USER, text) for text in data if text]
     #: Platform call ids of tool turns the exchange budget pushed out of view.
     gone: set[str] = set()
+    reviewed = False
 
     while True:
         if outcome.iterations >= limits.max_iterations:
@@ -935,7 +962,40 @@ def run_turn(
             outcome.ask = step.ask
             break
         if not step.actions and not step.malformed:
-            break
+            figures = (
+                review(step.reply, outcome)
+                if review is not None
+                and not reviewed
+                and step.reply
+                and outcome.iterations < limits.max_iterations
+                and time.monotonic() - started <= limits.max_wall_seconds
+                else ()
+            )
+            if not figures:
+                break
+            reviewed = True
+            finish = step._finished or Action(
+                id=f"a{len(outcome.observations) + 1}", tool=FINISH, arguments={}
+            )
+            item = Observation(
+                finish,
+                ToolResult(
+                    ToolStatus.FAILURE,
+                    finish.id,
+                    FINISH,
+                    error_category="review",
+                    warnings=(REVIEW.format(figures="; ".join(figures[:12])),),
+                ),
+            )
+            # Not the answer yet: if a counter runs out now, the closing request asks for
+            # one with whatever the model computed since in view.
+            outcome.reply = None
+            outcome.observations.append(item)
+            carried = [item]
+            if tracer is not None:
+                tracer.event("loop", "review", figures=len(figures))
+                _recorded(tracer, item)
+            continue
 
         carried = []
         for unread in step.malformed:

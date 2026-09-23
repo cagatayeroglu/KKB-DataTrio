@@ -432,6 +432,22 @@ def _report(
     return reported, quoted, unattested
 
 
+def unsupported_figures(
+    text: str, outcome: TurnOutcome, connection: DuckDBPyConnection | None
+) -> list[str]:
+    """The figures of a draft the reader would be told no tool returned, before it is sent.
+
+    The same check the answer gets afterwards (`_checked`), asked while the model can
+    still act on it: what it names here is what would be listed under the answer.
+    """
+    results = _computed(outcome)
+    read = any(_is_document(item.result.output) for item in outcome.observations if item.ok)
+    if not text or not (results or read):
+        return []
+    reported, _, _ = _report(text, results, connection, _documents(outcome))
+    return reported
+
+
 def _is_document(output: object) -> bool:
     """Whether a tool returned something read: a document, a page, or a window of one."""
     return isinstance(output, InspectOutput) or bool(document_passages(output))
