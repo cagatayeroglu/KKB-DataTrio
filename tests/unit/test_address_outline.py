@@ -225,6 +225,8 @@ def test_a_transient_read_is_asked_once_more_and_the_log_says_so():
             "code": None,
             "attempts": 2,
             "bytes": len(SCRIPT),
+            # Whether the turn's session rode on the request; never its value.
+            "session": False,
         }
     ]
     assert {entry["kind"] for entry in cache.log} == {"page", "script", "data"}

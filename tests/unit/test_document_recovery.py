@@ -130,3 +130,26 @@ class TestWhereAWindowIs:
             seen.extend(str(row["text"]) for row in result.output.values)
             offset = result.output.next_offset
         assert "".join(seen) == "a" * 9_000 + "kısa" + "b" * 13_000
+
+
+def test_json_escaping_does_not_hide_the_cursor():
+    """Codex QA on a1893c5, verbatim: the budget holds on the wire, not on raw text."""
+    content = '"' * 50000 + "tail"
+    result = look(page(content), limit=60)
+    wire = json.loads(_describe(result, "a1"))
+    assert not wire.get("clipped"), "JSON escaping hid next_offset"
+    assert wire["output"]["next_offset"] > 0
+
+
+def test_the_worst_escaping_still_fits_one_segment_and_keeps_its_cursor():
+    """Control characters escape to six; one such segment still travels whole."""
+    content = "\x01" * 30_000
+    offset: int | None = 0
+    seen = 0
+    while offset is not None:
+        result = look(page(content), offset=offset, limit=60)
+        wire = json.loads(_describe(result, "a1"))
+        assert not wire.get("clipped")
+        seen += sum(len(row["text"]) for row in wire["output"]["values"])
+        offset = wire["output"]["next_offset"]
+    assert seen == 30_000

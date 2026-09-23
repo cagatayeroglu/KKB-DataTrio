@@ -74,6 +74,7 @@ from kkb_agent.ingest.safe_fetch import (
     FetchSuccess,
     safe_fetch,
 )
+from kkb_agent.ingest.script_navigation import ScriptedLinks, script_links
 from kkb_agent.ingestion_policy import MIME_TYPES, AdmissionError, FileKind
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.lakehouse.result_evidence import _record_execution, canonical
@@ -387,6 +388,12 @@ class WebUrlOutput:
     #: shown said how the document was reached.
     followed_text: str | None = field(default=None, repr=False)
     followed_from: str | None = field(default=None, repr=False)
+    #: Functions this page's markup calls with literal arguments whose target its
+    #: same-origin script does not spell out statically (`ingest.script_navigation`).
+    #: Said so, rather than guessed: nothing is evaluated.
+    unresolved_navigation: tuple[str, ...] = ()
+    #: Scripted targets read and then refused for leaving the page's authority.
+    refused_navigation: int = 0
 
 
 def _link_name(link: PageLink) -> str:
@@ -555,10 +562,19 @@ def read_document(
         base = (
             page.effective_locator.get_secret_value() if page.effective_locator is not None else url
         )
+        scripted = script_links(page.content, base, fetch)
         try:
-            link = choose_link(page_links(page.content, base), follow)
+            link = choose_link((*page_links(page.content, base), *scripted.links), follow)
         except LinkRefused as error:
-            return DocumentRead(WebUrlOutput("needs_input", error.code), "needs_input")
+            return DocumentRead(
+                WebUrlOutput(
+                    "needs_input",
+                    error.code,
+                    unresolved_navigation=scripted.unresolved,
+                    refused_navigation=scripted.refused,
+                ),
+                "needs_input",
+            )
         url = link.url
         via = (_link_name(link), _page_locator(base))
 
@@ -596,13 +612,19 @@ def read_document(
         keep(outcome.media_type, outcome.content)
     read = _loaded(loaded, source, outcome.media_type)
     if read.failure is None:
+        listing = isinstance(read.output.document, HtmlDocument) and follow is None
+        scripted = (
+            script_links(outcome.content, source.locator, fetch) if listing else ScriptedLinks()
+        )
         read = replace(
             read,
             output=replace(
                 read.output,
-                links=page_links(outcome.content, source.locator)
-                if isinstance(read.output.document, HtmlDocument) and follow is None
+                links=(*page_links(outcome.content, source.locator), *scripted.links)
+                if listing
                 else (),
+                unresolved_navigation=scripted.unresolved,
+                refused_navigation=scripted.refused,
                 followed=follow is not None,
                 followed_text=via[0] if via is not None else None,
                 followed_from=via[1] if via is not None else None,
@@ -889,7 +911,10 @@ def make_web_url_tool(
             "explicit "
             "rectangular tables; no JavaScript or CSS rendering. When the data sits behind a "
             "link on the page the user gave (a PDF or spreadsheet), give follow with that "
-            "link's visible text or file name; only same-site links are followed. Image "
+            "link's visible text or file name; only same-site links are followed. A page's "
+            "links include a row or button that opens its target through the page's own "
+            "same-origin script, when that script spells the address out in plain text; a "
+            "call it could not read that way is listed under unresolved_navigation. Image "
             "addresses are not supported. To build a monthly table that later turns can use, "
             "give period_column and up to twelve value_columns instead of column and "
             "row: months must be explicit, one row per month. A value header should state its unit "

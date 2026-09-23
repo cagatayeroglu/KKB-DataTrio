@@ -116,6 +116,9 @@ def fetch_in_process(
     failure = FetchFailure(source_ref=request.source_ref, code=FetchCode.TRANSPORT_FAILURE)
     data = request.model_dump(mode="json")
     data["url"] = request.url.get_secret_value()
+    if request.cookie is not None:
+        # Excluded from every export; handed to the worker explicitly, like the locator.
+        data["cookie"] = request.cookie.get_secret_value()
     message = {"request": data, "limits": limits.model_dump(mode="json")}
     if monthly is not None:
         from kkb_agent.ingest.bddk_monthly_request import MONTHLY_LIMITS, MonthlyRequest

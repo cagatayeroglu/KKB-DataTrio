@@ -35,7 +35,8 @@ class FetchLimits(ContractModel):
     Response bytes count the encoded HTTP body; decompressed bytes count the
     decoded HTTP body, independently of XLSX archive expansion in M1. Read time
     limits a stalled read; total time bounds the entire operation. No retries
-    or automatic proxy/cookie/credential behavior are authorized by this type.
+    or automatic proxy/cookie/credential behavior are authorized by this type: a
+    cookie is only ever sent because a caller put one in the request.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -78,6 +79,21 @@ class FetchRequest(ContractModel):
     #: address is not delegated: its site may redirect as it likes, and the page
     #: the fetch ends on is the origin every later hop is measured against.
     stay_within_origin: StrictBool = False
+    #: A `Cookie` header the caller's turn session holds for this exact origin
+    #: (`ingest.fetch_session`). Sent on the first hop only and never on a redirect;
+    #: a secret, so it is masked, excluded from exports and never logged.
+    cookie: SecretStr | None = Field(default=None, repr=False, exclude=True)
+
+    @model_validator(mode="after")
+    def cookie_is_pairs(self) -> Self:
+        if self.cookie is not None:
+            from kkb_agent.ingest.fetch_session import session_origin, well_formed
+
+            if not well_formed(self.cookie.get_secret_value()):
+                raise ValueError("cookie must be bounded name=value pairs")
+            if session_origin(self.url.get_secret_value()) is None:
+                raise ValueError("a cookie is only sent over https")
+        return self
 
 
 class FetchCode(StrEnum):
@@ -125,6 +141,19 @@ class FetchSuccess(ContractModel):
     media_type: MediaType
     http_status: Annotated[int, Field(strict=True, ge=200, le=299)]
     effective_locator: SecretStr | None = Field(default=None, repr=False, exclude=True)
+    #: The name=value pairs the final response set over https, as one `Cookie`
+    #: value, with `name=` alone marking a deletion. Never from a redirect. A
+    #: secret: masked, excluded from exports, for the caller's turn session only.
+    set_cookie: SecretStr | None = Field(default=None, repr=False, exclude=True)
+
+    @model_validator(mode="after")
+    def set_cookie_is_pairs(self) -> Self:
+        if self.set_cookie is not None:
+            from kkb_agent.ingest.fetch_session import well_formed
+
+            if not well_formed(self.set_cookie.get_secret_value()):
+                raise ValueError("set_cookie must be bounded name=value pairs")
+        return self
 
     @model_validator(mode="after")
     def safe_effective_locator(self) -> Self:

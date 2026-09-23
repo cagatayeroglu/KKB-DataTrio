@@ -13,6 +13,8 @@ still there, and the only way to know they are is to look.
 
 from __future__ import annotations
 
+import json
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus, analytical
@@ -146,12 +148,19 @@ def _window_of_text(
     The window stops at `limit` rows or at a character budget below what one
     observation carries, whichever comes first, and always returns at least one row:
     a window the model is shown clipped is a window it cannot continue from.
+
+    The budget is measured on each row as it will be written to the model, not on its
+    raw text. JSON escapes a quote or a backslash into two characters and a control
+    character into six, so 24,000 raw characters of quotes became 48,000 on the wire,
+    the observation was clipped, and `next_offset` was cut off with it (Codex QA,
+    2026-09-23). Measured this way, even one segment of the worst case — 4,000 control
+    characters, 24,000 escaped — stays below what an observation carries.
     """
     rows = _segments(passages)
     window: list[dict[str, object]] = []
     used = 0
     for row in rows[arguments.offset : arguments.offset + arguments.limit]:
-        size = len(str(row["text"]))
+        size = len(json.dumps(row, ensure_ascii=False, default=str))
         if window and used + size > MAX_WINDOW_CHARS:
             break
         window.append(row)

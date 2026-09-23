@@ -35,6 +35,7 @@ from urllib.parse import unquote, urljoin, urlsplit
 from pydantic import JsonValue, SecretStr
 
 from kkb_agent.catalog.normalization import normalize_search_text
+from kkb_agent.ingest.fetch_session import MAX_COOKIES, cookie_header, session_origin
 from kkb_agent.ingest.fetched import DOCUMENT_MEDIA_TYPES, source_id_for
 from kkb_agent.ingest.json_table import MEDIA_TYPE as JSON_MEDIA_TYPE
 from kkb_agent.ingest.json_table import JsonRejected, load_records
@@ -46,6 +47,7 @@ from kkb_agent.ingest.safe_fetch import (
     FetchRequest,
     FetchSuccess,
 )
+from kkb_agent.ingest.script_navigation import SCRIPT_MEDIA_TYPES, script_links
 from kkb_agent.ingest.url_targets import same_origin
 
 type Fetcher = Callable[[FetchRequest], FetchOutcome]
@@ -62,7 +64,6 @@ MAX_PAGE_LINKS: Final = 20
 #: Characters of a listed link's visible text or last path segment.
 MAX_LINK_CHARS: Final = 80
 MAX_OUTLINE_BYTES: Final = 16 * 1024
-SCRIPT_MEDIA_TYPES: Final = ("application/javascript", "text/javascript")
 _DOCUMENT_SUFFIXES: Final = (".pdf", ".csv", ".xlsx", ".htm", ".html")
 _SCRIPT_SRC = re.compile(r"""<script\b[^>]*\bsrc\s*=\s*["']([^"'>]+)["']""", re.IGNORECASE)
 #: A relative data address in script text whose query ends open for one value.
@@ -94,10 +95,15 @@ class TurnFetchCache:
     log: list[dict[str, JsonValue]] = field(default_factory=list)
     #: The wait before asking again; a test passes a no-op.
     pause: Callable[[float], None] = time.sleep
+    #: This turn's HTTPS session (`ingest.fetch_session`): cookies a final response set,
+    #: by exact origin, returned only to that origin. Values are secrets and appear in
+    #: no log, trace or observation; the log records only whether a request carried one.
+    session: dict[str, dict[str, str]] = field(default_factory=dict, repr=False)
 
     def __call__(self, request: FetchRequest) -> FetchOutcome:
         key = (request.url.get_secret_value(), tuple(request.accepted_media_types))
         if key not in self.seen:
+            request = self._with_session(request)
             outcome = self.fetch(request)
             attempts = 1
             while (
@@ -110,6 +116,7 @@ class TurnFetchCache:
                 outcome = self.fetch(request)
                 attempts += 1
             self.seen[key] = outcome
+            self._remember(request, outcome)
             accepted = request.accepted_media_types
             self.log.append(
                 {
@@ -125,9 +132,46 @@ class TurnFetchCache:
                     "code": outcome.code.value if isinstance(outcome, FetchFailure) else None,
                     "attempts": attempts,
                     "bytes": len(outcome.content) if isinstance(outcome, FetchSuccess) else 0,
+                    "session": request.cookie is not None,
                 }
             )
         return self.seen[key]
+
+    def _with_session(self, request: FetchRequest) -> FetchRequest:
+        """The request, carrying this turn's session for its exact origin when there is one."""
+        origin = session_origin(request.url.get_secret_value())
+        header = cookie_header(self.session.get(origin, {})) if origin is not None else None
+        if header is None or request.cookie is not None:
+            return request
+        return FetchRequest(
+            source_ref=request.source_ref,
+            url=request.url,
+            accepted_media_types=request.accepted_media_types,
+            stay_within_origin=request.stay_within_origin,
+            cookie=SecretStr(header),
+        )
+
+    def _remember(self, request: FetchRequest, outcome: FetchOutcome) -> None:
+        """Keep what a final https response set, under the origin that answered."""
+        if not isinstance(outcome, FetchSuccess) or outcome.set_cookie is None:
+            return
+        answered = (
+            outcome.effective_locator.get_secret_value()
+            if outcome.effective_locator is not None
+            else request.url.get_secret_value()
+        )
+        origin = session_origin(answered)
+        if origin is None:
+            return
+        jar = self.session.setdefault(origin, {})
+        for pair in outcome.set_cookie.get_secret_value().split("; "):
+            name, _, value = pair.partition("=")
+            if value:
+                jar[name] = value
+            else:
+                jar.pop(name, None)
+        while len(jar) > MAX_COOKIES:
+            jar.pop(next(iter(jar)))
 
     def transient_failures(self) -> int:
         """Reads this turn lost to a timeout or a connection fault after every attempt."""
@@ -224,6 +268,10 @@ def outline_address(
                 outline["tables"] = tables
         return outline
     links = page_links(page.content, base)
+    # A listing whose rows are opened by the page's own script offers no anchor to
+    # follow; what its same-origin script spells out is read statically and listed
+    # first, since those are the page's own items and its anchors are mostly menu.
+    scripted = script_links(page.content, base, cache)
     documents = [
         {"text": link.text, "file": urlsplit(link.url).path.rsplit("/", 1)[-1]}
         for link in links
@@ -263,8 +311,10 @@ def outline_address(
                 break
     if endpoints:
         outline["data_endpoints"] = endpoints
+    if scripted.unresolved:
+        outline["unresolved_navigation"] = list(scripted.unresolved)
     if not documents and not endpoints:
-        if others := _other_links(links, base):
+        if others := _other_links((*scripted.links, *links), base):
             outline["page_links"] = others[:MAX_PAGE_LINKS]
             if len(others) > MAX_PAGE_LINKS:
                 outline["more_page_links"] = len(others) - MAX_PAGE_LINKS
@@ -312,7 +362,9 @@ def address_outline(
         "list their header texts, and one cell is read with column=<header> and row=<row "
         "label>. A page marked "
         "nothing_listed has no link, document or data endpoint to follow: read it only for a "
-        "table in its own HTML, and never guess column names. unread_resources counts page "
+        "table in its own HTML, and never guess column names. unresolved_navigation names "
+        "page script functions whose target could not be read statically; nothing was "
+        "guessed for them. unread_resources counts page "
         "scripts or data that could not be read this time, so the listing may be incomplete. "
         "A loaded document may be inspected once more to select a recorded link or typed "
         "extraction, or to summarize its text as an unverified document reading. " + payload

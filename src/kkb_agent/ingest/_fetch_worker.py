@@ -14,7 +14,7 @@ import socket
 import sys
 import time
 import zlib
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from contextlib import suppress
 from http.client import HTTPException
 from typing import TYPE_CHECKING
@@ -46,6 +46,15 @@ from kkb_agent.ingest.safe_fetch import (
 
 CONNECTED = b"CONNECTED\n"
 MAX_INPUT_BYTES = 64 * 1024
+
+
+def set_cookie_value(headers: Iterable[str]) -> str | None:
+    """A final response's cookies as one bounded `Cookie` value; `name=` is a deletion."""
+    from kkb_agent.ingest.fetch_session import MAX_COOKIE_BYTES, set_cookies
+
+    pairs = set_cookies(headers)
+    value = "; ".join(f"{name}={'' if kept is None else kept}" for name, kept in pairs.items())
+    return value if value and len(value.encode()) <= MAX_COOKIE_BYTES else None
 
 
 def fetch_once(
@@ -146,6 +155,10 @@ def fetch_once(
             if body is not None:
                 headers["Content-Type"] = content_type
                 headers.update(fixed_headers)
+            if request.cookie is not None and not hops and parsed.scheme == "https":
+                # The caller's session for this origin, on the request it asked for and
+                # never on a hop a response chose: a redirect may point anywhere.
+                headers["Cookie"] = request.cookie.get_secret_value()
             connection.request(
                 "POST" if body is not None else "GET", path, body=body, headers=headers
             )
@@ -155,9 +168,18 @@ def fetch_once(
             header_remaining = response.remaining_header_bytes
             location = redirect_location(response)
             if location is None:
+                # Only the final response's cookies, and only over https: they are what
+                # the page itself set for its own origin.
+                session = (
+                    set_cookie_value(response.msg.get_all("Set-Cookie") or ())
+                    if parsed.scheme == "https"
+                    else None
+                )
                 result = read_response(response, request, limits)
                 if time.monotonic() >= deadline:
                     raise TimeoutError
+                if session is not None:
+                    result = result.model_copy(update={"set_cookie": SecretStr(session)})
                 if hops:
                     result = result.model_copy(
                         update={
@@ -256,6 +278,8 @@ def main() -> int:
             encoded["content"] = base64.b64encode(result.content).decode("ascii")
             if result.effective_locator is not None:
                 encoded["effective_locator"] = result.effective_locator.get_secret_value()
+            if result.set_cookie is not None:
+                encoded["set_cookie"] = result.set_cookie.get_secret_value()
         sys.stdout.buffer.write(json.dumps(encoded).encode("ascii"))
         sys.stdout.buffer.flush()
         return 0
