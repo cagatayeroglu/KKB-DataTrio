@@ -278,10 +278,20 @@ def _candidate_intent(item: ReviewedSeries) -> _CandidateIntent:
     record = item.record
     text = normalize_search_text(" ".join([record.title, record.description or "", *record.labels]))
     exact_labels = {normalize_search_text(label) for label in record.labels}
+    display_text = normalize_search_text(" ".join([record.title, *record.labels]))
+    # The row's own name, read with the vocabulary a question is read with: a source
+    # writes "TP Mevduat ..." where a person writes "TP mevduat". The labels are left
+    # out on purpose - the component label is what this reading stands in for.
+    named_currency = _currency(normalize_search_text(record.title))
     currency: Currency | None
     component: Literal["total", "tp", "yp"] | None = None
     if "total" in exact_labels:
-        currency = "total"
+        # The component says which cell is read; it does not say what the measure is
+        # about. Where the source names the row in a currency and the row's own total
+        # is its only cell - the bulletin's "TP Mevduat ..." rows, whose columns are
+        # maturities - that name is the currency, and a question naming it must not be
+        # read as a conflict (DEC-194).
+        currency = named_currency or "total"
         component = "total"
     elif "yp" in exact_labels:
         currency = "foreign"
@@ -290,7 +300,6 @@ def _candidate_intent(item: ReviewedSeries) -> _CandidateIntent:
         currency = "try"
         component = "tp"
     else:
-        display_text = normalize_search_text(" ".join([record.title, *record.labels]))
         currency = next(
             (value for value, phrases in CANDIDATE_CURRENCY if _contains(display_text, phrases)),
             None,
