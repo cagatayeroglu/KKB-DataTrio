@@ -34,6 +34,19 @@ MAX_EVENTS: Final = 5_000
 MAX_DETAIL_CHARS: Final = 2_000_000
 MAX_ATTRIBUTE_CHARS: Final = 4_000
 MAX_ATTRIBUTES: Final = 64
+#: Failures whose message is recorded as the step's reason: validation faults that
+#: describe a field and a constraint, and the provider's transport family, whose
+#: messages are fixed templates with at most a status code or an exception class.
+_TOLD: Final = frozenset(
+    {
+        "SchemaViolation",
+        "PlanRejected",
+        "PlanningFailed",
+        "TransportError",
+        "RateLimited",
+        "ModelUnavailable",
+    }
+)
 #: Stages a reader can filter by; each is a phase of one turn.
 STAGES: Final = (
     "request",
@@ -198,7 +211,15 @@ class Tracer:
             # Without it a turn that died on validation says only "SchemaViolation",
             # and 113 seconds of planning left nothing anyone could act on
             # (live 2026-09-22). Everything else records its class alone.
-            told = type(error).__name__ in {"SchemaViolation", "PlanRejected", "PlanningFailed"}
+            #
+            # The provider's transport family is told too. Every message it raises is a
+            # fixed template carrying at most an HTTP status or an `httpx` exception class
+            # name — never a body, a URL or a credential (`llm.kloudeks`, all seven raise
+            # sites) — and the tracer still redacts what it records. Without it the jury's
+            # first live A1 (2026-09-23, run c00e2ae1) failed after 12 s with only
+            # "TransportError" in the trace, and a server 5xx, a dropped connection and a
+            # DNS failure could not be told apart after the fact.
+            told = type(error).__name__ in _TOLD
             span.failed(type(error).__name__, str(error) if told else None)
             self._record(span, started, max(0, round((time.monotonic() - begin) * 1000)), parent)
             raise

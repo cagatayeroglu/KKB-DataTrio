@@ -32,7 +32,15 @@ from kkb_agent.agent.trust_loop import (
 )
 from kkb_agent.html_loader import HtmlDocument
 from kkb_agent.llm import scripted
-from kkb_agent.llm.provider import Completion, Message, Role, ToolCall, TransportError
+from kkb_agent.llm.provider import (
+    Completion,
+    Message,
+    ModelUnavailable,
+    RateLimited,
+    Role,
+    ToolCall,
+    TransportError,
+)
 from kkb_agent.llm.structured import SchemaViolation, complete_with_repair
 from kkb_agent.tools.web_url import WebUrlOutput
 
@@ -239,3 +247,45 @@ class TestTheTraceKeepsWhatTheModelAskedAndSaw:
         # A secret is kept out of the record, whole and displayed alike.
         assert "SIR-DEGERI" not in event.detail
         assert "SIR-DEGERI" not in json.dumps(event.attributes)
+
+
+class TestAFailedModelRequestSaysWhy:
+    """QA-19: the jury's first live A1 failed with only "TransportError" in its trace.
+
+    A server 5xx, a dropped connection and a DNS failure could not be told apart
+    afterwards. The provider's transport family carries fixed-template messages — a
+    status code or an exception class name — and those are now the step's reason.
+    """
+
+    def _failing_turn(self, error: Exception) -> dict:
+        class Failing:
+            def complete(self, messages, **options):  # noqa: ARG002 - provider shape
+                raise error
+
+        tracer = Tracer()
+        with pytest.raises(type(error)):
+            run_turn(
+                "soru", provider=Failing(), registry=ToolRegistry(), instructions="", tracer=tracer
+            )
+        [iteration] = [e for e in tracer.events if e.stage == "loop" and e.name == "iteration"]
+        assert iteration.status == "failed"
+        return iteration.attributes
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            TransportError("Kloudeks transport failure (502)"),
+            TransportError("Kloudeks request failed (ReadError)"),
+            RateLimited("Kloudeks rate or quota limit reached (429)"),
+            ModelUnavailable("Kloudeks refused this model or path (404)"),
+        ],
+    )
+    def test_the_provider_reason_is_recorded(self, error):
+        attributes = self._failing_turn(error)
+        assert attributes["error_category"] == type(error).__name__
+        assert attributes["error_reason"] == str(error)
+
+    def test_any_other_failure_still_records_its_class_alone(self):
+        attributes = self._failing_turn(RuntimeError("text that may hold a secret"))
+        assert attributes["error_category"] == "RuntimeError"
+        assert "error_reason" not in attributes
