@@ -160,8 +160,8 @@ class WebUrlArguments(BaseModel):
         default=None,
         pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
         description=(
-            "Instead of url: the step_id of a web_search step of this plan, to read one of "
-            "the pages it found. Say which with `result` and list the step in depends_on. "
+            "Instead of url: the step_id of a completed web_search result, to read one of "
+            "the pages it found. Say which with `result`. "
             "Use this rather than writing an address out of a search result: the address is "
             "taken from what the search returned, so it is the page that was found"
         ),
@@ -187,7 +187,7 @@ class WebUrlArguments(BaseModel):
         pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
         description=(
             "With follow: the step_id of an already fetched web_url page. "
-            "Follow only a link recorded in that page; declare it in depends_on. "
+            "Follow only a link recorded in that page. "
             "Not a way to look inside a document you already have: that is inspect."
         ),
     )
@@ -932,9 +932,9 @@ def make_web_url_tool(
         description=(
             "Read CSV/XLSX tables, PDF text/ruled tables, or static HTML text/tables from a "
             "web address the user wrote in the question. Pass the address exactly as "
-            "written; any other address is refused. To read a page a web_search step of "
-            "this plan found, do not write its address out: give found_by=<that step_id> "
-            "with result=<which hit>, and list the step in depends_on - the address is then "
+            "written; any other address is refused. To read a page a completed web_search "
+            "found, do not write its address out: give found_by=<that step_id> "
+            "with result=<which hit> - the address is then "
             "taken from what the search returned. PDF tables may be ruled or set out with "
             "text alone. A CSV's column separator is detected "
             "from the file: give delimiter only when the user states one, and a CSV whose "
