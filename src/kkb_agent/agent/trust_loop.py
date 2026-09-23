@@ -131,7 +131,9 @@ class Budget:
     #: went to a refused join and a stray argument, and the reader was told a column could
     #: not be recomputed. The answer's review (`REVIEW`) may take one round more.
     max_iterations: int = 16
-    max_tool_calls: int = 20
+    #: Twenty ran out before sixteen rounds could (live 2026-09-23, B1 twice): with up to
+    #: four calls a round, the call counter closed turns the round counter allowed.
+    max_tool_calls: int = 30
     max_actions_per_iteration: int = 4
     max_wall_seconds: float = 300.0
     #: How much of the accumulated exchange travels. A counter, like the others: the

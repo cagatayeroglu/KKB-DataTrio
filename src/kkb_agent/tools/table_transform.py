@@ -390,11 +390,21 @@ class ChangeArguments(BaseModel):
     operation: Literal["change"]
     source: str = Field(pattern=r"^[A-Za-z0-9_.:-]{1,64}$", description=_SOURCE_UNCHANGED)
     column: str = Field(
-        min_length=1,
+        default="",
         max_length=400,
         description=(
             "The column's exact label (a fetched series' label is its series_id); a "
-            "one-column table is used as is"
+            "one-column table is used as is. Give `columns` instead for several"
+        ),
+    )
+    #: Live 2026-09-23 (B1) four columns' monthly changes took four calls, one after the
+    #: other, and the turn ran out of calls before the table was published.
+    columns: tuple[str, ...] = Field(
+        default=(),
+        max_length=32,
+        description=(
+            "Several columns' changes in one call, each added beside its column, the same "
+            "kind and lag for all; instead of `column`"
         ),
     )
     kind: Literal["difference", "percent"] = Field(
@@ -412,6 +422,12 @@ class ChangeArguments(BaseModel):
         "earlier on monthly data",
     )
     replace: bool = Field(default=False, description=_REPLACE)
+
+    @model_validator(mode="after")
+    def _one_way_to_name_columns(self) -> ChangeArguments:
+        if bool(self.column) == bool(self.columns):
+            raise ValueError("give `column` for one column or `columns` for several, not both")
+        return self
 
 
 class AlignArguments(BaseModel):
@@ -813,6 +829,45 @@ def make_table_transform_tool(
             evidence=node,
         )
 
+    def _each_column(
+        arguments: BaseModel, selected: ChangeArguments, context: ExecutionContext
+    ) -> ToolResult:
+        """`change` of several columns: the one-column change, run on each in turn.
+
+        Each step reads the table the step before it built, so the result holds every
+        column's change beside it, computed exactly as one call per column would.
+        """
+        outputs = dict(context.outputs)
+        source = selected.source
+        warnings: list[str] = []
+        done: ToolResult | None = None
+        for position, column in enumerate(selected.columns):
+            one = selected.model_copy(update={"column": column, "columns": (), "source": source})
+            step = run(
+                type(arguments).model_validate(one.model_dump()),
+                ExecutionContext(context.question, outputs=outputs, searched=context.searched),
+            )
+            output = step.output
+            if (
+                step.status is not ToolStatus.SUCCESS
+                or not isinstance(output, AnalyticalResult)
+                or output.status is not ResultStatus.COMPUTED
+            ):
+                return step
+            warnings.extend(w for w in step.warnings if w not in warnings)
+            source = f"__change_{position}"
+            outputs[source] = output
+            done = step
+        assert done is not None  # at least one column: the validator requires it
+        return ToolResult(
+            ToolStatus.SUCCESS,
+            done.step_id,
+            done.tool,
+            output=done.output,
+            warnings=tuple(warnings),
+            evidence=done.evidence,
+        )
+
     def run(arguments: BaseModel, context: ExecutionContext) -> ToolResult:
         if not isinstance(
             arguments, (TableTransformArguments, DocumentTableTransformArguments)
@@ -821,6 +876,8 @@ def make_table_transform_tool(
         selected = arguments.root
         if isinstance(selected, DocumentRowArguments):
             return document_row(selected, context)
+        if isinstance(selected, ChangeArguments) and selected.columns:
+            return _each_column(arguments, selected, context)
         resolved = resolve(selected.source, context, "source")
         if isinstance(resolved, ToolResult):
             return resolved
