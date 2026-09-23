@@ -20,6 +20,8 @@ import {
   annotateSeries,
   ApiError,
   datasetRequestFromExport,
+  CONVERSATION_SAVE_LIMIT,
+  describeDatasetSource,
   describeKnowledgeError,
   listKnowledge,
   openDataset,
@@ -41,6 +43,7 @@ import type {
   KnowledgeExport,
   SearchTrial,
   DatasetDetail,
+  DatasetSource,
   DatasetRequest,
   KnowledgeList,
   KnowledgeSeries,
@@ -1440,6 +1443,12 @@ function SeriesDetail({
       )}
       {detail && (
         <div className="knowledge-values">
+          {detail.source && (
+            <SourceLine
+              source={detail.source}
+              version={detail.history.at(-1)?.version ?? null}
+            />
+          )}
           <table>
             <thead>
               <tr>
@@ -1470,6 +1479,15 @@ function SeriesDetail({
                 {v.observations} gözlem ·{" "}
                 {new Date(v.created_at).toLocaleString("tr-TR")} ·{" "}
                 <code>{v.content_sha256.slice(0, 12)}</code>
+                {v.source && (
+                  <>
+                    {" "}
+                    · kaynak: {describeDatasetSource(v.source).origin}
+                    {describeDatasetSource(v.source).when
+                      ? ` (${describeDatasetSource(v.source).when})`
+                      : ""}
+                  </>
+                )}
               </li>
             ))}
           </ol>
@@ -1745,6 +1763,7 @@ function DatasetForm({
         değişmez. Birim ve anlamı sen beyan edersin; kayıt “incelenmedi” diye
         işaretlenir.
       </p>
+      <p className="helper">{CONVERSATION_SAVE_LIMIT}</p>
       <div className="knowledge-form grid">
         <label>
           Kısa ad (küçük harf, _)
@@ -1993,5 +2012,38 @@ function DatasetForm({
         </Button>
       </div>
     </section>
+  );
+}
+
+/**
+ * Where the latest version of a series saved from a conversation was read: the
+ * address as a link (http(s) only), when, the place in the document and the
+ * version. A saved series used to show nothing of this, so it could not be told
+ * from one typed into the form, nor one version's address from another's.
+ */
+function SourceLine({
+  source,
+  version,
+}: {
+  source: DatasetSource;
+  version: number | null;
+}) {
+  const said = describeDatasetSource(source);
+  return (
+    <div className="helper knowledge-source">
+      <p>
+        Sohbetten kaydedildi{version ? ` · sürüm v${version}` : ""} · kaynak:{" "}
+        {said.href ? (
+          <a href={said.href} target="_blank" rel="noopener noreferrer">
+            {said.origin}
+          </a>
+        ) : (
+          said.origin
+        )}
+        {said.when ? ` · ${said.when}` : ""}
+        {said.place ? ` · ${said.place}` : ""}
+      </p>
+      <p>{CONVERSATION_SAVE_LIMIT}</p>
+    </div>
   );
 }

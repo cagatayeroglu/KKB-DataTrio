@@ -14,6 +14,7 @@ import {
   seriesValuesSchema,
   type DatasetRequest,
   type DatasetDetail,
+  type DatasetSource,
   ownerSchema,
   resultSchema,
   runDetailSchema,
@@ -333,6 +334,43 @@ export function rebuildIndex(owner: string) {
     undefined,
     owner,
   );
+}
+/**
+ * What a conversation can keep, said where a person looks for it. The agent's
+ * save reads one monthly value column per call; anything else is entered here.
+ */
+export const CONVERSATION_SAVE_LIMIT =
+  "Sohbetten kayıt yalnız aylık dönemli tablolar için ve her seferinde tek bir değer sütunu kaydeder; birden çok sütun ayrı ayrı istenir. Haftalık, çeyreklik, yıllık ya da günlük veriyi bu formdan girin.";
+/**
+ * One version's source in the reader's words: where it was read, when, and
+ * the place inside the document. `href` is set only for an http(s) address,
+ * so nothing else a record holds is ever rendered as a link.
+ */
+export function describeDatasetSource(source: DatasetSource): {
+  origin: string;
+  href: string | null;
+  when: string | null;
+  place: string | null;
+} {
+  const url = source.url ?? null;
+  const href = url && /^https?:\/\//i.test(url) ? url : null;
+  const origin =
+    source.kind === "address"
+      ? (url ?? "adres")
+      : `sohbette yüklenen belge${source.document ? ` (${source.document})` : ""}`;
+  const when = source.read_at
+    ? `${source.kind === "address" ? "erişim" : "yükleme"} ${new Date(
+        source.read_at,
+      ).toLocaleString("tr-TR")}`
+    : null;
+  const parts = [
+    source.kind === "address" && source.document ? source.document : null,
+    source.sheet ? `sayfa: ${source.sheet}` : null,
+    source.page ? `s. ${source.page}` : null,
+    source.table ? `tablo ${source.table}` : null,
+    source.value_column ? `sütun “${source.value_column}”` : null,
+  ].filter((part): part is string => Boolean(part));
+  return { origin, href, when, place: parts.length ? parts.join(" · ") : null };
 }
 /**
  * Rebuild the versioned save request an exported dataset detail describes.

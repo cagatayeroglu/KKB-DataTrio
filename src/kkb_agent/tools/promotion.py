@@ -563,12 +563,37 @@ def _provenance(
     )
 
 
+#: The limit of a save from a conversation, as the person is told it. The same words the
+#: knowledge page says the same beside its form (`web/lib/client.ts`).
+SAVE_LIMIT: Final = (
+    "Sohbetten kayıt yalnız aylık dönemli tablolar için ve her seferinde tek bir değer "
+    "sütunu kaydeder; birden çok sütun ayrı ayrı istenir. Haftalık, çeyreklik, yıllık ya da "
+    "günlük veri Veri ve bilgi tabanı sayfasındaki formdan girilir."
+)
+
+#: A refusal said in words the model can pass on, where the code alone is the limit
+#: itself: without them a person asking to keep a quarterly table was told nothing
+#: about why, and the model had to guess at what the tool could do.
+_SAID: Final[dict[str, str]] = {
+    "NO_PERIOD_COLUMN": "Tabloda aylık dönem sütunu bulunamadı. " + SAVE_LIMIT,
+    "NO_MONTHLY_ROWS": "Tabloda okunabilir aylık satır yok. " + SAVE_LIMIT,
+    "PERIOD_COLUMN_NOT_SETTLED": (
+        "Tabloda birden çok ay sütunu var; hangisinin dönem olduğunu kişiye sor."
+    ),
+    "VALUE_COLUMN_NOT_SETTLED": (
+        "Tabloda birden çok değer sütunu var ve bir kayıt tek sütun tutar; hangisinin "
+        "(ya da her birinin ayrı ayrı) kaydedileceğini kişiye sor."
+    ),
+}
+
+
 def _refused(code: str) -> ToolResult:
+    said = _SAID.get(code, "")
     return ToolResult(
         ToolStatus.FAILURE,
         "promote",
         "promote_series",
-        PromotionOffer("refused", code),
+        PromotionOffer("refused", code, said),
         error_category="promotion_refused",
-        warnings=(code,),
+        warnings=(code, *((said,) if said else ())),
     )

@@ -2,12 +2,117 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   ApiError,
+  CONVERSATION_SAVE_LIMIT,
   datasetRequestFromExport,
+  describeDatasetSource,
   describeKnowledgeError,
   parseMonthlyRows,
 } from "../lib/client";
-import { knowledgeListSchema, noteHistorySchema } from "../lib/contracts";
+import {
+  datasetDetailSchema,
+  knowledgeListSchema,
+  noteHistorySchema,
+} from "../lib/contracts";
 import { forward, KNOWLEDGE_LIMIT, BODY_LIMIT } from "../lib/proxy";
+
+const SAVED_FROM_ADDRESS = {
+  kind: "address" as const,
+  url: "https://example.org/veri/gelir.csv",
+  read_at: "2026-09-23T10:00:00+00:00",
+  sha256: "b".repeat(64),
+  document: "belge_1",
+  page: null,
+  table: 1,
+  sheet: null,
+  period_column: "Ay",
+  value_column: "Gelir (milyon TL)",
+};
+
+test("a saved version carries its source; an older server and a typed-in version need not", () => {
+  const version = {
+    version: 1,
+    status: "active",
+    observations: 3,
+    content_sha256: "a".repeat(64),
+    created_at: "2026-09-23T10:00:01+00:00",
+  };
+  const detail = (extra: object, entry: object = version) =>
+    datasetDetailSchema.safeParse({
+      api_version: 1,
+      series: {
+        series_id: "USER:gelir.v1",
+        title: "Gelir",
+        provider: "USER",
+        origin: "user",
+        status: "active",
+        prepared: false,
+        fetchable: false,
+        unit: "TRY",
+        scale: "million",
+        frequency: "monthly",
+        stock_flow: "flow",
+        cumulative: "none",
+        base_year: null,
+        coverage_start: null,
+        coverage_end: null,
+        observations: 3,
+        aliases: [],
+        note: null,
+        version: 1,
+        slug: "gelir",
+        updated_at: null,
+        acquired_at: null,
+      },
+      source_kind: "upload",
+      description: null,
+      aggregation: "sum",
+      observations: [],
+      history: [entry],
+      ...extra,
+    });
+  assert.ok(
+    detail(
+      { source: SAVED_FROM_ADDRESS },
+      { ...version, source: SAVED_FROM_ADDRESS },
+    ).success,
+  );
+  assert.ok(detail({ source: null }, { ...version, source: null }).success);
+  assert.ok(detail({}).success); // an older server sends neither
+  // Still strict: nothing the page does not know is taken in.
+  assert.equal(
+    detail({ source: { ...SAVED_FROM_ADDRESS, token: "x" } }).success,
+    false,
+  );
+});
+
+test("a source is said in words, and only an http(s) address becomes a link", () => {
+  const said = describeDatasetSource(SAVED_FROM_ADDRESS);
+  assert.equal(said.href, "https://example.org/veri/gelir.csv");
+  assert.equal(said.origin, "https://example.org/veri/gelir.csv");
+  assert.match(said.when ?? "", /^erişim /);
+  assert.match(
+    said.place ?? "",
+    /belge_1 · tablo 1 · sütun “Gelir \(milyon TL\)”/,
+  );
+  assert.equal(
+    describeDatasetSource({ ...SAVED_FROM_ADDRESS, url: "javascript:alert(1)" })
+      .href,
+    null,
+  );
+  const upload = describeDatasetSource({
+    kind: "upload",
+    document: "belge_2",
+    read_at: "2026-09-23T10:00:00+00:00",
+  });
+  assert.equal(upload.href, null);
+  assert.equal(upload.origin, "sohbette yüklenen belge (belge_2)");
+  assert.match(upload.when ?? "", /^yükleme /);
+});
+
+test("what a conversation can keep is said plainly", () => {
+  assert.match(CONVERSATION_SAVE_LIMIT, /aylık/);
+  assert.match(CONVERSATION_SAVE_LIMIT, /tek bir değer sütunu/);
+});
 
 test("pasted monthly rows become month ends, and a bad line is named, not guessed", () => {
   const parsed = parseMonthlyRows(

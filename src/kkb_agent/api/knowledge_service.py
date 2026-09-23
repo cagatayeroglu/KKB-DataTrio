@@ -22,6 +22,7 @@ from pydantic import ValidationError
 from kkb_agent.api.contracts import (
     DatasetDetail,
     DatasetRequest,
+    DatasetSource,
     DatasetVersionSummary,
     DirectoryRefreshResult,
     KnowledgeList,
@@ -127,6 +128,41 @@ KNOWLEDGE_TABS = (
     "archived",
 )
 MAX_KNOWLEDGE_PAGE = 100
+
+
+def dataset_source(item: DatasetVersion) -> DatasetSource | None:
+    """Where a version's numbers were read, for the page; None for one typed into the form.
+
+    A conversation's save kept its source in the version (address, time read, bytes,
+    place in the document) and the page showed none of it, so a saved series could not
+    be told from one typed in, nor one version's address from another's.
+    """
+    if not item.provenance:
+        return None
+    where = dict(item.provenance)
+    read = where.get("retrieved_at") or where.get("uploaded_at")
+
+    def number(key: str) -> int | None:
+        value = where.get(key, "")
+        return int(value) if value.isdigit() else None
+
+    try:
+        return DatasetSource(
+            kind="address" if where.get("source_url") else "upload",
+            url=where.get("source_url"),
+            read_at=datetime.fromisoformat(read) if read else None,
+            sha256=where.get("sha256"),
+            document=where.get("document"),
+            page=number("location_page"),
+            table=number("location_table"),
+            sheet=where.get("location_sheet") or where.get("sheet"),
+            period_column=where.get("period_column"),
+            value_column=where.get("value_column"),
+        )
+    except (ValueError, ValidationError):
+        # A version whose recorded source does not read as one is shown without it,
+        # rather than making the whole record unreadable.
+        return None
 
 
 def _in_tab(item: KnowledgeSeries, tab: str) -> bool:
@@ -842,9 +878,11 @@ class KnowledgeService:
                     observations=len(item.observations),
                     content_sha256=item.content_sha256(),
                     created_at=item.created_at,
+                    source=dataset_source(item),
                 )
                 for item in self._knowledge.dataset_history(slug)
             ),
+            source=dataset_source(latest),
         )
 
     def values(self, owner_token: str, series_id: str) -> SeriesValues:

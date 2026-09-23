@@ -17,6 +17,7 @@ from datetime import date
 from uuid import uuid4
 
 from test_dataset_promotion import (  # noqa: F401
+    ADMISSIONS,
     SLUG,
     TITLE,
     TestAnAddressTheQuestionNamed,
@@ -25,7 +26,7 @@ from test_dataset_promotion import (  # noqa: F401
 )
 
 from kkb_agent.agent.trust_loop import FINISH
-from kkb_agent.api.knowledge_service import KnowledgeService
+from kkb_agent.api.knowledge_service import KnowledgeService, dataset_source
 from kkb_agent.api.prepared import address_origin
 from kkb_agent.api.store import ConversationStore
 from kkb_agent.catalog.search import CatalogSearchArguments, search_catalog
@@ -51,7 +52,7 @@ def empty_conversation(store: ConversationStore) -> str:
     return session_id
 
 
-def save_from_address(build, store, *, save_now: bool = True):
+def save_from_address(build, store, *, save_now: bool = True, content: bytes | None = None):
     """One message: read the address, keep it under a name; nothing uploaded before."""
     runner, _ = build(
         call("web_url", url=URL),
@@ -69,7 +70,7 @@ def save_from_address(build, store, *, save_now: bool = True):
         call(FINISH, answer="Tamam."),
     )
     runner._trust_loop = True
-    runner._web_url_fetch = TestAnAddressTheQuestionNamed._fetch(csv(), [])
+    runner._web_url_fetch = TestAnAddressTheQuestionNamed._fetch(content or csv(), [])
     session_id = empty_conversation(store)
     runner(session_id, uuid4().hex, f"{URL} adresindeki geliri getir ve bilgi tabanına kaydet")
     return runner, session_id
@@ -128,6 +129,82 @@ def test_another_conversation_after_a_restart_finds_it_by_its_alias(stack, tmp_p
         assert saved.series_id in [c.series.record.series_id for c in found.candidates]
         (record,) = [s for s in catalog.series if s.record.series_id == saved.series_id]
         assert "source_url=https://example.org/veri/gelir.csv" in record.note
+
+
+def rows_of(lake, series_id: str) -> list[float | None]:
+    return [
+        row[0]
+        for row in lake.connection.execute(
+            "SELECT value FROM silver_observations WHERE series_id = ? ORDER BY period_end",
+            [series_id],
+        ).fetchall()
+    ]
+
+
+def test_saving_the_same_series_again_is_a_new_version_and_the_old_one_stands(stack, tmp_path):  # noqa: F811
+    """The update: the address serves new numbers, the person saves it again.
+
+    It is the next version of the same record, with its own numbers and its own source;
+    the first version's numbers and source are exactly what they were. A conversation
+    that analysed the first version keeps it, and a new conversation is given the new one.
+    """
+    build, store, knowledge, _ = stack
+    earlier, _ = save_from_address(build, store)
+    with open_lakehouse(tmp_path / "earlier-conversation") as lake:
+        _, loaded = earlier._apply_knowledge(lake)
+    (first,) = knowledge.dataset_history(SLUG)
+    assert loaded == [first.series_id]
+
+    doubled = csv(values=[value * 2 for value in ADMISSIONS])
+    later, _ = save_from_address(build, store, content=doubled)
+    v1, v2 = knowledge.dataset_history(SLUG)
+    assert (v1.version, v2.version) == (1, 2)
+    assert v1.content_sha256() == first.content_sha256()  # untouched by the update
+    assert [o.value for o in v2.observations] == [2 * o.value for o in v1.observations]
+    old, new = dict(v1.provenance), dict(v2.provenance)
+    assert old["source_url"] == new["source_url"] == "https://example.org/veri/gelir.csv"
+    assert old["sha256"] != new["sha256"]  # each version names the bytes it was read from
+    assert old["retrieved_at"] <= new["retrieved_at"]
+
+    with open_lakehouse(tmp_path / "later-conversation") as lake:
+        catalog, loaded = later._apply_knowledge(lake)
+        listed = {item.record.series_id for item in catalog.series}
+        assert v2.series_id in listed and v1.series_id not in listed
+        assert loaded == [v2.series_id]
+        assert rows_of(lake, v2.series_id) == [o.value for o in v2.observations]
+    with open_lakehouse(tmp_path / "earlier-conversation") as lake:
+        # What an earlier analysis read is still there, beside the new version.
+        later._apply_knowledge(lake)
+        assert rows_of(lake, v1.series_id) == [o.value for o in v1.observations]
+        assert rows_of(lake, v2.series_id) == [o.value for o in v2.observations]
+
+    # The page shows each version with its own source, and the latest one on top.
+    _, page = build()
+    shown = page._detail(SLUG)
+    assert [item.source.sha256 for item in shown.history] == [old["sha256"], new["sha256"]]
+    assert shown.source == shown.history[-1].source
+    assert shown.source.kind == "address"
+    assert shown.source.url == "https://example.org/veri/gelir.csv"
+    assert shown.source.read_at is not None and shown.source.table == 1
+    assert (shown.source.period_column, shown.source.value_column) == ("Ay", "Gelir (milyon TL)")
+    assert "SECRET" not in shown.model_dump_json()
+
+
+def test_a_version_typed_into_the_form_has_no_source():
+    typed = DatasetVersion(
+        slug="elle_girilen",
+        version=1,
+        title="Elle girilen",
+        unit="TRY",
+        scale=Scale.ONE,
+        frequency=Frequency.MONTHLY,
+        stock_flow=StockFlow.FLOW,
+        cumulative=CumulativeKind.NONE,
+        aggregation=Aggregation.SUM,
+        observations=(),
+        source_kind="manual",
+    )
+    assert dataset_source(typed) is None
 
 
 def test_a_version_saved_before_provenance_keeps_its_identity():
@@ -336,3 +413,42 @@ def test_without_an_index_the_receipt_says_words_find_it(stack):  # noqa: F811
     runner, service = build()
     receipt = service.promote(proposal(empty_conversation(store), "kelime_serisi"))
     assert receipt.index == "lexical" and "anlamsal arama indeksi yok" in receipt.said()
+
+
+def attached(content: bytes):
+    from kkb_agent.core import SourceRef
+    from kkb_agent.ingest.attached import Attachment
+
+    return Attachment(
+        content,
+        "text/csv",
+        SourceRef(source_id="upload:x", source_type="upload", locator="upload:x"),
+    )
+
+
+def offer(content: bytes):
+    from kkb_agent.agent.executor import ExecutionContext
+    from kkb_agent.tools.promotion import make_promote_series_tool
+
+    tool = make_promote_series_tool(
+        session_id="s", attachment=attached(content), library={}, propose=lambda _: None
+    )
+    arguments = tool.parse({"title": TITLE, "unit": "TL", "meaning": "monthly_total"})
+    return tool.run(arguments, ExecutionContext("Bu tabloyu kaydet"))
+
+
+def test_a_table_that_is_not_monthly_is_refused_with_the_limit_said():
+    from kkb_agent.tools.promotion import SAVE_LIMIT
+
+    quarterly = b"Donem;Gelir\n2025-Q1;10\n2025-Q2;12\n2025-Q3;14\n"
+    refused = offer(quarterly)
+    assert refused.warnings[0] == "NO_PERIOD_COLUMN"
+    assert SAVE_LIMIT in refused.warnings[1] and "aylık" in refused.output.summary
+
+
+def test_two_value_columns_ask_which_one_to_keep():
+    from test_dataset_promotion import two_value_csv
+
+    refused = offer(two_value_csv())
+    assert refused.warnings[0] == "VALUE_COLUMN_NOT_SETTLED"
+    assert "tek sütun" in refused.warnings[1]

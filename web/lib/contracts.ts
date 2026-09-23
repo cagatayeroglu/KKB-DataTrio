@@ -732,6 +732,30 @@ export const knowledgeListSchema = z
     catalog_editable: z.boolean().optional(),
   })
   .strict();
+/**
+ * Where one version's numbers were read, when a conversation saved it: the
+ * address (scheme, host and path; the query is never kept) or an uploaded
+ * document, when it was read, and the place inside the document. A version
+ * typed into the form has none, and an older server sends none.
+ */
+export const datasetSourceSchema = z
+  .object({
+    kind: z.enum(["address", "upload"]),
+    url: z.string().max(512).nullable().optional(),
+    read_at: moment.nullable().optional(),
+    sha256: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .nullable()
+      .optional(),
+    document: z.string().max(40).nullable().optional(),
+    page: z.number().int().positive().nullable().optional(),
+    table: z.number().int().positive().nullable().optional(),
+    sheet: z.string().max(120).nullable().optional(),
+    period_column: z.string().max(120).nullable().optional(),
+    value_column: z.string().max(120).nullable().optional(),
+  })
+  .strict();
 export const datasetDetailSchema = z
   .object({
     api_version: z.literal(1),
@@ -760,12 +784,15 @@ export const datasetDetailSchema = z
             observations: z.number().int().nonnegative(),
             content_sha256: z.string().regex(/^[a-f0-9]{64}$/),
             created_at: moment,
+            source: datasetSourceSchema.nullable().optional(),
           })
           .strict(),
       )
       .max(500),
+    source: datasetSourceSchema.nullable().optional(),
   })
   .strict();
+export type DatasetSource = z.infer<typeof datasetSourceSchema>;
 export const noteHistorySchema = z
   .object({
     api_version: z.literal(1),

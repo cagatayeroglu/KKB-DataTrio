@@ -840,12 +840,34 @@ class DatasetRequest(ContractModel):
         return self
 
 
+class DatasetSource(ContractModel):
+    """Where one version's numbers were read, when a conversation saved it (DEC-183).
+
+    A version typed into the page's form has none. `url` is scheme, host and path of the
+    address the document was read from - the query is never kept - and is absent for a
+    document uploaded into the conversation. `read_at` is when the bytes were read or
+    uploaded; `sha256` names those bytes; the rest is the place inside the document.
+    """
+
+    kind: Literal["address", "upload"]
+    url: Annotated[str, StringConstraints(max_length=512)] | None = None
+    read_at: AwareDatetime | None = None
+    sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")] | None = None
+    document: Annotated[str, StringConstraints(max_length=40)] | None = None
+    page: int | None = None
+    table: int | None = None
+    sheet: Annotated[str, StringConstraints(max_length=120)] | None = None
+    period_column: Annotated[str, StringConstraints(max_length=120)] | None = None
+    value_column: Annotated[str, StringConstraints(max_length=120)] | None = None
+
+
 class DatasetVersionSummary(ContractModel):
     version: int
     status: Literal["active", "archived"]
     observations: int
     content_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
     created_at: AwareDatetime
+    source: DatasetSource | None = None
 
 
 class StoredObservation(ContractModel):
@@ -867,6 +889,8 @@ class DatasetDetail(ContractModel):
         tuple[StoredObservation, ...], Field(max_length=MAX_KNOWLEDGE_OBSERVATIONS)
     ] = ()
     history: Annotated[tuple[DatasetVersionSummary, ...], Field(max_length=500)] = ()
+    #: The latest version's source: the one these observations were read from.
+    source: DatasetSource | None = None
 
 
 class SeriesNoteRequest(ContractModel):
