@@ -102,7 +102,7 @@ def test_precise_aliases_and_generic_ambiguity(snapshot, query, expected):
     assert {c.series.record.series_id for c in result.candidates} == expected
     assert result.status == "MATCH"
     assert result.clarification_required  # Even one candidate needs semantic inspection.
-    assert result.analytical_evidence is result.observation_fetch_authorized is False
+    assert result.analytical_evidence is result.observations_included is False
 
 
 @pytest.mark.parametrize(

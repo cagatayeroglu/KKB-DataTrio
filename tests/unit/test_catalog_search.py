@@ -232,7 +232,7 @@ def test_real_ids_provenance_and_digest(tool):
         assert c.series.model_dump(mode="json") == originals[c.series.record.series_id]
         assert "SYNTH" not in c.series.record.series_id
     assert result.retrieval_mode == "lexical_only"
-    assert not result.observation_fetch_authorized and not result.analytical_evidence
+    assert not result.observations_included and not result.analytical_evidence
 
 
 @pytest.mark.parametrize("change", ["hash", "holdout", "synth"])
@@ -367,3 +367,24 @@ def test_two_disjoint_concepts_keep_unresolved_metadata(tool):
     assert ids(result) == {"EVDS:TP.KFE.TR10"}
     assert result.status == "PARTIAL" and result.clarification_required
     assert {c.concept_id for c in result.concepts} == {"cpi_level", "kfe_istanbul"}
+
+
+def test_what_the_model_is_shown_describes_the_listing_and_forbids_nothing(tool):
+    """The listing says what it is; permission is decided where a series is read.
+
+    `observation_fetch_authorized: false` described the listing and read as a ban:
+    live 2026-09-23 the model quoted it and declined to read any value. The guarantee
+    it stood for is unchanged and is asserted here in its own words — no values, no
+    evidence, untrusted ranking — and the reply still hands a reader nothing: the
+    tool result carries no evidence and the search opens no store.
+    """
+    from kkb_agent.agent.executor import ToolResult, ToolStatus
+    from kkb_agent.agent.trust_loop import _describe
+
+    result = search(tool, "konut kredisi")
+    assert result.untrusted_metadata is True
+    assert result.observations_included is False
+    assert result.analytical_evidence is False
+    seen = _describe(ToolResult(ToolStatus.SUCCESS, "a1", "catalog_search", output=result), "a1")
+    assert "authoriz" not in seen.lower()
+    assert '"observations_included": false' in seen

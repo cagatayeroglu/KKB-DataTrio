@@ -8,13 +8,18 @@ be down.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from pydantic import BaseModel, ConfigDict, Field
 
 from kkb_agent.agent.executor import ToolResult, ToolStatus
+from kkb_agent.agent.observer import Tracer
+from kkb_agent.agent.registry import ToolRegistry, ToolSpec
 from kkb_agent.agent.trust_answer import INTERRUPTED, write_answer
 from kkb_agent.agent.trust_loop import (
     MAX_OBSERVATION_CHARS,
+    MAX_TRACE_ARGUMENT_CHARS,
     Action,
     AgentStep,
     Observation,
@@ -23,8 +28,10 @@ from kkb_agent.agent.trust_loop import (
     _describe,
     _observed,
     _without_protocol_keys,
+    run_turn,
 )
 from kkb_agent.html_loader import HtmlDocument
+from kkb_agent.llm import scripted
 from kkb_agent.llm.provider import Completion, Message, Role, ToolCall, TransportError
 from kkb_agent.llm.structured import SchemaViolation, complete_with_repair
 from kkb_agent.tools.web_url import WebUrlOutput
@@ -105,9 +112,9 @@ class TestAnInterruptedServiceDoesNotLoseTheTurn:
     def test_what_the_tools_returned_is_delivered_without_the_writer(self):
         """The writer is the service that already stopped answering.
 
-        A turn that ended on a provider failure still has its observations and its
-        published table. Asking the same dead service to write prose and then
-        propagating its second failure threw all of that away.
+        A turn that ended on a provider failure still has its observations. Asking
+        the same dead service to write prose and then propagating its second failure
+        threw all of them away.
         """
 
         class Dead:
@@ -188,3 +195,47 @@ class TestProseMayEndATurn:
             complete_with_repair(
                 ask, [Message(Role.USER, "soru")], schema=AgentStep, max_attempts=1, model="m"
             )
+
+
+class TestTheTraceKeepsWhatTheModelAskedAndSaw:
+    """The record a reviewer reproduces a call from.
+
+    Arguments were cut to 4000 characters before the tracer saw them, so its own
+    clip marker never appeared: a long call looked complete and was not.
+    """
+
+    def test_a_long_call_is_marked_and_kept_whole_with_its_observation(self):
+        class Echo(BaseModel):
+            model_config = ConfigDict(extra="forbid")
+
+            text: str
+
+        def run(arguments, context):  # noqa: ARG001 - tool contract
+            return ToolResult(ToolStatus.SUCCESS, "", "echo", output={"got": len(arguments.text)})
+
+        registry = ToolRegistry()
+        registry.register(ToolSpec(name="echo", description="Echo.", arguments=Echo, run=run))
+        long_text = "z" * 9_000 + "SIR-DEGERI" + "tail"
+        provider = scripted(
+            (ToolCall("c1", "echo", json.dumps({"text": long_text})),),
+            (ToolCall("c2", "finish", '{"answer": "tamam"}'),),
+        )
+        tracer = Tracer(redactions=("SIR-DEGERI",))
+        run_turn("soru", provider=provider, registry=registry, instructions="", tracer=tracer)
+
+        [event] = [e for e in tracer.events if e.stage == "tool" and e.name == "echo"]
+        sent = json.dumps({"text": long_text}, ensure_ascii=False)
+        assert event.attributes["arguments_chars"] == len(sent)
+        assert event.attributes["arguments_clipped"] is True
+        assert len(event.attributes["arguments"]) <= MAX_TRACE_ARGUMENT_CHARS
+        assert event.attributes["call_id"] == "c1"
+
+        record = json.loads(event.detail)
+        assert record["arguments"]["text"].endswith("tail")
+        assert len(record["arguments"]["text"]) == len(long_text) - len("SIR-DEGERI") + len(
+            "[redacted]"
+        )
+        assert '"got": 9014' in record["observation"]
+        # A secret is kept out of the record, whole and displayed alike.
+        assert "SIR-DEGERI" not in event.detail
+        assert "SIR-DEGERI" not in json.dumps(event.attributes)

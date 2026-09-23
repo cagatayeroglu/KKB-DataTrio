@@ -35,7 +35,7 @@ from typing import Any, Final
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
-from kkb_agent.agent.observer import Tracer
+from kkb_agent.agent.observer import MAX_ATTRIBUTE_CHARS, Tracer
 from kkb_agent.agent.registry import ArgumentsRejected, ToolRegistry
 from kkb_agent.llm.provider import (
     Completion,
@@ -170,6 +170,10 @@ class TurnOutcome:
 #: addressable by its id for a second, narrower look.
 MAX_OBSERVATION_CHARS: Final = 40_000
 
+#: Where the trace's own attribute ceiling cuts a call's arguments for display. The
+#: step's detail keeps them whole; this only says whether the display is complete.
+MAX_TRACE_ARGUMENT_CHARS: Final = MAX_ATTRIBUTE_CHARS
+
 #: How a model says it is finished when tool calls are all it can send.
 FINISH: Final = "finish"
 
@@ -235,7 +239,7 @@ def _describe(result: ToolResult, identifier: str | None = None) -> str:
     if result.warnings:
         body["warnings"] = list(result.warnings)
     if result.output is not None:
-        body["output"] = _payload(result.output)
+        body["output"] = observed_payload(result.output)
     rendered = json.dumps(body, ensure_ascii=False, default=str)
     if len(rendered) > MAX_OBSERVATION_CHARS:
         # Clipped, and said so, rather than silently shortened: the model can ask for
@@ -246,7 +250,7 @@ def _describe(result: ToolResult, identifier: str | None = None) -> str:
     return rendered
 
 
-def _payload(output: object) -> Any:
+def observed_payload(output: object) -> Any:
     """What a tool returned, as data the model can read.
 
     A dataclass rendered by `str()` shows only the fields its author left in its
@@ -258,6 +262,10 @@ def _payload(output: object) -> Any:
     spent fifteen calls guessing at links on a page whose text it already had, and
     the report it was asked for was named in that text. `repr=False` is a choice
     about logs; it was never a statement about what the model may see.
+
+    This is the one boundary. The loop's observations and the fallback writer's
+    evidence both pass through it, so a tool's content cannot reach one reader and
+    not the other.
     """
     if isinstance(output, BaseModel):
         return output.model_dump()
@@ -577,6 +585,8 @@ def run_turn(
             outcome.observations.append(item)
             carried.append(item)
             if tracer is not None:
+                sent = json.dumps(action.arguments, ensure_ascii=False)
+                seen = _describe(item.result, action.id)
                 tracer.event(
                     "tool",
                     action.tool,
@@ -587,14 +597,28 @@ def run_turn(
                     # tool ran and never which question it was asked, so no reviewer
                     # could tell a right answer from a right-looking one, or see that a
                     # retry differed from the call before it.
-                    arguments=json.dumps(action.arguments, ensure_ascii=False)[:4000],
+                    # Shown in full up to the attribute ceiling, where the tracer marks
+                    # the cut itself; cutting it here first was silent. The length says
+                    # whether the whole call is in view, and the step's detail holds it.
+                    arguments=sent,
+                    arguments_chars=len(sent),
+                    arguments_clipped=len(sent) > MAX_TRACE_ARGUMENT_CHARS,
                     # Which platform call this answers, so the exchange can be followed
                     # back to the request the model made.
                     call_id=action.call_id,
                     error_category=item.result.error_category,
                     warnings=list(item.result.warnings),
                     evidence=item.result.evidence,
-                    detail=_describe(item.result)[:4000],
+                    # The complete record, under this step's own sequence: every
+                    # argument as sent and the observation exactly as the model then
+                    # received it. The tracer redacts secrets in it and keeps it whole
+                    # (the step endpoint returns it unclipped), so a call can be
+                    # reproduced from the record and a reviewer can see what the model
+                    # saw rather than a preview of it.
+                    detail=json.dumps(
+                        {"arguments": action.arguments, "observation": seen},
+                        ensure_ascii=False,
+                    ),
                 )
         if outcome.exhausted or step.done:
             # `done` beside actions means finish after them, not instead of them: the

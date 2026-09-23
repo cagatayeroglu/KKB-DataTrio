@@ -128,8 +128,17 @@ class CatalogSearchOutput(ContractModel):
     profile_sha256: str | None = None
     lexical_total_candidates: int | None = Field(default=None, ge=0, le=MAX_CATALOG_SERIES)
     dense_total_candidates: int | None = Field(default=None, ge=0, le=MAX_CATALOG_SERIES)
+    # What this reply *is*, never what a tool may do. A listing is discovery metadata:
+    # its ranking is untrusted, it carries no observations, and it is not evidence for
+    # a figure. Whether a series may be read is decided where it is read — the read
+    # tools and the acquisition route apply their own checks, and the planned path
+    # its discovery rule — and none of them consults this reply. It used to say
+    # `observation_fetch_authorized: false`, which described the listing and read as a
+    # prohibition: live 2026-09-23 the model quoted it, concluded it was not allowed to
+    # read any value, and answered a deposit question with "I cannot produce a single
+    # number" without trying to read one.
     untrusted_metadata: Literal[True] = True
-    observation_fetch_authorized: Literal[False] = False
+    observations_included: Literal[False] = False
     analytical_evidence: Literal[False] = False
 
 

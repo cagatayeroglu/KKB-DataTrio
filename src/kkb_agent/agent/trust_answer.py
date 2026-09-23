@@ -22,10 +22,9 @@ from dataclasses import dataclass, field
 from typing import Final
 
 from duckdb import DuckDBPyConnection
-from pydantic import BaseModel
 
 from kkb_agent.agent.executor import analytical
-from kkb_agent.agent.trust_loop import TurnOutcome
+from kkb_agent.agent.trust_loop import TurnOutcome, observed_payload
 from kkb_agent.agent.trust_prompt import EXHAUSTED, WRITER
 from kkb_agent.agent.verifier import Binding, result_faults, verify_claims
 from kkb_agent.core import AnalyticalResult
@@ -45,11 +44,15 @@ UNVERIFIED: Final = "Şu sayı araç sonuçlarına bağlanamadı, okurken dikkat
 _UNATTESTED: Final = "Numeric analytical result lacks matching trusted producer execution evidence"
 
 #: Put before the evidence when the service that gathered it could not be asked to
-#: write about it. The turn is not lost for that: what the tools returned is here,
-#: and the table this turn computed is published as it would have been.
+#: write about it. The turn is not lost for that: what the tools returned is here.
+#: It says nothing about a table. This text is written before anything is published,
+#: so it cannot know whether anything will be, and it used to say a table had been
+#: when the turn held only a page of text (QA-15). Whether a table was published is
+#: said by the layer that publishes it: the answer carries that table, or a notice
+#: that none was.
 INTERRUPTED: Final = (
     "Modele yapılan yazım isteği geri dönmedi, bu yüzden aşağıda yorum yok. "
-    "Araçların döndürdüğü sonuçlar olduğu gibi veriliyor; tablo yayımlandı.\n\n"
+    "Araçların döndürdüğü sonuçlar olduğu gibi veriliyor.\n\n"
 )
 
 #: Said once when results carry no execution attestation.
@@ -89,6 +92,11 @@ def _evidence(outcome: TurnOutcome) -> str:
     are evidence too, and "bu PDF'teki verilerle yorumla" is answered from exactly
     those. A failed observation travels as well, so the answer can say what did
     not work rather than implying it was never tried.
+
+    It goes through the same serialization the loop uses. It did not: a page came
+    back as a dataclass, `json.dumps(..., default=str)` rendered it by its repr,
+    and the repr leaves the document out, so the writer was handed "loaded" and
+    nothing that was loaded (QA-14).
     """
     blocks: list[str] = []
     for item in outcome.observations:
@@ -100,11 +108,12 @@ def _evidence(outcome: TurnOutcome) -> str:
                     + "; ".join(item.result.warnings)
                 )
             continue
-        if isinstance(payload, BaseModel):
-            body = payload.model_dump_json(exclude_none=True)
-        else:
-            body = json.dumps(payload, ensure_ascii=False, default=str)
-        blocks.append(f"{item.action.id} ({item.action.tool}): {body[:MAX_EVIDENCE_CHARS]}")
+        body = json.dumps(observed_payload(payload), ensure_ascii=False, default=str)
+        clipped = len(body) > MAX_EVIDENCE_CHARS
+        blocks.append(
+            f"{item.action.id} ({item.action.tool}): {body[:MAX_EVIDENCE_CHARS]}"
+            + (" [kısaltıldı]" if clipped else "")
+        )
     return "\n\n".join(blocks)
 
 
@@ -139,10 +148,10 @@ def write_answer(
     except ProviderError:
         # The turn already ended because the service stopped answering, and this is
         # the same service. Losing what the tools returned to a second failure of the
-        # one thing already known to be down would throw away the whole turn's work:
-        # the table was computed, it is published, and the reader can have it with the
-        # harness saying plainly that no prose could be written for it. A turn that
-        # gathered nothing has nothing to deliver, so it fails as it did.
+        # one thing already known to be down would throw away the whole turn's work;
+        # the reader gets it with the harness saying plainly that no prose could be
+        # written for it. A turn that gathered nothing has nothing to deliver, so it
+        # fails as it did.
         if not evidence:
             raise
         draft = INTERRUPTED + evidence

@@ -93,7 +93,7 @@ def test_both_stages_run_and_complementary_candidates_keep_their_own_scores(setu
         else:
             assert c.cosine_distance is c.dense_rank is None
     assert result.clarification_required and result.untrusted_metadata
-    assert not result.observation_fetch_authorized and not result.analytical_evidence
+    assert not result.observations_included and not result.analytical_evidence
     assert result.total_candidates >= len(result.candidates)
     assert result.truncated  # At least one upstream stage is bounded below the eligible pool.
 

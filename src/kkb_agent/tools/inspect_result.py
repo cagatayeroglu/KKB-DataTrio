@@ -21,6 +21,11 @@ from kkb_agent.core import AnalyticalResult
 
 #: Rows one call may return. A window, not a dump: ask again with a new offset.
 MAX_ROWS = 60
+#: The longest piece of one line shown as a single row; a longer line is cut into parts.
+MAX_SEGMENT_CHARS = 4_000
+#: Text one window may carry, kept well below what one observation shows the model
+#: (`trust_loop.MAX_OBSERVATION_CHARS`), so a window is never clipped on its way there.
+MAX_WINDOW_CHARS = 24_000
 
 
 class InspectArguments(BaseModel):
@@ -57,6 +62,8 @@ class InspectOutput(BaseModel):
     values: list[dict[str, object]]
     #: True when more rows follow this window.
     more: bool
+    #: The offset that continues from here, when more follows.
+    next_offset: int | None = None
 
 
 def _rows(result: AnalyticalResult, wanted: list[str] | None) -> list[dict[str, object]]:
@@ -71,25 +78,85 @@ def _rows(result: AnalyticalResult, wanted: list[str] | None) -> list[dict[str, 
     return [by_period[key] for key in sorted(by_period)]
 
 
-def _readable(held: object) -> str | None:
-    """The text of something this turn read, wherever the tool put it.
+def _passages(held: object) -> list[tuple[dict[str, object], str]] | None:
+    """The text of something this turn read, each piece with where it came from.
 
-    A page and a PDF come back inside a wrapper, under `document.text`; a plain
-    string is its own text. This is what makes a clipped observation recoverable:
-    the harness shows an observation up to a budget, and the way back to the rest
-    is to name the result and ask for a further window of it.
+    A page comes back inside a wrapper under `document.text`. A PDF does not: its
+    text is per page, under `document.pages[*].text`, and a page with no text layer
+    carries what OCR read under `ocr_text`. Reading only `document.text` refused
+    every PDF as "not a table and not read text" (QA-13) — the document had been
+    read, and the way back to it was closed. The page number travels with each
+    piece, so a window says where in the document it is.
     """
     document = getattr(held, "document", None)
+    pages = getattr(document, "pages", None)
+    if isinstance(pages, tuple):
+        found: list[tuple[dict[str, object], str]] = []
+        for page in pages:
+            number = getattr(page, "number", None)
+            text = getattr(page, "text", None)
+            if isinstance(text, str) and text:
+                found.append(({"page": number}, text))
+            ocr = getattr(page, "ocr_text", None)
+            if isinstance(ocr, str) and ocr:
+                found.append(({"page": number, "ocr": True}, ocr))
+        return found or None
     text = getattr(document, "text", None) if document is not None else None
     if text is None:
         text = held if isinstance(held, str) else getattr(held, "text", None)
-    return text if isinstance(text, str) and text else None
+    return [({}, text)] if isinstance(text, str) and text else None
 
 
-def _window_of_text(arguments: InspectArguments, text: str) -> ToolResult:
-    """One window of a read text, measured in lines, with what follows still named."""
-    lines = text.splitlines()
-    window = lines[arguments.offset : arguments.offset + arguments.limit]
+def _segments(passages: list[tuple[dict[str, object], str]]) -> list[dict[str, object]]:
+    """Every line, and every line too long to show at once cut into ordered parts.
+
+    A window counted only in lines has no way into a line longer than what one
+    observation can carry: a 50,000-character line came back whole, was clipped
+    again on the way to the model, and asking for it once more returned the same
+    clip (QA-16). Cut into parts, each part is a row of its own, so the same
+    offset/limit reaches the end of it. A short line is one row, as before.
+    """
+    rows: list[dict[str, object]] = []
+    for where, text in passages:
+        for number, line in enumerate(text.splitlines()):
+            if len(line) <= MAX_SEGMENT_CHARS:
+                rows.append({**where, "line": number, "text": line})
+                continue
+            parts = -(-len(line) // MAX_SEGMENT_CHARS)
+            for part in range(parts):
+                start = part * MAX_SEGMENT_CHARS
+                rows.append(
+                    {
+                        **where,
+                        "line": number,
+                        "part": part + 1,
+                        "parts": parts,
+                        "chars_from": start,
+                        "text": line[start : start + MAX_SEGMENT_CHARS],
+                    }
+                )
+    return rows
+
+
+def _window_of_text(
+    arguments: InspectArguments, passages: list[tuple[dict[str, object], str]]
+) -> ToolResult:
+    """One window of a read text, with the row to continue from when more follows.
+
+    The window stops at `limit` rows or at a character budget below what one
+    observation carries, whichever comes first, and always returns at least one row:
+    a window the model is shown clipped is a window it cannot continue from.
+    """
+    rows = _segments(passages)
+    window: list[dict[str, object]] = []
+    used = 0
+    for row in rows[arguments.offset : arguments.offset + arguments.limit]:
+        size = len(str(row["text"]))
+        if window and used + size > MAX_WINDOW_CHARS:
+            break
+        window.append(row)
+        used += size
+    following = arguments.offset + len(window)
     return ToolResult(
         ToolStatus.SUCCESS,
         arguments.source,
@@ -98,13 +165,11 @@ def _window_of_text(arguments: InspectArguments, text: str) -> ToolResult:
             source=arguments.source,
             kind="text",
             columns=[],
-            rows=len(lines),
+            rows=len(rows),
             offset=arguments.offset,
-            values=[
-                {"line": arguments.offset + index, "text": line}
-                for index, line in enumerate(window)
-            ],
-            more=arguments.offset + len(window) < len(lines),
+            values=window,
+            more=following < len(rows),
+            next_offset=following if following < len(rows) else None,
         ),
     )
 
@@ -118,8 +183,8 @@ def make_inspect_tool() -> ToolSpec:
         held = context.outputs.get(arguments.source)
         found = analytical(held)
         if found is None:
-            if (text := _readable(held)) is not None:
-                return _window_of_text(arguments, text)
+            if (passages := _passages(held)) is not None:
+                return _window_of_text(arguments, passages)
             known = ", ".join(sorted(context.outputs)) or "yok"
             return ToolResult(
                 ToolStatus.FAILURE,
@@ -151,6 +216,11 @@ def make_inspect_tool() -> ToolSpec:
                 offset=arguments.offset,
                 values=window,
                 more=arguments.offset + len(window) < len(rows),
+                next_offset=(
+                    arguments.offset + len(window)
+                    if arguments.offset + len(window) < len(rows)
+                    else None
+                ),
             ),
         )
 
@@ -159,10 +229,11 @@ def make_inspect_tool() -> ToolSpec:
         description=(
             "Look at something you already have. For a table: its columns, how many "
             "periods it covers, and a window of its rows. For a page or a document you "
-            "read: a window of its lines, which is how you read the rest of anything "
-            "that came back clipped. Give source=<an action id or a published table "
-            "name>, optionally columns, offset and limit. Nothing is fetched and nothing "
-            "is changed; ask again with a larger offset to read further."
+            "read (a PDF by page): a window of its lines, a very long line cut into "
+            "numbered parts; this is how you read the rest of anything that came back "
+            "clipped. Give source=<an action id or a published table name>, optionally "
+            "columns, offset and limit. Nothing is fetched and nothing is changed; "
+            "continue with offset=next_offset while more is true."
         ),
         arguments=InspectArguments,
         run=run,
