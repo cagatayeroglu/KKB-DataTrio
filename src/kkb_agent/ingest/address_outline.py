@@ -36,7 +36,7 @@ from pydantic import JsonValue, SecretStr
 
 from kkb_agent.catalog.normalization import normalize_search_text
 from kkb_agent.ingest.fetch_session import MAX_COOKIES, cookie_header, session_origin
-from kkb_agent.ingest.fetched import DOCUMENT_MEDIA_TYPES, source_id_for
+from kkb_agent.ingest.fetched import FETCHED_MEDIA_TYPES, source_id_for
 from kkb_agent.ingest.json_table import MEDIA_TYPE as JSON_MEDIA_TYPE
 from kkb_agent.ingest.json_table import JsonRejected, load_records
 from kkb_agent.ingest.page_links import PageLink, page_links
@@ -252,7 +252,7 @@ def outline_address(
 ) -> dict[str, object] | None:
     """The outline of one user-written address, or None when it is not a readable page."""
     lost_before = cache.transient_failures()
-    page = cache.get(url, (*DOCUMENT_MEDIA_TYPES,))
+    page = cache.get(url, (*FETCHED_MEDIA_TYPES,))
     if page is None:
         return None
     base = page.effective_locator.get_secret_value() if page.effective_locator else url

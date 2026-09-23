@@ -120,7 +120,7 @@ class TestTheUploadPathIsTheOnlyPath:
 
     @pytest.mark.parametrize(
         "media_type",
-        ["application/xhtml+xml", "application/octet-stream", "text/plain", "image/gif"],
+        ["application/xhtml+xml", "application/octet-stream", "image/gif"],
     )
     def test_types_no_loader_reads_are_refused_before_parsing(self, monkeypatch, media_type):
         def forbidden(*args, **kwargs):
@@ -131,6 +131,33 @@ class TestTheUploadPathIsTheOnlyPath:
 
         with pytest.raises(AdmissionError) as refused:
             load_fetched(fetched(TABLE, media_type), source=SOURCE, delimiter=",")
+        assert refused.value.code is RejectionCode.UNSUPPORTED_FORMAT
+
+    def test_plain_text_reaches_the_csv_loader_and_no_other(self, monkeypatch):
+        """QA-33: plain text has one reading, the CSV one; it is never sniffed as anything else.
+
+        It was on the list above until code hosts' raw CSVs, served as plain text, turned
+        out to be tables people ask for. The other types there stay refused.
+        """
+
+        def forbidden(*args, **kwargs):
+            pytest.fail("plain text reached a loader other than the CSV one")
+
+        for name in ("load_xlsx", "load_pdf", "load_html"):
+            monkeypatch.setattr(module, name, forbidden)
+
+        loaded = load_fetched(fetched(TABLE, "text/plain"), source=SOURCE, delimiter=",")
+        assert loaded.status == "loaded"
+
+    def test_markup_served_as_plain_text_reaches_no_loader(self, monkeypatch):
+        def forbidden(*args, **kwargs):
+            pytest.fail("a page served as plain text reached a loader")
+
+        for name in ("load_csv", "load_xlsx", "load_pdf", "load_html"):
+            monkeypatch.setattr(module, name, forbidden)
+
+        with pytest.raises(AdmissionError) as refused:
+            load_fetched(fetched(b"<html><body>a,b</body></html>", "text/plain"), source=SOURCE)
         assert refused.value.code is RejectionCode.UNSUPPORTED_FORMAT
 
 

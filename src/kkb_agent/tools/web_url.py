@@ -58,8 +58,10 @@ from kkb_agent.html_loader import HtmlDocument, HtmlLoadResult
 from kkb_agent.ingest.attached import Attachment
 from kkb_agent.ingest.bist_index_semantics import bist_index_close_metrics
 from kkb_agent.ingest.fetched import (
-    DOCUMENT_MEDIA_TYPES,
+    FETCHED_MEDIA_TYPES,
+    PLAIN_TEXT_NOT_A_TABLE,
     fetched_source,
+    kept_media_type,
     load_document,
     load_fetched,
     source_id_for,
@@ -612,7 +614,8 @@ def read_document(
         FetchRequest(
             source_ref=source_id_for(url),
             url=SecretStr(url),
-            accepted_media_types=DOCUMENT_MEDIA_TYPES,
+            # Plain text too, read only as a CSV that proves to be one (QA-33).
+            accepted_media_types=FETCHED_MEDIA_TYPES,
             # Following a link is delegated authority: it may not leave the page's origin.
             stay_within_origin=follow is not None or delegated,
         )
@@ -635,13 +638,15 @@ def read_document(
             WebUrlOutput("rejected", error.code.value, source, outcome.media_type), "not_admitted"
         )
 
+    # Plain text that loaded as a table is a CSV from here on; anything else keeps its type.
+    media_type = kept_media_type(outcome.media_type, loaded)
     kept_as = None
     if keep is not None:
         # The same bytes this turn just read, offered once to the conversation's
         # documents so that keeping them later costs no second download (DEC-183).
         # Admission - media type, size, hash, capacity - is unchanged and decides.
-        kept_as = keep(outcome.media_type, outcome.content, source.locator)
-    read = _loaded(loaded, source, outcome.media_type)
+        kept_as = keep(media_type, outcome.content, source.locator)
+    read = _loaded(loaded, source, media_type)
     if kept_as is not None:
         read = replace(read, output=replace(read.output, kept_as=kept_as))
     if read.failure is None:
@@ -976,14 +981,32 @@ def make_web_url_tool(
 
 def _failed(category: str, output: WebUrlOutput, *, extra: tuple[str, ...] = ()) -> ToolResult:
     """A refusal that names its fixed code and nothing from the document or URL."""
+    codes = tuple(code for code in (output.code, *extra) if code is not None)
     return ToolResult(
         ToolStatus.FAILURE,
         step_id="",
         tool="web_url",
         output=output,
         error_category=category,
-        warnings=tuple(code for code in (output.code, *extra) if code is not None),
+        warnings=(*codes, *(_EXPLAINED[code] for code in codes if code in _EXPLAINED)),
     )
+
+
+#: What a code means, said beside it where the code alone sent the model round in
+#: circles. Live 2026-09-23 (QA-33) a CSV served as plain text was refused four times as
+#: CONTENT_TYPE while the model changed its column arguments, and then concluded that
+#: saving was not possible at all. Fixed text: nothing from the document or the address.
+_EXPLAINED: dict[str, str] = {
+    "CONTENT_TYPE": (
+        "The address serves a type no reader here takes (CSV, XLSX, PDF, HTML, a picture, "
+        "or a table as plain text are read). Asking again with other arguments does not "
+        "change what the address serves."
+    ),
+    PLAIN_TEXT_NOT_A_TABLE: (
+        "The address serves plain text that is not a table: read as a CSV it needs at "
+        "least two columns and the same number of fields in every row."
+    ),
+}
 
 
 def _record(lineage: Lineage | None, source: SourceRef, media_type: str) -> str | None:

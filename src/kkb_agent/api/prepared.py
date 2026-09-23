@@ -68,7 +68,14 @@ from kkb_agent.ingest.address_outline import TurnFetchCache, address_outline
 from kkb_agent.ingest.attached import SOURCE_TYPE as UPLOAD
 from kkb_agent.ingest.attached import Attachment
 from kkb_agent.ingest.evds_load import EvdsLoadCode
-from kkb_agent.ingest.fetched import TABLE_MEDIA_TYPES, source_id_for
+from kkb_agent.ingest.fetched import (
+    FETCHED_TABLE_MEDIA_TYPES,
+    TEXT_PLAIN,
+    fetched_source,
+    kept_media_type,
+    load_document,
+    source_id_for,
+)
 from kkb_agent.ingest.prepared_series import prepared_series_names
 from kkb_agent.ingest.safe_fetch import FetchFailure, FetchRequest, FetchSuccess
 from kkb_agent.ingestion_policy import MIME_TYPES, AdmissionError, FileKind, admit_upload
@@ -921,15 +928,27 @@ class PreparedRunner:
             FetchRequest(
                 source_ref=source_id_for(url),
                 url=SecretStr(url),
-                accepted_media_types=TABLE_MEDIA_TYPES,
+                # Plain text too, kept only when it reads as a table (QA-33).
+                accepted_media_types=FETCHED_TABLE_MEDIA_TYPES,
             )
         )
         if isinstance(outcome, FetchFailure):
             raise ServiceError("document_rejected", 422)
         if not isinstance(outcome, FetchSuccess):  # pragma: no cover - FetchOutcome is closed
             raise TypeError("fetch returned neither a success nor a failure")
+        media_type = outcome.media_type
+        if media_type == TEXT_PLAIN:
+            try:
+                loaded = load_document(
+                    outcome.content,
+                    TEXT_PLAIN,
+                    source=fetched_source(url, outcome.content, retrieved_at=datetime.now(UTC)),
+                )
+            except (AdmissionError, ValueError):
+                raise ServiceError("document_rejected", 422) from None
+            media_type = kept_media_type(TEXT_PLAIN, loaded)
         return self.admit_document(
-            session_id, outcome.media_type, outcome.content, origin=address_origin(url)
+            session_id, media_type, outcome.content, origin=address_origin(url)
         )
 
     def admit_document(
