@@ -36,6 +36,7 @@ from kkb_agent.agent.claim_qualifiers import (
     is_base_notation,
     is_date_token,
     is_list_marker,
+    is_movement_origin,
     period_fault,
     table_count_identity_fault,
     unit_fault,
@@ -1006,6 +1007,7 @@ def _bind_to_results(
     sentence, sentence_start = _sentence_around(answer, number.start)
     clause, prefix = clause_context(sentence, number.start - sentence_start)
     written_scale, _ = amount_qualifiers(answer, number.start, end)
+    origin = is_movement_origin(answer, number.start, end)
     candidates: list[NumberVerdict] = []
     meanings: list[str] = []
     for name, result in named.items():
@@ -1058,6 +1060,7 @@ def _bind_to_results(
                         _price_references(result, value),
                         position=number.start - sentence_start - len(prefix),
                         lenient=lenient_periods,
+                        origin=origin,
                     ),
                     unit_fault(answer, number.start, end, value),
                     identity_fault(clause, prefix, name, result, value, named),

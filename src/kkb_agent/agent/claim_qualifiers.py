@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping, Sequence
-from datetime import date
+from datetime import date, timedelta
 
 from kkb_agent.core import DIMENSIONLESS, AnalyticalResult, ResultValue, Scale
 
@@ -289,11 +289,17 @@ def has_amount_context(text: str, start: int, end: int) -> bool:
 #: "3)". Live 2026-09-20: a reply listing the agent's own tools as "(1) ... (2) ..."
 #: had that whole sentence withheld, because those markers bound to nothing, and the
 #: answer that reached the reader began mid-thought.
+#:
+#: A line's marker may sit behind Markdown: "**1) Kredi tarafı daralıyor.**", "### 2.",
+#: "- 3)". Live 2026-09-23 (A3) the headings of a four-part commentary were bold, and
+#: "1", "2", "3", "4" reached the reader as figures no tool had returned.
 _LIST_MARKER = re.compile(
     "(?:"
     r"(?<=[(])(?P<paren>\d{1,2})(?=[)])"
     "|"
     r"(?:(?<=^)|(?<=\n)|(?<=; )|(?<=: ))(?P<lead>\d{1,2})(?=[).-]\s)"
+    "|"
+    r"(?:(?<=^)|(?<=\n))[ \t]*[>#*_-][ \t>#*_-]*(?P<marked>\d{1,2})(?=[).](?:\s|[*_]))"
     ")"
 )
 
@@ -311,7 +317,7 @@ def is_list_marker(text: str, start: int, end: int) -> bool:
     if text[end : end + 1] == ")" and has_amount_context(text, start, end + 1):
         return False
     for match in _LIST_MARKER.finditer(text):
-        group = "paren" if match.group("paren") else "lead"
+        group = next(name for name in ("paren", "lead", "marked") if match.group(name))
         if match.start(group) == start and match.end(group) == end:
             return True
     return False
@@ -626,6 +632,28 @@ def own_dated_part(clause: str, position: int) -> str:
     return clause
 
 
+#: A figure a movement starts from: "34,27'den", "%33,59'dan", "52.044'ten".
+_FROM = re.compile(r"['’][dt][ae]n(?!\w)")
+#: ... and the figure it arrives at, later in the same clause: "39,69'a", "40,12'ye",
+#: "43.062 milyon TL'ye".
+_TO = re.compile(r"\d[^.;:!?\n]{0,24}?['’]y?[ae](?!\w)")
+
+
+def is_movement_origin(text: str, start: int, end: int) -> bool:
+    """Whether this figure is where a written "from ... to ..." movement starts.
+
+    "Mart 2026'da faiz 34,27'den 39,69'a fırladı" is how a monthly move is said, and its
+    first figure is the level the month started from — the previous month's close. Read
+    as March's own figure it was reported as misdated (live 2026-09-23, A3), though both
+    figures and the month were right.
+    """
+    if not _FROM.match(text, end):
+        return False
+    tail = text[end : end + 120]
+    arrival = _TO.search(tail, _FROM.match(tail).end())  # type: ignore[union-attr]
+    return arrival is not None
+
+
 def period_fault(
     clause: str,
     prefix: str,
@@ -634,6 +662,7 @@ def period_fault(
     position: int | None = None,
     *,
     lenient: bool = False,
+    origin: bool = False,
 ) -> str | None:
     """Why a figure's sentence contradicts the period its value belongs to, if it does.
 
@@ -694,6 +723,9 @@ def period_fault(
         else:
             outside = True
     whole_year = period.start.month == 1 and period.end.month == 12
+    # The figure a movement starts from is the close of the period before the one named.
+    after = period.end + timedelta(days=1)
+    starts = {(after.year, after.month)} if origin else set()
     for m in years:
         if period.start.year <= int(m[0]) <= period.end.year:
             matched = matched or whole_year
@@ -708,7 +740,7 @@ def period_fault(
                 period.end.year,
                 period.end.month,
             )
-        ):
+        ) or (year, month) in starts:
             matched = True
         else:
             outside = True
@@ -724,7 +756,8 @@ def period_fault(
             (period.start.year, period.start.month)
             <= (year, month)
             <= (period.end.year, period.end.month)
-            for year in candidate_years
+            or (year, month) in starts
+            for year in candidate_years + ([after.year] if origin else [])
         ):
             matched = True
         else:
