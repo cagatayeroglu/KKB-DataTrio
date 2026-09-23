@@ -259,7 +259,13 @@ def _candidate_intent(item: ReviewedSeries) -> _CandidateIntent:
     exact_labels = {normalize_search_text(label) for label in record.labels}
     currency: Currency | None
     component: Literal["total", "tp", "yp"] | None = None
-    if "total" in exact_labels:
+    title_words = set(normalize_search_text(record.title).split())
+    if "total" in exact_labels and len(title_words & {"tp", "yp"}) == 1:
+        # The label names the layout's total column, and the title names the currency the
+        # row is: "TP Mevduat / … (Toplam)" is TP deposits over all maturities. Read as the
+        # TP+YP total, a question naming TP ranked the TP row below every other row.
+        currency = "try" if "tp" in title_words else "foreign"
+    elif "total" in exact_labels:
         currency = "total"
         component = "total"
     elif "yp" in exact_labels:

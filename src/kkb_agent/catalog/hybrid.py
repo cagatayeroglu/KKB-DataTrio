@@ -13,10 +13,13 @@ from kkb_agent.catalog.normalization import normalize_query_text
 from kkb_agent.catalog.ranking import rerank_by_reviewed_intent, rerank_widened
 from kkb_agent.catalog.search import (
     MAX_GROUPS,
+    BandChoice,
     CatalogCandidate,
     CatalogSearchArguments,
     CatalogSearchOutput,
+    _band,
     eligible_catalog_series,
+    fold_bands,
     named_calendar_first,
     one_per_listed_row,
     scoped_to_named_calendar,
@@ -213,6 +216,16 @@ def search_hybrid_catalog(
     order = one_per_listed_row(
         order, reviewed_series=lambda series_id: eligible[series_id], query=args.query
     )
+    folded = fold_bands(order, reviewed_series=lambda series_id: eligible[series_id])
+    order = [series_id for series_id, _ in folded]
+    bands_of = {
+        series_id: tuple(
+            BandChoice(band=found[1], series_id=band)
+            for band in bands
+            if (found := _band(eligible[band])) is not None
+        )
+        for series_id, bands in folded
+    }
     candidates = []
     for rank, sid in enumerate(order[: args.max_results], start=1):
         lex = lexical_by_id.get(sid)
@@ -234,6 +247,7 @@ def search_hybrid_catalog(
                 lexical_rank=lex.rank if lex else None,
                 dense_rank=hit.rank if hit else None,
                 cosine_distance=hit.cosine_distance if hit else None,
+                bands=bands_of.get(sid, ()),
             )
         )
     return CatalogSearchOutput.model_validate(

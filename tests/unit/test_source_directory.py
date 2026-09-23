@@ -277,7 +277,11 @@ def test_every_supported_selector_has_a_route_and_one_table_response_serves_its_
     tmp_path, lake
 ):
     assert all(has_reviewed_route(item.internal_id()) for item in supported_selectors())
-    assert len(supported_selectors()) == sum(len(row.columns) for row in SUPPORTED_ROWS.values())
+    # Every readable column of every supported row: its components, and the maturity
+    # bands of the layouts that publish them.
+    assert len(supported_selectors()) == sum(
+        len(row.columns) + len(row.bands) for row in SUPPORTED_ROWS.values()
+    )
     source = TableSource()
     store = AcquisitionStore(tmp_path / "acquired")
     acquirer = TurnAcquirer(lake, TODAY, sources=OfficialSources(bddk=source, store=store))

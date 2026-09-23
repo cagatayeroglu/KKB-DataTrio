@@ -80,6 +80,13 @@ class ConceptMatch(ContractModel):
     conditions: tuple[str, ...]
 
 
+class BandChoice(ContractModel):
+    """One maturity column of a candidate's row, readable as a series of its own."""
+
+    band: StrictStr
+    series_id: StrictStr
+
+
 class CatalogCandidate(ContractModel):
     series: ReviewedSeries
     concept_ids: tuple[str, ...]
@@ -93,6 +100,9 @@ class CatalogCandidate(ContractModel):
     lexical_rank: int | None = Field(default=None, ge=1, le=10)
     dense_rank: int | None = Field(default=None, ge=1, le=10)
     cosine_distance: float | None = Field(default=None, ge=-0.000001, le=2.000001)
+    #: The maturity columns of this candidate's row that the search also reached, each a
+    #: series of its own (`fold_bands`). Listed here rather than as candidates beside it.
+    bands: tuple[BandChoice, ...] = ()
 
 
 #: Datagroups one search carries for expansion: a stage's whole budget. Measured on the
@@ -438,6 +448,67 @@ def one_per_listed_row[T](
     return kept
 
 
+#: How a listed maturity column labels itself: "Vade: <its column name>".
+_BAND_LABEL: Final = "Vade: "
+
+
+def _band(series: ReviewedSeries) -> tuple[tuple[str, str | None, str], str] | None:
+    """The row a maturity column belongs to, and the column's name; None for any other.
+
+    Read from the record's own metadata: a band says which maturity it is in a label and
+    carries its row's title with that name after it, in its row's group.
+    """
+    record = series.record
+    for label in record.labels:
+        if label.startswith(_BAND_LABEL):
+            name = label.removeprefix(_BAND_LABEL)
+            suffix = f" ({name})"
+            if record.title.endswith(suffix):
+                group = record.group.group_id if record.group else None
+                return (record.provider, group, record.title.removesuffix(suffix)), name
+    return None
+
+
+def fold_bands[T](
+    ordered: Sequence[T], *, reviewed_series: Callable[[T], ReviewedSeries]
+) -> list[tuple[T, list[T]]]:
+    """Each candidate with the maturity columns of its row the search reached, in order.
+
+    The bulletin publishes a row's maturity as columns, and each is a series of its own
+    (the TP deposits opened for up to a month, for one to three months, …). Listed as
+    candidates of their own, seven columns of one row took the room of other rows: live
+    fixtures, a question about credit-card balances saw two maturity buckets of a
+    liquidity row and not the credit-card row it asked about. Hidden unless the question
+    names a maturity, they would be chosen by words. So a band is folded under its row's
+    candidate and named there, series ID and all: the row keeps one place, and every
+    maturity the search reached is still in front of the model. A band whose row is not
+    among the candidates stands for it, with its sibling bands under it.
+    """
+    kept: list[tuple[T, list[T]]] = []
+    rows: dict[tuple[str, str | None, str], int] = {}
+    for item in ordered:
+        series = reviewed_series(item)
+        if _band(series) is None:
+            record = series.record
+            key = (record.provider, record.group.group_id if record.group else None, record.title)
+            rows.setdefault(key, len(kept))
+            kept.append((item, []))
+    placed: list[tuple[T, list[T]]] = list(kept)
+    for item in ordered:
+        found = _band(reviewed_series(item))
+        if found is None:
+            continue
+        key, _ = found
+        if key in rows:
+            placed[rows[key]][1].append(item)
+        else:
+            rows[key] = len(placed)
+            placed.append((item, []))
+    # The row's own position decides the order; a band standing for its row keeps its rank.
+    position = {id(item): at for at, item in enumerate(ordered)}
+    return sorted(placed, key=lambda entry: position[id(entry[0])])
+
+
 def top_candidate_signal(
     query: str,
     candidates: Sequence[CatalogCandidate],
@@ -559,6 +630,16 @@ def search_catalog(
     if not matches:
         ranked = named_calendar_first(args.query, ranked, reviewed_series=lambda item: item)
     ranked = one_per_listed_row(ranked, reviewed_series=lambda item: item, query=args.query)
+    folded = fold_bands(ranked, reviewed_series=lambda item: item)
+    ranked = [item for item, _ in folded]
+    bands_of = {
+        item.record.series_id: tuple(
+            BandChoice(band=found[1], series_id=band.record.series_id)
+            for band in bands
+            if (found := _band(band)) is not None
+        )
+        for item, bands in folded
+    }
     unresolved = any(c.unresolved for c in matches)
     status: SearchStatus
     if ranked or found_groups:
@@ -583,6 +664,7 @@ def search_catalog(
             matched_terms=tuple(sorted(query_terms & documents[s.record.series_id].keys())),
             # A neighbour the words reached is said to be one, beside the reviewed members.
             method=method if not matches or s.record.series_id in mapped else "bm25",
+            bands=bands_of.get(s.record.series_id, ()),
         )
         for i, s in enumerate(ranked[: args.max_results])
     )
