@@ -105,6 +105,7 @@ from kkb_agent.tools._document_library import describe_document, document_name, 
 from kkb_agent.tools._document_value import as_of, grids
 from kkb_agent.tools.inspect_result import make_inspect_tool
 from kkb_agent.tools.promotion import (
+    RESULT_REFERENCE,
     PromotionProposal,
     PromotionReceipt,
     make_promote_series_tool,
@@ -1272,6 +1273,25 @@ class PreparedRunner:
             )
         return (("uploaded_at", read), ("sha256", stored.sha256))
 
+    def _source_changed(self, session_id: str, proposal: PromotionProposal) -> str | None:
+        """Why the numbers can no longer be trusted to be the ones read, if they cannot.
+
+        A document is looked up again and its digest compared. A table of the conversation
+        (`result:` references) carries its months in the proposal itself, read when the
+        proposal was made from a result no later step can change, so there is nothing else
+        to compare them with.
+        """
+        if proposal.document_ref.startswith(RESULT_REFERENCE):
+            return None
+        try:
+            attachment = self._attachment(session_id, proposal.document_ref)
+        except ServiceError:
+            return "DOCUMENT_NOT_FOUND"
+        digest = (attachment.source.content_hash or "").removeprefix("sha256:")
+        if not digest or digest != proposal.document_sha256:
+            return "DOCUMENT_CHANGED"
+        return None
+
     def _save_now(self, session_id: str, proposal: PromotionProposal) -> PromotionReceipt | str:
         """A save the person asked for in this very message: written now, not offered.
 
@@ -1281,13 +1301,9 @@ class PreparedRunner:
         """
         if self._promote is None:
             return "SAVE_UNAVAILABLE"
-        try:
-            attachment = self._attachment(session_id, proposal.document_ref)
-        except ServiceError:
-            return "DOCUMENT_NOT_FOUND"
-        digest = (attachment.source.content_hash or "").removeprefix("sha256:")
-        if not digest or digest != proposal.document_sha256:
-            return "DOCUMENT_CHANGED"
+        changed = self._source_changed(session_id, proposal)
+        if changed is not None:
+            return changed
         try:
             receipt = self._promote(proposal)
         except ServiceError:
@@ -1847,13 +1863,11 @@ class PreparedRunner:
             self._store.set_pending_clarification(session_id, None)
         if self._promote is None:  # pragma: no cover - the tool is not offered without it
             raise ServiceError("unavailable", 503)
-        try:
-            attachment = self._attachment(session_id, held.document_ref)
-        except ServiceError:
-            return _refused_save("BELGE_BULUNAMADI")
-        digest = (attachment.source.content_hash or "").removeprefix("sha256:")
-        if not digest or digest != held.document_sha256:
-            return _refused_save("BELGE_DEĞİŞTİ")
+        changed = self._source_changed(session_id, held)
+        if changed is not None:
+            return _refused_save(
+                "BELGE_BULUNAMADI" if changed == "DOCUMENT_NOT_FOUND" else "BELGE_DEĞİŞTİ"
+            )
         try:
             receipt = self._promote(held)
         except ServiceError:
@@ -2267,19 +2281,14 @@ class PreparedRunner:
                 saved(receipt.series_id)
             return receipt
 
-        def offer_document_tools() -> None:
-            """The tools that work on the conversation's documents, once it has one.
+        def offer_promotion() -> None:
+            """Keeping a monthly column in the knowledge base, wherever one can be kept.
 
-            Offered only where there is something to read or keep and somewhere to keep
-            it. A document read from an address during this turn is such a thing too:
-            the registry used to be settled before the first call, so a conversation
-            that began with an address never saw either tool in the turn that read it,
-            and "read this address and save it" could not be done in one message (QA-29).
+            A table of the conversation is such a column as much as a document is: live
+            2026-09-23 a Borsa İstanbul endpoint read into `analiz_1` could not be saved -
+            the tool was offered only beside a kept document, so the model was never shown
+            it and told the person it had no way to write to the knowledge base.
             """
-            if attachment is None and not library:
-                return
-            if "document_upload" in disabled:
-                return
             if (
                 "promote_series" not in registry
                 and self._promote is not None
@@ -2300,6 +2309,21 @@ class PreparedRunner:
                         origin=lambda reference: self._document_origin(owner, reference),
                     )
                 )
+
+        def offer_document_tools() -> None:
+            """The tools that work on the conversation's documents, once it has one.
+
+            Offered only where there is something to read or keep and somewhere to keep
+            it. A document read from an address during this turn is such a thing too:
+            the registry used to be settled before the first call, so a conversation
+            that began with an address never saw either tool in the turn that read it,
+            and "read this address and save it" could not be done in one message (QA-29).
+            """
+            if attachment is None and not library:
+                return
+            if "document_upload" in disabled:
+                return
+            offer_promotion()
             if "document_read" not in registry:
                 # Meaning from a document that holds no table to compute from: a chart, a
                 # scanned page, a passage. Its output is a reading, never a result, so it
@@ -2338,4 +2362,5 @@ class PreparedRunner:
                 )
             )
         offer_document_tools()
+        offer_promotion()
         return registry

@@ -21,17 +21,21 @@ deterministically.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import unicodedata
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from typing import Final, Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
+from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus, analytical
 from kkb_agent.agent.registry import ToolSpec
+from kkb_agent.core import Frequency, ResultStatus
 from kkb_agent.ingest.attached import Attachment
 from kkb_agent.pdf_ocr import OcrProvider
 from kkb_agent.tools._document_column import ColumnRefused, RowRules, month_end, read_month_values
@@ -129,6 +133,18 @@ def _said_unit(unit: str) -> str:
     return _UNIT_SAID.get(unit, unit)
 
 
+#: A proposal read from a table of the conversation, not from a document: its reference.
+RESULT_REFERENCE: Final = "result:"
+
+
+def _address(locator: str) -> str | None:
+    """A source's public address - scheme, host and path - or None when it is not one."""
+    parts = urlsplit(locator)
+    if parts.scheme != "https" or not parts.hostname or "@" in parts.netloc:
+        return None
+    return f"https://{parts.netloc}{parts.path}"
+
+
 #: How each reading is said back to the person, in the summary they approve.
 MEANING_WORDS: Final = {
     "period_end_balance": "ay sonundaki bakiye",
@@ -170,6 +186,20 @@ class PromoteSeriesArguments(BaseModel):
         default=None,
         pattern=r"^belge_[0-9]{1,2}$",
         description="Which document to read (belge_1, ...); may be left out when there is one",
+    )
+    result: str | None = Field(
+        default=None,
+        pattern=r"^(a[0-9]{1,4}|analiz_[0-9]{1,4})$",
+        description=(
+            "Instead of a document: a monthly table of this conversation to keep a column "
+            "of - a result of this question (a3) or a published one (analiz_1). An address "
+            "read into a table (a JSON or CSV endpoint) is kept this way"
+        ),
+    )
+    column: str | None = Field(
+        default=None,
+        max_length=300,
+        description="With `result`: the column to keep; leave it out when the table has one",
     )
     period_column: str | None = Field(
         default=None,
@@ -342,6 +372,20 @@ def _kinds(
     return months, values
 
 
+def _unit(arguments: PromoteSeriesArguments) -> str | None:
+    """The stored unit of what is kept. An index is counted in index points, whatever the
+    person calls them ("puan" is otherwise read as a percentage)."""
+    if arguments.meaning == "index" and arguments.unit.strip().casefold() in (
+        "puan",
+        "endeks",
+        "endeks puanı",
+        "index",
+        "points",
+    ):
+        return "index"
+    return unit_for(arguments.unit, arguments.scale)
+
+
 def _summary(
     title: str,
     meaning: str,
@@ -397,9 +441,143 @@ def make_promote_series_tool(
     #: reference, because that is what the save looks the document up by again.
     stored: Mapping[str, str] = references if references is not None else {}
 
+    def finish(proposal: PromotionProposal, save_now: bool) -> ToolResult:
+        if save_now:
+            # The person asked for the save in their own message, so asking them again
+            # to approve it only made a second turn out of one request. Everything a
+            # proposal is checked for was checked before; the save checks the source
+            # again and writes through the knowledge base's one validated route.
+            if save is None:
+                return _refused("SAVE_UNAVAILABLE")
+            receipt = save(proposal)
+            if isinstance(receipt, str):
+                return _refused(receipt)
+            return ToolResult(
+                ToolStatus.SUCCESS,
+                "promote",
+                "promote_series",
+                PromotionOffer(
+                    "saved",
+                    None,
+                    receipt.said(),
+                    proposal.slug,
+                    receipt.observations,
+                    receipt.series_id,
+                ),
+            )
+        propose(proposal)
+        return ToolResult(
+            ToolStatus.SUCCESS,
+            "promote",
+            "promote_series",
+            PromotionOffer(
+                "proposed", None, proposal.summary, proposal.slug, len(proposal.observations)
+            ),
+        )
+
+    def _from_table(arguments: PromoteSeriesArguments, context: ExecutionContext) -> ToolResult:
+        """One monthly column of a table this conversation holds, kept as it stands.
+
+        Live 2026-09-23 a Borsa Istanbul endpoint read into `analiz_1` could not be kept:
+        only a document could. The months are the table's own; what the table records
+        about its unit and scale must agree with what the person says, and where it came
+        from - the address, when it was read, what was done to it - is kept beside it.
+        """
+        name = str(arguments.result)
+        table = analytical(context.outputs.get(name))
+        if table is None or table.status is not ResultStatus.COMPUTED or not table.values:
+            return _refused("RESULT_NOT_FOUND")
+        labels = list(dict.fromkeys(value.label for value in table.values))
+        names = table.parameters.get("series_names")
+        shown = {str(v): k for k, v in names.items()} if isinstance(names, dict) else {}
+        wanted = arguments.column
+        if wanted is None:
+            label = labels[0] if len(labels) == 1 else None
+        else:
+            label = wanted if wanted in labels else shown.get(wanted)
+        if label is None or label not in labels:
+            return _refused("VALUE_COLUMN_NOT_SETTLED" if wanted is None else "COLUMN_NOT_FOUND")
+        column = [value for value in table.values if value.label == label]
+        if any(
+            value.period is None or value.period.frequency is not Frequency.MONTHLY
+            for value in column
+        ):
+            return _refused("NO_MONTHLY_ROWS")
+        if arguments.meaning == "index" and arguments.base_year is None:
+            return _refused("INDEX_NEEDS_BASE_YEAR")
+        unit = _unit(arguments)
+        if unit is None:
+            return _refused("UNIT_NOT_RECOGNISED")
+        recorded = {(value.unit, value.scale.value) for value in column}
+        if len(recorded) != 1:
+            return _refused("UNIT_DISAGREES")
+        ((held_unit, held_scale),) = recorded
+        # What the table says it holds wins over nothing, never over the person: a column
+        # whose unit or scale the table states and the arguments contradict is refused.
+        if held_unit not in ("", "unknown") and held_unit != unit:
+            return _refused("UNIT_DISAGREES")
+        if held_scale != "one" and held_scale != arguments.scale:
+            return _refused("UNIT_DISAGREES")
+        rows = [(value.period.end, value.value) for value in column if value.period is not None]
+        observations = tuple(sorted(rows, key=lambda row: row[0]))
+        if len({end for end, _ in observations}) != len(observations):
+            return _refused("NO_MONTHLY_ROWS")
+        digest = hashlib.sha256(
+            json.dumps(
+                [table.result_id, label, [[end.isoformat(), v] for end, v in observations]],
+                ensure_ascii=False,
+            ).encode("utf-8")
+        ).hexdigest()
+        stock_flow, aggregation, cumulative = MEANINGS[arguments.meaning]
+        summary = _summary(
+            arguments.title, arguments.meaning, _said_unit(unit), arguments.scale, observations
+        )
+        evidence = table.evidence
+        origin: list[tuple[str, str]] = []
+        for source in evidence.sources if evidence is not None else []:
+            where = _address(source.locator)
+            if where is not None:
+                origin.append(("source_url", where))
+                if source.retrieved_at is not None:
+                    origin.append(("retrieved_at", source.retrieved_at.isoformat()))
+                if source.content_hash:
+                    origin.append(("sha256", source.content_hash.removeprefix("sha256:")))
+                break
+        steps = [item.operation for item in (evidence.transformations if evidence else [])]
+        proposal = PromotionProposal(
+            slug=slug_for(arguments.title),
+            title=arguments.title,
+            unit=unit,
+            scale=arguments.scale,
+            stock_flow=stock_flow,
+            aggregation=aggregation,
+            cumulative=cumulative,
+            base_year=arguments.base_year,
+            session_id=session_id,
+            document_ref=RESULT_REFERENCE + name,
+            document_sha256=digest,
+            period_column="period",
+            value_column=label,
+            sheet=None,
+            year=None,
+            observations=observations,
+            summary=summary,
+            description=" ".join((arguments.description or "").split()) or None,
+            aliases=tuple(" ".join(alias.split()) for alias in arguments.aliases if alias.strip()),
+            provenance=(
+                *origin,
+                ("table", name),
+                ("column", label),
+                *((("transformations", ", ".join(steps)),) if steps else ()),
+            ),
+        )
+        return finish(proposal, arguments.save_now)
+
     def run(arguments: BaseModel, context: ExecutionContext) -> ToolResult:
         if not isinstance(arguments, PromoteSeriesArguments):  # pragma: no cover - contract
             raise TypeError("promote_series received arguments it did not declare")
+        if arguments.result is not None:
+            return _from_table(arguments, context)
         chosen = choose_document(arguments.document, attachment, documents)
         if isinstance(chosen, str):
             return _refused(chosen)
@@ -432,7 +610,7 @@ def make_promote_series_tool(
             return _refused("VALUE_COLUMN_NOT_SETTLED" if candidates else "NO_VALUE_COLUMN")
         if arguments.meaning == "index" and arguments.base_year is None:
             return _refused("INDEX_NEEDS_BASE_YEAR")
-        unit = unit_for(arguments.unit, arguments.scale)
+        unit = _unit(arguments)
         if unit is None:
             # The person's own word for a unit nobody here recognises. Storing it as
             # written would put an unresolved meaning in the catalogue; asking is the
@@ -488,42 +666,14 @@ def make_promote_series_tool(
                 value_column=value_column,
             ),
         )
-        if arguments.save_now:
-            # The person asked for the save in their own message, so asking them again
-            # to approve it only made a second turn out of one request. Everything a
-            # proposal is checked for was checked above; the save checks the document's
-            # digest again and writes through the knowledge base's one validated route.
-            if save is None:
-                return _refused("SAVE_UNAVAILABLE")
-            receipt = save(proposal)
-            if isinstance(receipt, str):
-                return _refused(receipt)
-            return ToolResult(
-                ToolStatus.SUCCESS,
-                "promote",
-                "promote_series",
-                PromotionOffer(
-                    "saved",
-                    None,
-                    receipt.said(),
-                    proposal.slug,
-                    receipt.observations,
-                    receipt.series_id,
-                ),
-            )
-        propose(proposal)
-        return ToolResult(
-            ToolStatus.SUCCESS,
-            "promote",
-            "promote_series",
-            PromotionOffer("proposed", None, summary, proposal.slug, len(observations)),
-        )
+        return finish(proposal, arguments.save_now)
 
     return ToolSpec(
         name="promote_series",
         description=(
             "Keep one monthly value column of a document in this conversation (uploaded, or "
-            "read from an address in this conversation) as a series in the knowledge base, "
+            "read from an address in this conversation) - or of a monthly table of it, by "
+            "`result` (analiz_1, or a3 of this question) - as a series in the knowledge base, "
             "so later conversations find it by name or meaning. With save_now=true - only "
             "when the person's own message asked for it to be saved, kept or added - it is "
             "saved at once and the result says what was saved. Otherwise it writes nothing "
