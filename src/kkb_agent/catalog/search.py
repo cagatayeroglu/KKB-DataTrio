@@ -26,7 +26,12 @@ from kkb_agent.catalog.ranking import (
     rerank_by_reviewed_intent,
     rerank_widened,
 )
-from kkb_agent.catalog.records import MAX_CATALOG_CONCEPTS, MAX_CATALOG_SERIES, CatalogStatus
+from kkb_agent.catalog.records import (
+    MAX_CATALOG_CONCEPTS,
+    MAX_CATALOG_SERIES,
+    CatalogRecord,
+    CatalogStatus,
+)
 from kkb_agent.core import Frequency, StockFlow
 from kkb_agent.core.models import ContractModel
 
@@ -81,10 +86,45 @@ class ConceptMatch(ContractModel):
 
 
 class BandChoice(ContractModel):
-    """One maturity column of a candidate's row, readable as a series of its own."""
+    """One maturity column of a candidate's row, readable as a series of its own.
+
+    It names its parent row, the table, and the currency the row is in, read from the
+    band's own record. Live 2026-09-23 (B1 on 8012) two rows' bands were listed side by
+    side as bare `{band, series_id}` pairs; the model took the DTH row's bands for the TP
+    row's, summed foreign-currency deposits as TP maturity groups, and spent its call
+    budget searching for the TP bands it had already been shown.
+    """
 
     band: StrictStr
     series_id: StrictStr
+    #: The row this band is a column of, without the band: "TP Mevduat / ... Yerleşik".
+    row: StrictStr | None = None
+    table: StrictStr | None = None
+    #: "TP" or "YP" when the row's own name says which; None when it says neither.
+    currency: Literal["TP", "YP"] | None = None
+
+
+def _row_currency(row: str) -> Literal["TP", "YP"] | None:
+    """The currency a bulletin row names itself in: "TP ...", "YP ...", "Döviz Tevdiat ..."."""
+    words = set(normalize_search_text(row).split())
+    tp = "tp" in words
+    yp = "yp" in words or {"doviz", "tevdiat"} <= words
+    if tp != yp:
+        return "TP" if tp else "YP"
+    return None
+
+
+def band_choice(band: str, record: CatalogRecord) -> BandChoice:
+    """A band with its parent row, table and currency, as its own record states them."""
+    suffix = f" ({band})"
+    row = record.title[: -len(suffix)] if record.title.endswith(suffix) else record.title
+    return BandChoice(
+        band=band,
+        series_id=record.series_id,
+        row=row,
+        table=record.group.group_title if record.group is not None else None,
+        currency=_row_currency(row),
+    )
 
 
 class CatalogCandidate(ContractModel):
@@ -643,7 +683,7 @@ def search_catalog(
     ranked = [item for item, _ in folded]
     bands_of = {
         item.record.series_id: tuple(
-            BandChoice(band=found[1], series_id=band.record.series_id)
+            band_choice(found[1], band.record)
             for band in bands
             if (found := _band(band)) is not None
         )

@@ -13,11 +13,11 @@ from kkb_agent.catalog.normalization import normalize_query_text
 from kkb_agent.catalog.ranking import rerank_by_reviewed_intent, rerank_widened
 from kkb_agent.catalog.search import (
     MAX_GROUPS,
-    BandChoice,
     CatalogCandidate,
     CatalogSearchArguments,
     CatalogSearchOutput,
     _band,
+    band_choice,
     eligible_catalog_series,
     fold_bands,
     named_calendar_first,
@@ -220,7 +220,7 @@ def search_hybrid_catalog(
     order = [series_id for series_id, _ in folded]
     bands_of = {
         series_id: tuple(
-            BandChoice(band=found[1], series_id=band)
+            band_choice(found[1], eligible[band].record)
             for band in bands
             if (found := _band(eligible[band])) is not None
         )
