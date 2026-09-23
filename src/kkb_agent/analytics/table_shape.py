@@ -10,7 +10,7 @@ old aggregate would no longer describe the result.
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Collection, Hashable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from math import isfinite
@@ -104,6 +104,24 @@ def _key(value: ResultValue) -> PeriodKey:
     return period.start, period.end, period.frequency, anchor
 
 
+def table_columns(cells: Mapping[str, Collection[Hashable]]) -> set[str]:
+    """Which labels, each with the periods it holds, are the columns of a period table.
+
+    A label with two or more periods is a column. A label with one period beside such
+    columns is a metric about the table - a total, a latest value - and not a row of
+    it. When no label has two, the labels form a one-row table only if they all hold
+    the same single period: each is then a column of that row. Two tables of one
+    month each were refused as having no rows, so a same-month join or a filter of a
+    one-month table could not be made at all (QA-36). Single cells on different
+    periods say no row, and nothing is made of them.
+    """
+    several = {label for label, held in cells.items() if len(held) >= 2}
+    if several:
+        return several
+    periods = {next(iter(held)) for held in cells.values() if len(held) == 1}
+    return set(cells) if len(periods) == 1 else set()
+
+
 def _period_columns(source: AnalyticalResult) -> tuple[dict[str, set[PeriodKey]], Frequency, int]:
     # Selecting existing cells reads periods only. A column whose unit a document
     # did not state stays unresolved and travels with the table; it is not a
@@ -123,10 +141,14 @@ def _period_columns(source: AnalyticalResult) -> tuple[dict[str, set[PeriodKey]]
         if key in cells:
             raise TableShapeRefused("The source table has duplicate column-period values")
         cells.add(key)
-    columns = {label: cells for label, cells in raw.items() if len(cells) >= 2}
-    non_period += sum(len(cells) for cells in raw.values() if len(cells) < 2)
+    kept = table_columns(raw)
+    columns = {label: cells for label, cells in raw.items() if label in kept}
+    non_period += sum(len(cells) for label, cells in raw.items() if label not in kept)
     if not columns:
-        raise TableShapeRefused("The source contains no period table with at least two rows")
+        raise TableShapeRefused(
+            "The source contains no period table: no column holds two periods, and its "
+            "single cells do not share one period"
+        )
     frequencies = {key[2] for cells in columns.values() for key in cells}
     if len(frequencies) != 1:
         raise TableShapeRefused("The source table mixes period frequencies; convert them first")
