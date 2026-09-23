@@ -61,7 +61,7 @@ def test_expanded_aliases_do_not_silently_collapse_scopes(snapshot, query, codes
     found = search_catalog(snapshot, CatalogSearchArguments(query=query))
     assert {c.series.record.source_series_id for c in found.candidates} == codes
     assert found.clarification_required
-    assert not found.analytical_evidence and not found.observation_fetch_authorized
+    assert not found.analytical_evidence and not found.observations_included
 
 
 def test_native_frequency_filter_is_not_a_resampling_request(snapshot):

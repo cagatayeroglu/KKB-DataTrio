@@ -13,7 +13,7 @@ from test_prepared_api import BASE, set_config, wait_http
 from test_prepared_dense import POLICY, Recording, build_index
 
 from kkb_agent.agent import Workspace
-from kkb_agent.agent.discovery import WEB_ADDRESS_INSTRUCTIONS
+from kkb_agent.agent.discovery import ADDRESS_FIRST, WEB_ADDRESS_INSTRUCTIONS
 from kkb_agent.api import __main__ as cli
 from kkb_agent.api.app import create_app
 from kkb_agent.api.contracts import Proof
@@ -199,12 +199,11 @@ def test_only_the_address_step_bypasses_discovery():
 @pytest.mark.parametrize(
     ("fetch", "planned"),
     [
-        (FakeFetch(CSV), plan(url="https://data.example.test/other.csv")),
         (FakeFetch(code=FetchCode.BLOCKED_DESTINATION), plan()),
         (FakeFetch(b"\x89PNG\r\n\x1a\n", media_type="image/png"), plan()),
         (FakeFetch(b"Tarih;Tutar\n2026-01-31;x\n"), plan()),
     ],
-    ids=["address_not_in_question", "blocked_destination", "unsupported_format", "unreadable"],
+    ids=["blocked_destination", "unsupported_format", "unreadable"],
 )
 def test_refused_documents_publish_nothing(pool, tmp_path, fetch, planned):
     provider = scripted(planned, DRAFT)
@@ -216,11 +215,90 @@ def test_refused_documents_publish_nothing(pool, tmp_path, fetch, planned):
     assert published_names(prepared, session_id) == []
     serialized = json.dumps(turn, ensure_ascii=False)
     assert not [item for item in PRIVATE if item in serialized]
-    if "other.csv" in planned:
-        # Only the address the user wrote may be read (for its outline); the planned
-        # address that is not in the question is never requested.
-        other = source_id_for("https://data.example.test/other.csv")
-        assert not [request for request in fetch.requests if request.source_ref == other]
+
+
+def test_a_plan_reading_another_address_is_refused_before_it_runs(pool, tmp_path):
+    """N46's rule: once the question gives a readable address, a plan must read that one.
+
+    A plan naming another address used to run and be refused by the tool, and the turn
+    abstained with no second chance. It is now refused before anything runs, the planner is
+    told the rule, and the corrected plan reads the address as written. The address the
+    planner proposed on its own is never requested either way.
+    """
+    fetch = FakeFetch(CSV)
+    provider = scripted(plan(url="https://data.example.test/other.csv"), plan(), DRAFT)
+    prepared = served(pool, tmp_path, provider, fetch)
+    session_id, turn = ask(prepared)
+
+    assert turn["state"] == "completed", turn
+    assert turn["answer"]["status"] == "accepted" and turn["answer"]["text"] == DRAFT
+    assert ADDRESS_FIRST in provider.seen[1][-1].content
+    other = source_id_for("https://data.example.test/other.csv")
+    assert not [request for request in fetch.requests if request.source_ref == other]
+    assert len(fetch.requests) == 1  # the outline's read of the written address, reused
+    assert published_names(prepared, session_id) == ["analiz_1"]
+
+
+def test_the_written_page_is_followed_to_its_linked_decision_not_searched_past(pool, tmp_path):
+    """Live 2026-09-22 (N46), end to end through the served runtime.
+
+    The page was outlined as offering nothing, the planner searched the web and read a page
+    the search found, and the reading said no link had needed following. Now the outline
+    lists the page's press releases, the search-first plan is refused by rule, the corrected
+    plan follows "21 Mart 2024" on the page the person gave, and the inspection is told the
+    document was reached through that link.
+    """
+    from test_address_outline import ANNOUNCEMENTS, LISTING, Site
+    from test_searxng import FixedBackend
+
+    decision = f"{ANNOUNCEMENTS}/DUY2024-14"
+    site = Site(
+        {
+            ANNOUNCEMENTS: (LISTING, "text/html"),
+            decision: (b"<html><body><p>Kurul faizi sabit tuttu.</p></body></html>", "text/html"),
+        }
+    )
+    question = (
+        f"{ANNOUNCEMENTS} sayfasındaki 21 Mart 2024 tarihli faiz kararı duyurusunun "
+        "bağlantısını izle ve faiz kararını söyle"
+    )
+    searched = [
+        {"step_id": "s1", "tool": "web_search", "arguments": {"query": "TCMB 21 Mart 2024"}},
+        {
+            "step_id": "p",
+            "tool": "web_url",
+            "arguments": {"found_by": "s1", "result": 1},
+            "depends_on": ["s1"],
+        },
+    ]
+    followed = [
+        {
+            "step_id": "p",
+            "tool": "web_url",
+            "arguments": {"url": ANNOUNCEMENTS, "follow": "21 Mart 2024"},
+        }
+    ]
+    provider = scripted(
+        json.dumps({"question": question, "steps": searched}),
+        json.dumps({"question": question, "steps": followed}),
+        '{"reading": "Kurul politika faizini sabit tuttu."}',
+    )
+    prepared = served(pool, tmp_path, provider, site, search_backend=FixedBackend())
+    _, turn = ask(prepared, question)
+
+    assert turn["state"] == "completed", turn
+    assert "Kurul politika faizini sabit tuttu." in turn["answer"]["text"]
+    outline = next(m.content for m in provider.seen[0] if m.content.startswith("What the web"))
+    (page,) = json.loads(outline[outline.index("{") :])["pages"]
+    assert page["page_links"][0]["last_segment"] == "DUY2024-14" and "nothing_listed" not in page
+    assert ADDRESS_FIRST in provider.seen[1][-1].content
+    payload = json.loads(provider.seen[2][-1].content)
+    assert payload["reached_through"] == {
+        "link_text": "21 Mart 2024 Para Politikası Kurulu Kararı",
+        "from_page": ANNOUNCEMENTS,
+    }
+    assert decision in site.requests
+    assert set(site.requests) == {ANNOUNCEMENTS, decision}  # no search hit was ever read
 
 
 def test_instructions_inside_a_cell_grant_no_second_request(pool, tmp_path):
@@ -356,10 +434,22 @@ def test_check_reports_the_switch_without_fetching(pool, monkeypatch, capsys):
     assert URL not in capsys.readouterr().out
 
 
-def test_a_bare_read_is_planned_again_once_and_the_typed_read_publishes(pool, tmp_path):
-    """Live J1/J2 (2026-09-19): a bare read expected a second planning round; there is none."""
+def test_a_bare_read_is_inspected_once_and_the_typed_read_publishes(pool, tmp_path):
+    """A bare read receives bounded inspection, not a full general planning round."""
     fetch = FakeFetch(CSV)
-    provider = scripted(plan(selection=False), plan(), DRAFT)
+    provider = scripted(
+        plan(selection=False),
+        json.dumps(
+            {
+                "selection": {
+                    k: v
+                    for k, v in json.loads(plan())["steps"][0]["arguments"].items()
+                    if k in ("column", "row", "period_column", "value_columns")
+                }
+            }
+        ),
+        DRAFT,
+    )
     prepared = served(pool, tmp_path, provider, fetch)
     session_id, turn = ask(prepared)
 
@@ -367,8 +457,9 @@ def test_a_bare_read_is_planned_again_once_and_the_typed_read_publishes(pool, tm
     assert turn["answer"]["status"] == "accepted" and turn["answer"]["text"] == DRAFT
     assert len(provider.seen) == 3
     first, second = provider.seen[0], provider.seen[1]
-    assert any("no later planning round" in message.content for message in first)
-    assert "gives the answer nothing" in second[-1].content
+    assert any("typed" in message.content for message in first)
+    assert "Inspect this already fetched document" in second[0].content
+    assert "silver_observations" not in str(second)
     assert published_names(prepared, session_id) == ["analiz_1"]
     assert len(fetch.requests) == 1  # the turn's one read of the address is reused
 
@@ -402,3 +493,52 @@ def test_an_abstention_after_a_lost_read_says_the_address_could_not_be_read(pool
     assert turn["state"] == "completed", turn
     assert turn["answer"]["status"] == "abstained"
     assert any("okunamadı" in notice for notice in turn["answer"]["notices"])
+
+
+def test_a_search_answers_after_the_written_address_could_not_be_followed(pool, tmp_path):
+    """Live W5 (N46, 2026-09-22): the rest of the rule is "search only if it is insufficient".
+
+    The planner did read the address the person wrote, and the link it named was not on the
+    page (LINK_NOT_FOUND). Its corrected plan searched the web, was refused for not reading
+    that same address, and the turn ended in silence although the announcement was there.
+    """
+    from test_address_outline import ANNOUNCEMENTS, LISTING, Site
+    from test_searxng import FixedBackend
+
+    found = "https://www.bddk.org.tr/BultenAylik"
+    site = Site(
+        {
+            ANNOUNCEMENTS: (LISTING, "text/html"),
+            found: (b"<html><body><p>Kurul faizi sabit tuttu.</p></body></html>", "text/html"),
+        }
+    )
+    question = f"{ANNOUNCEMENTS} sayfasindaki 21 Mart 2024 kararini izle ve soyle"
+    missing = [
+        {
+            "step_id": "p",
+            "tool": "web_url",
+            "arguments": {"url": ANNOUNCEMENTS, "follow": "bu sayfada olmayan bir baglanti"},
+        }
+    ]
+    searched = [
+        {"step_id": "s1", "tool": "web_search", "arguments": {"query": "TCMB 21 Mart 2024"}},
+        {
+            "step_id": "p",
+            "tool": "web_url",
+            "arguments": {"found_by": "s1", "result": 1},
+            "depends_on": ["s1"],
+        },
+    ]
+    provider = scripted(
+        json.dumps({"question": question, "steps": missing}),
+        json.dumps({"question": question, "steps": searched}),
+        '{"reading": "Kurul politika faizini sabit tuttu."}',
+    )
+    prepared = served(pool, tmp_path, provider, site, search_backend=FixedBackend())
+    _, turn = ask(prepared, question)
+
+    assert turn["state"] == "completed", turn
+    assert "Kurul politika faizini sabit tuttu." in turn["answer"]["text"]
+    # The address was asked for first, and the search only followed its refusal.
+    assert ADDRESS_FIRST not in provider.seen[1][-1].content
+    assert site.requests[0] == ANNOUNCEMENTS and found in site.requests

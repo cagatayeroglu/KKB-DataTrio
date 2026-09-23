@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Self
 from urllib.parse import urlencode
 
@@ -32,6 +33,32 @@ MONTHLY_LIMITS = FetchLimits(
     max_decompressed_bytes=2 * 1024 * 1024,
     max_redirects=0,
 )
+
+
+#: The bulletin's reply for a month it has not published yet (measured 2026-09-23).
+_NOT_YET = re.compile(r"en son \d+ ay\w* ait veri bulunmaktad", re.I)
+
+
+def unpublished(content: bytes) -> bool:
+    """Whether the reply says the asked month is not published yet.
+
+    The bulletin answers a month it does not have yet with HTTP 200 and `success: false`
+    (measured 2026-09-23 for 2026/8: "2026 yılının en son 7 ayına ait veri
+    bulunmaktadır!"). That is a statement about today, not about the month, so it is
+    never kept as the month's answer.
+    """
+    try:
+        root = json.loads(content.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    # Only the bulletin's own "it holds the last N months of the year" sentence says this;
+    # any other refusal is a refusal, as before.
+    return (
+        isinstance(root, dict)
+        and root.get("success") is False
+        and isinstance(root.get("error"), str)
+        and _NOT_YET.search(root["error"]) is not None
+    )
 
 
 def period_key(period: MonthlyPeriod) -> str:
@@ -102,6 +129,10 @@ class MonthlyRequest(ContractModel):
             separators=(",", ":"),
         ).encode()
         return hashlib.sha256(payload).hexdigest()
+
+    def keepable(self, content: bytes) -> bool:
+        """Whether a reply may be kept as this month's answer for later turns."""
+        return not unpublished(content)
 
     def fetch_request(self) -> FetchRequest:
         return FetchRequest(

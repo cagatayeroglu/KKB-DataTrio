@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping, Sequence
-from datetime import date
+from datetime import date, timedelta
 
 from kkb_agent.core import DIMENSIONLESS, AnalyticalResult, ResultValue, Scale
 
 
-def _fold(text: str) -> str:
+def fold(text: str) -> str:
+    """Case and the dotted/dotless i, removed: the vocabularies match on this."""
     return text.lower().replace("\u0307", "").replace("ı", "i")
 
 
@@ -26,7 +27,23 @@ SCALE_WORDS = {
     "million": Scale.MILLION,
     "billion": Scale.BILLION,
 }
-SCALE = re.compile(r"\s*(" + "|".join(SCALE_WORDS) + r")(?:u|ı|ü|i)?\b", re.I)
+#: Turkish puts its case, possessive and "-lık" endings on the scale word itself: "512.259
+#: milyarlık bakiye", "milyara ulaştı", "milyonun üzerinde". The scale is the same word; read
+#: without its ending it was no scale at all, and a thousandfold error went unchecked (N44).
+#: "bin" takes front-vowel endings only, so "bina" stays a building.
+_BACK = r"(?:l[ıiuü](?:k|ğ[ıiuüae])|l[ae]r|l[ae]|[dt][ae]n?|n?[ıiuü]n|y[ae]|[ae]|[ıiuü])?"
+_SCALE_ENDINGS = {
+    "bin": r"(?:l[iı](?:k|ğ[ie])|ler|le|[dt]en?|[dt]e|n?in|e|i)?",
+    "milyon": _BACK,
+    "milyar": _BACK,
+    "thousand": "s?",
+    "million": "s?",
+    "billion": "s?",
+}
+SCALE = re.compile(
+    r"\s*(?:" + "|".join(f"({word}){ending}" for word, ending in _SCALE_ENDINGS.items()) + r")\b",
+    re.I,
+)
 UNITS = {
     "tl": "try",
     "try": "try",
@@ -57,10 +74,54 @@ UNITS = {
     "percentage point": "percentage_points",
     "index point": "index_points",
     "yüzde puan": "percentage_points",
+    # Turkish inflects the phrase, and the longest spelling wins only if it is spelled
+    # here: "yüzde puanlık" could not match "yüzde puan" (a letter follows it), so the
+    # matcher fell back to "yüzde" and read percent. The writer had used exactly the
+    # right words and the gate withheld the sentence for a unit conflict with itself
+    # (live 2026-09-22: "-0,0620 yüzde puanlık hareket").
+    "yüzde puanlık": "percentage_points",
+    "yüzde puanlik": "percentage_points",
+    "yüzde puanı": "percentage_points",
+    "yüzde puana": "percentage_points",
     "baz puan": "basis_points",
+    "baz puanlık": "basis_points",
+    "baz puanlik": "basis_points",
     "basis points": "basis_points",
     "index points": "index_points",
     "endeks puan": "index_points",
+    # A number of things. The label says what they are, so the display adds no unit
+    # word; these spellings exist so a sentence that names them still binds.
+    "kişi": "count",
+    "adet": "count",
+    "işlem": "count",
+    "count": "count",
+    # A mass, which a precious-metal series is quoted in. Without these a sentence
+    # naming the unit could not bind to the value it described. (Taken from PR #316.)
+    "kg": "kg",
+    "kilogram": "kg",
+    "gram": "g",
+    "gr": "g",
+    "g": "g",
+    "ton": "t",
+    "t": "t",
+    # A quoted price is money per quantity (DEC-177), in both spellings a reader
+    # uses. Series with these units had no display at all (finding DN-6.4).
+    **{
+        spelling: f"{currency.lower()}/{quantity}"
+        for currency, money in (
+            ("TRY", ("tl", "try")),
+            ("USD", ("usd", "dolar")),
+            ("EUR", ("eur", "euro")),
+        )
+        for quantity, words in (
+            ("g", ("gr", "gram", "g")),
+            ("kg", ("kg",)),
+            ("oz", ("ons", "oz")),
+            ("t", ("ton", "t")),
+            ("piece", ("adet",)),
+        )
+        for spelling in (f"{word}/{unit}" for word in money for unit in words)
+    },
 }
 _UNIT_TEXT = "|".join(re.escape(u) for u in sorted(UNITS, key=len, reverse=True))
 UNIT = re.compile(r"(?<!\w)(" + _UNIT_TEXT + r")(?!\w)", re.I)
@@ -72,7 +133,7 @@ YEAR_MONTH = re.compile(r"(?<![\w-])(?:19|20)\d{2}-(?:0[1-9]|1[0-2])(?![\w-])")
 #: The period display this system itself writes, e.g. 2021-02-01..2021-02-28.
 DATE_RANGE = re.compile(r"\d{4}-\d{2}-\d{2}\.\.\d{4}-\d{2}-\d{2}")
 MONTHS = {
-    _fold(name): month
+    fold(name): month
     for month, names in enumerate(
         (
             "ocak january",
@@ -93,6 +154,15 @@ MONTHS = {
     for name in names.split()
 }
 MONTH = re.compile(r"\b(" + "|".join(MONTHS) + r")\b", re.I)
+#: A date as a person writes it: "5 Ocak 2024", "26 Aralık", "1 Şubat 2025 haftası". The
+#: day is not a figure, and neither is the year. Live 2026-09-22: "5 Ocak 2024 haftasında
+#: ... 42,1" lost its whole sentence because 5 matched no value of the result, and with it
+#: the one number the sentence was written to report.
+WRITTEN_DATE = re.compile(
+    r"(?<![\d.,])(?:[12]\d|3[01]|0?[1-9])\s+(?:" + "|".join(MONTHS) + r")"
+    r"(?:\s+(?:19|20)\d{2})?(?![\d.,])",
+    re.I,
+)
 CLAUSE_BREAK = re.compile(r";|(?<!\d),|,(?!\d)")
 EXPLICIT_ID = re.compile(
     r"\b(series_id|result_id|value_label)\s*=\s*[`\"']?([\w.:-]+?)(?=[`\"']?(?:\s|,|;|$|:\s))",
@@ -125,6 +195,15 @@ CAUSAL_PHRASES = (
     r"driven\s+by",
     r"le(?:d|ads?|ading)\s+to",
     r"yüzünden",
+    # Direct or hedged influence verbs observed in ordinary analyst prose.
+    # "arttı" (rose) is not "artırdı" (made rise); keep that distinction.
+    r"artir\w*",
+    r"azalt\w*",
+    r"tetikle\w*",
+    r"etkile\w*",
+    r"baskila\w*",
+    r"affect\w*",
+    r"contribut\w*",
 )
 CAUSAL = re.compile(r"\b(?:" + "|".join(CAUSAL_PHRASES) + r")\b", re.I)
 
@@ -135,6 +214,7 @@ CAUSAL = re.compile(r"\b(?:" + "|".join(CAUSAL_PHRASES) + r")\b", re.I)
 #: values). Bounded folded vocabulary, not a parser: "geçiş yok" or "dışlanan
 #: dönem bulunmuyor" describe counts and are deliberately not listed.
 ABSENCE_PHRASES = (
+    r"(?:değer|veri|gözlem|sonuç)\w*\s+eksik\b",
     r"(?:değer|veri|sonuç)\w*\s+(?:bulunm(?:uyor|am)\w*|yok\w*|mevcut\s+değil\w*)",
     r"(?:değer|veri|sonuç)\w*\s+(?:yer\s+)?almi(?:yor|yo)\w*",
     r"hesaplanam\w*",
@@ -144,10 +224,16 @@ ABSENCE_PHRASES = (
     r"(?:cannot|could\s+not)\s+be\s+(?:computed|calculated)",
 )
 ABSENCE = re.compile(r"\b(?:" + "|".join(ABSENCE_PHRASES) + r")", re.I)
+GENERIC_MISSING_SAMPLES = re.compile(r"(?:veri|bazi\s+gözlemler)\s+eksik(?:tir)?\.?", re.I)
 
 
-def absence_fault(text: str) -> str | None:
-    if ABSENCE.search(_fold(text)):
+def absence_fault(text: str, *, missing_samples: bool = False) -> str | None:
+    folded = fold(text).strip()
+    # A count of missing observations proves generic partial coverage, never
+    # that a particular month, source or result is absent.
+    if missing_samples and GENERIC_MISSING_SAMPLES.fullmatch(folded):
+        return None
+    if ABSENCE.search(folded):
         return (
             "Unsupported absence claim: computed results are shown; the gate cannot prove absence"
         )
@@ -155,7 +241,7 @@ def absence_fault(text: str) -> str | None:
 
 
 def causal_fault(text: str) -> str | None:
-    if CAUSAL.search(_fold(text)):
+    if CAUSAL.search(fold(text)):
         # Even ResultKind.CAUSALITY is association-only under DEC-120.
         return "Unsupported causal assertion: numeric/association results do not establish cause"
     return None
@@ -165,21 +251,95 @@ def amount_qualifiers(text: str, start: int, end: int) -> tuple[Scale | None, tu
     """Only attached qualifiers; never borrow the next number's scale or unit."""
     suffix = text[end:]
     scale_match = SCALE.match(suffix)
-    scale = SCALE_WORDS[_fold(scale_match[1])] if scale_match else None
+    scale = (
+        SCALE_WORDS[fold(next(word for word in scale_match.groups() if word))]
+        if scale_match
+        else None
+    )
     unit_tail = suffix[scale_match.end() :] if scale_match else suffix
     units = []
     for match in UNIT.finditer(text[:start]):
         if not text[match.end() : start].strip():
-            units.append(UNITS[_fold(match[1])])
+            units.append(UNITS[fold(match[1])])
     trailing = UNIT.match(unit_tail.lstrip())
     if trailing:
-        units.append(UNITS[_fold(trailing[1])])
+        units.append(UNITS[fold(trailing[1])])
     return scale, tuple(units)
+
+
+#: "2023=100": how an index names its base year. It is part of the series' name, not a
+#: figure: neither the year nor the hundred measures anything (live 2026-09-21: a note
+#: naming "TCMB Türkiye geneli endeksi (2023=100)" was withheld because 100 is no value).
+_BASE_NOTATION = re.compile(r"(?<![\d.,])(?:19|20)\d{2}\s*=\s*100(?![\d.,])")
+
+
+def is_base_notation(text: str, start: int, end: int) -> bool:
+    """Whether the number at [start, end) sits inside an index's base-year notation."""
+    return any(
+        found.start() <= start and end <= found.end() for found in _BASE_NOTATION.finditer(text)
+    )
 
 
 def has_amount_context(text: str, start: int, end: int) -> bool:
     scale, units = amount_qualifiers(text, start, end)
     return scale is not None or bool(units)
+
+
+#: A number that enumerates rather than measures: "(1)", a line's leading "2." or
+#: "3)". Live 2026-09-20: a reply listing the agent's own tools as "(1) ... (2) ..."
+#: had that whole sentence withheld, because those markers bound to nothing, and the
+#: answer that reached the reader began mid-thought.
+#:
+#: A line's marker may sit behind Markdown: "**1) Kredi tarafı daralıyor.**", "### 2.",
+#: "- 3)". Live 2026-09-23 (A3) the headings of a four-part commentary were bold, and
+#: "1", "2", "3", "4" reached the reader as figures no tool had returned.
+_LIST_MARKER = re.compile(
+    "(?:"
+    r"(?<=[(])(?P<paren>\d{1,2})(?=[)])"
+    "|"
+    r"(?:(?<=^)|(?<=\n)|(?<=; )|(?<=: ))(?P<lead>\d{1,2})(?=[).-]\s)"
+    "|"
+    r"(?:(?<=^)|(?<=\n))[ \t]*[>#*_-][ \t>#*_-]*(?P<marked>\d{1,2})(?=[).](?:\s|[*_]))"
+    ")"
+)
+
+
+def is_list_marker(text: str, start: int, end: int) -> bool:
+    """Whether the number at this position enumerates instead of measuring.
+
+    Only a bare one- or two-digit marker, and only where nothing gives it an
+    amount: a figure with a unit or a scale word is a claim wherever it sits.
+    """
+    if has_amount_context(text, start, end):
+        return False
+    # "(3) milyon TL" is an amount whose scale word sits past the bracket, which
+    # the qualifier vocabulary does not read through on its own.
+    if text[end : end + 1] == ")" and has_amount_context(text, start, end + 1):
+        return False
+    for match in _LIST_MARKER.finditer(text):
+        group = next(name for name in ("paren", "lead", "marked") if match.group(name))
+        if match.start(group) == start and match.end(group) == end:
+            return True
+    return False
+
+
+#: Where something is in a source, not how much: "satır 3", "sayfa 8", "Tablo 1", "s. 2",
+#: "Ek 3", "3. satır". Live 2026-09-23 (A1) "tablosu, satır 3: Tüketici Kredileri - Taşıt"
+#: told the reader where the figure came from, and "3" was reported as a figure no tool
+#: had returned.
+#: "Ek" only capitalised: "ek 3 ay" is three more months, "Ek 3" is an annex.
+_PLACES = r"(?i:satır|sayfa|tablo|sütun|s\.|row|page|table|column)|Ek"
+_PLACE_BEFORE = re.compile(r"(?<!\w)(?:" + _PLACES + r")\s*$")
+#: "3. satır" only lower case and on the same line: "sayısı 5." followed by a line
+#: "Eksik gözlem ...", or "sayısı 5. Tablo aşağıda", ends a sentence with a count.
+_PLACE_AFTER = re.compile(r"\.[ \t]*(?:satır|sayfa|tablo|sütun)")
+
+
+def is_location(text: str, start: int, end: int) -> bool:
+    """Whether the number at this position says where in a source, not how much."""
+    if end - start > 3 or not text[start:end].isdigit() or has_amount_context(text, start, end):
+        return False
+    return bool(_PLACE_BEFORE.search(text, 0, start) or _PLACE_AFTER.match(text, end))
 
 
 def is_date_token(text: str, start: int, end: int) -> bool:
@@ -192,6 +352,9 @@ def is_date_token(text: str, start: int, end: int) -> bool:
                 date.fromisoformat(match[0])
             except ValueError:
                 return False
+            return not has_amount_context(text, match.start(), match.end())
+    for match in WRITTEN_DATE.finditer(text):
+        if match.start() <= start and end <= match.end():
             return not has_amount_context(text, match.start(), match.end())
     return False
 
@@ -224,7 +387,7 @@ def identity_fault(
         clause = prefix + clause
     fields = {"series_id": value.label, "result_id": result.result_id, "value_label": value.label}
     for match in EXPLICIT_ID.finditer(clause):
-        if match[2] != fields[_fold(match[1])]:
+        if match[2] != fields[fold(match[1])]:
             return f"Explicit {match[1]} {match[2]!r} conflicts with this result/value identity"
     header = HEADER_ID.match(clause)
     # A plain word before a colon that names nothing known ("Değerlendirme:",
@@ -248,19 +411,25 @@ def identity_fault(
 
 
 TABLE_COUNT_LABELS = {
-    "complete monthly transitions": "Tam aylık geçiş sayısı",
-    # "nedeniyle" and "yüzünden" are causal wording the gate withholds, so this
-    # phrase states the exclusion without asserting a cause for it.
-    "transitions excluded for missing observations": "Dışlanan eksik gözlemli geçiş sayısı",
-    "transitions meeting the condition": "Koşulu karşılayan geçiş sayısı",
+    # Read by a person, not only by the gate. "Koşul altında sürücü yönünü karşılayan dönem
+    # sayısı" was the harness's own sentence in every reference answer, and the writer's
+    # interpretation took its vocabulary from it (live 2026-09-21). Which series is the
+    # first and which the second, and in which direction, is said in the line above them
+    # (`presentation.comparison_heading`). No phrase may contain another: the gate tells
+    # the counts apart by finding exactly one of them in a sentence.
+    "complete monthly transitions": "Karşılaştırılan aydan aya geçiş sayısı",
+    "transitions excluded for missing observations": (
+        "Eksik gözlem içerdiği için sayılmayan geçiş sayısı"
+    ),
+    "transitions meeting the condition": "Ön koşulu sağlayan geçiş sayısı",
     "eligible transitions matching the driver direction": (
-        "Koşul altında sürücü yönünü karşılayan dönem sayısı"
+        "Birinci serinin belirtilen yönde hareket ettiği ay sayısı"
     ),
     "eligible transitions matching the target direction": (
-        "Koşul altında hedef yönünü karşılayan dönem sayısı"
+        "İkinci serinin belirtilen yönde hareket ettiği ay sayısı"
     ),
     "eligible transitions matching both directions": (
-        "Koşul altında iki yönü birlikte karşılayan dönem sayısı"
+        "İki hareketin aynı ayda birlikte görüldüğü ay sayısı"
     ),
 }
 
@@ -290,9 +459,9 @@ def table_count_display_label(result: AnalyticalResult, value: ResultValue) -> s
 #: be named at all once a new comparison contributes an equal count.
 COMOVEMENT_COUNT_LABELS = {
     "transitions": "Karşılaştırılan ardışık ay geçişi sayısı",
-    "driver_fell": "Sürücü serinin düştüğü geçiş sayısı",
-    "target_rose": "Sürücü düşerken hedefin arttığı geçiş sayısı",
-    "target_did_not_rise": "Sürücü düşerken hedefin artmadığı geçiş sayısı",
+    "driver_fell": "Birinci serinin düştüğü ay sayısı",
+    "target_rose": "Birinci seri düşerken ikinci serinin arttığı ay sayısı",
+    "target_did_not_rise": "Birinci seri düşerken ikinci serinin artmadığı ay sayısı",
 }
 
 
@@ -328,6 +497,30 @@ def controlled_count_label(result: AnalyticalResult, value: ResultValue) -> str 
     return table_count_display_label(result, value) or comovement_count_display_label(result, value)
 
 
+def value_meaning(result: AnalyticalResult, value: ResultValue) -> str:
+    """What a value measures, for deciding whether two equal figures are one fact.
+
+    A comparison labels each count with its own identity ("table comparison 3f2a...:
+    complete monthly transitions"), so two comparisons over one table never share a label
+    although both count the same 59 transitions. The controlled role phrase is what the
+    count means, and what a sentence can say; any other value means its label.
+
+    A comparison also names each endpoint level "<series> at <date>", where a read of
+    the same series names it "<series>": the same observation under two labels. Live
+    2026-09-23 (A1) a table and a comparison of one balance both held its December and
+    June levels, and the two figures the answer quoted from them were reported to the
+    reader as ambiguous. A label naming its own period's last day means the series.
+    """
+    controlled = controlled_count_label(result, value)
+    if controlled:
+        return controlled
+    if value.period is not None:
+        own_day = f" at {value.period.end.isoformat()}"
+        if value.label.endswith(own_day):
+            return value.label[: -len(own_day)]
+    return value.label
+
+
 def comovement_count_identity_fault(
     clause: str, result: AnalyticalResult, value: ResultValue
 ) -> str | None:
@@ -338,8 +531,8 @@ def comovement_count_identity_fault(
     equal number; without this, the inherited count has no wording that binds it
     and the whole sentence is withheld as ambiguous.
     """
-    folded = _fold(clause)
-    selected = [label for label in COMOVEMENT_COUNT_LABELS.values() if _fold(label) in folded]
+    folded = fold(clause)
+    selected = [label for label in COMOVEMENT_COUNT_LABELS.values() if fold(label) in folded]
     if not selected:
         return None
     expected = comovement_count_display_label(result, value)
@@ -359,8 +552,8 @@ def table_count_identity_fault(
     identifies one of the six final comparison metrics; unrecognised prose
     continues to receive no semantic privilege.
     """
-    folded = _fold(clause)
-    selected = [label for label in TABLE_COUNT_LABELS.values() if _fold(label) in folded]
+    folded = fold(clause)
+    selected = [label for label in TABLE_COUNT_LABELS.values() if fold(label) in folded]
     if not selected:
         return None
     expected = table_count_display_label(result, value)
@@ -396,14 +589,134 @@ def mask_price_references(text: str, references: Sequence[date]) -> str:
     return text
 
 
+def _dated_mentions(context: str) -> list[tuple[int, int]]:
+    """Where a clause names a period: a date, a month with its year, or a year alone."""
+    # "2026-07-01..2026-07-31" is one period: the display this system writes for the writer,
+    # and the one a model copies back. Read as two dates with nothing between them, a clause
+    # that gave each period its own figure paired nothing, and every figure was refused for
+    # the other periods (N45, live W1-W3 on 2026-09-22).
+    spans = [(found.start(), found.end()) for found in DATE_RANGE.finditer(context)]
+    spans += [
+        (found.start(), found.end())
+        for found in ISO_DATE.finditer(context)
+        if not any(start <= found.start() < end for start, end in spans)
+    ]
+    # "2026-06" is one mention. Read as a year with a stray "-06" after it, the "06" counted
+    # as a figure standing after the last date, and a price month nobody recorded paired off.
+    spans += [
+        (found.start(), found.end())
+        for found in YEAR_MONTH.finditer(context)
+        if not any(start <= found.start() < end for start, end in spans)
+    ]
+    for found in MONTH.finditer(context):
+        rest = context[found.end() :]
+        year = YEAR.match(rest.lstrip())
+        end = found.end() + (len(rest) - len(rest.lstrip()) + year.end() if year else 0)
+        start = found.start()
+        if year is None:
+            # Turkish writes the year first as readily as last: "2021 Şubat'ta" beside
+            # "Şubat 2021'de". Read only forwards, the year and the month became two
+            # mentions with no figure between them, which is the shape `own_dated_part`
+            # takes as "this clause does not pair dates with figures" — so it gave up and
+            # returned the whole sentence. Live 2026-09-22: an answer naming four months
+            # and their four correct real balances was withheld entire, each figure
+            # refused for another month's period.
+            leading = re.search(r"(?<![\w-])((?:19|20)\d{2})\s*$", context[: found.start()])
+            if leading is not None and not has_amount_context(
+                context, leading.start(1), leading.end(1)
+            ):
+                start = leading.start(1)
+        spans.append((start, end))
+    for found in YEAR.finditer(context):
+        if has_amount_context(context, found.start(), found.end()):
+            continue
+        if not any(start <= found.start() < end for start, end in spans):
+            spans.append((found.start(), found.end()))
+    return sorted(spans)
+
+
+def own_dated_part(clause: str, position: int) -> str:
+    """The part of a clause a figure is dated by, when each date introduces its own figure.
+
+    "Ocak 2021'de 281.234 milyon TL olan bakiye Aralık 2025'te 801.438 milyon TL'ye ulaştı."
+    is how an analyst says it, and both figures are right; read as one context, each figure
+    was refused for the other's month, and the turn paid a second writer call to have the
+    sentence cut in two (live E7; one stored repair took 1,036 s). The reading is only
+    narrowed where the clause itself pairs them: a figure stands between every two dated
+    mentions and after the last one. "2021 ve 2022 yıllarında 100 oldu" pairs nothing, so
+    both years still have to hold, and a figure written before the first date keeps the
+    whole clause.
+    """
+    mentions = _dated_mentions(clause)
+    if len(mentions) < 2 or position < mentions[0][0]:
+        return clause
+    bounds = [start for start, _ in mentions] + [len(clause)]
+    for (_, end), following in zip(mentions, bounds[1:], strict=True):
+        between = clause[end:following]
+        if not any(
+            not is_list_marker(clause, end + found.start(), end + found.end())
+            for found in re.finditer(r"\d+", between)
+        ):
+            return clause
+    for start, following in zip(bounds, bounds[1:], strict=False):
+        if start <= position < following:
+            return clause[start:following]
+    return clause
+
+
+#: A figure a movement starts from: "34,27'den", "%33,59'dan", "52.044'ten".
+_FROM = re.compile(r"['’][dt][ae]n(?!\w)")
+#: ... and the figure it arrives at, later in the same clause: "39,69'a", "40,12'ye",
+#: "43.062 milyon TL'ye".
+_TO = re.compile(r"\d[^.;:!?\n]{0,24}?['’]y?[ae](?!\w)")
+
+
+def is_movement_origin(text: str, start: int, end: int) -> bool:
+    """Whether this figure is where a written "from ... to ..." movement starts.
+
+    "Mart 2026'da faiz 34,27'den 39,69'a fırladı" is how a monthly move is said, and its
+    first figure is the level the month started from — the previous month's close. Read
+    as March's own figure it was reported as misdated (live 2026-09-23, A3), though both
+    figures and the month were right.
+    """
+    if not _FROM.match(text, end):
+        return False
+    tail = text[end : end + 120]
+    arrival = _TO.search(tail, _FROM.match(tail).end())  # type: ignore[union-attr]
+    return arrival is not None
+
+
 def period_fault(
-    clause: str, prefix: str, value: ResultValue, references: Sequence[date] = ()
+    clause: str,
+    prefix: str,
+    value: ResultValue,
+    references: Sequence[date] = (),
+    position: int | None = None,
+    *,
+    lenient: bool = False,
+    origin: bool = False,
 ) -> str | None:
+    """Why a figure's sentence contradicts the period its value belongs to, if it does.
+
+    `lenient` is for a report that names a figure, not a gate that withholds it: a
+    sentence naming several periods, one of them the value's own to the month, is
+    ambiguous rather than wrong. "Ocak 2026 değişimi için Aralık 2025 bakiyesi (52.044
+    milyon TL) okunmuştur" names the right month and another, and strictly every period
+    it names must hold, so two correct statements were reported as misdated (QA-26). A
+    sentence that names no period the value falls in is still a fault either way.
+    """
     # A leading date may scope several columns. An explicit local date takes
     # precedence, so a later column cannot borrow another column's month.
     if references:
-        clause = mask_price_references(clause, references)
+        masked = mask_price_references(clause, references)
+        # Masking keeps every offset only when it keeps the length; otherwise the
+        # figure's position no longer means anything and the whole clause is read.
+        if len(masked) != len(clause):
+            position = None
+        clause = masked
         prefix = mask_price_references(prefix, references)
+    if position is not None:
+        clause = own_dated_part(clause, position)
     context = clause
     if not YEAR.search(context) and not MONTH.search(context) and not ISO_DATE.search(context):
         context = prefix
@@ -414,8 +727,12 @@ def period_fault(
         if not has_amount_context(context, m.start(), m.end())
         and not any(d.start() <= m.start() < d.end() for d in dates)
     ]
+    # A "2024-03" written on its own is a period like any other. It was matched by none
+    # of the three patterns below, so a claim attributed to a month outside the result's
+    # coverage passed unchecked. (Taken from PR #316.)
+    year_months = list(YEAR_MONTH.finditer(context))
     months = list(MONTH.finditer(context))
-    if not dates and not years and not months:
+    if not dates and not years and not months and not year_months:
         return None
     period = value.period
     if period is None:
@@ -423,36 +740,68 @@ def period_fault(
     fault = (
         f"Claim is attributed to {context.strip()!r} but its period is {period.start}..{period.end}"
     )
+    # Whether some mention holds the value's own period to the month, and whether some
+    # mention does not. A bare year is too coarse to name the value's own period unless
+    # the value covers that whole year.
+    matched = False
+    outside = False
     for match in dates:
         try:
             written = date.fromisoformat(match[0])
         except ValueError:
             return fault
-        if not period.start <= written <= period.end:
-            return fault
-    if any(not period.start.year <= int(m[0]) <= period.end.year for m in years):
-        return fault
+        if period.start <= written <= period.end:
+            matched = True
+        else:
+            outside = True
+    whole_year = period.start.month == 1 and period.end.month == 12
+    # The figure a movement starts from is the close of the period before the one named.
+    after = period.end + timedelta(days=1)
+    starts = {(after.year, after.month)} if origin else set()
+    for m in years:
+        if period.start.year <= int(m[0]) <= period.end.year:
+            matched = matched or whole_year
+        else:
+            outside = True
+    for match in year_months:
+        year, month = map(int, match[0].split("-"))
+        if (
+            (period.start.year, period.start.month)
+            <= (year, month)
+            <= (
+                period.end.year,
+                period.end.month,
+            )
+        ) or (year, month) in starts:
+            matched = True
+        else:
+            outside = True
     for match in months:
-        month = MONTHS[_fold(match[1])]
+        month = MONTHS[fold(match[1])]
         following = YEAR.match(context[match.end() :].lstrip())
         candidate_years = (
             [int(following[0])]
             if following
             else list(range(period.start.year, period.end.year + 1))
         )
-        if not any(
+        if any(
             (period.start.year, period.start.month)
             <= (year, month)
             <= (period.end.year, period.end.month)
-            for year in candidate_years
+            or (year, month) in starts
+            for year in candidate_years + ([after.year] if origin else [])
         ):
-            return fault
-    return None
+            matched = True
+        else:
+            outside = True
+    if not outside or (lenient and matched):
+        return None
+    return fault
 
 
 def unit_fault(text: str, start: int, end: int, value: ResultValue) -> str | None:
     _, units = amount_qualifiers(text, start, end)
-    actual = UNITS.get(_fold(value.unit or ""), _fold(value.unit or ""))
+    actual = UNITS.get(fold(value.unit or ""), fold(value.unit or ""))
     if any(unit != actual for unit in units):
         return f"Explicit unit/currency {units!r} conflicts with recorded unit {value.unit!r}"
     return None

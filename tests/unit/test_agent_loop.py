@@ -30,7 +30,7 @@ from kkb_agent.agent import (
     execute,
     validate_plan,
 )
-from kkb_agent.agent.loop import REPLY_INSTRUCTIONS
+from kkb_agent.agent.loop import PLANNER_CHECKLIST, REPLY_INSTRUCTIONS
 from kkb_agent.llm import ScriptedProvider, scripted
 from kkb_agent.llm.provider import Role
 from kkb_agent.llm.structured import schema_instructions
@@ -47,6 +47,7 @@ class AnomalyArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     column: str
+    input_step: str = "s1"
 
 
 def lakehouse_run(arguments, context):
@@ -62,6 +63,10 @@ def registry(*, failing=None, recoverable_times=0):
     calls = {"n": 0}
 
     def anomaly_run(arguments, context):
+        # This fixture is a real consumer of the earlier output, not merely a
+        # scheduling dependency that would hide a second terminal result.
+        if arguments.input_step not in context.outputs:
+            return ToolResult(ToolStatus.FAILURE, "s2", "anomaly", error_category="missing_input")
         calls["n"] += 1
         if calls["n"] <= recoverable_times:
             return ToolResult(
@@ -73,7 +78,15 @@ def registry(*, failing=None, recoverable_times=0):
             )
         return ToolResult(ToolStatus.SUCCESS, "s2", "anomaly", output={"outliers": 0})
 
-    reg.register(ToolSpec("anomaly", "Detect outliers", AnomalyArgs, anomaly_run))
+    reg.register(
+        ToolSpec(
+            "anomaly",
+            "Detect outliers",
+            AnomalyArgs,
+            anomaly_run,
+            required_steps=lambda args: (args.input_step,),
+        )
+    )
     reg.calls = calls  # type: ignore[attr-defined]
     return reg
 
@@ -90,10 +103,17 @@ TWO_STEPS = [
 
 
 class TestTheRegistryOwnsTheNames:
-    def test_only_the_brief_names_can_be_registered(self):
+    def test_a_deployment_decides_which_tools_exist(self):
+        """Registration takes the tool; reachability is what a name being here means.
+
+        It used to refuse any name outside a fixed list, so adding a capability meant
+        amending that list first. The list guarded a process rather than the reader:
+        a tool is reachable only where this deployment registered it, and what it may
+        do is the tool's own business.
+        """
         reg = ToolRegistry()
-        with pytest.raises(RegistryError, match="not an implemented approved tool"):
-            reg.register(ToolSpec("shell", "run anything", LakehouseArgs, lakehouse_run))
+        reg.register(ToolSpec("inspect", "look at a table", LakehouseArgs, lakehouse_run))
+        assert "inspect" in reg
 
     def test_a_duplicate_registration_is_refused(self):
         reg = registry()
@@ -106,7 +126,14 @@ class TestTheRegistryOwnsTheNames:
 
     def test_descriptions_carry_the_same_schema_the_executor_validates(self):
         described = {item["name"]: item for item in registry().descriptions()}
-        assert described["lakehouse"]["arguments"] == LakehouseArgs.model_json_schema()
+        shown, validated = described["lakehouse"]["arguments"], LakehouseArgs.model_json_schema()
+        # The same schema, without the `title` annotations pydantic generates ("Limit" beside
+        # `limit`): 8% of what a planner read about its tools, and nothing it can use.
+        assert shown["properties"].keys() == validated["properties"].keys()
+        assert shown["properties"]["limit"] == {
+            key: value for key, value in validated["properties"]["limit"].items() if key != "title"
+        }
+        assert "title" not in shown and shown["type"] == validated["type"]
         assert set(described) == {"anomaly", "lakehouse"}
 
     def test_arguments_are_parsed_against_the_tool_not_a_generic_dict(self):
@@ -301,7 +328,11 @@ class TestBoundedExecution:
         reg = registry(failing=inspect)
         plan = validate_plan(AnalyticalPlan.model_validate_json(plan_json(ONE_STEP)), reg)
         execute(plan, reg)
-        assert seen["fields"] == {"question", "outputs"}
+        # Every field here is something the turn itself produced: the reader's own words,
+        # the outputs of earlier steps, and the addresses this turn's web_search returned.
+        # Nothing from the conversation, the catalogue or a fetched page enters a tool's
+        # view, which is what keeps a page from naming the next request.
+        assert seen["fields"] == {"question", "outputs", "searched"}
 
 
 class TestThePlannerLoop:
@@ -357,19 +388,32 @@ class TestThePlannerLoop:
             Role.SYSTEM,
             Role.SYSTEM,
             Role.SYSTEM,
+            Role.SYSTEM,
             Role.USER,
         ]
         # The conversational-reply decision is offered once, to the initial call only.
         assert initial[2].content == REPLY_INSTRUCTIONS
+        # The last instruction sits next to the question, forty kilobytes of tool schema
+        # after the working guide: what to check a plan against before replying.
+        assert initial[3].content == PLANNER_CHECKLIST
         assert initial[0].content.endswith(contract)
         emitted_schema = json.loads(contract.split("\n", 1)[1])
         assert emitted_schema == AnalyticalPlan.model_json_schema()
         assert emitted_schema["required"] == ["question", "steps"]
         assert emitted_schema["$defs"]["PlanStep"]["required"] == ["step_id", "tool"]
-        # Only the plan contract is added; registry arguments already have one owner.
-        assert json.loads(initial[1].content.split("\n", 1)[1]) == reg.descriptions()
+        # Only the plan contract is added; registry arguments already have one owner. The
+        # prompt lists the same tools in the order a plan uses them, not by name.
+        offered = json.loads(initial[1].content.split("\n", 1)[1])
+        assert sorted(offered, key=lambda item: item["name"]) == reg.descriptions()
         assert sum(message.content.count(contract) for message in initial) == 1
-        assert len(contract.encode("utf-8")) < 2048  # Regression budget for this fixed contract.
+        # The two presentation booleans (`interpret`, `present`) have explicit jobs;
+        # budget their schema once, without duplicating tool arguments or instructions.
+        assert len(contract.encode("utf-8")) < 2304
+        assert emitted_schema["properties"]["interpret"] == {
+            "default": True,
+            "title": "Interpret",
+            "type": "boolean",
+        }
 
     def test_schema_failure_retains_initial_contract_and_uses_it_for_repair(self):
         bad = '{"steps": []}'
@@ -382,17 +426,17 @@ class TestThePlannerLoop:
         assert retry[-2].role is Role.ASSISTANT and retry[-2].content == bad
         assert retry[-1].role is Role.USER
         assert "question: missing" in retry[-1].content
-        assert retry[-1].content.endswith(contract)
+        assert "complete schema-valid JSON object only" in retry[-1].content
         assert len(provider.seen) == 2  # One invalid turn, one repair; no planner retry.
         assert planned.attempts == 1 and not planned.rejections
 
     @pytest.mark.parametrize("max_attempts", [1, 2, 3])
-    def test_invalid_schema_stops_at_existing_provider_budget(self, max_attempts):
+    def test_invalid_schema_stops_after_one_correction(self, max_attempts):
         provider = ScriptedProvider(responses=["{}"] * 4, max_attempts=max_attempts)
-        with pytest.raises(PlanningFailed, match=f"after {max_attempts} attempt"):
+        with pytest.raises(PlanningFailed, match="after 2 attempt"):
             Session(provider, registry()).plan("konut kredisi")
-        assert len(provider.seen) == max_attempts
-        assert len(provider.responses) == 4 - max_attempts
+        assert len(provider.seen) == 2
+        assert len(provider.responses) == 2
 
     def test_prompt_is_deterministic_and_user_content_cannot_change_contract(self):
         seen = []
@@ -450,3 +494,67 @@ class TestSourceTextCannotAuthorize:
         }
         # Source-derived text never occupies a system turn.
         assert roles == {"user"}
+
+
+def test_reply_instructions_cover_an_asked_for_web_search_and_a_question_outside_finance():
+    """Two messages a reply must not swallow (live findings, 2026-09-20).
+
+    "github nedir webde ara söyle" was answered from the model's own knowledge
+    with web_search listed, and an unrelated question was answered as general
+    knowledge instead of saying what this assistant is for.
+    """
+    assert "webde ara" in REPLY_INSTRUCTIONS
+    assert "web_search" in REPLY_INSTRUCTIONS
+    assert "outside finance" in REPLY_INSTRUCTIONS
+
+
+def test_web_instructions_pair_an_asked_for_search_with_the_official_series():
+    """Live 2026-09-22 (N49): "Web araması yap: Aralık 2025'te konut kredisi faiz oranı
+    kaç?" was planned as a search alone, though the catalogue lists the official series.
+    The search and a read of that series by its ID belong in one plan; catalog_search may
+    not share a plan with web_search, so the guidance says to read it without one."""
+    from kkb_agent.agent.discovery import WEB_ADDRESS_INSTRUCTIONS
+
+    assert "Read an explicit user URL first" in WEB_ADDRESS_INSTRUCTIONS
+    assert "plan the web_search and a lakehouse" in WEB_ADDRESS_INSTRUCTIONS
+    assert "in the same plan, without catalog_search" in WEB_ADDRESS_INSTRUCTIONS
+
+
+def test_today_instructions_ask_for_the_period_before_a_change_range():
+    """A 2025-only table cannot show January's change (live finding L2-1)."""
+    from datetime import date
+
+    from kkb_agent.agent.loop import today_instructions
+
+    text = today_instructions(date(2026, 9, 20))
+    assert "period BEFORE the range" in text
+    assert "narrow the table afterwards" in text
+
+
+@pytest.mark.parametrize("phase", ["initial", "continuation"])
+def test_unterminated_json_gets_one_schema_recovery_with_original_context(phase):
+    from kkb_agent.llm import Message, Role
+
+    provider = ScriptedProvider(
+        responses=['{"question": "partial"', plan_json(ONE_STEP)], max_attempts=1
+    )
+    session = Session(provider, registry())
+    messages = [Message(Role.USER, "Original discovery and candidate context")]
+    completion = session._planner_call(messages, phase, 1)
+    assert completion.parsed.steps[0].tool == "lakehouse"
+    assert len(provider.seen) == 2
+    assert provider.seen[1][0] == messages[0]
+    assert "complete schema-valid JSON" in provider.seen[1][-1].content
+
+
+def test_schema_retry_does_not_multiply_an_exhausted_provider_budget():
+    from kkb_agent.llm import Message, Role, SchemaViolation
+
+    provider = ScriptedProvider(
+        responses=['{"question":', "{}", plan_json(ONE_STEP)], max_attempts=3
+    )
+    session = Session(provider, registry())
+    with pytest.raises(SchemaViolation):
+        session._planner_call([Message(Role.USER, "context")], "continuation", 1)
+    assert len(provider.seen) == 2
+    assert len(provider.responses) == 1

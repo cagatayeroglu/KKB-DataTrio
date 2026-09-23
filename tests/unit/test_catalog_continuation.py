@@ -27,7 +27,15 @@ from kkb_agent.agent.discovery import catalog_feedback
 from kkb_agent.agent.executor import ExecutionOutcome
 from kkb_agent.catalog.mappings import load_reviewed_snapshot
 from kkb_agent.catalog.search import CatalogSearchArguments, search_catalog
-from kkb_agent.core import Aggregation, CumulativeKind, Frequency, Scale, SourceRef, StockFlow
+from kkb_agent.core import (
+    Aggregation,
+    CumulativeKind,
+    Frequency,
+    Scale,
+    SeriesId,
+    SourceRef,
+    StockFlow,
+)
 from kkb_agent.lakehouse import Observation, SeriesSemantics, open_lakehouse
 from kkb_agent.llm import KloudeksProvider, ProviderConfig, scripted
 from kkb_agent.llm.provider import Role
@@ -39,8 +47,15 @@ QUESTION = "Toplam konut kredisi bakiyesi Nisan-Haziran 2026 arasında ne kadar 
 NOW = datetime(2026, 9, 14, tzinfo=UTC)
 
 
-def proposal(*steps, clarification=None):
-    return json.dumps({"question": QUESTION, "steps": list(steps), "clarification": clarification})
+def proposal(*steps, clarification=None, clarification_text=None):
+    return json.dumps(
+        {
+            "question": QUESTION,
+            "steps": list(steps),
+            "clarification": clarification,
+            "clarification_text": clarification_text,
+        }
+    )
 
 
 def discover(step_id="d", query="toplam konut kredisi"):
@@ -58,7 +73,7 @@ def calculate(step_id="a", **kwargs):
 
 class Args(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    series_id: str
+    series_id: SeriesId
 
 
 @pytest.fixture
@@ -99,13 +114,12 @@ def test_discovery_is_consumed_once_with_complete_trace_and_separate_data_role(r
     assert data_message.role is Role.USER
     payload = json.loads(data_message.content)
     candidate = payload["results"][0]["candidates"][0]
-    assert candidate["series"]["record"]["series_id"] == TOTAL
-    assert candidate["series"]["record"]["stock_flow"] == "stock"
-    assert candidate["series"]["record"]["scale"] == "million"
-    assert "source" not in candidate["series"]["record"]
-    assert "sample_values" not in candidate["series"]["record"]
-    assert payload["results"][0]["analytical_evidence"] is False
-    assert payload["results"][0]["observation_fetch_authorized"] is False
+    # Flat, and only what decides a choice: no nested record, no constants said per result.
+    assert candidate["series_id"] == TOTAL
+    assert candidate["kind"] == "stock" and candidate["scale"] == "million"
+    assert candidate["tier"] == "reviewed" and "about" in candidate
+    assert not {"source", "sample_values", "series", "source_series_id"} & set(candidate)
+    assert "analytical_evidence" not in payload["results"][0]
     assert provider.seen[1][-2].content == QUESTION
 
 
@@ -136,17 +150,21 @@ def test_catalog_feedback_removes_retrieval_mechanics_but_keeps_planning_semanti
     # Found by identity, not position: DEC-164 ranks the national series first
     # for a place-free query, and this test is about the fields kept, not the order.
     candidate = next(
-        c
-        for c in payload["results"][0]["candidates"]
-        if c["series"]["record"]["series_id"] == "EVDS:TP.KFE.TR"
+        c for c in payload["results"][0]["candidates"] if c["series_id"] == "EVDS:TP.KFE.TR"
     )
-    record = candidate["series"]["record"]
-    assert record["frequency"] == "monthly" and record["stock_flow"] == "index"
-    assert record["base_year"] == 2023 and candidate["series"]["geography"] == "Türkiye"
+    assert candidate["frequency"] == "monthly" and candidate["kind"] == "index"
+    assert candidate["base_year"] == 2023 and candidate["geography"] == "Türkiye"
+    # Nothing empty travels: an unknown cumulative kind or a null anchor says nothing.
+    assert all(value not in (None, "", [], "unknown", "none") for value in candidate.values())
     assert "bm25_score" not in candidate and "rank" not in candidate
     assert "snapshot_sha256" not in payload["results"][0]
     # DEC-165: the planner is told whether the first candidate is the default.
     assert payload["results"][0]["top_candidate"] == "unambiguous"
+    # And it is told once. The search contract's flag is true on every output that holds
+    # a candidate; beside "unambiguous" it read as the opposite instruction, and stored
+    # traces show planners stopping to ask because of it. The contract keeps the flag.
+    assert output.clarification_required is True
+    assert "clarification_required" not in payload["results"][0]
 
 
 def test_continuation_prompt_is_smaller_without_exposing_extra_tool_schemas(rig, snapshot):
@@ -176,9 +194,12 @@ def test_continuation_prompt_is_smaller_without_exposing_extra_tool_schemas(rig,
     legacy_bytes = sum(len(message.content.encode("utf-8")) for message in continuation[:-1]) + len(
         legacy_feedback.encode("utf-8")
     )
-    # DEC-165 added the top_candidate guidance to the continuation instructions;
-    # the prompt still stays well below the legacy full-dump feedback.
-    assert continuation_bytes < legacy_bytes * 0.85
+    # What this guards is the return of the full metadata dump, not prompt growth as
+    # such: E5 measured that a turn's seconds track its completion tokens (r = +0.85)
+    # and not its prompt (r = +0.12). The margin was 0.85 and the prompt had reached
+    # 85.3% of the baseline, so the guard had quietly become a freeze on saying
+    # anything new to the planner. 0.88 still fails long before a dump returns.
+    assert continuation_bytes < legacy_bytes * 0.88
     first_tools = json.loads(
         next(m.content for m in first if m.content.startswith("Available tools:"))[17:]
     )
@@ -186,7 +207,7 @@ def test_continuation_prompt_is_smaller_without_exposing_extra_tool_schemas(rig,
         next(m.content for m in continuation if m.content.startswith("Available tools:"))[17:]
     )
     assert {item["name"] for item in first_tools} == {"catalog_search", "change_detection"}
-    assert {item["name"] for item in continuation_tools} == {"change_detection"}
+    assert {item["name"] for item in continuation_tools} == {"catalog_search", "change_detection"}
 
 
 def test_single_plan_mode_remains_explicit_and_makes_no_extra_call(rig):
@@ -280,6 +301,112 @@ def test_typed_clarification_makes_no_writer_call_and_publishes_nothing(tmp_path
     assert answer.planned.plan.steps == ()
 
 
+def test_specific_clarification_is_shown_with_cards_and_unsafe_prose_falls_back(rig):
+    from uuid import uuid4
+
+    from kkb_agent.api.projection import project_answer
+
+    registry, _ = rig
+    specific = "Faiz için stok oranını mı, akım oranını mı kullanayım?"
+    provider = scripted(
+        proposal(discover()),
+        proposal(clarification="ambiguous_series", clarification_text=specific),
+    )
+    shown = project_answer(
+        enabled(provider, registry).answer(QUESTION), turn_id=uuid4().hex, published=None
+    )
+    assert shown.text == specific
+    assert shown.selection is not None and shown.selection.others
+
+    # A question that lists its choices is still a question: "(1)" and "(2)" count the
+    # choices and quote nothing. The owner's run of the reference first turn lost exactly
+    # this sentence and showed the generic one instead (stored trace, 2026-09-20).
+    listed = (
+        "Hangi faiz oranını kullanayım: (1) yeni kullandırılan kredilerin akım faizi, "
+        "(2) mevcut portföyün stok faizi?"
+    )
+    provider = scripted(
+        proposal(discover()),
+        proposal(clarification="ambiguous_series", clarification_text=listed),
+    )
+    assert (
+        project_answer(
+            enabled(provider, registry).answer(QUESTION), turn_id=uuid4().hex, published=None
+        ).text
+        == listed
+    )
+
+    for unsafe in (
+        "Kesin değer 999 milyon TL; hangisini seçeyim?",
+        "Hangisi: (1) 45 puanlık akım faizi, (2) stok faizi?",
+        "https://unsupported.example verisini mi kullanayım?",
+    ):
+        provider = scripted(
+            proposal(clarification="unresolved_semantics", clarification_text=unsafe)
+        )
+        projected = project_answer(
+            enabled(provider, registry).answer(QUESTION), turn_id=uuid4().hex, published=None
+        )
+        assert projected.text != unsafe
+        assert "999" not in projected.text and "https://" not in projected.text
+        assert "45" not in projected.text
+
+    # A year or a date measures nothing, and wording is the planner's: both used to send
+    # the planner's own question back to the fixed sentence.
+    for fine in (
+        "Hangisi: (1) 2024 verisi, (2) 2025 verisi?",
+        "2025-12 fiyatlarıyla mı, 2024-12 fiyatlarıyla mı reelleştireyim?",
+        "Enflasyon nedeniyle reel seriyi mi, nominal seriyi mi istiyorsunuz?",
+    ):
+        provider = scripted(proposal(clarification="unresolved_semantics", clarification_text=fine))
+        projected = project_answer(
+            enabled(provider, registry).answer(QUESTION), turn_id=uuid4().hex, published=None
+        )
+        assert projected.text == fine
+
+
+def test_required_discovery_initial_schema_is_quantitatively_bounded(rig):
+    registry, _ = rig
+    provider = scripted(proposal(discover()))
+    session = enabled(provider, registry, require_series_discovery=True)
+    session.plan(QUESTION)
+    exposed = provider.seen[0][1].content
+    full = session._tools_prompt()
+    assert '"catalog_search"' in exposed
+    assert '"change_detection"' not in exposed
+    # The fixture's second tool is a few fields; its compacted schema is under 200 bytes.
+    assert len(full.encode()) - len(exposed.encode()) > 100
+    # The narrowed step still names what it may not call, so a message asking what
+    # the system can do is not answered with "you have two tools" (live 2026-09-20).
+    names = [message.content for message in provider.seen[0] if message.role is Role.SYSTEM]
+    note = next(item for item in names if "The system also computes with" in item)
+    assert "change_detection" in note and '"arguments"' not in note
+
+
+def test_the_rate_basis_is_the_planners_to_settle_and_its_own_question_is_shown(rig):
+    # The harness used to end this turn itself, with a question of its own, before the
+    # planner had seen the two candidates (and the planner was still instructed on the
+    # case it could never reach). The planner sees them; here it chooses to ask.
+    from uuid import uuid4
+
+    from kkb_agent.api.projection import project_answer
+
+    registry, _ = rig
+    question = "Konut kredisi faiz oranını göster."
+    asked = "Yeni kullandırılan kredilerin faizini mi, mevcut portföyün faizini mi göstereyim?"
+    provider = scripted(
+        proposal(discover(query="konut kredisi faiz oranı")),
+        proposal(clarification="ambiguous_series", clarification_text=asked),
+    )
+    answered = enabled(provider, registry).answer(question)
+    shown = project_answer(answered, turn_id=uuid4().hex, published=None)
+    assert len(provider.seen) == 2
+    candidates = provider.seen[1][-1].content
+    assert "new_credit" in candidates and "outstanding_portfolio" in candidates
+    assert shown.text.startswith(asked)
+    assert shown.selection is not None and len(shown.selection.others) == 2
+
+
 def test_clarification_can_precede_discovery(rig):
     reg, calls = rig
     provider = scripted(proposal(clarification="unsupported_request"))
@@ -305,7 +432,6 @@ def test_plan_must_be_executable_or_typed_clarification(data):
     [
         proposal(discover(), calculate()),
         proposal(*(discover(f"d{i}") for i in range(5))),
-        proposal(discover("d1"), {**discover("d2"), "depends_on": ["d1"]}),
     ],
 )
 def test_invalid_discovery_phase_executes_nothing(rig, initial):
@@ -316,22 +442,43 @@ def test_invalid_discovery_phase_executes_nothing(rig, initial):
     assert not calls and len(provider.seen) == 1
 
 
+def test_continuation_cannot_repeat_discovery(rig):
+    reg, calls = rig
+    provider = scripted(proposal(discover()), proposal(discover("again")))
+    with pytest.raises(PlanningFailed):
+        enabled(provider, reg, budget=Budget(max_plan_repairs=0, max_discovery_rounds=1)).run(
+            QUESTION
+        )
+    assert not calls and len(provider.seen) == 2
+
+
 @pytest.mark.parametrize(
     "following",
     [
-        proposal(discover("again")),
-        proposal(calculate("d")),
-        proposal(calculate(depends_on=["d"])),
+        proposal(calculate("d")),  # the discovery step's own ID, reused
+        proposal(calculate(depends_on=["d"])),  # an edge to the discovery step: orders nothing
     ],
 )
-def test_continuation_cannot_repeat_discovery_reuse_ids_or_consume_catalog_as_values(
-    rig, following
-):
+def test_a_continuation_with_a_bookkeeping_slip_runs_instead_of_costing_the_turn(rig, following):
+    # Both used to end the turn ("Continuation step IDs must be new", "depends on unknown
+    # step"). Neither changes what is computed, so the harness mends them (`plan.healed`).
     reg, calls = rig
     provider = scripted(proposal(discover()), following)
-    with pytest.raises(PlanningFailed):
-        enabled(provider, reg, budget=Budget(max_plan_repairs=0)).run(QUESTION)
-    assert not calls and len(provider.seen) == 2
+    planned, outcome = enabled(
+        provider, reg, budget=Budget(max_plan_repairs=0, max_discovery_rounds=1)
+    ).run(QUESTION)
+    assert len(calls) == 1 and len(provider.seen) == 2
+    assert [item.tool for item in outcome.results] == ["catalog_search", "change_detection"]
+    assert planned.plan.steps[0].step.depends_on == []
+
+
+def test_an_ordering_edge_between_two_searches_is_dropped_not_refused(rig):
+    reg, _ = rig
+    initial = proposal(discover("d1"), {**discover("d2"), "depends_on": ["d1"]})
+    provider = scripted(initial, proposal(calculate()))
+    planned, outcome = enabled(provider, reg).run(QUESTION)
+    assert [item.step_id for item in outcome.results][:2] == ["d1", "d2"]
+    assert planned.rejections == ()
 
 
 def test_cumulative_step_budget_cannot_reset_on_continuation(rig):
@@ -358,7 +505,9 @@ def test_plan_repair_budget_is_shared_across_phases(rig):
         proposal(discover(), calculate()), proposal(discover()), proposal(discover("again"))
     )
     with pytest.raises(PlanningFailed):
-        enabled(provider, reg, budget=Budget(max_plan_repairs=1)).run(QUESTION)
+        enabled(provider, reg, budget=Budget(max_plan_repairs=1, max_discovery_rounds=1)).run(
+            QUESTION
+        )
     assert len(provider.seen) == 3 and not calls
 
 
@@ -370,7 +519,7 @@ def test_successful_repairs_preserve_total_attempts_and_do_not_repeat_tools(rig)
         proposal(discover("again")),
         proposal(calculate()),
     )
-    planned, outcome = enabled(provider, reg).run(QUESTION)
+    planned, outcome = enabled(provider, reg, budget=Budget(max_discovery_rounds=1)).run(QUESTION)
     assert planned.attempts == 4 and len(planned.rejections) == 2
     assert len(calls) == 1 and len(outcome.results) == 2
 
@@ -381,7 +530,9 @@ def test_repeated_invalid_continuation_stops_early(rig):
         proposal(discover()), proposal(discover("again")), proposal(discover("again"))
     )
     with pytest.raises(PlanningFailed, match="repeated"):
-        enabled(provider, reg, budget=Budget(max_plan_repairs=10)).run(QUESTION)
+        enabled(provider, reg, budget=Budget(max_plan_repairs=10, max_discovery_rounds=1)).run(
+            QUESTION
+        )
     assert len(provider.seen) == 3 and not calls
 
 
@@ -468,7 +619,7 @@ def test_source_injection_is_data_and_cannot_expand_web_authority(snapshot):
     assert any(poison in m.content for m in provider.seen[1] if m.role is Role.USER)
     assert not any(poison in m.content for m in provider.seen[1] if m.role is Role.SYSTEM)
     descriptions = json.loads(provider.seen[1][1].content.split("\n", 1)[1])
-    assert descriptions == []
+    assert [item["name"] for item in descriptions] == ["catalog_search"]
     assert poison not in answer.answer.abstention and answer.answer.text == ""
 
 
@@ -619,7 +770,7 @@ def test_continuation_rejection_then_valid_repair_records_attempts_log(rig):
         proposal(discover("again")),
         proposal(calculate()),
     )
-    planned, outcome = enabled(provider, reg).run(QUESTION)
+    planned, outcome = enabled(provider, reg, budget=Budget(max_discovery_rounds=1)).run(QUESTION)
     assert planned.attempts == 3
     assert len(planned.attempts_log) == 3
     assert planned.attempts_log == (
@@ -641,7 +792,7 @@ def test_shared_repair_budget_exhaustion_across_phases_gives_one_attempt(rig):
         proposal(discover()),
         proposal(discover("again")),
     )
-    session = enabled(provider, reg, budget=Budget(max_plan_repairs=1))
+    session = enabled(provider, reg, budget=Budget(max_plan_repairs=1, max_discovery_rounds=1))
     with pytest.raises(PlanningFailed):
         session.run(QUESTION)
     assert len(provider.seen) == 3 and not calls
@@ -694,7 +845,7 @@ def test_repeating_identical_invalid_plan_stops_with_repeated_plan_outcome(rig):
         proposal(discover("again")),
         proposal(discover("again")),
     )
-    session = enabled(provider, reg, budget=Budget(max_plan_repairs=10))
+    session = enabled(provider, reg, budget=Budget(max_plan_repairs=10, max_discovery_rounds=1))
     with pytest.raises(PlanningFailed, match="repeated"):
         session.run(QUESTION)
     assert len(provider.seen) == 3 and not calls
@@ -765,3 +916,21 @@ def test_planning_failure_preserves_previously_selected_table_and_publishes_noth
         # Assert previously selected table is preserved in workspace and nothing new was published
         assert ws.names() == ["source_table"]
         assert selected.check() is not None
+
+
+@pytest.mark.parametrize("max_attempts", [1, 3])
+def test_truncated_discovery_continuation_is_repaired_once_and_traced(rig, max_attempts):
+    from kkb_agent.agent.observer import Tracer
+    from kkb_agent.llm import ScriptedProvider
+
+    reg, calls = rig
+    provider = ScriptedProvider(
+        responses=[proposal(discover()), '{"steps": [', proposal(calculate())],
+        max_attempts=max_attempts,
+    )
+    tracer = Tracer()
+    _, outcome = enabled(provider, reg, tracer=tracer).run(QUESTION)
+    assert len(calls) == 1 and outcome.completed
+    assert len(provider.seen) == 3
+    assert provider.seen[2][: len(provider.seen[1])] == provider.seen[1]
+    assert any(event.name == "schema.repair" for event in tracer.events)

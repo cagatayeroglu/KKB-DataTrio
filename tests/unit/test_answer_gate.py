@@ -26,6 +26,7 @@ from kkb_agent.agent import (
     gate_answer,
     render_result,
 )
+from kkb_agent.agent.loop import MAX_LISTED_PERIODS, _finished_sentences
 from kkb_agent.agent.presentation import display_value, format_number
 from kkb_agent.agent.verifier import (
     DEFAULT_TOLERANCE,
@@ -51,6 +52,7 @@ from kkb_agent.core import (
 )
 from kkb_agent.lakehouse import Observation, SeriesSemantics, open_lakehouse
 from kkb_agent.llm.doubles import scripted
+from kkb_agent.llm.provider import Completion
 from kkb_agent.tools import LakehouseArguments, make_lakehouse_tool
 
 NOW = datetime(2026, 9, 9, tzinfo=UTC)
@@ -121,6 +123,10 @@ def producer_fixture_for_sentence_tests(request, monkeypatch):
         TestAnUnsupportedSentenceIsWithheld,
         TestTheWithheldSentenceCanBeDiagnosedWithoutItsText,
         TestAbstention,
+        TestTheInterpretationParagraph,
+        TestWhatIsNotAFigureToChooseBetween,
+        TestTheAnswerKeepsItsShape,
+        TestWhatIsADateAndWhatIsAFigure,
     }:
         return
     house = request.getfixturevalue("house")
@@ -195,6 +201,44 @@ class TestAnUnsupportedSentenceIsWithheld:
     def test_the_final_sentence_without_trailing_punctuation_is_still_gated(self, house):
         gated = gate_answer(f"{SUPPORTED} Ayrıca 912.000 milyon TL", result(), house.connection)
 
+        assert gated.status is AnswerStatus.QUALIFIED
+        assert "912.000" not in gated.text
+
+
+class TestTheInterpretationParagraph:
+    """The jury asks for a reading of the numbers; the gate asks for evidence.
+
+    Both are served by one labelled paragraph: it may read the pattern and name
+    factors worth testing, it may hold no number that is not a listed display, and
+    it may not assert a cause. It is the only heading the writer is allowed.
+    """
+
+    def test_a_labelled_reading_is_kept(self, house):
+        reading = (
+            " Yorum: Seri yıl boyunca yükselişte; konut talebi ve kredi koşulları test "
+            "edilmeye değer etkenlerdir, bu analiz bir açıklama kurmuş değildir."
+        )
+        gated = gate_answer(SUPPORTED + reading, result(), house.connection)
+        assert gated.status is AnswerStatus.ACCEPTED
+        assert "Yorum:" in gated.text
+
+    def test_a_cause_in_that_paragraph_is_the_writers_to_state(self, house):
+        # The gate binds figures. The vocabulary rule that withheld this sentence could not
+        # tell "nedeni" from "nedeni değildir", and the jury asks for exactly this reading.
+        causal = " Yorum: Artışın nedeni muhtemelen faiz indirimidir."
+        gated = gate_answer(SUPPORTED + causal, result(), house.connection)
+        assert gated.status is AnswerStatus.ACCEPTED
+        assert "nedeni" in gated.text
+
+    def test_the_optional_wording_contract_still_withholds_it(self, house, monkeypatch):
+        monkeypatch.setattr("kkb_agent.agent.verifier.WORDING_RULES", True)
+        causal = " Yorum: Artışın nedeni faiz indirimidir."
+        gated = gate_answer(SUPPORTED + causal, result(), house.connection)
+        assert gated.status is AnswerStatus.QUALIFIED and "nedeni" not in gated.text
+
+    def test_a_new_number_in_that_paragraph_is_still_withheld(self, house):
+        invented = " Yorum: Yıl boyunca 912.000 milyon TL seviyesine yaklaşıldı."
+        gated = gate_answer(SUPPORTED + invented, result(), house.connection)
         assert gated.status is AnswerStatus.QUALIFIED
         assert "912.000" not in gated.text
 
@@ -334,6 +378,35 @@ class TestReadableVerifiedFigures:
     def test_display_does_not_bypass_semantic_or_numeric_checks(self, draft):
         assert gate_answer(draft, result()).status is AnswerStatus.ABSTAINED
 
+    def test_a_list_marker_is_not_a_claim(self):
+        """Live 2026-09-20: "(1) catalog_search; (2) web_search" lost its sentence.
+
+        Those markers measure nothing and bound to nothing, so the gate withheld
+        the only sentence that answered the question and what reached the reader
+        began mid-thought.
+        """
+        from kkb_agent.agent.presentation import display_value
+
+        value = ResultValue(
+            label="credit", value=767314.0, unit="TRY", scale=Scale.MILLION, period=JUNE
+        )
+        trusted = result(values=[value])
+        reply = (
+            "Elinde iki ana araç var: (1) catalog_search — resmî serileri bulmak için; "
+            "(2) web_search — sayfaları bulmak için."
+        )
+        assert gate_answer(reply, trusted).status is AnswerStatus.ACCEPTED
+        assert not gate_answer(reply, trusted).omitted
+        # A figure in brackets is still a figure when it carries an amount.
+        assert (
+            gate_answer("Haziran 2026'da (1) milyon TL.", trusted).status is AnswerStatus.ABSTAINED
+        )
+        # And a real claim beside markers still has to bind.
+        assert (
+            gate_answer(f"(1) Haziran 2026'da {display_value(value)}.", trusted).status
+            is AnswerStatus.ACCEPTED
+        )
+
     def test_naive_rounding_is_still_withheld(self):
         value = ResultValue(label="rate", value=4.447201536789372, unit="percent", scale=Scale.ONE)
         trusted = result(values=[value])
@@ -355,6 +428,14 @@ class TestReadableVerifiedFigures:
             ("basis points", Scale.ONE, "12,5 baz puan"),
             ("index points", Scale.ONE, "12,5 endeks puan"),
             ("dimensionless", Scale.ONE, "12,5 dimensionless"),
+            # A count is a number of things; the label says what they are, so the
+            # display adds no unit word. A quoted price is money per quantity
+            # (DEC-177). Neither had a display before (finding DN-6.4).
+            ("count", Scale.ONE, "12,5"),
+            ("count", Scale.THOUSAND, "12,5 bin"),
+            ("TRY/g", Scale.ONE, "12,5 TL/gr"),
+            ("USD/oz", Scale.ONE, "12,5 USD/ons"),
+            ("TRY/piece", Scale.ONE, "12,5 TL/adet"),
         ],
     )
     def test_only_explicit_unit_and_scale_mappings_are_used(self, unit, scale, expected):
@@ -383,8 +464,111 @@ class TestReadableVerifiedFigures:
         context = "\n".join(m.content for m in provider.seen[-1])
         assert "display 4,4472 yüzde" in context
         assert "4.447201536789372" not in context
-        assert "copying each number, unit and scale exactly" in context
+        assert "Copy a figure exactly as its display phrase gives it" in context
         assert gate_answer(draft, {"rate": trusted}).status is AnswerStatus.ABSTAINED
+
+
+class TestAPlainTableStillAnswers:
+    def test_a_table_short_enough_to_read_reaches_the_writer_whole(self):
+        """Live 2026-09-20: twelve monthly balances reached the writer with no
+        figure at all, because every per-period value belongs to the table shown
+        beside the answer. What it wrote said only that a table exists, which the
+        reader was already looking at.
+
+        Then the endpoints-only answer to that (2026-09-21) cost the reader the
+        middle: given a three-month table as its ends, the writer wrote that the
+        middle month "bu sonuclarda gosterilmedi". A table this short is now given
+        whole, and the writer is told so in as many words.
+        """
+        from datetime import date
+
+        from kkb_agent.agent.loop import render_result
+        from kkb_agent.core import Frequency, Period
+
+        months = [
+            Period(
+                start=date(2025, month, 1),
+                end=date(2025, month, 28),
+                frequency=Frequency.MONTHLY,
+            )
+            for month in range(1, 13)
+        ]
+        values = [
+            ResultValue(
+                label="konut",
+                value=1000.0 + index * 10,
+                unit="TRY",
+                scale=Scale.MILLION,
+                period=period,
+            )
+            for index, period in enumerate(months)
+        ]
+        rendered = render_result(result(values=values))
+        quoted = [line for line in rendered.splitlines() if line.startswith("- display")]
+        assert len(quoted) == 12
+        assert "2025-01-01..2025-01-28" in quoted[0] and "1.000 milyon TL" in quoted[0]
+        assert "2025-12-01..2025-12-28" in quoted[-1] and "1.110 milyon TL" in quoted[-1]
+        assert "1.050 milyon TL" in rendered  # a middle month the writer used to be denied
+        assert "Every one of its values is listed below." in rendered
+        assert "No value is listed" not in rendered
+
+    def test_a_longer_table_narrows_but_never_says_the_rest_is_absent(self):
+        # Above the threshold the listing narrows; what the writer is told about the
+        # narrowing is what stops it from calling the unlisted periods missing.
+        months = [
+            Period(
+                start=date(2021 + index // 12, index % 12 + 1, 1),
+                end=date(2021 + index // 12, index % 12 + 1, 28),
+                frequency=Frequency.MONTHLY,
+            )
+            for index in range(MAX_LISTED_PERIODS + 1)
+        ]
+        values = [
+            ResultValue(
+                label="konut",
+                value=1000.0 + index * 10,
+                unit="TRY",
+                scale=Scale.MILLION,
+                period=period,
+            )
+            for index, period in enumerate(months)
+        ]
+        rendered = render_result(result(values=values))
+        quoted = [line for line in rendered.splitlines() if line.startswith("- konut:")]
+        assert len(quoted) == 2  # the ends, as before
+        assert "THE TABLE HOLDS EVERY PERIOD OF THESE COLUMNS" in rendered
+        assert "Never write that a period, a column or a figure is missing" in rendered
+
+    def test_writer_receives_the_verified_endpoint_reading_without_an_extra_call(self):
+        months = [
+            Period(
+                start=date(2025, month, 1), end=date(2025, month, 28), frequency=Frequency.MONTHLY
+            )
+            for month in range(1, 13)
+        ]
+        values = [
+            ResultValue(
+                label="konut",
+                value=float(1000 + index * 10),
+                unit="TRY",
+                scale=Scale.MILLION,
+                period=period,
+            )
+            for index, period in enumerate(months)
+        ]
+        provider = scripted("Konut kredisi ilk ve son dönem arasında arttı.")
+        draft = Session(provider, ToolRegistry()).draft(
+            "Konut kredisi?", {"credit": result(values=values)}
+        )
+        assert draft and len(provider.seen) == 1
+        system, evidence, question = (message.content for message in provider.seen[0])
+        assert "Verified endpoint observation for konut: rose" in evidence
+        # Twelve months is short enough to read, so the writer is given all twelve and
+        # no longer has to guess what stands between the ends.
+        assert evidence.count("- display ") == 12
+        assert "1.050 milyon TL" in evidence
+        assert len(system.encode()) < 3200  # measured pre-workstream system prompt
+        assert sum(len(part.encode()) for part in (system, evidence, question)) < 5200
 
 
 class TestWhatTheWriterIsGiven:
@@ -417,6 +601,19 @@ class TestWhatTheWriterIsGiven:
             )
         )
         assert "Limitation: Association only" in rendered
+
+    def test_warnings_reach_the_writer_too(self):
+        # The tool computed the caution; before this it stopped at the result object
+        # and the answer told the reader an unusual month without saying what one is.
+        rendered = render_result(
+            result(
+                kind=ResultKind.ANOMALY,
+                values=[ResultValue(label="n", value=2.0, unit="dimensionless", scale=Scale.ONE)],
+                warnings=["An unusual change is not an error, an event or a cause"],
+            )
+        )
+        assert "An unusual change is not an error" in rendered
+        assert "without a figure" in rendered
 
 
 def plan_json(sql: str) -> str:
@@ -451,6 +648,36 @@ class TestTheWholeSliceEndToEnd:
         assert answered.answer.status is AnswerStatus.ACCEPTED
         assert "801.438" in answered.answer.text
         assert answered.results[-1].status is ResultStatus.COMPUTED
+
+    def test_a_writer_that_returns_nothing_is_not_an_answer_of_footnotes(self, house):
+        # Live 2026-09-21: the writer spent every token thinking and returned an empty
+        # draft; the assumptions alone passed the gate as an "accepted" answer.
+        provider = scripted(plan_json(FULLY_TYPED), "")
+        answered = Session(provider, self.registry(house)).answer(
+            "Haziran'da konut kredisi stoğu neydi?", house.connection
+        )
+        assert "yazılı değerlendirme üretilemedi" in answered.answer.text
+        assert answered.results[-1].status is ResultStatus.COMPUTED
+
+    @pytest.mark.parametrize(
+        ("text", "kept"),
+        [
+            # Live 2026-09-22: 16,256 of 16,384 tokens went to reasoning and the published
+            # answer ended "Kon". A fragment reads as prose, so a reader cannot tell.
+            ("Bir cümle tam. Sonra yarım kal", "Bir cümle tam."),
+            ("Soru şu şekilde yanıtlanır! Ve sonra", "Soru şu şekilde yanıtlanır!"),
+            ("Tam mı? Evet.", "Tam mı? Evet."),
+            # Nothing was finished, so nothing is kept and the empty-draft note takes over.
+            ("Hiç bitmemiş bir cümle", ""),
+        ],
+        ids=["mid-word", "after-a-full-stop", "already-whole", "nothing-finished"],
+    )
+    def test_a_draft_the_writer_never_finished_keeps_only_whole_sentences(self, text, kept):
+        assert _finished_sentences(Completion(text, "m", finish_reason="length")) == kept
+
+    def test_a_draft_the_writer_did_finish_is_untouched(self):
+        whole = "Bir cümle tam. Başlıksız biten bir satır"
+        assert _finished_sentences(Completion(whole, "m", finish_reason="stop")) == whole
 
     def test_a_model_that_invents_a_figure_has_it_stripped(self, house):
         provider = scripted(plan_json(FULLY_TYPED), f"{SUPPORTED} {INVENTED}")
@@ -590,7 +817,8 @@ def test_period_repair_provider_failure_preserves_first_gated_answer(house, monk
     answer = Session(provider, registry, repair_period_wording=True).answer(
         "q", house.connection, workspace=workspace, remember="table"
     )
-    assert len(calls) == 3 and workspace.names() == []
+    # The table is the tools' and is published; the prose about it stays qualified.
+    assert len(calls) == 3 and workspace.names() == ["table"]
     assert answer.answer.status is AnswerStatus.QUALIFIED
     assert answer.answer.text == "Seri aylık yayımlanmaktadır."
     assert "private transport detail" not in answer.answer.text
@@ -669,3 +897,71 @@ class TestTheWithheldSentenceCanBeDiagnosedWithoutItsText:
         for word in ("Temmuz", "ulaştı", "milyon", "konut", "kredisi"):
             assert word not in exported
         assert not any(reason in exported for reason in omitted.reasons)
+
+
+class TestWhatIsNotAFigureToChooseBetween:
+    def test_a_base_year_notation_is_part_of_a_name(self, house):
+        # Live 2026-09-21: a note naming "TCMB Türkiye geneli endeksi (2023=100)" was
+        # withheld because 100 is no value of the result.
+        named = " Endeks olarak TCMB Türkiye geneli endeksi (2023=100) kullanıldı."
+        gated = gate_answer(SUPPORTED + named, result(), house.connection)
+        assert gated.status is AnswerStatus.ACCEPTED, gated
+        assert "(2023=100)" in gated.text
+        # A hundred that is claimed as a value is still a figure.
+        claimed = gate_answer(SUPPORTED + " Endeks 100 oldu.", result(), house.connection)
+        assert claimed.status is AnswerStatus.QUALIFIED
+
+    def test_the_same_measure_with_the_same_figure_in_two_results_is_one_fact(self, house):
+        # Live 2026-09-21: two co-movements over one table both count the transitions
+        # compared; every sentence quoting a count they share was withheld as ambiguous.
+        gated = gate_answer(SUPPORTED, {"a": result(), "b": result()}, house.connection)
+        assert gated.status is AnswerStatus.ACCEPTED, gated
+
+
+class TestTheAnswerKeepsItsShape:
+    """Live 2026-09-21: the figures, the interpretation, the assumption and the system's note
+    reached the reader as one block of text, because kept sentences were joined by spaces."""
+
+    def test_lines_and_paragraphs_of_the_draft_survive_the_gate(self, house):
+        draft = f"{SUPPORTED}\nSeri aylık yayımlanmaktadır.\n\nYorum: Bakiye ay sonu stoktur."
+        gated = gate_answer(draft, result(), house.connection)
+        assert gated.status is AnswerStatus.ACCEPTED, gated
+        assert gated.text == draft
+
+    def test_a_withheld_sentence_takes_its_own_line_with_it(self, house):
+        draft = f"{SUPPORTED}\n{INVENTED}\n\nYorum: Bakiye ay sonu stoktur."
+        gated = gate_answer(draft, result(), house.connection)
+        assert gated.status is AnswerStatus.QUALIFIED
+        assert gated.text == f"{SUPPORTED}\n\nYorum: Bakiye ay sonu stoktur."
+
+    def test_a_draft_written_on_one_line_is_joined_as_before(self, house):
+        draft = f"{SUPPORTED} Seri aylık yayımlanmaktadır."
+        assert gate_answer(draft, result(), house.connection).text == draft
+
+
+class TestWhatIsADateAndWhatIsAFigure:
+    """Live 2026-09-22: three correct sentences lost to numbers that measure nothing."""
+
+    def test_a_day_written_in_words_is_not_a_figure(self, house):
+        # The day and the year belong to the date; only 801.438 is a figure to bind. The
+        # fixture's value is June 2026, so the date names that month.
+        for dated in ("30 Haziran 2026'da", "1 Haziran 2026 itibarıyla", "30 Haziran"):
+            draft = f"{dated} konut kredisi stoğu 801.438 milyon TL."
+            gated = gate_answer(draft, result(), house.connection)
+            assert gated.status is AnswerStatus.ACCEPTED, (dated, gated.omitted)
+            assert gated.text == draft
+
+    def test_a_day_in_the_wrong_month_still_loses_the_sentence(self, house):
+        # Exempting the day from binding does not exempt the period it names.
+        gated = gate_answer(
+            "5 Ocak 2024 haftasında konut kredisi stoğu 801.438 milyon TL.",
+            result(),
+            house.connection,
+        )
+        assert gated.status is AnswerStatus.ABSTAINED
+
+    def test_a_number_that_only_looks_like_a_day_is_still_a_figure(self, house):
+        # The counter-test: no month beside it, so it is a quantity and must bind.
+        gated = gate_answer(f"{SUPPORTED} 12 ay vadeli kredi verildi.", result(), house.connection)
+        assert gated.status is AnswerStatus.QUALIFIED
+        assert "12 ay vadeli" not in gated.text

@@ -16,8 +16,14 @@ MAX_BODY_BYTES = 16 * 1024
 MAX_QUESTION_BYTES = 8 * 1024
 MAX_RESPONSE_BYTES = 1024 * 1024
 MAX_VALUES = 2048
-MAX_SESSIONS = 8
-MAX_TURNS = 24
+#: Conversations one process keeps in reach. A reopened or merely read conversation counts
+#: too and nothing leaves the count before a restart, so eight were used up by browsing the
+#: trace page and a new chat was refused with `capacity` (reported 2026-09-19). A session
+#: holds a few small dictionaries; its lakehouse copy is on disk whatever this number is.
+MAX_SESSIONS = 200
+#: Turns one conversation takes, failed ones included. A long working chat reached 24; the
+#: planner sees a bounded history and a bounded workspace summary however long the chat is.
+MAX_TURNS = 100
 # M10-04: the one route with a non-JSON body, and its per-session budget.
 MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
 MAX_DOCUMENTS = 4
@@ -36,6 +42,7 @@ ErrorCode = Literal[
     "planning_failed",
     "provider_failed",
     "internal_error",
+    "interrupted",
     "output_limit",
     "forbidden",
     "body_too_large",
@@ -43,6 +50,9 @@ ErrorCode = Literal[
     "invalid_document",
     "cancelled",
     "knowledge_rejected",
+    # A catalogue note on a server started without --allow-catalog-edits. Not
+    # `forbidden`: the page reads that as a refused local origin (finding N43).
+    "catalog_read_only",
 ]
 TurnState = Literal["queued", "running", "completed", "failed"]
 
@@ -254,7 +264,7 @@ def unavailable_proof(*gaps: ProofGap) -> Proof:
     return Proof(availability="unavailable", gaps=gaps)
 
 
-class Result(ContractModel):
+class ResultContent(ContractModel):
     result_ref: Reference
     version: Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{64}$")]
     kind: ResultKind
@@ -262,8 +272,22 @@ class Result(ContractModel):
     # Only an exactly published workspace result may enter this contract.
     published: Literal[True] = True
     cells: Annotated[tuple[Cell, ...], Field(max_length=MAX_VALUES)]
+    # Columns the reader asked to convert rather than keep: still cells, still proven, not
+    # shown by default (table_transform `replace`).
+    hidden_columns: Annotated[tuple[Label, ...], Field(max_length=32)] = ()
+    # What each series in this result is called, as the tools recorded it. The reader saw
+    # "BDDK:selector:v1:001a584..." in chart legends and table headers for anything the
+    # startup dataset did not list - a province series fetched during the turn, a series
+    # they had saved themselves, a weekly bulletin row (live 2026-09-21). The name was in
+    # the result all along and stopped at this contract.
+    series_names: Annotated[dict[Label, Label], Field(max_length=64)] = Field(default_factory=dict)
     # Built only by the runner that owns the publication's connection.
     proof: Proof = Field(default_factory=unavailable_proof)
+
+
+class Result(ResultContent):
+    # Independently requested companion artifacts; each owns its cells and proof.
+    related: Annotated[tuple[ResultContent, ...], Field(max_length=11)] = ()
 
 
 class SeriesChoice(ContractModel):
@@ -284,6 +308,7 @@ class SeriesSelection(ContractModel):
 
 
 class Answer(ContractModel):
+    needs_clarification: bool = False
     status: AnswerStatus
     text: Text
     omitted_claims: Annotated[int, Field(strict=True, ge=0)]
@@ -344,11 +369,16 @@ class RuntimeSettings(ContractModel):
     #: Earlier turns of the conversation the planner is shown.
     history_turns: Annotated[int, Field(strict=True, ge=0, le=64)]
     max_history_turns: Annotated[int, Field(strict=True, ge=0, le=64)]
+    models: tuple[str, ...] = ()
+    model: str | None = None
 
 
 class SettingsUpdate(ContractModel):
     """A change to this browser's own settings; absent fields stay as they were."""
 
+    model: Annotated[str, StringConstraints(strict=True, min_length=1, max_length=200)] | None = (
+        None
+    )
     disabled: Annotated[tuple[str, ...], Field(max_length=16)] | None = None
     history_turns: Annotated[int, Field(strict=True, ge=0, le=64)] | None = None
 
@@ -378,12 +408,33 @@ class ConversationList(ContractModel):
     conversations: Annotated[tuple[ConversationSummary, ...], Field(max_length=200)] = ()
 
 
+class TraceConversationSummary(ConversationSummary):
+    """A run-owning conversation; deleted chats appear only in this trace index."""
+
+    deleted: bool
+
+
+class TraceConversationList(ContractModel):
+    api_version: Literal[1] = 1
+    conversations: Annotated[tuple[TraceConversationSummary, ...], Field(max_length=200)] = ()
+
+
+class ConversationDeleted(ContractModel):
+    api_version: Literal[1] = 1
+    deleted: Literal[True] = True
+
+
+class RunsDeleted(ContractModel):
+    api_version: Literal[1] = 1
+    deleted_runs: Annotated[int, Field(strict=True, ge=0)]
+
+
 class StoredMessage(ContractModel):
     sequence: Annotated[int, Field(strict=True, ge=1)]
     turn_id: Reference
     role: Literal["user", "assistant"]
     text: Text
-    status: AnswerStatus | None = None
+    status: AnswerStatus | Literal["queued", "running", "completed", "failed"] | None = None
     result_ref: Reference | None = None
     result_version: Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{64}$")] | None = None
     document_ref: Reference | None = None
@@ -407,6 +458,9 @@ class ConversationDetail(ContractModel):
     token: Key | None = None
     messages: Annotated[tuple[StoredMessage, ...], Field(max_length=512)] = ()
     documents: Annotated[tuple[ConversationDocument, ...], Field(max_length=MAX_DOCUMENTS)] = ()
+    #: Titles the pending clarification offered, so a reopened chat can show them
+    #: again instead of leaving the person to retype one (finding F2-netl).
+    pending_offered: Annotated[tuple[Label, ...], Field(max_length=12)] = ()
 
 
 class ConversationUpdate(ContractModel):
@@ -477,6 +531,17 @@ class RunDetail(ContractModel):
     api_version: Literal[1] = 1
     run: RunSummary
     steps: Annotated[tuple[TraceStep, ...], Field(max_length=5000)] = ()
+
+
+class RunProgress(ContractModel):
+    """What a live view shows while a run is going: no step text at all."""
+
+    api_version: Literal[1] = 1
+    run_id: Reference
+    status: Literal["running", "completed", "failed", "cancelled"]
+    steps: Annotated[int, Field(strict=True, ge=0)] = 0
+    stage: Code | None = None
+    name: Code | None = None
 
 
 #: Why an answer was rated down; a fixed vocabulary, never free-form categories.
@@ -574,6 +639,14 @@ class KnowledgeSeries(ContractModel):
     reviewed_aliases: tuple[str, ...] = ()
     reviewer_note: str | None = None
     search_text: str | None = None
+    geography: str | None = None
+
+
+#: How many entries the knowledge base may count. A count, not a payload: one page travels,
+#: and the whole directory is browsable. Live 2026-09-23 the entries a search had opened in
+#: the EVDS directory took the count past MAX_CATALOG_SERIES, and every page of the
+#: knowledge base failed with 500 while the page showed "Analiz tamamlanamadı".
+MAX_KNOWLEDGE_ENTRIES: Final = 1_000_000
 
 
 class KnowledgeList(ContractModel):
@@ -584,7 +657,17 @@ class KnowledgeList(ContractModel):
     series: Annotated[tuple[KnowledgeSeries, ...], Field(max_length=MAX_CATALOG_SERIES)] = ()
     #: Entries of the sources' own directory that search finds and turns fetch on first use.
     #: Only the ones a person annotated or a turn fetched are in `series`.
-    listed_series: Annotated[int, Field(ge=0, le=MAX_CATALOG_SERIES)] = 0
+    listed_series: Annotated[int, Field(ge=0, le=MAX_KNOWLEDGE_ENTRIES)] = 0
+    #: Set when one page was asked for: how many entries the filters match, which page
+    #: this is, how many each tab holds, and the provinces a province selector can offer.
+    total: Annotated[int, Field(ge=0, le=MAX_KNOWLEDGE_ENTRIES)] | None = None
+    page: Annotated[int, Field(ge=1)] | None = None
+    page_size: Annotated[int, Field(ge=1, le=100)] | None = None
+    counts: dict[str, Annotated[int, Field(ge=0, le=MAX_KNOWLEDGE_ENTRIES)]] | None = None
+    provinces: Annotated[tuple[str, ...], Field(max_length=128)] = ()
+    #: Whether a browser key may archive, alias or describe reviewed and listed entries
+    #: here: the operator's --allow-catalog-edits, never a browser's choice (DEC-162).
+    catalog_editable: bool = False
 
 
 class DirectoryRefreshResult(ContractModel):
@@ -764,12 +847,34 @@ class DatasetRequest(ContractModel):
         return self
 
 
+class DatasetSource(ContractModel):
+    """Where one version's numbers were read, when a conversation saved it (DEC-183).
+
+    A version typed into the page's form has none. `url` is scheme, host and path of the
+    address the document was read from - the query is never kept - and is absent for a
+    document uploaded into the conversation. `read_at` is when the bytes were read or
+    uploaded; `sha256` names those bytes; the rest is the place inside the document.
+    """
+
+    kind: Literal["address", "upload"]
+    url: Annotated[str, StringConstraints(max_length=512)] | None = None
+    read_at: AwareDatetime | None = None
+    sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")] | None = None
+    document: Annotated[str, StringConstraints(max_length=40)] | None = None
+    page: int | None = None
+    table: int | None = None
+    sheet: Annotated[str, StringConstraints(max_length=120)] | None = None
+    period_column: Annotated[str, StringConstraints(max_length=120)] | None = None
+    value_column: Annotated[str, StringConstraints(max_length=120)] | None = None
+
+
 class DatasetVersionSummary(ContractModel):
     version: int
     status: Literal["active", "archived"]
     observations: int
     content_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
     created_at: AwareDatetime
+    source: DatasetSource | None = None
 
 
 class StoredObservation(ContractModel):
@@ -791,6 +896,8 @@ class DatasetDetail(ContractModel):
         tuple[StoredObservation, ...], Field(max_length=MAX_KNOWLEDGE_OBSERVATIONS)
     ] = ()
     history: Annotated[tuple[DatasetVersionSummary, ...], Field(max_length=500)] = ()
+    #: The latest version's source: the one these observations were read from.
+    source: DatasetSource | None = None
 
 
 class SeriesNoteRequest(ContractModel):
@@ -805,6 +912,9 @@ class SeriesNoteVersion(ContractModel):
     aliases: tuple[str, ...]
     note: str | None
     created_at: AwareDatetime
+    #: Whether the reading key wrote this version; None for a row stored without an
+    #: author. The author's owner id itself is never shown.
+    by_you: bool | None = None
 
 
 class SeriesNoteHistory(ContractModel):

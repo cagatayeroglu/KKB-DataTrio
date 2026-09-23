@@ -70,6 +70,52 @@ export function arrange(cells: Cell[]) {
     }
     row.values[key] = cell;
   }
+  // A missing month in every column is still a gap. Only canonical monthly
+  // intervals justify this spine; no value or holiday calendar is inferred.
+  if (
+    rows.length > 1 &&
+    rows.every(({ period }) => {
+      if (!period || period.frequency !== "monthly") return false;
+      const end = new Date(`${period.end}T00:00:00Z`);
+      return (
+        period.start === `${period.end.slice(0, 7)}-01` &&
+        end.getUTCDate() ===
+          new Date(
+            Date.UTC(end.getUTCFullYear(), end.getUTCMonth() + 1, 0),
+          ).getUTCDate()
+      );
+    })
+  ) {
+    const ordered = [...rows].sort((a, b) =>
+      a.period!.end.localeCompare(b.period!.end),
+    );
+    const first = new Date(`${ordered[0].period!.start}T00:00:00Z`);
+    const last = ordered.at(-1)!.period!.end;
+    const observed = new Set(rows.map((row) => row.period!.end));
+    const gaps: TableRow[] = [];
+    for (let offset = 0; offset < 2048; offset++) {
+      const start = new Date(
+        Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + offset, 1),
+      )
+        .toISOString()
+        .slice(0, 10);
+      const end = new Date(
+        Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + offset + 1, 0),
+      )
+        .toISOString()
+        .slice(0, 10);
+      if (end > last) break;
+      if (!observed.has(end))
+        gaps.push({
+          key: `missing:${end}`,
+          period: { ...ordered[0].period!, start, end },
+          values: {},
+        });
+    }
+    if (gaps.length) rows.push(...gaps);
+    if (gaps.length)
+      rows.sort((a, b) => a.period!.end.localeCompare(b.period!.end));
+  }
   return { columns: [...columns.values()], rows, metrics };
 }
 const scales: Record<string, string> = {
@@ -106,9 +152,20 @@ export function preparedTitle(title: string) {
     .replace(/; percent, weekly, rate$/, "; yüzde, haftalık faiz oranı")
     .replace(/; index, monthly, index$/, "; aylık endeks");
 }
-export function seriesLabel(label: string, dataset: Dataset | null) {
+export function seriesLabel(
+  label: string,
+  dataset: Dataset | null,
+  names: Record<string, string> = {},
+) {
   let result = label;
-  for (const series of [...(dataset?.series ?? [])].sort(
+  // The result's own names first: the startup dataset lists the seed pool only, so a
+  // province series fetched during the turn, a series the reader saved, or a weekly
+  // bulletin row reached the legend as "BDDK:selector:v1:001a584..." (live 2026-09-21).
+  const known = [
+    ...Object.entries(names).map(([id, title]) => ({ series_id: id, title })),
+    ...(dataset?.series ?? []),
+  ];
+  for (const series of known.sort(
     (a, b) => b.series_id.length - a.series_id.length,
   ))
     result = result.replaceAll(series.series_id, preparedTitle(series.title));
@@ -128,6 +185,12 @@ export function seriesLabel(label: string, dataset: Dataset | null) {
         }`,
     )
     .replaceAll("month-over-month change", "aylık değişim")
+    // table_transform change: "<column> % change (lag 1)" / "<column> change (lag 12)".
+    .replace(
+      / (% )?change \(lag (\d+)\)/g,
+      (_, percent: string | undefined, lag: string) =>
+        ` ${percent ? "yüzde " : ""}değişim (${lag === "1" ? "önceki döneme göre" : `${lag} dönem öncesine göre`})`,
+    )
     .replace(/ real, (\d{4}-\d{2}) prices /g, " reel, $1 fiyatlarıyla ");
   const comparison = result.match(/^table comparison ([a-f0-9]{12}): (.+)$/);
   const comparisonLabels: Record<string, string> = {

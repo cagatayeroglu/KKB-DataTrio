@@ -31,6 +31,63 @@ Non-goals for this window: arbitrary generated-code execution, a general autonom
 
 The stack is selected in DECISIONS and is not re-argued here: DuckDB with Parquet and Pandas (DEC-112), a custom bounded loop (DEC-113), initial hybrid retrieval with benchmark-gated extensions (DEC-130; DEC-127/115 superseded), an artifact DAG in DuckDB (DEC-117), FastAPI with SSE behind Next.js (DEC-123), and the excluded-technology list (DEC-124). Router fine-tuning and multi-agent topology remain out of scope.
 
+## Critical correctness contracts (PR #315 implementation)
+
+Typed silver reads carry a producer-bound `column_contracts` declaration: stable
+column identity, source artifact, unit/scale, measure, frequency/weekly anchor,
+cumulative/reset rule, aggregation and index base year. Resampling updates the
+declared frequency; joining preserves the selected declarations. Table-input
+causality consumes those declarations and snapshots the actual versioned input
+result, including transformations and its window. Missing or inconsistent
+declarations refuse analysis; no `cumulative=none` default is invented. This
+slice covers read → resample → join → association/Granger; it does not declare
+all older or newly generated columns safe for every downstream analysis.
+Document summaries retain their source's resolvable lineage instead of using a
+result identifier as a lineage node.
+
+Gold rechecks bind a cell to the exact immutable result digest, column and full
+period. Another result/window's identically named gold cell is not evidence
+against it. Trusted producer verification remains mandatory even without gold.
+
+DAILY changes require the previous calendar day; BUSINESS_DAY changes require
+the previous weekday. Missing weekdays remain gaps without a reviewed holiday
+calendar. Coverage/display calendars are separate from analytical lag/YTD
+support, so displaying daily gaps does not silently enable unsupported analyses.
+Absent canonical months appear as empty table/chart rows and count as missing
+in summaries; no value is imputed.
+
+Before synthesis, the harness rejects invalid producer evidence through the
+normal gate. Writer context may omit a workspace ancestor only when validated
+input lineage binds its name/version and every prior value remains in the final
+result; version-specific notes and meanings survive. The final gate still runs.
+Writer transport failure can retain a verified analytical result with a
+deterministic no-number fallback. Cancellation is checked after the writer and
+immediately before workspace publication. Provider reasoning/output budgets
+are unchanged. Validation and remaining live acceptance are recorded in
+[EVALUATION](EVALUATION.md#final-critical-fixes-2026-09-22).
+
+
+The second pass adds a bounded document inspection continuation after a successful
+unselected web read: select a recorded same-origin link, request typed extraction,
+or return a labelled unverified reading. At most two decisions share the remaining
+step budget; `read_from` depends on the actual earlier output and cannot delegate
+another hop. No generic planner inventory is resent for this continuation.
+
+Anomaly keeps its raw-series log-ratio/difference baseline. Its table-input form
+scores the explicit column values directly; the verified source version and complete
+column declaration are mandatory. Simple percentage changes are not mathematically
+interchangeable with log ratios. Resolved noncumulative percentage derivations carry
+their own percent/rate declaration for downstream consumers.
+
+Execution status and analytical status are separate presentation facts. The writer
+receives the actual ledger; recognized operational sentences are replaced by
+harness-owned status text while economic interpretation remains model-written.
+Successful calls returning insufficient/abstained/undefined remain visibly incomplete.
+Monthly chart ticks name the observation's semantic month at its actual end date.
+Second-pass evidence and remaining live cases are in
+[EVALUATION](EVALUATION.md#second-final-pass-2026-09-22).
+
+
 ## Organizer maturity chain
 
 This is the single product-evolution map for the organizer-relayed direction
@@ -125,7 +182,11 @@ the user.
 
 `catalog_search` combines BM25, synonyms, concept families and LanceDB dense search. The ranking
 orders candidates; it does not choose for the model, which still selects the series. The harness
-then applies its semantic, provenance and verification checks. Bounds on catalog size are memory
+then applies its semantic, provenance and verification checks. After intent compatibility ties,
+complete required read declarations rank ahead of unresolved ones, using the inspector's same
+field requirements. This neither resolves flow/portfolio ambiguity nor implies prepared coverage;
+explicit qualifiers still win and continuation exposes unresolved read fields.
+Bounds on catalog size are memory
 guards, not product limits: `MAX_CATALOG_SERIES` and `MAX_CATALOG_CONCEPTS` are 10,000 and
 `MAX_CATALOG_GROUPS` is 1,000 (`catalog/records.py`).
 
@@ -312,12 +373,12 @@ Each boundary below describes responsibility, inputs, outputs, prohibited behavi
 - Likely failures: Unknown workspace, ambiguous intent, stale references, deadline exhaustion, incompatible follow-up.
 - Validation expectations: Tests for no-work clarification, failed-turn state preservation, cancellation/deadline propagation, and follow-up invalidation.
 
-CURRENTLY IMPLEMENTED: [Session](../src/kkb_agent/agent/loop.py) plans and executes through the registry. For four exact typed table-result contracts (monthly co-movement, deflation, monthly add-series and table-direction comparison), a bounded deterministic draft replaces the final model writer; unknown shapes still use that writer. Both drafts enter the same verifier gate. Publication requires successful execution, an ACCEPTED answer and verified candidate evidence. It uses current named Workspace values across turns. The opt-in [bounded catalog continuation](CATALOG.md) executes catalog-only discovery and lets one further analysis/clarification plan consume candidate metadata in a data role. Step and repair counts cover both phases; tool retries remain bounded per step. Automatic workspace loading, planner-driven recomputation and total request deadlines/cancellation remain TARGET. A separate cheaper router call remains PROPOSED pending model/latency evidence.
+CURRENTLY IMPLEMENTED: [Session](../src/kkb_agent/agent/loop.py) plans and executes through the registry. For four exact typed table-result contracts (monthly co-movement, deflation, monthly add-series and table-direction comparison), a bounded deterministic draft replaces the final model writer; other shapes, including scalar summaries, still use that writer. Both drafts enter the same verifier gate. A scalar summary omitted from otherwise accepted prose receives one deterministic, re-gated value sentence; an unbindable value is not published. Publication requires successful execution, an ACCEPTED answer and verified candidate evidence. It uses current named Workspace values across turns. The opt-in [bounded catalog continuation](CATALOG.md) executes catalog-only discovery, permits at most one additional catalog-only phase for a missing supporting series, then lets analysis/clarification consume both metadata results as data-role messages; a reviewed two-way stock/new-credit rate ambiguity can instead ask directly without another planner call. Step and repair counts cover all phases; tool retries remain bounded per step. Automatic workspace loading, planner-driven recomputation and total request deadlines/cancellation remain TARGET. A separate cheaper router call remains PROPOSED pending model/latency evidence.
 
 The configured prepared hybrid path requires a catalog-only discovery phase before
 new-series reads, including deflation indices and added columns. Enforcement
 uses validated tool operations, not question keywords; existing-column
-`rebase`/`change`/`align`/`filter` and `table_co_movement` may proceed directly. Clarification
+`rebase`/`change`/`align`/`filter`/`summarize` and `table_co_movement` may proceed directly. Clarification
 is permitted before discovery. Lexical-only and standalone Session defaults keep
 their explicit prior behavior. The prepared writer permits one extra synthesis
 call only when every omitted-sentence reason is period attribution and the
@@ -326,13 +387,13 @@ reruns the full gate, and publishes only an ACCEPTED answer. It never reruns
 calculations or bypasses verification; provider failure preserves the first gated
 answer. This extra call counts against the launcher's total chat ceiling.
 
-Under [DEC-152](DECISIONS.md#dec-152--plan-contract-conversational-reply-and-budget-increase), `AnalyticalPlan.reply` handles conversational messages ("Merhaba", "bu sonuç ne demek") without tool execution or publication. Exactly one of `steps`, `clarification`, or `reply` is set. `REPLY_INSTRUCTIONS` and the last 6 turns of conversation history are included only in the initial planning call; continuation calls omit them, preserving the #237 budget. A reply cannot be issued when the message contains a URL or document attachment. `Budget.max_steps` is 12.
+Under [DEC-152](DECISIONS.md#dec-152--plan-contract-conversational-reply-and-budget-increase), `AnalyticalPlan.reply` handles conversational messages ("Merhaba", "bu sonuç ne demek") without tool execution or publication. Exactly one of `steps`, `clarification`, or `reply` is set. `REPLY_INSTRUCTIONS` are included only in the initial planning call; at most the last 6 turns of natural-language history are supplied only when the current question explicitly refers to a prior result or selects one. Independent new questions do not inherit old geographic or intent wording. Continuation calls omit that history, preserving the #237 budget. A reply cannot be issued when the message contains a URL or document attachment. `Budget.max_steps` is 12.
 
 **Conversation document library**: Admitted uploads are stored as `belge_1..N` in a per-session library. The planner receives a header outline (column names, types, row count — no values) so it can reference documents by name in later turns without re-uploading. `choose_document` resolves a library reference; `add_document_column` accepts `document=` to select from the library.
 
 **Address outline and TurnFetchCache**: `web_url` produces an `address_outline` containing the page title, same-site links and script endpoint headers. Under [DEC-150](DECISIONS.md#dec-150--prompt-address-authority-same-site-link-follow-and-script-endpoint-datasets), `follow="<link text>"` follows one same-registrable-domain link; `follow="endpoint_N"` reads a script-declared JSON endpoint. `TurnFetchCache` ensures each URL is fetched at most once per turn, and cached responses are reused across follow operations within the same turn.
 
-**join_table**: `table_transform` gained `join_table`, which performs a left exact-month join of another published result into the current workspace table. The join key is the period column; no interpolation or fill is applied. This enables combining an uploaded document table with an official series table.
+**join_table**: `table_transform` gained `join_table`, which performs a left exact-month join of another published result or an earlier same-plan table step into the source table. The join key is the period column; no interpolation or fill is applied. This enables combining two compatible same-turn reads or a published upload table with an official series table. When the other table is a same-plan step, every one of its values must survive the join; omitted columns or unmatched other-side months refuse the composite instead of silently losing a sibling. Published-table joins retain their existing explicit left-join and column-selection behavior.
 
 ### 2. LLMProvider / Kloudeks boundary — CONFIRMED interface direction
 
@@ -347,6 +408,32 @@ CURRENTLY IMPLEMENTED: [provider.py](../src/kkb_agent/llm/provider.py), [config.
 
 M7-19 extends `live_check` with opt-in `--document --question` mode. Its temporary lakehouse has no synthetic seed; the four analytical tools and `make_web_url_tool(lineage=lake.lineage)` share that store. The operator supplies the unchanged question to `Session.answer(question, lake.connection)`: planner → executor → `web_url` → `safe_fetch` → bounded CSV/XLSX/PDF loader → cell selection → `AnalyticalResult` → writer → answer gate. The command adds no fetch/parser bypass. Its bounded report resolves the selected transform/source edge and rechecks the retained answer against the same last result used by `Session.answer`; a document-bound numeric claim is mandatory. Raw source bytes are not persisted by this mode, and the temporary store is removed on exit. The existing synthetic command is unchanged. Offline tests cover this integration; **one live public CSV acceptance has passed** ([evidence and limits](EVALUATION.md#m7-19-live-csv-acceptance)), and later execution still needs explicit approval and an accepted Q-NET-01/02 boundary.
 
+Quality-pass presentation contracts (2026-09-22): `outside_coverage` is a typed terminal plan reason, while ambiguous/missing meaning remains clarification. `Answer.needs_clarification` drives the composer; a terminal abstention clears pending clarification, including persisted state. Writer projections retain column unit/scale/measure/frequency and value-presence state, parameters, source metadata, transformations, coverage, samples, warnings and version-specific meaning. Exact duplicated metadata and ancestor cell blocks remain removed. Ordinary tables up to 120 periods / 1024 dated values are shown fully; larger tables still state their limited projection. Numeric grounding remains against original proven results. `YYYY-MM` qualifiers bind locally to their own values and must match the proven month; physical quantity unit spellings are normalized, while unresolved units remain unresolved. Scale conversion is not inferred from writer arithmetic.
+
+PR #316 addendum: `PlanStep.present` marks independently requested deliverables.
+The last computed result remains implicit; declared outputs are verified individually.
+Only a proven ancestor whose exact cells remain visible in a descendant is deduplicated;
+equal cells in independent sources retain both proofs. The requested period table is
+primary, with separate `Result.related` artifacts for other outputs. One workspace
+transaction stores the bundle and immutable companion receipts; restoration rebuilds
+each version's proof, and follow-ups retain the primary table. Companion artifacts are
+also named workspace values. A faulty artifact or cancelled turn cannot publish a bundle.
+
+`summarize` requires both `requested_aggregation` (user intent before feasibility checks)
+and `aggregation`. A mismatch is a terminal refusal before aggregation; a typed non-flow
+sum is also terminal and never enters runtime repair. Alternatives require a new request.
+Natural-language intent extraction remains the planner's responsibility, not a phrase
+matcher. Plain XLSX percentage formats, when recorded for every nonempty column cell,
+can establish percent/scale-one/rate semantics; conflicting header/question units refuse.
+The outline exposes this format evidence before planning. Mixed or unsupported formatting
+does not establish a unit.
+
+Writer cells are grouped by exact column/semantic identity: the label, unit and scale
+are stated once, while each display remains paired with its full period. All ordinary
+cells, warnings, execution/acquisition state and lineage metadata remain available;
+this removes repetition without changing the numeric gate, budgets or factual fallback.
+
+
 DEC-122's three-method surface is:
 
 ```python
@@ -355,7 +442,9 @@ embed(texts: list[str], *, kind: Literal["query", "passage"])
 vision(image_bytes: bytes, prompt: str)
 ```
 
-Model identifier, base URL and whether structured output exists come from environment configuration, never from source constants. When the platform offers no structured-output mode, the provider validates against the schema, repairs with `json-repair`, and retries at most twice while feeding the validation error back to the model. The `kind` argument on `embed` preserves query/passage intent; the confirmed Qwen model's prefix convention remains Q-K-05. Do not assume an E5 convention applies.
+Role-default model identifiers, base URL and structured-output capability come from environment configuration. `llm/config.py` owns the additional selectable chat IDs; `/v1/settings` projects that list and validates/persists an owner-specific `model`. The frontend consumes it without its own model list. Prepared turns snapshot this setting into `Session.model` for planning and writing, including newly created conversations; no workspace/data/tool state is reset.
+
+Structured responses require complete syntactically valid JSON and schema validation; local guessing with `json-repair` is removed. The shared provider loop permits at most one replacement response. If an operator configured one provider attempt, the planner permits one schema-only correction using the original context; an already exhausted two-attempt provider failure gets no further correction. The trace records `schema.repair` and the corresponding provider attempt count or planner repair span. Semantic tool/argument validation keeps its existing separate bounded policy; transport errors are not retried by this recovery. The `kind` argument on `embed` preserves query/passage intent; the confirmed Qwen model's prefix convention remains Q-K-05. Do not assume an E5 convention applies.
 
 Model roles are assigned by measurement, not parameter count. A proposed live measurement is a twenty-case tool-selection smoke test — Turkish question in, expected tool and arguments out — against an eligible text model, scoring correct-tool rate, argument-schema validity, JSON malformation rate and latency. Use locally validated text responses unless native function/tool calling is separately confirmed; the compatible endpoint alone does not establish that feature. The router base is chosen from that score. Role/model splits and exact call budgets remain PROPOSED pending those measurements. Models may propose or summarize; deterministic code verifies material calculations. Reranking is optional under DEC-130. Vision, OCR and embedding availability are officially confirmed in [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-and-compatible-client-policy). The transport's embedding call passed one live request (M4-12) and its `vision` method sends one image with a prompt; M7-11 adds explicit `ocr` injection into the PDF loader/web_url, using the organizer's literal OCR request contract. It is off by default; no live OCR is validated.
 
@@ -370,7 +459,7 @@ CONFIRMED: [DEC-129](DECISIONS.md#dec-129--official-kloudeks-endpoints-models-an
 - Likely failures: Unknown tool, extra/invalid argument, bad dependency, unavailable input, too many steps, repeated invalid plan.
 - Validation expectations: Positive plan fixtures plus negative names/arguments/dependency/reference/capability cases; verify rejection occurs before any tool side effect.
 
-CURRENTLY IMPLEMENTED: [AnalyticalPlan](../src/kkb_agent/agent/plan.py) contains `question` and `steps`; each step has `step_id`, `tool`, `arguments` and `depends_on`. The initial `Session.plan` system prompt includes this model's JSON schema via `schema_instructions`, the same renderer used by schema repair (M5-19); registry-owned argument schemas appear once beside it. This supplies the contract before the first response without changing validation or retry budgets. No workspace/source text is added to system instructions. [validate_plan](../src/kkb_agent/agent/executor.py) checks registered names and argument schemas, duplicate/self/unknown dependencies, cycles and step limits, then topologically orders the steps. Registry-owned input-step requirements are enforced when supplied by a tool. Because `Session.answer` answers and publishes only the last computed result, a plan with more than one unconsumed non-discovery step is rejected before dispatch with repair feedback to combine conditions (for example `table_co_movement` `when_column`) or chain the steps (M11-11); a declared dependency that a tool does not actually consume is not detected. General workspace/data-reference ownership and output typing remain incomplete; financial semantics are checked by the receiving tools/harness. Those remain target checks; a parsed plan is not a proof of them.
+CURRENTLY IMPLEMENTED: [AnalyticalPlan](../src/kkb_agent/agent/plan.py) contains `question` and `steps`; each step has `step_id`, `tool`, `arguments` and `depends_on`. The initial `Session.plan` system prompt includes this model's JSON schema via `schema_instructions`, the same renderer used by schema repair (M5-19); registry-owned argument schemas appear once beside it. This supplies the contract before the first response without changing validation or retry budgets. No workspace/source text is added to system instructions. [validate_plan](../src/kkb_agent/agent/executor.py) checks registered names and argument schemas, duplicate/self/unknown dependencies, cycles, step limits and step IDs that collide with published table names, then topologically orders the steps. Registry-owned typed table/input-step references determine whether a prior result is actually consumed; a bare `depends_on` edge only orders execution. Because `Session.answer` answers and publishes only the last computed result, a plan with more than one unconsumed non-discovery step is rejected before dispatch. Compatible monthly siblings may be composed through explicit `table_transform.join_table` with both step IDs as inputs; incompatible tables and independent scalar-plus-table outputs require clarification or separate turns, not arbitrary writer selection. General workspace/data-reference ownership and output typing remain incomplete; financial semantics are checked by the receiving tools/harness. Those remain target checks; a parsed plan is not a proof of them.
 
 ### 4. Tool registry and executor — approved target (DEC-121/133)
 
@@ -560,6 +649,23 @@ Input snapshots preserve the buffers actually passed to analytics, source series
 
 M8-18 binds a figure's explicit qualifiers as well as its magnitude. [claim_qualifiers.py](../src/kkb_agent/agent/claim_qualifiers.py) checks explicit workspace/result/value identifiers, Turkish/English month names, calendar years/ISO dates and attached unit/currency/scale words against the candidate value; a number that two supported values match fails closed as ambiguous instead of binding to the first; unsupported causal wording is withheld even in a sentence without a number; when a computed result is gated, bounded Turkish/English absence wording ("değer bulunmuyor", "hesaplanamıyor", "no values", "cannot be computed") is withheld because the gate cannot prove an absence (M11-11); a deflated value's recorded `reference_period` month written before price wording ("2025-12 fiyatlarıyla", "Aralık 2025 fiyatlarıyla") is not read as a second period for that value, while any other date still is (year-month tokens are still compared at year precision); a plain word before a colon that names no known result or value ("Değerlendirme:") is a discourse heading, whereas identifier-shaped or known-name headings must still identify the value; and an amount-qualified year-like figure loses the calendar exemption. The vocabulary is bounded and deterministic — it does not infer series aliases or read general prose. Still target work: transformation prerequisites are not validated, and no claim is recomputed from raw inputs. `verify` remains reachable for callers holding no typed result.
 
+M11-CLAIM-ROLES narrows the contextual count binding to the role adjacent to each number within its own clause: "60 gözlem" no longer licenses "60 farklı seri" elsewhere in a conjoined sentence. Untyped ordinal/rank claims remain unbound. The absence gate now rejects unsupported "veri/gözlem eksik" statements; only a generic missing-observation disclosure over one result with a typed positive `samples.missing` count survives, never a named period or a mixed-result absence. DEC-120's causal-wording restriction and fixed reviewed cause caveat are unchanged; any general model-written causal-denial exception requires a separate decision.
+
+The pending Workstream 6 writer contract in #285 projects at most three first/last
+direction observations from comparable typed period values alongside the existing
+two displayed edge values per column; it never sends all table rows to the model.
+The verifier checks a bounded explicit first/last movement sentence against those
+typed endpoints and withholds the wrong direction or an ambiguous column.
+Selected high-risk superlatives and aggregate shorthand are withheld, not
+inferred from hidden rows, including when an existing highlight would need a
+separate series/window binder to support the prose. This is **not** a full
+prose-entailment engine: free-form external premises, alternative trend wording
+and exact causal negation semantics are not generally provable. The writer
+prompt remains responsible for steering those
+claims away; the fixed #282 limitation and typed numeric/execution/publication
+gates remain in force. A richer free-prose contract needs reviewed structured
+observations or an explicit policy decision before it can claim full assurance.
+
 [verify](../src/kkb_agent/agent/verifier.py) extracts numbers and finds a numerically close gold cell or silver observation; caller-allowed context values and years can also pass. Gold matching returns the first numeric match, without tying it to the requested period/unit/series/workspace/run. A verdict may reject unbound numbers, but acceptance is not independent recomputation, semantic correctness or sufficient claim-level proof. Ambiguous numeric locale interpretations also need explicit policy. This legacy `verify` API remains callable, but `Session.answer` uses the stronger result-bound gate described above.
 
 TARGET / CONFIRMED: DEC-119 requires a gate, strengthened by DEC-128's proof chain. Before an answer reaches the user:
@@ -710,6 +816,8 @@ and proof document record `extraction: ocr`.
 
 The M2-14/M5-20 unary table-shaping slice extends that same verified published-result boundary without adding source I/O. `rebase` requires an existing column explicitly typed as an unscaled period INDEX, a present positive reference-period value, and a positive new base; it adds `old / reference × new_base` as a new column and states that this is index scaling, not deflation. `align` takes at least two exact labels and either intersects their complete period identities or uses a named left anchor; `filter` keeps cells whose period end lies in an explicit inclusive range. Align/filter retain other table columns on the selected period spine, preserve input cell order and missing cells, and remove periodless or singleton summary values whose old aggregate would no longer describe the new row set. All three reject unresolved/mixed/duplicate/incompatible inputs, record parameters and source snapshots, and mint a new result without mutating the prior workspace result. They do not resample, aggregate, interpolate, convert frequency, join another table, or accept SQL/free-form predicates. Existing `lakehouse.alignment.to_monthly` remains the separate declared weekly-to-monthly reduction path; `add_series` remains the exact monthly left join for a registered series.
 
+`table_transform.summarize` computes a typed scalar over one period column (`mean`, `sum`, `min`, `max`, `first`, `last`, `count`), optionally within an inclusive period range. It records source/result references, used periods, aggregation and lineage; `sum` refuses stock, rate and index levels. A frequency reduction such as weekly-to-monthly publishes only monthly cells in its analytical result; the raw weekly observations remain upstream proof, not mixed-frequency downstream columns.
+
 For successive table transforms, the answer view follows declared source ancestors only while all their values are exactly preserved by the final result. This avoids copied amounts becoming ambiguous on Turn 3. Ancestors stay in the workspace, unrelated analyses stay visible, and the walk terminates on missing/self/cyclic or non-preserved references. This is bounded answer-view narrowing, not completion of general publication dependencies or stale-input invalidation. The M10-18 backend merged in PR #166 (`de11f3e`) adds explicit selected-table grounding: registry-owned table-input declarations constrain every calculation to the pinned workspace source or its derived step, with dispatch/source rechecks and an atomic publication input edge. The selected answer view excludes unrelated results and deduplicates preserved source values even across step-derived results. Rebinding the selected workspace source invalidates dependent selected publications; legacy/non-selected paths and official-data refresh invalidation remain separate. The prepared API and frontend submission/retry/reload are wired in PR #166; synthetic selected-flow browser acceptance passed on 2026-09-15, while live acceptance remains pending. Prepared metadata inspection is separately enforced by the M13-13 slice.
 
 M6-25 `table_co_movement` consumes either a published `source` table or an earlier tool's `input_step`, never both. The latter must also appear in `depends_on`: an optional registry-owned `ToolSpec.required_steps` callback enforces argument references during whole-plan validation, before any tool runs. The existing executor stores successful outputs by step ID and orders dependencies; the receiving tool then requires a computed `AnalyticalResult` whose execution/store evidence passes `result_faults`. This is one typed table consumer, not a generic catalog-result replanner or completion of all output ownership/staleness contracts.
@@ -733,6 +841,8 @@ Mandatory HYBRID baseline: one Turkish normalizer shared by query/index paths, r
 #### Catalog vector-search boundary: local index implemented, optional prepared dense stage
 
 The final dense architecture includes a separate logical **vector DB / vector index layer** for catalog embeddings. The bounded [M13-05 local index](CATALOG.md) now persists reviewed representations and supplied vectors in pinned LanceDB 0.38.0, validates snapshot/text/model/input-policy bindings and searches exact cosine over explicit eligible IDs. It contains no financial observations and opens no model/network route. Its real-engine tests use labelled fixture vectors; an optional [combined catalog stage](CATALOG.md#catalog_search-bounded-combined-candidate-contract) now preserves both retrieval paths and explicit degradation. DEC-142 selects the `qwen3-instruct-query-v1` query policy and `reviewed-match-order-v1` combination after real-embedding evaluation; the prepared API uses them only with an explicit [`--catalog-index`](CATALOG.md#catalog_search-prepared-runtime-dense-stage) generation and otherwise stays lexical. The opt-in [bounded planner continuation](CATALOG.md) consumes candidate metadata separately from calculations. [DEC-138](DECISIONS.md#dec-138--handback-priorities-lancedb-catalog-index-and-no-prepared-data-in-git) selects this embedded index; no separate vector service is needed. PostgreSQL/pgvector requires a later decision justifying a separate PostgreSQL service.
+
+For USER datasets, `state/knowledge.sqlite` versions are applied to the effective catalog on each turn. A save/archive/note change alters its digest, and the installed generation is kept: it answers for the identities whose text it embedded, so discovery is lexical for the entry that changed and hybrid for the rest (DEC-187). `POST /v1/knowledge/index` explicitly builds a new immutable generation under `state/catalog-index/<catalog digest>` (or reopens an exact existing one). The generation in use lends the build every vector whose identity and text digest are unchanged under exactly the same profile, re-checked against the digest verified when it was opened, so only new or changed entries reach the embedding model (DEC-188: one saved dataset is one request instead of 524); the final catalog digest and embedding profile are checked before installation, with catalog edits serialized across that check, and the generation in use keeps answering until then. `GET /v1/knowledge/index` exposes bounded error categories, never provider exception text or local paths. A failed rebuild leaves the active generation untouched, and restart can reopen an exact generation without embedding. No automatic rebuild or mutable USER overlay is implied.
 
 | Conceptual vector record | Purpose |
 | --- | --- |
@@ -959,7 +1069,7 @@ See [client recovery and evidence](OPERATIONS.md#local_client-recovery-and-limit
 
 | Boundary | Limit |
 | --- | --- |
-| Sessions / turns | 8 sessions, 24 turns each including failures; no silent eviction |
+| Sessions / turns | 200 process-local idle handles, 100 persisted turns per conversation including failures; idle handles evict oldest-first, active turns never evict |
 | Execution | One admitted turn globally on a dedicated worker; no application backlog |
 | Question | 4,096 characters and 8 KiB UTF-8; nonblank, no unsupported controls |
 | HTTP body | 16 KiB before JSON parsing including chunked bodies; 5-second read deadline |
@@ -1094,8 +1204,9 @@ New periods appearing in the original after startup do not silently change
 that process's analyses. Updating data requires a new validated startup;
 automated refresh/version management remains separate. The original and seed
 are never written by the analytical tools. There is no automatic deletion or
-retention claim. At the initial worst-case cap, seed plus eight session copies
-may need approximately nine times the prepared storage, plus derived results;
+retention claim. Every conversation that ran a turn keeps its own copy of the seed
+(about 9-16 MiB with derived results), so the 200-session cap bounds memory, not disk:
+at the cap the copies may need roughly 2-3 GiB;
 the expanded 29-series pool is about 8.13 MiB; the earlier seven-series pool was about 7.26 MiB.
 
 The service's single worker opens/closes a session's connection for each turn.

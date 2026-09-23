@@ -18,6 +18,7 @@ from kkb_agent.agent import (
     ToolStatus,
 )
 from kkb_agent.agent.loop import collect_results
+from kkb_agent.agent.registry import _without_titles
 from kkb_agent.llm.doubles import scripted
 from kkb_agent.tools.web_search import (
     BackendHit,
@@ -76,7 +77,8 @@ def test_contract_is_absent_until_explicit_registration():
     backend: SearchBackend = FakeSearchBackend(SearchReply())
     registry.register(make_web_search_tool(backend=backend))
     description = registry.descriptions()[0]
-    assert description["arguments"] == SearchRequest.model_json_schema()
+    # The validated schema, without the `title` annotations pydantic generates.
+    assert description["arguments"] == _without_titles(SearchRequest.model_json_schema())
     assert set(description["arguments"]["properties"]) == {"query", "max_results"}
     assert "discovery" in description["description"].lower()
     assert "synthetic-backend-secret" not in json.dumps(description)
@@ -280,18 +282,95 @@ def test_injection_is_inert_and_search_cannot_support_a_numeric_answer():
     assert text not in str(provider.seen)
 
 
-def test_discovered_url_still_rejected_by_web_url():
+def test_a_read_names_the_hit_it_wants_and_never_writes_the_address_out():
+    """Live 2026-09-22: asked to read what the search found, the planner wrote a TCMB
+    address from memory instead of the one the search had returned, and the read was
+    refused as an address nobody had asked for. The planner names the hit; the address
+    comes from the search output the executor already holds."""
     from kkb_agent.tools import WebUrlArguments, make_web_url_tool
 
-    url = call([hit()]).output.candidates[0].url
+    found = call([hit()]).output
+    fetched: list[object] = []
 
-    def forbidden(*args, **kwargs):
-        raise AssertionError("discovery must not fetch")
+    def record(request, **kwargs):
+        fetched.append(request)
+        raise AssertionError("fetch attempted")
 
-    result = make_web_url_tool(fetch=forbidden).run(
-        WebUrlArguments(url=url), ExecutionContext("find public data")
+    tool = make_web_url_tool(fetch=record)
+    context = ExecutionContext("resmi sayfayı bul ve özetle")
+    context.outputs["ara"] = found
+
+    with pytest.raises(AssertionError, match="fetch attempted"):
+        tool.run(WebUrlArguments(found_by="ara", result=1), context)
+    assert len(fetched) == 1  # the hit's own address reached the fetcher
+
+    # The step it names is declared, so the executor runs the search first.
+    assert tool.required_steps(WebUrlArguments(found_by="ara")) == ("ara",)
+    assert tool.required_steps(WebUrlArguments(url="https://example.test/a")) == ()
+
+    # A hit that is not there is refused in its own words, and nothing is fetched.
+    missing = tool.run(WebUrlArguments(found_by="ara", result=9), context)
+    assert missing.output.code == "SEARCH_RESULT_NOT_FOUND" and len(fetched) == 1
+    empty = tool.run(WebUrlArguments(found_by="yok"), ExecutionContext("q"))
+    assert empty.output.code == "SEARCH_RESULT_NOT_FOUND" and len(fetched) == 1
+
+    # One source at a time: an address and a hit together name two pages.
+    with pytest.raises(ValidationError):
+        WebUrlArguments(found_by="ara", url="https://example.test/a")
+
+
+def test_the_description_says_how_a_found_page_is_read_and_that_an_address_comes_first():
+    """It used to say search never authorizes web_url, which `found_by` made untrue."""
+    description = make_web_search_tool(backend=FakeSearchBackend(SearchReply())).description
+    assert "found_by=<this step's id>" in description and "authorize" not in description
+    assert "read that address with web_url first" in description
+
+
+def test_a_url_search_found_is_readable_in_the_same_turn_and_nothing_else_is():
+    """The reader asked for the search and for what it finds.
+
+    Live 2026-09-21: "TCMB Mart 2024 PPK kararını web'de ara ve resmi kaynağı özetle"
+    found the official page and could not read it; the address had to be pasted in a
+    second message. What a search of THIS turn returned is readable. Everything else is
+    refused exactly as before - and a page's own content never fills this set, so a
+    fetched document still cannot name the next request.
+    """
+    from kkb_agent.tools import WebUrlArguments, make_web_url_tool
+
+    found = call([hit()]).output
+    url = found.candidates[0].url
+
+    fetched: list[str] = []
+
+    def record(request, **kwargs):
+        fetched.append(str(getattr(request, "url", request)))
+        raise AssertionError("fetch attempted")
+
+    tool = make_web_url_tool(fetch=record)
+    # Not searched this turn: refused before anything is fetched, as it always was.
+    bare = tool.run(WebUrlArguments(url=url), ExecutionContext("find public data"))
+    assert bare.output.code == "URL_NOT_IN_QUESTION" and not fetched
+
+    # Searched this turn, by a step of this plan: the address is admitted and reaches the
+    # fetcher, which this fixture refuses to be.
+    context = ExecutionContext("find public data")
+    context.outputs["s1"] = found
+    with pytest.raises(AssertionError, match="fetch attempted"):
+        tool.run(WebUrlArguments(url=url), context)
+    assert len(fetched) == 1  # the address reached the fetcher (its locator stays secret)
+
+    # A redacted locator no longer names the page the hit named, so it stays refused.
+    redacted = found.model_copy(
+        update={
+            "candidates": tuple(
+                item.model_copy(update={"locator_redacted": True}) for item in found.candidates
+            )
+        }
     )
-    assert result.output.code == "URL_NOT_IN_QUESTION"
+    hidden = ExecutionContext("find public data")
+    hidden.outputs["s1"] = redacted
+    assert tool.run(WebUrlArguments(url=url), hidden).output.code == "URL_NOT_IN_QUESTION"
+    assert len(fetched) == 1  # nothing further was requested
 
 
 def test_six_core_factories_register_without_exposing_planned_tools(tmp_path):

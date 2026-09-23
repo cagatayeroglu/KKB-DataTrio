@@ -5,18 +5,21 @@ as a restarted process would be, over the same state root.
 """
 
 import json
+import sqlite3
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from test_catalog_continuation import CATALOG, TOTAL, proposal
+from test_catalog_continuation import CATALOG, TOTAL, discover, proposal
 from test_document_dataset import BASE, csv, seed, table_step
-from test_document_table import ask, step
+from test_document_table import ask, step, wait_http
 
 from kkb_agent.api.app import create_app
 from kkb_agent.api.prepared import PreparedRunner
 from kkb_agent.api.service import AnalysisService
 from kkb_agent.api.store import DATABASE_NAME, ConversationStore
 from kkb_agent.llm import scripted
+from kkb_agent.llm.provider import TransportError
 
 
 @pytest.fixture
@@ -24,7 +27,7 @@ def launch(tmp_path):
     """Start the API over a fixed state root; call it again for a restart."""
     started = []
 
-    def start(*responses):
+    def start(*responses, cleanup=True):
         root = tmp_path.resolve() / "prepared"
         if not root.exists():
             seed(root)
@@ -44,6 +47,7 @@ def launch(tmp_path):
             document_store=runner.admit_document,
             store=store,
             stored_result=runner.published_result,
+            session_cleanup=runner.delete_session if cleanup else None,
         )
         client = TestClient(create_app(service, prepared=runner.status), base_url=BASE)
         client.__enter__()
@@ -221,3 +225,364 @@ def test_two_conversations_keep_their_own_documents_and_tables(launch):
     assert [d["document_ref"] for d in first["documents"]] == [first_document]
     assert [d["document_ref"] for d in second["documents"]] == [second_document]
     assert first["messages"][1]["result_ref"] != second["messages"][1]["result_ref"]
+
+
+def test_soft_delete_hides_chat_but_keeps_trace_and_cleans_session_data(launch):
+    runner, client = launch(table_step(), "Tablo hazır.")
+    owner_token = owner(client)
+    sid, headers, _ = open_conversation(client, owner_token)
+    document = upload(client, sid, headers)
+    completed = ask(client, sid, headers, "Belgeden tablo yap.", document_ref=document)
+    assert completed["answer"]["status"] == "accepted"
+    trace = client.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"]
+    assert trace
+    session_dir = runner.run_root / sid
+    assert session_dir.exists()
+    owner_headers = {"X-KKB-Owner-Token": owner_token}
+
+    deleted = client.delete(f"/v1/conversations/{sid}", headers=owner_headers)
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json()["deleted"] is True
+    assert not session_dir.exists()
+    assert client.get("/v1/conversations", headers=owner_headers).json()["conversations"] == []
+    assert (
+        client.get("/v1/conversations?search=belgeden", headers=owner_headers).json()[
+            "conversations"
+        ]
+        == []
+    )
+    assert client.get(f"/v1/conversations/{sid}", headers=headers).status_code == 404
+    assert client.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"] == trace
+    indexed = client.get("/v1/trace-conversations", headers=owner_headers).json()["conversations"]
+    assert [(item["conversation_id"], item["deleted"]) for item in indexed] == [(sid, True)]
+    assert (
+        client.get("/v1/trace-conversations?search=belgeden", headers=owner_headers).json()[
+            "conversations"
+        ]
+        == indexed
+    )
+    assert (
+        client.get("/v1/trace-conversations?archived=true", headers=owner_headers).json()[
+            "conversations"
+        ]
+        == indexed
+    )
+    assert (
+        client.get("/v1/trace-conversations", headers={"X-KKB-Owner-Token": owner(client)}).json()[
+            "conversations"
+        ]
+        == []
+    )
+
+    _, reopened = launch()
+    assert reopened.get("/v1/conversations", headers=owner_headers).json()["conversations"] == []
+    assert reopened.get(f"/v1/conversations/{sid}", headers=headers).status_code == 404
+    assert reopened.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"] == trace
+    assert (
+        reopened.get("/v1/trace-conversations", headers=owner_headers).json()["conversations"][0][
+            "deleted"
+        ]
+        is True
+    )
+    gone = reopened.delete(f"/v1/conversations/{sid}/runs", headers=owner_headers)
+    assert gone.status_code == 200, gone.text
+    assert gone.json()["deleted_runs"] == len(trace)
+    assert reopened.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"] == []
+    assert (
+        reopened.get("/v1/trace-conversations", headers=owner_headers).json()["conversations"] == []
+    )
+
+
+def test_legacy_free_text_run_error_does_not_break_list_or_leak_detail(launch, tmp_path):
+    _, client = launch(table_step(), "Tablo hazır.")
+    own = owner(client)
+    sid, headers, _ = open_conversation(client, own)
+    document = upload(client, sid, headers)
+    ask(client, sid, headers, "Belgeden tablo yap.", document_ref=document)
+    path = tmp_path.resolve() / "state" / DATABASE_NAME
+    legacy_id = uuid4().hex
+    internal_id = uuid4().hex
+    with sqlite3.connect(path) as db:
+        started = db.execute(
+            "SELECT started_at FROM runs WHERE conversation_id = ?", [sid]
+        ).fetchone()[0]
+        db.execute(
+            "INSERT INTO runs VALUES (?, ?, ?, ?, 'failed', NULL, ?, NULL, 12, ?, ?)",
+            [
+                legacy_id,
+                sid,
+                uuid4().hex,
+                "Eski sağlayıcı hatası",
+                "TransportError: Kloudeks request failed (ReadTimeout) secret/path",
+                started,
+                started,
+            ],
+        )
+        db.execute(
+            "INSERT INTO runs VALUES (?, ?, ?, ?, 'unknown', NULL, NULL, NULL, 0, ?, ?)",
+            [uuid4().hex, sid, uuid4().hex, "Bozuk durum", started, started],
+        )
+        db.execute(
+            "INSERT INTO runs VALUES (?, ?, ?, ?, 'failed', NULL, NULL, NULL, 0, ?, ?)",
+            [uuid4().hex, sid, uuid4().hex, "Bozuk tarih", "not-a-date", started],
+        )
+        db.execute(
+            "INSERT INTO runs VALUES (?, ?, ?, ?, 'failed', NULL, ?, NULL, 1, ?, ?)",
+            [
+                internal_id,
+                sid,
+                uuid4().hex,
+                "Eski iç hata",
+                "RuntimeError: private/path",
+                started,
+                started,
+            ],
+        )
+    response = client.get(f"/v1/conversations/{sid}/runs", headers=headers)
+    assert response.status_code == 200, response.text
+    runs = response.json()["runs"]
+    assert len(runs) == 3  # Both malformed rows remain on disk but cannot hide these.
+    assert {run["run_id"]: run["error"] for run in runs}[legacy_id] == "provider_failed"
+    assert {run["run_id"]: run["error"] for run in runs}[internal_id] == "internal_error"
+    assert all(term not in response.text for term in ("ReadTimeout", "secret/path", "private/path"))
+    detail = client.get(f"/v1/conversations/{sid}/runs/{legacy_id}", headers=headers)
+    assert detail.status_code == 200 and detail.json()["run"]["error"] == "provider_failed"
+
+
+def test_new_failed_run_stores_only_structured_provider_error(launch, tmp_path):
+    _, client = launch(TransportError("private transport failure"))
+    own = owner(client)
+    sid, headers, _ = open_conversation(client, own)
+    failed = ask(client, sid, headers, "Sağlayıcı hata testi")
+    assert failed["state"] == "failed" and failed["error"] == "provider_failed"
+    response = client.get(f"/v1/conversations/{sid}/runs", headers=headers)
+    assert response.status_code == 200, response.text
+    assert response.json()["runs"][0]["error"] == "provider_failed"
+    assert "private transport failure" not in response.text
+    with sqlite3.connect(tmp_path.resolve() / "state" / DATABASE_NAME) as db:
+        assert db.execute("SELECT error FROM runs WHERE conversation_id = ?", [sid]).fetchone()[
+            0
+        ] == ("provider_failed")
+
+
+def test_restart_projects_interrupted_run_as_finished_trace(launch, tmp_path):
+    _, client = launch()
+    own = owner(client)
+    sid, headers, _ = open_conversation(client, own)
+    stale_id = uuid4().hex
+    with sqlite3.connect(tmp_path.resolve() / "state" / DATABASE_NAME) as db:
+        db.execute(
+            "INSERT INTO runs VALUES (?, ?, ?, ?, 'running', NULL, NULL, NULL, 0, ?, NULL)",
+            [stale_id, sid, uuid4().hex, "Kesilen tur", "2026-09-19T10:00:00+00:00"],
+        )
+    _, restarted = launch()
+    response = restarted.get(f"/v1/conversations/{sid}/runs", headers=headers)
+    assert response.status_code == 200, response.text
+    (run,) = response.json()["runs"]
+    assert run["run_id"] == stale_id and run["status"] == "failed"
+    assert run["error"] == "interrupted" and run["ended_at"] is not None
+    assert run["duration_ms"] >= 0
+
+
+def test_delete_requires_owner_key_is_idempotent_and_keeps_other_chats(launch):
+    _, client = launch(proposal(clarification="unsupported_request"), "-")
+    own = owner(client)
+    sid, headers, _ = open_conversation(client, own)
+    other, other_headers, _ = open_conversation(client, own)
+    stranger = owner(client)
+    owner_headers = {"X-KKB-Owner-Token": own}
+    client.patch(f"/v1/conversations/{sid}", json={"archived": True}, headers=headers)
+    assert client.delete(f"/v1/conversations/{sid}", headers=headers).status_code == 422
+    assert (
+        client.delete(
+            f"/v1/conversations/{sid}", headers={"X-KKB-Owner-Token": stranger}
+        ).status_code
+        == 404
+    )
+    assert client.delete(f"/v1/conversations/{sid}", headers=owner_headers).status_code == 200
+    assert client.delete(f"/v1/conversations/{sid}", headers=owner_headers).status_code == 200
+    assert (
+        client.get("/v1/conversations?archived=true", headers=owner_headers).json()["conversations"]
+        == []
+    )
+    assert client.get(f"/v1/conversations/{other}", headers=other_headers).status_code == 200
+    assert (
+        client.delete(
+            f"/v1/conversations/{other}/runs", headers={"X-KKB-Owner-Token": stranger}
+        ).status_code
+        == 404
+    )
+    assert client.delete(f"/v1/conversations/{other}/runs", headers=owner_headers).json() == {
+        "api_version": 1,
+        "deleted_runs": 0,
+    }
+    assert client.get(f"/v1/conversations/{other}", headers=other_headers).status_code == 200
+
+
+def test_explicit_run_delete_never_soft_deletes_conversation_or_table(launch):
+    _, client = launch(table_step(), "Tablo hazır.")
+    own = owner(client)
+    sid, headers, _ = open_conversation(client, own)
+    document = upload(client, sid, headers)
+    answer = ask(client, sid, headers, "Belgeden tablo yap.", document_ref=document)
+    owner_headers = {"X-KKB-Owner-Token": own}
+    runs = client.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"]
+    assert len(runs) == 1
+    removed = client.delete(f"/v1/conversations/{sid}/runs", headers=owner_headers)
+    assert removed.status_code == 200 and removed.json()["deleted_runs"] == 1
+    assert client.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"] == []
+    detail = client.get(f"/v1/conversations/{sid}", headers=headers).json()
+    assert detail["conversation"]["conversation_id"] == sid
+    assert len(detail["messages"]) == 2
+    assert (
+        client.get(
+            f"/v1/conversations/{sid}/results/{answer['turn_id']}", headers=headers
+        ).status_code
+        == 200
+    )
+
+
+def test_delete_refuses_linked_session_path_without_touching_target(launch, tmp_path):
+    runner, client = launch()
+    own = owner(client)
+    sid, headers, _ = open_conversation(client, own)
+    outside = tmp_path / "unrelated"
+    outside.mkdir()
+    marker = outside / "keep.txt"
+    marker.write_text("keep")
+    linked = runner.run_root / sid
+    linked.symlink_to(outside, target_is_directory=True)
+
+    response = client.delete(f"/v1/conversations/{sid}", headers={"X-KKB-Owner-Token": own})
+    assert response.status_code == 503
+    assert marker.read_text() == "keep" and linked.is_symlink()
+    assert client.get(f"/v1/conversations/{sid}", headers=headers).status_code == 404
+
+
+def test_delete_without_cleanup_binding_fails_closed_and_keeps_chat(launch):
+    _, client = launch(cleanup=False)
+    own = owner(client)
+    sid, headers, _ = open_conversation(client, own)
+    response = client.delete(f"/v1/conversations/{sid}", headers={"X-KKB-Owner-Token": own})
+    assert response.status_code == 503
+    assert client.get(f"/v1/conversations/{sid}", headers=headers).status_code == 200
+
+
+def test_delete_while_the_runner_is_busy_succeeds_and_cleans_up_later(launch):
+    """A deletion is never reported as a failure because another turn holds the runner.
+
+    The runner is single-turn: removing one conversation's files while a different
+    conversation is mid-turn cannot take the lock, and the caller used to get 503
+    although the chat had already been hidden (finding J-3).
+    """
+    runner, client = launch(table_step(), "Tablo hazır.")
+    owner_token = owner(client)
+    sid, headers, _ = open_conversation(client, owner_token)
+    document = upload(client, sid, headers)
+    assert (
+        ask(client, sid, headers, "Belgeden tablo yap.", document_ref=document)["answer"]["status"]
+        == "accepted"
+    )
+    session_dir = runner.run_root / sid
+    assert session_dir.exists()
+    owner_headers = {"X-KKB-Owner-Token": owner_token}
+
+    # Exactly the state a concurrent turn leaves behind: the runner lock is held.
+    assert runner._lock.acquire(blocking=False)
+    try:
+        deleted = client.delete(f"/v1/conversations/{sid}", headers=owner_headers)
+        assert deleted.status_code == 200, deleted.text
+        assert client.get("/v1/conversations", headers=owner_headers).json()["conversations"] == []
+        assert session_dir.exists()
+    finally:
+        runner._lock.release()
+
+    # Whatever finishes next drains the queue; the trace stays.
+    client.get("/v1/health")
+    other, other_headers, _ = open_conversation(client, owner_token)
+    ask(client, other, other_headers, "selam")
+    assert not session_dir.exists()
+    assert client.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"]
+
+
+def test_a_failure_after_the_answer_still_closes_the_run(launch, monkeypatch):
+    """Publication comes after a good answer, and it is inside the run's lifetime.
+
+    An exception while the table is being written used to leave the row 'running'
+    for ever; only the next start-up sweep closed it (finding A3b).
+    """
+    runner, client = launch(table_step(), "Tablo hazır.")
+    owner_token = owner(client)
+    sid, headers, _ = open_conversation(client, owner_token)
+    document = upload(client, sid, headers)
+    monkeypatch.setattr(
+        runner,
+        "_materialize_gold",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("disk full")),
+    )
+    path = f"/v1/sessions/{sid}/turns"
+    admitted = client.post(
+        path,
+        json={
+            "request_id": uuid4().hex,
+            "question": "Belgeden tablo yap.",
+            "document_ref": document,
+        },
+        headers=headers,
+    )
+    assert admitted.status_code == 202, admitted.text
+    finished = wait_http(client, f"{path}/{admitted.json()['turn_id']}", headers)
+    assert finished["state"] == "failed"
+
+    runs = client.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"]
+    assert [(item["status"], item["error"]) for item in runs] == [("failed", "internal_error")]
+    assert runs[0]["ended_at"] and runs[0]["duration_ms"] > 0
+
+
+def test_identities_the_catalog_vouched_for_survive_a_restart(launch):
+    """A reopened conversation does not re-prove what the catalog already returned.
+
+    The runner kept proven identities in memory only; after a restart they were
+    gone and the next question spent a planning round trip on discovery (H4).
+    """
+    runner, client = launch(
+        proposal(discover()),
+        proposal({"step_id": "a", "tool": "lakehouse", "arguments": {"series": [TOTAL]}}),
+        "Tablo hazır.",
+    )
+    owner_token = owner(client)
+    sid, headers, _ = open_conversation(client, owner_token)
+    answered = ask(client, sid, headers, "Toplam konut kredisi bakiyesini göster.")
+    assert answered["answer"]["status"] in ("accepted", "qualified"), answered
+    proven = runner._proven.get(sid, set())
+    assert TOTAL in proven
+
+    restarted, _ = launch()
+    restarted._restore(sid)
+    assert restarted._proven.get(sid, set()) == proven
+
+
+def test_a_reopened_conversation_still_offers_the_pending_choices(launch):
+    """The titles the pending clarification offered come back with the conversation.
+
+    They were stored already, but the detail never carried them, so a reopened
+    chat left the person to retype one of them (finding F2-netl).
+    """
+    runner, client = launch(proposal(clarification="ambiguous_series"), "-")
+    owner_token = owner(client)
+    sid, headers, _ = open_conversation(client, owner_token)
+    assert ask(client, sid, headers, "konut kredisi faizi")["answer"]["status"] == "abstained"
+    offered = ["Konut Kredisi (TL, Akım, %)", "Konut Kredisi (TL, Stok, %)"]
+    runner._store.set_pending_clarification(
+        sid,
+        {
+            "original_question": "konut kredisi faizi",
+            "clarifications": [],
+            "selection": None,
+            "document_ref": None,
+            "offered": offered,
+        },
+    )
+
+    detail = client.get(f"/v1/conversations/{sid}", headers=headers).json()
+    assert detail["pending_offered"] == offered

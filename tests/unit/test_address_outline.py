@@ -225,6 +225,8 @@ def test_a_transient_read_is_asked_once_more_and_the_log_says_so():
             "code": None,
             "attempts": 2,
             "bytes": len(SCRIPT),
+            # Whether the turn's session rode on the request; never its value.
+            "session": False,
         }
     ]
     assert {entry["kind"] for entry in cache.log} == {"page", "script", "data"}
@@ -299,4 +301,76 @@ def test_a_read_lost_after_every_attempt_is_said_in_the_outline():
     }
     assert served.requests.count(script) == 3 and waits == [0.5, 1.0]
     assert cache.transient_failures() == 1
-    assert "the listing may be incomplete" in note and "planned once" in note
+    assert "the listing may be incomplete" in note
+    assert "inspected once more" in note and "recorded link" in note
+
+
+ANNOUNCEMENTS = "https://www.tcmb.example.tr/wps/wcm/connect/TR/Main+Menu/Duyurular/Basin/2024"
+LISTING = f"""<html><body><nav>
+<a href="/wps/wcm/connect/TR/Main+Menu/Kurumsal">Kurumsal</a>
+<a href="/">Ana Sayfa</a>
+</nav><ul>
+<li><a href="{ANNOUNCEMENTS}/DUY2024-14">21 Mart 2024 Para Politikası Kurulu Kararı</a></li>
+<li><a href="/wps/wcm/connect/TR/Main+Menu/Duyurular/Basin/2024/DUY2024-13?lang=tr&amp;k=SECRET">
+Faiz Oranlarına İlişkin Basın Duyurusu</a></li>
+<li><a href="https://evil.example.test/DUY2024-12">21 Mart 2024 Kararı (kopya)</a></li>
+<li><a href="https://user:pw@www.tcmb.example.tr/private">Gizli</a></li>
+<li><a href="#top">Başa dön</a></li>
+</ul></body></html>""".encode()
+
+
+def outlined(page, url=ANNOUNCEMENTS):
+    note = address_outline((url,), TurnFetchCache(Site({url: (page, "text/html")})))
+    return note, json.loads(note[note.index("{") :])["pages"][0]
+
+
+def test_a_page_without_document_links_lists_its_other_same_site_links():
+    """Live 2026-09-22 (N46): press releases linked by suffix-less paths read as nothing."""
+    note, page = outlined(LISTING)
+    assert "nothing_listed" not in page and "more_page_links" not in page
+    # The listing's own items, below the page's path, come before its site menu.
+    assert page["page_links"] == [
+        {"text": "21 Mart 2024 Para Politikası Kurulu Kararı", "last_segment": "DUY2024-14"},
+        {"text": "Faiz Oranlarına İlişkin Basın Duyurusu", "last_segment": "DUY2024-13"},
+        {"text": "Kurumsal", "last_segment": "Kurumsal"},
+        {"text": "Ana Sayfa", "last_segment": ""},
+    ]
+    # Same origin only, credential-free, and never a query string; the page's link back to
+    # itself is left out.
+    for absent in ("evil", "kopya", "Gizli", "SECRET", "lang=tr", "Başa dön"):
+        assert absent not in note
+    assert "follow=<its text or last_segment>" in note
+    assert "can be followed by its visible text even when it is not listed" in note
+
+
+def test_the_other_links_are_bounded_in_number_and_length():
+    items = "".join(
+        f'<a href="{ANNOUNCEMENTS}/DUY2024-{number:02d}">{"Basın Duyurusu " * 8}{number}</a>'
+        for number in range(30)
+    )
+    _, page = outlined(f"<html><body>{items}</body></html>".encode())
+    assert len(page["page_links"]) == 20 and page["more_page_links"] == 10
+    assert all(len(entry["text"]) <= 80 for entry in page["page_links"])
+    assert page["page_links"][0]["last_segment"] == "DUY2024-00"
+
+
+def test_a_page_with_no_link_follow_could_name_still_says_nothing_is_listed():
+    # Another origin, another scheme, a picture with no text or file name, and the page itself.
+    page = (
+        b'<html><body><a href="https://evil.example.test/x">Elsewhere</a>'
+        b'<a href="javascript:alert(1)">Script</a><a href="/"><img src="/logo.png"></a>'
+        b'<a href="#top">Top</a></body></html>'
+    )
+    note, outline = outlined(page)
+    assert outline == {"address": "as written in the question", "nothing_listed": True}
+    assert "read it only for a table in its own HTML" in note
+
+
+def test_a_page_with_document_links_keeps_its_listing_unchanged():
+    page = (
+        f'<html><body><a href="{ANNOUNCEMENTS}/rapor.pdf">Rapor</a>'
+        f'<a href="{ANNOUNCEMENTS}/DUY2024-14">21 Mart 2024</a></body></html>'
+    ).encode()
+    _, outline = outlined(page)
+    assert outline["document_links"] == [{"text": "Rapor", "file": "rapor.pdf"}]
+    assert "page_links" not in outline and "nothing_listed" not in outline

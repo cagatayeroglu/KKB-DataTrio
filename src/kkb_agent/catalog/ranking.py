@@ -2,8 +2,9 @@
 
 This is a stable post-order policy: it never creates/removes candidates or
 changes similarity scores and it does not turn proximity into a reviewed match.
-Only explicit query qualifiers with a typed/reviewed counterpart can move an
-item. Unknown candidate semantics remain neutral rather than inferred.
+Explicit query qualifiers with a typed/reviewed counterpart decide compatibility.
+Complete required read declarations break remaining ties without resolving intent.
+Unknown candidate semantics are never inferred.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
+from kkb_agent.catalog.inspection import unresolved_read_fields
 from kkb_agent.catalog.mappings import ReviewedSeries
 from kkb_agent.catalog.normalization import normalize_search_text
 from kkb_agent.catalog.records import CatalogStatus
@@ -89,8 +91,12 @@ REGIONAL = _phrases(
     "by province",
     "by city",
 )
-INTEREST = _phrases("faiz", "interest")
+INTEREST = _phrases("faiz", "faizi", "faizini", "faizleri", "interest")
 PROFIT_SHARE = _phrases("kâr payı", "kar payi", "profit share", "profit-share")
+AMOUNT = _phrases("miktar", "miktarı", "miktarını", "tutar", "tutarı", "tutarını", "amount")
+# A credit subject is not a stock/flow/rate decision. This only separates reviewed
+# credit titles from unrelated records with a shared common noun (e.g. "ev").
+_CREDIT_STEMS = ("kredi", "finansman", "loan", "mortgage")
 
 CURRENCY: tuple[tuple[Currency, tuple[str, ...]], ...] = (
     ("total", _phrases("toplam", "tp ve yp", "total")),
@@ -124,8 +130,26 @@ def _contains(text: str, phrases: tuple[str, ...]) -> bool:
     return any(f" {phrase} " in padded for phrase in phrases)
 
 
+def _contains_nominal_qualifier(text: str, phrases: tuple[str, ...]) -> bool:
+    """Recognize locative noun qualifiers, without arbitrary prefix stemming.
+
+    Turkish uses -da/-de/-ta/-te, optionally followed by -ki, to qualify the
+    measure. Only the last word inflects; longer unrelated words must not match.
+    This refines query intent, not catalog identity or declared semantics.
+    """
+    return _contains(text, phrases) or any(
+        re.search(r"(?<!\S)" + re.escape(phrase) + r"[dt][ae](?:ki)?(?!\S)", text)
+        for phrase in phrases
+        if len(phrase.split()[-1]) >= 4
+    )
+
+
 def _currency(text: str) -> Currency | None:
     return next((value for value, phrases in CURRENCY if _contains(text, phrases)), None)
+
+
+def _credit_subject(text: str) -> bool:
+    return any(word.startswith(_CREDIT_STEMS) for word in text.split())
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,22 +167,27 @@ class _QueryIntent:
     text: str
     #: The query asked for regional series generically (no single place named).
     regional: bool
+    credit_subject: bool
+    #: Amount does not imply stock: a new disbursement amount is a flow.
+    credit_amount: bool
 
 
 def _query_intent(query: str) -> _QueryIntent:
     text = normalize_search_text(query)
+    credit_subject = _credit_subject(text)
     kind = (
         StockFlow.RATE
         if _contains(text, RATE)
         else StockFlow.STOCK
         if _contains(text, STOCK)
+        or (credit_subject and _contains(text, _phrases("mevcut")) and not _contains(text, NEW))
         else None
     )
     rate_basis: RateBasis | None = None
     if kind is StockFlow.RATE:
-        if _contains(text, OUTSTANDING):
+        if _contains_nominal_qualifier(text, OUTSTANDING):
             rate_basis = "outstanding_portfolio"
-        elif _contains(text, NEW):
+        elif _contains_nominal_qualifier(text, NEW):
             rate_basis = "new_credit"
     inclusion: Inclusion | None = None
     if _contains(text, EXCLUDED):
@@ -196,6 +225,8 @@ def _query_intent(query: str) -> _QueryIntent:
         base_order=base_order,
         text=text,
         regional=_contains(text, REGIONAL),
+        credit_subject=credit_subject,
+        credit_amount=kind is not StockFlow.RATE and credit_subject and _contains(text, AMOUNT),
     )
 
 
@@ -209,6 +240,17 @@ class _CandidateIntent:
     #: A reviewed TP/YP/TOTAL label: the series is one column of a split aggregate.
     #: A denomination in a title ("(TL, Akım, %)") is not a component.
     component: Literal["total", "tp", "yp"] | None
+    credit_subject: bool
+
+
+def _named_measure(text: str) -> RateMeasure | None:
+    """The one rate measure a text names, or None when it names neither or both."""
+    profit, interest = _contains(text, PROFIT_SHARE), _contains(text, INTEREST)
+    if profit and not interest:
+        return "profit_share"
+    if interest and not profit:
+        return "interest"
+    return None
 
 
 def _candidate_intent(item: ReviewedSeries) -> _CandidateIntent:
@@ -217,7 +259,13 @@ def _candidate_intent(item: ReviewedSeries) -> _CandidateIntent:
     exact_labels = {normalize_search_text(label) for label in record.labels}
     currency: Currency | None
     component: Literal["total", "tp", "yp"] | None = None
-    if "total" in exact_labels:
+    title_words = set(normalize_search_text(record.title).split())
+    if "total" in exact_labels and len(title_words & {"tp", "yp"}) == 1:
+        # The label names the layout's total column, and the title names the currency the
+        # row is: "TP Mevduat / … (Toplam)" is TP deposits over all maturities. Read as the
+        # TP+YP total, a question naming TP ranked the TP row below every other row.
+        currency = "try" if "tp" in title_words else "foreign"
+    elif "total" in exact_labels:
         currency = "total"
         component = "total"
     elif "yp" in exact_labels:
@@ -237,13 +285,19 @@ def _candidate_intent(item: ReviewedSeries) -> _CandidateIntent:
         inclusion = "excluded"
     elif _contains(text, INCLUDED):
         inclusion = "included"
-    rate_measure: RateMeasure | None = None
-    # Profit-share wording wins because its reviewed notes may contrast it with
-    # interest explicitly ("profit-share ... not deposit-bank interest").
-    if _contains(text, PROFIT_SHARE):
-        rate_measure = "profit_share"
-    elif _contains(text, INTEREST):
-        rate_measure = "interest"
+    # A reviewed explanatory contrast after "; not ..." is not an affirmative
+    # measure. The title/labels and the positive description still determine it.
+    affirmative_description = re.split(
+        r";\s*not\b", record.description or "", maxsplit=1, flags=re.I
+    )[0]
+    # The title and labels say which measure a series is; the description only when
+    # they say neither. And a text naming both says neither: a source's category path
+    # "FAİZ VE KÂR PAYI İSTATİSTİKLERİ" in a listed series' description made a TL loan
+    # rate read as profit share, so a question asking for "faiz" ranked it as a
+    # contradiction below every other credit's rate (QA-24).
+    rate_measure = _named_measure(
+        normalize_search_text(" ".join([record.title, *record.labels]))
+    ) or _named_measure(normalize_search_text(affirmative_description))
     return _CandidateIntent(
         kind=record.stock_flow if record.stock_flow is not StockFlow.UNKNOWN else None,
         rate_basis=item.rate_basis if item.rate_basis != "unknown" else None,
@@ -251,6 +305,9 @@ def _candidate_intent(item: ReviewedSeries) -> _CandidateIntent:
         currency=currency,
         rate_measure=rate_measure,
         component=component,
+        credit_subject=_credit_subject(
+            normalize_search_text(" ".join([record.title, *record.labels]))
+        ),
     )
 
 
@@ -291,7 +348,7 @@ def _component_rank(intent: _QueryIntent, candidate: _CandidateIntent) -> int:
 
 def _semantic_key(
     intent: _QueryIntent, item: ReviewedSeries
-) -> tuple[int, int, int, int, int, int, int, int]:
+) -> tuple[int, int, int, int, int, int, int, int, int]:
     candidate = _candidate_intent(item)
     conflicts = 0
     matches = 0
@@ -311,6 +368,11 @@ def _semantic_key(
             matches += 1
         else:
             conflicts += 1
+    # A credit amount cannot be the numeric percentage of a credit rate. This
+    # demotes rate neighbours, without claiming that a stock is the requested
+    # flow amount or changing the reviewed resolution/selection authority.
+    if intent.credit_amount and candidate.kind is StockFlow.RATE:
+        conflicts += 1
     archive_rank = int(
         (intent.archive == "archived") != (item.record.status is CatalogStatus.ARCHIVED)
     )
@@ -334,6 +396,7 @@ def _semantic_key(
     return (
         archive_rank,
         conflicts,
+        int(intent.credit_subject and not candidate.credit_subject),
         _geography_rank(intent, item),
         _component_rank(intent, candidate),
         base_missing,
@@ -354,9 +417,57 @@ def intent_key(query: str, item: ReviewedSeries) -> tuple[int, ...]:
     return _semantic_key(_query_intent(query), item)
 
 
+def named_measure_kind(query: str) -> StockFlow | None:
+    """Only an explicit stock/rate request resolves that axis; amount alone does not."""
+    return _query_intent(query).kind
+
+
+#: Where the semantic key stops saying what the question rules out or names as a place,
+#: component or base, and starts counting what a series happens to declare.
+_DECIDED = 7
+
+
+def rerank_widened[T](
+    query: str,
+    items: list[T],
+    *,
+    reviewed_series: Callable[[T], ReviewedSeries],
+    reviewed: Callable[[T], bool],
+) -> list[T]:
+    """Order for a search a reviewed alias no longer bounds; `items` come by relevance.
+
+    What the question contradicts still goes down first, and a reviewed member of the
+    matched concept still leads its equals. After that the words decide, before the count
+    of qualifiers a series declares: a listed "Taşıt Kredisi (TL, Stok, %)" declares no
+    rate basis, and counted first it fell below every other credit's stock rate that
+    does, out of the ten shown, for a question naming "taşıt" and "stok" (QA-24).
+    """
+    intent = _query_intent(query)
+    keys = [_semantic_key(intent, reviewed_series(item)) for item in items]
+    order = sorted(
+        range(len(items)),
+        key=lambda index: (
+            *keys[index][:_DECIDED],
+            not reviewed(items[index]),
+            index,
+            *keys[index][_DECIDED:],
+        ),
+    )
+    return [items[index] for index in order]
+
+
 def rerank_by_reviewed_intent[T](
     query: str, items: list[T], *, reviewed_series: Callable[[T], ReviewedSeries]
 ) -> list[T]:
     """Stable ordering by explicit query/candidate metadata compatibility."""
     intent = _query_intent(query)
-    return sorted(items, key=lambda item: _semantic_key(intent, reviewed_series(item)))
+    return sorted(
+        items,
+        key=lambda item: (
+            _semantic_key(intent, reviewed_series(item)),
+            # Only break semantic ties. An explicit portfolio/flow/currency request
+            # still wins over completeness; missing declarations are never filled in.
+            # Keep this outside intent_key: readiness cannot resolve semantic ambiguity.
+            bool(unresolved_read_fields(reviewed_series(item).record)),
+        ),
+    )

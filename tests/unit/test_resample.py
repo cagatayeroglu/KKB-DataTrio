@@ -160,10 +160,10 @@ def test_days_become_months_by_the_declared_aggregation_with_coverage():
     assert reduced.values[0].period.frequency is Frequency.MONTHLY
     assert reduced.label == "EVDS:TP.DK.USD.A.YTL monthly average"
     # Only the month the column ends inside is reported as resting on part of a month.
-    assert reduced.incomplete == (date(2026, 8, 31),)
+    assert reduced.incomplete == (date(2026, 6, 30), date(2026, 7, 31), date(2026, 8, 31))
     coverage = reduced.transformation.parameters["coverage"]
-    assert coverage["2026-06-30"] == {"expected": 22, "observed": 22}
-    assert coverage["2026-08-31"] == {"expected": 21, "observed": 12}
+    assert coverage["2026-06-30"] == {"expected": 30, "observed": 22}
+    assert coverage["2026-08-31"] == {"expected": 31, "observed": 12}
     assert reduced.transformation.parameters["method"] == "daily-to-monthly-v1"
     last = resample_column(
         values,
@@ -221,8 +221,27 @@ def test_a_served_weekly_rate_table_is_turned_monthly(tmp_path):
             "week_assignment": "by_end",
         },
     }
+    monthly_label = f"{weekly} monthly average (by_end)"
+    summary = {
+        "step_id": "c",
+        "tool": "table_transform",
+        "arguments": {
+            "operation": "summarize",
+            "source": "analiz_2",
+            "column": monthly_label,
+            "aggregation": "mean",
+            "requested_aggregation": "mean",
+        },
+    }
     runner = PreparedRunner(
-        scripted(proposal(table), "Tablo hazır.", proposal(resample), "Aylık hale getirildi."),
+        scripted(
+            proposal(table),
+            "Tablo hazır.",
+            proposal(resample),
+            "Aylık hale getirildi.",
+            proposal(summary),
+            "Tablo aylık değerleri göstermektedir.",
+        ),
         root,
         tmp_path / "runtime",
         catalog_bytes=CATALOG.read_bytes(),
@@ -237,7 +256,18 @@ def test_a_served_weekly_rate_table_is_turned_monthly(tmp_path):
     monthly = [c for c in second.result.cells if c.period.frequency == "monthly"]
     assert monthly and {c.period.end.month for c in monthly} <= {1, 2, 3}
     weekly_cells = [c for c in second.result.cells if c.period.frequency == "weekly"]
-    assert len(weekly_cells) == len(first.result.cells)  # the weekly column is unchanged
+    assert weekly_cells == []
+    assert second.result.proof.sources  # monthly result still traces to the weekly source
+    with open_lakehouse(runner.run_root / sid / "lake") as lake:
+        gold = lake.connection.execute(
+            "SELECT DISTINCT column_name FROM gold_cells WHERE table_id = 'analiz_2'"
+        ).fetchall()
+        assert gold == [(monthly_label,)]
+    third = runner(sid, uuid4().hex, "Bu aylık faiz tablosunun ortalaması ne?")
+    assert third.status.value == "accepted", third
+    expected = sum(cell.value for cell in monthly) / len(monthly)
+    assert third.result.cells[0].value == pytest.approx(expected)
+    assert second.result.cells == tuple(monthly)  # earlier trusted table is unchanged
 
 
 def test_a_period_gold_cannot_hold_is_skipped_not_raised():

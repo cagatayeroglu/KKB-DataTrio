@@ -81,21 +81,25 @@ def test_registry_declared_chain_uses_selected_source(scope):
 @pytest.mark.parametrize("args", [{"source": "other"}, {}, {"source": "chosen", "input_step": "a"}])
 def test_whole_invalid_plan_rejected_before_valid_prefix_runs(scope, args):
     registry, calls = setup(scope)
-    # One final step, so the dispatch-time selection check (not the final-result
-    # rule) is what refuses the invalid second step.
-    validated = validate_plan(
-        plan(step("a", source="chosen"), step("b", after=("a",), **args)), registry
-    )
     with pytest.raises(PlanRejected):
+        # A bare ordering edge is rejected as two finals at validation; an
+        # actual typed input with invalid selected-source grounding is rejected
+        # at dispatch. Neither path may run the otherwise valid prefix.
+        validated = validate_plan(
+            plan(step("a", source="chosen"), step("b", after=("a",), **args)), registry
+        )
         execute(validated, registry, context=ExecutionContext("fixture"), selection=scope)
     assert calls == []
 
 
-def test_parallel_final_calculations_are_refused_before_dispatch(scope):
-    registry, calls = setup(scope)
-    with pytest.raises(PlanRejected, match="final calculation steps"):
-        validate_plan(plan(step("a", source="chosen"), step("b", source="chosen")), registry)
-    assert calls == []
+def test_parallel_final_calculations_are_a_valid_plan(scope):
+    # Two calculations nobody consumes used to refuse the plan, at the price of another
+    # planner call. The last one is the table that is published; the other's result is
+    # shown to the writer beside it (`Session.answer`), so nothing is dropped unseen.
+    registry, _ = setup(scope)
+    for second in (step("b", source="chosen"), step("b", source="chosen", after=("a",))):
+        validated = validate_plan(plan(step("a", source="chosen"), second), registry)
+        assert [item.step.step_id for item in validated.steps] == ["a", "b"]
 
 
 def test_mutated_argument_rechecked_at_dispatch(scope):

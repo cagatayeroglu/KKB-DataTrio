@@ -8,6 +8,7 @@ their raw rows for inspection but abstain with no values or result evidence.
 
 from __future__ import annotations
 
+import json
 import math
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Final
@@ -26,7 +27,9 @@ from kkb_agent.core import (
     StockFlow,
     WeeklyAnchor,
 )
+from kkb_agent.lakehouse.column_contract import KEY
 from kkb_agent.tools._projection_provenance import provenance_fault
+from kkb_agent.tools._running_totals import declared_accumulation, running_total_limitation
 
 if TYPE_CHECKING:  # pragma: no cover
     from duckdb import DuckDBPyConnection
@@ -286,9 +289,34 @@ def project(
             reason="The query returned no rows",
         )
 
-    fault = provenance_fault(query, ast, connection, snapshots=snapshots)
+    captured: list[str] = []
+    fault = provenance_fault(query, ast, connection, snapshots=captured)
+    if snapshots is not None:
+        snapshots.extend(captured)
     if fault is not None:
         return _abstain(result_id, fault, shared)
+
+    contracts = {}
+    for snapshot in captured:
+        for row in json.loads(snapshot)["rows"]:
+            contracts[row["series_id"]] = {
+                "column_id": row["series_id"],
+                "artifact_id": row["artifact_id"],
+                "semantics": {
+                    key: row[key]
+                    for key in (
+                        "unit",
+                        "scale",
+                        "frequency",
+                        "anchor",
+                        "observation",
+                        "cumulative",
+                        "aggregation",
+                        "base_year",
+                    )
+                },
+            }
+    shared[KEY] = contracts
 
     if inspector is not None:
         # Provenance already requires a direct, stored silver series_id column.
@@ -359,6 +387,14 @@ def project(
         )
     if excluded:
         warnings.append(f"{excluded} row(s) carried a non-numeric value and were excluded")
+    # A cell carries no cumulative kind, so without this a year-to-date figure is quoted
+    # as the month's own: "Aralık 2021'de aylık net kâr 1.200 milyon TL" where December
+    # earned 100 (served run, audit of 2026-09-21). The writer is shown limitations.
+    limitations = [
+        running_total_limitation(label, kind)
+        for label in sorted({value.label for value in values})
+        if (kind := declared_accumulation(connection, label)) is not None
+    ]
 
     return AnalyticalResult(
         result_id=result_id,
@@ -372,6 +408,7 @@ def project(
         samples=SampleCounts(used=len(values), missing=missing, excluded=excluded),
         evidence=evidence,
         warnings=warnings,
+        limitations=limitations,
         unresolved_semantics=sorted(notes),
     )
 

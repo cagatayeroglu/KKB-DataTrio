@@ -32,18 +32,67 @@ import {
 import type { Cell, Dataset, Result } from "@/lib/contracts";
 import { download, evidencePackage, exportName, tableCsv } from "@/lib/export";
 
-export function ResultTable({
+/**
+ * The table as the reader asked for it. A column they asked to convert ("enflasyondan
+ * arındır", not "yeni sütun ekle") is still in the result - the proof and the next turn
+ * read it - and is not shown until they ask to see it.
+ */
+export function ResultTable(props: {
+  result: Result;
+  dataset: Dataset | null;
+  context?: { question?: string; answer?: string };
+}) {
+  const [showHidden, setShowHidden] = useState(false);
+  const hidden = props.result.hidden_columns;
+  const shown = useMemo(
+    () =>
+      hidden.length && !showHidden
+        ? {
+            ...props.result,
+            cells: props.result.cells.filter(
+              (cell) => !hidden.includes(cell.label),
+            ),
+          }
+        : props.result,
+    [props.result, hidden, showHidden],
+  );
+  return (
+    <>
+      {hidden.length > 0 && (
+        <p className="notice hidden-columns">
+          Dönüştürülen {hidden.length} sütunun özgün hâli{" "}
+          {showHidden ? "gösteriliyor" : "gizli"}.{" "}
+          <button type="button" onClick={() => setShowHidden((old) => !old)}>
+            {showHidden ? "Gizle" : "Göster"}
+          </button>
+        </p>
+      )}
+      <ResultTableView {...props} result={shown} full={props.result} />
+      {props.result.related.map((related) => (
+        <section key={related.result_ref} aria-label="Ek sonuç">
+          <p className="notice">Ek sonuç</p>
+          <ResultTable {...props} result={{ ...related, related: [] }} />
+        </section>
+      ))}
+    </>
+  );
+}
+
+function ResultTableView({
   result,
+  full,
   dataset,
   context,
 }: {
   result: Result;
+  full: Result;
   dataset: Dataset | null;
   context?: { question?: string; answer?: string };
 }) {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Cell | null>(null);
   const arranged = useMemo(() => arrange(result.cells), [result]);
+  const named = result.series_names;
   const columns = useMemo<ColumnDef<TableRow>[]>(
     () => [
       {
@@ -62,8 +111,8 @@ export function ResultTable({
         id: column.key,
         header: () => (
           <div className="column-title">
-            <span title={seriesLabel(column.label, dataset)}>
-              {seriesLabel(column.label, dataset)}
+            <span title={seriesLabel(column.label, dataset, named)}>
+              {seriesLabel(column.label, dataset, named)}
             </span>
             <small>{unitLabel(column.unit, column.scale)}</small>
           </div>
@@ -160,7 +209,7 @@ export function ResultTable({
             title="Soru, cevap, sürüm, her hücre ve kanıt zinciri tek dosyada"
             onClick={() =>
               download(
-                evidencePackage(result, context),
+                evidencePackage(full, context),
                 exportName(result, "json", "-kanit"),
                 "application/json",
               )
@@ -191,8 +240,8 @@ export function ResultTable({
               onClick={() => setSelected(cell)}
               className="metric-item"
             >
-              <span title={seriesLabel(cell.label, dataset)}>
-                {seriesLabel(cell.label, dataset)}
+              <span title={seriesLabel(cell.label, dataset, named)}>
+                {seriesLabel(cell.label, dataset, named)}
               </span>
               <strong>{displayValue(cell)}</strong>
               <small>{unitLabel(cell.unit, cell.scale)}</small>
@@ -296,7 +345,7 @@ export function ResultTable({
               <X size={17} />
             </Button>
           </div>
-          <h3>{seriesLabel(selected.label, dataset)}</h3>
+          <h3>{seriesLabel(selected.label, dataset, named)}</h3>
           <dl>
             <div>
               <dt>Değer</dt>

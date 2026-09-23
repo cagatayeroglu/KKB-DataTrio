@@ -13,6 +13,7 @@ from kkb_agent.api import prepared as prepared_module
 from kkb_agent.api.app import create_app
 from kkb_agent.api.prepared import PreparedRunner, open_lakehouse
 from kkb_agent.api.service import AnalysisService, SelectedResult
+from kkb_agent.api.store import ConversationStore
 from kkb_agent.llm import scripted
 
 
@@ -75,6 +76,39 @@ def test_clarification_inherits_original_request_context(pool, tmp_path):
     assert "Açıklama: " + q2 in last_user_prompt
 
 
+def test_pending_clarification_survives_runner_restart(pool, tmp_path):
+    state = tmp_path / "state"
+    store = ConversationStore(tmp_path / "history.sqlite")
+    owner_id, _ = store.create_owner()
+    sid = uuid4().hex
+    store.create_conversation(owner_id=owner_id, conversation_id=sid, token="x" * 43, title="Test")
+    first = PreparedRunner(
+        scripted(proposal(discover("d1")), proposal(clarification="ambiguous_series")),
+        pool,
+        state,
+        catalog_bytes=CATALOG.read_bytes(),
+        store=store,
+    )
+    original = "Nisan-Haziran 2026 konut kredisi bakiyesini göster."
+    assert first(sid, uuid4().hex, original).status.value == "abstained"
+    assert store.pending_clarification(sid) is not None
+
+    provider = scripted(
+        proposal(discover("d2")),
+        proposal(calculate("a1")),
+        "Nisan'dan Haziran 2026'ya konut kredisi stoğu 50 milyon TL arttı.",
+    )
+    restarted = PreparedRunner(
+        provider, pool, state, catalog_bytes=CATALOG.read_bytes(), store=store
+    )
+    answer = "BDDK Aylık Bülten toplam bakiyeyi kullan."
+    assert restarted(sid, uuid4().hex, answer).status.value == "accepted"
+    assert f"Orijinal istek: {original}" in provider.seen[-1][-1].content
+    assert f"Açıklama: {answer}" in provider.seen[-1][-1].content
+    assert store.pending_clarification(sid) is None
+    store.close()
+
+
 def test_explicit_clarification_overrides_original_date_range(pool, tmp_path):
     """User clarification providing an explicit new date range overrides the original request."""
     provider = scripted(
@@ -113,7 +147,7 @@ def test_explicit_clarification_overrides_original_date_range(pool, tmp_path):
 
 
 def test_cancellation_and_refusal_clears_established_pending_context(pool, tmp_path):
-    """Cancellation/new question clear context; refusal preserves it for retry."""
+    """Cancellation, new questions and terminal refusals clear pending context."""
     provider = scripted(
         # Turn 1: Establishes pending clarification state
         proposal(discover("d1")),
@@ -161,11 +195,11 @@ def test_cancellation_and_refusal_clears_established_pending_context(pool, tmp_p
     prepared(sid, uuid4().hex, q5)
     assert sid in prepared._pending_clarifications
 
-    # Turn 6: Refusal on unsupported request does NOT erase established pending context
+    # Turn 6: A terminal refusal clears the pending question
     turn6 = prepared(sid, uuid4().hex, "Gelecek yıl tahminleri için regresyon yap.")
     assert turn6.status.value == "abstained"
-    assert sid in prepared._pending_clarifications
-    assert prepared._pending_clarifications[sid].original_question == q5
+    assert not turn6.needs_clarification
+    assert sid not in prepared._pending_clarifications
 
 
 def test_back_to_back_clarifications_accumulate_without_nesting(pool, tmp_path):
@@ -657,8 +691,90 @@ def test_naming_an_offered_entry_answers_the_clarification_at_any_length():
     )
     assert _is_new_question(picked, None, pending) is False
     assert _is_new_question("konut kredisi (tl, akım, %) olsun", None, pending) is False
-    # Without an offered entry in it, the same long message is still a request of its own.
+    # Length and commas alone are not evidence of a new intent.
     bare = PendingClarification(original_question="2021-2025 konut kredisi faizi")
-    assert _is_new_question(picked, None, bare) is True
+    assert _is_new_question(picked, None, bare) is False
+    assert (
+        _is_new_question(
+            "EVDS'deki yeni kullandırılan konut kredilerinin haftalık akım faiz oranını, "
+            "toplam kredi bakiyesiyle karıştırmadan kullan.",
+            None,
+            bare,
+        )
+        is False
+    )
     unrelated = "Şimdi de TÜFE'nin 2024 yılındaki aylık değişimini, yıllık ortalamasıyla göster."
     assert _is_new_question(unrelated, None, pending) is True
+
+
+def test_card_choice_is_merged_in_actual_trace_but_unrelated_question_replaces(pool, tmp_path):
+    """The browser's card format must bind to an actual offered catalogue title."""
+    provider = scripted(
+        proposal(discover("d1")),
+        proposal(clarification="ambiguous_series"),
+        proposal(discover("d2")),
+        proposal(calculate("a1")),
+        "Nisan'dan Haziran 2026'ya konut kredisi stoğu 50 milyon TL arttı.",
+        proposal(discover("d3")),
+        proposal(clarification="ambiguous_series"),
+        proposal(discover("d4")),
+        proposal(calculate("a2", start="2026-05-31")),
+        "Mayıs 2026'dan Haziran 2026'ya konut kredisi stoğu 30 milyon TL arttı.",
+    )
+    store = ConversationStore(tmp_path / "history.sqlite")
+    owner, _ = store.create_owner()
+    sid = uuid4().hex
+    store.create_conversation(owner_id=owner, conversation_id=sid, token="x" * 43, title="Test")
+    prepared = PreparedRunner(
+        provider, pool, tmp_path / "runtime", catalog_bytes=CATALOG.read_bytes(), store=store
+    )
+    try:
+        original = "Nisan-Haziran 2026 konut kredisi bakiyesini göster."
+        first = prepared(sid, uuid4().hex, original)
+        assert first.status.value == "abstained"
+        assert first.selection and first.selection.others
+        picked = first.selection.others[0]
+        card_text = f"{picked.title} ({picked.detail})"
+        assert prepared(sid, uuid4().hex, card_text).status.value == "accepted"
+        assert f"Orijinal istek: {original}" in provider.seen[-1][-1].content
+        assert f"Açıklama: {card_text}" in provider.seen[-1][-1].content
+        merged = store.events(store.runs(sid)[0].run_id)
+        received = next(event for event in merged if event.name == "turn.received")
+        assert received.attributes["clarification"] == "merged"
+
+        assert prepared(sid, uuid4().hex, original).status.value == "abstained"
+        fresh = "Mayıs-Haziran 2026 konut kredisi bakiyesi ne kadar arttı?"
+        assert prepared(sid, uuid4().hex, fresh).status.value == "accepted"
+        replaced = store.events(store.runs(sid)[0].run_id)
+        received = next(event for event in replaced if event.name == "turn.received")
+        assert received.attributes["clarification"] == "replaced"
+        assert provider.seen[-1][-1].content == fresh
+    finally:
+        store.close()
+
+
+def test_known_coverage_limit_is_terminal_and_does_not_bind_the_next_question(pool, tmp_path):
+    provider = scripted(
+        proposal(discover("d1")),
+        proposal(clarification="outside_coverage"),
+        proposal(clarification="ambiguous_series"),
+    )
+    prepared = runner(pool, tmp_path, provider)
+    sid = uuid4().hex
+    answer = prepared(sid, uuid4().hex, "2019 konut bakiyesini aylık göster.")
+    assert answer.status.value == "abstained" and not answer.needs_clarification
+    assert "kapsamının dışında" in answer.text
+    assert sid not in prepared._pending_clarifications
+    prepared(sid, uuid4().hex, "Kredi ölçümlerini karşılaştır.")
+    assert "Orijinal istek:" not in provider.seen[-1][-1].content
+    assert sid in prepared._pending_clarifications
+
+
+def test_terminal_reason_cannot_be_reworded_into_another_period_question():
+    from kkb_agent.agent.executor import ExecutionOutcome
+    from kkb_agent.api.projection import clarification_text
+
+    text = clarification_text(
+        "outside_coverage", ExecutionOutcome((), True), "Başka bir dönem seçer misiniz?"
+    )
+    assert "kapsamının dışında" in text and "?" not in text

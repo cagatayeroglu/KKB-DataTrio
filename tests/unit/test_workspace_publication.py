@@ -121,17 +121,25 @@ def session(candidate, draft="table: 999 TL.", *, later=None):
     )
     steps = [{"step_id": "s1", "tool": "lakehouse", "arguments": {}}]
     if later is not None:
+
+        def later_run(a, c):
+            # The second fixture step really reads the first result; an order-
+            # only edge would be two independent finals under the product gate.
+            assert c.outputs["s1"] is candidate
+            return ToolResult(
+                later,
+                "s2",
+                "anomaly",
+                error_category="fixture-failure" if later is ToolStatus.FAILURE else None,
+            )
+
         registry.register(
             ToolSpec(
                 "anomaly",
                 "fixture",
                 Args,
-                lambda a, c: ToolResult(
-                    later,
-                    "s2",
-                    "anomaly",
-                    error_category="fixture-failure" if later is ToolStatus.FAILURE else None,
-                ),
+                later_run,
+                required_steps=lambda a: ("s1",),
             )
         )
         steps.append({"step_id": "s2", "tool": "anomaly", "arguments": {}, "depends_on": ["s1"]})
@@ -143,14 +151,11 @@ def session(candidate, draft="table: 999 TL.", *, later=None):
     "case",
     [
         "bad_evidence",
-        "writer_error",
-        "empty",
         "wrong_number",
         "verifier_error",
         "failed_step",
         "partial_step",
         "uncited_bad_candidate",
-        "qualified",
         "planner_error",
         "noncomputed",
     ],
@@ -160,18 +165,12 @@ def test_unsuccessful_turn_leaves_all_workspace_tables_unchanged(space, monkeypa
     draft = "table: 999 TL."
     expected = AnswerStatus.ABSTAINED
     later = None
-    if case == "writer_error":
-        draft = ProviderError("fixture provider failure")
-    elif case == "empty":
-        draft = "   "
-    elif case == "wrong_number":
+    if case == "wrong_number":
         draft = "table: 777 TL."
-    elif case == "qualified":
-        draft = "table: 999 TL. Extra amount: 777 TL."
-        expected = AnswerStatus.QUALIFIED
     elif case == "uncited_bad_candidate":
         draft = "other: 500 TL."
-        expected = AnswerStatus.ACCEPTED
+        # Invalid current execution stops before synthesis. The writer no longer
+        # spends a call answering from an unrelated old table instead.
     elif case in ("failed_step", "partial_step"):
         later = ToolStatus.FAILURE if case == "failed_step" else ToolStatus.PARTIAL
         # DEC-165: every figure binds, but a plan that did not run whole is QUALIFIED,
@@ -195,15 +194,50 @@ def test_unsuccessful_turn_leaves_all_workspace_tables_unchanged(space, monkeypa
     if case == "planner_error":
         turn.provider.responses[0] = ProviderError("fixture planner failure")
     before = snapshot(space)
-    if case in ("writer_error", "planner_error", "verifier_error"):
+    if case in ("planner_error", "verifier_error"):
         with pytest.raises((ProviderError, RuntimeError)):
             turn.answer("fixture", space.connection, workspace=space, remember="table")
     else:
         answer = turn.answer("fixture", space.connection, workspace=space, remember="table")
         assert answer.answer.status is expected
+        if case == "uncited_bad_candidate":
+            assert len(turn.provider.seen) == 1
     assert snapshot(space) == before
     assert space.value_of("table").values[0].value == 100.0
     assert space.stale() == set()
+
+
+def test_verified_scalar_survives_writer_failure_without_changing_prior_tables(space):
+    previous = {name: space.value_of(name).digest() for name in ("table", "derived", "other")}
+    turn = session(result(), ProviderError("fixture provider failure"))
+    answer = turn.answer("fixture", space.connection, workspace=space, remember="new")
+    assert answer.answer.status is AnswerStatus.ACCEPTED
+    assert space.value_of("new").values[0].value == 999.0
+    assert "yazılı değerlendirme üretilemedi" in answer.answer.text
+    assert "tablosu" not in answer.answer.text
+    assert {name: space.value_of(name).digest() for name in previous} == previous
+    assert space.stale() == set()
+
+
+def test_a_writer_that_returns_nothing_does_not_cost_the_reader_the_verified_table(space):
+    # An empty draft used to abstain and unpublish. Live 2026-09-21 the writer spent all its
+    # tokens thinking; the table was computed and verified all the same. It is published,
+    # and the prose says plainly that it is missing (DEC-186: the table is the tools').
+    turn = session(result(), "   ")
+    answer = turn.answer("fixture", space.connection, workspace=space, remember="table")
+    assert answer.answer.status is AnswerStatus.ACCEPTED
+    assert "yazılı değerlendirme üretilemedi" in answer.answer.text
+    assert space.value_of("table").values[0].value == 999.0
+
+
+def test_a_qualified_turn_still_publishes_the_verified_table(space):
+    # The table is what the tools computed and the verifier re-read. A sentence withheld
+    # from the prose about it (here an amount nothing computed) no longer unpublishes it.
+    turn = session(result(), "table: 999 TL. Extra amount: 777 TL.")
+    answer = turn.answer("fixture", space.connection, workspace=space, remember="table")
+    assert answer.answer.status is AnswerStatus.QUALIFIED
+    assert "777" not in answer.answer.text
+    assert space.value_of("table").values[0].value == 999.0
 
 
 def test_writer_and_verifier_get_preview_but_real_workspace_changes_only_after_gate(
@@ -473,3 +507,37 @@ def test_preview_cannot_publish_into_another_workspace(space):
     with pytest.raises(WorkspaceError, match="another workspace"):
         Workspace(space.connection, "other").publish(preview)
     assert snapshot(space) == before
+
+
+def test_related_publications_rollback_together_and_keep_version_receipts(space, monkeypatch):
+    from dataclasses import replace
+
+    preview = replace(
+        space.preview("table", result(100)),
+        related=(
+            ("table_ek_1", result(200).model_dump_json()),
+            ("table_ek_2", result(300).model_dump_json()),
+        ),
+    )
+    before = snapshot(space)
+    record = Workspace.record
+
+    def fail_second(self, name, *args, **kwargs):
+        if name == "table_ek_2":
+            raise WorkspaceError("injected second artifact failure")
+        return record(self, name, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Workspace, "record", fail_second)
+        with pytest.raises(WorkspaceError, match="second artifact"):
+            space.publish(preview)
+    assert snapshot(space) == before
+    artifact = space.publish(preview)
+    assert list(space.related_results(artifact)) == ["table_ek_1", "table_ek_2"]
+    child = space.resolve("table_ek_1")
+    space.connection.execute(
+        "UPDATE workspace_artifacts SET value_ref=? WHERE artifact_id=?",
+        [result(300).digest(), child.artifact_id],
+    )
+    with pytest.raises(WorkspaceError, match="receipt"):
+        space.related_results(artifact)

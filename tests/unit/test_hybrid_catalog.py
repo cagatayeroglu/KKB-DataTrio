@@ -1,5 +1,8 @@
 """Offline native-index composition checks; no held-out semantic-quality claim."""
 
+import hashlib
+import json
+from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 
@@ -90,7 +93,7 @@ def test_both_stages_run_and_complementary_candidates_keep_their_own_scores(setu
         else:
             assert c.cosine_distance is c.dense_rank is None
     assert result.clarification_required and result.untrusted_metadata
-    assert not result.observation_fetch_authorized and not result.analytical_evidence
+    assert not result.observations_included and not result.analytical_evidence
     assert result.total_candidates >= len(result.candidates)
     assert result.truncated  # At least one upstream stage is bounded below the eligible pool.
 
@@ -285,12 +288,72 @@ def test_embedding_failures_are_explicit_lexical_degradation_without_private_err
     assert dense.index.profile.input_policy_id == "hybrid-fixture-no-model-v1"
 
 
-def test_index_snapshot_mismatch_is_reported_before_embedding(setup):
-    _, dense, calls, _ = setup
-    old = load_reviewed_snapshot((ROOT / "docs/catalog/demo_v1.json").read_bytes())
-    result = search_hybrid_catalog(old, CatalogSearchArguments(query="KFE"), dense)
+def _rebuilt(snapshot, change):
+    """`snapshot` with `change` applied to its body and its own digest recomputed.
+
+    The knowledge base builds an effective catalogue exactly this way (`overlay.py`): a
+    reviewed snapshot plus entries, hashed over the same canonical bytes.
+    """
+    body = snapshot.model_dump(mode="json", exclude={"content_sha256"})
+    change(body)
+    canonical = json.dumps(
+        body, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode()
+    return snapshot.__class__.model_validate(
+        {**body, "content_sha256": hashlib.sha256(canonical).hexdigest()}
+    )
+
+
+def _every_title_reworded(body):
+    """Every title changed, so no series keeps the text that was embedded for it."""
+    for item in body["series"]:
+        item["record"]["title"] = f"{item['record']['title']} (yeniden adlandirildi)"
+
+
+def _with_one_more_series(body):
+    """One entry appended, the way saving a knowledge-base dataset appends one."""
+    added = deepcopy(body["series"][0])
+    added["record"]["series_id"] = "USER:eklenen.v1"
+    added["record"]["source_series_id"] = "eklenen"
+    added["record"]["provider"] = "USER"
+    body["series"].append(added)
+
+
+def test_a_catalogue_this_generation_covers_nothing_of_is_never_embedded(setup):
+    """No vector can answer for this catalogue, so no query vector is computed for it.
+
+    A vector answers for the text it was made from. When a catalogue has moved on for every
+    series a question could reach, there is nothing to rank by meaning, and paying a model
+    call to find that out would be waste.
+    """
+    snapshot, dense, calls, _ = setup
+    moved_on = _rebuilt(snapshot, _every_title_reworded)
+    assert moved_on.content_sha256 != snapshot.content_sha256
+    assert not dense.index.covering(moved_on)
+
+    result = search_hybrid_catalog(moved_on, CatalogSearchArguments(query="KFE"), dense)
     assert result.retrieval_mode == "lexical_degraded"
     assert result.dense_failure == "snapshot_mismatch" and not calls
+
+
+def test_the_series_a_generation_still_covers_are_ranked_by_meaning(setup):
+    """One entry added to a catalogue leaves every other entry's vector sound.
+
+    The whole generation used to be dropped on any digest change, so a single knowledge-base
+    record turned every meaning-based search into a word search until an operator rebuilt
+    all 8,374 vectors (F4-bt-10, live 2026-09-19, Eray's N27).
+    """
+    snapshot, dense, calls, _ = setup
+    grown = _rebuilt(snapshot, _with_one_more_series)
+    assert grown.content_sha256 != snapshot.content_sha256
+
+    covered = dense.index.covering(grown)
+    assert "USER:eklenen.v1" not in covered
+    assert covered == {item.record.series_id for item in snapshot.series}
+
+    result = search_hybrid_catalog(grown, CatalogSearchArguments(query="KFE"), dense)
+    assert result.retrieval_mode == "hybrid" and calls
+    assert any("dense" in candidate.retrieval_sources for candidate in result.candidates)
 
 
 @pytest.mark.parametrize("failure", ["exception", "extra_id", "duplicate", "nan", "wrong_rank"])

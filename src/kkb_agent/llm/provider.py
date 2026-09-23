@@ -13,7 +13,7 @@ that carries the key, and no hosted-LLM endpoint or key variable appears here.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Literal, Protocol, runtime_checkable
@@ -27,6 +27,22 @@ class Role(StrEnum):
     SYSTEM = "system"
     USER = "user"
     ASSISTANT = "assistant"
+    #: What a tool returned, addressed to the call that asked for it.
+    TOOL = "tool"
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCall:
+    """One tool the model asked for, as it named it.
+
+    `arguments` is the raw JSON string the model produced. It is parsed where the
+    tool is dispatched, so a malformed argument is that tool's observation rather
+    than a transport error that ends the turn.
+    """
+
+    id: str
+    name: str
+    arguments: str = field(repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +55,10 @@ class Message:
 
     role: Role
     content: str = field(repr=False)
+    #: Set on an assistant turn that asked for tools instead of writing prose.
+    tool_calls: tuple[ToolCall, ...] = ()
+    #: Set on a TOOL turn: which call this result answers.
+    tool_call_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,11 +85,16 @@ class Completion:
     attempts: int = 1
     parsed: BaseModel | None = field(default=None, repr=False)
     finish_reason: str | None = None
+    #: What the model asked to run. Empty when it answered in prose instead.
+    tool_calls: tuple[ToolCall, ...] = ()
     #: Present only when the platform returned usage counts.
     usage: Usage | None = None
     #: The model's reasoning text, when it returned one beside the answer. It is
     #: never used as an answer; it is kept so a trace shows why a call was slow.
     reasoning: str | None = field(default=None, repr=False)
+    #: Why each connection attempt before the one that worked failed ("dns", "tls",
+    #: "refused", ...). Empty when the first attempt connected.
+    reconnected: tuple[str, ...] = ()
 
 
 class ProviderError(RuntimeError):
@@ -99,6 +124,10 @@ class Refused(ProviderError):
 class SchemaViolation(ProviderError):
     """Output did not satisfy the requested schema after the repair budget."""
 
+    def __init__(self, message: str, *, attempts: int = 1) -> None:
+        super().__init__(message)
+        self.attempts = attempts
+
 
 class CapabilityUnavailable(ProviderError):
     """A capability was used that this deployment has not confirmed it has."""
@@ -118,6 +147,7 @@ class LLMProvider(Protocol):
         *,
         model: str | None = None,
         schema: type[BaseModel] | None = None,
+        tools: Sequence[Mapping[str, object]] | None = None,
     ) -> Completion:
         """Generate text, optionally validated against a schema.
 
@@ -140,3 +170,20 @@ class LLMProvider(Protocol):
     def vision(self, image_bytes: bytes, prompt: str) -> Completion:
         """Read an image. Output is untrusted extraction, never a verified number."""
         ...
+
+
+@runtime_checkable
+class ShowsRequests(Protocol):
+    """A provider that can show, for a trace, the body it would post. Optional.
+
+    Separate from `LLMProvider` so a test double need not render a wire format.
+    """
+
+    def request_body(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str | None = None,
+        schema: type[BaseModel] | None = None,
+        tools: Sequence[Mapping[str, object]] | None = None,
+    ) -> dict[str, object]: ...

@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+from collections.abc import Sequence
 from typing import Annotated, Literal
 
 from pydantic import AwareDatetime, ConfigDict, Field, StrictBool, StrictInt, StringConstraints
@@ -37,6 +39,131 @@ SECTOR = 10001
 # -- The bulletin's own listing (DEC-176) ---------------------------------------------------
 #: Caption units this adapter can declare. Any other caption text leaves a table unsupported.
 _CAPTION_UNITS = {"milyon TL": ("TRY", Scale.MILLION), "bin TL": ("TRY", Scale.THOUSAND)}
+#: A row that says its own unit in its label is declared by it, whatever the caption says:
+#: the capital table is in million TL and its two ratios are "(YÜZDE)".
+_PERCENT_LABEL = re.compile(r"\((?:%|yüzde)\)\s*$", re.IGNORECASE)
+_OTHER_UNIT_LABEL = re.compile(r"\((?:bin tl|milyon tl|tl|kişi|gün|adet)\)\s*$", re.IGNORECASE)
+#: The single value column of the tables that have one, and what it counts.
+_SINGLE_COLUMNS = {"Rasyo": None, "Adet": ("count", Scale.ONE)}
+Component = Literal["TP", "YP", "TOTAL"]
+#: A reviewed maturity column name, exactly as the pinned listing spells it.
+BandName = Annotated[
+    str, StringConstraints(strict=True, min_length=1, max_length=60, pattern=r"^[^\x00-\x1f]+$")
+]
+#: The maturity columns this adapter reads as series of their own (DEC-193), keyed by the
+#: layout that gives them their meaning. Only a column that names a maturity is listed: the
+#: same table's size bands, its non-performing and its non-cash columns are other measures,
+#: and a column nobody reviewed is not a series. Live 2026-09-22: a question asking for TP
+#: deposits by original maturity could build neither group, because the bulletin publishes
+#: maturity as columns and a row was readable only as its total.
+MATURITY_BANDS: dict[tuple[str, ...], tuple[str, ...]] = {
+    # Mevduat Vade İtibarıyla: deposits by the maturity they were opened at.
+    (
+        "Vadesiz",
+        "1 Aya Kadar",
+        "1-3 Ay Arası",
+        "3-6 Ay Arası",
+        "6-12 Ay Arası",
+        "1 Yıl Üzeri",
+        "Toplam",
+    ): ("Vadesiz", "1 Aya Kadar", "1-3 Ay Arası", "3-6 Ay Arası", "6-12 Ay Arası", "1 Yıl Üzeri"),
+    # Likidite Durumu: the remaining-maturity ladder of the balance sheet.
+    ("Yedi Gün", "Bir Ay", "Üç Ay", "On İki Ay", "Toplam"): (
+        "Yedi Gün",
+        "Bir Ay",
+        "Üç Ay",
+        "On İki Ay",
+    ),
+    # Krediler: short and medium-long, each in its own currency component.
+    (
+        "Kısa TP",
+        "Kısa YP",
+        "Kısa Toplam",
+        "Orta Uzun TP",
+        "Orta Uzun YP",
+        "Orta Uzun Toplam",
+        "Toplam TP",
+        "Toplam YP",
+        "Toplam",
+    ): (
+        "Kısa TP",
+        "Kısa YP",
+        "Kısa Toplam",
+        "Orta Uzun TP",
+        "Orta Uzun YP",
+        "Orta Uzun Toplam",
+    ),
+    # Sektörel Kredi Dağılımı: its two maturity columns; the rest are other measures.
+    (
+        "Kısa Vadeli Nakdi Krediler",
+        "Orta ve Uzun Vadeli Nakdi Krediler",
+        "Nakdi Krediler",
+        "Takipteki Krediler",
+        "Toplam Nakdi Krediler",
+        "Gayri Nakdi Krediler",
+    ): ("Kısa Vadeli Nakdi Krediler", "Orta ve Uzun Vadeli Nakdi Krediler"),
+}
+
+
+def maturity_bands(headers: Sequence[str]) -> dict[str, int]:
+    """Which cell of a row each reviewed maturity band is, for the layouts that have them."""
+    if len(headers) < 5 or tuple(headers[:4]) != COLUMN_HEADERS[:4]:
+        return {}
+    names = [" ".join(str(name).split()) for name in headers[4:]]
+    if len(set(names)) != len(names):
+        return {}
+    listed = MATURITY_BANDS.get(tuple(names))
+    return {band: 4 + names.index(band) for band in listed} if listed else {}
+
+
+def value_columns(headers: Sequence[str]) -> dict[Component, int]:
+    """Which cell of a row each component is, for the layouts this adapter reads.
+
+    Every table opens with the same four cells (bank group, row number, label, font). What
+    follows differs: TP / YP / Toplam; maturity bands closed by "Toplam TP, Toplam YP,
+    Toplam" (Krediler); a cash-loan block named "Toplam Nakdi Krediler" (the sector and
+    SME tables); size or maturity bands closed by one "Toplam"; or one value column. A
+    layout without a total this function knows has no component and is not read.
+    """
+    if len(headers) < 5 or tuple(headers[:4]) != COLUMN_HEADERS[:4]:
+        return {}
+    names = [" ".join(str(name).split()) for name in headers[4:]]
+    if len(set(names)) != len(names):
+        return {}
+
+    def at(name: str) -> int:
+        return 4 + names.index(name)
+
+    if names == ["TP", "YP", "Toplam"]:
+        return {"TP": 4, "YP": 5, "TOTAL": 6}
+    if names[-3:] == ["Toplam TP", "Toplam YP", "Toplam"]:
+        return {"TP": at("Toplam TP"), "YP": at("Toplam YP"), "TOTAL": at("Toplam")}
+    if "Toplam Nakdi Krediler" in names:
+        found: dict[Component, int] = {"TOTAL": at("Toplam Nakdi Krediler")}
+        if "Nakdi Kredi TP" in names and "Nakdi Kredi YP" in names:
+            found.update({"TP": at("Nakdi Kredi TP"), "YP": at("Nakdi Kredi YP")})
+        return found
+    if names[-1] == "Toplam" or (len(names) == 1 and names[0] in _SINGLE_COLUMNS):
+        return {"TOTAL": len(headers) - 1}
+    return {}
+
+
+def row_key(label: str) -> str:
+    """What identifies a row across months: its label without arithmetic or footnote marks.
+
+    Measured over 2021-01..2026-06: the bulletin inserts rows, so a row's number moves
+    (Menkul Kıymetler gained two rows in 2022-09 and everything below them shifted), and a
+    total's label carries the row numbers it adds up ("(2 den 24'e)" became "(2 den 26'ya)").
+    A footnote star comes and goes. No table has two rows of one key in any month.
+    """
+    text = " ".join(str(label).split())
+    while True:
+        shorter = re.sub(r"\s*(?:\*+|\([^()]*\d[^()]*\))\s*$", "", text)
+        if shorter == text or not shorter:
+            return text.casefold()
+        text = shorter
+
+
 #: What a row's measured January behaviour says it publishes, when its table agrees.
 _BEHAVIOUR = {
     "never": (StockFlow.STOCK, CumulativeKind.NONE),
@@ -84,31 +211,70 @@ class DirectoryRow(ContractModel):
     scale: Scale
     stock_flow: StockFlow
     cumulative: CumulativeKind
+    #: The table's own column headers, and which cell each readable component is.
+    headers: tuple[MetadataText, ...] = COLUMN_HEADERS
+    columns: dict[Component, int] = {"TP": 4, "YP": 5, "TOTAL": 6}
+    #: Which cell each reviewed maturity band is, where the layout has them (DEC-193).
+    bands: dict[MetadataText, int] = {}
+    #: Whether the label alone finds the row in a month where its number has moved.
+    by_label: bool = True
+
+
+def _row_unit(
+    label: str, caption_unit: str | None, headers: Sequence[str], behaviour: str
+) -> tuple[str, Scale, StockFlow, CumulativeKind] | None:
+    """What one row is declared as, or None when nothing the source says settles it."""
+    if _PERCENT_LABEL.search(label):
+        # A ratio that falls every January is built on a year-to-date amount; this adapter
+        # has no declaration for that, so only ratios of positions are read.
+        return (
+            ("percent", Scale.ONE, StockFlow.RATE, CumulativeKind.NONE)
+            if behaviour == ("never")
+            else None
+        )
+    if _OTHER_UNIT_LABEL.search(label):
+        return None  # "(Bin TL)", "(Kişi)", "(Gün)": a unit of its own that is not declared here
+    single = _SINGLE_COLUMNS.get(headers[-1]) if len(headers) == 5 else None
+    if single is not None:
+        return (*single, *_BEHAVIOUR[behaviour])
+    if caption_unit in _CAPTION_UNITS:
+        return (*_CAPTION_UNITS[caption_unit], *_BEHAVIOUR[behaviour])
+    return None
 
 
 def _supported_rows() -> dict[tuple[int, int], DirectoryRow]:
     found: dict[tuple[int, int], DirectoryRow] = {}
     for number, table in DIRECTORY["tables"].items():
-        if tuple(table["headers"]) != COLUMN_HEADERS or table["unit_text"] not in _CAPTION_UNITS:
-            continue  # another layout, or a unit this adapter cannot declare
+        columns = value_columns(table["headers"])
+        if not columns:
+            continue  # a layout without a total this adapter knows
         behaviour = _table_behaviour(table)
         if behaviour is None:
             continue
-        unit, scale = _CAPTION_UNITS[table["unit_text"]]
-        stock_flow, cumulative = _BEHAVIOUR[behaviour]
+        keys = [row_key(entry["label"]) for entry in table["rows"].values()]
         for row, entry in table["rows"].items():
             if entry["resets"] != behaviour:
                 continue  # unmeasured, mixed, or unlike its table: listed, never fetched
+            declared = _row_unit(entry["label"], table["unit_text"], table["headers"], behaviour)
+            if declared is None:
+                continue  # a unit this adapter cannot declare
+            unit, scale, stock_flow, cumulative = declared
             found[int(number), int(row)] = DirectoryRow(
                 table=int(number),
                 row=int(row),
                 table_title=table["title"],
                 label=entry["label"],
-                unit_text=table["unit_text"],
+                unit_text=table["unit_text"] or "",
                 unit=unit,
                 scale=scale,
                 stock_flow=stock_flow,
                 cumulative=cumulative,
+                headers=tuple(table["headers"]),
+                columns=columns,
+                bands=maturity_bands(table["headers"]),
+                # Two rows of one name in a table: only the number tells them apart, so such
+                # a row is read where its number and label still agree, as before.
+                by_label=keys.count(row_key(entry["label"])) == 1,
             )
     return found
 
@@ -135,11 +301,19 @@ class BddkSelector(ContractModel):
     presentation_currency: Literal["TL", "USD"]
     value_dimension: Literal["TP", "YP", "TOTAL"]
     geography: Geography | None = None
+    #: One reviewed maturity column of the row, by the name the listing gives it
+    #: (DEC-193). Absent for the component columns, which every selector before this
+    #: named, and absent from the canonical selector then: their identities do not move.
+    band: BandName | None = None
 
     def canonical_selector(self) -> str:
         # Revalidate even objects produced by model_copy/model_construct.
         checked = BddkSelector.model_validate(self)
         payload = {"schema": "bddk-selector-v1", **checked.model_dump(mode="json")}
+        if checked.band is None:
+            # A selector that names no band is the selector it always was, byte for byte:
+            # every stored series ID, prepared row and kept response stays valid.
+            del payload["band"]
         return json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
 
     def internal_id(self) -> str:
@@ -166,6 +340,21 @@ def _reviewed(selector: BddkSelector) -> BddkSelector:
         or not (_is_housing(selector) or (selector.table, selector.row) in SUPPORTED_ROWS)
     ):
         raise UnreviewedSelector("Selector is outside the supported monthly bulletin scope")
+    listed = SUPPORTED_ROWS.get((selector.table, selector.row))
+    if selector.band is not None:
+        # A band names the column itself, so the component says nothing more; TOTAL is the
+        # layout's own default and keeps one selector from naming two columns.
+        if listed is None or selector.band not in listed.bands:
+            raise UnreviewedSelector("The listed table has no such reviewed maturity column")
+        if selector.value_dimension != "TOTAL":
+            raise UnreviewedSelector("A maturity column is named on its own, with TOTAL")
+        return selector
+    if (
+        not _is_housing(selector)
+        and listed is not None
+        and selector.value_dimension not in listed.columns
+    ):
+        raise UnreviewedSelector("The listed table has no such component column")
     return selector
 
 
@@ -181,7 +370,7 @@ _COMPONENTS: tuple[Literal["TP", "YP", "TOTAL"], ...] = ("TP", "YP", "TOTAL")
 
 
 def supported_selectors() -> tuple[BddkSelector, ...]:
-    """Every selector this adapter accepts: each supported row, in its three components."""
+    """Every selector this adapter accepts: each supported row, in the components it has."""
     rows = {(HOUSING_TABLE, HOUSING_ROW), *SUPPORTED_ROWS}
     return tuple(
         BddkSelector(
@@ -194,6 +383,20 @@ def supported_selectors() -> tuple[BddkSelector, ...]:
         )
         for table, row in sorted(rows)
         for component in _COMPONENTS
+        if (table, row) == (HOUSING_TABLE, HOUSING_ROW)
+        or component in SUPPORTED_ROWS[table, row].columns
+    ) + tuple(
+        BddkSelector(
+            bulletin_family="monthly",
+            table=table,
+            row=row,
+            bank_group=SECTOR,
+            presentation_currency="TL",
+            value_dimension="TOTAL",
+            band=band,
+        )
+        for (table, row), listed in sorted(SUPPORTED_ROWS.items())
+        for band in listed.bands
     )
 
 
@@ -257,14 +460,41 @@ def monthly_directory_catalog(selector: BddkSelector) -> CatalogRecord:
         "ölçüldü); aylık tutar için kümülatiften akıma çevrilir. Year-to-date total that "
         "resets every January."
         if row.cumulative is CumulativeKind.YEARLY_RESET
+        else "Ay sonu oran (yüzde): rasyosu, oranı; bir tutar ya da bakiye değildir, toplanmaz "
+        "(incelenen yıl sınırlarında hiç sıfırlanmadı). Month-end ratio in percent."
+        if row.stock_flow is StockFlow.RATE
+        else "Ay sonu adet (sayı): sayısı; bir tutar değildir. Month-end count."
+        if row.unit == "count"
         else "Ay sonu bakiye (stok): bakiyesi, tutarı, hacmi; kullandırım ya da akım değildir "
         "(incelenen yıl sınırlarında hiç sıfırlanmadı). Month-end outstanding position."
+    )
+    # The six TP / YP / Toplam tables keep their wording; any other layout names the very
+    # column that is read, because "Toplam" there closes maturity or size bands.
+    listed = (
+        row.bands[selector.band]
+        if selector.band is not None
+        else row.columns[selector.value_dimension]
+    )
+    read = _words(row.headers[listed])
+    column = (
+        ""
+        if row.headers == COLUMN_HEADERS or selector.band is not None
+        else f"Okunan sütun: {read}. "
+    )
+    # A band is a column of the row, so seven of them would otherwise carry the row's one
+    # title and no search could tell them apart (DEC-193). The component sentence is the
+    # band's own: this column is a maturity of the row, not its TP and YP together.
+    band = selector.band
+    component = (
+        f"Vade dilimi: {read}. "
+        if band is not None
+        else f"Bileşen: {_COMPONENT_WORDS[selector.value_dimension]}. "
     )
     return CatalogRecord(
         series_id=selector.internal_id(),
         provider="BDDK",
         source_series_id="selector-v1:" + selector.canonical_selector(),
-        title=row.label,
+        title=row.label if band is None else f"{row.label} ({read})",
         source=SourceRef(
             source_id="bddk:monthly-directory-v1",
             source_type="repository_inventory",
@@ -273,11 +503,17 @@ def monthly_directory_catalog(selector: BddkSelector) -> CatalogRecord:
         ),
         description=(
             f"BDDK Aylık Bülten, {row.table_title} tablosu, satır {row.row}: {row.label}. "
-            f"Bileşen: {_COMPONENT_WORDS[selector.value_dimension]}. {behaviour} "
+            f"{component}{column}{behaviour} "
             "Kaynağın kendi listesinden: birim tablo başlığından, davranış ölçümden; satır satır "
             "incelenmedi. Internal composite selector, not an official BDDK code."
         ),
-        labels=("Aylık Bülten", "Sektör", selector.value_dimension, "Sunum para birimi: TL"),
+        labels=(
+            "Aylık Bülten",
+            "Sektör",
+            selector.value_dimension,
+            *((f"Vade: {read}",) if band is not None else ()),
+            "Sunum para birimi: TL",
+        ),
         group=SourceGroup(group_id=str(row.table), group_title=row.table_title, publisher="BDDK"),
         unit=row.unit,
         scale=row.scale,
@@ -322,7 +558,7 @@ class MonthlyHousingMetadata(ContractModel):
 
     success: StrictBool
     caption: MetadataText
-    column_headers: Annotated[tuple[MetadataText, ...], Field(min_length=7, max_length=7)]
+    column_headers: Annotated[tuple[MetadataText, ...], Field(min_length=5, max_length=24)]
     row_number: SelectorNumber
     row_label: MetadataText
     bank_group_label: MetadataText
@@ -365,29 +601,67 @@ def _words(text: str) -> str:
     return " ".join(text.split())
 
 
+def column_index(row: DirectoryRow, selector: BddkSelector, headers: Sequence[str]) -> int | None:
+    """Which cell of this answer the selector reads, or None when it is not there.
+
+    A component is found by the layout, a maturity band by its own listed name: a band that
+    this month's answer does not carry under that name is no band of it (DEC-193).
+    """
+    if selector.band is not None:
+        return maturity_bands(headers).get(selector.band)
+    return value_columns(headers).get(selector.value_dimension)
+
+
+def _same_column(row: DirectoryRow, selector: BddkSelector, headers: Sequence[str]) -> bool:
+    """Whether this answer still has the listed column, under the listed name.
+
+    Held to the name and not to the whole header line: the size and maturity bands before a
+    total were redrawn over the years (measured), and the total they close was not.
+    """
+    index = column_index(row, selector, headers)
+    if index is None:
+        return False
+    listed = (
+        row.bands[selector.band]
+        if selector.band is not None
+        else row.columns[selector.value_dimension]
+    )
+    return _words(headers[index]) == _words(row.headers[listed])
+
+
 def validate_monthly_directory_metadata(
     selector: BddkSelector,
     metadata: MonthlyHousingMetadata,
     *,
     requested_period: MonthlyPeriod,
 ) -> None:
-    """The response must still be the listed table, unit, row and label, for this period.
+    """The response must still be the listed table, unit, columns and row, for this period.
 
-    A bulletin that renumbers a row, renames it or changes a caption unit fails closed
-    here instead of storing another measure under this identity. Whitespace runs are the
-    only difference tolerated: the source itself writes some captions with two spaces.
+    A bulletin that renames a row, changes a caption unit or moves a column fails closed
+    here instead of storing another measure under this identity. A row is known by its
+    label (`row_key`), because the bulletin renumbers rows when it inserts one; a row
+    whose name two rows of its table share is still held to its number. Whitespace runs
+    are the only other difference tolerated: the source writes some captions with two spaces.
     """
     selector = _reviewed(selector)
     row = SUPPORTED_ROWS[selector.table, selector.row]
     metadata = MonthlyHousingMetadata.model_validate(metadata)
     period = MonthlyPeriod.model_validate(requested_period)
-    expected_caption = f"{row.table_title} ({row.unit_text}), Dönem:{period.year}/{period.month}"
+    dated = f", Dönem:{period.year}/{period.month}"
+    # Measured: a table captioned with a unit also names its period; the three tables
+    # without one (Rasyolar, Diğer Bilgiler, Yurt Dışı Şube Rasyoları) are captioned by
+    # their title alone, in every month of the window.
+    captions = (
+        (f"{row.table_title} ({row.unit_text}){dated}",)
+        if row.unit_text
+        else (row.table_title, row.table_title + dated)
+    )
     if (
         not metadata.success
-        or _words(metadata.caption) != expected_caption
-        or metadata.column_headers != COLUMN_HEADERS
-        or metadata.row_number != selector.row
-        or _words(metadata.row_label) != row.label
+        or _words(metadata.caption) not in captions
+        or not _same_column(row, selector, metadata.column_headers)
+        or row_key(metadata.row_label) != row_key(row.label)
+        or (not row.by_label and metadata.row_number != selector.row)
         or metadata.bank_group_label != "Sektör"
     ):
         raise MetadataMismatch("Response metadata does not match the listed monthly selection")

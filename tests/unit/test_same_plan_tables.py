@@ -93,6 +93,38 @@ def test_the_validator_names_the_repair_for_a_missing_edge_or_an_unknown_table(p
         validate_plan(plan(rebase("rebased")), registry, known_tables=known)
 
 
+def test_scalar_and_independent_table_are_not_implicitly_published_as_one(pool):
+    registry = registry_for(pool)
+    second = {**fetch(), "step_id": "other"}
+    scalar = {
+        "step_id": "summary",
+        "tool": "table_transform",
+        "arguments": {
+            "operation": "summarize",
+            "source": "fetch",
+            "column": CPI_ID,
+            "aggregation": "mean",
+            "requested_aggregation": "mean",
+        },
+        "depends_on": ["fetch"],
+    }
+    # A table nobody consumes beside a summary of another used to refuse the plan. The
+    # last step's result is published; the other reaches the writer (`Session.answer`).
+    validated = validate_plan(plan(fetch(), second, scalar), registry, known_tables=pool[1].names())
+    assert [item.step.step_id for item in validated.steps][-1] == "summary"
+
+
+def test_same_plan_step_cannot_shadow_a_published_table_name(pool):
+    registry = registry_for(pool)
+    shadowed = {**fetch(), "step_id": PUBLISHED}
+    with pytest.raises(PlanRejected, match="collides with a published table"):
+        validate_plan(
+            plan(shadowed, rebase(PUBLISHED, [PUBLISHED])),
+            registry,
+            known_tables=pool[1].names(),
+        )
+
+
 def test_the_tool_reads_a_same_plan_step_when_the_plan_declared_it(pool):
     lake, workspace = pool
     source = workspace.value_of(PUBLISHED)
@@ -143,7 +175,8 @@ def test_a_one_column_fetched_table_is_used_when_the_planner_names_a_column_it_c
     assert answered.answer.status is AnswerStatus.ACCEPTED, answered.answer
     published = workspace.value_of("tufe_bazli_value")
     assert published.parameters["column_resolution"] == {"requested": "value", "used": CPI_ID}
-    assert any("its only column" in warning for warning in published.warnings)
+    # Said to the call that read it, not written on the table every later one inherits.
+    assert not any("its only column" in warning for warning in published.warnings)
     assert published.evidence.transformations[-1].operation == "rebase"
 
 

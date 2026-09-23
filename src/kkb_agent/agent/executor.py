@@ -26,6 +26,7 @@ from kkb_agent.agent.cancellation import checkpoint
 from kkb_agent.agent.observer import Tracer
 from kkb_agent.agent.plan import AnalyticalPlan, ClarificationReason, PlanStep
 from kkb_agent.agent.registry import ArgumentsRejected, RegistryError, TableInput, ToolRegistry
+from kkb_agent.core import AnalyticalResult, ResultStatus
 
 if TYPE_CHECKING:
     from kkb_agent.agent.selection import SelectedTable
@@ -64,9 +65,21 @@ class Budget:
 
     # A document chain (read -> join -> align -> compare) plus discovery needs
     # more than the eight steps a prepared-only question used.
-    max_steps: int = 12
+    max_steps: int = 16
     max_plan_repairs: int = 2
     max_tool_retries: int = 1
+    #: How many times the planner may look at what its tools returned and plan again.
+    #: Two allowed one initial catalogue phase and a single auxiliary one, which was
+    #: sized for a planner call that cost a minute; on DeepSeek-V4.1-Flash the same
+    #: call takes about two seconds, so a question that needs three or four looks —
+    #: search, read what came back, search again for what it named, then analyse —
+    #: no longer has to be answered from the first guess. Still bounded, and still
+    #: bounded again by `max_steps`: each round must leave room for the analysis.
+    max_discovery_rounds: int = 5
+
+    def __post_init__(self) -> None:
+        if not 0 <= self.max_discovery_rounds <= 8:
+            raise ValueError("Catalog discovery permits at most eight rounds")
 
 
 #: Frozen defaults, so a shared budget cannot be mutated by one caller.
@@ -79,6 +92,14 @@ class ExecutionContext:
 
     question: str
     outputs: dict[str, object] = field(default_factory=dict)
+    #: Addresses a web_search step of THIS turn returned whole, which web_url may read.
+    #: The person asked for a search and for what it finds; making them write the address
+    #: again in a second message was a product limit, not a security one (live 2026-09-21:
+    #: "TCMB Mart 2024 PPK kararını web'de ara ve özetle" found the official page and could
+    #: not read it). A page's own content still cannot become a request: only a search this
+    #: turn ran fills this, never a fetched document, and a locator whose query string was
+    #: redacted is left out because it no longer names the resource the hit named.
+    searched: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +135,8 @@ class ValidatedPlan:
     steps: tuple[ValidatedStep, ...]
     clarification: ClarificationReason | None = None
     reply: str | None = None
+    clarification_text: str | None = None
+    interpret: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,6 +183,13 @@ def validate_plan(
         seen.add(step.step_id)
         tools_by_id[step.step_id] = step.tool
 
+    if known_tables is not None and (collisions := seen.intersection(known_tables)):
+        raise PlanRejected(
+            f"Step ID {sorted(collisions)[0]!r} collides with a published table name; "
+            "use a fresh step ID so each table reference has one identity",
+            category=RejectionCategory.DEPENDENCIES,
+        )
+
     validated: dict[str, ValidatedStep] = {}
     for step in plan.steps:
         try:
@@ -201,26 +231,18 @@ def validate_plan(
                 )
         validated[step.step_id] = ValidatedStep(step, arguments)
 
-    # Only the last computed result is answered and published. A second
-    # unconsumed calculation would be silently discarded, so refuse the plan and
-    # let the planner combine conditions or chain the steps instead (M11-11).
-    consumed = {dependency for step in plan.steps for dependency in step.depends_on}
-    final = [
-        step.step_id
-        for step in plan.steps
-        if step.step_id not in consumed and not registry.get(step.tool).discovery_only
-    ]
-    if len(final) > 1:
-        raise PlanRejected(
-            f"Plan has {len(final)} final calculation steps ({', '.join(final)}); only one "
-            "final result is answered and published. Express every condition in one "
-            "operation (for example table_co_movement when_column/when_direction) or make "
-            "each later step depend on the earlier one",
-            category=RejectionCategory.STRUCTURE,
-        )
-
+    ordered = tuple(_ordered(plan, validated))
+    # Several steps nobody consumes used to refuse the plan ("only one final result"). The
+    # plan's last result is still the table that is published; the results of the others
+    # are shown to the writer beside it (`Session.answer`), so none is silently dropped,
+    # which is what the refusal was there to prevent (M11-11).
     return ValidatedPlan(
-        plan.question, tuple(_ordered(plan, validated)), plan.clarification, plan.reply
+        plan.question,
+        ordered,
+        plan.clarification,
+        plan.reply,
+        plan.clarification_text,
+        plan.interpret,
     )
 
 
@@ -298,11 +320,29 @@ def execute(
         selection.validate_plan(plan, registry)
     results: list[ToolResult] = []
     stopped = False
+    #: Steps that ran but produced nothing another step can compute from. A tool that
+    #: refuses an operation returns SUCCESS carrying an ABSTAINED result (the refusal is
+    #: the answer to that step), so the plan does not stop - but a step reading that table
+    #: has nothing to read. Live 2026-09-21: a refused join was followed by a comparison
+    #: that reported "The referenced table is unavailable or cannot be verified", naming
+    #: the wrong step and hiding the refusal that actually ended the plan.
+    unusable: set[str] = set()
 
     for validated in plan.steps:
-        if stopped:
+        blocked = sorted(unusable & _reads(validated, registry))
+        if stopped or blocked:
+            reason = (
+                f"step {blocked[0]!r} produced no computed result"
+                if blocked
+                else "an earlier step failed"
+            )
             results.append(
-                ToolResult(ToolStatus.NOT_RUN, validated.step.step_id, validated.step.tool)
+                ToolResult(
+                    ToolStatus.NOT_RUN,
+                    validated.step.step_id,
+                    validated.step.tool,
+                    warnings=(reason,) if blocked else (),
+                )
             )
             if tracer is not None:
                 tracer.event(
@@ -310,18 +350,61 @@ def execute(
                     validated.step.tool,
                     status="not_run",
                     step_id=validated.step.step_id,
-                    reason="an earlier step failed",
+                    reason=reason,
                 )
+            if blocked:
+                unusable.add(validated.step.step_id)
             continue
         checkpoint(f"tool.{validated.step.tool}")
         result = _traced_step(validated, registry, context, budget, selection, tracer)
         results.append(result)
         if result.status is ToolStatus.SUCCESS:
             context.outputs[validated.step.step_id] = result.output
+            if not _is_computed(result.output):
+                unusable.add(validated.step.step_id)
         elif result.status is ToolStatus.FAILURE:
             stopped = True
 
-    return ExecutionOutcome(tuple(results), completed=not stopped)
+    return ExecutionOutcome(tuple(results), completed=not stopped and not unusable)
+
+
+def analytical(output: object) -> AnalyticalResult | None:
+    """The measurement in a tool's output, whether it returned one or wrapped one.
+
+    `lakehouse` and `web_url` answer with an object that carries the result beside
+    what it is for — the rows as a table, the page it was read from — because a
+    rendering convenience must not become an analytical claim. Every reader of a
+    result therefore has to look one level in, and a reader that does not sees no
+    result at all: live 2026-09-23 a turn answered straight from `lakehouse` was
+    neither published nor checked, because both the publication and the gate
+    tested the wrapper for being a result and it is not one.
+    """
+    candidate = getattr(output, "result", output)
+    return candidate if isinstance(candidate, AnalyticalResult) else None
+
+
+def _is_computed(output: object) -> bool:
+    """Whether a step's output is a result a later step could compute from."""
+    candidate = analytical(output)
+    return candidate.status is ResultStatus.COMPUTED if candidate is not None else True
+
+
+def _reads(validated: ValidatedStep, registry: ToolRegistry) -> set[str]:
+    """The steps this one reads: its edges, its declared table inputs, its required steps."""
+    reads = set(validated.step.depends_on)
+    try:
+        spec = registry.get(validated.step.tool)
+    except RegistryError:
+        return reads
+    if spec.table_input is not None:
+        table = spec.table_input(validated.arguments)
+        if table is not None:
+            reads.update(
+                name for name in (table.source, table.input_step, *table.others) if name is not None
+            )
+    if spec.required_steps is not None:
+        reads.update(spec.required_steps(validated.arguments))
+    return reads
 
 
 def _traced_step(

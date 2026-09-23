@@ -8,7 +8,8 @@ import math
 import os
 import re
 import sys
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 import uvicorn
@@ -36,6 +37,37 @@ ACQUIRED_DIRECTORY = "acquired"
 DISCOVERED_DIRECTORY = "directory/evds"
 #: Built vector generations, one immutable directory per catalogue digest.
 GENERATIONS_DIRECTORY = "catalog-index"
+
+
+def _reported[T](embed: Callable[[str], T]) -> Callable[[str], T]:
+    """The query embedder, saying on the console why a question's vector was not made.
+
+    A failed query vector turns the search into words alone, and the search says only
+    `embedding_failed`: its contract names no cause, and the page and the turn read that
+    contract strictly. Live 2026-09-23, right after a full rebuild, every new query fell
+    back that way while the same request from another process came back in 0.2 s; there
+    was nothing to tell a timeout from a refusal. One line per failure: the error's class,
+    the provider's own fixed wording (never a body, a key or the question) and the time.
+    """
+
+    def call(text: str) -> T:
+        began = time.perf_counter()
+        try:
+            return embed(text)
+        except Exception as error:
+            print(
+                json.dumps(
+                    {
+                        "query_embedding_failed": type(error).__name__,
+                        "detail": str(error)[:160],
+                        "seconds": round(time.perf_counter() - began, 2),
+                    }
+                ),
+                flush=True,
+            )
+            raise
+
+    return call
 
 
 def literal_config(path: Path | None) -> ProviderConfig:
@@ -127,6 +159,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--allow-catalog-edits",
+        action="store_true",
+        help=(
+            "Let the knowledge page archive, alias or describe reviewed and listed catalogue "
+            "entries. Such a note changes every browser's searches and turns, so it is the "
+            "operator's decision (DEC-162): without this flag every browser key reads the "
+            "catalogue notes but none may change them; with it, any browser key of this local "
+            "installation may, and every edit records its author"
+        ),
+    )
+    parser.add_argument(
         "--searxng-url",
         help=(
             "Register web_search over this publicly reachable SearXNG instance's JSON API "
@@ -142,6 +185,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             "(http://127.0.0.1:PORT, for example the documented Docker container). Only then "
             "is that one address read over loopback (DEC-180); every address a question or a "
             "page names still goes through safe_fetch, which refuses loopback"
+        ),
+    )
+    parser.add_argument(
+        "--trust-loop",
+        action="store_true",
+        help=(
+            "Answer each question with one model-driven loop instead of the planned "
+            "turn: the model calls tools, reads what they returned, decides again, and "
+            "says when it has enough. The harness dispatches and counts; it does not "
+            "decide the order, the phase or when the question is answered"
         ),
     )
     parser.add_argument(
@@ -182,6 +235,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         # configured, not because a second flag was remembered. --no-ocr still refuses it.
         ocr_enabled = config.ocr_model is not None and not args.no_ocr
         uploads_enabled = not args.no_uploads
+        # Describing a picture needs the chat model, not the OCR one. Live 2026-09-20
+        # this deployment had KLOUDEKS_VISION_MODEL pointing at Unlimited-OCR, whose
+        # answer to "describe this chart" was "2025 chart [27, 114, 977, 956]": layout,
+        # not meaning. Pointed at the chat model the same picture came back read.
+        vision_enabled = (
+            config.vision_model is not None
+            and config.vision_model != config.ocr_model
+            and uploads_enabled
+        )
         acquisition_enabled = not args.no_official_acquisition
         if args.searxng_loopback and not (
             args.searxng_url and is_loopback_instance(args.searxng_url)
@@ -220,6 +282,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "web_url": args.enable_web_url,
                         "uploads": uploads_enabled,
                         "ocr": ocr_enabled,
+                        "vision": vision_enabled,
                         "official_acquisition": acquisition_enabled,
                         "web_search": search is not None,
                         "prepared": status.model_dump(mode="json"),
@@ -235,7 +298,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 from kkb_agent.catalog.hybrid import CatalogDenseStage
 
                 dense = CatalogDenseStage(
-                    index, query_embedder(provider, RUNTIME_QUERY_POLICY, origin="kloudeks")
+                    index,
+                    _reported(query_embedder(provider, RUNTIME_QUERY_POLICY, origin="kloudeks")),
                 )
             # Conversations, their messages and uploads outlive this process.
             store = ConversationStore(args.state_root.absolute() / STORE_NAME)
@@ -266,11 +330,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 root,
                 args.state_root.absolute(),
                 catalog_bytes=catalog_bytes,
+                trust_loop=args.trust_loop,
                 redactions=(config.credential.get_secret_value(),),
                 catalog_dense=dense,
                 web_url_fetch=safe_fetch if args.enable_web_url else None,
                 document_uploads=uploads_enabled,
                 document_ocr=provider if ocr_enabled else None,
+                document_vision=vision_enabled,
                 store=store,
                 official=official,
                 knowledge=knowledge,
@@ -295,12 +361,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 web_search=search is not None,
                 web_url=args.enable_web_url,
                 model=config.planner_model,
+                models=config.chat_models,
                 stored_result=runner.published_result,
+                session_cleanup=runner.delete_session,
             )
             rebuild = reopen = None
             if index is not None:
                 from kkb_agent.catalog.embedding import (
                     RUNTIME_QUERY_POLICY,
+                    EmbeddingStats,
                     embed_catalog,
                     profile_for,
                     query_embedder,
@@ -319,26 +388,54 @@ def main(argv: Sequence[str] | None = None) -> int:
                         LocalCatalogIndex.open(
                             directory, catalog, profile_for(RUNTIME_QUERY_POLICY, "kloudeks")
                         ),
-                        query_embedder(provider, RUNTIME_QUERY_POLICY, origin="kloudeks"),
+                        _reported(
+                            query_embedder(provider, RUNTIME_QUERY_POLICY, origin="kloudeks")
+                        ),
                     )
 
-                def rebuild(catalog: ReviewedSnapshot) -> CatalogDenseStage:
+                def rebuild(
+                    catalog: ReviewedSnapshot, previous: LocalCatalogIndex | None
+                ) -> CatalogDenseStage:
                     """A generation for exactly this catalogue, with the configured profile.
 
                     Generations are immutable and named by the catalogue they cover,
                     so an earlier one is reopened instead of embedded again, and a
-                    failed build never damages the one in use.
+                    failed build never damages the one in use. An entry whose text the
+                    generation in use embedded under this same profile keeps its vector;
+                    only new or changed entries are embedded.
                     """
                     existing = reopen(catalog)
                     if existing is not None:
                         return existing
+                    began = time.perf_counter()
+                    stats = EmbeddingStats()
                     vectors = embed_catalog(
-                        provider, catalog, RUNTIME_QUERY_POLICY, origin="kloudeks"
+                        provider,
+                        catalog,
+                        RUNTIME_QUERY_POLICY,
+                        origin="kloudeks",
+                        stats=stats,
+                        reuse=previous,
                     )
                     build_catalog_index(generations / catalog.content_sha256, catalog, vectors)
                     built = reopen(catalog)
                     if built is None:  # pragma: no cover - the build above wrote it
                         raise ValueError("generation was not written")
+                    # Counts and seconds only: what the build cost, never what it read.
+                    print(
+                        json.dumps(
+                            {
+                                "catalog_index_built": catalog.content_sha256[:12],
+                                "entries": len(vectors.vectors),
+                                "embedded": stats.texts,
+                                "reused": stats.reused,
+                                "embedding_requests": stats.requests,
+                                "embedding_seconds": round(stats.seconds, 1),
+                                "seconds": round(time.perf_counter() - began, 1),
+                            }
+                        ),
+                        flush=True,
+                    )
                     return built
 
             knowledge_service = KnowledgeService(
@@ -357,7 +454,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 source_directory=directory,
                 discovered=discovered,
                 install_directory=runner.use_directory,
+                catalog_edits=args.allow_catalog_edits,
             )
+            # The one direction back into the runner: the knowledge base's own
+            # validated write, so a conversation's save is the page's save (DEC-183).
+            runner.use_promotion(knowledge_service.promote)
             # No model call: a generation built before this restart is simply opened.
             knowledge_service.restore_generation()
             app = create_app(
@@ -374,6 +475,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "web_url": args.enable_web_url,
                         "uploads": uploads_enabled,
                         "ocr": ocr_enabled,
+                        "vision": vision_enabled,
                         "official_acquisition": acquisition_enabled,
                         "web_search": search is not None,
                         "conversations": "persistent",

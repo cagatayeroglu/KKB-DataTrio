@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import secrets
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from dataclasses import dataclass, field
-from typing import Literal, Protocol
+from typing import Literal, Protocol, get_args
 from uuid import uuid4
+
+from pydantic import ValidationError
 
 from kkb_agent.agent.cancellation import (
     CancelToken,
@@ -45,11 +48,14 @@ from kkb_agent.api.contracts import (
     Result,
     RunDetail,
     RunList,
+    RunProgress,
     RunSummary,
     RuntimeSettings,
     SessionCreated,
     SettingsUpdate,
     StoredMessage,
+    TraceConversationList,
+    TraceConversationSummary,
     TraceStep,
     TraceStepFull,
     Turn,
@@ -65,6 +71,8 @@ from kkb_agent.api.store import (
 )
 from kkb_agent.llm.provider import ProviderError
 
+RUN_ERROR_CODES = frozenset(get_args(ErrorCode))
+
 
 @dataclass(frozen=True, slots=True)
 class TurnSettings:
@@ -76,9 +84,10 @@ class TurnSettings:
 
     disabled: frozenset[str] = frozenset()
     history_turns: int | None = None
+    model: str | None = None
 
     def chosen(self) -> bool:
-        return bool(self.disabled) or self.history_turns is not None
+        return bool(self.disabled) or self.history_turns is not None or self.model is not None
 
 
 # Executed only on the one worker. A runtime must own/open/close its connection
@@ -109,6 +118,18 @@ class UrlDocumentStore(Protocol):
 
 class StoredResultReader(Protocol):
     def __call__(self, session_id: str, turn_id: str) -> Result: ...
+
+
+class SessionCleaner(Protocol):
+    def __call__(self, session_id: str) -> None: ...
+
+
+#: What the runner's cleaner raises while another turn holds it. Only that waits for later.
+RUNNER_BUSY = "concurrent_runtime_refused"
+
+
+def _runner_busy(error: Exception) -> bool:
+    return isinstance(error, ValueError) and str(error) == RUNNER_BUSY
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,11 +170,32 @@ class _Session:
     documents: set[str] = field(default_factory=set)
     #: One cancel flag per admitted turn, read at the turn's checkpoints.
     cancels: dict[str, CancelToken] = field(default_factory=dict)
+    uploads_inflight: int = 0
 
 
 def answer_digest(text: str) -> str:
     """Identity of one shown answer, so a rating cannot drift onto a new one."""
     return hashlib.sha256(text.encode()).hexdigest()
+
+
+def _stored_message_status(
+    role: Literal["user", "assistant"], status: str | None
+) -> AnswerStatus | Literal["queued", "running", "completed", "failed"] | None:
+    """Project old/unknown rows safely without losing the surrounding conversation."""
+    if role == "user":
+        if status == "queued":
+            return "queued"
+        if status == "running":
+            return "running"
+        if status == "completed":
+            return "completed"
+        if status == "failed":
+            return "failed"
+        return None
+    try:
+        return AnswerStatus(status) if status is not None else None
+    except ValueError:
+        return None
 
 
 class AnalysisService:
@@ -162,7 +204,7 @@ class AnalysisService:
     Cancellation is explicit and cooperative (DEC-156): `cancel` raises a turn's
     flag and the turn stops at its next checkpoint, never mid-request.
 
-    Eight sessions, twenty-four turns each, one active turn globally. Admission
+    `MAX_SESSIONS` sessions, `MAX_TURNS` turns each, one active turn globally. Admission
     is atomic; capacity is checked before submitting to the executor, so its
     unbounded internal queue cannot accumulate application jobs.
     """
@@ -182,10 +224,13 @@ class AnalysisService:
         web_search: bool = False,
         web_url: bool = False,
         model: str | None = None,
+        models: tuple[str, ...] = (),
         stored_result: StoredResultReader | None = None,
+        session_cleanup: SessionCleaner | None = None,
     ):
         if mode not in ("kloudeks", "scripted"):
             raise ValueError("An explicit execution mode is required")
+        self._models = models
         self._runner = runner
         # Until the prepared workspace integration is supplied, explicit selection
         # fails closed. Never hand it to the old runner that cannot respect it.
@@ -204,16 +249,36 @@ class AnalysisService:
         self._web_search = web_search
         # Reading an address written in a question is the operator's switch too.
         self._web_url = web_url
-        # The planner model's name, for the page's connection badge; never a switch.
+        # Deployment default; a validated owner choice overrides it for subsequent turns.
         self._model = model
         # A published table read back from its receipt, after any restart.
         self._stored_result = stored_result
+        self._session_cleanup = session_cleanup
         self._mode = mode
         self._sessions: dict[str, _Session] = {}
+        #: Deleted conversations whose files could not be removed yet, because the
+        #: single runner was busy with another conversation's turn. Drained after
+        #: every turn and on shutdown; the rows stay hidden meanwhile (finding J-3).
+        self._pending_cleanup: set[str] = set()
         self._lock = threading.RLock()
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="kkb-analysis")
         self._busy = False
         self._closed = False
+
+    def _make_session_room(self, *, keep: str | None = None) -> None:
+        """Evict only an idle process-local handle; the owned store stays intact."""
+        if len(self._sessions) < MAX_SESSIONS:
+            return
+        if self._store is None:
+            raise ServiceError("capacity", 429)
+        for identity, session in self._sessions.items():
+            if identity == keep or session.cancels or session.uploads_inflight:
+                continue
+            if any(turn.state in ("queued", "running") for turn in session.turns.values()):
+                continue
+            del self._sessions[identity]
+            return
+        raise ServiceError("capacity", 429)
 
     def health(self) -> Health:
         with self._lock:
@@ -261,7 +326,12 @@ class AnalysisService:
         )
         turns = stored.get("history_turns")
         history = turns if isinstance(turns, int) and 0 <= turns <= MAX_HISTORY_TURNS else None
-        return TurnSettings(disabled=chosen, history_turns=history)
+        model = stored.get("model")
+        return TurnSettings(
+            disabled=chosen,
+            history_turns=history,
+            model=model if isinstance(model, str) and model in self._models else None,
+        )
 
     def settings(self, owner_token: str) -> RuntimeSettings:
         """What this deployment offers and what this browser switched off."""
@@ -277,6 +347,8 @@ class AnalysisService:
                 chosen.history_turns if chosen.history_turns is not None else MAX_HISTORY_TURNS
             ),
             max_history_turns=MAX_HISTORY_TURNS,
+            models=self._models,
+            model=chosen.model or self._model,
         )
 
     def update_settings(self, owner_token: str, update: SettingsUpdate) -> RuntimeSettings:
@@ -288,6 +360,9 @@ class AnalysisService:
             if self._store is None:  # pragma: no cover - _owner refuses without a store
                 raise ServiceError("unavailable", 503)
             current = self._settings_of(owner)
+            if update.model is not None and update.model not in self._models:
+                raise ServiceError("invalid_request", 422)
+            model = update.model if update.model is not None else current.model
             offered = set(self._restrictable())
             if update.disabled is not None and not set(update.disabled) <= offered:
                 # Nothing outside what the operator enabled can be named at all,
@@ -306,6 +381,7 @@ class AnalysisService:
                     owner,
                     {
                         "disabled": sorted(disabled),
+                        **({} if model is None else {"model": model}),
                         **({} if history is None else {"history_turns": history}),
                     },
                 )
@@ -327,8 +403,7 @@ class AnalysisService:
         with self._lock:
             if self._closed:
                 raise ServiceError("unavailable", 503)
-            if len(self._sessions) >= MAX_SESSIONS:
-                raise ServiceError("capacity", 429)
+            self._make_session_room()
             session_id, token = uuid4().hex, secrets.token_urlsafe(32)
             if self._store is not None:
                 owner = self._store.owner_by_token(owner_token) if owner_token else None
@@ -351,11 +426,16 @@ class AnalysisService:
     def _owned(self, session_id: str, token: str) -> _Session:
         if self._closed:
             raise ServiceError("unavailable", 503)
+        if self._store is not None and self._store.conversation(session_id) is None:
+            raise ServiceError("not_found", 404)
         session = self._sessions.get(session_id)
         supplied = hashlib.sha256(token.encode()).digest()
         expected = session.token_digest if session else bytes(32)
         valid = secrets.compare_digest(supplied, expected)
         if session is not None and valid:
+            # Dict insertion order is the idle-handle LRU; access refreshes recency.
+            self._sessions.pop(session_id)
+            self._sessions[session_id] = session
             return session
         # After a restart the conversation is in the store, not in memory: its own
         # token or its owner's key reopens it, an id on its own never does.
@@ -363,7 +443,11 @@ class AnalysisService:
             session_id, token=token, owner_token=token
         ):
             if session is None:
+                self._make_session_room(keep=session_id)
                 session = _Session(bytes(32))
+                self._sessions[session_id] = session
+            else:
+                self._sessions.pop(session_id)
                 self._sessions[session_id] = session
             for document in self._store.documents(session_id):
                 session.documents.add(document.document_ref)
@@ -410,19 +494,50 @@ class AnalysisService:
             )
         )
 
+    def trace_conversations(
+        self, owner_token: str, *, archived: bool = False, search: str | None = None
+    ) -> TraceConversationList:
+        """Owner-only trace index, including deleted chats that retain runs."""
+        owner = self._owner(owner_token)
+        if self._store is None:  # pragma: no cover - _owner refuses without a store
+            raise ServiceError("unavailable", 503)
+        return TraceConversationList(
+            conversations=tuple(
+                TraceConversationSummary(
+                    conversation_id=item.conversation_id,
+                    title=item.title,
+                    archived=item.archived,
+                    created_at=item.created_at,
+                    updated_at=item.updated_at,
+                    turns=self._store.turn_count(item.conversation_id),
+                    deleted=deleted,
+                )
+                for item, deleted in self._store.list_trace_conversations(
+                    owner, archived=archived, search=search
+                )
+            )
+        )
+
     def conversation(self, session_id: str, token: str) -> ConversationDetail:
         summary = self._reading(session_id, token)
         if self._store is None:  # pragma: no cover - _reading refuses without a store
             raise ServiceError("unavailable", 503)
+        pending = self._store.pending_clarification(session_id) or {}
+        offered = pending.get("offered")
         return ConversationDetail(
             conversation=summary,
+            pending_offered=tuple(
+                item[:240]
+                for item in (offered if isinstance(offered, list) else [])
+                if isinstance(item, str) and item.strip()
+            )[:12],
             messages=tuple(
                 StoredMessage(
                     sequence=message.sequence,
                     turn_id=message.turn_id,
                     role=message.role,
                     text=message.text,
-                    status=AnswerStatus(message.status) if message.status else None,
+                    status=_stored_message_status(message.role, message.status),
                     result_ref=message.result_ref,
                     result_version=message.result_version,
                     document_ref=message.document_ref,
@@ -460,15 +575,38 @@ class AnalysisService:
 
     def runs(self, session_id: str, token: str) -> RunList:
         """Every run of this conversation, newest first; opening one runs nothing."""
-        self._reading(session_id, token)
+        self._trace_access(session_id, token)
         if self._store is None:  # pragma: no cover - _reading refuses without a store
             raise ServiceError("unavailable", 503)
-        return RunList(
-            runs=tuple(self._run_summary(item, events=0) for item in self._store.runs(session_id))
+        summaries: list[RunSummary] = []
+        for item in self._store.runs(session_id):
+            try:
+                summaries.append(self._run_summary(item, events=item.events))
+            except ValidationError:
+                # Preserve the row in SQLite, but do not let one damaged legacy
+                # contract make every other run unreadable.
+                continue
+        return RunList(runs=tuple(summaries))
+
+    def run_progress(self, session_id: str, run_id: str, token: str) -> RunProgress:
+        """Where a run is now, for a view that polls: status and the newest step."""
+        self._trace_access(session_id, token)
+        if self._store is None:  # pragma: no cover - _trace_access refuses without a store
+            raise ServiceError("unavailable", 503)
+        found = self._store.run_of(session_id, run_id)
+        if found is None:
+            raise ServiceError("not_found", 404)
+        last = self._store.last_event(run_id)
+        return RunProgress(
+            run_id=found.run_id,
+            status=found.status,  # type: ignore[arg-type]
+            steps=last[0] if last else 0,
+            stage=last[1] if last else None,
+            name=last[2] if last else None,
         )
 
     def run(self, session_id: str, run_id: str, token: str) -> RunDetail:
-        self._reading(session_id, token)
+        self._trace_access(session_id, token)
         if self._store is None:  # pragma: no cover - _reading refuses without a store
             raise ServiceError("unavailable", 503)
         found = self._store.run_of(session_id, run_id)
@@ -494,7 +632,7 @@ class AnalysisService:
 
     def run_step(self, session_id: str, run_id: str, sequence: int, token: str) -> TraceStepFull:
         """One step's recorded text in full: every prompt, output and tool return."""
-        self._reading(session_id, token)
+        self._trace_access(session_id, token)
         if self._store is None:  # pragma: no cover - _reading refuses without a store
             raise ServiceError("unavailable", 503)
         if self._store.run_of(session_id, run_id) is None:
@@ -508,6 +646,14 @@ class AnalysisService:
 
     @staticmethod
     def _run_summary(item: StoredRun, *, events: int) -> RunSummary:
+        # Historical stores may contain exception prose (including provider
+        # details). Never return it or let one row invalidate the entire list.
+        if item.error is None or item.error in RUN_ERROR_CODES:
+            error = item.error
+        elif item.error.startswith(("ProviderError", "TransportError")):
+            error = "provider_failed"
+        else:
+            error = "internal_error"
         return RunSummary.model_validate(
             {
                 "run_id": item.run_id,
@@ -515,7 +661,7 @@ class AnalysisService:
                 "question": item.question,
                 "status": item.status,
                 "answer_status": item.answer_status,
-                "error": item.error,
+                "error": error,
                 "result_ref": item.result_ref,
                 "duration_ms": item.duration_ms,
                 "started_at": item.started_at,
@@ -590,6 +736,88 @@ class AnalysisService:
         self._store.update_conversation(session_id, title=update.title, archived=update.archived)
         return self._reading(session_id, token)
 
+    def _trace_access(self, session_id: str, token: str) -> None:
+        """A deleted chat is closed normally, but its retained traces stay owned."""
+        if self._store is None:
+            raise ServiceError("unavailable", 503)
+        if not self._store.opens(session_id, token=token, owner_token=token, include_deleted=True):
+            raise ServiceError("not_found", 404)
+
+    def _clean_deleted(self, session_id: str) -> None:
+        """Called only after the analysis and any upload for this session have stopped."""
+        if self._store is None:
+            return
+        if self._session_cleanup is not None:
+            self._session_cleanup(session_id)
+        self._store.clear_session_artifacts(session_id)
+        self._sessions.pop(session_id, None)
+
+    def _drain_deleted(self) -> None:
+        """Remove the files of conversations deleted while the runner was busy."""
+        with self._lock:
+            waiting = tuple(self._pending_cleanup)
+        for identity in waiting:
+            try:
+                self._clean_deleted(identity)
+            except Exception:
+                # Still busy or still failing: the row stays hidden and the next
+                # turn (or shutdown) tries again. A category, never a path.
+                logging.getLogger(__name__).warning("deleted_session_cleanup_failed")
+                continue
+            with self._lock:
+                self._pending_cleanup.discard(identity)
+
+    def delete_conversation(self, session_id: str, owner_token: str) -> bool:
+        """Owner-key-only soft delete. Running work is cancelled and cleaned on exit."""
+        with self._lock:
+            if self._store is None:
+                raise ServiceError("unavailable", 503)
+            if self._session_cleanup is None:
+                # A deletion cannot succeed while leaving upload/lakehouse files
+                # behind merely because a caller omitted the cleanup binding.
+                raise ServiceError("unavailable", 503)
+            if not self._store.opens(
+                session_id, token=None, owner_token=owner_token, include_deleted=True
+            ):
+                raise ServiceError("not_found", 404)
+            session = self._sessions.get(session_id)
+            if session is not None and session.uploads_inflight:
+                raise ServiceError("busy", 409)
+            self._store.soft_delete(session_id)
+            if session is not None:
+                for flag in session.cancels.values():
+                    flag.cancel()
+                if session.cancels:
+                    return True
+            try:
+                self._clean_deleted(session_id)
+            except Exception as error:
+                if not _runner_busy(error):
+                    # A refused path (a link out of the runtime root, something that is
+                    # not a directory) is not a busy runner: nothing is removed, nothing
+                    # is queued to be tried again, and the caller is not told it worked.
+                    raise ServiceError("unavailable", 503) from None
+                # The conversation is already hidden and its runs are kept. A runner
+                # busy with another conversation's turn is not a reason to report
+                # failure and hand back a chat the person cannot see any more: finish
+                # the removal later.
+                self._pending_cleanup.add(session_id)
+            return True
+
+    def delete_runs(self, session_id: str, owner_token: str) -> int:
+        """A separate, irreversible owner-only action; soft deletion never calls it."""
+        with self._lock:
+            if self._store is None:
+                raise ServiceError("unavailable", 503)
+            if not self._store.opens(
+                session_id, token=None, owner_token=owner_token, include_deleted=True
+            ):
+                raise ServiceError("not_found", 404)
+            session = self._sessions.get(session_id)
+            if session is not None and session.cancels:
+                raise ServiceError("busy", 409)
+            return self._store.delete_runs(session_id)
+
     def admit_document(
         self, session_id: str, token: str, media_type: str, content: bytes
     ) -> DocumentAdmitted:
@@ -603,9 +831,14 @@ class AnalysisService:
                 raise ServiceError("unavailable", 503)
             if len(session.documents) >= MAX_DOCUMENTS:
                 raise ServiceError("capacity", 429)
-        admitted = DocumentAdmitted.model_validate(
-            self._document_store(session_id, media_type, content).model_dump()
-        )
+            session.uploads_inflight += 1
+        try:
+            admitted = DocumentAdmitted.model_validate(
+                self._document_store(session_id, media_type, content).model_dump()
+            )
+        finally:
+            with self._lock:
+                session.uploads_inflight -= 1
         with self._lock:
             session = self._owned(session_id, token)
             session.documents.add(admitted.document_ref)
@@ -626,9 +859,14 @@ class AnalysisService:
                 raise ServiceError("unavailable", 503)
             if len(session.documents) >= MAX_DOCUMENTS:
                 raise ServiceError("capacity", 429)
-        admitted = DocumentAdmitted.model_validate(
-            self._url_document_store(session_id, url).model_dump()
-        )
+            session.uploads_inflight += 1
+        try:
+            admitted = DocumentAdmitted.model_validate(
+                self._url_document_store(session_id, url).model_dump()
+            )
+        finally:
+            with self._lock:
+                session.uploads_inflight -= 1
         with self._lock:
             session = self._owned(session_id, token)
             session.documents.add(admitted.document_ref)
@@ -661,7 +899,9 @@ class AnalysisService:
             if question.document_ref is not None and question.document_ref not in session.documents:
                 # Unknown, foreign and never-admitted references are indistinguishable.
                 raise ServiceError("invalid_document", 422)
-            if len(session.turns) >= MAX_TURNS:
+            if len(session.turns) >= MAX_TURNS or (
+                self._store is not None and self._store.turn_count(session_id) >= MAX_TURNS
+            ):
                 raise ServiceError("capacity", 429)
             if self._busy:
                 raise ServiceError("busy", 409)
@@ -677,6 +917,15 @@ class AnalysisService:
             cancel = session.cancels[turn_id] = CancelToken()
             self._busy = True
             try:
+                if self._store is not None:
+                    self._store.append_message(
+                        session_id,
+                        turn_id=turn_id,
+                        role="user",
+                        text=question.question,
+                        status="queued",
+                        document_ref=question.document_ref,
+                    )
                 self._executor.submit(
                     self._run,
                     session_id,
@@ -687,7 +936,7 @@ class AnalysisService:
                     question.document_ref,
                     cancel,
                 )
-            except RuntimeError:
+            except Exception:
                 self._busy = False
                 del session.turns[turn_id]
                 del session.requests[question.request_id]
@@ -801,6 +1050,10 @@ class AnalysisService:
         error: ErrorCode | None = None
         try:
             self._transition(session_id, turn_id, "running", start)
+            if self._store is not None:
+                self._store.append_message(
+                    session_id, turn_id=turn_id, role="user", text=question, status="running"
+                )
             checkpoint("start")
             chosen = self._session_settings(session_id)
             extra: dict[str, object] = {"is_continuation": is_continuation}
@@ -848,6 +1101,17 @@ class AnalysisService:
                 )
                 self._busy = False
                 self._sessions[session_id].cancels.pop(turn_id, None)
+                if self._store is not None:
+                    self._store.append_message(
+                        session_id,
+                        turn_id=turn_id,
+                        role="user",
+                        text=question,
+                        status="failed" if error else "completed",
+                    )
+                if self._store is not None and self._store.is_deleted(session_id):
+                    self._pending_cleanup.add(session_id)
+                self._drain_deleted()
 
     def close(self) -> None:
         with self._lock:
@@ -855,3 +1119,5 @@ class AnalysisService:
         # Wait for the already admitted bounded provider call; do not claim that
         # a thread can be cancelled safely. No submitted question is retried.
         self._executor.shutdown(wait=True, cancel_futures=False)
+        # The runner is idle now, so a removal deferred by a busy turn can finish.
+        self._drain_deleted()

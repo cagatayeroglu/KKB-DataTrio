@@ -9,7 +9,8 @@ old aggregate would no longer describe the result.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import re
+from collections.abc import Collection, Hashable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from math import isfinite
@@ -25,6 +26,7 @@ from kkb_agent.core import (
     StockFlow,
     TransformationRecord,
 )
+from kkb_agent.lakehouse.periods import daily_steps
 
 REBASE_METHOD: Final = "rebase-index-v1"
 ALIGN_METHOD: Final = "align-exact-periods-v1"
@@ -42,6 +44,27 @@ INDEX_POINT: Final = "index point"
 ChangeKind = Literal["difference", "percent"]
 
 PeriodKey = tuple[date, date, Frequency, str | None]
+
+
+#: A month written as YYYY-MM inside a warning, which is how every warning here
+#: names a period it is about.
+_NAMED_MONTH: Final = re.compile(r"\b(\d{4})-(0[1-9]|1[0-2])\b")
+
+
+def names_only_excluded_months(warning: str, coverage: Period) -> bool:
+    """Whether a warning names months and this coverage holds none of them.
+
+    A table filtered to 2025 kept carrying "1 month(s) not yet ended at retrieval
+    were left out" about September 2026, and so did every change computed from it,
+    which read as a limitation of the answer it was not (finding L2-4). A warning
+    that names no month says nothing about a range and always travels.
+    """
+    months = [date(int(year), int(month), 1) for year, month in _NAMED_MONTH.findall(warning)]
+    if not months:
+        return False
+    first = coverage.start.replace(day=1)
+    last = coverage.end.replace(day=1)
+    return all(month < first or month > last for month in months)
 
 
 class TableShapeRefused(ValueError):
@@ -81,6 +104,24 @@ def _key(value: ResultValue) -> PeriodKey:
     return period.start, period.end, period.frequency, anchor
 
 
+def table_columns(cells: Mapping[str, Collection[Hashable]]) -> set[str]:
+    """Which labels, each with the periods it holds, are the columns of a period table.
+
+    A label with two or more periods is a column. A label with one period beside such
+    columns is a metric about the table - a total, a latest value - and not a row of
+    it. When no label has two, the labels form a one-row table only if they all hold
+    the same single period: each is then a column of that row. Two tables of one
+    month each were refused as having no rows, so a same-month join or a filter of a
+    one-month table could not be made at all (QA-36). Single cells on different
+    periods say no row, and nothing is made of them.
+    """
+    several = {label for label, held in cells.items() if len(held) >= 2}
+    if several:
+        return several
+    periods = {next(iter(held)) for held in cells.values() if len(held) == 1}
+    return set(cells) if len(periods) == 1 else set()
+
+
 def _period_columns(source: AnalyticalResult) -> tuple[dict[str, set[PeriodKey]], Frequency, int]:
     # Selecting existing cells reads periods only. A column whose unit a document
     # did not state stays unresolved and travels with the table; it is not a
@@ -100,10 +141,14 @@ def _period_columns(source: AnalyticalResult) -> tuple[dict[str, set[PeriodKey]]
         if key in cells:
             raise TableShapeRefused("The source table has duplicate column-period values")
         cells.add(key)
-    columns = {label: cells for label, cells in raw.items() if len(cells) >= 2}
-    non_period += sum(len(cells) for cells in raw.values() if len(cells) < 2)
+    kept = table_columns(raw)
+    columns = {label: cells for label, cells in raw.items() if label in kept}
+    non_period += sum(len(cells) for label, cells in raw.items() if label not in kept)
     if not columns:
-        raise TableShapeRefused("The source contains no period table with at least two rows")
+        raise TableShapeRefused(
+            "The source contains no period table: no column holds two periods, and its "
+            "single cells do not share one period"
+        )
     frequencies = {key[2] for cells in columns.values() for key in cells}
     if len(frequencies) != 1:
         raise TableShapeRefused("The source table mixes period frequencies; convert them first")
@@ -197,9 +242,8 @@ def rebase_index(
 def _steps_apart(earlier: Period, later: Period) -> int | None:
     """How many reporting periods separate two cells, or None when the calendar cannot say.
 
-    A trading-day or irregular column has no fixed spacing, so its predecessor is the
-    previous observation; every other frequency must be exactly `lag` periods apart, and a
-    gap is left empty rather than bridged.
+    DAILY counts calendar days; BUSINESS_DAY counts weekdays, without inventing
+    holiday closures. Only an explicitly irregular column uses previous observation.
     """
     months = (later.end.year - earlier.end.year) * 12 + (later.end.month - earlier.end.month)
     days = (later.end - earlier.end).days
@@ -214,8 +258,34 @@ def _steps_apart(earlier: Period, later: Period) -> int | None:
         return later.end.year - earlier.end.year
     if frequency is Frequency.WEEKLY:
         return days // 7 if days % 7 == 0 else -1
-    if frequency is Frequency.DAILY:
-        return days
+    if frequency in (Frequency.DAILY, Frequency.BUSINESS_DAY):
+        return daily_steps(frequency, earlier.end, later.end)
+    return None
+
+
+def _predecessor(
+    ordered: Sequence[tuple[ResultValue, Period]],
+    position: int,
+    outside: Sequence[tuple[ResultValue, Period]],
+    lag: int,
+) -> tuple[ResultValue, bool] | None:
+    """The value `lag` calendar steps before a cell, and whether the store supplied it.
+
+    Where the calendar cannot count steps (an irregular column), the row `lag` above is
+    the predecessor, as it always was.
+    """
+    _, period = ordered[position]
+    for earlier, earlier_period in reversed(ordered[:position]):
+        apart = _steps_apart(earlier_period, period)
+        if apart is None:
+            return (ordered[position - lag][0], False) if position >= lag else None
+        if apart == lag:
+            return earlier, False
+        if apart > lag:
+            break
+    for earlier, earlier_period in outside:
+        if _steps_apart(earlier_period, period) == lag:
+            return earlier, True
     return None
 
 
@@ -225,14 +295,23 @@ def period_change(
     column_label: str,
     kind: ChangeKind,
     lag: int = 1,
+    preceding: Sequence[ResultValue] = (),
 ) -> ChangedColumn:
     """Add the period-over-period change of one column; every existing cell is kept.
 
     `difference` is value[t] - value[t-lag] in the column's own unit (points for a rate or
     an index); `percent` is (value[t] / value[t-lag] - 1) * 100 and needs a positive
     predecessor, so it is refused for a rate (its change is read in points) and left empty
-    where the predecessor is zero or negative. A period whose predecessor is missing - the
-    first `lag` rows, or the row after a gap - gets no value: nothing is bridged.
+    where the predecessor is zero or negative.
+
+    Each period's predecessor is the period `lag` steps before it on the calendar, never
+    merely the row above it: a table of three separate months does not subtract one from
+    another. It is taken from the table, else from `preceding` — the same series' own
+    values the caller read from the store, in the column's unit, scale, measure and
+    calendar — and a value read that way completes a change and is never a row of its own.
+    So a window of 2021-2025 answers for January 2021 from December 2020, and a table of
+    three chosen months compares each with its own previous month (B1, 2026-09-23). A
+    period whose predecessor is in neither gets no value: nothing is bridged.
 
     A column whose unit a document did not state is still a column of numbers: its percent
     change is a plain percentage, and its difference carries the same unresolved unit the
@@ -245,7 +324,7 @@ def period_change(
     column = [value for value in source.values if value.label == column_label]
     if not column:
         raise TableShapeRefused(f"No values are labelled {column_label!r}")
-    if len(column) <= lag:
+    if len(column) <= lag and not preceding:
         raise TableShapeRefused(
             f"{column_label} has too few rows for a change over {lag} period(s)"
         )
@@ -289,17 +368,28 @@ def period_change(
     else:
         unit, scale, measure = first.unit, first.scale, first.measure
     ordered = sorted(cells, key=lambda cell: cell[1].end)
+    frequency = next(iter(frequencies))
+    held = {period.end for _, period in ordered}
+    outside = [
+        (value, value.period)
+        for value in preceding
+        if value.period is not None
+        and value.period.frequency is frequency
+        and value.period.end not in held
+        and (value.unit, value.scale, value.measure) == (first.unit, first.scale, first.measure)
+        and isfinite(value.value)
+    ]
     changed: list[ResultValue] = []
-    gaps = 0
+    missing = 0
+    from_store = 0
     undefined = 0
-    for position, (value, period) in enumerate(ordered):
-        if position < lag:
+    for position, (value, _period) in enumerate(ordered):
+        found = _predecessor(ordered, position, outside, lag)
+        if found is None:
+            missing += 1
             continue
-        earlier, earlier_period = ordered[position - lag]
-        apart = _steps_apart(earlier_period, period)
-        if apart is not None and apart != lag:
-            gaps += 1
-            continue
+        earlier, stored = found
+        from_store += stored
         if kind == "percent":
             if earlier.value <= 0:
                 undefined += 1
@@ -335,8 +425,10 @@ def period_change(
             "column": column_label,
             "kind": kind,
             "lag": lag,
-            "periods_without_predecessor": lag + gaps,
+            "periods_without_predecessor": missing,
+            "predecessors_read_from_store": from_store,
             "periods_with_nonpositive_predecessor": undefined,
+            "predecessor": "the period lag steps earlier on the calendar",
             "fill": "none",
         },
         input_refs=[source.result_id, column_label],
@@ -407,17 +499,24 @@ def filter_periods(
     *,
     start_period: date | None,
     end_period: date | None,
+    columns: Sequence[str] | None = None,
 ) -> ShapedTable:
-    """Keep existing cells whose period end is inside an explicit inclusive range."""
+    """Keep selected existing columns inside an explicit inclusive period range."""
     named, frequency, non_period = _period_columns(source)
     if start_period is None and end_period is None:
         raise TableShapeRefused("Period filtering needs a start_period or end_period")
     if start_period is not None and end_period is not None and start_period > end_period:
         raise TableShapeRefused("start_period must not be after end_period")
+    selected = tuple(columns) if columns is not None else tuple(named)
+    if not selected or len(selected) != len(set(selected)):
+        raise TableShapeRefused("Filter columns must be a non-empty list of distinct labels")
+    missing = [label for label in selected if label not in named]
+    if missing:
+        raise TableShapeRefused(f"Filter columns are absent: {', '.join(missing)}")
     values = tuple(
         value
         for value in source.values
-        if value.label in named
+        if value.label in selected
         and value.period is not None
         and (start_period is None or value.period.end >= start_period)
         and (end_period is None or value.period.end <= end_period)
@@ -431,6 +530,7 @@ def filter_periods(
             "predicate": "period_end_inclusive",
             "start_period": start_period.isoformat() if start_period is not None else None,
             "end_period": end_period.isoformat() if end_period is not None else None,
+            "columns": list(selected),
             "period_rows": len(kept_periods),
             "dropped_non_period_values": non_period,
         },

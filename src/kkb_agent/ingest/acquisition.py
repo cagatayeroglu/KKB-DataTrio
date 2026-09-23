@@ -7,9 +7,9 @@ parse and store it. This module is the bridge, and it adds no authority those
 adapters did not already have:
 
 * Only an identity with a reviewed route reaches transport: `EVDS:<code>` for a
-  code in `evds_series.REVIEWED_SERIES`, or a BDDK selector id whose selector is
-  in the reviewed monthly housing scope. The model never supplies an endpoint, a
-  code outside those registries, a window or a header.
+  code in `evds_series.REVIEWED_SERIES`, or a BDDK selector id whose selector the
+  monthly or the weekly bulletin adapter accepts. The model never supplies an
+  endpoint, a code outside those registries, a window or a header.
 * Windows are the operator's fixed policy, not the question's: silver keeps one
   immutable batch per series, so a window chosen per question would make the
   next question's fetch a version conflict.
@@ -42,12 +42,23 @@ from typing import TYPE_CHECKING, Final, Protocol
 
 from kkb_agent.catalog.inspection import PreparedSeriesInspector, SeriesInspection
 from kkb_agent.core import Frequency
+from kkb_agent.ingest.bddk_finturk import supported_finturk_selectors
+from kkb_agent.ingest.bddk_finturk_load import FinturkLoadCode, FinturkLoadError, ingest_finturk
+from kkb_agent.ingest.bddk_finturk_request import (
+    FIRST_QUARTER,
+    FinturkRequest,
+    fetch_finturk,
+)
 from kkb_agent.ingest.bddk_monthly import BddkSelector, MonthlyPeriod, supported_selectors
 from kkb_agent.ingest.bddk_monthly_load import MonthlyLoadCode, MonthlyLoadError, ingest_monthly
 from kkb_agent.ingest.bddk_monthly_request import MonthlyRange, MonthlyRequest, fetch_monthly
+from kkb_agent.ingest.bddk_weekly import supported_weekly_selectors
+from kkb_agent.ingest.bddk_weekly_load import WeeklyLoadCode, WeeklyLoadError, ingest_weekly
+from kkb_agent.ingest.bddk_weekly_request import FIRST_WEEK, WeeklyRequest, fetch_weekly
 from kkb_agent.ingest.evds_load import EvdsLoadCode, EvdsLoadError, ingest_series
 from kkb_agent.ingest.evds_request import EvdsRequest, EvdsWindow, fetch_series
 from kkb_agent.ingest.evds_series import REVIEWED_SERIES, ReviewedEvdsSeries
+from kkb_agent.ingest.prepared_series import prepared_series_window
 from kkb_agent.ingest.safe_fetch import FetchCode, FetchFailure, FetchOutcome, FetchSuccess
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -58,15 +69,21 @@ if TYPE_CHECKING:  # pragma: no cover
 EVDS_PREFIX: Final = "EVDS:"
 #: Years of EVDS history one acquisition covers, ending at the clock's date.
 WINDOW_YEARS: Final = 10
-#: First month of BDDK bulletin an acquisition covers (one request per month): the start of
-#: the period the product is prepared for (DEC-137), so a fetched series spans what the
-#: prepared ones span. Two years (the first policy) answered "2021-2025" with half the years.
-BDDK_FIRST_MONTH: Final = (2021, 1)
+#: First month of BDDK bulletin an acquisition covers (one request per month): one month
+#: before the period the product is prepared for (DEC-137), so a fetched series spans what
+#: the prepared ones span and the first prepared month still has a predecessor. Two years
+#: (the first policy) answered "2021-2025" with half the years; starting at 2021-01 (the
+#: second) answered "each month's own amount over 2021-2025" without 2021-01, because a
+#: stock's first change needs the month before the window (live 2026-09-22).
+BDDK_FIRST_MONTH: Final = (2020, 12)
 #: The request contract's own ceiling; the window never asks for more months than this.
 BDDK_MAX_MONTHS: Final = 120
-#: Months before the clock's month the BDDK window ends. The bulletin is published
-#: with a lag; a month not yet published would fail the whole batch, never fill it.
-BDDK_LAG_MONTHS: Final = 3
+#: Months before the clock's month the BDDK window ends. The bulletin is published with a
+#: lag that moves by weeks, so the window asks up to last month and the loader leaves out
+#: the newest months the bulletin answers "not yet" (`MAX_UNPUBLISHED`). It was 3, which
+#: on 2026-09-23 stopped at 2026/6 although 2026/7 had been published: a question about
+#: July was told the store holds nothing after June.
+BDDK_LAG_MONTHS: Final = 1
 #: Listed calendars whose window runs to the clock's day instead of the last whole month.
 _DATED_TO_TODAY: Final = frozenset({Frequency.DAILY, Frequency.BUSINESS_DAY, Frequency.WEEKLY})
 #: Acquisitions one turn may start. Each is live traffic to a public source, so there is a
@@ -216,8 +233,35 @@ def reviewed_selector(series_id: str) -> BddkSelector | None:
     return ROUTED_SELECTORS.get(series_id)
 
 
+#: Every selector the weekly adapter accepts, by catalogue id (DEC-182).
+ROUTED_WEEKLY_SELECTORS: Final = {
+    selector.internal_id(): selector for selector in supported_weekly_selectors()
+}
+
+
+def weekly_selector(series_id: str) -> BddkSelector | None:
+    """The weekly selector a catalogue id names, when the adapter accepts it."""
+    return ROUTED_WEEKLY_SELECTORS.get(series_id)
+
+
+#: Every selector the FinTürk adapter accepts, by catalogue id (DEC-184).
+ROUTED_FINTURK_SELECTORS: Final = {
+    selector.internal_id(): selector for selector in supported_finturk_selectors()
+}
+
+
+def finturk_selector(series_id: str) -> BddkSelector | None:
+    """The FinTürk selector a catalogue id names, when the adapter accepts it."""
+    return ROUTED_FINTURK_SELECTORS.get(series_id)
+
+
 def has_reviewed_route(series_id: str) -> bool:
-    return reviewed_code(series_id) is not None or reviewed_selector(series_id) is not None
+    return (
+        reviewed_code(series_id) is not None
+        or reviewed_selector(series_id) is not None
+        or weekly_selector(series_id) is not None
+        or finturk_selector(series_id) is not None
+    )
 
 
 class _Fingerprinted(Protocol):
@@ -270,7 +314,14 @@ class AcquisitionStore:
                     )
             outcome = retrieve(request)
             source.append(True)
-            if isinstance(outcome, FetchSuccess) and outcome.effective_locator is None:
+            # A reply that only says "not yet" answers today, not the request: kept, the
+            # month would stay unpublished for every later turn after it appeared.
+            keepable = getattr(request, "keepable", None)
+            if (
+                isinstance(outcome, FetchSuccess)
+                and outcome.effective_locator is None
+                and (keepable is None or keepable(outcome.content))
+            ):
                 with self._lock:
                     path.write_text(
                         json.dumps(
@@ -321,6 +372,8 @@ class OfficialSources:
 
     evds: Callable[[EvdsRequest], FetchOutcome] = fetch_series
     bddk: Callable[[MonthlyRequest], FetchOutcome] = fetch_monthly
+    bddk_weekly: Callable[[WeeklyRequest], FetchOutcome] = fetch_weekly
+    bddk_finturk: Callable[[FinturkRequest], FetchOutcome] = fetch_finturk
     store: AcquisitionStore | None = None
     #: The wait before a transient failure is asked again; a test passes a no-op.
     pause: Callable[[float], None] = time.sleep
@@ -349,14 +402,20 @@ class TurnAcquirer:
         if tried is not None:
             return tried  # One attempt per series per turn, whatever it returned.
         code, selector = reviewed_code(series_id), reviewed_selector(series_id)
+        weekly = weekly_selector(series_id)
+        finturk = finturk_selector(series_id)
         listed = (
             self.sources.listed_evds(series_id)
-            if code is None and selector is None and self.sources.listed_evds is not None
+            if code is None
+            and selector is None
+            and weekly is None
+            and finturk is None
+            and self.sources.listed_evds is not None
             else None
         )
         if listed is not None:
             code = listed.code
-        if code is None and selector is None:
+        if code is None and selector is None and weekly is None and finturk is None:
             outcome = Acquisition(
                 series_id,
                 AcquisitionCode.NO_REVIEWED_ROUTE,
@@ -370,11 +429,14 @@ class TurnAcquirer:
             )
         else:
             try:
-                outcome = (
-                    self._evds(series_id, code, listed)
-                    if code is not None
-                    else self._bddk(series_id, selector)  # type: ignore[arg-type]
-                )
+                if code is not None:
+                    outcome = self._evds(series_id, code, listed)
+                elif selector is not None:
+                    outcome = self._bddk(series_id, selector)
+                elif weekly is not None:
+                    outcome = self._bddk_weekly(series_id, weekly)
+                else:
+                    outcome = self._bddk_finturk(series_id, finturk)  # type: ignore[arg-type]
             except ValueError:
                 # A window or request the reviewed contract refuses is a refusal, never
                 # a crash in the middle of a turn.
@@ -462,6 +524,69 @@ class TurnAcquirer:
             from_store=bool(calls) and not any(calls),
         )
 
+    def _bddk_weekly(self, series_id: str, selector: BddkSelector) -> Acquisition:
+        """Every week from `FIRST_WEEK` to the latest the source has published by today."""
+        calls = self._live()
+        asked = patient(self.sources.bddk_weekly, self.sources.pause)
+        retrieve = (
+            self.sources.store.cached(asked, calls)  # type: ignore[arg-type]
+            if self.sources.store is not None
+            else asked
+        )
+        try:
+            loaded = ingest_weekly(self.lake, selector, self.today, retrieve=retrieve)
+        except WeeklyLoadError as error:
+            return Acquisition(
+                series_id,
+                AcquisitionCode.RETRIEVAL_FAILED
+                if error.code is WeeklyLoadCode.RETRIEVAL_FAILED
+                else AcquisitionCode.REFUSED,
+                window_start=FIRST_WEEK,
+                window_end=self.today,
+                detail=error.code.value,
+            )
+        return Acquisition(
+            series_id,
+            AcquisitionCode.ALREADY_PRESENT if loaded.already_present else AcquisitionCode.ACQUIRED,
+            observations=loaded.weeks,
+            missing_values=loaded.missing_values,
+            window_start=loaded.first_week,
+            window_end=loaded.last_week,
+            from_store=bool(calls) and not any(calls),
+        )
+
+    def _bddk_finturk(self, series_id: str, selector: BddkSelector) -> Acquisition:
+        """Every quarter from `FIRST_QUARTER` to the newest the source has published."""
+        calls = self._live()
+        asked = patient(self.sources.bddk_finturk, self.sources.pause)
+        retrieve = (
+            self.sources.store.cached(asked, calls)  # type: ignore[arg-type]
+            if self.sources.store is not None
+            else asked
+        )
+        first = date(FIRST_QUARTER[0], FIRST_QUARTER[1] - 2, 1)
+        try:
+            loaded = ingest_finturk(self.lake, selector, self.today, retrieve=retrieve)
+        except FinturkLoadError as error:
+            return Acquisition(
+                series_id,
+                AcquisitionCode.RETRIEVAL_FAILED
+                if error.code is FinturkLoadCode.RETRIEVAL_FAILED
+                else AcquisitionCode.REFUSED,
+                window_start=first,
+                window_end=self.today,
+                detail=error.code.value,
+            )
+        return Acquisition(
+            series_id,
+            AcquisitionCode.ALREADY_PRESENT if loaded.already_present else AcquisitionCode.ACQUIRED,
+            observations=loaded.quarters,
+            missing_values=loaded.missing_values,
+            window_start=first,
+            window_end=loaded.last_quarter,
+            from_store=bool(calls) and not any(calls),
+        )
+
 
 class AcquiringInspector(PreparedSeriesInspector):
     """The prepared inspector, plus one fetch for a reviewed series not yet stored.
@@ -503,3 +628,26 @@ class AcquiringInspector(PreparedSeriesInspector):
         if not self._acquirer.acquire(series_id).stored:
             return found
         return self._inner.inspect(connection, series_id)
+
+    def refresh(self, connection: DuckDBPyConnection, series_id: str, until: date | None) -> None:
+        """Fetch once more a stored BDDK monthly series a read wants past its last month.
+
+        A stored series was only ever fetched when it was not stored at all, so the months
+        the bulletin published after it was stored never arrived: live 2026-09-23 a
+        question to August was answered from a series ending in June, with July published.
+        A read that asks past the stored end - or for the latest periods (`until` None) -
+        tries the source once in the turn; what is stored stays as it is, and a newly
+        published month is added only if every stored month is unchanged.
+        """
+        if reviewed_selector(series_id) is None:
+            return
+        stored = prepared_series_window(connection).get(series_id)
+        if stored is None:
+            return
+        last = bddk_window(self._acquirer.today).end
+        newest = date(last.year + (last.month == 12), last.month % 12 + 1, 1)
+        if stored[1] >= date.fromordinal(newest.toordinal() - 1):
+            return
+        if until is not None and until <= stored[1]:
+            return
+        self._acquirer.acquire(series_id)

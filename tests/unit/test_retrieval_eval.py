@@ -9,10 +9,9 @@ from pydantic import ValidationError
 from kkb_agent.catalog import embedding
 from kkb_agent.catalog import retrieval_eval as evaluation
 from kkb_agent.catalog.hybrid import CatalogDenseStage
-from kkb_agent.catalog.lance_index import LocalCatalogIndex, build_catalog_index
+from kkb_agent.catalog.lance_index import CatalogIndexError, LocalCatalogIndex, build_catalog_index
 from kkb_agent.catalog.mappings import load_reviewed_snapshot
 from kkb_agent.llm import scripted
-from kkb_agent.llm.provider import ProviderError
 
 ROOT = Path(__file__).parents[2]
 CATALOG = ROOT / "docs/catalog/prepared_v3.json"
@@ -212,9 +211,15 @@ def test_catalog_embedding_batches_and_keeps_stable_identity(snapshot):
     assert vectors.profile.origin == "offline_fixture"
 
 
-@pytest.mark.parametrize("change", [{"count": 15}, {"dimension": 1024}])
-def test_short_or_wrong_dimension_responses_fail(snapshot, change):
-    with pytest.raises(ProviderError):
+@pytest.mark.parametrize(
+    ("change", "code"),
+    [
+        ({"count": 15}, "INDEX_EMBEDDING_COUNT_MISMATCH"),
+        ({"dimension": 1024}, "INDEX_VECTOR_DIMENSION_MISMATCH"),
+    ],
+)
+def test_short_or_wrong_dimension_responses_fail(snapshot, change, code):
+    with pytest.raises(CatalogIndexError, match=f"^{code}$"):
         embedding.embed_catalog(
             fixture_provider(**change), snapshot, "qwen3-plain-v1", origin="offline_fixture"
         )

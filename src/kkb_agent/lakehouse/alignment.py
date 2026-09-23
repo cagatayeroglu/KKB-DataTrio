@@ -163,6 +163,23 @@ def _boundary_weeks(
     ]
 
 
+def _weeks_owned(target: date, assignment: WeekAssignment, anchor: WeeklyAnchor) -> int:
+    """How many weeks of the declared calendar this month owns under `assignment`.
+
+    A month the request never asked for is scored against the whole month, not against the
+    one week the window happened to offer it. Its coverage then says plainly that most of
+    the month was not read.
+    """
+    first = date(target.year, target.month, 1)
+    week = timedelta(days=7)
+    span = weekly_window(
+        first - week if first > date.min + week else date.min,
+        target + week if target < date.max - week else date.max,
+        anchor=anchor,
+    )
+    return sum(1 for start, end in span if assign_month(start, end, assignment) == target)
+
+
 def to_monthly(
     observations: Sequence[Observation],
     *,
@@ -249,12 +266,25 @@ def to_monthly(
             break
         target = add_months(target, 1)
     values: dict[date, list[float]] = {}
+    unrequested: set[date] = set()
     for start, end in canonical:
         target = assign_month(start, end, assignment)
-        expected[target] = expected.get(target, 0) + 1
+        if target in expected:
+            expected[target] += 1
+        else:
+            # A month the request does not cover, reached because a week inside the window
+            # belongs to it: the window selects a week by the date it ends on, so the week
+            # ending 1 January is in a 2021 request while six of its days are in December.
+            # The week is not discarded, and the month it lands in is not scored as though
+            # the window had asked for it -- expecting one week of a month and observing it
+            # read as a complete December 2020 in a request for 2021 onwards, which no
+            # reader could reproduce (Eray's N26, 2026-09-22).
+            unrequested.add(target)
         observed = supplied.get(end)
         if observed is not None and observed.value is not None:
             values.setdefault(target, []).append(observed.value)
+    for target in unrequested:
+        expected[target] = _weeks_owned(target, assignment, anchor)
 
     unexpected = set(supplied) - {end for _, end in canonical}
     if unexpected:
@@ -275,7 +305,9 @@ def to_monthly(
     return Alignment(
         aligned,
         coverage,
-        _method(aggregation, assignment, anchor, requested_start, requested_end),
+        _method(
+            aggregation, assignment, anchor, requested_start, requested_end, sorted(unrequested)
+        ),
     )
 
 
@@ -285,8 +317,14 @@ def _method(
     anchor: WeeklyAnchor,
     requested_start: date,
     requested_end: date,
+    unrequested: Sequence[date] = (),
 ) -> dict[str, str]:
-    """The parameters a transformation record must carry for this reduction."""
+    """The parameters a transformation record must carry for this reduction.
+
+    `unrequested` names the months the assignment reached that the request does not cover,
+    because a reader comparing the months asked for with the months returned would otherwise
+    have nothing that explains the difference.
+    """
     return {
         "operation": "align_weekly_to_monthly",
         "aggregation": aggregation.value,
@@ -295,4 +333,9 @@ def _method(
         "frequency": Frequency.WEEKLY.value,
         "requested_start": requested_start.isoformat(),
         "requested_end": requested_end.isoformat(),
+        **(
+            {"months_reached_outside_the_request": ", ".join(m.isoformat() for m in unrequested)}
+            if unrequested
+            else {}
+        ),
     }

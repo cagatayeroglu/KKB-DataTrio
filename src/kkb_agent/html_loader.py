@@ -30,8 +30,22 @@ from kkb_agent.ingestion_policy import (
 MAX_DEPTH = 64
 MAX_TABLES = 20
 VOID = frozenset("area base br col embed hr img input link meta param source track wbr".split())
-IGNORE = frozenset("head script style noscript template form iframe object embed svg math".split())
+# `form` is deliberately NOT here. An ASP.NET WebForms page puts its whole body inside
+# one `<form runat="server">`, and because being ignored is inherited by everything
+# below, ignoring the form discarded every byte of such a page: the reader then reported
+# NO_STATIC_CONTENT for a document full of visible text. Measured 2026-09-23 on the ODMD
+# market-report page the jury's question names (`neuralnetwork.aspx?type=35`, 113 KB,
+# `<body>` line 22, `<form name="Form1">` line 23, `</form>` line 1301): zero characters
+# of text survived. Turkish institutional sites are largely WebForms, so this blinded the
+# reader to a whole class of source. What a form holds that is data rather than prose —
+# the options of a select, a textarea's contents — is ignored on its own below.
+IGNORE = frozenset(
+    "head script style noscript template iframe object embed svg math "
+    "select option textarea".split()
+)
 BLOCK = frozenset("p div section article h1 h2 h3 h4 h5 h6 li br hr tr table".split())
+#: Where a number comes from, so where nesting still has to be exact.
+TABLE_STRUCTURE = frozenset("table tr td th thead tbody tfoot caption colgroup".split())
 
 
 @dataclass(frozen=True)
@@ -160,11 +174,35 @@ class StaticParser(HTMLParser):
         if tag not in VOID:
             self.handle_endtag(tag)
 
+    def unwind_to(self, tag: str) -> None:
+        """Close what a page left open, or refuse when a table is what is open.
+
+        A mismatched end tag is ordinary in served HTML, and the same reasoning
+        that keeps a page whose table never closed keeps a page whose menu never
+        closed. Live 2026-09-23 the ODMD market-report index — the only route to
+        the report the question asked for — was discarded entire at 60 KB because
+        one anchor in its footer is written `<a/>` instead of `</a>`: the stray
+        self-closing tag balanced itself, the real anchor stayed open, and the
+        `</li>` after it did not match. Thirteen attempts to read that page failed
+        on those four characters.
+
+        A table is the exception, because a table is where the numbers come from.
+        Any structural tag of one still has to close in the order it opened, and
+        an end tag that would unwind past an open table row or cell is refused as
+        before.
+        """
+        if tag in TABLE_STRUCTURE or not any(name == tag for name, _ in self.stack):
+            self.fail()
+        while self.stack[-1][0] != tag:
+            if self.stack[-1][0] in TABLE_STRUCTURE:
+                self.fail()
+            self.stack.pop()
+
     def handle_endtag(self, tag: str) -> None:
         if tag in VOID:
             return
         if not self.stack or self.stack[-1][0] != tag:
-            self.fail()
+            self.unwind_to(tag)
         _, ignored = self.stack.pop()
         if ignored:
             return
@@ -180,20 +218,29 @@ class StaticParser(HTMLParser):
             self.rows.append(self.row)
             self.row = None
         elif tag == "table":
-            if not self.rows or self.row is not None:
+            if self.rows is None or self.row is not None:
                 self.fail("UNSUPPORTED_TABLE")
-            headers = self.rows[0]
-            if (
-                len(self.rows) < 2
-                or not all(headers)
-                or len(set(h.casefold() for h in headers)) != len(headers)
-            ):
-                self.fail("UNSUPPORTED_TABLE")
-            if any(len(row) != len(headers) for row in self.rows):
-                self.fail("UNSUPPORTED_TABLE")
-            for header in headers:
-                self.limits.check_field(header, label=True)
-            self.tables.append(self.rows)
+            # What closed here either is a table or is not one. A page laid out with
+            # tables, or a list whose separator rows hold one empty cell, is not a
+            # table: it carries no header row and its rows do not agree on a width.
+            # Failing the document for it threw away the page — live 2026-09-23 the
+            # ODMD market-report page the jury's question names was discarded at 113 KB
+            # because its list of reports interleaves three-cell rows with one-cell
+            # separators, and the title of the report being asked for was in that list.
+            # Dropping it keeps the guarantee this module exists for: a number still
+            # only ever comes from a table that opened and closed as one, with a header
+            # row of distinct labels and rows of one width. Such a table never gets here.
+            headers = self.rows[0] if self.rows else []
+            usable = bool(self.rows) and (
+                len(self.rows) >= 2
+                and all(headers)
+                and len(set(h.casefold() for h in headers)) == len(headers)
+                and all(len(row) == len(headers) for row in self.rows)
+            )
+            if usable:
+                for header in headers:
+                    self.limits.check_field(header, label=True)
+                self.tables.append(self.rows)
             self.rows = None
         if tag in BLOCK:
             self.add_text("\n")
@@ -206,12 +253,19 @@ class StaticParser(HTMLParser):
         self.add_text(data)
         if self.cell is not None:
             self.add_cell(data)
-        elif self.row is not None and data.strip():
-            self.fail()
 
     def result(self) -> dict[str, object]:
-        if self.stack or self.rows is not None:
-            self.fail()
+        # An unclosed tag is ordinary in served HTML, and an unclosed table is simply not
+        # a table: the partial one is dropped and the page's text and links survive.
+        # Failing the whole document for it discarded a page the fetcher had already
+        # downloaded in full — live 2026-09-22, the ODMD market-report index came back
+        # MALFORMED_DOCUMENT at 113 KB, so the planner could not follow the link to the
+        # PDF it had been asked to read and the turn ended with nothing. Numbers still
+        # only ever come from a table that opened and closed as one.
+        if self.rows is not None:
+            self.rows = None
+            self.row = None
+            self.cell = None
         text = "\n".join(
             " ".join(line.split()) for line in "".join(self.text).splitlines() if line.strip()
         )

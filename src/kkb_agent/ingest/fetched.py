@@ -49,6 +49,16 @@ DOCUMENT_MEDIA_TYPES: tuple[str, ...] = (
     # A picture at an address is read as a one-page scanned document (DEC-179).
     *IMAGE_MEDIA_TYPES,
 )
+#: A table served as plain text (QA-33): raw files on code hosts come as
+#: `text/plain; charset=utf-8`, so a real CSV at such an address was refused before a
+#: byte was read. Accepted from an address only - never as an upload's declared type -
+#: and read only as a CSV that passes every CSV check with at least two columns.
+TEXT_PLAIN = "text/plain"
+#: What a request for a document at an address accepts, and for a table at one.
+FETCHED_MEDIA_TYPES: tuple[str, ...] = (*DOCUMENT_MEDIA_TYPES, TEXT_PLAIN)
+FETCHED_TABLE_MEDIA_TYPES: tuple[str, ...] = (*TABLE_MEDIA_TYPES, TEXT_PLAIN)
+#: The refusal of plain text that is not a table: a page, prose or a single column.
+PLAIN_TEXT_NOT_A_TABLE = "PLAIN_TEXT_NOT_A_TABLE"
 _KINDS = {media_type: kind for kind, media_type in MIME_TYPES.items() if kind not in IMAGE_KINDS}
 _IMAGE_KINDS = {"image/png": "png", "image/jpeg": "jpg"}
 
@@ -140,6 +150,8 @@ def load_document(
 
         content = image_to_pdf(content, _IMAGE_KINDS[media_type], limits)
         media_type = MIME_TYPES[FileKind.PDF]
+    if media_type == TEXT_PLAIN:
+        return _plain_table(content, source=source, delimiter=delimiter, limits=limits)
     kind = _KINDS.get(media_type)
     if kind is None:
         raise AdmissionError(RejectionCode.UNSUPPORTED_FORMAT)
@@ -176,3 +188,46 @@ def load_document(
         selection=sheet,
         limits=limits,
     )
+
+
+def _plain_table(
+    content: bytes,
+    *,
+    source: SourceRef,
+    delimiter: str | None,
+    limits: AdmissionLimits,
+) -> CsvLoadResult:
+    """Plain text read as a CSV, and only ever as one (QA-33).
+
+    The label says nothing about the bytes, so they earn the CSV reading: the same
+    admission and strict CSV loader an upload meets (UTF-8, byte and cell budgets, one
+    width for every record, no blank lines, at least two records), a page of markup is
+    refused before it is parsed, and a single column - prose, a list - is not a table
+    even when a separator was declared for it.
+    """
+    if content.lstrip(b"\xef\xbb\xbf \t\r\n")[:1] == b"<":
+        # An HTML or XML page, an error page among them, served as text.
+        raise AdmissionError(RejectionCode.UNSUPPORTED_FORMAT)
+    loaded = load_csv(
+        io.BytesIO(content),
+        filename="download.csv",
+        content_type=MIME_TYPES[FileKind.CSV],
+        source=source,
+        delimiter=delimiter,
+        detect_delimiter=True,
+        limits=limits,
+    )
+    if loaded.status == "loaded" and (loaded.table is None or len(loaded.table.headers) < 2):
+        return CsvLoadResult("rejected", source, PLAIN_TEXT_NOT_A_TABLE)
+    return loaded
+
+
+def kept_media_type(media_type: str, loaded: object) -> str:
+    """The media type fetched bytes are kept under: plain text read as a table is a CSV.
+
+    Plain text that did not load as a table keeps its own type, which no admission
+    accepts, so it never becomes one of the conversation's documents.
+    """
+    if media_type == TEXT_PLAIN and isinstance(loaded, CsvLoadResult) and loaded.status == "loaded":
+        return MIME_TYPES[FileKind.CSV]
+    return media_type

@@ -27,8 +27,10 @@ from __future__ import annotations
 
 import base64
 import json
+import socket
+import ssl
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from math import isfinite
 from typing import Any, Final
@@ -49,6 +51,7 @@ from kkb_agent.llm.provider import (
     RateLimited,
     Refused,
     Role,
+    ToolCall,
     TransportError,
     Usage,
 )
@@ -64,6 +67,13 @@ EMBEDDINGS_PATH: Final = "/embeddings"
 #: Largest response body read. A chat completion is kilobytes; a batch of
 #: embedding vectors can reach megabytes.
 MAX_RESPONSE_BYTES: Final = 16 * 1024 * 1024
+
+#: How long one question's vector is waited for. It is a single short text (one to six
+#: seconds when measured on 2026-09-21); a search without it still has the reviewed words,
+#: and the knowledge page gives a trial under thirty seconds in all.
+QUERY_EMBEDDING_SECONDS: Final = 10.0
+#: The least one connection attempt is given; see `_request`.
+CONNECT_FLOOR_SECONDS: Final = 2.0
 
 #: Images are sent inline only — DEC-129 forbids external image URLs. The
 #: platform's own size limit is undocumented, so this cap is conservative.
@@ -93,12 +103,67 @@ def approved_base_url(url: str) -> str:
     return f"https://{host}{API_PATH}"
 
 
+#: The pause before each further attempt to connect, and so how many there are: a
+#: connection never established is tried three times in all (`KloudeksProvider._post`).
+CONNECT_PAUSES: Final = (0.5, 1.5)
+
+
+def _time_left_after_pause(tried: int, deadline: float) -> float | None:
+    """Seconds left for one more attempt after its pause, or None when there is none.
+
+    Checked before the pause, so no pause runs into the deadline, and again after it,
+    because a sleep can overrun: an attempt started past the deadline was a request the
+    caller had already stopped waiting for (QA-25).
+    """
+    if tried > len(CONNECT_PAUSES):
+        return None
+    pause = CONNECT_PAUSES[tried - 1]
+    if deadline - time.monotonic() <= pause:
+        return None
+    time.sleep(pause)
+    left = deadline - time.monotonic()
+    return left if left > 0 else None
+
+
+def _connect_cause(error: BaseException) -> str:
+    """Which part of connecting failed, as a fixed word: never a message, host or address.
+
+    `httpx` keeps the socket library's own exception as the cause of its `ConnectError`,
+    so a DNS failure, a refused or reset connection, a TLS failure and a timeout can be
+    told apart without reading any text the error carries.
+    """
+    seen: BaseException | None = error
+    for _ in range(8):
+        seen = (seen.__cause__ or seen.__context__) if seen is not None else None
+        if seen is None:
+            break
+        if isinstance(seen, socket.gaierror):
+            return "dns"
+        if isinstance(seen, ssl.SSLCertVerificationError):
+            return "tls-certificate"
+        if isinstance(seen, ssl.SSLError):
+            return "tls"
+        if isinstance(seen, ConnectionRefusedError):
+            return "refused"
+        if isinstance(seen, ConnectionResetError):
+            return "reset"
+        if isinstance(seen, ConnectionAbortedError):
+            return "aborted"
+        if isinstance(seen, TimeoutError):
+            return "timeout"
+        if isinstance(seen, OSError):
+            code = getattr(seen, "winerror", None) or seen.errno
+            return f"os-{code}" if isinstance(code, int) else "os"
+    return "timeout" if isinstance(error, httpx.ConnectTimeout) else "unknown"
+
+
 class KloudeksProvider:
     """`LLMProvider` over DEC-129's OpenAI-compatible chat and embedding endpoints.
 
-    Transport faults are not retried here; that policy is M4-10's. Schema
-    repair is: `complete_with_repair` feeds a malformed answer's fault back
-    within the configured attempt budget, exactly as the scripted double does.
+    Transport faults are not retried here, with one exception: a connection that was
+    never established (`_post`). Schema repair is: `complete_with_repair` feeds a
+    malformed answer's fault back within the configured attempt budget, exactly as the
+    scripted double does.
     """
 
     def __init__(
@@ -108,9 +173,7 @@ class KloudeksProvider:
         # The chat model also reads images (DEC-129), so any configured chat
         # identifier may be named by a caller; nothing else may.
         self._chat_models = frozenset(
-            name
-            for name in (config.planner_model, config.router_model, config.vision_model)
-            if name is not None
+            name for name in (*config.chat_models, config.vision_model) if name is not None
         )
         self._client = httpx.Client(
             base_url=approved_base_url(config.base_url),
@@ -142,39 +205,24 @@ class KloudeksProvider:
         *,
         model: str | None = None,
         schema: type[BaseModel] | None = None,
+        tools: Sequence[Mapping[str, object]] | None = None,
     ) -> Completion:
         chosen = self._config.planner_model if model is None else model
         if chosen not in self._chat_models:
             # Not echoed: a model name can arrive from text nobody vetted.
             raise CapabilityUnavailable("The requested model is not one this deployment configures")
-        json_mode = schema is not None and self._config.structured_output
-        # A structured request is a plan; free text is the writer's sentence.
-        thinking = (
-            self._config.planner_thinking if schema is not None else self._config.writer_thinking
-        )
         spent: list[Usage] = []
         reasoning: list[str] = []
+        reconnected: list[str] = []
 
-        def ask(conversation: list[Message]) -> tuple[str, str | None]:
-            body: dict[str, object] = {
-                "model": chosen,
-                "messages": _wire_messages(conversation),
-                # Plans and summaries should not change between identical runs.
-                "temperature": 0.0,
-                # A memory/safety ceiling on runaway generation, not a latency
-                # knob: set well above any real plan or answer, so a legitimate
-                # call is never truncated (DEC-161 follow-up).
-                "max_tokens": self._config.max_output_tokens,
-            }
-            if json_mode:
-                # Opt-in only: Q-K-03 has not confirmed guaranteed JSON output,
-                # so strict local validation still decides.
-                body["response_format"] = {"type": "json_object"}
-            if not thinking:
-                # The served Qwen reasons by default; its chat template takes this
-                # switch (observed 2026-09-18: reasoning tokens 274 -> 0).
-                body["chat_template_kwargs"] = {"enable_thinking": False}
-            document = self._post(CHAT_PATH, body)
+        def ask(
+            conversation: list[Message],
+        ) -> tuple[str, str | None, tuple[ToolCall, ...]]:
+            document = self._post(
+                CHAT_PATH,
+                self._chat_body(conversation, chosen, schema=schema, tools=tools),
+                reconnected=reconnected,
+            )
             reply = _choice(document)
             # Recorded for traces only; neither changes what the caller receives.
             if (usage := _usage(document)) is not None:
@@ -184,13 +232,74 @@ class KloudeksProvider:
             return reply
 
         completion = complete_with_repair(
-            ask, messages, schema=schema, max_attempts=self._config.max_attempts, model=chosen
+            ask,
+            messages,
+            schema=schema,
+            max_attempts=self._config.max_attempts,
+            model=chosen,
+            tolerate_prose=bool(tools),
         )
         return replace(
             completion,
             usage=_summed(spent) if spent else None,
             reasoning="\n\n---\n\n".join(reasoning) if reasoning else None,
+            reconnected=tuple(reconnected),
         )
+
+    def request_body(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str | None = None,
+        schema: type[BaseModel] | None = None,
+        tools: Sequence[Mapping[str, object]] | None = None,
+    ) -> dict[str, object]:
+        """The body `complete` posts first for these arguments, built by the same code.
+
+        For a trace, so a reviewer reads the request the platform received rather than
+        the loop's intention of it. The credential travels in a header and is not part
+        of a body. A repair attempt appends turns to the conversation; the completion's
+        `attempts` says whether one ran.
+        """
+        chosen = self._config.planner_model if model is None else model
+        return self._chat_body(messages, chosen, schema=schema, tools=tools)
+
+    def _chat_body(
+        self,
+        conversation: Sequence[Message],
+        chosen: str,
+        *,
+        schema: type[BaseModel] | None,
+        tools: Sequence[Mapping[str, object]] | None,
+    ) -> dict[str, object]:
+        json_mode = schema is not None and self._config.structured_output
+        # A structured request is a plan; free text is the writer's sentence.
+        thinking = (
+            self._config.planner_thinking if schema is not None else self._config.writer_thinking
+        )
+        body: dict[str, object] = {
+            "model": chosen,
+            "messages": _wire_messages(conversation),
+            # Plans and summaries should not change between identical runs.
+            "temperature": 0.0,
+            # A memory/safety ceiling on runaway generation, not a latency
+            # knob: set well above any real plan or answer, so a legitimate
+            # call is never truncated (DEC-161 follow-up).
+            "max_tokens": self._config.max_output_tokens,
+        }
+        if tools:
+            # The model decides what to run; the server only needs the menu.
+            body["tools"] = list(tools)
+            body["tool_choice"] = "auto"
+        if json_mode:
+            # Opt-in only: Q-K-03 has not confirmed guaranteed JSON output,
+            # so strict local validation still decides.
+            body["response_format"] = {"type": "json_object"}
+        if not thinking:
+            # The served Qwen reasons by default; its chat template takes this
+            # switch (observed 2026-09-18: reasoning tokens 274 -> 0).
+            body["chat_template_kwargs"] = {"enable_thinking": False}
+        return body
 
     def embed(self, texts: Sequence[str], *, kind: EmbeddingKind) -> list[list[float]]:
         model = self._config.embedding_model
@@ -205,7 +314,17 @@ class KloudeksProvider:
         # are applied above this boundary (kkb_agent.catalog.embedding, DEC-142),
         # so the provider sends exactly the texts it receives.
         document = self._post(
-            EMBEDDINGS_PATH, {"model": model, "input": items, "encoding_format": "float"}
+            EMBEDDINGS_PATH,
+            {"model": model, "input": items, "encoding_format": "float"},
+            # A search waits for its question's vector, and falls back to the words alone
+            # when there is none. The request deadline is sized for a long completion (half
+            # an hour in the served configuration), so a busy endpoint left a search, and
+            # the turn or the knowledge page behind it, waiting that long for one vector.
+            timeout=(
+                min(QUERY_EMBEDDING_SECONDS, self._config.request_timeout)
+                if kind == "query"
+                else None
+            ),
         )
         return _vectors(document, len(items))
 
@@ -240,7 +359,7 @@ class KloudeksProvider:
             ],
             "temperature": 0.0,
         }
-        text, finish_reason = _choice(self._post(CHAT_PATH, body))
+        text, finish_reason, _ = _choice(self._post(CHAT_PATH, body))
         return Completion(text=text, model=model, finish_reason=finish_reason)
 
     def ocr(self, images: Sequence[bytes]) -> Completion:
@@ -265,7 +384,7 @@ class KloudeksProvider:
                 {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{inline}"}}
             )
         blocks.append({"type": "text", "text": "<image>\ndocument parsing"})
-        text, finish = _choice(
+        text, finish, _ = _choice(
             self._post(
                 CHAT_PATH,
                 {
@@ -283,23 +402,77 @@ class KloudeksProvider:
         )
         return Completion(text=text, model=model, finish_reason=finish)
 
-    def _post(self, path: str, body: dict[str, object]) -> dict[str, Any]:
-        if path not in (CHAT_PATH, EMBEDDINGS_PATH):
-            raise ProviderError("Unknown provider path")
+    def _request(self, path: str, body: dict[str, object], seconds: float) -> httpx.Request:
+        """One attempt's request, each HTTP phase allowed at most `seconds`.
+
+        httpx applies a timeout per phase — connect, write, pool and each read — so this
+        caps every phase at the time left without bounding their sum. The whole request is
+        bounded by the deadline `_post` holds, which the body read enforces; this only
+        keeps an attempt from starting with more time than remains.
+
+        The connect phase gets at most a third of it (never under CONNECT_FLOOR_SECONDS).
+        A connection that was never made is retried within the deadline (`_post`), but an
+        attempt allowed the whole deadline to connect left none for a retry: live
+        2026-09-23 a query embedding (10 s) failed as "ConnectTimeout; 1 connection
+        attempt" while DNS, TCP and TLS to the same host each took under 0.1 s, and the
+        search fell back to words.
+        """
+        connect = min(seconds, max(CONNECT_FLOOR_SECONDS, seconds / 3))
         request = self._client.build_request(
             "POST",
             path,
             json=body,
             headers={"Authorization": f"Bearer {self._config.credential.get_secret_value()}"},
+            timeout=httpx.Timeout(seconds, connect=connect),
         )
         # Checked again per request: an absolute URL would override base_url.
         if request.url.scheme != "https" or request.url.host not in APPROVED_HOSTS:
             raise ConfigurationError("Refusing to send the credential outside the DEC-129 endpoint")
-        deadline = time.monotonic() + self._config.request_timeout
-        try:
-            response = self._client.send(request, stream=True)
-        except httpx.HTTPError as error:
-            raise TransportError(f"Kloudeks request failed ({type(error).__name__})") from None
+        return request
+
+    def _post(
+        self,
+        path: str,
+        body: dict[str, object],
+        *,
+        timeout: float | None = None,
+        reconnected: list[str] | None = None,
+    ) -> dict[str, Any]:
+        if path not in (CHAT_PATH, EMBEDDINGS_PATH):
+            raise ProviderError("Unknown provider path")
+        allowed = self._config.request_timeout if timeout is None else timeout
+        deadline = time.monotonic() + allowed
+        request = self._request(path, body, allowed)
+        # A connection that was never established is tried again, twice at most and within
+        # the request's own deadline: nothing reached the server, so nothing was run or
+        # billed and a second attempt cannot duplicate one. Live 2026-09-23 (QA-19, then
+        # A2 on 92651bc) two requests of one turn failed with ConnectError while the host
+        # answered DNS, TLS and GET /models in a fifth of a second a minute later. A
+        # failure after the request may have gone — a read error, a read timeout, a
+        # dropped response — stays a failure: whether it ran cannot be known, and a paid
+        # request is never repeated blind.
+        failed: list[str] = []
+        while True:
+            try:
+                response = self._client.send(request, stream=True)
+                break
+            except (httpx.ConnectError, httpx.ConnectTimeout) as error:
+                failed.append(_connect_cause(error))
+                left = _time_left_after_pause(len(failed), deadline)
+                if left is None:
+                    attempts = f"{len(failed)} connection attempt" + (
+                        "s" if len(failed) > 1 else ""
+                    )
+                    cause = f"{type(error).__name__}: {failed[-1]}"
+                    raise TransportError(f"Kloudeks request failed ({cause}; {attempts})") from None
+                # The next attempt gets what is left of the deadline, not the whole of it
+                # again: it used to carry the full timeout after the first attempt had spent
+                # nearly all of it (QA-25).
+                request = self._request(path, body, left)
+            except httpx.HTTPError as error:
+                raise TransportError(f"Kloudeks request failed ({type(error).__name__})") from None
+        if reconnected is not None:
+            reconnected.extend(failed)
         try:
             _check_status(response.status_code)
             payload = _read_capped(response, deadline)
@@ -314,7 +487,7 @@ class KloudeksProvider:
         return document
 
 
-def _wire_messages(conversation: Sequence[Message]) -> list[dict[str, str]]:
+def _wire_messages(conversation: Sequence[Message]) -> list[dict[str, Any]]:
     """The conversation in the shape the platform accepts.
 
     The served chat model rejects a request carrying more than one system
@@ -327,15 +500,34 @@ def _wire_messages(conversation: Sequence[Message]) -> list[dict[str, str]]:
     follow in their own order. Nothing else changes.
     """
     system = [message.content for message in conversation if message.role is Role.SYSTEM]
-    wire: list[dict[str, str]] = []
+    wire: list[dict[str, Any]] = []
     if system:
         wire.append({"role": Role.SYSTEM.value, "content": "\n\n".join(system)})
-    wire.extend(
-        {"role": message.role.value, "content": message.content}
-        for message in conversation
-        if message.role is not Role.SYSTEM
-    )
+    wire.extend(_wire_turn(message) for message in conversation if message.role is not Role.SYSTEM)
     return wire
+
+
+def _wire_turn(message: Message) -> dict[str, Any]:
+    """One non-system turn, keeping whatever ties it to a tool call.
+
+    An assistant turn that asked for tools and the tool turn answering it are a
+    pair, and the pairing is the id. Sent as plain role-and-content the ids went
+    missing, so the model saw a result with nothing saying which of its calls it
+    belonged to.
+    """
+    turn: dict[str, Any] = {"role": message.role.value, "content": message.content}
+    if message.tool_calls:
+        turn["tool_calls"] = [
+            {
+                "id": call.id,
+                "type": "function",
+                "function": {"name": call.name, "arguments": call.arguments},
+            }
+            for call in message.tool_calls
+        ]
+    if message.tool_call_id is not None:
+        turn["tool_call_id"] = message.tool_call_id
+    return turn
 
 
 def _check_status(status: int) -> None:
@@ -375,7 +567,7 @@ def _read_capped(response: httpx.Response, deadline: float) -> bytes:
     return b"".join(chunks)
 
 
-def _choice(document: dict[str, Any]) -> tuple[str, str | None]:
+def _choice(document: dict[str, Any]) -> tuple[str, str | None, tuple[ToolCall, ...]]:
     """The first choice's text and finish reason, or why there is none."""
     choices = document.get("choices")
     if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
@@ -390,9 +582,35 @@ def _choice(document: dict[str, Any]) -> tuple[str, str | None]:
     ):
         raise Refused("The model declined to answer")
     content = message.get("content") if isinstance(message, dict) else None
+    calls = _tool_calls(message if isinstance(message, dict) else {})
     if not isinstance(content, str):
+        # A model that asked for tools sends no prose with them: OpenAI-compatible
+        # servers put `content: null` beside `tool_calls`. Treating that as a
+        # transport fault made the whole turn unrepresentable.
+        if calls:
+            return "", finish_reason, calls
         raise ProviderError("Kloudeks returned no message content")
-    return content, finish_reason
+    return content, finish_reason, calls
+
+
+def _tool_calls(message: Mapping[str, Any]) -> tuple[ToolCall, ...]:
+    """The tool calls in one choice, skipping anything that is not one."""
+    raw = message.get("tool_calls")
+    if not isinstance(raw, list):
+        return ()
+    found: list[ToolCall] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        function = item.get("function")
+        identifier = item.get("id")
+        if not isinstance(function, dict) or not isinstance(identifier, str):
+            continue
+        name = function.get("name")
+        arguments = function.get("arguments")
+        if isinstance(name, str) and isinstance(arguments, str):
+            found.append(ToolCall(id=identifier, name=name, arguments=arguments))
+    return tuple(found)
 
 
 def _usage(document: dict[str, Any]) -> Usage | None:

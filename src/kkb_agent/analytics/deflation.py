@@ -55,7 +55,16 @@ def deflate(
     index_id: str,
     reference_end: date,
 ) -> Deflated:
-    """Real values for every monthly value in `column`, in reference-month prices."""
+    """Real values for every monthly value in `column`, in reference-month prices.
+
+    A currency column becomes an amount in the reference month's money. A price index
+    becomes a **real index**: the same division, and what it measures is the index's
+    movement net of general prices. The organizer's third reference question asks exactly
+    that of the housing price index, and until now it was refused as "not a
+    currency-denominated stock or flow" with no other operation able to produce it (live
+    2026-09-22). Anything else - a rate, a count, a ratio - is still refused: dividing a
+    per-cent by a price level measures nothing.
+    """
     if not column:
         raise DeflationRefused(f"No values are labelled {column_label!r}")
     if index_semantics.observation is not StockFlow.INDEX or index_semantics.base_year is None:
@@ -66,9 +75,11 @@ def deflate(
     for value in column:
         if value.period is None or value.period.frequency is not Frequency.MONTHLY:
             raise DeflationRefused(f"{column_label} is not a monthly column")
-        if value.unit not in CURRENCIES or value.measure not in (StockFlow.STOCK, StockFlow.FLOW):
+        currency = value.unit in CURRENCIES and value.measure in (StockFlow.STOCK, StockFlow.FLOW)
+        if not currency and value.measure is not StockFlow.INDEX:
             raise DeflationRefused(
-                f"{column_label} is not a currency-denominated stock or flow; it is not deflated"
+                f"{column_label} is neither a currency-denominated stock or flow nor an "
+                "index; it is not deflated"
             )
         if value.period.end in dated:
             raise DeflationRefused(f"{column_label} has duplicate periods")
@@ -85,7 +96,12 @@ def deflate(
             f"{index_id} publishes no value for the reference period {reference_end.isoformat()}"
         )
 
-    label = f"{column_label} real, {reference_end:%Y-%m} prices ({index_id})"
+    indexed = column[0].measure is StockFlow.INDEX
+    label = (
+        f"{column_label} real, deflated by {index_id} ({reference_end:%Y-%m} = base)"
+        if indexed
+        else f"{column_label} real, {reference_end:%Y-%m} prices ({index_id})"
+    )
     real: list[ResultValue] = []
     missing: list[date] = []
     for end, value in sorted(dated.items()):

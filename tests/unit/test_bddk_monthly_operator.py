@@ -89,14 +89,17 @@ def test_prepare_writes_explicit_root_with_parquet_and_repeats_idempotently(caps
     ]
 
 
-def test_changed_window_is_refused_and_prior_series_preserved(capsys, tmp_path):
+def test_a_later_window_extends_and_a_changed_history_is_refused(capsys, tmp_path):
+    # A month published since the series was prepared is added to it (2026-09-23); the
+    # months already prepared must come back unchanged, or the series stays as it was.
     root = tmp_path / "lake"
     assert run(capsys, prepare(root, "2026-03", "TOTAL"), FakeSource())[0] == 0
-    code, report = run(capsys, prepare(root, "2026-04", "TOTAL"), FakeSource())
+    assert run(capsys, prepare(root, "2026-04", "TOTAL"), FakeSource())[0] == 0
+    code, report = run(capsys, prepare(root, "2026-05", "TOTAL"), FakeSource(values=(1, 2, 3)))
     assert code == 2 and report == {"mode": "prepare", "passed": False, "error": "VERSION_CONFLICT"}
     with open_lakehouse(root) as lake:
         count = lake.connection.execute("SELECT count(*) FROM silver_observations").fetchone()[0]
-    assert count == 3
+    assert count == 4
 
 
 def test_retrieval_failure_reports_fixed_code_without_values(capsys, monkeypatch, tmp_path):

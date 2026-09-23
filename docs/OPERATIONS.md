@@ -89,7 +89,7 @@ model call. Do not overwrite older evidence to hide a conflicting source revisio
 | GET `/v1/knowledge/search?q=` | Owner key header | A question tried against this catalogue with the deployment's own retrieval, run here and stored nowhere |
 | GET / POST `/v1/knowledge/index` | Owner key header | The vector generation in use; POST builds one for the catalogue in use now ([DEC-163](DECISIONS.md#dec-163--a-vector-generation-covers-one-catalogue-and-the-knowledge-base-can-have-its-own)) |
 | POST `/v1/knowledge/datasets`; GET `/{slug}`; POST `/{slug}/archive`, `/{slug}/restore` | Owner key header | Versioned user datasets (DEC-157); archive keeps history |
-| GET `/v1/knowledge/series/{id}/values`, `/notes` (+ POST), `/uses` | Owner key header | Stored values, versioned notes/aliases, and the answers whose proof read the series |
+| GET `/v1/knowledge/series/{id}/values`, `/notes` (+ POST), `/uses` | Owner key header | Stored values, versioned notes/aliases, and the answers whose proof read the series. POST `/notes` on a reviewed or listed entry answers `403 catalog_read_only` unless the server was started with `--allow-catalog-edits` ([DEC-189](DECISIONS.md#dec-189--catalogue-notes-are-the-operators)) |
 
 `X-KKB-Session-Token` carries a random 256-bit capability. Never place it in a
 URL, question, browser log or model prompt. The server retains only its SHA-256
@@ -152,7 +152,9 @@ The page polls a running turn for an hour and can re-read its state afterwards.
 
 ### The sources' own directory (DEC-176)
 
-`--serve` applies the sources' own pinned listings as a second catalogue tier unless `--no-source-directory` is given: the BDDK monthly bulletin's supported rows (DEC-176) and every EVDS datagroup (DEC-177; a found datagroup is opened into its series by one public request, kept under `<state-root>/directory/evds/`). The reviewed `--catalog-index` generation covers only the reviewed catalogue, so after the first start open "Veri ve bilgi tabanı" and press "Yeniden vektörle" once (1,356 entries, about seven minutes of embedding calls, measured 2026-09-19); the generation is kept under `<state-root>/generations/` and reopened at every restart. Until then discovery is by words only and the page says so. "Kaynak dizinini yenile" on the same page (`POST /v1/knowledge/directory`) reads EVDS's live directory and the opened datagroups' series lists again: new datagroups become entries (then press "Yeniden vektörle"), new series of an opened datagroup are found by the next search; no model call. To refresh the BDDK listing itself run `python tests/manual/harvest_bddk_directory.py` (58 public requests, one a second) and review the diff of `src/kkb_agent/ingest/bddk_monthly_directory.py` in a PR.
+`--serve` applies the sources' own pinned listings as a second catalogue tier unless `--no-source-directory` is given: the BDDK monthly bulletin's supported rows (DEC-176) and every EVDS datagroup (DEC-177; a found datagroup is opened into its series by one public request, kept under `<state-root>/directory/evds/`). The reviewed `--catalog-index` generation covers only the reviewed catalogue, so after the first start open "Veri ve bilgi tabanı" and press "Yeniden vektörle" once (1,356 entries, about seven minutes of embedding calls, measured 2026-09-19; the whole catalogue is now 8,374 entries); the generation is kept under `<state-root>/catalog-index/` and reopened at every restart. A later rebuild embeds only the entries whose text changed and reuses every other vector of the generation in use under the same profile ([DEC-188](DECISIONS.md#dec-188--a-rebuild-embeds-only-what-changed-every-other-vector-is-lent-by-the-generation-in-use)): one saved dataset is one embedding request, and the build then takes about one to two minutes of local verification. The server console prints one line per build with the entries, embedded and reused counts. The generation in use keeps serving until the new one is verified. Until then discovery is by words only and the page says so. "Kaynak dizinini yenile" on the same page (`POST /v1/knowledge/directory`) reads EVDS's live directory and the opened datagroups' series lists again: new datagroups become entries (then press "Yeniden vektörle"), new series of an opened datagroup are found by the next search; no model call. To refresh the BDDK listing itself run `python tests/manual/harvest_bddk_directory.py` (58 public requests, one a second) and review the diff of `src/kkb_agent/ingest/bddk_monthly_directory.py` in a PR.
+
+Catalogue notes (archiving, aliasing or describing a reviewed or listed entry on "Veri ve bilgi tabanı") change every browser's searches and turns, so they are the operator's: start `--serve` with `--allow-catalog-edits` to open them for the browsers of this local installation, and leave it off for any shared deployment ([DEC-189](DECISIONS.md#dec-189--catalogue-notes-are-the-operators)). Without it the page shows those controls locked with one sentence naming the flag, the API answers `403 catalog_read_only`, and each note version's history says whether this browser wrote it. USER datasets are not affected.
 
 ### Start only when model requests are authorized
 
@@ -452,7 +454,7 @@ as terminal entries; transport/5xx failures keep the recovery record. Storage
 failures prevent new submission rather than
 losing the recovery record.
 
-The local API admits at most eight sessions and 24 turns per session, with one
+The local API admits at most 200 sessions and 100 turns per session, with one
 analysis worker. Creating a new workspace does not delete old analytical files
 or reclaim server sessions. Polling stops after ten minutes; this is not a
 server-side cancellation. Opening a new workspace with an unresolved request asks
@@ -618,3 +620,30 @@ Catalog retrieval mechanics belong to [CATALOG](CATALOG.md), composition to [ARC
 Preserve version/source vintage, actual coverage and refresh/revision history; do not promise a completed version manager. DEC-135 metadata inspection is mandatory and auto-wired in configured prepared readers/projection; broader inspection, quality and reconciliation remain unfinished. The intended flow must work beyond housing balance/rate, CPI and national KFE over approximately 2021-01–2026-06, without hardcoded series selection.
 
 General research is a separate planner branch: `web_search` (SearXNG compatibility candidate only), then only separately authorized `web_url`. Search results do not grant fetch authority. Crawl4AI is optional future extraction evaluation only. Uploaded CSV/XLSX/PDF and BIST/IMF/other authorized URL documents remain session artifacts; shared storage does not turn them into permanent official series. Prepared datasets are not canned answers or permission for silent fixture substitution. No new user-facing tool or permission flow is implemented here.
+
+<a id="operator_flow-third-party-licences"></a>
+
+### Third-party licences
+
+The demo environment installs 89 Python distributions and every one of them is
+permissive: MIT (including MIT-0 and MIT-CMU), BSD (2- and 3-clause), Apache-2.0,
+the Python Software Foundation licence, and MPL-2.0 for exactly two libraries,
+`certifi` and `pathspec`. MPL-2.0 is file-level copyleft on those libraries' own
+files: using them unmodified as libraries places no obligation on this project's
+sources. `python-dateutil` is dual Apache-2.0/BSD-3-Clause and is used under
+either. No GPL or AGPL package is installed.
+
+SearXNG, the search service behind `web_search`, is AGPL-3.0. It is never
+imported or vendored: the agent calls a SearXNG-compatible HTTP endpoint the
+operator runs or points at. Use over a network boundary creates no licence
+obligation for this code, and the same holds for the Kloudeks model endpoints.
+
+To see the list for an environment, from its virtual environment:
+
+```bash
+python -m pip list --format=freeze | cut -d= -f1 | xargs -n1 python -m pip show | grep -E '^(Name|License)'
+```
+
+This project itself declares no licence: its package metadata says UNKNOWN. That
+is the repository owner's decision to make, not a packaging detail to fill in
+silently.

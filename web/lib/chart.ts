@@ -15,9 +15,14 @@ export type ChartSeries = {
 export type ChartModel = {
   groups: { key: string; label: string }[];
   series: ChartSeries[];
+  monthlyTicks: {
+    tickmode: "array";
+    tickvals: string[];
+    ticktext: string[];
+  } | null;
 };
 
-const LEGEND = 42;
+const LEGEND = 72;
 
 // Plotly interprets a small HTML subset in trace names; labels stay plain text.
 function plain(text: string) {
@@ -42,12 +47,25 @@ export function chartModel(
         a.period!.end.localeCompare(b.period!.end),
     );
   if (rows.length < 2 || !table.columns.length) return null;
+  // A column holding one value is a point, not a line, and a result made only of such
+  // columns is not a chart: a breakpoint result is "breakpoints found = 2" and one shift
+  // per break, each at a period of its own, and it was drawn as three lone markers while
+  // the series the reader wanted to see the breaks in was not in that result at all
+  // (live 2026-09-21). Beside a real column a single value still shows; alone, nothing is
+  // drawn, because a chart of three unrelated points says something untrue.
+  if (
+    !table.columns.some(
+      (column) =>
+        rows.filter((row) => row.values[column.key] !== undefined).length > 1,
+    )
+  )
+    return null;
   const groups = new Map<string, string>();
   const series: ChartSeries[] = table.columns.map((column) => {
     const group = JSON.stringify([column.unit, column.scale]);
     if (!groups.has(group))
       groups.set(group, plain(unitLabel(column.unit, column.scale)));
-    const name = plain(seriesLabel(column.label, dataset));
+    const name = plain(seriesLabel(column.label, dataset, result.series_names));
     return {
       key: column.key,
       name,
@@ -55,18 +73,44 @@ export function chartModel(
       group,
       x: rows.map((row) => row.period!.end),
       y: rows.map((row) => row.values[column.key]?.value ?? null),
+      // The whole period, then the value: a point sits at the period's end, so a
+      // monthly point read as "2021-03" alone and a daily one said nothing about
+      // the range it stands for (finding DN-6.6).
       hover: rows.map((row) => {
         const cell = row.values[column.key];
-        return cell ? plain(displayValue(cell)) : "değer yok";
+        const shown = cell ? plain(displayValue(cell)) : "değer yok";
+        const period = row.period!;
+        return period.start === period.end
+          ? `${period.end} · ${shown}`
+          : `${period.start} – ${period.end} · ${shown}`;
       }),
       hidden: column.label.includes("month-over-month change"),
     };
   });
   const names = series.map((item) => item.name);
   for (const item of series) item.legend = legendName(item.name, names);
+  const labelled = rows.filter(
+    (_, index) =>
+      index % Math.max(1, Math.ceil(rows.length / 12)) === 0 ||
+      index === rows.length - 1,
+  );
   return {
     groups: [...groups].map(([key, label]) => ({ key, label })),
     series,
+    // Month-start auto ticks sit just after month-end observations, making January
+    // look like February. Anchor display labels to the actual semantic periods;
+    // the timestamps and gaps in the traces remain unchanged.
+    monthlyTicks: rows.every(
+      (row) =>
+        row.period!.frequency === "monthly" &&
+        row.period!.start.slice(0, 7) === row.period!.end.slice(0, 7),
+    )
+      ? {
+          tickmode: "array",
+          tickvals: labelled.map((row) => row.period!.end),
+          ticktext: labelled.map((row) => row.period!.end.slice(0, 7)),
+        }
+      : null,
   };
 }
 
@@ -84,7 +128,7 @@ export function legendName(name: string, names: string[]) {
     .filter((other) => other !== name && name.startsWith(other))
     .sort((a, b) => b.length - a.length)[0];
   if (!base) return clip(name, LEGEND);
-  return `${clip(base, 18)} ${clip(name.slice(base.length).trim(), LEGEND - 19)}`;
+  return `${clip(base, 36)} ${clip(name.slice(base.length).trim(), LEGEND - 37)}`;
 }
 
 /** At most two unit groups share a chart: the first on the left axis, the second on the right. */

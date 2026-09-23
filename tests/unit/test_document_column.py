@@ -11,7 +11,7 @@ from test_prepared_dense import POLICY, Recording, build_index
 from test_series_inspection import SQL
 
 from kkb_agent.agent import Workspace
-from kkb_agent.agent.discovery import WEB_ADDRESS_INSTRUCTIONS
+from kkb_agent.agent.discovery import ADDRESS_FIRST, WEB_ADDRESS_INSTRUCTIONS
 from kkb_agent.agent.verifier import result_faults
 from kkb_agent.analytics.table_series import SeriesAdditionRefused, add_document_column
 from kkb_agent.api.prepared import PreparedRunner
@@ -125,7 +125,7 @@ def test_column_reads_months_numbers_and_header_unit():
         ),
         ([grid(("2026-04", "1"), headers=("Ay", "Kapanış"))], "UNIT_NOT_STATED"),
         ([grid(("2026-04-15", "1"))], "PERIOD_NOT_RECOGNISED"),
-        ([grid(("2026-04", "1"), ("Ortalama", "9"))], "PERIOD_NOT_RECOGNISED"),
+        ([grid(("2026-04", "1"), ("Belirsiz", "9"))], "PERIOD_NOT_RECOGNISED"),
         ([grid(("", "1"))], "PERIOD_NOT_RECOGNISED"),
         ([grid(("2026-01", "1"), ("31.01.2026", "2"))], "DUPLICATE_PERIOD"),
         ([grid(("2026-04", "1.234"))], "AMBIGUOUS_NUMBER"),
@@ -383,12 +383,11 @@ def test_without_the_switch_the_operation_does_not_exist(tmp_path):
 @pytest.mark.parametrize(
     ("fetch", "plan", "question"),
     [
-        (FakeFetch(CSV), add_plan(url="https://data.example.test/other.csv"), ASK),
         (FakeFetch(CSV), add_plan(), "Kapanış sütununu önceki tabloya ekle."),
         (FakeFetch(CSV.replace(b"2026-06-01", b"2026-05")), add_plan(), ASK),
         (FakeFetch(CSV.replace(b" (Puan)", b"")), add_plan(), ASK),
     ],
-    ids=["other_address", "no_address_in_question", "duplicate_month", "unit_not_stated"],
+    ids=["no_address_in_question", "duplicate_month", "unit_not_stated"],
 )
 def test_refused_columns_publish_nothing(tmp_path, fetch, plan, question):
     provider = scripted(*table_turn(), plan, "Eklendi.")
@@ -399,7 +398,7 @@ def test_refused_columns_publish_nothing(tmp_path, fetch, plan, question):
     assert not [item for item in PRIVATE if item in answer.model_dump_json()]
     with open_lakehouse(runner.run_root / sid / "lake") as lake:
         assert Workspace.open(lake.connection, sid).names() == ["analiz_1"]
-    if "other.csv" in plan or question.startswith("Kapanış"):
+    if question.startswith("Kapanış"):
         # At most the address the user wrote is read, once, for the planner's outline;
         # an address the planner proposes on its own is never requested.
         written = {source_id_for(url) for url in addresses_in(question)}
@@ -407,15 +406,34 @@ def test_refused_columns_publish_nothing(tmp_path, fetch, plan, question):
         assert len(fetch.requests) <= len(written)
 
 
-def test_hybrid_second_turn_adds_a_column_without_discovery(tmp_path):
-    from test_catalog_continuation import discover
+def test_a_column_from_another_address_is_refused_before_it_runs(tmp_path):
+    """N46's rule: once the question gives a readable address, a plan must read that one.
 
-    calculate = proposal({"step_id": "a", "tool": "lakehouse", "arguments": {"sql": SQL}})
+    The column used to be requested from the planner's own address and refused by the tool
+    at run time; the turn abstained. The plan is now refused before anything runs, and the
+    corrected plan adds the column from the address the person wrote.
+    """
+    fetch = FakeFetch(CSV)
+    provider = scripted(
+        *table_turn(),
+        add_plan(url="https://data.example.test/other.csv"),
+        add_plan(),
+        "Kapanış sütunu tabloya eklendi.",
+    )
+    runner = served(tmp_path, provider, fetch)
+    sid, _, selection = first_table(runner)
+    answer = runner.selected(sid, uuid4().hex, ASK, selection)
+    assert answer.status.value == "accepted" and answer.result is not None, answer
+    assert ADDRESS_FIRST in provider.seen[3][-1].content
+    other = source_id_for("https://data.example.test/other.csv")
+    assert not [request for request in fetch.requests if request.source_ref == other]
+    assert {request.source_ref for request in fetch.requests} == {source_id_for(URL)}
+
+
+def test_hybrid_second_turn_adds_a_column_without_discovery(tmp_path):
     provider = Recording(
         scripted(
-            proposal(discover()),
-            calculate,
-            "Tablo hazır.",
+            *table_turn(),
             add_plan(),
             "Kapanış sütunu eklendi.",
             embedding_dimension=4096,
@@ -427,13 +445,20 @@ def test_hybrid_second_turn_adds_a_column_without_discovery(tmp_path):
         LocalCatalogIndex.open(index, snapshot, embedding.profile_for(POLICY, "kloudeks")),
         embedding.query_embedder(provider, POLICY, origin="kloudeks"),
     )
-    runner = served(tmp_path, provider, FakeFetch(CSV), catalog_dense=stage)
+    # The first table is already published when dense retrieval is installed.
+    # A raw SQL read of silver series in a hybrid turn is not a valid substitute
+    # for a typed, catalog-proven series read under the current discovery rule.
+    runner = served(tmp_path, provider, FakeFetch(CSV))
     sid, _, selection = first_table(runner)
+    runner.use_dense(stage)
     embedded = len(provider.embedded)
+    seen_before = len(provider.seen)
     second = runner.selected(sid, uuid4().hex, ASK, selection)
     assert second.status.value == "accepted" and second.result is not None, second
     assert len(provider.embedded) == embedded
-    assert any(m.content == WEB_ADDRESS_INSTRUCTIONS for m in provider.seen[3])
+    assert any(
+        m.content == WEB_ADDRESS_INSTRUCTIONS for call in provider.seen[seen_before:] for m in call
+    )
 
 
 def test_add_document_column_needs_no_discovery():

@@ -33,8 +33,36 @@ RENDER_SCALE = 2.0
 _LAYOUT_TAG = re.compile(r"<\|[^<>\r\n]{1,64}\|>")
 _NUMBER = re.compile(r"[+\-−]?\d[\d.,]*")
 _YEAR = re.compile(r"(?<![\d.,])(19\d{2}|20\d{2}|2100)(?![\d.,])")
+#: A year that belongs to something longer than itself: a date the document is stamped with
+#: ("Yayın tarihi: 10 Şubat 2025", "10.02.2025") or a compound identifier ("Rapor No:
+#: 2021/15"). Each of these was read as the year a table's month labels belong to, and one
+#: such year decides the periods of the whole table (`context_year`, Eray's N22 2026-09-22).
+#: A day, a word and a year is a written date whatever the word is, so no month vocabulary
+#: is needed here -- and excluding a year errs towards deciding nothing, which is the safe
+#: direction: the reader's own year is then used, or none at all.
+_YEAR_OF_SOMETHING_ELSE = re.compile(
+    # A written date: 10.02.2025, 10/02/2025, 10-02-2025.
+    r"\d{1,2}\s*[./-]\s*\d{1,2}\s*[./-]\s*(?:19|20)\d{2}"
+    # A written date whose month is a word: 10 Şubat 2025.
+    r"|\d{1,2}\s+[^\W\d_]{3,12}\s+(?:19|20)\d{2}"
+    # A compound identifier: 2021/15, 15/2021. The other side is no year, which is what
+    # separates it from a range of years -- "(2025-2026)" above a table states both.
+    r"|(?:19|20)\d{2}\s*[/-]\s*\d{1,3}(?!\d)"
+    r"|(?<!\d)\d{1,3}\s*[/-]\s*(?:19|20)\d{2}"
+)
 _MAX_HEADER_ROWS = 4
 _MAX_SPAN = 64
+
+
+def data_years(text: str) -> list[int]:
+    """The years in `text` that could label a table's periods, lowest first.
+
+    A year inside a written date or a compound identifier says when the document was
+    published or what it is called, not which year its figures are from. A founding year
+    written on its own is indistinguishable from a data year and stays a candidate;
+    `context_year` already refuses to decide whenever more than one survives.
+    """
+    return sorted({int(year) for year in _YEAR.findall(_YEAR_OF_SOMETHING_ELSE.sub(" ", text))})
 
 
 class OcrProvider(Protocol):
@@ -75,11 +103,57 @@ class CachedOcr:
         return result
 
 
-def render_pages(content: bytes, pages: list[dict[str, object]]) -> None:
-    """Attach bounded inline PNGs only for pages without a text layer."""
+def page_images(content: bytes, numbers: Sequence[int]) -> list[bytes]:
+    """Bounded PNGs of the named pages, for a model that reads a picture.
+
+    The same renderer, bounds and page checks the OCR path uses; only the caller
+    differs. A page a model is asked to describe is rendered exactly once here,
+    and nothing about the rendering depends on what the model will be asked.
+    """
     # This bounded native renderer ships no typing marker/stubs. Its image/page
     # sizes still pass the explicit checks below; only this import is untyped.
     import pypdfium2 as pdfium  # type: ignore[import-untyped]
+
+    wanted = [number for number in numbers if isinstance(number, int) and number >= 1]
+    if not wanted or len(wanted) > MAX_OCR_PAGES:
+        raise OcrError("LIMIT_EXCEEDED")
+    images: list[bytes] = []
+    with pdfium.PdfDocument(content) as pdf:
+        for number in wanted:
+            if number > len(pdf):
+                raise OcrError("PARSER_FAILED")
+            page = pdf[number - 1]
+            try:
+                width, height = page.get_size()
+                if not all(math.isfinite(value) and value > 0 for value in (width, height)):
+                    raise OcrError("LIMIT_EXCEEDED")
+                if (
+                    math.ceil(width * RENDER_SCALE) * math.ceil(height * RENDER_SCALE)
+                    > MAX_PAGE_PIXELS
+                ):
+                    raise OcrError("LIMIT_EXCEEDED")
+                bitmap = page.render(scale=RENDER_SCALE)
+                try:
+                    image = bitmap.to_pil()
+                    try:
+                        output = io.BytesIO()
+                        image.save(output, format="PNG")
+                        png = output.getvalue()
+                        if len(png) > MAX_IMAGE_BYTES:
+                            raise OcrError("LIMIT_EXCEEDED")
+                        images.append(png)
+                    finally:
+                        image.close()
+                finally:
+                    bitmap.close()
+            finally:
+                page.close()
+    return images
+
+
+def render_pages(content: bytes, pages: list[dict[str, object]]) -> None:
+    """Attach bounded inline PNGs only for pages without a text layer."""
+    import pypdfium2 as pdfium
 
     missing: list[tuple[dict[str, object], int]] = []
     for record in pages:
@@ -240,7 +314,7 @@ def ocr_tables(text: str, limits: AdmissionLimits) -> list[dict[str, object]]:
         if table is None:
             continue
         before = text[:offset]
-        table["years"] = sorted({int(year) for year in _YEAR.findall(_LAYOUT_TAG.sub(" ", before))})
+        table["years"] = data_years(_LAYOUT_TAG.sub(" ", before))
         found.append(table)
     return found
 
@@ -273,10 +347,30 @@ def _expand(rows: list[list[tuple[str, int, int]]], limits: AdmissionLimits) -> 
     return [[cell or "" for cell in row] for row in grid]
 
 
+def _dates_its_columns(row: list[str]) -> bool:
+    """Whether this row labels its columns with years instead of reporting figures.
+
+    A published table dates its columns to years far more often than it reports one as a
+    figure, and "Kalem | 2023 | 2024 | 2025" dropped the whole table: every year read as a
+    number, so no row was left to be the header and the document yielded nothing at all
+    (Eray's N21, 2026-09-22). Only a table's first row is read this way, and only when its
+    labels are distinct years -- once a row has been taken as a header, a row of numbers is
+    the data the table was published for.
+    """
+    labelled = [cell for cell in row[1:] if cell]
+    return (
+        len(labelled) > 1
+        and len(set(labelled)) == len(labelled)
+        and all(_YEAR.fullmatch(cell) for cell in labelled)
+    )
+
+
 def _headed(grid: list[list[str]]) -> dict[str, object] | None:
     header_count = 0
     for row in grid:
-        if any(_NUMBER.fullmatch(cell) for cell in row[1:]):
+        if any(_NUMBER.fullmatch(cell) for cell in row[1:]) and not (
+            header_count == 0 and _dates_its_columns(row)
+        ):
             break
         header_count += 1
     if not 1 <= header_count <= _MAX_HEADER_ROWS or len(grid) - header_count < 2:

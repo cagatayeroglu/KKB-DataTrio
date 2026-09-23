@@ -1,7 +1,118 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { datasetRequestFromExport, parseMonthlyRows } from "../lib/client";
+import {
+  ApiError,
+  CONVERSATION_SAVE_LIMIT,
+  datasetRequestFromExport,
+  describeDatasetSource,
+  describeKnowledgeError,
+  parseMonthlyRows,
+} from "../lib/client";
+import {
+  datasetDetailSchema,
+  knowledgeListSchema,
+  noteHistorySchema,
+} from "../lib/contracts";
 import { forward, KNOWLEDGE_LIMIT, BODY_LIMIT } from "../lib/proxy";
+
+const SAVED_FROM_ADDRESS = {
+  kind: "address" as const,
+  url: "https://example.org/veri/gelir.csv",
+  read_at: "2026-09-23T10:00:00+00:00",
+  sha256: "b".repeat(64),
+  document: "belge_1",
+  page: null,
+  table: 1,
+  sheet: null,
+  period_column: "Ay",
+  value_column: "Gelir (milyon TL)",
+};
+
+test("a saved version carries its source; an older server and a typed-in version need not", () => {
+  const version = {
+    version: 1,
+    status: "active",
+    observations: 3,
+    content_sha256: "a".repeat(64),
+    created_at: "2026-09-23T10:00:01+00:00",
+  };
+  const detail = (extra: object, entry: object = version) =>
+    datasetDetailSchema.safeParse({
+      api_version: 1,
+      series: {
+        series_id: "USER:gelir.v1",
+        title: "Gelir",
+        provider: "USER",
+        origin: "user",
+        status: "active",
+        prepared: false,
+        fetchable: false,
+        unit: "TRY",
+        scale: "million",
+        frequency: "monthly",
+        stock_flow: "flow",
+        cumulative: "none",
+        base_year: null,
+        coverage_start: null,
+        coverage_end: null,
+        observations: 3,
+        aliases: [],
+        note: null,
+        version: 1,
+        slug: "gelir",
+        updated_at: null,
+        acquired_at: null,
+      },
+      source_kind: "upload",
+      description: null,
+      aggregation: "sum",
+      observations: [],
+      history: [entry],
+      ...extra,
+    });
+  assert.ok(
+    detail(
+      { source: SAVED_FROM_ADDRESS },
+      { ...version, source: SAVED_FROM_ADDRESS },
+    ).success,
+  );
+  assert.ok(detail({ source: null }, { ...version, source: null }).success);
+  assert.ok(detail({}).success); // an older server sends neither
+  // Still strict: nothing the page does not know is taken in.
+  assert.equal(
+    detail({ source: { ...SAVED_FROM_ADDRESS, token: "x" } }).success,
+    false,
+  );
+});
+
+test("a source is said in words, and only an http(s) address becomes a link", () => {
+  const said = describeDatasetSource(SAVED_FROM_ADDRESS);
+  assert.equal(said.href, "https://example.org/veri/gelir.csv");
+  assert.equal(said.origin, "https://example.org/veri/gelir.csv");
+  assert.match(said.when ?? "", /^erişim /);
+  assert.match(
+    said.place ?? "",
+    /belge_1 · tablo 1 · sütun “Gelir \(milyon TL\)”/,
+  );
+  assert.equal(
+    describeDatasetSource({ ...SAVED_FROM_ADDRESS, url: "javascript:alert(1)" })
+      .href,
+    null,
+  );
+  const upload = describeDatasetSource({
+    kind: "upload",
+    document: "belge_2",
+    read_at: "2026-09-23T10:00:00+00:00",
+  });
+  assert.equal(upload.href, null);
+  assert.equal(upload.origin, "sohbette yüklenen belge (belge_2)");
+  assert.match(upload.when ?? "", /^yükleme /);
+});
+
+test("what a conversation can keep is said plainly", () => {
+  assert.match(CONVERSATION_SAVE_LIMIT, /aylık/);
+  assert.match(CONVERSATION_SAVE_LIMIT, /tek bir değer sütunu/);
+});
 
 test("pasted monthly rows become month ends, and a bad line is named, not guessed", () => {
   const parsed = parseMonthlyRows(
@@ -177,4 +288,72 @@ test("an exported dataset detail rebuilds the exact versioned save request", () 
     () => datasetRequestFromExport({ ...detail, weekly_anchor: null }),
     /weekly_anchor_not_importable/,
   );
+});
+
+test("the listing says whether catalogue notes are open here; an older server need not", () => {
+  const digest = "a".repeat(64);
+  const listing = {
+    api_version: 1,
+    catalog_digest: digest,
+    reviewed_digest: digest,
+    series: [],
+  };
+  for (const catalog_editable of [true, false])
+    assert.equal(
+      knowledgeListSchema.parse({ ...listing, catalog_editable })
+        .catalog_editable,
+      catalog_editable,
+    );
+  // Absent on an older server; the page reads that as not editable.
+  assert.equal(knowledgeListSchema.parse(listing).catalog_editable, undefined);
+  assert.equal(
+    knowledgeListSchema.safeParse({ ...listing, catalog_editable: "yes" })
+      .success,
+    false,
+  );
+});
+
+test("a note version says whether this key wrote it, and never who did", () => {
+  const version = {
+    version: 1,
+    archived: true,
+    aliases: [],
+    note: null,
+    created_at: "2026-09-22T08:00:00+00:00",
+  };
+  const history = (entry: object) =>
+    noteHistorySchema.safeParse({
+      api_version: 1,
+      series_id: "EVDS:TP.KFE.TR",
+      history: [entry],
+    }).success;
+  for (const by_you of [true, false, null])
+    assert.ok(history({ ...version, by_you }), String(by_you));
+  assert.ok(history(version)); // an older server
+  // Still strict: an author's owner id is nothing this page takes in.
+  assert.equal(history({ ...version, author: "0".repeat(32) }), false);
+});
+
+test("a read-only catalogue is said as such, not as a refused local origin", () => {
+  const text = describeKnowledgeError(new ApiError("catalog_read_only", 403));
+  assert.match(text, /salt okunur/);
+  assert.match(text, /--allow-catalog-edits/);
+  assert.notEqual(text, describeKnowledgeError(new ApiError("forbidden", 403)));
+});
+
+test("a knowledge base larger than the catalogue bound still parses its counts", () => {
+  // Live 2026-09-23: the directory's opened entries took the count past 10,000.
+  const digest = "a".repeat(64);
+  const page = knowledgeListSchema.parse({
+    api_version: 1,
+    catalog_digest: digest,
+    reviewed_digest: digest,
+    series: [],
+    listed_series: 12_345,
+    total: 12_345,
+    page: 1,
+    page_size: 50,
+    counts: { all: 12_345 },
+  });
+  assert.equal(page.total, 12_345);
 });

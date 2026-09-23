@@ -27,8 +27,12 @@ BRIEF_TOOLS = frozenset(
 )
 
 
-# M13-04 catalog_search; M5-20 table_transform (DEC-135, delivered operations only).
-IMPLEMENTED_PRODUCT_TOOLS = frozenset({"catalog_search", "table_transform"})
+# M13-04 catalog_search; M5-20 table_transform (DEC-135, delivered operations only);
+# DEC-181 document_read, whose output is a reading rather than evidence; DEC-183
+# promote_series, whose output is an offer and whose write waits for the person.
+IMPLEMENTED_PRODUCT_TOOLS = frozenset(
+    {"catalog_search", "table_transform", "document_read", "promote_series"}
+)
 
 
 class RegistryError(ValueError):
@@ -100,13 +104,27 @@ class ToolRegistry:
         self._tools: dict[str, ToolSpec] = {}
 
     def register(self, spec: ToolSpec) -> None:
+        """Take the tool. Which tools exist is a deployment question, not a rule.
+
+        Registration used to refuse any name outside a fixed approved list, so a
+        capability could not be added without amending that list first. What the
+        list actually protected was a process, not the reader: a tool is only
+        reachable if this deployment registered it, and what it may do is decided
+        by the tool itself.
+        """
         if spec.name in self._tools:
             raise RegistryError(f"Tool {spec.name!r} is already registered")
-        if spec.name not in BRIEF_TOOLS | IMPLEMENTED_PRODUCT_TOOLS:
-            raise RegistryError(
-                f"Tool {spec.name!r} is not an implemented approved tool; "
-                "adding one needs its own decision"
-            )
+        self._tools[spec.name] = spec
+
+    def replace(self, spec: ToolSpec) -> None:
+        """Put a newer binding of a registered tool in its place, under the same name.
+
+        A turn's catalogue can grow while the turn runs - a series saved in it (QA-34) -
+        and the tool that searches it was bound to the catalogue the turn began with.
+        Only a tool already registered can be replaced: this adds nothing new.
+        """
+        if spec.name not in self._tools:
+            raise RegistryError(f"Unknown tool {spec.name!r}")
         self._tools[spec.name] = spec
 
     def get(self, name: str) -> ToolSpec:
@@ -134,7 +152,49 @@ class ToolRegistry:
             {
                 "name": spec.name,
                 "description": spec.description,
-                "arguments": spec.arguments.model_json_schema(),
+                "arguments": _without_titles(spec.arguments.model_json_schema()),
             }
             for spec in self
         ]
+
+
+#: Limits the validator enforces and a planner cannot act on: the character class of a step
+#: id, the longest label. What a planner can act on stays (`maxItems`, `minimum`, `enum`,
+#: `format`), and where a shape matters the field's description says it in words.
+_VALIDATOR_MARKS = ("pattern", "minLength", "maxLength")
+
+
+def _without_titles(node: Any, *, names: bool = False) -> Any:
+    """A tool's JSON schema as a planner needs it: what to write, without the validator's marks.
+
+    Removed, because they tell a planner nothing it can act on (the validator keeps them):
+    the `title` pydantic generates for every field ("Driver Column" beside `driver_column`),
+    the `anyOf [X, null]` + `default null` wrapper of an optional field (`required` already
+    says which fields are not optional), and `_VALIDATOR_MARKS`.
+    `additionalProperties: false` stays, because it
+    tells a planner not to invent a field the validator would refuse, and so does the
+    discriminator, whose mapping lists a tool's operations by name. Measured on the served
+    tools: 29.4 KB to about 25 KB. Inside `properties` and
+    `$defs` a key is an argument's or a model's own name, never an annotation, and is kept.
+    """
+    if isinstance(node, dict):
+        if not names:
+            options = node.get("anyOf")
+            if isinstance(options, list) and len(options) == 2 and {"type": "null"} in options:
+                base = next(item for item in options if item != {"type": "null"})
+                if isinstance(base, dict):
+                    rest = {k: v for k, v in node.items() if k not in ("anyOf", "default")}
+                    node = {**base, **rest}
+        return {
+            key: _without_titles(value, names=key in ("properties", "$defs"))
+            for key, value in node.items()
+            if names
+            or not (
+                (key == "title" and isinstance(value, str))
+                or (key == "default" and value is None)
+                or (key in _VALIDATOR_MARKS and not isinstance(value, dict))
+            )
+        }
+    if isinstance(node, list):
+        return [_without_titles(item) for item in node]
+    return node

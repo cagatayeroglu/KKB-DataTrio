@@ -136,3 +136,77 @@ def test_the_trace_says_what_was_written(pool, tmp_path):
     recorded = written[0].attributes
     assert recorded["table"] == "analiz_1"
     assert recorded["rows"] == 3 and recorded["columns"] == 1 and recorded["incomplete"] == []
+
+
+def test_gold_recheck_is_scoped_to_result_version_not_label_and_month(tmp_path):
+    import json
+    from datetime import UTC, date, datetime
+
+    from kkb_agent.agent import Session, ToolRegistry
+    from kkb_agent.agent.verifier import result_faults
+    from kkb_agent.core import Aggregation, CumulativeKind, Frequency, Scale, SourceRef, StockFlow
+    from kkb_agent.lakehouse import Observation, SeriesSemantics
+    from kkb_agent.lakehouse.gold import gold_from_result, persist_gold
+    from kkb_agent.tools import make_lakehouse_tool, make_table_transform_tool
+
+    with open_lakehouse(tmp_path / "versions") as lake:
+        artifact = lake.record_artifact(
+            b"days",
+            source=SourceRef(source_id="days", source_type="fixture", locator="opaque:test"),
+            media_type="text/plain",
+            recorded_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        semantic = SeriesSemantics(
+            unit="TRY",
+            scale=Scale.ONE,
+            frequency=Frequency.DAILY,
+            observation=StockFlow.STOCK,
+            cumulative=CumulativeKind.NONE,
+            aggregation=Aggregation.AVERAGE,
+        )
+        lake.register_series(
+            "daily", title="daily", semantics=semantic, artifact_id=artifact.artifact_id
+        )
+        dates = [date(2025, m, d) for m in (1, 2) for d in range(1, 29)]
+        lake.append_observations("daily", [Observation(d, d, float(d.day)) for d in dates])
+        workspace = Workspace.open(lake.connection, "versions")
+        registry = ToolRegistry()
+        registry.register(make_lakehouse_tool(lake.connection, lineage=lake.lineage))
+        registry.register(
+            make_table_transform_tool(lake.connection, workspace, lineage=lake.lineage)
+        )
+        old = None
+        for index, filter_sql in enumerate([" AND day(o.period_end) >= 15", ""]):
+            plan = {
+                "question": "Aylık ortalama",
+                "steps": [
+                    {
+                        "step_id": "r",
+                        "tool": "lakehouse",
+                        "arguments": {
+                            "sql": "SELECT series_id,period_start,period_end,value "
+                            "FROM silver_observations o WHERE series_id='daily'" + filter_sql
+                        },
+                    },
+                    {
+                        "step_id": "m",
+                        "tool": "table_transform",
+                        "depends_on": ["r"],
+                        "arguments": {"operation": "resample", "source": "r", "column": "daily"},
+                    },
+                ],
+            }
+            answer = Session(scripted(json.dumps(plan), "Tablo hazır."), registry).answer(
+                "Aylık ortalama", lake.connection, workspace=workspace, remember=f"v{index}"
+            )
+            result = answer.results[-1]
+            assert result_faults({"result": result}, lake.connection) == {}
+            assert f"v{index}" in workspace.names()
+            table = gold_from_result(result, table_id=f"v{index}", lineage=lake.lineage)
+            assert table is not None
+            persist_gold(lake.connection, table)
+            if old is not None:
+                assert old.values[0].label == result.values[0].label
+                assert old.values[0].value != result.values[0].value
+                assert result_faults({"old": old, "new": result}, lake.connection) == {}
+            old = result

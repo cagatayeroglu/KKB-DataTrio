@@ -133,6 +133,72 @@ class TestReadingOcrTables:
     def test_irregular_tables_are_skipped_not_repaired(self, html):
         assert ocr_tables(html, DEFAULT_LIMITS) == []
 
+    @pytest.mark.parametrize(
+        ("html", "expected"),
+        [
+            # The reported table: every year read as a figure, so no row was left to be the
+            # header and the whole table was dropped (N21).
+            (
+                "<table><tr><td>Kalem</td><td>2023</td><td>2024</td><td>2025</td></tr>"
+                "<tr><td>Konut</td><td>100</td><td>110</td><td>120</td></tr>"
+                "<tr><td>Ticari</td><td>200</td><td>210</td><td>220</td></tr></table>",
+                ["Kalem", "2023", "2024", "2025"],
+            ),
+            # A year below a header row is the data the table was published for.
+            (
+                "<table><tr><td>Urun</td><td>Yil</td></tr>"
+                "<tr><td>Ayakkabi</td><td>2023</td></tr>"
+                "<tr><td>Canta</td><td>2024</td></tr></table>",
+                ["Urun", "Yil"],
+            ),
+        ],
+        ids=["years-label-the-columns", "a-year-below-a-header-is-data"],
+    )
+    def test_a_first_row_of_distinct_years_labels_the_columns(self, html, expected):
+        (table,) = ocr_tables(html, DEFAULT_LIMITS)
+        assert table["rows"][0] == expected
+
+    @pytest.mark.parametrize(
+        ("above", "expected"),
+        [
+            ("Yayın tarihi: 10 Şubat 2025", []),
+            ("Yayin tarihi: 10 Subat 2025", []),
+            ("Yayım: 10.02.2025", []),
+            ("Rapor No: 2021/15", []),
+            # A founding year on its own is indistinguishable from a data year.
+            ("Kuruluş 1985", [1985]),
+            ("2024 yılı aylık veriler", [2024]),
+            # The valuable case: one real year survives beside a publication date, where two
+            # candidates used to leave the table with no year context at all.
+            ("Yayın tarihi: 10 Şubat 2025 — 2024 yılı verileri", [2024]),
+        ],
+        ids=[
+            "written-date",
+            "folded-written-date",
+            "numeric-date",
+            "report-number",
+            "founding-year",
+            "data-year",
+            "a-date-and-a-data-year",
+        ],
+    )
+    def test_only_a_year_that_could_date_the_figures_is_a_candidate(self, above, expected):
+        html = (
+            f"{above}\n<table><tr><td>Ay</td><td>Tutar (TL)</td></tr>"
+            "<tr><td>Ocak</td><td>100</td></tr>"
+            "<tr><td>Şubat</td><td>110</td></tr></table>"
+        )
+        (table,) = ocr_tables(html, DEFAULT_LIMITS)
+        assert table["years"] == expected
+
+    def test_a_repeated_year_is_not_a_set_of_column_labels(self):
+        html = (
+            "<table><tr><td>Kalem</td><td>2023</td><td>2023</td></tr>"
+            "<tr><td>Konut</td><td>100</td><td>110</td></tr>"
+            "<tr><td>Ticari</td><td>1</td><td>2</td></tr></table>"
+        )
+        assert ocr_tables(html, DEFAULT_LIMITS) == []
+
     def test_budgets_apply_to_ocr_tables(self):
         assert ocr_tables(ocr_text(), replace(DEFAULT_LIMITS, max_columns=5)) == []
         assert ocr_tables(ocr_text(), replace(DEFAULT_LIMITS, max_cells=10)) == []

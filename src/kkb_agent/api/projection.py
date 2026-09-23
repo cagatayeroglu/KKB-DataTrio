@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
+from urllib.parse import urlsplit
 from uuid import UUID, uuid5
 
+from kkb_agent.agent.claim_qualifiers import has_amount_context, is_list_marker
 from kkb_agent.agent.discovery import CLARIFICATION_TEXT, MISSING_SERIES_ROUTES
 from kkb_agent.agent.executor import ExecutionOutcome
 from kkb_agent.agent.loop import Answered
@@ -17,6 +20,7 @@ from kkb_agent.api.contracts import (
     Cell,
     Proof,
     Result,
+    ResultContent,
     SeriesChoice,
     SeriesSelection,
     unavailable_proof,
@@ -30,6 +34,13 @@ class OutputRefused(ValueError):
     """Fixed boundary failure; never include the rejected output."""
 
 
+#: The longest answer text shown to a reader, in characters (and four bytes each).
+MAX_TEXT_CHARS = 8192
+#: How many notices may stand beside an answer, and how long each may be.
+MAX_NOTICES = 12
+MAX_NOTICE_CHARS = 2048
+
+
 # Prevent accidental locator/path/credential presentation. This is deliberately
 # conservative and not a general secret detector; raw internals are excluded by
 # construction. Literal credentials known to the operator can be supplied too.
@@ -40,14 +51,88 @@ _INTERNAL = re.compile(
 )
 
 
-def safe_text(text: str, *, limit: int = 8192, secrets: tuple[str, ...] = ()) -> str:
+def safe_text(
+    text: str,
+    *,
+    limit: int = MAX_TEXT_CHARS,
+    secrets: tuple[str, ...] = (),
+    shown_urls: frozenset[str] = frozenset(),
+) -> str:
+    """`shown_urls` are addresses this turn's own web search returned: they are the answer
+    to "webde ara", and the reader needs them to ask for a page to be read. Live
+    2026-09-21 every one of them was replaced by the placeholder, under a sentence telling
+    the reader to write the address in the next question."""
     if len(text) > limit or len(text.encode("utf-8")) > limit * 4:
         raise OutputRefused("output_limit")
-    cleaned = _INTERNAL.sub("[gizli bilgi kaldırıldı]", text)
+
+    def hidden(found: re.Match[str]) -> str:
+        # The pattern runs to the next space, so "(https://.../kmp_au.pdf, sha256 ...)" ended
+        # its address with the comma, and a shown address no longer matched (N48). Markdown
+        # closes an address the same way: live 2026-09-23 "`https://raw.../a.csv`" ended in
+        # the backtick, and the address the turn had just read was hidden. Only the match
+        # to the turn's own addresses loosens; every other address is hidden as before.
+        address = found.group().rstrip(".,;:!?)]}'\"`*_>")
+        return found.group() if address in shown_urls else "[gizli bilgi kaldırıldı]"
+
+    cleaned = _INTERNAL.sub(hidden, text)
     for secret in secrets:
         if secret:
             cleaned = cleaned.replace(secret, "[gizli bilgi kaldırıldı]")
     return "".join(c for c in cleaned if ord(c) >= 32 or c in "\n\t")
+
+
+def _searched_urls(answered: Answered) -> frozenset[str]:
+    """The https addresses this turn's web_search steps returned, and nothing else."""
+    found: set[str] = set()
+    for item in answered.outcome.results:
+        if item.tool != "web_search":
+            continue
+        for candidate in getattr(item.output, "candidates", ()) or ():
+            url = str(getattr(candidate, "url", "") or "")
+            if url.startswith("https://") and not any(c.isspace() for c in url):
+                found.add(url)
+    return frozenset(found)
+
+
+def _read_urls(answered: Answered) -> frozenset[str]:
+    """The public https addresses this turn itself read, and nothing else.
+
+    A page the turn fetched passed safe_fetch, so its address is a public one the reader
+    wrote or the turn followed; hiding it made the reading's own header say
+    "[gizli bilgi kaldırıldı]" where the TCMB address it had read belonged (N48, live W5).
+    An address with a query or credentials stays hidden.
+    """
+    found: list[str] = []
+    for item in answered.outcome.results:
+        if item.tool == "web_url":
+            source = getattr(item.output, "source", None)
+            found.append(str(getattr(source, "locator", "") or ""))
+        elif item.tool == "document_read":
+            found.append(str(getattr(item.output, "document", "") or ""))
+    return public_addresses(found)
+
+
+def public_addresses(candidates: Iterable[str]) -> frozenset[str]:
+    """The https addresses among `candidates` that carry no query, fragment or credentials.
+
+    Only these may stand in an answer as written: a query or a fragment is where a signed
+    link keeps its token, and credentials are credentials. Which candidates are offered
+    at all is the caller's evidence - read, searched, written by the person, or recorded
+    as a saved series' source - never whatever address an answer happens to contain.
+    """
+    found: set[str] = set()
+    for candidate in candidates:
+        parts = urlsplit(candidate)
+        if (
+            parts.scheme == "https"
+            and parts.hostname
+            and not parts.query
+            and not parts.fragment
+            and "@" not in parts.netloc
+            and not any(c.isspace() for c in candidate)
+        ):
+            found.add(candidate)
+    return frozenset(found)
 
 
 def _owned_proof(proof: Proof | None, version: str) -> Proof:
@@ -66,6 +151,7 @@ def project_result(
     turn_id: str,
     secrets: tuple[str, ...] = (),
     proof: Proof | None = None,
+    related: tuple[tuple[AnalyticalResult, Proof], ...] = (),
 ) -> Result:
     """The public table for a published value: deterministic from the turn and the digest.
 
@@ -78,7 +164,7 @@ def project_result(
     if len(canonical.values) > MAX_VALUES:
         raise OutputRefused("output_limit")
     version = canonical.digest()
-    return Result(
+    projected = Result(
         result_ref=uuid5(namespace, version).hex,
         version=version,
         kind=canonical.kind,
@@ -99,8 +185,52 @@ def project_result(
             )
             for slot, value in enumerate(canonical.values)
         ),
+        hidden_columns=_hidden_columns(canonical, secrets),
+        series_names=_series_names(canonical, secrets),
         proof=_owned_proof(proof, version),
+        related=tuple(
+            ResultContent.model_validate(
+                project_result(item, turn_id=turn_id, secrets=secrets, proof=item_proof).model_dump(
+                    exclude={"related"}
+                )
+            )
+            for item, item_proof in related
+        ),
     )
+    if len(projected.model_dump_json().encode()) > MAX_RESPONSE_BYTES - 4096:
+        raise OutputRefused("output_limit")
+    return projected
+
+
+def _series_names(result: AnalyticalResult, secrets: tuple[str, ...]) -> dict[str, str]:
+    """What each series of this result is called, for a reader who sees the labels.
+
+    The tools record it (`parameters["series_names"]`); it never held anything but a
+    catalogue title, and it is scrubbed like every other text that crosses this boundary.
+    """
+    recorded = result.parameters.get("series_names")
+    if not isinstance(recorded, dict):
+        return {}
+    named: dict[str, str] = {}
+    for identity, name in list(recorded.items())[:64]:
+        if isinstance(identity, str) and isinstance(name, str) and identity and name:
+            named[safe_text(identity, limit=240, secrets=secrets)] = safe_text(
+                name, limit=240, secrets=secrets
+            )
+    return named
+
+
+def _hidden_columns(result: AnalyticalResult, secrets: tuple[str, ...]) -> tuple[str, ...]:
+    """The columns a `replace` asked not to show, as far as the table still holds them."""
+    asked = result.parameters.get("hidden_columns")
+    if not isinstance(asked, list):
+        return ()
+    held = {value.label for value in result.values}
+    return tuple(
+        safe_text(label, limit=240, secrets=secrets)
+        for label in asked
+        if isinstance(label, str) and label in held
+    )[:32]
 
 
 #: How many catalogue entries a clarification lists; the search itself returns at most ten.
@@ -205,13 +335,61 @@ def series_selection(
     )
 
 
-def clarification_text(reason: str, outcome: ExecutionOutcome) -> str:
-    """The fixed clarification sentence, then what this turn's catalogue search really found.
+def _quotes_a_figure(text: str) -> bool:
+    """A digit that measures something; the "(1)" and "(2)" of two choices only count them.
+
+    A planner that names the axis it cannot settle writes the choices as a list. The
+    filter below read those markers as figures, so the owner's run of the reference
+    first turn showed the generic "several series fit" in place of the planner's own
+    "(1) yeni kullandırılan, akım ... (2) stok ..." (stored trace, 2026-09-20).
+    """
+    # A year or a date in the planner's own question measures nothing ("2020 sonrası
+    # için hangi seriyi kullanayım?", "2025-12 fiyatlarıyla mı?"); it used to send the
+    # whole question back to the fixed text. Any other number is a figure nothing computed.
+    undated = re.sub(r"\b\d{4}-\d{2}(?:-\d{2})?\b|\b\d{1,2}[./]\d{1,2}[./]\d{4}\b", " ", text)
+    for found in re.finditer(r"\d+(?:[.,]\d+)*", undated):
+        if is_list_marker(undated, found.start(), found.end()):
+            continue
+        token = found.group()
+        a_year = token.isdigit() and 1900 <= int(token) <= 2100
+        if not a_year or has_amount_context(undated, found.start(), found.end()):
+            return True
+    return False
+
+
+def clarification_text(
+    reason: str,
+    outcome: ExecutionOutcome,
+    proposed: str | None = None,
+    *,
+    secrets: tuple[str, ...] = (),
+) -> str:
+    """Prefer a safe specific question; retain the deterministic catalogue fallback.
 
     A bare "several series fit" or "not found" left the person guessing what exists
     (DEC-172). The lines come from reviewed catalogue records this turn's own searches
     returned, in their order; nothing here is model text and no figure is quoted.
     """
+    # A terminal reason never turns back into a question through model wording.
+    if reason in ("outside_coverage", "unsupported_request"):
+        return CLARIFICATION_TEXT[reason]
+    # Planner prose is not evidence. A numeric statement, locator or causal claim
+    # in it cannot be bound by the ordinary answer verifier, so do not show it.
+    # This intentionally rejects even a harmless date rather than certifying an
+    # unverified figure in a clarification. The markers of a list of choices are not
+    # figures, and are the one kind of digit let through.
+    if proposed is not None:
+        specific = proposed.strip()
+        # The planner's own question is shown as it wrote it: "2020 sonrası için hangi
+        # seriyi kullanayım?" used to be replaced by a generic sentence because it holds a
+        # digit. An amount, a locator or a secret still sends it back to the fixed text.
+        if (
+            specific
+            and not _quotes_a_figure(specific)
+            and not re.search(r"https?://", specific, re.I)
+            and "[gizli bilgi kaldırıldı]" not in safe_text(specific, limit=1500, secrets=secrets)
+        ):
+            return specific
     text = CLARIFICATION_TEXT[reason]
     if reason not in ("ambiguous_series", "missing_series"):
         return text
@@ -266,8 +444,16 @@ def project_answer(
     published: AnalyticalResult | None,
     secrets: tuple[str, ...] = (),
     proof: Proof | None = None,
+    related: tuple[tuple[AnalyticalResult, Proof], ...] = (),
+    known_urls: Iterable[str] = (),
 ) -> Answer:
     """The caller proves publication by reading its own workspace, not by a flag.
+
+    `known_urls` are addresses the caller holds evidence for beyond this turn's reads:
+    those the person wrote in the question, and the recorded sources of the knowledge
+    base's saved series. Live 2026-09-23 a new conversation read a saved series, the
+    answer named the address it had been saved from, and the reader was shown
+    "[gizli bilgi kaldırıldı]" in its place.
 
     No candidate result, raw outcome, omitted sentence, verdict exception,
     locator, transformation parameters or source content is serialized.
@@ -278,35 +464,75 @@ def project_answer(
     if gate.status is AnswerStatus.ABSTAINED:
         reason = answered.planned.plan.clarification
         text = (
-            safe_text(clarification_text(reason, answered.outcome), secrets=secrets)
+            safe_text(
+                clarification_text(
+                    reason,
+                    answered.outcome,
+                    answered.planned.plan.clarification_text,
+                    secrets=secrets,
+                ),
+                secrets=secrets,
+            )
             if reason is not None
             else (
                 "Bu soru için doğrulanabilir bir sonuç üretilemedi. "
                 "Veri kapsamını ve tanımı kontrol edin."
             )
         )
+        if any(
+            item.parameters.get("semantic_limitation") == "invalid_aggregation"
+            for item in answered.results
+        ):
+            text = (
+                "İstenen toplam, sütunun ölçüm anlamına uygun değil: stok, oran ve endeks "
+                "düzeyleri dönemler boyunca toplanamaz. Başka bir metrik hesaplanmadı. "
+                "İsterseniz ortalama, en düşük veya en yüksek değeri ayrıca isteyebilirsiniz."
+            )
+        elif any(
+            item.parameters.get("semantic_limitation") == "aggregation_substitution"
+            for item in answered.results
+        ):
+            text = (
+                "İstenen agregasyonun yerine farklı bir metrik hesaplanamaz. "
+                "Alternatif hesaplama yapılmadı; farklı bir özet istiyorsanız ayrıca belirtin."
+            )
     else:
-        text = safe_text(gate.text, secrets=secrets)
+        text = safe_text(
+            gate.text,
+            secrets=secrets,
+            shown_urls=(
+                _searched_urls(answered) | _read_urls(answered) | public_addresses(known_urls)
+            ),
+        )
     if gate.omitted:
         notices.append("Doğrulanamayan bazı ifadeler yanıttan çıkarıldı.")
     if gate.limitations:
         # These are gate-owned qualifications, still treated as untrusted text.
-        if len(gate.limitations) > 12:
+        if len(gate.limitations) > MAX_NOTICES:
             raise OutputRefused("output_limit")
-        notices.extend(safe_text(item, limit=2048, secrets=secrets) for item in gate.limitations)
+        notices.extend(
+            safe_text(item, limit=MAX_NOTICE_CHARS, secrets=secrets) for item in gate.limitations
+        )
     result = None
     if published is not None:
+        expected = answered.presented or answered.results[-1:]
         if (
-            gate.status is not AnswerStatus.ACCEPTED
-            or not answered.results
-            or published.digest() != answered.results[-1].digest()
+            gate.status is AnswerStatus.ABSTAINED
+            or not expected
+            or published.digest() != expected[0].digest()
+            or [item.digest() for item, _ in related] != [item.digest() for item in expected[1:]]
         ):
             raise OutputRefused("publication_mismatch")
-        result = project_result(published, turn_id=turn_id, secrets=secrets, proof=proof)
+        result = project_result(
+            published, turn_id=turn_id, secrets=secrets, proof=proof, related=related
+        )
     elif gate.status is not AnswerStatus.ABSTAINED and answered.planned.plan.reply is None:
         # A conversational reply never publishes, so saying so would be noise.
         notices.append("Bu turda yeni bir doğrulanmış tablo çalışma alanına yayımlanmadı.")
     answer = Answer(
+        needs_clarification=gate.status is AnswerStatus.ABSTAINED
+        and answered.planned.plan.clarification
+        in ("ambiguous_series", "missing_series", "unresolved_semantics"),
         status=gate.status,
         text=text,
         omitted_claims=len(gate.omitted),

@@ -376,8 +376,31 @@ def test_turn_one_end_to_end_is_accepted_and_published(lake):
     writer_prompt = session.provider.seen[1][1].content
     assert f"Series {TOTAL_ID} means: BDDK Aylık Bülten" in writer_prompt
     assert "did not rise: 2021-02-28, 2021-04-30, 2021-06-30" in writer_prompt
-    # Cause wording is withheld even when negated, so the writer is told to avoid it.
-    assert "not even to deny one" in session.provider.seen[1][0].content
+    assert "not evidence that one series caused" in writer_prompt
+
+
+@pytest.mark.parametrize(
+    "unsupported_cause",
+    [
+        "Faiz düşüşü kredi artışına neden oldu.",
+        "Faiz düşüşü kredi artışına neden olmadı.",
+    ],
+)
+def test_turn_one_causal_wording_is_kept_and_the_reader_is_told_what_was_tested(
+    lake, unsupported_cause
+):
+    # The gate binds figures; wording is the writer's. A sentence about cause used to be
+    # withheld, assertion and denial alike, and took the turn's table with it. It is kept,
+    # and the harness's own note says what the tools did and did not establish.
+    from kkb_agent.agent.loop import CAUSE_NOTE
+
+    draft = (
+        "Faizin düştüğü 4 aylık geçişin 3'ünde konut kredisi bakiyesi artmadı. " + unsupported_cause
+    )
+    answered, workspace, _ = turn_one(lake, draft)
+    assert answered.answer.status is AnswerStatus.ACCEPTED
+    assert unsupported_cause in answered.answer.text and CAUSE_NOTE in answered.answer.text
+    assert workspace.names() == ["konut_kredisi_ve_faiz"]
 
 
 def test_turn_one_table_rows_bind_to_their_own_periods(lake):
@@ -407,7 +430,8 @@ def test_a_wrong_table_row_is_withheld_without_silencing_the_others(lake):
     assert answered.answer.status is AnswerStatus.QUALIFIED
     assert len(answered.answer.omitted) == 1 and "2021-02-01" in answered.answer.omitted[0].text
     assert "2021-03-01..2021-03-31" in answered.answer.text
-    assert workspace.names() == []
+    # The table is what the tools computed; a withheld sentence about it does not unpublish it.
+    assert workspace.names() == ["konut_kredisi_ve_faiz"]
 
 
 def test_turn_one_with_an_invented_figure_is_not_published(lake):
@@ -499,9 +523,9 @@ def test_turn_one_answer_carries_the_table_and_writer_is_told_not_to_repeat_it(l
     (table,) = answered.tables
     assert len(table.rows) == 6 and table.columns[0].startswith("BDDK Aylık Bülten")
     writer_rules = session.provider.seen[1][0].content
-    assert "do not reproduce per-period rows" in writer_rules
-    assert "never by raw labels or identifiers" in writer_rules
-    assert "without that word" in writer_rules
+    assert "the reader sees the full table separately" in writer_rules
+    assert "meaningful series name" in writer_rules
+    assert "dimensionless displays" in writer_rules and "without that" in writer_rules
 
 
 def test_no_table_accompanies_an_abstained_answer(lake):
@@ -540,21 +564,26 @@ def test_planner_is_told_where_columns_live_and_to_avoid_redundant_steps(lake):
     description = make_lakehouse_tool(lake.connection).description
     assert "silver_series declaration (series_id, unit, scale" in description
     assert "join silver_series s on series_id" in description
-    assert "another planned step already returns" in SYSTEM_PROMPT
+    assert "re-fetches what another step already returns" in SYSTEM_PROMPT
 
 
-def test_writer_reads_summaries_and_highlighted_periods_but_the_gate_sees_everything(lake):
+def test_writer_reads_a_short_table_whole_and_the_gate_still_sees_everything(lake):
     draft = "Mart 2021'de bakiye 1.010 milyon TL oldu."  # A tabled, non-highlighted month.
     answered, _, session = turn_one(lake, draft)
     writer_prompt = session.provider.seen[1][1].content
     assert "shown to the reader separately for:" in writer_prompt
     assert "period 2021-02-01..2021-02-28" in writer_prompt  # highlighted
-    assert "period 2021-03-01..2021-03-31" not in writer_prompt  # tabled only
+    # Six months is short enough to read: the writer is given every month, not only the
+    # highlighted ones. Denied the middle, it wrote that the table lacked it (2026-09-21).
+    assert "period 2021-03-01..2021-03-31" in writer_prompt
+    assert "Every one of its values is listed below." in writer_prompt
     # The direction counts reach the writer under their controlled phrases, which
     # is what lets a later turn name an inherited count instead of a bare number.
-    assert "Sürücü serinin düştüğü geçiş sayısı" in writer_prompt
-    assert "Sürücü düşerken hedefin artmadığı geçiş sayısı" in writer_prompt
-    assert "transitions where" not in writer_prompt
+    assert "Birinci serinin düştüğü ay sayısı" in writer_prompt
+    assert "Birinci seri düşerken ikinci serinin artmadığı ay sayısı" in writer_prompt
+    assert "transitions where" not in "\n".join(
+        line for line in writer_prompt.splitlines() if line.startswith("- ")
+    )
     # Narrowing the writer's view does not narrow verification.
     assert answered.answer.status is AnswerStatus.ACCEPTED
 
@@ -566,3 +595,112 @@ def test_the_planner_reads_each_prepared_series_stored_window_beside_its_meaning
     assert "kapsam" not in names[TOTAL_ID]  # display names stay clean
     tool = make_change_detection_tool(lake.connection, lineage=lake.lineage, series_names=names)
     assert f"{TOTAL_ID}: {names[TOTAL_ID]} [2021-01..2021-06]" in tool.description
+
+
+def _served_like(lake, *responses, **plan_fields):
+    """The harness words the co-movement itself; the writer is asked only for its reading."""
+    registry = ToolRegistry()
+    registry.register(
+        make_change_detection_tool(
+            lake.connection,
+            lineage=lake.lineage,
+            series_names=prepared_series_names(lake.connection),
+        )
+    )
+    plan = {
+        "question": QUESTION,
+        "steps": [
+            {
+                "step_id": "turn1",
+                "tool": "change_detection",
+                "arguments": json.loads(arguments().model_dump_json(exclude_none=True)),
+            }
+        ],
+        **plan_fields,
+    }
+    workspace = Workspace.open(lake.connection)
+    session = Session(scripted(json.dumps(plan), *responses), registry, commentary=True)
+    answered = session.answer(
+        QUESTION, lake.connection, workspace=workspace, remember="konut_kredisi_ve_faiz"
+    )
+    return answered, workspace, session
+
+
+def test_the_reading_sits_under_figures_that_name_their_series(lake):
+    """The jury: "nedenlerine ilişkin yorum ... katma değer" - over figures a reader can place.
+
+    Handing the whole answer to the writer was built and measured on 2026-09-22 and left
+    off: asked for it, the writer spent 1,550 seconds and all 16,384 of its tokens on
+    reasoning and returned nothing, while this narrow call succeeded in 91 seconds on the
+    same endpoint the same day. So the harness words the figures - and must say which series
+    each count is about, which is the half that was missing.
+    """
+    reading = (
+        "Yorum: Faizin düştüğü ayların çoğunda bakiye artmış; bu, kredi talebinin faize "
+        "duyarlı olduğunu düşündürüyor ve muhtemelen para politikasıyla ilişkili."
+    )
+    answered, workspace, session = _served_like(lake, reading)
+    assert answered.answer.status is AnswerStatus.ACCEPTED
+    assert reading in answered.answer.text and answered.answer.text.index("Yorum:") > 0
+    named = answered.answer.text.splitlines()[1]
+    assert named.startswith("Birinci seri:") and "İkinci seri:" in named
+    assert "konut kredisi faiz oranı" in named and "konut kredisi bakiyesi" in named
+    asked = session.provider.seen[1]
+    assert any("Write ONLY the 'Yorum:' paragraph" in item.content for item in asked)
+    assert any(item.content.startswith("written:") for item in asked)
+    assert workspace.names() == ["konut_kredisi_ve_faiz"]
+
+
+def test_a_request_that_asks_for_no_interpretation_gets_none_and_costs_no_writer_call(lake):
+    # Live 2026-09-21: "tabloyu bozmadan ... enflasyondan arındırır mısın?" was answered with
+    # a 'Yorum:' paragraph restating what had been done, and 58 of the turn's 100 seconds
+    # went to writing it. Whether the reader asked how, why or whether is the planner's
+    # reading of the question, said in the plan.
+    reading = "Yorum: Bu cümle hiç istenmemeli."
+    answered, workspace, session = _served_like(lake, reading, interpret=False)
+    assert answered.answer.status is AnswerStatus.ACCEPTED
+    assert "Yorum:" not in answered.answer.text
+    assert len(session.provider.seen) == 1  # the planner call, and no writer call
+    assert workspace.names() == ["konut_kredisi_ve_faiz"]
+
+
+def test_the_harness_wording_says_which_series_each_count_is_about(lake):
+    """Where no writer runs, the fixed wording stands - and it must still name the series.
+
+    It leads with a line naming the pair, because "Birinci serinin düştüğü ay sayısı" alone
+    tells a reader nothing about which series fell. That line used to be dropped whenever a
+    name carried a digit, which every index name does ("... (2023=100)").
+    """
+    answered, _, _ = _served_like(lake, interpret=False)
+    lines = answered.answer.text.splitlines()
+    assert lines[0] == "Aylık yön karşılaştırması hesaplandı."
+    assert "Birinci seri:" in lines[1] and "İkinci seri:" in lines[1]
+    assert "Yorum:" not in answered.answer.text
+    assert len(lines) >= 5
+
+
+def test_without_a_reading_the_verified_figures_stand_as_they_are(lake):
+    answered, workspace, _ = _served_like(lake)  # the provider has no reading to give
+    assert answered.answer.status is AnswerStatus.ACCEPTED and "Yorum:" not in answered.answer.text
+    assert workspace.names() == ["konut_kredisi_ve_faiz"]
+
+
+def test_a_reading_with_an_invented_figure_loses_that_sentence_and_nothing_else(lake):
+    reading = "Yorum: Bakiye 987 milyon TL'ye ulaşmış olabilir. Talep faize duyarlı görünüyor."
+    answered, workspace, _ = _served_like(lake, reading)
+    assert answered.answer.status is AnswerStatus.QUALIFIED
+    assert "987" not in answered.answer.text and "faize duyarlı" in answered.answer.text
+    assert workspace.names() == ["konut_kredisi_ve_faiz"]
+
+
+def test_causality_is_given_the_same_prepared_series_list_as_change_detection(lake):
+    # Live 2026-09-21: asked for the housing-loan rate in a causality question the planner
+    # wrote EVDS:TP.BKR.TRY.18 - the outstanding-portfolio rate, which no list offered it -
+    # and the turn spent nine minutes failing to recover. change_detection carried the
+    # list; causality, configured in the same call, carried none.
+    from kkb_agent.tools.causality import make_causality_tool
+
+    names = prepared_series_names(lake.connection)
+    tool = make_causality_tool(lake.connection, lineage=lake.lineage, series_names=names)
+    assert f"{TOTAL_ID}: {names[TOTAL_ID]}" in tool.description
+    assert make_causality_tool(lake.connection, lineage=lake.lineage).description.count(":") < 3

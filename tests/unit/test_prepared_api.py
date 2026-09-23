@@ -25,6 +25,7 @@ from kkb_agent.catalog.mappings import load_reviewed_snapshot
 from kkb_agent.core import SourceRef
 from kkb_agent.lakehouse import Observation, SeriesSemantics, open_lakehouse
 from kkb_agent.llm import scripted
+from kkb_agent.llm.provider import Role
 
 BASE = "http://127.0.0.1:8000"
 
@@ -143,14 +144,32 @@ def test_followup_reads_prior_workspace_in_same_session(pool, tmp_path):
     sid = uuid4().hex
     first = prepared(sid, uuid4().hex, QUESTION)
     first_json = first.model_dump_json()
-    # Exercise prior analytical-state exposure; the second query may calculate
-    # afresh but must see the exact previously published result identity.
-    second = prepared(sid, uuid4().hex, QUESTION)
+    first_call_count = len(provider.seen)
+    # A genuine reference to the prior table must see its published identity;
+    # repeating the original independent question does not request that context.
+    second = prepared(
+        sid,
+        uuid4().hex,
+        "Bu tablodaki konut kredisi stoğu Nisan-Haziran 2026 arasında ne kadar değişti?",
+    )
     assert first_json == first.model_dump_json()
-    assert any("analiz_1" in m.content for m in provider.seen[3])
-    # The same unqualified numeric claim now matches two distinct result
-    # identities. Preserve the existing gate's refusal, not a weaker API matcher.
-    assert second.status.value == "abstained" and second.result is None
+    published_contexts = [
+        message.content
+        for call in provider.seen[first_call_count:]
+        for message in call
+        if message.role is Role.SYSTEM
+        and message.content.startswith("Results published in earlier turns")
+    ]
+    assert len(published_contexts) == 1
+    assert "analiz_1: produced by" in published_contexts[0]
+    assert "coverage 2026-04-01..2026-06-30" in published_contexts[0]
+    assert "column labels:" in published_contexts[0]
+    assert QUESTION not in published_contexts[0]
+    assert len(published_contexts[0]) < 1200
+    # The figure now stands in two results - the published table and this turn's - under
+    # one label. That is one fact, not a choice between two (DEC-186; it used to cost the
+    # reader the whole answer), so the sentence is kept and the turn publishes.
+    assert second.status.value == "accepted" and second.result is not None
     with open_lakehouse(prepared.run_root / sid / "lake") as lake:
         workspace = Workspace.open(lake.connection, sid)
         assert workspace.value_of("analiz_1").digest() == first.result.version
@@ -513,3 +532,53 @@ def test_bad_env_file_is_refused_without_exposing_values(tmp_path, monkeypatch, 
     with pytest.raises(ValueError) as error:
         cli.literal_config(path)
     assert content not in str(error.value)
+
+
+def test_a_series_name_the_startup_pool_never_listed_still_reaches_the_reader(pool, tmp_path):
+    # Live 2026-09-21: chart legends and table headers read "BDDK:selector:v1:001a584..."
+    # for a province series fetched during the turn, for a series the reader had saved and
+    # for a weekly bulletin row. /v1/dataset is the seed pool frozen at startup and lists
+    # none of them; the tools record the name in the result, and it stopped at this
+    # contract. It now crosses it.
+    from datetime import date
+
+    from kkb_agent.api.projection import project_result
+    from kkb_agent.core import (
+        AnalyticalResult,
+        Frequency,
+        Period,
+        ResultEvidence,
+        ResultKind,
+        ResultStatus,
+        ResultValue,
+        Scale,
+        StockFlow,
+    )
+
+    identity = "BDDK:selector:v1:001a584"
+    result = AnalyticalResult(
+        result_id="fixture",
+        kind=ResultKind.SERIES,
+        status=ResultStatus.COMPUTED,
+        tool="lakehouse",
+        method="sql",
+        evidence=ResultEvidence(input_refs=["silver_observations"]),
+        values=[
+            ResultValue(
+                label=identity,
+                value=1.0,
+                unit="TRY",
+                scale=Scale.MILLION,
+                measure=StockFlow.STOCK,
+                period=Period(
+                    start=date(2025, 1, 1), end=date(2025, 1, 31), frequency=Frequency.MONTHLY
+                ),
+            )
+        ],
+        parameters={"series_names": {identity: "Konut Kredisi - İstanbul"}},
+    )
+    shown = project_result(result, turn_id="0" * 32)
+    assert shown.series_names == {identity: "Konut Kredisi - İstanbul"}
+    # Nothing to name is nothing to send.
+    bare = result.model_copy(update={"parameters": {}})
+    assert project_result(bare, turn_id="0" * 32).series_names == {}

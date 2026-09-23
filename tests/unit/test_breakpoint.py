@@ -93,6 +93,14 @@ def test_two_regime_changes_are_reported_in_order():
     assert len(shifts) == 2
     assert [v.period.end for v in shifts] == sorted(v.period.end for v in shifts)
     assert shifts[0].value > 0 and shifts[1].value < 0  # up, then down
+    # Each shift is between the regimes it separates: ~4 to ~20, then ~20 to ~2.
+    # Measured against the whole window instead, the first reported +7 (its "after"
+    # held the third regime too) and the second -10 (its "before" held the first).
+    assert shifts[0].value == pytest.approx(16.0, abs=0.5)
+    assert shifts[1].value == pytest.approx(-18.0, abs=0.5)
+    first, second = result.parameters["breakpoints"]
+    assert first["observations_after"] == second["observations_before"] == 8
+    assert first["mean_change_after"] == pytest.approx(second["mean_change_before"])
 
 
 @pytest.mark.parametrize(
@@ -142,6 +150,7 @@ def test_the_planner_can_ask_for_a_breakpoint_through_the_tool(tmp_path):
     from datetime import UTC, datetime
 
     from kkb_agent.agent import ExecutionContext, ToolStatus
+    from kkb_agent.analytics.breakpoint import DEFAULT_THRESHOLD
     from kkb_agent.core import Aggregation, Frequency, SourceRef
     from kkb_agent.lakehouse import open_lakehouse
     from kkb_agent.tools import ChangeDetectionArguments, make_change_detection_tool
@@ -183,10 +192,11 @@ def test_the_planner_can_ask_for_a_breakpoint_through_the_tool(tmp_path):
         next(v.value for v in outcome.output.values if v.label.endswith("breakpoints found")) == 1.0
     )
     assert "breakpoint" in tool.description
-    # The threshold stays a harness constant: the planner cannot pass one.
-    assert (
-        "threshold"
-        not in ChangeDetectionArguments.model_json_schema()["$defs"]["SeriesChangeArguments"][
-            "properties"
-        ]
-    )
+    # The sensitivity is the planner's now, and never silent: the result says what it was
+    # scored with and that the default is proposed rather than measured.
+    properties = ChangeDetectionArguments.model_json_schema()["$defs"]["SeriesChangeArguments"][
+        "properties"
+    ]
+    assert "threshold" in properties and properties["threshold"].get("default") is None
+    assert outcome.output.parameters["threshold"] == DEFAULT_THRESHOLD  # nothing passed
+    assert any("proposed defaults" in item for item in outcome.output.limitations)

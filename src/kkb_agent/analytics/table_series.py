@@ -14,6 +14,7 @@ from math import isfinite
 
 from pydantic import JsonValue
 
+from kkb_agent.analytics.table_shape import table_columns
 from kkb_agent.core import (
     DIMENSIONLESS,
     AnalyticalResult,
@@ -75,19 +76,20 @@ def table_months(source: AnalyticalResult, new_label: str) -> dict[date, Period]
             raise SeriesAdditionRefused("The source table has duplicate column-period values")
         cells.add(cell)
         columns.setdefault(value.label, []).append(period)
-    # Match the existing period renderer: a single-period metric is prose, not
-    # a table column. It must not create a new row when another series is added.
-    for column in columns.values():
-        if len(column) < 2:
-            continue
-        for period in column:
+    # Match the existing period renderer: a single-period metric beside real columns is
+    # prose, not a table column, and must not create a new row when another series is
+    # added. A table whose every column holds the same one month is a one-row table, and
+    # its row is as real as any other (QA-36).
+    kept = table_columns(
+        {label: {(p.start, p.end, p.frequency) for p in found} for label, found in columns.items()}
+    )
+    for label in kept:
+        for period in columns[label]:
             if period.frequency is not Frequency.MONTHLY or not _monthly(period.start, period.end):
                 raise SeriesAdditionRefused("The source table must use exact monthly periods")
             periods[period.end] = period
-    if len(periods) < 2:
-        raise SeriesAdditionRefused(
-            "The source must contain a monthly table with at least two rows"
-        )
+    if not periods:
+        raise SeriesAdditionRefused("The source must contain a monthly table")
     return periods
 
 
@@ -137,8 +139,10 @@ def add_monthly_series(
                 period=period,
             )
         )
-    if len(added) < 2:
-        # The existing period renderer needs two observations to show a column.
+    if len(added) < min(2, len(periods)):
+        # A new column has to be a column by the rule every table operation reads
+        # (`table_columns`): two matching months in a table of several, the one month
+        # of a one-row table (QA-36). One cell beside several rows would read as a metric.
         raise SeriesAdditionRefused("Fewer than two matching observations; no column can be shown")
     transformation = TransformationRecord(
         operation="add_series",
@@ -205,7 +209,7 @@ def add_document_column(
                 period=period,
             )
         )
-    if len(added) < 2:
+    if len(added) < min(2, len(periods)):
         raise SeriesAdditionRefused("Fewer than two matching document rows; no column can be shown")
     transformation = TransformationRecord(
         operation="add_document_column",
@@ -266,7 +270,13 @@ def join_monthly_table(
         if value.period is None or value.unit == DIMENSIONLESS:
             continue  # Summary metrics describe the other table's rows, not months.
         grouped.setdefault(value.label, []).append(value)
-    available = {label: cells for label, cells in grouped.items() if len(cells) >= 2}
+    kept = table_columns(
+        {
+            label: {(c.period.start, c.period.end) for c in cells if c.period is not None}
+            for label, cells in grouped.items()
+        }
+    )
+    available = {label: cells for label, cells in grouped.items() if label in kept}
     wanted = list(columns) if columns is not None else sorted(available)
     if not wanted:
         raise SeriesAdditionRefused("The other table has no monthly column to join")
@@ -294,9 +304,14 @@ def join_monthly_table(
             for end in sorted(periods)
             if end in by_end
         ]
-        if len(joined) < 2:
+        if len(joined) < min(2, len(periods)):
+            # A joined column is a column by the rule every table operation reads: two
+            # shared months in a table of several, the one month of a one-row table
+            # (QA-36). A month the other table lacks stays empty and is listed, never filled.
             raise SeriesAdditionRefused(
                 f"{label!r} shares fewer than two months with the source table"
+                if len(periods) > 1
+                else f"{label!r} does not hold the source table's month"
             )
         added.extend(joined)
         matched[label] = len(joined)

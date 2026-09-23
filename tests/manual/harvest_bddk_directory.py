@@ -9,8 +9,11 @@ aggregate in TL. Two things are read and nothing else:
    unit), column headers, and every row's number and label. No observation value is kept. The
    listing is written as `src/kkb_agent/ingest/bddk_monthly_directory.py`, pinned by its own
    SHA-256, and is what the monthly adapter accepts a selector against (DEC-176).
-2. **Year-boundary evidence** for each table laid out as TP / YP / Toplam: the December and
-   January totals of every row, reduced to one word per row. A row whose January is under a
+2. **Year-boundary evidence** for each table with a total this adapter reads
+   (`bddk_monthly.value_columns`: TP / YP / Toplam, a closing "Toplam", "Toplam Nakdi
+   Krediler", or one value column): the December and January totals of every row, reduced
+   to one word per row. Rows are compared by their label (`bddk_monthly.row_key`), not
+   their number: the bulletin renumbers rows when it inserts one. A row whose January is under a
    quarter of its December at every examined boundary publishes a year-to-date total that
    resets ("always"); a row that never does publishes a month-end position ("never"); anything
    else is "mixed", and a row that could not be compared is "unmeasured". Behaviour is per row,
@@ -32,9 +35,10 @@ import time
 from pathlib import Path
 from typing import Any
 
+from kkb_agent.ingest.bddk_monthly import row_key, value_columns
+
 ENDPOINT = "https://www.bddk.org.tr/BultenAylik/tr/Home/BasitRaporGetir"
 TARGET = Path(__file__).resolve().parents[2] / "src/kkb_agent/ingest/bddk_monthly_directory.py"
-COMPONENT_HEADERS = ["", "", "", "BasitFont", "TP", "YP", "Toplam"]
 
 
 def table(number: int, year: int, month: int) -> dict[str, Any]:
@@ -65,13 +69,32 @@ def caption_parts(caption: str) -> tuple[str, str | None]:
     return " ".join(head.split()), None
 
 
-def boundary_verdict(number: int, years: tuple[int, ...]) -> dict[int, str]:
-    """Per row: is January under a quarter of December at every examined boundary?"""
-    compared: dict[int, int] = {}
-    fell: dict[int, int] = {}
+def identities(labels: dict[int, str]) -> dict[int, str]:
+    """What each row is compared by across months: its label key, or key and number.
+
+    A table that repeats a name (deposits list the same kinds once for TL and once for
+    foreign currency) is never renumbered in the measured window, so there the number
+    tells the two apart; everywhere else the label alone survives a renumbering.
+    """
+    keys = {number: row_key(label) for number, label in labels.items()}
+    shared = {key for key in keys.values() if list(keys.values()).count(key) > 1}
+    return {number: f"{key}#{number}" if key in shared else key for number, key in keys.items()}
+
+
+def totals(listing: dict[str, Any]) -> dict[str, Any]:
+    """Each row's total, by the row's identity across months."""
+    index = value_columns(listing["headers"])["TOTAL"]
+    names = identities({row[1]: row[2] for row in listing["rows"]})
+    return {names[row[1]]: row[index] for row in listing["rows"]}
+
+
+def boundary_verdict(number: int, years: tuple[int, ...]) -> dict[str, str]:
+    """Per row key: is January under a quarter of December at every examined boundary?"""
+    compared: dict[str, int] = {}
+    fell: dict[str, int] = {}
     for year in years:
-        december = {row[1]: row[6] for row in table(number, year, 12)["rows"]}
-        january = {row[1]: row[6] for row in table(number, year + 1, 1)["rows"]}
+        december = totals(table(number, year, 12))
+        january = totals(table(number, year + 1, 1))
         for row, before in december.items():
             after = january.get(row)
             if not isinstance(before, (int, float)) or not isinstance(after, (int, float)):
@@ -117,12 +140,13 @@ def main() -> int:
 
     print("Year-boundary evidence, rows by verdict:")
     for number, item in tables.items():
-        if item["headers"] != COMPONENT_HEADERS:
+        if "TOTAL" not in value_columns(item["headers"]):
             continue
         verdict = boundary_verdict(number, tuple(args.evidence_years))
         counts: dict[str, int] = {}
+        names = identities({row: entry["label"] for row, entry in item["rows"].items()})
         for row, entry in item["rows"].items():
-            entry["resets"] = verdict.get(row, "unmeasured")
+            entry["resets"] = verdict.get(names[row], "unmeasured")
             counts[entry["resets"]] = counts.get(entry["resets"], 0) + 1
         print(f"{number:>2} {item['title']}: {json.dumps(counts, sort_keys=True)}")
 

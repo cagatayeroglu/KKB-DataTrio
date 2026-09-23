@@ -1,6 +1,6 @@
 # Adding a source
 
-How a third official source (after EVDS and BDDK) joins the product. Search, the planner,
+How another official source (after EVDS and the two BDDK bulletins) joins the product. Search, the planner,
 the inspector and the answer gate are source-neutral and need no change; a source is three
 parts of code plus one pinned listing ([DEC-176](DECISIONS.md), [DEC-177](DECISIONS.md)).
 

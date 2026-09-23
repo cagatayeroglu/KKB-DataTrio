@@ -33,8 +33,8 @@ Empty eligibility skips embedding and retains UNRESOLVED/FILTERED_OUT.
 
 Both combination policies take up to ten candidates per stage, interleave stage
 positions and deduplicate IDs. The shared deterministic reviewed-intent post-order
-then refines candidates only for explicit query qualifiers with typed/reviewed
-counterparts: amount/rate kind, new/outstanding rate basis, inclusion/exclusion,
+then refines candidates from explicit query qualifiers and reviewed candidate
+metadata: amount/rate kind, new/outstanding rate basis, inclusion/exclusion,
 currency/component, base year and archive intent. Unknown candidate semantics are
 neutral, and the pre-policy order breaks ties. Archived records stay after
 non-archived records unless the caller both opts in and explicitly requests archive
@@ -46,8 +46,17 @@ with the dense position otherwise. **`alternating-archive-tier-v1`**, the M13-09
 baseline, always starts lexical and stays selectable for comparison. Native distance
 ties use stable IDs. There is no BM25/cosine score addition, RRF or model/listwise
 reranker; the post-order never creates candidates or changes stage scores/status.
+For natural credit paraphrases, the post-order also distinguishes a credit subject
+in the reviewed title/labels from a shared non-credit noun (for example, a CPI
+"ev" division), demotes a rate percentage when the query asks for a credit
+amount without naming a rate, and reads affirmative rate descriptions before
+their "; not ..." contrasts. These are soft ordering cues, **not** proof that
+"çektiği/verdiği" names an outstanding stock or that a new-loan amount exists.
+An unnamed stock-versus-rate axis remains ambiguous even if TOTAL/TP makes one
+candidate rank first; `max_results=1` cannot hide a tied alternative. The
+reviewed v3/r4 snapshot, aliases and local vector generation digest are unchanged.
 Measured gains and remaining losses are in
-[EVALUATION](EVALUATION.md#m13-15-catalog-quality-hardening-2026-09-15).
+[EVALUATION](EVALUATION.md#catalog-paraphrase-holdout-2026-09-21).
 
 Candidates carry retrieval source(s), per-stage rank, BM25 score if present in
 that stage, and cosine distance if present in dense. Unmeasured scores are null.
@@ -65,9 +74,9 @@ need relevance/semantic review or clarification. Under
 such a nonempty similarity-only result is `PARTIAL`, not `MATCH`, when no reviewed
 alias or phrase identified a catalog concept. Candidate order and visibility are unchanged.
 
-Snapshot mismatch, embedding/policy failure or invalid/native index output
-returns **`lexical_degraded`**, `dense_status=failed`, a fixed category and a tool
-warning. Private exceptions are not copied. Unknowns/ambiguity remain even when
+Embedding/policy failure, invalid/native index output, or a catalogue in which the
+generation covers no eligible identity at all, returns **`lexical_degraded`**,
+`dense_status=failed`, a fixed category and a tool warning. Private exceptions are not copied. Unknowns/ambiguity remain even when
 dense succeeds. The implemented bounded discovery/replan round is enabled in the
 prepared runtime; its retrieval is hybrid only when an index generation is configured.
 
@@ -87,11 +96,14 @@ same configured provider (same timeout and attempts); a bounded cache holds the 
 256 query vectors. Embedding or index failure yields `lexical_degraded` for that
 search, not a failed turn. Without `--catalog-index` retrieval stays lexical.
 
-A generation covers one exact catalogue, identified by its digest, and is offered
-only to that catalogue — the reviewed snapshot, or the reviewed snapshot with the
-knowledge base applied. A knowledge-base dataset, alias or archival therefore makes
-a catalogue the startup generation does not cover, and discovery over it is lexical
-until vectors exist for it. `GET /v1/knowledge/index` reports the generation in use
+A generation covers the identities it embedded, per identity: the series whose text,
+concepts and families in the catalogue being searched are still the ones that were
+embedded ([DEC-187](DECISIONS.md#dec-187--a-vector-generation-covers-the-identities-it-embedded-not-one-catalogue)).
+A knowledge-base dataset, alias or archival therefore costs meaning-based search for
+the entry it changed, and for that entry alone, until vectors exist for it; everything
+else in the catalogue is still searched by meaning. A generation is still *opened* only
+against the catalogue it was built for, whose digest names its directory, and a rebuild
+still produces one for the catalogue in use. `GET /v1/knowledge/index` reports the generation in use
 (model, input policy, dimension, digest, coverage, missing identities) and
 `POST /v1/knowledge/index` builds one for the catalogue in use now, with the same
 profile — the browser chooses none of it. Building embeds every catalogue entry, so
@@ -101,7 +113,9 @@ reopened instead of embedded again and a failed build leaves the one in use
 untouched. The catalogue trial (`GET /v1/knowledge/search`) runs the same retrieval
 and reports `retrieval_mode`, `dense_status` and `dense_failure`, so a catalogue the
 vectors no longer cover is visible rather than quietly lexical
-([DEC-163](DECISIONS.md#dec-163--a-vector-generation-covers-one-catalogue-and-the-knowledge-base-can-have-its-own)).
+([DEC-163](DECISIONS.md#dec-163--a-vector-generation-covers-one-catalogue-and-the-knowledge-base-can-have-its-own),
+narrowed by DEC-187). The trace says what ran for a turn: `hybrid`, `lexical`, or
+`hybrid over 8373 of 8374`.
 
 
 <a id="catalog_search-catalog-and-observation-boundary"></a>
@@ -302,8 +316,9 @@ DEC-142 selects the instruct policy for the prepared runtime.
 must explicitly contain an operator-configured `catalog_search` to use discovery.
 If a plan directly uses known reviewed identities or published tables, it executes
 without an extra discovery/model call. The default `False` preserves the prior
-one-plan path. `Session.plan()` only plans; `Session.run()` owns execution and the
-single continuation. No general autonomous research loop is introduced.
+one-plan path. `Session.plan()` only plans; `Session.run()` owns execution and
+at most two catalog phases followed by analysis. No general autonomous research
+loop is introduced.
 
 The existing prepared-pool rehearsal can opt in with a reviewed snapshot:
 
@@ -330,35 +345,40 @@ Analysis writes stay in that copy; source preparation is unchanged.
 - A discovery plan contains only `catalog_search`, at most four independent
   queries. Mixing calculations or dependent queries into it is rejected before
   any step executes and consumes the ordinary plan-repair budget.
-- Only successful typed catalog outputs reach the second plan. Metadata is
+- Only successful typed catalog outputs reach a continuation plan. Metadata is
   revalidated and projected without source locators, observation samples or
   source-evidence file references. Financial declarations, original descriptions,
-  review notes, ambiguity, unresolved conditions and stage provenance remain.
+  review notes, ambiguity and unresolved conditions remain; retrieval scores,
+  rank and stage provenance are omitted.
 - The feedback is a JSON **user/data message**, never a system message. The
   Kloudeks transport's leading-system merge preserves this distinction. JSON
   is a representation, not a proof against injection; executable authority is
   still enforced by the registry, phase validation and analytical tools.
-- Feedback is capped at 32 KiB in UTF-8. Oversized metadata is refused rather
+- Each phase's feedback is capped at 32 KiB in UTF-8. Oversized metadata is refused rather
   than silently dropping conditions that could determine the series choice.
-- The one continuation may use only registered `lakehouse`, `anomaly`,
-  `causality`, `change_detection` and `table_transform`, or clarify. It receives
-  only those tool descriptions. No second discovery or catalog-derived
-  `web_search`/`web_url` action is accepted, even if a web tool exists in the
-  broader registry. A separately requested direct web workflow remains separate.
+- The first continuation may use registered analysis tools, clarify, or request
+  **one** additional catalog-only phase when a supporting measure was missing.
+  The next continuation receives analysis schemas only; no third search is
+  admitted. `promote_series`, `web_search` and `web_url` are never reopened by
+  the auxiliary phase, even if present in the registry. A separately requested
+  direct document/web workflow remains separate. Analysis may read only series
+  identities proven by these searches or previously proven in the conversation.
 - Continuation IDs must be fresh, and discovery steps cannot be referenced as
   calculation dependencies. The analysis gets a fresh execution context; catalog
   metadata is not an input table or numerical evidence.
-- `max_steps` and `max_plan_repairs` are shared across both phases. With defaults,
-  at most eight distinct steps and two plan repairs across at most two planning
-  phases are accepted. Each provider call retains its own bounded transport/schema
+- `max_steps` and `max_plan_repairs` are shared across the phases. With defaults,
+  at most twelve steps, two catalog phases (four independent queries each) and
+  two plan repairs across at most three planning phases are accepted. Each
+  provider call retains its own bounded transport/schema
   retries; the plan counts are not a claim of total HTTP-call or wall-time limits.
 - The executor binds every returned tool/step identity to the validated step,
   including exhausted retries, preserving the outcome's real trace and evidence.
 
 `Planned.plan` is the final analysis/clarification plan; `Planned.discovery_plan`
-keeps the earlier validated plan separately. `attempts` and `rejections` are
-aggregate; `discovery_rounds` is zero or one. `ExecutionOutcome.results` preserves
-both phases in order. The live-check report includes a separate discovery record.
+and optional `auxiliary_discovery_plan` keep the catalog plans separately.
+`attempts` and `rejections` are aggregate; `discovery_rounds` is zero, one or two.
+`ExecutionOutcome.results` preserves all phases in order. The live-check report
+includes both catalog queries in its discovery record.
 It does not merge historical discovery steps into an executable clarification plan.
 
 

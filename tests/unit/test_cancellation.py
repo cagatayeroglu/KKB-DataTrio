@@ -22,15 +22,16 @@ __all__ = ["launch"]
 class HeldProvider:
     """The scripted provider, with its first call held until released."""
 
-    def __init__(self, *responses):
+    def __init__(self, *responses, hold_at=1):
         self.inner = scripted(*responses)
         self.entered = threading.Event()
         self.release = threading.Event()
         self.calls = 0
+        self.hold_at = hold_at
 
     def complete(self, *args, **kwargs):
         self.calls += 1
-        if self.calls == 1:
+        if self.calls == self.hold_at:
             self.entered.set()
             assert self.release.wait(10), "the test never released the held call"
         return self.inner.complete(*args, **kwargs)
@@ -105,6 +106,35 @@ def test_cancelling_a_finished_turn_changes_nothing(launch):
     assert again.json()["state"] == "completed" and again.json()["answer"] is not None
 
 
+def test_deleting_a_running_chat_cancels_then_cleans_without_losing_trace(launch, monkeypatch):
+    held = HeldProvider(proposal(discover()), "never reached")
+    monkeypatch.setattr("test_conversation_persistence.scripted", lambda *r: held)
+    runner, client = launch()
+    owner_token = owner(client)
+    sid, headers, _ = open_conversation(client, owner_token)
+    admitted = client.post(
+        f"/v1/sessions/{sid}/turns",
+        json={"request_id": "e" * 32, "question": "Kredi"},
+        headers=headers,
+    )
+    assert admitted.status_code == 202 and held.entered.wait(10)
+    owner_headers = {"X-KKB-Owner-Token": owner_token}
+    assert client.delete(f"/v1/conversations/{sid}", headers=owner_headers).status_code == 200
+    assert client.get(f"/v1/conversations/{sid}", headers=headers).status_code == 404
+    turn_id = admitted.json()["turn_id"]
+    assert client.get(f"/v1/sessions/{sid}/turns/{turn_id}", headers=headers).status_code == 404
+    assert client.delete(f"/v1/conversations/{sid}/runs", headers=owner_headers).status_code == 409
+    held.release.set()
+
+    deadline = time.monotonic() + 10
+    while (runner.run_root / sid).exists() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert not (runner.run_root / sid).exists()
+    runs = client.get(f"/v1/conversations/{sid}/runs", headers=headers).json()["runs"]
+    assert len(runs) == 1 and runs[0]["status"] == "cancelled"
+    assert held.calls == 1
+
+
 def test_a_stranger_or_an_unknown_turn_cannot_be_cancelled(launch):
     import json
 
@@ -132,3 +162,29 @@ def test_checkpoints_do_nothing_outside_a_turn_and_stop_inside_a_cancelled_one()
             checkpoint("after")
     assert token.where == "after"
     checkpoint("outside again")
+
+
+def test_stop_while_final_writer_is_running_leaves_no_publication_or_gold(launch, monkeypatch):
+    from test_gold_runtime import table_step
+
+    from kkb_agent.lakehouse import open_lakehouse
+
+    held = HeldProvider(proposal(table_step()), "Tablo hazır.", hold_at=2)
+    monkeypatch.setattr("test_conversation_persistence.scripted", lambda *r: held)
+    runner, client = launch()
+    sid, headers, _ = open_conversation(client, owner(client))
+    path = f"/v1/sessions/{sid}/turns"
+    admitted = client.post(
+        path, json={"request_id": "f" * 32, "question": "Konut tablosunu getir"}, headers=headers
+    )
+    assert admitted.status_code == 202
+    turn_id = admitted.json()["turn_id"]
+    assert held.entered.wait(10)
+    assert client.post(f"{path}/{turn_id}/cancel", json={}, headers=headers).status_code == 202
+    held.release.set()
+    finished = wait_for(client, f"{path}/{turn_id}", headers)
+    assert (finished["state"], finished["error"]) == ("failed", "cancelled")
+    assert finished["answer"] is None and held.calls == 2
+    with open_lakehouse(runner.run_root / sid / "lake") as lake:
+        assert lake.connection.execute("SELECT count(*) FROM gold_cells").fetchone()[0] == 0
+        assert lake.connection.execute("SELECT count(*) FROM workspace_bindings").fetchone()[0] == 0

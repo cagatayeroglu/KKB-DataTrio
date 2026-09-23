@@ -47,6 +47,8 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Literal
 
+from pydantic import JsonValue
+
 from kkb_agent.catalog.normalization import normalize_search_text
 from kkb_agent.core import (
     AnalyticalResult,
@@ -107,7 +109,7 @@ _UNITS = {
     "index": "index",
 }
 _ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
-_DOTTED_DATE = re.compile(r"(\d{2})\.(\d{2})\.(\d{4})")
+_DOTTED_DATE = re.compile(r"(\d{2})[.-](\d{2})[.-](\d{4})")
 #: Folded Turkish and English month names (DEC-116 normaliser output).
 MONTH_NAMES = {
     name: number
@@ -130,9 +132,17 @@ MONTH_NAMES = {
     )
     for name in names
 }
-_YEAR_MONTH = re.compile(r"(\d{4})-(\d{2})")
-_MONTH_YEAR = re.compile(r"(\d{2})\.(\d{4})")
-_NAMED_MONTH = re.compile(r"([a-z]+) (\d{4})")
+MONTH_NAMES.update(
+    {
+        name: i
+        for i, name in enumerate(
+            ("oca", "sub", "mar", "nis", "may", "haz", "tem", "agu", "eyl", "eki", "kas", "ara"), 1
+        )
+    }
+)
+_YEAR_MONTH = re.compile(r"(\d{4})[-m](\d{1,2})")
+_MONTH_YEAR = re.compile(r"(\d{1,2})[./](\d{4})")
+_NAMED_MONTH = re.compile(r"([a-z]+)[ -](\d{4}|\d{2})")
 #: A digit convention a whole table establishes (DEC-148): Turkish groups with
 #: dots and decimals with a comma, English the other way round.
 type Convention = Literal["tr", "en"]
@@ -177,6 +187,21 @@ class Grid:
     years: tuple[int, ...] = ()
     #: OCR tables only (DEC-149): per column, whether it adds up to the total row.
     checked: tuple[bool, ...] | None = None
+    normalizations: tuple[dict[str, JsonValue], ...] = ()
+
+    def percent_column(self, index: int) -> bool:
+        """Only a whole numeric XLSX column with recorded plain-percent formats qualifies."""
+        formatted = {
+            item["row"]
+            for item in self.normalizations
+            if item.get("operation") == "excel_percent_points" and item.get("column") == index + 1
+        }
+        present = {
+            row_number
+            for row_number, row in enumerate(self.rows, 2)
+            if index < len(row) and row[index] is not None and row[index] != ""
+        }
+        return bool(present) and present <= formatted
 
 
 @dataclass(frozen=True)
@@ -199,6 +224,7 @@ class Cell:
     convention: Convention | None = None
     #: Read by OCR from a page without text, from a column that adds up (DEC-149).
     ocr: bool = False
+    normalizations: tuple[dict[str, JsonValue], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -222,7 +248,14 @@ def grids(
         location: dict[str, str | int] = {"table": 1}
         if isinstance(table, XlsxTable):
             location["sheet"] = table.selection
-        return [Grid(location, tuple(table.headers), tuple(table.rows))]
+        return [
+            Grid(
+                location,
+                tuple(table.headers),
+                tuple(table.rows),
+                normalizations=table.normalizations if isinstance(table, XlsxTable) else (),
+            )
+        ]
     if isinstance(document, HtmlDocument):
         return [
             Grid({"table": table.number}, table.rows[0], table.rows[1:])
@@ -392,6 +425,13 @@ def total_checked(rows: Iterable[Iterable[object]]) -> tuple[bool, ...]:
     return tuple(checked)
 
 
+def is_annotation_label(raw: object) -> bool:
+    text = _text(raw).strip()
+    return normalize_search_text(text) in {"ortalama", "average"} or bool(
+        re.match(r"^(?:kaynak|source)\s*:", text, re.IGNORECASE)
+    )
+
+
 def is_total_label(label: object) -> bool:
     """A row label naming the table's total (`Toplam`, `TOPLAM / TOTAL`)."""
     if not isinstance(label, str):
@@ -438,6 +478,11 @@ def select_cell(tables: list[Grid], column: str, row: str, *, year: int | None =
                         used,
                         convention,
                         grid.checked is not None,
+                        tuple(
+                            n
+                            for n in grid.normalizations
+                            if n["row"] == number + 1 and n["column"] == target + 1
+                        ),
                     )
                 )
     if not matches:
@@ -538,7 +583,9 @@ def month_label(label: str, year: int | None = None) -> date | None:
     if match := _MONTH_YEAR.fullmatch(text):
         return last_day(int(match[2]), int(match[1]))
     if (match := _NAMED_MONTH.fullmatch(text)) and match[1] in MONTH_NAMES:
-        return last_day(int(match[2]), MONTH_NAMES[match[1]])
+        # The explicitly supported short-year document syntax is 20YY.
+        named_year = int(match[2]) + (2000 if len(match[2]) == 2 else 0)
+        return last_day(named_year, MONTH_NAMES[match[1]])
     if year is not None and text:
         months = {MONTH_NAMES.get(part.strip()) for part in text.split("/")}
         if len(months) == 1 and None not in months:
@@ -672,6 +719,7 @@ def document_value(
             "header": cell.header,
             "row_label": cell.row_label,
             "cell_text": _text(cell.raw),
+            **({"normalizations": list(cell.normalizations)} if cell.normalizations else {}),
             "unit_source": "column header" if reading.unit is not None else None,
             "period_source": _period_source(reading, cell),
         },

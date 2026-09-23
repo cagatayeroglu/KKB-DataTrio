@@ -11,6 +11,7 @@ import pytest
 from test_catalog_continuation import CATALOG, NOW, TOTAL
 from test_document_table import ask, step
 
+from kkb_agent.agent import Workspace
 from kkb_agent.api.app import create_app
 from kkb_agent.api.prepared import PreparedRunner
 from kkb_agent.api.service import AnalysisService
@@ -122,6 +123,42 @@ def table_step(**extra):
         value_columns=["Başvuru Sayısı"],
         **extra,
     )
+
+
+def two_table_plan(*, join=True, second_column="Yatış", second_document="belge_2"):
+    """Two same-turn terminal reads need an explicit typed composition step."""
+    steps = [
+        {
+            "step_id": "a",
+            "tool": "web_url",
+            "arguments": {
+                "attached": True,
+                "document": "belge_1",
+                "period_column": "Ay",
+                "value_columns": ["Başvuru Sayısı"],
+            },
+        },
+        {
+            "step_id": "b",
+            "tool": "web_url",
+            "arguments": {
+                "attached": True,
+                "document": second_document,
+                "period_column": "Ay",
+                "value_columns": [second_column],
+            },
+        },
+    ]
+    if join:
+        steps.append(
+            {
+                "step_id": "j",
+                "tool": "table_transform",
+                "arguments": {"operation": "join_table", "source": "a", "other": "b"},
+                "depends_on": ["a", "b"],
+            }
+        )
+    return json.dumps({"question": "İki seriyi yan yana göster.", "steps": steps})
 
 
 def test_a_unitless_non_financial_upload_joins_prepared_data_and_is_compared(served):
@@ -348,7 +385,10 @@ def test_a_join_never_shadows_an_existing_column(served):
         "Birleşti.",
     )
     upload(client, sid, headers, csv())
-    upload(client, sid, headers, csv())
+    # Two documents, not two copies: identical bytes are one document, so the
+    # second file differs in its numbers while keeping the same column label -
+    # which is what shadowing is about.
+    upload(client, sid, headers, csv([value + 1 for value in ADMISSIONS]))
     ask(client, sid, headers, "Bir.")
     second = ask(client, sid, headers, "İki.")
     joined = ask(
@@ -359,3 +399,106 @@ def test_a_join_never_shadows_an_existing_column(served):
         selected_result_id=second["answer"]["result"]["result_ref"],
     )
     assert joined["answer"]["status"] == "abstained", joined
+
+
+def test_two_same_turn_monthly_reads_publish_one_composed_table_with_both_series(served):
+    beds = [70, 72, 69, 75, 80, 78, 85, 83, 81, 84, 88, 86]
+    _, client, sid, headers = served(two_table_plan(), "İki seri aynı aylarda yan yana gösterildi.")
+    upload(client, sid, headers, csv())
+    upload(client, sid, headers, csv(beds, header="Yatış"))
+
+    response = ask(client, sid, headers, "İki yüklenen seriyi aynı aylarda yan yana göster.")
+    assert response["answer"]["status"] == "accepted", response
+    result = response["answer"]["result"]
+    cells = result["cells"]
+    assert {c["label"] for c in cells} == {"Başvuru Sayısı", "Yatış"}
+    for label, values in (("Başvuru Sayısı", ADMISSIONS), ("Yatış", beds)):
+        column = sorted((c for c in cells if c["label"] == label), key=lambda c: c["period"]["end"])
+        assert [c["value"] for c in column] == values
+        assert [c["period"]["end"] for c in column] == [month_end(m).isoformat() for m in MONTHS]
+    operations = [s["operation"] for s in result["proof"]["steps"]]
+    assert "table_transform_join_table" in operations
+    assert len(result["proof"]["documents"]) == 2
+
+
+def test_two_terminal_reads_run_as_planned_and_both_reach_the_writer(served):
+    # The plan used to be refused ("only one final result") and planned again. It runs:
+    # the last read is the published table, and the writer is shown the other beside it.
+    runner, client, sid, headers = served(
+        two_table_plan(join=False),
+        "İki seri okundu.",
+    )
+    upload(client, sid, headers, csv())
+    upload(client, sid, headers, csv([v + 10 for v in ADMISSIONS], header="Yatış"))
+
+    response = ask(client, sid, headers, "İki yüklenen seriyi yan yana göster.")
+    assert response["answer"]["status"] == "accepted", response
+    assert {c["label"] for c in response["answer"]["result"]["cells"]} == {"Yatış"}
+    said = [message.content for call in runner._provider.seen for message in call]
+    assert not any("only one final result" in content for content in said)
+    assert any("Başvuru Sayısı" in content and "Yatış" in content for content in said[-3:])
+
+
+def test_compound_join_refuses_incompatible_months_without_partial_publication(served):
+    _, client, sid, headers = served(two_table_plan(), "İki seri birleştirildi.")
+    upload(client, sid, headers, csv())
+    old = csv([v + 10 for v in ADMISSIONS], header="Yatış")
+    old = old.replace(b"2025-", b"2023-").replace(b"2026-", b"2024-")
+    upload(client, sid, headers, old)
+
+    response = ask(client, sid, headers, "İki yüklenen seriyi yan yana göster.")
+    assert response["answer"]["status"] == "abstained", response
+    assert response["answer"]["result"] is None
+
+
+def test_same_plan_join_cannot_drop_a_requested_sibling_column(served):
+    planned = json.loads(two_table_plan())
+    planned["steps"][1]["arguments"]["value_columns"] = ["Yatış", "Taburcu"]
+    planned["steps"][2]["arguments"]["columns"] = ["Yatış"]
+    runner, client, sid, headers = served(json.dumps(planned), "İki seri birleştirildi.")
+    upload(client, sid, headers, csv())
+    lines = ["Ay;Yatış;Taburcu"]
+    lines += [f"{month:%Y-%m};{i + 70};{i + 40}" for i, month in enumerate(MONTHS)]
+    upload(client, sid, headers, ("\n".join(lines) + "\n").encode())
+
+    response = ask(client, sid, headers, "İki belgedeki bütün sütunları yan yana göster.")
+    assert response["answer"]["status"] == "abstained", response
+    assert response["answer"]["result"] is None
+    with open_lakehouse(runner.run_root / sid / "lake") as lake:
+        assert Workspace.open(lake.connection, sid).names() == []
+
+
+def test_same_plan_join_refuses_an_unmatched_sibling_month(served):
+    runner, client, sid, headers = served(two_table_plan(), "İki seri birleştirildi.")
+    upload(client, sid, headers, csv())
+    shifted = [date(2025, 6, 1), *MONTHS[:-1]]
+    lines = ["Ay;Yatış"]
+    lines += [f"{month:%Y-%m};{i + 70}" for i, month in enumerate(shifted)]
+    upload(client, sid, headers, ("\n".join(lines) + "\n").encode())
+
+    response = ask(client, sid, headers, "İki belgedeki tüm dönemleri yan yana göster.")
+    assert response["answer"]["status"] == "abstained", response
+    assert response["answer"]["result"] is None
+    with open_lakehouse(runner.run_root / sid / "lake") as lake:
+        assert Workspace.open(lake.connection, sid).names() == []
+
+
+def test_failed_sibling_does_not_publish_or_change_the_previous_table(served):
+    runner, client, sid, headers = served(
+        table_step(document="belge_1"),
+        "İlk tablo hazır.",
+        two_table_plan(second_column="Bulunmayan Sütun"),
+        two_table_plan(second_column="Bulunmayan Sütun"),
+        "İki seri birleştirilemedi.",
+    )
+    upload(client, sid, headers, csv())
+    upload(client, sid, headers, csv([v + 10 for v in ADMISSIONS], header="Yatış"))
+    first = ask(client, sid, headers, "İlk belgeyi tablo yap.")
+    assert first["answer"]["status"] == "accepted", first
+    second = ask(client, sid, headers, "İki belgeyi yan yana göster.")
+    assert second["answer"]["status"] != "accepted", second
+    assert second["answer"]["result"] is None
+    with open_lakehouse(runner.run_root / sid / "lake") as lake:
+        workspace = Workspace.open(lake.connection, sid)
+        assert workspace.names() == ["analiz_1"]
+        assert [v.value for v in workspace.value_of("analiz_1").values] == ADMISSIONS

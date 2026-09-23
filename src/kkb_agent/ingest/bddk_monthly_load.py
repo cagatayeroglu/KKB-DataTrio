@@ -21,9 +21,15 @@ from pydantic import JsonValue
 
 from kkb_agent.core import SourceRef
 from kkb_agent.ingest.bddk_monthly import (
+    HOUSING_ROW,
+    HOUSING_TABLE,
+    SUPPORTED_ROWS,
     BddkSelector,
     MonthlyHousingMetadata,
+    MonthlyPeriod,
+    column_index,
     reviewed_monthly_catalog,
+    row_key,
     validate_reviewed_monthly_metadata,
 )
 from kkb_agent.ingest.bddk_monthly_request import (
@@ -33,19 +39,25 @@ from kkb_agent.ingest.bddk_monthly_request import (
     MonthlyRequest,
     fetch_monthly,
     period_key,
+    unpublished,
 )
 from kkb_agent.ingest.safe_fetch import FetchFailure, FetchOutcome, FetchSuccess
 from kkb_agent.lakehouse.lineage import EdgeKind, NodeKind, node_id
 from kkb_agent.lakehouse.records import Observation
 from kkb_agent.lakehouse.semantics import SeriesSemantics, check_period
-from kkb_agent.lakehouse.store import Lakehouse
+from kkb_agent.lakehouse.store import Lakehouse, LakehouseError
 
 PARSER_VERSION = "bddk-monthly-json-v1"
 SEMANTIC_VERSION = "bddk-monthly-reviewed-v1"
 MANIFEST_VERSION = "bddk-monthly-batch-v1"
 TRANSFORMATION = "native-monthly;json-number-to-double;null-preserved;no-fill-or-rescale"
 MAX_ROWS = 10000
+MAX_COLUMNS = 24
 _DIMENSION_INDEX = {"TP": 4, "YP": 5, "TOTAL": 6}
+#: Newest months of a window the bulletin may not have published yet. It publishes with a
+#: lag that moves by weeks: on 2026-09-23 it held 2026/7 and answered 2026/8 "not yet".
+#: More than this many at the end, or one in the middle, is not a lag.
+MAX_UNPUBLISHED = 2
 
 
 class MonthlyLoadCode(StrEnum):
@@ -116,8 +128,13 @@ def parse_monthly(payload: bytes, request: MonthlyRequest) -> Observation:
     """Validate the full selected-row envelope before extracting any value.
 
     Unknown colModels fields/font hints/other labels are inert source data.
-    All rows have the documented seven cells and unique (bank,row) identity.
+    All rows have one cell per column header and unique (bank,row) identity.
     The selected row must also agree with the reviewed metadata, not just id.
+
+    A listed row is found by its label, not its number: the bulletin renumbers rows when it
+    inserts one (measured: Menkul Kıymetler 2022-09, Krediler 2022-01, Sermaye Yeterliliği
+    three times). A month whose table does not have the row yet is a missing value, never
+    another row's number; two rows of the asked name refuse the answer.
     """
     request = MonthlyRequest.model_validate(request)
     try:
@@ -142,25 +159,59 @@ def parse_monthly(payload: bytes, request: MonthlyRequest) -> Observation:
             raise ValueError("Invalid rows")
         selected: list[JsonValue] | None = None
         seen: set[tuple[str, int]] = set()
+        names = report["colNames"]
+        if (
+            not isinstance(names, list)
+            or not 5 <= len(names) <= MAX_COLUMNS
+            or not all(isinstance(name, str) for name in names)
+        ):
+            raise ValueError("Invalid column headers")
+        headers = [str(name) for name in names]
+        listed = SUPPORTED_ROWS.get((request.selector.table, request.selector.row))
+        by_label = (
+            listed is not None
+            and listed.by_label
+            and (request.selector.table, request.selector.row) != (HOUSING_TABLE, HOUSING_ROW)
+        )
         for raw in rows:
             row = _object(raw)
             cell = row["cell"]
-            if not isinstance(cell, list) or len(cell) != 7:
+            if not isinstance(cell, list) or len(cell) != len(headers):
                 raise ValueError("Invalid row shape")
             bank, number = cell[0], cell[1]
             if not isinstance(bank, str) or type(number) is not int:
                 raise ValueError("Invalid row identity")
             if not 1 <= number <= 99999 or row.get("id") != str(number):
                 raise ValueError("Inconsistent row id")
-            if (bank, number) in seen:
+            if (bank, number) in seen and not by_label:
+                # Measured: from 2021-11 to 2022-05 the capital table itself carries two
+                # rows numbered 28. A row found by its label does not depend on numbers;
+                # one found by its number does, and is refused.
                 raise ValueError("Duplicate row")
             seen.add((bank, number))
-            if number == request.selector.row:
+            wanted = (
+                isinstance(cell[2], str) and row_key(cell[2]) == row_key(listed.label)
+                if by_label and listed is not None
+                else number == request.selector.row
+            )
+            if wanted:
                 if selected is not None:
                     raise ValueError("Ambiguous selected row")
                 selected = cell
+        period = request.period
+        start = date(period.year, period.month, 1)
+        end = date(period.year, period.month, calendar.monthrange(period.year, period.month)[1])
         if selected is None:
-            raise ValueError("Missing selected row")
+            if not by_label:
+                raise ValueError("Missing selected row")
+            # The table is the listed one for this month; it only has no such row yet.
+            first = _object(rows[0])["cell"]
+            if not isinstance(first, list):  # pragma: no cover - every row was checked above
+                raise ValueError("Invalid row shape")
+            selected = [first[0], request.selector.row, listed.label if listed else "", *first[3:]]
+            absent = True
+        else:
+            absent = False
         metadata = MonthlyHousingMetadata.model_validate(
             {
                 "success": root["success"],
@@ -174,12 +225,18 @@ def parse_monthly(payload: bytes, request: MonthlyRequest) -> Observation:
         validate_reviewed_monthly_metadata(
             request.selector, metadata, requested_period=request.period
         )
-        period = request.period
-        return Observation(
-            date(period.year, period.month, 1),
-            date(period.year, period.month, calendar.monthrange(period.year, period.month)[1]),
-            _number(selected[_DIMENSION_INDEX[request.selector.value_dimension]]),
-        )
+        if absent:
+            return Observation(start, end, None)
+        # The column is found by its header in this month's own answer: the bands before a
+        # total have changed over the years, the total's name has not (checked above). A
+        # selector that names a maturity band is read at that band's own cell (DEC-193).
+        if listed is not None:
+            cell = column_index(listed, request.selector, headers)
+        else:
+            cell = _DIMENSION_INDEX[request.selector.value_dimension]
+        if cell is None:
+            raise MonthlyLoadError(MonthlyLoadCode.RESPONSE_INVALID)
+        return Observation(start, end, _number(selected[cell]))
     except (ValueError, TypeError, KeyError, OverflowError, RecursionError):
         raise MonthlyLoadError(MonthlyLoadCode.RESPONSE_INVALID) from None
 
@@ -258,6 +315,7 @@ def ingest_monthly(
     semantics = _semantics(selector)
     parsed = []
     sources: list[JsonValue] = []
+    waiting: list[MonthlyPeriod] = []
     for period in window.periods():
         request = MonthlyRequest(selector=selector, period=period)
         try:
@@ -274,6 +332,14 @@ def ingest_monthly(
                 raise ValueError("Unexpected retrieval result")
         except Exception:  # Trusted transport boundary: never expose provider exception text.
             raise MonthlyLoadError(MonthlyLoadCode.RETRIEVAL_FAILED) from None
+        if unpublished(outcome.content):
+            # Not a month's answer but today's: nothing is recorded for it.
+            waiting.append(period)
+            continue
+        if waiting:
+            # A published month after one the bulletin said it does not have is not a
+            # publication lag; the batch is refused as any invalid reply would be.
+            raise MonthlyLoadError(MonthlyLoadCode.RESPONSE_INVALID)
         now = datetime.now(UTC)
         artifact = lake.record_artifact(
             outcome.content,
@@ -299,6 +365,12 @@ def ingest_monthly(
                 "source_id": request.fetch_request().source_ref,
             }
         )
+    if len(waiting) > MAX_UNPUBLISHED or not parsed:
+        raise MonthlyLoadError(MonthlyLoadCode.RESPONSE_INVALID)
+    if waiting:
+        # The batch is the months the bulletin has: the same months fetched again another
+        # day are the same batch, whatever the clock asked for.
+        window = MonthlyRange(start=window.start, end=window.periods()[len(parsed) - 1])
     observations = tuple(parsed)
     manifest: dict[str, JsonValue] = {
         "schema": MANIFEST_VERSION,
@@ -333,14 +405,14 @@ def ingest_monthly(
     )
     lake.read_artifact(manifest_id)
     connection = lake.connection
+    existing = connection.execute(
+        "SELECT artifact_id FROM silver_series WHERE series_id = ?", [catalog.series_id]
+    ).fetchone()
+    if existing is not None and existing[0] != manifest_id:
+        return _extend(lake, catalog.series_id, manifest, manifest_id, observations)
     # BEGIN outside try: never roll back a transaction owned by another caller.
     connection.execute("BEGIN TRANSACTION")
     try:
-        existing = connection.execute(
-            "SELECT artifact_id FROM silver_series WHERE series_id = ?", [catalog.series_id]
-        ).fetchone()
-        if existing is not None and existing[0] != manifest_id:
-            raise MonthlyLoadError(MonthlyLoadCode.VERSION_CONFLICT)
         lake.register_series(
             catalog.series_id, title=catalog.title, semantics=semantics, artifact_id=manifest_id
         )
@@ -370,6 +442,66 @@ def ingest_monthly(
         len(observations),
         sum(o.value is None for o in observations),
         existing is not None,
+    )
+
+
+def _extend(
+    lake: Lakehouse,
+    series_id: str,
+    manifest: dict[str, JsonValue],
+    manifest_id: str,
+    observations: tuple[Observation, ...],
+) -> MonthlyMaterialization:
+    """A later window of a stored series: stored months unchanged, new ones added.
+
+    Live 2026-09-23 a series stored through June was read for August with July published;
+    a stored series was never fetched again, and a later window was a version conflict.
+    Now the months the bulletin has published since are added when every month already
+    stored comes back unchanged. A revised month is still a conflict and the store keeps
+    what it had.
+    """
+    # Only a batch read the same way as the stored one extends it, and only by a month:
+    # other bytes, another parser or other semantics for the same months are a new version.
+    stored_id = lake.connection.execute(
+        "SELECT artifact_id FROM silver_series WHERE series_id = ?", [series_id]
+    ).fetchone()
+    try:
+        prior = _object(json.loads(lake.read_artifact(str(stored_id[0]))))
+    except Exception:
+        raise MonthlyLoadError(MonthlyLoadCode.VERSION_CONFLICT) from None
+    if any(
+        prior.get(key) != manifest.get(key)
+        for key in ("schema", "selector", "parser", "semantics", "transformation")
+    ):
+        raise MonthlyLoadError(MonthlyLoadCode.VERSION_CONFLICT)
+    try:
+        before, added = lake.extension_of(series_id, observations)
+    except LakehouseError:
+        raise MonthlyLoadError(MonthlyLoadCode.VERSION_CONFLICT) from None
+    if not added:
+        raise MonthlyLoadError(MonthlyLoadCode.VERSION_CONFLICT)
+    after = sorted([*before, *added], key=lambda item: item.period_end)
+    try:
+        lake.move_series(series_id, artifact_id=manifest_id, before=before, after=after)
+    except Exception:
+        raise MonthlyLoadError(MonthlyLoadCode.MATERIALIZATION_FAILED) from None
+    connection = lake.connection
+    connection.execute("BEGIN TRANSACTION")
+    try:
+        lineage_id = _record_lineage(lake, manifest, manifest_id, series_id)
+        connection.execute("COMMIT")
+    except BaseException as error:
+        connection.execute("ROLLBACK")
+        if not isinstance(error, Exception):
+            raise
+        raise MonthlyLoadError(MonthlyLoadCode.MATERIALIZATION_FAILED) from None
+    return MonthlyMaterialization(
+        series_id,
+        manifest_id,
+        lineage_id,
+        len(after),
+        sum(o.value is None for o in after),
+        False,
     )
 
 

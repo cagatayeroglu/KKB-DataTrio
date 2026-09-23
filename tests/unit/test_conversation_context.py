@@ -18,7 +18,7 @@ import pytest
 from test_catalog_continuation import CATALOG, TOTAL, proposal, seed_prepared
 from test_series_inspection import CPI, SQL
 
-from kkb_agent.agent import Workspace
+from kkb_agent.agent import Session, ToolRegistry, Workspace
 from kkb_agent.api.prepared import PreparedRunner, open_lakehouse
 from kkb_agent.catalog.mappings import load_reviewed_snapshot
 from kkb_agent.core import SourceRef
@@ -29,6 +29,36 @@ from kkb_agent.llm.provider import Role
 #: The figures the tables hold; none of them may appear in a planner prompt.
 CREDIT_VALUES = (100.0, 120.0, 150.0)
 CPI_VALUES = (100.0, 110.0, 120.0)
+
+
+def test_the_conversation_is_shown_whatever_the_next_question_looks_like():
+    """Which turns are a follow-up is the planner's reading, not a word list's.
+
+    A word list decided this until 2026-09-22 ("bu tablo", "önceki cevap", "aynı seri").
+    It let "grafiği çiz bi" through as a question about nothing: four words, no
+    conversation, answered as if nothing had been asked before. The block is six turns of
+    questions and answer text, about 500 bytes beside a 42 KB prompt, and its header says
+    what it is for - resolving a reference - and that its figures are not evidence.
+    """
+    previous = (("İstanbul konut kredilerini göster.", "İstanbul tablosu hazır."),)
+    for question in ("2021-2025 Türkiye konut kredisi bakiyesi nedir?", "grafiği çiz bi"):
+        provider = scripted(proposal(clarification="unsupported_request"))
+        Session(provider, ToolRegistry(), history=previous).plan(question)
+        shown = [
+            item.content
+            for item in provider.seen[0]
+            if item.content.startswith("Earlier turns of this conversation")
+        ]
+        assert len(shown) == 1, question
+        assert "İstanbul" in shown[0]
+        assert "figures in them are not new evidence" in shown[0]
+
+    # A conversation that has not started shows nothing.
+    fresh = scripted(proposal(clarification="unsupported_request"))
+    Session(fresh, ToolRegistry()).plan("İstanbul konut kredilerini göster.")
+    assert not any(
+        item.content.startswith("Earlier turns of this conversation") for item in fresh.seen[0]
+    )
 
 
 @pytest.fixture
@@ -190,9 +220,14 @@ def test_the_planner_is_given_names_and_coverage_but_never_the_figures(pool, tmp
         assert runner(sid, uuid4().hex, question).status.value == "accepted"
 
     prompts = workspace_prompts(provider)
-    assert prompts, "later turns must be told which tables exist"
-    last = prompts[-1]
-    assert "analiz_1" in last and "analiz_2" in last
+    # Every question after the first is told which tables exist: names and labels, never
+    # figures. A word list used to decide whether the question referred to one; "Tabloya
+    # konut fiyat endeksini de ekle" matched nothing in it, the planner invented a table
+    # name, and the jury's third turn lost sixteen minutes to the refusal (live 2026-09-21).
+    assert len(prompts) == 2
+    last = prompts[0]
+    assert "analiz_1" in last and "analiz_2" not in last
+    assert "analiz_2" in prompts[1]
     assert "coverage 2026-04-01..2026-06-30" in last
     assert "column labels:" in last
     # No published figure is in the prompt, in any shape a model could read. 100 is
@@ -205,15 +240,16 @@ def test_the_planner_is_given_names_and_coverage_but_never_the_figures(pool, tmp
 
 
 def test_context_stays_bounded_as_the_conversation_gets_long(pool, tmp_path):
-    """Ten turns: history is the last six questions and shown answers, nothing more."""
+    """More turns than the budget: history is the last MAX_HISTORY_TURNS, nothing more."""
     from kkb_agent.agent.loop import HISTORY_HEADER, MAX_HISTORY_TURNS
 
-    provider = scripted(*[item for _ in range(10) for item in (reply("Buyurun."),)])
+    turns = MAX_HISTORY_TURNS + 3
+    provider = scripted(*[item for _ in range(turns) for item in (reply("Buyurun."),)])
     runner = PreparedRunner(
         provider, pool, tmp_path / "runtime", catalog_bytes=CATALOG.read_bytes()
     )
     sid = uuid4().hex
-    questions = [f"Soru {index}: nasıl gidiyor?" for index in range(10)]
+    questions = [f"Önceki cevap için soru {index}: nasıl gidiyor?" for index in range(turns)]
     for question in questions:
         assert runner(sid, uuid4().hex, question).status.value == "accepted"
 
@@ -223,7 +259,7 @@ def test_context_stays_bounded_as_the_conversation_gets_long(pool, tmp_path):
         for message in messages
         if message.content.startswith(HISTORY_HEADER)
     ]
-    assert len(histories) == 9  # every turn after the first carries one
+    assert len(histories) == turns - 1  # every turn after the first carries one
     final = histories[-1]
     assert final.count("User: ") == MAX_HISTORY_TURNS
     assert questions[0] not in final and questions[-2] in final
@@ -268,8 +304,8 @@ def test_an_earlier_table_is_described_by_its_reviewed_series_name(pool, tmp_pat
         provider, pool, tmp_path / "runtime", catalog_bytes=CATALOG.read_bytes()
     )
     sid = uuid4().hex
-    for _ in range(2):
-        assert runner(sid, uuid4().hex, "Konut kredisi tablosunu getir.").status.value == "accepted"
+    for question in ("Konut kredisi tablosunu getir.", "Önceki tabloyu bir daha getir."):
+        assert runner(sid, uuid4().hex, question).status.value == "accepted"
 
     (outline,) = workspace_prompts(provider)
     # Generated from the catalog record: its TOTAL label tells the components apart.
@@ -278,9 +314,16 @@ def test_an_earlier_table_is_described_by_its_reviewed_series_name(pool, tmp_pat
     )
 
 
-def test_a_table_request_tells_the_writer_the_table_is_the_answer(pool, tmp_path):
-    """Live trace 2026-09-18: with every value tabled and none listed, the writer
-    wrote "this question was not covered" beside a 24-row table."""
+def test_a_table_request_gives_the_writer_the_table(pool, tmp_path):
+    """Three live traces, three failures from the same cause.
+
+    2026-09-18: with every value tabled and none listed, the writer wrote "this
+    question was not covered" beside a 24-row table. 2026-09-20: told instead
+    that the table itself was the answer, it wrote only that a table exists,
+    which the reader was already looking at. 2026-09-21: given a short table as
+    its two ends, it wrote that the months between them were not shown in the
+    result. A table short enough to read is now given whole.
+    """
     provider = scripted(proposal(table()), "Tablo hazır.")
     runner = PreparedRunner(
         provider, pool, tmp_path / "runtime", catalog_bytes=CATALOG.read_bytes()
@@ -289,5 +332,8 @@ def test_a_table_request_tells_the_writer_the_table_is_the_answer(pool, tmp_path
 
     writer = provider.seen[-1]
     results = next(m.content for m in writer if m.role is Role.SYSTEM and "Analysis" in m.content)
-    assert "the table itself answers a request for these values" in results
-    assert "do not say that the question or its values are not covered" in results
+    assert "Every one of its values is listed below." in results
+    assert "an answer that only says a table exists tells them nothing" in results
+    # Every row is there to quote, not only the two ends.
+    quoted = [line for line in results.splitlines() if line.startswith("- ")]
+    assert len(quoted) == 3 and all("display" in line for line in quoted)

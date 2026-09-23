@@ -8,8 +8,8 @@ import pytest
 from pydantic import ValidationError
 
 from kkb_agent.agent import ExecutionContext, Session, ToolRegistry
-from kkb_agent.agent.registry import ArgumentsRejected, RegistryError, ToolSpec
-from kkb_agent.catalog.search import CatalogSearchArguments, CatalogSearchOutput
+from kkb_agent.agent.registry import ArgumentsRejected, RegistryError
+from kkb_agent.catalog.search import CatalogSearchOutput
 from kkb_agent.llm import scripted
 from kkb_agent.tools import make_catalog_search_tool
 
@@ -176,8 +176,15 @@ def test_invalid_query_safe_error(tool, query):
 def test_source_and_frequency_filters(tool):
     assert ids(search(tool, "konut kredisi", source="evds", frequency="weekly")) == NEW
     assert ids(search(tool, "konut kredisi", frequency="monthly")) == BOOK
-    assert search(tool, "KFE", source="BDDK").status == "FILTERED_OUT"
-    assert search(tool, "KFE", frequency="weekly").status == "FILTERED_OUT"
+    # A filter narrows a search; it is never the reason a search finds nothing. Twice live
+    # (TÜİK, then TCMB) a planner named the institution it had in mind, the provider label
+    # differed, and the turn was lost to an empty result.
+    wrong_source = search(tool, "KFE", source="BDDK")
+    assert wrong_source.candidates and wrong_source.relaxed_filters == ("source",)
+    wrong_calendar = search(tool, "KFE", frequency="weekly")
+    assert wrong_calendar.candidates and wrong_calendar.relaxed_filters == ("frequency",)
+    assert search(tool, "konut kredisi", source="TCMB").relaxed_filters == ()  # EVDS is TCMB's
+    assert ids(search(tool, "konut kredisi", source="TCMB", frequency="weekly")) == NEW
     assert (
         ids(search(tool, "konut arşiv serileri", include_archived=True, frequency="unknown"))
         == ARCHIVE
@@ -225,7 +232,7 @@ def test_real_ids_provenance_and_digest(tool):
         assert c.series.model_dump(mode="json") == originals[c.series.record.series_id]
         assert "SYNTH" not in c.series.record.series_id
     assert result.retrieval_mode == "lexical_only"
-    assert not result.observation_fetch_authorized and not result.analytical_evidence
+    assert not result.observations_included and not result.analytical_evidence
 
 
 @pytest.mark.parametrize("change", ["hash", "holdout", "synth"])
@@ -293,10 +300,10 @@ def test_planner_sees_only_delivered_names(tool):
     registry = ToolRegistry()
     registry.register(tool)
     assert [d["name"] for d in registry.descriptions()] == ["catalog_search"]
-    assert "Does not fetch observation values" in registry.descriptions()[0]["description"]
+    assert "it reads no values" in registry.descriptions()[0]["description"]
+    # A name nothing registered is still unknown; that is the registry doing its
+    # job. What it no longer does is refuse a name for being absent from a list.
     for name in (*FUTURE, "shell"):
-        with pytest.raises(RegistryError):
-            registry.register(ToolSpec(name, "fake", CatalogSearchArguments, tool.run))
         with pytest.raises(RegistryError):
             registry.get(name)
 
@@ -360,3 +367,24 @@ def test_two_disjoint_concepts_keep_unresolved_metadata(tool):
     assert ids(result) == {"EVDS:TP.KFE.TR10"}
     assert result.status == "PARTIAL" and result.clarification_required
     assert {c.concept_id for c in result.concepts} == {"cpi_level", "kfe_istanbul"}
+
+
+def test_what_the_model_is_shown_describes_the_listing_and_forbids_nothing(tool):
+    """The listing says what it is; permission is decided where a series is read.
+
+    `observation_fetch_authorized: false` described the listing and read as a ban:
+    live 2026-09-23 the model quoted it and declined to read any value. The guarantee
+    it stood for is unchanged and is asserted here in its own words — no values, no
+    evidence, untrusted ranking — and the reply still hands a reader nothing: the
+    tool result carries no evidence and the search opens no store.
+    """
+    from kkb_agent.agent.executor import ToolResult, ToolStatus
+    from kkb_agent.agent.trust_loop import _describe
+
+    result = search(tool, "konut kredisi")
+    assert result.untrusted_metadata is True
+    assert result.observations_included is False
+    assert result.analytical_evidence is False
+    seen = _describe(ToolResult(ToolStatus.SUCCESS, "a1", "catalog_search", output=result), "a1")
+    assert "authoriz" not in seen.lower()
+    assert '"observations_included": false' in seen

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   Maximize2,
@@ -11,16 +11,24 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
+  ApiError,
+  deleteConversationRuns,
   describeError,
   listConversations,
+  listTraceConversations,
   listFeedback,
   listRuns,
   openConversation,
   openRun,
   openRunStep,
 } from "@/lib/client";
+import {
+  modelCallLabel,
+  runReadMessage,
+  type RunReadState,
+} from "@/lib/trace-summary";
 import type {
-  ConversationSummary,
+  TraceConversationSummary,
   Feedback,
   RunDetail,
   RunSummary,
@@ -70,15 +78,22 @@ type FullDetails = Record<number, string | null>;
 function Content({
   step,
   full,
+  failed = false,
+  onRetry,
   onExpand,
 }: {
   step: TraceStep;
   full: string | null | undefined;
+  //: The full text could not be read. Without this the spinner turned forever
+  //: and the preview below it looked like the whole step (finding F4-iz-5).
+  failed?: boolean;
+  onRetry?: () => void;
   onExpand: (step: TraceStep, text: string) => void;
 }) {
   const text = full !== undefined ? full : step.detail;
   const chars = step.detail_chars ?? step.detail?.length ?? 0;
-  const clipped = step.detail_complete === false && full === undefined;
+  const clipped =
+    step.detail_complete === false && full === undefined && !failed;
   const entries = Object.entries(step.attributes).filter(
     ([, value]) => value !== null && value !== "",
   );
@@ -102,6 +117,16 @@ function Content({
         <p className="helper">
           <LoaderCircle size={12} className="spin" />{" "}
           {`Tam metin yükleniyor (${size(chars)})`}
+        </p>
+      )}
+      {failed && (
+        <p className="helper">
+          {`Tam metin okunamadı (${size(chars)}); aşağıdaki ilk bölüm kayıttan geliyor.`}
+          {onRetry && (
+            <button type="button" className="trace-retry" onClick={onRetry}>
+              Yeniden dene
+            </button>
+          )}
         </p>
       )}
       {text && (
@@ -128,6 +153,8 @@ function Step({
   onToggle,
   onExpand,
   fullOf,
+  failedOf,
+  onRetry,
 }: {
   step: TraceStep;
   records: TraceStep[];
@@ -136,6 +163,8 @@ function Step({
   onToggle: () => void;
   onExpand: (step: TraceStep, text: string) => void;
   fullOf: (step: TraceStep) => string | null | undefined;
+  failedOf: (step: TraceStep) => boolean;
+  onRetry: (step: TraceStep) => void;
 }) {
   const own = (step.detail_chars ?? step.detail?.length ?? 0) as number;
   const chars =
@@ -167,7 +196,13 @@ function Step({
       </button>
       {open && (
         <div className="trace-nested">
-          <Content step={step} full={full} onExpand={onExpand} />
+          <Content
+            step={step}
+            full={full}
+            failed={failedOf(step)}
+            onRetry={() => onRetry(step)}
+            onExpand={onExpand}
+          />
           {records.map((child) => (
             <section key={child.sequence} className="trace-child">
               <h4>
@@ -176,7 +211,13 @@ function Step({
                   <span> · {String(child.attributes.position)}</span>
                 )}
               </h4>
-              <Content step={child} full={fullOf(child)} onExpand={onExpand} />
+              <Content
+                step={child}
+                full={fullOf(child)}
+                failed={failedOf(child)}
+                onRetry={() => onRetry(child)}
+                onExpand={onExpand}
+              />
             </section>
           ))}
         </div>
@@ -201,6 +242,9 @@ function RunView({
   const [detail, setDetail] = useState<RunDetail | null>(null);
   const [open, setOpen] = useState<Set<number>>(new Set());
   const [full, setFull] = useState<FullDetails>({});
+  //: Steps whose full text could not be read, and whether a file is being built.
+  const [failed, setFailed] = useState<Set<number>>(new Set());
+  const [downloading, setDownloading] = useState(false);
   const [issue, setIssue] = useState("");
   const [filter, setFilter] = useState("");
   //: One record read on its own, filling the page until it is closed.
@@ -240,6 +284,12 @@ function RunView({
         step.detail_complete === false && full[step.sequence] === undefined,
     );
     for (const step of missing) {
+      setFailed((current) => {
+        if (!current.has(step.sequence)) return current;
+        const next = new Set(current);
+        next.delete(step.sequence);
+        return next;
+      });
       try {
         const whole = await openRunStep(
           conversationId,
@@ -249,8 +299,10 @@ function RunView({
         );
         setFull((current) => ({ ...current, [step.sequence]: whole.detail }));
       } catch (error) {
+        // One unreadable step is not the end of the list: it says so in place and
+        // the others still open (finding F4-iz-5).
+        setFailed((current) => new Set(current).add(step.sequence));
         setIssue(describeError(error));
-        return;
       }
     }
   }
@@ -295,59 +347,60 @@ function RunView({
   }, [grouped, filter]);
 
   async function download() {
-    if (!detail) return;
-    // Every clipped step is read whole for the file, whether or not it is open.
-    const steps = await Promise.all(
-      detail.steps.map(async (step) =>
-        step.detail_complete === false
-          ? {
-              ...step,
-              detail: (
-                await openRunStep(
-                  conversationId,
-                  run.run_id,
-                  step.sequence,
-                  token,
-                )
-              ).detail,
-              detail_complete: true,
-            }
-          : step,
-      ),
-    );
-    const blob = new Blob(
-      [JSON.stringify({ run: detail.run, answer, feedback, steps }, null, 2)],
-      { type: "application/json" },
-    );
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `trace-${run.run_id.slice(0, 8)}.json`;
-    link.click();
-    URL.revokeObjectURL(link.href);
+    if (!detail || downloading) return;
+    setDownloading(true);
+    setIssue("");
+    try {
+      // Every clipped step is read whole for the file, whether or not it is open.
+      // One at a time: a long run is hundreds of steps, and asking for all of
+      // them at once used to flood the bridge and fail without a word (F4-iz-5).
+      const steps: TraceStep[] = [];
+      for (const step of detail.steps) {
+        if (step.detail_complete === false) {
+          const whole = await openRunStep(
+            conversationId,
+            run.run_id,
+            step.sequence,
+            token,
+          );
+          steps.push({ ...step, detail: whole.detail, detail_complete: true });
+        } else steps.push(step);
+      }
+      const blob = new Blob(
+        [JSON.stringify({ run: detail.run, answer, feedback, steps }, null, 2)],
+        { type: "application/json" },
+      );
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `trace-${run.run_id.slice(0, 8)}.json`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    } catch (error) {
+      setIssue(describeError(error));
+    } finally {
+      setDownloading(false);
+    }
   }
 
-  // One count per model call: a planning call, or the writer's own call. The
-  // plan it returned and the draft it wrote are records of that call, not calls.
-  const model = detail?.steps.filter(
-    (step) =>
-      (step.stage === "planning" && step.name !== "planner.output") ||
-      step.name === "writer.call",
-  ).length;
+  // Call spans appear only after completion. Never label a running first call
+  // "0 model calls" merely because the provider has not returned yet.
+  const summary = detail?.run ?? run;
+  const model = detail ? modelCallLabel(summary.status, detail.steps) : "";
   const tools = detail?.steps.filter((step) => step.stage === "tool").length;
 
   return (
     <div className="trace-run">
       <header className="trace-run-head">
-        <h3>{run.question}</h3>
+        <h3>{summary.question}</h3>
         <p>
-          {new Date(run.started_at).toLocaleString("tr-TR")} ·{" "}
-          {run.status === "running"
+          {new Date(summary.started_at).toLocaleString("tr-TR")} ·{" "}
+          {summary.status === "running"
             ? "çalışıyor"
-            : `toplam ${duration(run.duration_ms)}`}{" "}
-          · {run.answer_status ?? run.status}
-          {run.error ? ` · hata: ${run.error}` : ""}
+            : `toplam ${duration(summary.duration_ms)}`}{" "}
+          · {summary.answer_status ?? summary.status}
+          {summary.error ? ` · hata: ${summary.error}` : ""}
           {detail &&
-            ` · ${detail.steps.length} adım · ${model} model çağrısı · ${tools} araç adımı`}
+            ` · ${detail.steps.length} adım · ${model} · ${tools} araç adımı`}
         </p>
       </header>
       {answer && (
@@ -416,10 +469,10 @@ function RunView({
         <Button
           variant="outline"
           size="sm"
-          disabled={!detail}
+          disabled={!detail || downloading}
           onClick={() => void download()}
         >
-          <Download size={13} /> JSON indir
+          <Download size={13} /> {downloading ? "Hazırlanıyor…" : "JSON indir"}
         </Button>
       </div>
       {issue && <p className="notice">{issue}</p>}
@@ -453,6 +506,8 @@ function RunView({
             onToggle={() => toggle(item.step, item.children)}
             onExpand={(step, text) => setExpanded({ step, text })}
             fullOf={(child) => full[child.sequence]}
+            failedOf={(child) => failed.has(child.sequence)}
+            onRetry={(child) => void loadFull([child])}
           />
         ))}
       </ol>
@@ -473,7 +528,9 @@ export function TracesPage({
 }) {
   const [archived, setArchived] = useState(false);
   const [search, setSearch] = useState("");
-  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [conversations, setConversations] = useState<
+    TraceConversationSummary[]
+  >([]);
   const [chosen, setChosen] = useState<string | null>(
     initialConversation ?? null,
   );
@@ -482,74 +539,166 @@ export function TracesPage({
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [ratings, setRatings] = useState<Feedback[]>([]);
   const [issue, setIssue] = useState("");
+  const [runsState, setRunsState] = useState<RunReadState>("loading");
+  const [retry, setRetry] = useState(0);
+  const [listRevision, setListRevision] = useState(0);
+  const [listError, setListError] = useState(false);
+  //: This API has no retained-trace index, so the list came from the ordinary
+  //: conversation list and deleted conversations are not in it.
+  const [plainList, setPlainList] = useState(false);
+  //: How many times the watched turn's record has been looked for. A turn runs
+  //: for minutes and each look is three requests, so the wait is slow and ends.
+  const waited = useRef(0);
+  const chosenDeleted =
+    conversations.find((item) => item.conversation_id === chosen)?.deleted ??
+    false;
+
+  async function removeRuns() {
+    if (
+      !chosen ||
+      !window.confirm(
+        "Bu sohbetin tüm işlem kayıtları kalıcı olarak silinsin mi? Bu işlem geri alınamaz; sohbet ve tablolar korunur.",
+      )
+    )
+      return;
+    try {
+      await deleteConversationRuns(chosen, owner);
+      setRuns([]);
+      setRun(null);
+      setConversations((old) =>
+        old.filter((item) => item.conversation_id !== chosen),
+      );
+      setChosen(null);
+      setListRevision((old) => old + 1);
+      setIssue("");
+    } catch (error) {
+      setIssue(describeError(error));
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
     const timer = setTimeout(async () => {
       try {
-        const listed = await listConversations(owner, {
-          archived,
-          search: search.trim() || undefined,
-        });
+        const filters = { archived, search: search.trim() || undefined };
+        let listed;
+        let retained = true;
+        try {
+          listed = await listTraceConversations(owner, filters);
+        } catch (error) {
+          // An API older than this page has no trace index, and its 404 read as
+          // "Oturum bulunamadı. API yeniden başlamış olabilir" - which is about
+          // a session, not about a route that does not exist. The ordinary list
+          // exists in every version; only deleted conversations are missing from
+          // it, and the page says so. A 404 because the key is unknown fails
+          // here too, and is reported as before.
+          if (!(error instanceof ApiError && error.status === 404)) throw error;
+          const plain = await listConversations(owner, filters);
+          listed = {
+            conversations: plain.conversations.map((item) => ({
+              ...item,
+              deleted: false,
+            })),
+          };
+          retained = false;
+        }
         if (cancelled) return;
+        setListError(false);
+        setPlainList(!retained);
+        setIssue("");
         setConversations(listed.conversations);
-        setChosen(
-          (current) =>
-            current ?? listed.conversations[0]?.conversation_id ?? null,
+        setChosen((current) =>
+          listed.conversations.some((item) => item.conversation_id === current)
+            ? current
+            : (listed.conversations[0]?.conversation_id ?? null),
         );
       } catch (error) {
-        if (!cancelled) setIssue(describeError(error));
+        if (!cancelled) {
+          setListError(true);
+          setIssue(describeError(error));
+        }
       }
     }, 250);
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [owner, archived, search]);
+  }, [owner, archived, search, listRevision]);
 
   useEffect(() => {
-    if (!chosen) return;
+    waited.current = 0;
+  }, [initialTurn, chosen]);
+  useEffect(() => {
+    if (!chosen) {
+      setRuns([]);
+      setRun(null);
+      setRunsState("ready");
+      return;
+    }
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     setRuns([]);
     setRun(null);
+    setRunsState("loading");
     setAnswers({});
     setRatings([]);
     void (async () => {
       try {
-        // The browser's key opens its own conversations' records; no second secret.
-        const [listed, detail, feedback] = await Promise.all([
-          listRuns(chosen, owner),
-          openConversation(chosen, owner),
-          listFeedback(chosen, owner).catch(() => ({ feedback: [] })),
-        ]);
+        // The trace index can contain deleted chats: their normal GET is still
+        // forbidden, but their retained runs remain owner-readable.
+        const listed = await listRuns(chosen, owner);
         if (cancelled) return;
         setRuns(listed.runs);
+        const wanted = initialTurn
+          ? listed.runs.find((item) => item.turn_id === initialTurn)?.run_id
+          : undefined;
+        if (initialTurn && !wanted && waited.current < 40) {
+          // Asked for one turn and its record is not written yet: wait for it
+          // rather than open a different one (finding F4-iz-3). Older servers
+          // write the row only when the turn ends, so the wait is bounded and
+          // then the page says so instead of polling all afternoon.
+          waited.current += 1;
+          setRunsState("waiting");
+          timer = setTimeout(() => {
+            if (!cancelled) setRetry((old) => old + 1);
+          }, 3000);
+          return;
+        }
         setRun(
-          (initialTurn
-            ? listed.runs.find((item) => item.turn_id === initialTurn)?.run_id
-            : undefined) ??
-            listed.runs[0]?.run_id ??
-            null,
+          wanted ?? (initialTurn ? null : (listed.runs[0]?.run_id ?? null)),
         );
-        setAnswers(
-          Object.fromEntries(
-            detail.messages
-              .filter((message) => message.role === "assistant")
-              .map((message) => [message.turn_id, message.text]),
-          ),
-        );
-        setRatings(feedback.feedback);
+        setRunsState("ready");
         setIssue("");
-      } catch (error) {
-        if (!cancelled) setIssue(describeError(error));
+        if (!chosenDeleted) {
+          const [detail, feedback] = await Promise.all([
+            openConversation(chosen, owner).catch(() => null),
+            listFeedback(chosen, owner).catch(() => ({ feedback: [] })),
+          ]);
+          if (cancelled) return;
+          if (detail)
+            setAnswers(
+              Object.fromEntries(
+                detail.messages
+                  .filter((message) => message.role === "assistant")
+                  .map((message) => [message.turn_id, message.text]),
+              ),
+            );
+          setRatings(feedback.feedback);
+        }
+      } catch {
+        if (!cancelled) setRunsState("error");
       }
     })();
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
-  }, [chosen, owner, initialTurn]);
+  }, [chosen, owner, initialTurn, retry, chosenDeleted]);
 
   const current = runs.find((item) => item.run_id === run);
+  //: Asked to watch one turn whose record never appeared: the list is this
+  //: conversation's earlier runs, and none of them is that turn.
+  const missedTurn = Boolean(initialTurn && !current && runsState === "ready");
   return (
     <section
       className="traces-page"
@@ -591,17 +740,48 @@ export function TracesPage({
               onClick={() => setChosen(item.conversation_id)}
             >
               <span>{item.title}</span>
+              {item.deleted && (
+                <small className="trace-deleted">Silinmiş sohbet</small>
+              )}
               <small>
                 {new Date(item.updated_at).toLocaleString("tr-TR")} ·{" "}
                 {item.turns} soru
               </small>
             </button>
           ))}
-          {conversations.length === 0 && (
+          {listError && (
+            <div className="chat-empty">
+              Sohbetler okunamadı — yeniden dene
+              <button
+                type="button"
+                className="trace-retry"
+                onClick={() => setListRevision((old) => old + 1)}
+              >
+                Yeniden dene
+              </button>
+            </div>
+          )}
+          {conversations.length === 0 && !listError && (
             <p className="chat-empty">Sohbet yok.</p>
+          )}
+          {plainList && (
+            <p className="helper">
+              Bu sunucu sürümü silinmiş sohbetlerin izlerini listelemiyor; liste
+              sohbetlerden okundu. Güncel koddan yeniden başlatınca silinmiş
+              sohbetlerin izleri de burada görünür.
+            </p>
           )}
         </nav>
         <nav className="traces-column" aria-label="Turlar">
+          {chosen && runs.length > 0 && (
+            <button
+              type="button"
+              className="trace-delete"
+              onClick={() => void removeRuns()}
+            >
+              Bu sohbetin işlem kayıtlarını kalıcı sil
+            </button>
+          )}
           {runs.map((item) => {
             const rated = ratings.filter((r) => r.turn_id === item.turn_id);
             return (
@@ -622,12 +802,45 @@ export function TracesPage({
               </button>
             );
           })}
-          {chosen && runs.length === 0 && (
-            <p className="chat-empty">Bu sohbette kayıtlı işlem yok.</p>
+          {chosen && runsState === "error" && (
+            <div className="chat-empty">
+              {runReadMessage(runsState, runs.length)}
+              <button
+                type="button"
+                className="trace-retry"
+                onClick={() => {
+                  setRetry((old) => old + 1);
+                  setListRevision((old) => old + 1);
+                }}
+              >
+                Yeniden dene
+              </button>
+            </div>
+          )}
+          {chosen && (runsState === "loading" || runsState === "waiting") && (
+            <p className="chat-empty">
+              {runReadMessage(runsState, runs.length)}
+            </p>
+          )}
+          {chosen && runsState === "ready" && runs.length === 0 && (
+            <p className="chat-empty">
+              {runReadMessage(runsState, runs.length)}
+            </p>
           )}
         </nav>
         <div className="traces-main">
-          {current && chosen ? (
+          {runsState === "waiting" ? (
+            <p className="chat-empty">
+              Bu turun kaydı henüz açılmadı. Tur çalışmaya başlayınca kaydı
+              burada kendiliğinden açılacak; aşağıdaki liste bu sohbetin daha
+              önceki turları.
+            </p>
+          ) : missedTurn ? (
+            <p className="chat-empty">
+              Bu turun kaydı hâlâ açılmadı. Tur bitince listede görünür;
+              listeden bir tur seçebilirsin.
+            </p>
+          ) : current && chosen ? (
             <RunView
               key={current.run_id}
               conversationId={chosen}

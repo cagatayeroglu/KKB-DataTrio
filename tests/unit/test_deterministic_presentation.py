@@ -86,13 +86,16 @@ def test_add_series_and_turn_three_counts_are_writer_free(pool):
     final = outcome.results[-1].output
     draft = deterministic_draft(final)
     assert draft is not None
-    assert "Koşul altında iki yönü birlikte karşılayan dönem sayısı 1." in draft
-    assert "Koşul altında sürücü yönünü karşılayan dönem sayısı 2." in draft
+    assert "İki hareketin aynı ayda birlikte görüldüğü ay sayısı 1." in draft
+    assert "Birinci serinin belirtilen yönde hareket ettiği ay sayısı 2." in draft
     assert "neden" not in draft and "sebep" not in draft
     assert any("causal effect" in limitation for limitation in final.limitations)
     gated = gate_answer(draft, {"comparison": final}, lake.connection)
     assert gated.status is AnswerStatus.ACCEPTED
-    assert [item.number.value for item in gated.verdict.numbers] == [5, 0, 5, 2, 3, 1]
+    assert [
+        item.number.value for item in gated.verdict.numbers if item.binding.value != "year"
+    ] == [5, 0, 5, 2, 3, 1]
+    assert any(item.binding.value == "year" for item in gated.verdict.numbers)
     provider = scripted(plan().model_dump_json())
     before = source_of(pool).digest()
     answered = Session(provider, registry).answer(
@@ -133,8 +136,8 @@ def test_wrong_and_extra_numbers_still_fail_the_original_gate(pool):
     good = deterministic_draft(final)
     assert good is not None
     wrong = good.replace(
-        "Koşul altında iki yönü birlikte karşılayan dönem sayısı 1.",
-        "Koşul altında iki yönü birlikte karşılayan dönem sayısı 19.",
+        "İki hareketin aynı ayda birlikte görüldüğü ay sayısı 1.",
+        "İki hareketin aynı ayda birlikte görüldüğü ay sayısı 19.",
     )
     assert (
         gate_answer(wrong, {"comparison": final}, pool[0].connection).status

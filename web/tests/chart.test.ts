@@ -70,10 +70,11 @@ test("chart plots canonical values per period with gaps and separate unit groups
   const balance = model.series.find((s) => s.name === "balance")!;
   assert.deepEqual(balance.x, ["2021-01-31", "2021-02-28", "2021-03-31"]);
   assert.deepEqual(balance.y, [100.25, null, 300.5]);
+  // The tooltip names the whole period, not only the point's own day.
   assert.deepEqual(balance.hover, [
-    "100.25 gösterim",
-    "değer yok",
-    "300.5 gösterim",
+    "2021-01-01 – 2021-01-31 · 100.25 gösterim",
+    "2021-02-01 – 2021-02-28 · değer yok",
+    "2021-03-01 – 2021-03-31 · 300.5 gösterim",
   ]);
   assert.equal(model.groups.length, 2);
   assert.notEqual(
@@ -98,7 +99,7 @@ test("no chart for a single period or summary-only result, and labels stay plain
     result([cell("x".repeat(80), 1, 1), cell("x".repeat(80), 2, 2)]),
     null,
   )!.series[0];
-  assert.equal(long.legend.length, 42);
+  assert.equal(long.legend.length, 72);
   assert.equal(long.name.length, 80);
 });
 
@@ -120,5 +121,119 @@ test("derived columns keep a distinguishing legend suffix", () => {
   assert.equal(new Set(legends).size, 3);
   assert.match(legends[1], /aylık değişim$/);
   assert.match(legends[2], /reel, 2025-12/);
-  assert.ok(legends.every((legend) => legend.length <= 42));
+  assert.ok(legends.every((legend) => legend.length <= 72));
+});
+
+test("a change column's suffix is read in Turkish, percent and lag included", async () => {
+  const { seriesLabel } = await import("../lib/table");
+  assert.equal(
+    seriesLabel("balance % change (lag 1)", null),
+    "balance yüzde değişim (önceki döneme göre)",
+  );
+  assert.equal(
+    seriesLabel("balance change (lag 12)", null),
+    "balance değişim (12 dönem öncesine göre)",
+  );
+});
+
+test("a result made only of summary metrics is not charted", async () => {
+  // A breakpoint result: a count over the whole window, and one shift per break, each at
+  // a period of its own. Drawn, it was three lone markers and no series (live 2026-09-21).
+  const { chartModel } = await import("../lib/chart");
+  const { cellSchema } = await import("../lib/contracts");
+  const metric = (
+    label: string,
+    value: number,
+    start: string,
+    end: string,
+    slot: number,
+  ) =>
+    cellSchema.parse({
+      cell_id: String(slot).repeat(32),
+      slot,
+      label,
+      value,
+      display: String(value),
+      unit: "index_points",
+      scale: "one",
+      measure: "index",
+      period: { start, end, frequency: "monthly", weekly_anchor: null },
+      samples: null,
+      lag: null,
+    });
+  const breakpoints = {
+    result_ref: "a".repeat(32),
+    version: "b".repeat(64),
+    kind: "series",
+    claim_kind: "analytical_value",
+    published: true as const,
+    hidden_columns: [],
+    series_names: {},
+    cells: [
+      metric("TÜFE breakpoints found", 2, "2021-01-01", "2025-12-31", 1),
+      metric(
+        "TÜFE average change shift at 2021-12-31",
+        0.93,
+        "2021-12-01",
+        "2021-12-31",
+        2,
+      ),
+      metric(
+        "TÜFE average change shift at 2023-06-30",
+        1.03,
+        "2023-06-01",
+        "2023-06-30",
+        3,
+      ),
+    ],
+    proof: { gate: "accepted" as const, availability: "unavailable" as const },
+  };
+  assert.equal(chartModel(breakpoints as never, null), null);
+});
+
+test("a month absent from every column still breaks the line", () => {
+  const model = chartModel(
+    result([cell("balance", 1, 10), cell("balance", 3, 20)]),
+    null,
+  )!;
+  assert.deepEqual(model.series[0].x, [
+    "2021-01-31",
+    "2021-02-28",
+    "2021-03-31",
+  ]);
+  assert.deepEqual(model.series[0].y, [10, null, 20]);
+});
+
+for (const first of [1, 7]) {
+  test(`monthly labels match month-end observations for half-year starting ${first}`, () => {
+    const cells = Array.from({ length: 6 }, (_, i) => {
+      const value = cell("balance", first + i, 10 + i);
+      value.period!.start = value.period!.start.replace("2021", "2025");
+      value.period!.end = value.period!.end.replace("2021", "2025");
+      return value;
+    });
+    const before = structuredClone(cells);
+    const model = chartModel(result(cells), null)!;
+    assert.deepEqual(
+      model.monthlyTicks?.tickvals,
+      cells.map((c) => c.period!.end),
+    );
+    assert.deepEqual(
+      model.monthlyTicks?.ticktext,
+      cells.map((c) => c.period!.end.slice(0, 7)),
+    );
+    assert.deepEqual(
+      model.series[0].x,
+      cells.map((c) => c.period!.end),
+    );
+    assert.deepEqual(cells, before);
+  });
+}
+
+test("daily and weekly charts retain date-axis auto ticks", () => {
+  for (const frequency of ["daily", "weekly"] as const) {
+    const cells = [cell("balance", 1, 10), cell("balance", 2, 12)];
+    for (const c of cells) c.period!.frequency = frequency;
+    assert.equal(chartModel(result(cells), null)!.monthlyTicks, null);
+  }
 });

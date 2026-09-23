@@ -148,7 +148,10 @@ def test_prepared_turn_embeds_the_instructed_query_and_still_publishes(pool, tmp
         ("query", [f"Instruct: {embedding.TASK}\nQuery:toplam konut kredisi"])
     ]
     found = discovery(provider)
-    assert found["candidates"] and found["clarification_required"]
+    # The planner is told which candidate is the default, and only that (the search
+    # contract's always-true flag is not repeated beside it).
+    assert found["candidates"] and found["top_candidate"] in ("unambiguous", "ambiguous")
+    assert "clarification_required" not in found
     assert (
         not {
             "retrieval_mode",
@@ -160,16 +163,17 @@ def test_prepared_turn_embeds_the_instructed_query_and_still_publishes(pool, tmp
     )
 
 
-def test_prepared_hybrid_refuses_planner_bypass_before_discovery(pool, tmp_path, index):
-    initial, calculation, writer = responses()
-    provider = Recording(
-        scripted(calculation, initial, calculation, writer, embedding_dimension=4096)
-    )
+def test_a_planner_that_knows_the_series_reads_it_without_a_search(pool, tmp_path, index):
+    # "New series require a catalog_search phase" was 13 of 22 stored plan rejections: the
+    # planner named a real catalogue ID (tool descriptions list the prepared ones) and paid
+    # two more model calls to be allowed to read it. The catalogue vouches for what it
+    # lists, and the inspector still checks the series when it is read.
+    _, calculation, writer = responses()
+    provider = Recording(scripted(calculation, writer, embedding_dimension=4096))
     prepared = runner_with(pool, tmp_path, index, provider)
     answer = prepared(uuid4().hex, uuid4().hex, QUESTION)
     assert answer.status.value == "accepted" and answer.result is not None
-    assert len(provider.embedded) == 1 and len(provider.seen) == 4
-    assert "catalog_search phase" in provider.seen[1][-1].content
+    assert len(provider.embedded) == 0 and len(provider.seen) == 2
 
 
 def test_embedding_failure_degrades_to_lexical_without_leaking(pool, tmp_path, index):

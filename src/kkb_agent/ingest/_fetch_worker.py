@@ -1,9 +1,9 @@
 """Fixed one-request worker, terminated by the parent for DNS/total deadlines.
 
 Not a command runner: the executable/module are constant, input is validated
-JSON on stdin: bounded source GET, the closed reviewed Monthly POST or the closed
-EVDS `fe` POST. stdout contains bounded connection-phase markers and one bounded
-JSON result; stderr is discarded.
+JSON on stdin: bounded source GET, the closed reviewed Monthly POST, the closed Weekly
+POST, the closed FinTürk POST or the closed EVDS `fe` POST. stdout contains bounded
+connection-phase markers and one bounded JSON result; stderr is discarded.
 """
 
 from __future__ import annotations
@@ -14,14 +14,16 @@ import socket
 import sys
 import time
 import zlib
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from contextlib import suppress
 from http.client import HTTPException
 from typing import TYPE_CHECKING
 from urllib.parse import quote, urlsplit, urlunsplit
 
 if TYPE_CHECKING:
+    from kkb_agent.ingest.bddk_finturk_request import FinturkRequest
     from kkb_agent.ingest.bddk_monthly_request import MonthlyRequest
+    from kkb_agent.ingest.bddk_weekly_request import WeeklyRequest
     from kkb_agent.ingest.evds_request import EvdsRequest
 
 from pydantic import SecretStr
@@ -46,6 +48,15 @@ CONNECTED = b"CONNECTED\n"
 MAX_INPUT_BYTES = 64 * 1024
 
 
+def set_cookie_value(headers: Iterable[str]) -> str | None:
+    """A final response's cookies as one bounded `Cookie` value; `name=` is a deletion."""
+    from kkb_agent.ingest.fetch_session import MAX_COOKIE_BYTES, set_cookies
+
+    pairs = set_cookies(headers)
+    value = "; ".join(f"{name}={'' if kept is None else kept}" for name, kept in pairs.items())
+    return value if value and len(value.encode()) <= MAX_COOKIE_BYTES else None
+
+
 def fetch_once(
     request: FetchRequest,
     limits: FetchLimits,
@@ -54,6 +65,8 @@ def fetch_once(
     connecting: Callable[[], None] = lambda: None,
     monthly: MonthlyRequest | None = None,
     evds: EvdsRequest | None = None,
+    weekly: WeeklyRequest | None = None,
+    finturk: FinturkRequest | None = None,
 ) -> FetchOutcome:
     """One supervised request lifecycle, including explicitly checked GET hops."""
 
@@ -65,7 +78,7 @@ def fetch_once(
         body = None
         content_type = "application/x-www-form-urlencoded"
         fixed_headers: tuple[tuple[str, str], ...] = ()
-        if monthly is not None and evds is not None:
+        if sum(item is not None for item in (monthly, evds, weekly, finturk)) > 1:
             return FetchFailure(source_ref=request.source_ref, code=FetchCode.INVALID_REQUEST)
         if monthly is not None:
             from kkb_agent.ingest.bddk_monthly_request import MONTHLY_LIMITS, MonthlyRequest
@@ -81,8 +94,26 @@ def fetch_once(
             if request != evds.fetch_request() or limits != EVDS_LIMITS:
                 return FetchFailure(source_ref=request.source_ref, code=FetchCode.INVALID_REQUEST)
             body, content_type, fixed_headers = evds.json_body(), "application/json", CLIENT_HEADERS
-        # Only the revalidated fixed Monthly POST gets the pinned BDDK issuer.
-        connection = SourceConnection(request, limits=limits, reviewed_issuer=monthly is not None)
+        if weekly is not None:
+            from kkb_agent.ingest.bddk_weekly_request import WEEKLY_LIMITS, WeeklyRequest
+
+            weekly = WeeklyRequest.model_validate(weekly)
+            if request != weekly.fetch_request() or limits != WEEKLY_LIMITS:
+                return FetchFailure(source_ref=request.source_ref, code=FetchCode.INVALID_REQUEST)
+            body = weekly.form_body()
+        if finturk is not None:
+            from kkb_agent.ingest.bddk_finturk_request import FINTURK_LIMITS, FinturkRequest
+
+            finturk = FinturkRequest.model_validate(finturk)
+            if request != finturk.fetch_request() or limits != FINTURK_LIMITS:
+                return FetchFailure(source_ref=request.source_ref, code=FetchCode.INVALID_REQUEST)
+            body = finturk.form_body()
+        # Only the revalidated fixed BDDK POSTs get the pinned BDDK issuer.
+        connection = SourceConnection(
+            request,
+            limits=limits,
+            reviewed_issuer=any(item is not None for item in (monthly, weekly, finturk)),
+        )
         visited = {connection.url.get_secret_value()}
         hops = 0
 
@@ -124,6 +155,10 @@ def fetch_once(
             if body is not None:
                 headers["Content-Type"] = content_type
                 headers.update(fixed_headers)
+            if request.cookie is not None and not hops and parsed.scheme == "https":
+                # The caller's session for this origin, on the request it asked for and
+                # never on a hop a response chose: a redirect may point anywhere.
+                headers["Cookie"] = request.cookie.get_secret_value()
             connection.request(
                 "POST" if body is not None else "GET", path, body=body, headers=headers
             )
@@ -133,9 +168,18 @@ def fetch_once(
             header_remaining = response.remaining_header_bytes
             location = redirect_location(response)
             if location is None:
+                # Only the final response's cookies, and only over https: they are what
+                # the page itself set for its own origin.
+                session = (
+                    set_cookie_value(response.msg.get_all("Set-Cookie") or ())
+                    if parsed.scheme == "https"
+                    else None
+                )
                 result = read_response(response, request, limits)
                 if time.monotonic() >= deadline:
                     raise TimeoutError
+                if session is not None:
+                    result = result.model_copy(update={"set_cookie": SecretStr(session)})
                 if hops:
                     result = result.model_copy(
                         update={
@@ -198,6 +242,16 @@ def main() -> int:
             from kkb_agent.ingest.evds_request import EvdsRequest
 
             evds = EvdsRequest.model_validate(data["evds"])
+        weekly = None
+        if "weekly" in data:
+            from kkb_agent.ingest.bddk_weekly_request import WeeklyRequest
+
+            weekly = WeeklyRequest.model_validate(data["weekly"])
+        finturk = None
+        if "finturk" in data:
+            from kkb_agent.ingest.bddk_finturk_request import FinturkRequest
+
+            finturk = FinturkRequest.model_validate(data["finturk"])
 
         def connected() -> None:
             sys.stdout.buffer.write(CONNECTED)
@@ -210,13 +264,22 @@ def main() -> int:
             sys.stdout.buffer.flush()
 
         result = fetch_once(
-            request, limits, connected, connecting=connecting, monthly=monthly, evds=evds
+            request,
+            limits,
+            connected,
+            connecting=connecting,
+            monthly=monthly,
+            evds=evds,
+            weekly=weekly,
+            finturk=finturk,
         )
         encoded = result.model_dump(mode="json")
         if isinstance(result, FetchSuccess):
             encoded["content"] = base64.b64encode(result.content).decode("ascii")
             if result.effective_locator is not None:
                 encoded["effective_locator"] = result.effective_locator.get_secret_value()
+            if result.set_cookie is not None:
+                encoded["set_cookie"] = result.set_cookie.get_secret_value()
         sys.stdout.buffer.write(json.dumps(encoded).encode("ascii"))
         sys.stdout.buffer.flush()
         return 0

@@ -37,6 +37,12 @@ ABSENCE = [
 ]
 
 
+@pytest.fixture(autouse=True)
+def _wording_rules(monkeypatch):
+    """These cases pin the optional wording contract; the served gate binds figures only."""
+    monkeypatch.setattr("kkb_agent.agent.verifier.WORDING_RULES", True)
+
+
 @pytest.mark.parametrize("sentence", ABSENCE)
 def test_absence_claims_are_withheld_beside_computed_values(connection, sentence):  # noqa: F811
     gated = gate_answer(f"Ocak 2025'te 100 milyon TL. {sentence}.", result(), connection)

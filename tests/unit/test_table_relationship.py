@@ -18,6 +18,7 @@ from kkb_agent.agent import (
     ExecutionContext,
     Session,
     ToolRegistry,
+    ToolStatus,
     gate_answer,
     render_results,
 )
@@ -236,6 +237,31 @@ def test_repeat_comparison_refuses_duplicate_counts_but_new_criteria_are_distinc
     assert len({v.label for v in second.values if v.label.startswith("table comparison ")}) == 12
 
 
+def test_a_comparison_over_a_table_an_earlier_comparison_left_is_still_worded_by_the_harness():
+    # Live 2026-09-21, reference turn 3: the table carried turn 1's comparison counts, which
+    # have no phrase of their own once a newer comparison exists. The harness gave up its
+    # own wording for that, and the model writer it fell back to thought for 16,384 tokens
+    # and wrote nothing.
+    from kkb_agent.agent.presentation import deterministic_draft
+
+    shown = table()
+    shown = shown.model_copy(update={"values": [v for v in shown.values if v.label != "price"]})
+    criteria = {"driver_column": "rate", "driver_direction": "down", "when_column": None}
+    first = compare(shown, **criteria, when_direction=None)
+    assert deterministic_draft(first) is not None
+    second = compare(first, **criteria, when_direction=None, target_direction="up")
+    draft = deterministic_draft(second)
+    assert draft is not None and draft.startswith("Tablodaki aylık yönler karşılaştırıldı.")
+    latest = [
+        controlled_count_label(second, value)
+        for value in second.values
+        if controlled_count_label(second, value) is not None
+    ]
+    assert latest and all(phrase in draft for phrase in latest)
+    periods = second.evidence.transformations[-1].parameters["joint_periods"]
+    assert all(period in draft for period in periods)
+
+
 def args(**changes):
     return {
         "operation": "table_co_movement",
@@ -321,7 +347,7 @@ def test_turn_three_supported_count_and_safe_decimal_format_bind(pool, written):
     final = outcome.results[-1].output
 
     gated = gate_answer(
-        f"Koşul altında iki yönü birlikte karşılayan dönem sayısı {written}.",
+        f"İki hareketin aynı ayda birlikte görüldüğü ay sayısı {written}.",
         {"comparison": final},
         pool[0].connection,
     )
@@ -332,7 +358,7 @@ def test_turn_three_supported_count_and_safe_decimal_format_bind(pool, written):
         "eligible transitions matching both directions"
     )
     context = render_results({"comparison": final})
-    assert "Koşul altında iki yönü birlikte karşılayan dönem sayısı: display 1" in context
+    assert "İki hareketin aynı ayda birlikte görüldüğü ay sayısı: display 1" in context
 
 
 @pytest.mark.parametrize(
@@ -341,7 +367,7 @@ def test_turn_three_supported_count_and_safe_decimal_format_bind(pool, written):
         "Koşul altındaki dönemlerin oranı %17 oldu.",
         "Tabloda 6 aylık gözlem vardır.",
         "Koşul altında iki yönü birlikte karşılayan 19 ay vardır.",
-        "Koşul altında hedef yönünü karşılayan dönem sayısı 1 ay.",
+        "İkinci serinin belirtilen yönde hareket ettiği ay sayısı 1 ay.",
         "Mart 2021 döneminde price 105 endeks oldu.",
     ],
 )
@@ -358,7 +384,7 @@ def test_turn_three_derived_fabricated_or_misattributed_numbers_stay_rejected(po
 def test_turn_three_supported_claim_does_not_rescue_fabricated_extra_number(pool):
     outcome = execute(validate_plan(plan(), registry_for(pool)), registry_for(pool))
     final = outcome.results[-1].output
-    supported = "Koşul altında iki yönü birlikte karşılayan dönem sayısı 1 ay."
+    supported = "İki hareketin aynı ayda birlikte görüldüğü ay sayısı 1 ay."
 
     gated = gate_answer(
         supported + " Ayrıca desteklenmeyen 19 dönem vardır.",
@@ -374,8 +400,8 @@ def test_turn_three_supported_claim_does_not_rescue_fabricated_extra_number(pool
 @pytest.mark.parametrize(
     ("repaired", "accepted"),
     [
-        ("Koşul altında iki yönü birlikte karşılayan dönem sayısı 1 ay.", True),
-        ("Koşul altında iki yönü birlikte karşılayan dönem sayısı 19 ay.", False),
+        ("İki hareketin aynı ayda birlikte görüldüğü ay sayısı 1 ay.", True),
+        ("İki hareketin aynı ayda birlikte görüldüğü ay sayısı 19 ay.", False),
     ],
 )
 def test_turn_three_numeric_rewrite_reverifies_before_publication(pool, repaired, accepted):
@@ -558,10 +584,11 @@ class TestNominalAndRealAreNotInterchangeable:
         ][: len(table().values)]
 
 
-SUPPORTED_COUNT = "Koşul altında iki yönü birlikte karşılayan dönem sayısı 1 ay."
-#: An index base is not one of the series' values; the gate rejects it as an
-#: ambiguous binding, which is the numeric-rewrite category.
-NUMERIC_ONLY_DRAFT = "Endeks tabanı 100 olarak alınmıştır."
+SUPPORTED_COUNT = "İki hareketin aynı ayda birlikte görüldüğü ay sayısı 1 ay."
+#: A figure that is none of the result's values: the numeric-rewrite category. (An index
+#: base of 100 used to stand here; several values equal to it under one label are now one
+#: fact, and "2023=100" is part of a name, so neither is a fault any more.)
+NUMERIC_ONLY_DRAFT = "Endeks tabanı 987 olarak alınmıştır."
 #: The same base written beside a supported count fails period attribution
 #: instead, which is the other rewrite category.
 PERIOD_ONLY_DRAFT = "Endeks 2023=100 tabanlıdır ve birlikte karşılanan dönem sayısı 1 ay."
@@ -637,7 +664,7 @@ class TestOneRewritePerWordingProblem:
             pool,
             NUMERIC_ONLY_DRAFT,
             PERIOD_ONLY_DRAFT,
-            "Koşul altında iki yönü birlikte karşılayan dönem sayısı 19 ay.",
+            "İki hareketin aynı ayda birlikte görüldüğü ay sayısı 19 ay.",
         )
 
         assert len(provider.seen) == 4
@@ -662,8 +689,8 @@ class TestOneRewritePerWordingProblem:
 
 
 INHERITED_LABEL = "transitions where rate fell and credit did not rise"
-INHERITED_PHRASE = "Sürücü düşerken hedefin artmadığı geçiş sayısı"
-JOINT_PHRASE = "Koşul altında iki yönü birlikte karşılayan dönem sayısı"
+INHERITED_PHRASE = "Birinci seri düşerken ikinci serinin artmadığı ay sayısı"
+JOINT_PHRASE = "İki hareketin aynı ayda birlikte görüldüğü ay sayısı"
 
 
 def with_inherited_count(value):
@@ -713,10 +740,18 @@ class TestAnInheritedCountCanStillBeNamed:
         assert len(phrases) == len(equal)
 
     def test_the_writer_is_shown_the_phrase_rather_than_the_raw_label(self):
-        context = render_results({"comparison": with_inherited_count(3.0)})
+        result = with_inherited_count(3.0)
+        digest = result.digest()
+        context = render_results({"comparison": result})
 
         assert f"{INHERITED_PHRASE}: display 3" in context
         assert INHERITED_LABEL not in context
+        # Semantic metadata and value prose use the same controlled count identity.
+        assert f'"label": "{INHERITED_PHRASE}"' in context
+        assert f'"label": "{JOINT_PHRASE}"' in context
+        assert '"label": "credit"' in context  # ordinary column identities are retained
+        assert result.digest() == digest
+        assert any(value.label == INHERITED_LABEL for value in result.values)
 
     @pytest.mark.parametrize(
         ("label", "meaning"),
@@ -821,21 +856,27 @@ class TestTheCountContractIsFollowable:
         assert bare.status is not AnswerStatus.ACCEPTED
 
     def test_both_writer_contracts_carry_the_rule(self):
-        assert "identified by its listed phrase" in SYNTHESIS_PROMPT
+        # The supported phrase/count behavior is exercised above; do not pin
+        # this prompt to the older negative wording of the same instruction.
+        assert all(word in SYNTHESIS_PROMPT.lower() for word in ("count", "listed", "role phrase"))
         assert "copy its listed phrase with the number" in NUMERIC_REPAIR_INSTRUCTIONS
 
 
-class TestTheDeflatedColumnIsWhatAChangeQuestionCompares:
-    """M11-11: a real column exists only because a turn was asked to deflate.
+class TestTheComparedColumnIsTheOneThePlanNamed:
+    """M11-11, narrowed on 2026-09-22: the plan picks the column, the answer says what else.
 
-    Measured on 2026-09-16: Turn 3 compared the nominal credit column and
-    published 4 joint months while the oracle's answer, over the deflated column
-    the previous turn had just built, is 22. The columns were the planner's to
-    pick and it kept picking nominal, so the tool now prefers the deflated
-    counterpart and a plan that wants nominal terms says so.
+    The tool used to move every selected column onto its deflated counterpart, because on
+    2026-09-16 a planner kept picking nominal where the question asked for real. Live
+    2026-09-22, the jury's third question showed the cost: the plan named the nominal
+    balance, the substitution counted the real one, and "faiz düşerken kredi artmadı" went
+    from the four months the reader had been shown a turn earlier to twenty-two -- a balance
+    that grows slower than inflation falls in real terms. The reader had asked about the
+    four. Both labels are in front of the planner and both descriptions tell it which one a
+    real question needs, so the plan is followed and the counterpart it passed over is
+    recorded for the answer to mention.
     """
 
-    def test_a_nominal_target_is_replaced_and_the_move_is_recorded(self):
+    def test_the_named_column_is_compared_and_the_untaken_real_one_is_recorded(self):
         source = table_with_real()
         arguments = TableRelationshipArguments(
             operation="table_co_movement",
@@ -847,9 +888,23 @@ class TestTheDeflatedColumnIsWhatAChangeQuestionCompares:
         )
         columns = _deflated_columns(source, arguments)
 
-        assert columns.target == REAL_LABEL
-        assert columns.moved == {"target_column": "credit"}
+        assert columns.target == "credit"
+        assert columns.moved == {"target_column": REAL_LABEL}
         assert columns.driver == "price"
+
+    def test_naming_the_real_column_compares_it_and_records_nothing(self):
+        source = table_with_real()
+        arguments = TableRelationshipArguments(
+            operation="table_co_movement",
+            input_step="earlier",
+            driver_column="price",
+            target_column=REAL_LABEL,
+            driver_direction="up",
+            target_direction="non_increasing",
+        )
+        columns = _deflated_columns(source, arguments)
+
+        assert (columns.target, columns.moved) == (REAL_LABEL, {})
 
     def test_the_plan_cannot_decline_the_deflated_column(self):
         # A planner-facing opt-out was tried and the planner set it on a question
@@ -1067,3 +1122,183 @@ def test_a_same_plan_step_named_as_source_is_read_like_input_step(pool):
     assert counts(result.output) == [5, 0, 5, 4, 3, 3]
     missing = tool.run(tool.parse(arguments), ExecutionContext("compare"))
     assert missing.error_category == "table_reference"
+
+
+class TestAColumnIsFoundTheWayAPlannerNamesIt:
+    """Live 2026-09-21, the jury's third turn: 37 minutes and no answer.
+
+    The planner named a column of a table a same-plan step had yet to build, by the series
+    it holds. The tool answered "A selected column does not exist in the table" - not
+    which one, not what the table does have - and two sixteen-minute calls went into
+    guessing. A refusal now carries both, and the unambiguous case is simply resolved.
+    """
+
+    def test_a_series_id_names_the_one_column_that_holds_it(self, pool):
+        from kkb_agent.analytics.table_relationship import resolve_label
+
+        source = source_of(pool)
+        labels = list(dict.fromkeys(value.label for value in source.values))
+        rate = next(label for label in labels if label.startswith("EVDS:TP.KTF12 "))
+        assert resolve_label(source, "EVDS:TP.KTF12") == rate
+        assert resolve_label(source, rate) == rate
+        assert resolve_label(source, "EVDS:TP.NOPE") == "EVDS:TP.NOPE"  # left to the refusal
+        # Named by what the series means, as the planner reads it beside the ID.
+        named = source.model_copy(
+            update={"parameters": {**source.parameters, "series_names": {"EVDS:TP.KTF12": "Faiz"}}}
+        )
+        assert resolve_label(named, "Faiz") == rate
+
+    def test_a_refusal_names_the_missing_column_and_the_columns_there_are(self, pool):
+        from kkb_agent.analytics.table_relationship import (
+            TableComparisonRefused,
+            compare_table_directions,
+        )
+
+        source = source_of(pool)
+        present = next(iter(dict.fromkeys(value.label for value in source.values)))
+        with pytest.raises(TableComparisonRefused) as refusal:
+            compare_table_directions(
+                source,
+                driver_column="Konut fiyat endeksi",
+                target_column=present,
+                driver_direction="down",
+                target_direction="up",
+            )
+        assert "'Konut fiyat endeksi'" in str(refusal.value)
+        assert "The table's columns are:" in str(refusal.value) and present in str(refusal.value)
+
+
+def test_a_count_two_comparisons_share_is_one_fact_for_the_gate_and_the_writer(pool):
+    # Live 2026-09-21 (reference turn 3): two comparisons over one table count the same
+    # transitions, and each prefixes its counts with its own identity, so their labels
+    # never agree. Four sentences of the harness's own draft were withheld as ambiguous.
+    registry = registry_for(pool)
+    both = plan().model_dump(mode="json")
+    both["steps"].append(
+        {
+            "step_id": "second",
+            "tool": "change_detection",
+            "arguments": args(target_direction="up"),
+            "depends_on": ["add"],
+        }
+    )
+    outcome = execute(validate_plan(AnalyticalPlan.model_validate(both), registry), registry)
+    assert outcome.completed
+    by_step = {item.step_id: item.output for item in outcome.results}
+    named = {"first": by_step["comparison"], "second": by_step["second"]}
+    suffix = ": complete monthly transitions"
+    shared = next(v for v in named["first"].values if v.label.endswith(suffix))
+    twin = next(v for v in named["second"].values if v.label.endswith(suffix))
+    assert shared.label != twin.label and shared.value == twin.value
+    phrase = controlled_count_label(named["first"], shared)
+    assert phrase is not None
+
+    gated = gate_answer(f"{phrase} {shared.value:.0f}.", named, pool[0].connection)
+    assert gated.status is AnswerStatus.ACCEPTED, gated.omitted
+    assert f"{phrase}: display AMBIGUOUS" not in render_results(named)
+    # A bare figure that several different counts share still names none of them.
+    bare = gate_answer(f"Sonuç {shared.value:.0f} aydır.", named, pool[0].connection)
+    assert bare.status is AnswerStatus.ABSTAINED
+
+
+def test_the_counts_are_headed_by_which_series_moved_which_way():
+    # "Koşul altında sürücü yönünü karşılayan dönem sayısı 32" told a reader nothing about
+    # what had been counted. The line above the counts names the columns and directions.
+    from kkb_agent.agent.presentation import comparison_heading
+
+    assert comparison_heading(compare()) == (
+        "Birinci seri: price, yükseldiği aylar sayıldı. "
+        "İkinci seri: credit, yükselmediği aylar sayıldı. "
+        "Ön koşul: rate, düştüğü aylar sayıldı."
+    )
+    # A name with a digit in it would be read by the gate as a figure: no heading then.
+    numbered = table().model_copy(
+        update={
+            "values": [
+                v.model_copy(update={"label": "rate2"}) if v.label == "rate" else v
+                for v in table().values
+            ]
+        }
+    )
+    assert comparison_heading(compare(numbered, when_column="rate2")) is None
+
+
+def test_a_step_that_computed_nothing_blocks_the_steps_that_read_it(pool):
+    # A tool that refuses an operation returns SUCCESS carrying an ABSTAINED result, so the
+    # plan does not stop - but the step reading that table has nothing to read. Live
+    # 2026-09-21: a refused join was followed by a comparison reporting "The referenced
+    # table is unavailable or cannot be verified", naming the wrong step and hiding the
+    # refusal that actually ended the plan.
+    registry = registry_for(pool)
+    refused = {
+        "step_id": "akim",
+        "tool": "table_transform",
+        "arguments": {"operation": "to_flow", "source": "add", "column": TOTAL_ID},
+        "depends_on": ["add"],
+    }
+    reader = {
+        "step_id": "komov",
+        "tool": "change_detection",
+        "arguments": args(input_step="akim"),
+        "depends_on": ["akim"],
+    }
+    both = plan().model_dump(mode="json")
+    both["steps"] = [*both["steps"], refused, reader]
+    outcome = execute(validate_plan(AnalyticalPlan.model_validate(both), registry), registry)
+
+    by_step = {item.step_id: item for item in outcome.results}
+    assert by_step["akim"].status is ToolStatus.SUCCESS  # the refusal is that step's answer
+    assert by_step["akim"].output.status is ResultStatus.ABSTAINED
+    assert by_step["komov"].status is ToolStatus.NOT_RUN
+    assert by_step["komov"].warnings == ("step 'akim' produced no computed result",)
+    assert not outcome.completed
+    # An independent step is untouched: this blocks readers, not the rest of the plan.
+    assert by_step["comparison"].status is ToolStatus.SUCCESS
+
+
+def test_a_lag_the_harness_applied_binds_where_a_clause_names_its_periods():
+    # Live 2026-09-22: "12 aylık değişim 28,97" lost its whole sentence, because the 12 is
+    # the lag the change was computed with and matched no value of the result.
+    from kkb_agent.agent.verifier import window_counts
+    from kkb_agent.core import TransformationRecord
+
+    base = table()
+    recorded = base.model_copy(
+        update={
+            "evidence": base.evidence.model_copy(
+                update={
+                    "transformations": [
+                        TransformationRecord(
+                            operation="change",
+                            parameters={"kind": "percent", "lag": 12, "column": "credit"},
+                            input_refs=["fixture"],
+                            output_ref="credit % change (lag 12)",
+                        )
+                    ]
+                }
+            )
+        }
+    )
+    counted = window_counts([recorded])
+    assert any(item.value == 12.0 and item.role == "months" for item in counted)
+    # The same table without that step licenses no such count.
+    assert not any(item.value == 12.0 for item in window_counts([base]))
+
+
+def test_deterministic_comparison_includes_its_exact_nonempty_period_list():
+    from kkb_agent.agent.presentation import deterministic_draft
+
+    shown = table()
+    shown = shown.model_copy(
+        update={
+            "values": [
+                v.model_copy(update={"scale": Scale.ONE}) if v.unit == "index" else v
+                for v in shown.values
+            ]
+        }
+    )
+    result = compare(shown)
+    periods = result.evidence.transformations[-1].parameters["joint_periods"]
+    assert periods
+    draft = deterministic_draft(result)
+    assert draft is not None and all(period in draft for period in periods)

@@ -1,7 +1,9 @@
 import { z } from "zod";
 import {
   conversationDetailSchema,
+  conversationDeletedSchema,
   conversationListSchema,
+  traceConversationListSchema,
   conversationSummarySchema,
   documentAdmittedSchema,
   feedbackListSchema,
@@ -12,9 +14,12 @@ import {
   seriesValuesSchema,
   type DatasetRequest,
   type DatasetDetail,
+  type DatasetSource,
   ownerSchema,
   resultSchema,
   runDetailSchema,
+  runProgressSchema,
+  runsDeletedSchema,
   runtimeSettingsSchema,
   searchTrialSchema,
   traceStepFullSchema,
@@ -176,12 +181,50 @@ export function listConversations(
     ownerToken,
   );
 }
+/** Trace-only owner index: retained runs stay discoverable after chat deletion. */
+export function listTraceConversations(
+  ownerToken: string,
+  options: { archived?: boolean; search?: string } = {},
+) {
+  const query = new URLSearchParams();
+  if (options.archived) query.set("archived", "true");
+  if (options.search) query.set("search", options.search.slice(0, 120));
+  const suffix = query.toString();
+  return api(
+    `trace-conversations${suffix ? `?${suffix}` : ""}`,
+    traceConversationListSchema,
+    {},
+    undefined,
+    ownerToken,
+  );
+}
 export function openConversation(conversationId: string, token: string) {
   return api(
     `conversations/${conversationId}`,
     conversationDetailSchema,
     {},
     token,
+  );
+}
+export function deleteConversation(conversationId: string, ownerToken: string) {
+  return api(
+    `conversations/${conversationId}`,
+    conversationDeletedSchema,
+    { method: "DELETE" },
+    undefined,
+    ownerToken,
+  );
+}
+export function deleteConversationRuns(
+  conversationId: string,
+  ownerToken: string,
+) {
+  return api(
+    `conversations/${conversationId}/runs`,
+    runsDeletedSchema,
+    { method: "DELETE" },
+    undefined,
+    ownerToken,
   );
 }
 export function rateAnswer(
@@ -208,7 +251,7 @@ export function readSettings(owner: string) {
 }
 export function saveSettings(
   owner: string,
-  change: { disabled?: string[]; history_turns?: number },
+  change: { disabled?: string[]; history_turns?: number; model?: string },
 ) {
   return api(
     "settings",
@@ -224,30 +267,62 @@ export function readPrompts(owner: string) {
   // The prompt parts as the deployment holds them; there is nothing to write.
   return api("prompts", promptPartsSchema, {}, undefined, owner);
 }
-export function listKnowledge(owner: string) {
-  return api("knowledge", knowledgeListSchema, {}, undefined, owner);
+export type KnowledgePage = {
+  tab: string;
+  province?: string;
+  query?: string;
+  page: number;
+  pageSize?: number;
+};
+/**
+ * One page of the knowledge base. The filters run on the server: the whole list is
+ * 1,930 bytes an entry (3.6 MB for 1,869 entries, measured), and the bridge bounds
+ * a response at 1 MiB.
+ */
+export function listKnowledge(owner: string, view?: KnowledgePage) {
+  if (!view) return api("knowledge", knowledgeListSchema, {}, undefined, owner);
+  const asked = new URLSearchParams({
+    tab: view.tab,
+    page: String(view.page),
+    page_size: String(view.pageSize ?? 50),
+  });
+  if (view.province) asked.set("province", view.province);
+  if (view.query?.trim()) asked.set("q", view.query.trim().slice(0, 200));
+  return api(
+    `knowledge?${asked.toString()}`,
+    knowledgeListSchema,
+    {},
+    undefined,
+    owner,
+  );
 }
 export function trySearch(owner: string, query: string) {
-  // Reading what discovery would find starts no analysis and stores nothing.
+  // Reading what discovery would find starts no analysis and stores nothing. It
+  // can still read a source's series list and write it to disk, which the default
+  // 12 s did not allow for (finding F4-bt-12); the bridge's own ceiling is 30 s.
   return api(
     `knowledge/search?q=${encodeURIComponent(query.slice(0, 512))}`,
     searchTrialSchema,
     {},
     undefined,
     owner,
+    { timeoutMs: 28000 },
   );
 }
 export function readIndex(owner: string) {
   return api("knowledge/index", vectorIndexSchema, {}, undefined, owner);
 }
 export function refreshDirectory(owner: string) {
-  // Reads the sources' own listings again; no model call.
+  // Reads the sources' own listings again; no model call. One request per opened
+  // datagroup, so it grows with use and outran the default 12 s while the server
+  // kept going (finding F4-bt-12).
   return api(
     "knowledge/directory",
     directoryRefreshSchema,
     { method: "POST", body: "{}" },
     undefined,
     owner,
+    { timeoutMs: 28000 },
   );
 }
 export function rebuildIndex(owner: string) {
@@ -259,6 +334,43 @@ export function rebuildIndex(owner: string) {
     undefined,
     owner,
   );
+}
+/**
+ * What a conversation can keep, said where a person looks for it. The agent's
+ * save reads one monthly value column per call; anything else is entered here.
+ */
+export const CONVERSATION_SAVE_LIMIT =
+  "Sohbetten kayıt yalnız aylık dönemli tablolar için ve her seferinde tek bir değer sütunu kaydeder; birden çok sütun ayrı ayrı istenir. Haftalık, çeyreklik, yıllık ya da günlük veriyi bu formdan girin.";
+/**
+ * One version's source in the reader's words: where it was read, when, and
+ * the place inside the document. `href` is set only for an http(s) address,
+ * so nothing else a record holds is ever rendered as a link.
+ */
+export function describeDatasetSource(source: DatasetSource): {
+  origin: string;
+  href: string | null;
+  when: string | null;
+  place: string | null;
+} {
+  const url = source.url ?? null;
+  const href = url && /^https?:\/\//i.test(url) ? url : null;
+  const origin =
+    source.kind === "address"
+      ? (url ?? "adres")
+      : `sohbette yüklenen belge${source.document ? ` (${source.document})` : ""}`;
+  const when = source.read_at
+    ? `${source.kind === "address" ? "erişim" : "yükleme"} ${new Date(
+        source.read_at,
+      ).toLocaleString("tr-TR")}`
+    : null;
+  const parts = [
+    source.kind === "address" && source.document ? source.document : null,
+    source.sheet ? `sayfa: ${source.sheet}` : null,
+    source.page ? `s. ${source.page}` : null,
+    source.table ? `tablo ${source.table}` : null,
+    source.value_column ? `sütun “${source.value_column}”` : null,
+  ].filter((part): part is string => Boolean(part));
+  return { origin, href, when, place: parts.length ? parts.join(" · ") : null };
 }
 /**
  * Rebuild the versioned save request an exported dataset detail describes.
@@ -571,6 +683,9 @@ export function admitDocumentFromUrl(session: Session, url: string) {
       body: JSON.stringify({ url: url.trim().slice(0, 2000) }),
     },
     session.token,
+    undefined,
+    // The server fetches and reads the address; the proxy already allows 30 s.
+    { timeoutMs: 45000 },
   );
 }
 export async function admit(saved: Saved, index: number) {
@@ -630,11 +745,36 @@ export async function uploadDocument(
     documentAdmittedSchema,
     { method: "POST", body: file, headers: { "Content-Type": type } },
     session.token,
+    undefined,
+    // Admission reads the document (a scanned page goes through OCR) and the file
+    // itself can be 10 MiB: the default 12 s cut off uploads the server accepted.
+    { timeoutMs: 90000 },
   );
 }
+/** Where a run is now: the line a live view shows, without any step text. */
+export function readRunProgress(
+  conversationId: string,
+  runId: string,
+  token: string,
+) {
+  return api(
+    `conversations/${conversationId}/runs/${runId}/progress`,
+    runProgressSchema,
+    {},
+    token,
+  );
+}
+/**
+ * The table a finished turn published. A withheld sentence no longer unpublishes the
+ * table (DEC-186): the figures are what the tools computed and the verifier re-read, so a
+ * QUALIFIED turn publishes one too, and the next question may build on it. The server
+ * attaches a result to every status but ABSTAINED (api/projection.py); this said
+ * "accepted" alone, so every qualified turn with a table was rejected by `turnSchema` as
+ * an invalid response and the chat froze on "Analiz sürüyor" (live 2026-09-21).
+ */
 export function publishedResult(turn?: Turn) {
-  return turn?.state === "completed" && turn.answer?.status === "accepted"
-    ? (turn.answer.result ?? undefined)
+  return turn?.state === "completed" && turn.answer?.status !== "abstained"
+    ? (turn.answer?.result ?? undefined)
     : undefined;
 }
 export function restoredSelection(saved: Saved, turns: (Turn | undefined)[]) {
@@ -668,6 +808,18 @@ export function draftRequest(
       : {}),
   };
 }
+/**
+ * The server does not know this turn any more, so following it is pointless.
+ *
+ * Turn handles live in the API process and a restart drops them, while the
+ * conversation itself stays in its store. Every other error - a transport
+ * failure, "busy", a 5xx - leaves the turn running server-side, so the caller
+ * keeps polling instead of giving it up (findings F2-restart, F1-5).
+ */
+export function lostTurn(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404;
+}
+
 export function admissionRejection(
   error: unknown,
 ): Saved["turns"][number]["admission_error"] {
@@ -699,7 +851,7 @@ export function validQuestion(value: string) {
 }
 export const errorText: Record<string, string> = {
   document_rejected:
-    "Belge kabul edilmedi. CSV, Excel (.xlsx), PDF veya HTML olmalı ve içerik kontrollerinden geçmeli.",
+    "Belge kabul edilmedi. CSV, Excel (.xlsx), PDF, HTML ya da görsel (PNG, JPG) olmalı ve içerik kontrollerinden geçmeli.",
   invalid_document:
     "Ekli belge bu oturumda bulunamadı ya da değişmiş. Belgeyi yeniden yükle.",
   body_too_large:
@@ -709,7 +861,8 @@ export const errorText: Record<string, string> = {
   unavailable:
     "Yerel analiz servisine ulaşılamıyor. API’nin çalıştığını kontrol et.",
   busy: "Başka bir analiz devam ediyor. Bitince aynı isteği yeniden gönderebilirsin.",
-  capacity: "Bu oturumun veya servisin işlem sınırına ulaşıldı.",
+  capacity:
+    "Bu sohbet tur sınırına ulaştı ya da servis şu an dolu. Yeni bir sohbet aç: bu sohbetin geçmişi ve tabloları duruyor.",
   not_found:
     "Oturum bulunamadı. API yeniden başlamış olabilir; yeni oturum açmalısın.",
   forbidden:
@@ -721,8 +874,14 @@ export const errorText: Record<string, string> = {
     "Kaynak tablo bu oturumda kullanılamıyor. Geçerli bir sonuç seçip yeni soru gönderebilirsin.",
   session_gone:
     "Bu sekmedeki oturum sunucuda artık yok (sunucu yeniden başlatılmış olabilir). Yeni bir sohbet açıldı; kayıtlı sohbetler soldaki listede.",
+  session_restored:
+    "Sunucu yeniden başladığı için devam eden tur kayboldu. Sohbet kayıtlarından geri yüklendi ve son soru kutuya yazıldı; göndererek yeniden sorabilirsin.",
   selection_unavailable:
     "Kayıtlı kaynak tablo yüklenemedi. Yeni bir soru gönderebilirsin; ajan kullanılabilir tabloları kendisi seçer.",
+  turn_interrupted:
+    "Bu soru gönderildi ama sunucu yeniden başladığı için tamamlanmadı. İşlem kaydında yarım kalmış olarak duruyor; aynı soruyu yeniden gönderebilirsin.",
+  turn_not_sent:
+    "Bu soru sunucuya ulaşmadı, bu yüzden çalıştırılmadı. Yeniden gönderebilirsin.",
   cancelled:
     "İstek durduruldu. O ana kadar yapılanlar işlem kaydında duruyor; tablo yayımlanmadı.",
   invalid_request:
@@ -734,6 +893,51 @@ export const errorText: Record<string, string> = {
     "Bu istek kimliği farklı bir soruya ait. Mevcut isteği tamamla.",
   internal_error: "Analiz tamamlanamadı. Önceki sonuçlar korunuyor.",
 };
+/**
+ * What went wrong in the knowledge base, said in its own words.
+ *
+ * The panel used to borrow the chat's sentences, so a refused record said
+ * "Başka bir analiz devam ediyor" or "Soruyu ve metin uzunluğunu kontrol et",
+ * and a file that was not an export said the browser could not store the
+ * session (finding F4-bt-5).
+ */
+export const knowledgeErrorText: Record<string, string> = {
+  knowledge_rejected:
+    "Kayıt kabul edilmedi. Zorunlu alanları, kimliği ve satır biçimini (dönem;değer) kontrol et.",
+  invalid_request:
+    "Alanlar kabul edilmedi. Ad, kimlik ve açıklama uzunluklarını kontrol et.",
+  invalid_document:
+    "Belge bu sohbette bulunamadı ya da değişmiş. Belgeyi yeniden yükle.",
+  not_found:
+    "Bu kayıt bulunamadı; başka bir yerde değişmiş olabilir. Listeyi tazele.",
+  busy: "Bilgi tabanında başka bir iş sürüyor (vektörleme olabilir). Bitince yeniden dene.",
+  capacity:
+    "Bu sohbetin belge hakkı doldu (4 belge). Yeni bir sohbet aç ya da yüklediğin belgelerden birini kullan.",
+  unavailable:
+    "Yerel servise ulaşılamıyor ya da bu özellik kapalı. API'nin çalıştığını kontrol et.",
+  connection:
+    "Bağlantı kesildi. İşlem sunucuda sürmüş olabilir; listeyi tazeleyip kontrol et.",
+  forbidden:
+    "Yerel bağlantı doğrulanamadı. Arayüzü 127.0.0.1:3000 adresinden aç.",
+  body_too_large: "Dosya ya da satırlar boyut sınırını aşıyor.",
+  // Not `forbidden`: the key and the origin are fine; the operator has not
+  // opened catalogue notes on this installation (finding N43).
+  catalog_read_only:
+    "Bu kurulumda katalog notları salt okunur; arşiv, eş anlamlı ve açıklamayı yalnızca sunucuyu --allow-catalog-edits ile başlatan operatör açabilir.",
+};
+export function describeKnowledgeError(error: unknown) {
+  if (error instanceof ApiError)
+    return (
+      knowledgeErrorText[error.code] ??
+      errorText[error.code] ??
+      "İşlem tamamlanamadı. Bilgi tabanında değişen bir şey yok."
+    );
+  if (error instanceof SyntaxError)
+    return "Dosya okunamadı: geçerli bir JSON değil. Dışa aktarılan .json dosyasını seç.";
+  if (error instanceof Error && error.name === "ZodError")
+    return "Dosya bu sürümün dışa aktarım biçimine uymuyor.";
+  return "İşlem tamamlanamadı. Bilgi tabanında değişen bir şey yok.";
+}
 export function describeError(error: unknown) {
   return error instanceof ApiError
     ? (errorText[error.code] ??

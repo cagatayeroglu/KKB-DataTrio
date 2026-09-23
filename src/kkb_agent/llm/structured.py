@@ -3,7 +3,7 @@
 The platform's structured-output support is unresolved (Q-K-03), and the brief
 expects open-weight models, which malform JSON more often than large hosted
 ones. So the fallback is not a contingency, it is the likely path: extract the
-JSON from whatever came back, repair what can be repaired, validate strictly,
+JSON from whatever came back, validate strictly,
 and on failure tell the model exactly what was wrong and ask again.
 
 Strictly is the operative word. A plan that deserializes is not a plan that may
@@ -18,10 +18,10 @@ from collections.abc import Callable, Sequence
 
 from pydantic import BaseModel, ValidationError
 
-from kkb_agent.llm.provider import Completion, Message, Role, SchemaViolation
+from kkb_agent.llm.provider import Completion, Message, Role, SchemaViolation, ToolCall
 
-#: One model turn: the text it returned and, when the platform says, why it stopped.
-Ask = Callable[[list[Message]], tuple[str, str | None]]
+#: One model turn: the text, why it stopped, and any tools it asked to run.
+Ask = Callable[[list[Message]], tuple[str, str | None, tuple[ToolCall, ...]]]
 
 #: Only the first this many characters of a validation error are fed back. The
 #: message names fields and types, and a long one wastes a small context window.
@@ -64,12 +64,18 @@ def extract_json(text: str) -> str:
         elif character == "}":
             depth -= 1
             if depth == 0:
+                # Whatever follows the object is the model talking, not a second plan:
+                # a closing remark holding one bracket used to end the turn. Live
+                # 2026-09-22 the planner searched, `web_url` loaded the TCMB decision
+                # page, and the continuation that decides what to do with it was thrown
+                # away for what came after its own valid JSON. The first balanced object
+                # is the answer; strict validation still runs on it.
                 return fenced[start : index + 1]
     raise SchemaViolation("Response contains an unterminated JSON object")
 
 
 def parse_structured[ModelT: BaseModel](text: str, schema: type[ModelT]) -> ModelT:
-    """Validate a response against `schema`, repairing malformed JSON first.
+    """Validate complete JSON against `schema`; malformed text requires a new response.
 
     Raises `SchemaViolation` with a message describing the fault, which is what
     the retry loop feeds back to the model.
@@ -78,6 +84,13 @@ def parse_structured[ModelT: BaseModel](text: str, schema: type[ModelT]) -> Mode
     try:
         payload = json.loads(document)
     except json.JSONDecodeError:
+        # Repairing a brace-balanced document is punctuation, not invention: the keys
+        # and values are the model's own and strict validation still follows. Removing
+        # it cost a whole turn live (2026-09-22) — the planner had searched, `web_url`
+        # had loaded the TCMB decision page, and the continuation that decides what to
+        # do with it came back malformed, so the answer abstained on a page already in
+        # hand. A response that cannot be repaired still raises, and the retry loop
+        # still tells the model what was wrong.
         payload = _repair(document)
     if not isinstance(payload, dict):
         # Defensive: extraction guarantees a brace-balanced document, so this
@@ -96,22 +109,47 @@ def complete_with_repair(
     schema: type[BaseModel] | None,
     max_attempts: int,
     model: str,
+    tolerate_prose: bool = False,
 ) -> Completion:
     """Ask, validate against `schema`, and on failure ask again with the fault.
 
     Shared by every provider so the loop a test scripts is the loop that runs
     against the platform. Without a schema the first answer is returned.
+
+    `tolerate_prose` is for a caller that offered tools. Such a caller gave the
+    model two ways to answer — call something, or say something — and a schema is
+    only how the second one is carried when the platform cannot do the first. Live
+    2026-09-23 the model finished a turn in prose, as it is entitled to, and the
+    turn died here on a schema the prose was never meant to satisfy: the answer was
+    written and the reader got an error. With tools offered, prose is returned as
+    prose and the caller reads it.
     """
+    max_attempts = min(max_attempts, 2)  # One correction, never an expanding repair loop.
     conversation = list(messages)
     last_problem = ""
     for attempt in range(1, max_attempts + 1):
-        text, finish_reason = ask(conversation)
-        if schema is None:
-            return Completion(text=text, model=model, attempts=attempt, finish_reason=finish_reason)
+        text, finish_reason, calls = ask(conversation)
+        if calls or schema is None:
+            # Tools asked for are the answer to this turn; there is no schema to
+            # satisfy and nothing to repair.
+            return Completion(
+                text=text,
+                model=model,
+                attempts=attempt,
+                finish_reason=finish_reason,
+                tool_calls=calls,
+            )
         try:
             parsed = parse_structured(text, schema)
         except SchemaViolation as error:
             last_problem = str(error)
+            if tolerate_prose:
+                return Completion(
+                    text=text,
+                    model=model,
+                    attempts=attempt,
+                    finish_reason=finish_reason,
+                )
             if attempt == max_attempts:
                 break
             # Feed the fault back rather than retrying the same prompt: an
@@ -129,7 +167,10 @@ def complete_with_repair(
             parsed=parsed,
             finish_reason=finish_reason,
         )
-    raise SchemaViolation(f"Schema not satisfied after {max_attempts} attempt(s): {last_problem}")
+    raise SchemaViolation(
+        f"Schema not satisfied after {max_attempts} attempt(s): {last_problem}",
+        attempts=max_attempts,
+    )
 
 
 def schema_instructions(schema: type[BaseModel]) -> str:
@@ -143,10 +184,13 @@ def schema_instructions(schema: type[BaseModel]) -> str:
 def repair_feedback(schema: type[BaseModel], problem: str) -> str:
     """The correction handed back to the model on a retry.
 
-    It states the fault and restates the schema, because a model that produced
-    the wrong shape once will usually produce it again without both.
+    The original schema and context remain in the conversation. Repeat only
+    the correction instruction, not another copy of the tool/plan schema.
     """
-    return f"The previous response was rejected: {problem}\n{schema_instructions(schema)}"
+    return (
+        f"The previous response was rejected: {problem[:FEEDBACK_LIMIT]}. "
+        "Emit one complete schema-valid JSON object only, using the same schema and context."
+    )
 
 
 def _repair(document: str) -> object:

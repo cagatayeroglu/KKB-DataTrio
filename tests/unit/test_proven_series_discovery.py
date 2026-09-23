@@ -40,6 +40,7 @@ from kkb_agent.tools import make_catalog_search_tool
 from kkb_agent.tools.anomaly import AnomalyArguments
 from kkb_agent.tools.change_detection import ChangeDetectionArguments
 from kkb_agent.tools.lakehouse import LakehouseArguments
+from kkb_agent.tools.promotion import PromoteSeriesArguments
 from kkb_agent.tools.table_transform import TableTransformArguments
 
 OTHER = "EVDS:TP.TUKFIY2025.GENEL"
@@ -82,6 +83,12 @@ def change(series_id=TOTAL):
 def add_series(series_id=TOTAL):
     return TableTransformArguments.model_validate(
         {"operation": "add_series", "source": "analiz_1", "series_id": series_id}
+    )
+
+
+def promotion():
+    return PromoteSeriesArguments(
+        title="Şirket geliri", unit="TL", scale="million", meaning="monthly_total"
     )
 
 
@@ -175,6 +182,17 @@ def test_an_unproven_identity_is_still_refused(rig):  # noqa: F811
         )
 
 
+def test_document_promotion_needs_no_catalog_but_mixed_unproven_read_does():
+    offer = step("promote_series", promotion())
+    validate_discovery_phase(plan_of(offer), continuation=False, require_series_discovery=True)
+    with pytest.raises(PlanRejected, match="Continuation permits"):
+        validate_discovery_phase(plan_of(offer), continuation=True, require_series_discovery=True)
+
+    mixed = plan_of(offer, step("change_detection", change(), step_id="b"))
+    with pytest.raises(PlanRejected, match="catalog_search phase"):
+        validate_discovery_phase(mixed, continuation=False, require_series_discovery=True)
+
+
 def test_one_unproven_identity_among_proven_ones_still_requires_discovery():
     plan = plan_of(
         step("change_detection", change(TOTAL), step_id="a"),
@@ -217,6 +235,7 @@ def test_validate_admits_a_fully_proven_plan_before_any_tool_runs():
 
 def test_instructions_stay_unchanged_when_nothing_is_proven():
     assert required_discovery_instructions(frozenset()) == REQUIRED_DISCOVERY_INSTRUCTIONS
+    assert "promote_series offer for an admitted document" in REQUIRED_DISCOVERY_INSTRUCTIONS
 
 
 def test_instructions_name_the_proven_identities_and_drop_the_contradiction():
@@ -225,7 +244,9 @@ def test_instructions_name_the_proven_identities_and_drop_the_contradiction():
     # The old rule ordered a search "even if a reviewed series identity is already
     # visible", which contradicts admitting exactly that plan.
     assert "even if a reviewed series identity is already visible" not in text
-    assert "NOT listed above" in text
+    assert "Read them directly; do not search for them again" in text
+    assert "MUST" not in text  # one policy, said without an order that contradicts it
+    assert "promote_series offer for an admitted document" in text
 
 
 def test_a_failed_catalog_search_proves_nothing_even_with_candidates_attached():
@@ -300,3 +321,75 @@ def test_a_web_search_plan_needs_no_catalogue_discovery():
     validate_discovery_phase(
         plan, continuation=False, require_series_discovery=True, proven_series=frozenset()
     )
+
+
+def test_sql_over_this_conversations_published_tables_needs_no_discovery():
+    """Live B2 (2026-09-20): asking for the mean of a table the agent had just
+    published was refused with "New series require a catalog_search phase", and
+    the round trip cost 111 s. Those rows are already proven; series tables are
+    still behind the rule."""
+    from kkb_agent.tools.lakehouse import LakehouseArguments
+
+    published = plan_of(
+        step(
+            "lakehouse",
+            LakehouseArguments(
+                sql=(
+                    "SELECT AVG(value) FROM gold_cells WHERE result_name = 'analiz_6'"
+                    " AND column_label = 'EVDS:TP.KTF12 monthly average'"
+                ),
+                purpose="Yayımlanmış tablonun ortalaması",
+            ),
+        )
+    )
+    assert not needs_series_discovery(published)
+    validate_discovery_phase(
+        published, continuation=False, require_series_discovery=True, proven_series=frozenset()
+    )
+
+    series = plan_of(
+        step(
+            "lakehouse",
+            LakehouseArguments(
+                sql="SELECT * FROM silver_observations LIMIT 5",
+                purpose="Seri verisi",
+            ),
+        )
+    )
+    assert needs_series_discovery(series)
+
+
+# --- what the catalogue lists needs no search to be read --------------------------------------
+
+
+def test_an_identity_the_catalogue_lists_is_read_without_a_search_of_its_own():
+    # 13 of 22 stored plan rejections were "New series require a catalog_search phase": the
+    # planner named a real catalogue ID and paid two more model calls to be allowed to
+    # read it. The catalogue vouches for what it lists; the inspector checks it when read.
+    for continuation in (False, True):
+        validate_discovery_phase(
+            plan_of(step("change_detection", change()), step("table_transform", deflate(), "b")),
+            continuation=continuation,
+            require_series_discovery=True,
+            known_series=frozenset({TOTAL, OTHER}),
+        )
+
+
+def test_an_identity_the_catalogue_does_not_hold_is_refused_by_name():
+    with pytest.raises(PlanRejected) as refusal:
+        validate_discovery_phase(
+            plan_of(step("change_detection", change("EVDS:TP.UYDURMA"))),
+            continuation=False,
+            require_series_discovery=True,
+            known_series=frozenset({TOTAL}),
+        )
+    assert "EVDS:TP.UYDURMA" in str(refusal.value) and "catalog_search" in str(refusal.value)
+    # In a continuation with no search left, the refusal does not offer one.
+    with pytest.raises(PlanRejected) as final:
+        validate_discovery_phase(
+            plan_of(step("change_detection", change("EVDS:TP.UYDURMA"))),
+            continuation=True,
+            require_series_discovery=True,
+            known_series=frozenset({TOTAL}),
+        )
+    assert "EVDS:TP.UYDURMA" in str(final.value) and "plan catalog_search" not in str(final.value)

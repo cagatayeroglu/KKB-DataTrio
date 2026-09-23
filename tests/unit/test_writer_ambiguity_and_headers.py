@@ -37,20 +37,36 @@ def test_known_name_heading_still_selects_or_conflicts():
 
 
 def test_indistinguishable_values_are_marked_and_not_offered_to_the_writer():
-    same = result().model_copy(update={"result_id": "copy"})
+    twin = result(label="other_series").model_copy(update={"result_id": "twin"})
     june = result(period=Period(start=date(2025, 6, 1), end=date(2025, 6, 30)))
     percent = result(unit="percent")
-    context = render_results({"credit": result(), "copy": same, "june": june, "rate": percent})
+    context = render_results({"credit": result(), "twin": twin, "june": june, "rate": percent})
     blocks = dict(block.split("\n", 1) for block in context.split("\n\n"))
-    assert "AMBIGUOUS" in blocks["[credit]"] and "AMBIGUOUS" in blocks["[copy]"]
-    assert "display 100 milyon TL" not in blocks["[credit]"] + blocks["[copy]"]
+    assert "AMBIGUOUS" in blocks["[credit]"] and "AMBIGUOUS" in blocks["[twin]"]
+    assert "display 100 milyon TL" not in blocks["[credit]"] + blocks["[twin]"]
     # A different period or unit is a qualifier the gate can bind.
     assert "AMBIGUOUS" not in blocks["[june]"] and "AMBIGUOUS" not in blocks["[rate]"]
 
 
 def test_marking_matches_what_the_gate_withholds(connection):  # noqa: F811
-    same = result().model_copy(update={"result_id": "copy"})
-    table = {"credit": result(), "copy": same}
-    assert not verify_claims("Ocak 2025'te 100 milyon TL.", table).accepted
+    # Another measure with the same figure, unit and period: a sentence cannot say which.
+    twin = result(label="other_series").model_copy(update={"result_id": "twin"})
+    assert not verify_claims(
+        "Ocak 2025'te 100 milyon TL.", {"credit": result(), "twin": twin}
+    ).accepted
     assert "AMBIGUOUS" not in render_results({"credit": result()})
     assert verify_claims("Ocak 2025'te 100 milyon TL.", {"credit": result()}).accepted
+
+
+def test_the_same_measure_in_two_results_is_offered_and_bound(connection):  # noqa: F811
+    # The read behind a table, or a table published earlier, repeats the measure under its
+    # own label. That is one fact (DEC-186): the gate binds it, so the writer is given it.
+    # Live 2026-09-21: marked AMBIGUOUS, a whole table of month-ends could not be quoted.
+    same = result().model_copy(update={"result_id": "copy"})
+    table = {"credit": result(), "copy": same}
+    assert "AMBIGUOUS" not in render_results(table)
+    assert verify_claims("Ocak 2025'te 100 milyon TL.", table).accepted
+    # One twin under another label is enough to leave a choice, for both readers.
+    mixed = {**table, "twin": result(label="other_series")}
+    assert render_results(mixed).count("AMBIGUOUS") == 3
+    assert not verify_claims("Ocak 2025'te 100 milyon TL.", mixed).accepted

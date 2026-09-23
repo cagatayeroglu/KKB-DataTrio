@@ -14,12 +14,14 @@ from pydantic import ValidationError
 from test_catalog_continuation import CATALOG, QUESTION, TOTAL, proposal, seed_prepared
 
 from kkb_agent.agent import Session, ToolRegistry, Workspace
+from kkb_agent.agent.cancellation import checkpoint
 from kkb_agent.agent.loop import PlanningFailed
 from kkb_agent.agent.verifier import AnswerStatus, OmittedSentence
 from kkb_agent.api.app import create_app
 from kkb_agent.api.contracts import MAX_BODY_BYTES, MAX_SESSIONS, MAX_TURNS, Answer, Question
 from kkb_agent.api.projection import OutputRefused, project_answer, safe_text
 from kkb_agent.api.service import AnalysisService, ServiceError
+from kkb_agent.api.store import ConversationStore
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
 from kkb_agent.catalog.mappings import load_reviewed_snapshot
 from kkb_agent.lakehouse import open_lakehouse
@@ -126,8 +128,14 @@ def test_nonaccepted_turn_never_promotes_candidate_or_rejected_text(verified, st
     output = project_answer(unsafe, turn_id=uuid4().hex, published=None)
     assert output.result is None and output.omitted_claims == 1
     assert SENTINEL not in output.model_dump_json()
-    with pytest.raises(OutputRefused):
-        project_answer(unsafe, turn_id=uuid4().hex, published=result)
+    if state is AnswerStatus.ABSTAINED:
+        with pytest.raises(OutputRefused):
+            project_answer(unsafe, turn_id=uuid4().hex, published=result)
+    else:
+        # A qualified turn's table is the tools' own and is published; what was withheld
+        # from its prose still never leaves the process.
+        shown = project_answer(unsafe, turn_id=uuid4().hex, published=result)
+        assert shown.result is not None and SENTINEL not in shown.model_dump_json()
 
 
 def test_accepted_but_unpublished_turn_does_not_export_candidate(verified):
@@ -275,6 +283,79 @@ def test_session_turn_capacity_and_shutdown_without_silent_eviction():
     with pytest.raises(ServiceError, match="unavailable"):
         service.create_session()
     assert len(service._sessions) == MAX_SESSIONS
+
+
+def test_persisted_idle_sessions_evict_but_active_one_does_not(tmp_path):
+    store = ConversationStore(tmp_path / "history.sqlite")
+    _, owner_token = store.create_owner()
+    entered, release = threading.Event(), threading.Event()
+
+    def run(session_id, turn_id, text, *, is_continuation):
+        entered.set()
+        assert release.wait(5)
+        return quiet_answer()
+
+    service = AnalysisService(run, mode="scripted", store=store)
+    try:
+        sessions = [service.create_session(owner_token) for _ in range(MAX_SESSIONS)]
+        active = service.submit(sessions[0].session_id, sessions[0].token, question())
+        assert entered.wait(2)
+        ninth = service.create_session(owner_token)
+        assert ninth.session_id in service._sessions
+        assert sessions[0].session_id in service._sessions
+        assert sessions[1].session_id not in service._sessions
+        assert store.conversation(sessions[1].session_id) is not None
+        service.conversation(sessions[1].session_id, sessions[1].token)
+        assert sessions[1].session_id in service._sessions
+        release.set()
+        assert finished(service, sessions[0], active).state == "completed"
+    finally:
+        release.set()
+        service.close()
+        store.close()
+
+
+def test_failed_and_cancelled_user_prompts_are_persisted_at_admission(tmp_path):
+    store = ConversationStore(tmp_path / "history.sqlite")
+    _, owner_token = store.create_owner()
+    entered, release = threading.Event(), threading.Event()
+
+    def run(session_id, turn_id, text, *, is_continuation):
+        if text == "failed prompt":
+            raise TransportError("synthetic timeout")
+        entered.set()
+        assert release.wait(5)
+        checkpoint("after wait")
+        return quiet_answer()
+
+    service = AnalysisService(run, mode="scripted", store=store)
+    try:
+        session = service.create_session(owner_token)
+        failed = finished(
+            service,
+            session,
+            service.submit(session.session_id, session.token, question("failed prompt")),
+        )
+        assert failed.error == "provider_failed"
+        saved = store.messages(session.session_id)
+        assert [(item.role, item.text, item.status) for item in saved] == [
+            ("user", "failed prompt", "failed")
+        ]
+        turn = service.submit(session.session_id, session.token, question("cancelled prompt"))
+        assert entered.wait(2)
+        assert store.messages(session.session_id)[-1].status == "running"
+        service.cancel(session.session_id, session.token, turn.turn_id)
+        release.set()
+        cancelled = finished(service, session, turn)
+        assert cancelled.error == "cancelled"
+        assert [(item.text, item.status) for item in store.messages(session.session_id)] == [
+            ("failed prompt", "failed"),
+            ("cancelled prompt", "failed"),
+        ]
+    finally:
+        release.set()
+        service.close()
+        store.close()
 
 
 @pytest.fixture
@@ -494,7 +575,7 @@ def test_changed_result_makes_new_version_and_cell_reference(verified):
     changed.values[0].value += 1
     # A separately published changed result; this test checks identity, not gate quality.
     updated = project_answer(
-        replace(answered, results=(changed,)),
+        replace(answered, results=(changed,), presented=(changed,)),
         turn_id="a" * 32,
         published=changed,
     )
@@ -529,3 +610,65 @@ def test_duplicate_sensitive_headers_are_rejected(http_api):
         ],
     )
     assert response.status_code == 400 and not calls
+
+
+def test_addresses_a_web_search_returned_are_shown_and_any_other_is_not():
+    # Live 2026-09-21: "webde ara" listed four pages and every address was replaced by the
+    # placeholder, under a sentence telling the reader to write the address in a question.
+    from kkb_agent.api.projection import safe_text
+
+    found = "https://www.bddk.org.tr/BultenHaftalik"
+    text = f"- Haftalık Bülten — www.bddk.org.tr: {found}\n- başka: https://other.example/x"
+    shown = safe_text(text, shown_urls=frozenset({found}))
+    assert found in shown and "other.example" not in shown
+    assert found not in safe_text(text)
+
+
+def test_an_address_the_turn_read_is_shown_even_before_punctuation():
+    # Live W5 (N48, 2026-09-22): the reading's header named the public TCMB page it had read
+    # as "[gizli bilgi kaldırıldı]": the address was no search result, and the pattern had
+    # also taken the comma after it into the address.
+    from types import SimpleNamespace
+
+    from kkb_agent.api.projection import _read_urls, safe_text
+
+    page = "https://www.tcmb.gov.tr/wps/wcm/connect/TR/TCMB+TR/Main+Menu/Duyurular/Basin/2024"
+    read = SimpleNamespace(
+        tool="web_url", output=SimpleNamespace(source=SimpleNamespace(locator=page))
+    )
+    reading = SimpleNamespace(
+        tool="document_read",
+        output=SimpleNamespace(document="https://www.borsaistanbul.com/files/kmp_au.pdf"),
+    )
+    queried = SimpleNamespace(
+        tool="web_url",
+        output=SimpleNamespace(
+            source=SimpleNamespace(locator="https://example.org/data?token=abc")
+        ),
+    )
+    plain = SimpleNamespace(
+        tool="document_read", output=SimpleNamespace(document="http://example.org/a.pdf")
+    )
+    answered = SimpleNamespace(outcome=SimpleNamespace(results=(read, reading, queried, plain)))
+    shown = _read_urls(answered)
+    assert shown == frozenset({page, "https://www.borsaistanbul.com/files/kmp_au.pdf"})
+    header = f"Okuma ({page}, sha256 8e4b2)"
+    assert safe_text(header, shown_urls=shown) == header
+    assert page not in safe_text(header)
+    assert "token=abc" not in safe_text("bkz. https://example.org/data?token=abc", shown_urls=shown)
+
+
+def test_a_fetched_reading_names_its_digest_once():
+    from types import SimpleNamespace
+
+    from kkb_agent.agent.executor import ToolStatus
+    from kkb_agent.agent.loop import document_reading
+
+    output = SimpleNamespace(
+        text="Faiz yüzde 50'ye yükseltildi.",
+        document="https://www.tcmb.gov.tr/x",
+        sha256="sha256:8e4b2c0ffee1234567",
+    )
+    item = SimpleNamespace(tool="document_read", status=ToolStatus.SUCCESS, output=output)
+    text, name, digest = document_reading(SimpleNamespace(results=(item,)))
+    assert digest == "8e4b2c0ffee1" and not digest.startswith("sha256")

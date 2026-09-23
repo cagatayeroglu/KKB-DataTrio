@@ -132,6 +132,29 @@ def test_a_user_dataset_becomes_a_discoverable_marked_catalog_series(store):
     assert effective_snapshot(REVIEWED, store.datasets(), store.notes()) == snapshot
 
 
+def test_undoing_an_edit_restores_the_catalogue_digest(store):
+    """The digest is what the catalogue is, not how many edits it took.
+
+    A generation of vectors is built for one exact digest, so a digest that
+    counts versions turned meaning-based search off for every query after any
+    edit - including an edit that was undone (finding F4-bt-10).
+    """
+    start = effective_snapshot(REVIEWED, store.datasets(), store.notes())
+    store.annotate(TOTAL, archived=True, author="o")
+    archived = effective_snapshot(REVIEWED, store.datasets(), store.notes())
+    assert archived.content_sha256 != start.content_sha256
+
+    store.annotate(TOTAL, archived=False, author="o")
+    restored = effective_snapshot(REVIEWED, store.datasets(), store.notes())
+    assert restored.content_sha256 == start.content_sha256
+    assert restored.snapshot_version == start.snapshot_version
+
+    # A real change still makes a different catalogue.
+    store.annotate(TOTAL, archived=False, aliases=("konut kredisi toplamı",), author="o")
+    edited = effective_snapshot(REVIEWED, store.datasets(), store.notes())
+    assert edited.content_sha256 != start.content_sha256
+
+
 def test_archiving_a_reviewed_series_takes_it_out_of_search_and_computation(store):
     before = search_catalog(REVIEWED, CatalogSearchArguments(query="toplam konut kredisi"))
     assert TOTAL in [c.series.record.series_id for c in before.candidates]
@@ -325,3 +348,9 @@ def test_the_knowledge_base_is_not_capped_by_the_reviewed_catalog_size(store):
     # Search over the grown catalog reports every candidate it counted.
     found = search_catalog(snapshot, CatalogSearchArguments(query="kullanıcı serisi"))
     assert found.total_candidates >= 60
+
+
+def test_future_closed_manual_period_is_not_an_actual_observation(store):
+    with pytest.raises(KnowledgeError, match="future_period"):
+        store.save_dataset(dataset(observations=monthly([12.0], start_year=2099)))
+    assert store.datasets() == []

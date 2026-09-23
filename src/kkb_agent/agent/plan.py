@@ -18,8 +18,16 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, StringConstraints,
 
 Identifier = Annotated[str, StringConstraints(strict=True, pattern=r"^[A-Za-z0-9_.:-]{1,64}$")]
 ClarificationReason = Literal[
-    "ambiguous_series", "missing_series", "unresolved_semantics", "unsupported_request"
+    "ambiguous_series",
+    "missing_series",
+    "unresolved_semantics",
+    "unsupported_request",
+    "outside_coverage",
 ]
+
+
+#: A footnote, not a paragraph: one sentence saying what the step assumed.
+MAX_ASSUMPTION_CHARS = 200
 
 
 class PlanStep(BaseModel):
@@ -29,6 +37,14 @@ class PlanStep(BaseModel):
     tool: Identifier
     arguments: dict[str, JsonValue] = Field(default_factory=dict)
     depends_on: list[Identifier] = Field(default_factory=list)
+    present: bool = False
+    assumption: str | None = Field(
+        default=None,
+        max_length=MAX_ASSUMPTION_CHARS,
+        # The reason to write one, and when, is in the planner's instructions: this
+        # contract is budgeted in bytes and every schema description is paid for there.
+        description="Optional. One short Turkish sentence: the choice this step settled itself.",
+    )
 
 
 #: A conversational reply is short prose, never a place to carry a data table.
@@ -49,7 +65,10 @@ class AnalyticalPlan(BaseModel):
     question: str = Field(min_length=1)
     steps: list[PlanStep]
     clarification: ClarificationReason | None = None
+    clarification_text: str | None = Field(default=None, min_length=1, max_length=1500)
     reply: str | None = Field(default=None, min_length=1, max_length=MAX_REPLY_CHARS)
+    #: False when the reader only asks to show, add, convert or filter: no 'Yorum' then.
+    interpret: bool = True
 
     @model_validator(mode="after")
     def executable_or_clarification(self) -> Self:
@@ -58,6 +77,8 @@ class AnalyticalPlan(BaseModel):
             raise ValueError(
                 "Provide exactly one of: executable steps, a clarification reason, or a reply"
             )
+        if self.clarification_text is not None and self.clarification is None:
+            raise ValueError("clarification_text requires a clarification reason")
         return self
 
     def fingerprint(self) -> str:

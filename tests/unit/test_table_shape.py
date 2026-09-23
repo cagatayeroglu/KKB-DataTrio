@@ -9,6 +9,7 @@ from kkb_agent.analytics.table_shape import (
     TableShapeRefused,
     align_periods,
     filter_periods,
+    names_only_excluded_months,
     period_change,
     rebase_index,
 )
@@ -141,6 +142,22 @@ def test_period_filter_is_inclusive_and_drops_stale_summaries_without_fabricatio
     assert result.coverage.end == MONTHS[2]
     assert result.dropped_non_period_values == 1
     assert result.transformation.parameters["predicate"] == "period_end_inclusive"
+
+
+def test_a_warning_about_months_outside_the_range_does_not_apply_to_it():
+    """A table filtered to 2025 kept warning about a month in 2026 (finding L2-4)."""
+    year = Period(start=date(2025, 1, 1), end=date(2025, 12, 31), frequency=Frequency.MONTHLY)
+    left_out = "1 month(s) not yet ended at retrieval were left out of the monthly rows (2026-09)"
+    assert names_only_excluded_months(left_out, year) is True
+    # One named month inside the range keeps the whole warning.
+    assert names_only_excluded_months("2 month(s) were left out (2025-12, 2026-09)", year) is False
+    # A warning about the table itself names no month and always travels.
+    assert (
+        names_only_excluded_months(
+            "Column 'clval' has 3 empty month(s); those cells are empty", year
+        )
+        is False
+    )
 
 
 @pytest.mark.parametrize("case", ["not_index", "missing_reference", "zero", "duplicate"])

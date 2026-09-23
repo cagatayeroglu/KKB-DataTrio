@@ -104,6 +104,11 @@ class DatasetVersion:
     author: str | None = None
     #: The weekday a weekly period ends on; required for, and only for, weekly data.
     anchor: WeeklyAnchor | None = None
+    #: Where the numbers were read, as pairs: the address (scheme, host and path) and
+    #: when it was read, the document's media type, the sheet, page and table, and the
+    #: period and value columns. Empty for a dataset typed into the form. Part of what
+    #: a version says, so it is versioned with the numbers it describes.
+    provenance: tuple[tuple[str, str], ...] = ()
 
     @property
     def series_id(self) -> str:
@@ -156,6 +161,9 @@ def _body(item: DatasetVersion) -> dict[str, object]:
         "aliases": list(item.aliases),
         "source_kind": item.source_kind,
         "source_sha256": item.source_sha256,
+        # Only when there is one, so every version written before this field existed
+        # keeps the identity (`content_sha256`) it was stored and cited under.
+        **({"provenance": dict(item.provenance)} if item.provenance else {}),
         "status": item.status,
         "observations": [
             [o.period_start.isoformat(), o.period_end.isoformat(), o.value]
@@ -185,6 +193,9 @@ def _from_body(
         aliases=tuple(str(item) for item in body.get("aliases") or []),
         source_kind="upload" if body.get("source_kind") == "upload" else "manual",
         source_sha256=None if body.get("source_sha256") is None else str(body["source_sha256"]),
+        provenance=tuple(
+            (str(key), str(value)) for key, value in (body.get("provenance") or {}).items()
+        ),
         status="archived" if body.get("status") == "archived" else "active",
         observations=tuple(
             Observation(date.fromisoformat(start), date.fromisoformat(end), value)
@@ -229,6 +240,8 @@ def validate_dataset(item: DatasetVersion) -> DatasetVersion:
         raise KnowledgeError("too_many_observations")
     seen: set[date] = set()
     for observation in item.observations:
+        if item.source_kind == "manual" and observation.period_end > datetime.now(UTC).date():
+            raise KnowledgeError("future_period")
         try:
             check_period(semantics, observation.period_start, observation.period_end)
         except SemanticsError:

@@ -9,6 +9,7 @@ import {
   Trash2,
   Check,
   ChevronDown,
+  Info,
   Database,
   ListTree,
   FileText,
@@ -28,6 +29,7 @@ import {
   Table2,
   X,
 } from "lucide-react";
+import { AnswerText } from "@/components/answer-text";
 import { Button } from "@/components/ui/button";
 import { ResultTable } from "@/components/result-table";
 import { TracesPage } from "@/components/traces-page";
@@ -39,12 +41,20 @@ import {
 } from "@/components/knowledge-panel";
 import { preparedTitle } from "@/lib/table";
 import { noticeText } from "@/lib/language";
+import { clarificationPickText } from "@/lib/clarification";
+import {
+  hasUnrecordedRun,
+  keepSubmittedPrompts,
+  unreadTables,
+} from "@/lib/chat-state";
 import {
   api,
   ApiError,
   DOCUMENT_ACCEPT,
   admissionRejection,
+  lostTurn,
   cancelTurn,
+  deleteConversation,
   draftRequest,
   publishedResult,
   restoredSelection,
@@ -53,6 +63,7 @@ import {
   describeError,
   usableOwner,
   listConversations,
+  listRuns,
   readSettings,
   readPrompts,
   saveSettings,
@@ -148,11 +159,17 @@ type SeriesChoiceEntry = { series_id: string; title: string; detail: string };
 function SeriesChoiceCard({
   selection,
   onPick,
+  resolved = false,
 }: {
   selection: { chosen: SeriesChoiceEntry[]; others: SeriesChoiceEntry[] };
   onPick: (text: string) => void;
+  //: A later turn answered this clarification, so its choices are history: they
+  //: are shown, not offered. Picking one used to send an answer to a question
+  //: nobody was waiting on any more (finding F2-kart).
+  resolved?: boolean;
 }) {
   const asking = selection.chosen.length === 0;
+  const settled = asking && resolved;
   return (
     <div className="series-choice">
       {!asking && (
@@ -172,25 +189,26 @@ function SeriesChoiceCard({
         </>
       )}
       {selection.others.length > 0 && (
-        <details open={asking}>
+        <details open={asking && !settled}>
           <summary>
-            {asking
-              ? "Birini seçin: soru kutusuna yazılır, gönderdiğinizde istek o kayıtla sürer"
-              : `Aramada çıkan diğer yakın kayıtlar (${selection.others.length}) — başka birini kastettiyseniz seçin`}
+            {settled
+              ? `Bu netleştirmede sunulan kayıtlar (${selection.others.length}) — yanıtlandı`
+              : asking
+                ? "Birini seçin: soru kutusuna yazılır, gönderdiğinizde istek o kayıtla sürer"
+                : `Aramada çıkan diğer yakın kayıtlar (${selection.others.length}) — başka birini kastettiyseniz seçin`}
           </summary>
           <ul>
             {selection.others.map((entry) => (
               <li key={entry.series_id}>
                 <button
                   type="button"
-                  title="Soru kutusuna bu kaydı kullanan bir istek yazar"
-                  onClick={() =>
-                    onPick(
-                      asking
-                        ? `${entry.title} (${entry.detail})`
-                        : `Aynı isteği bu kez şu kayıtla yap: ${entry.title} (${entry.detail})`,
-                    )
+                  disabled={settled}
+                  title={
+                    settled
+                      ? "Bu netleştirme yanıtlandı; yeni bir soru gönderebilirsin"
+                      : "Soru kutusuna bu kaydı kullanan bir istek yazar"
                   }
+                  onClick={() => onPick(clarificationPickText(entry, asking))}
                 >
                   {entry.title}
                 </button>
@@ -222,20 +240,52 @@ export function Workspace() {
     [panel, setPanel] = useState<"data" | "traces" | "settings" | null>(null),
     [pendingIndex, setPendingIndex] = useState<number | null>(null),
     [attachment, setAttachment] = useState<DocumentAdmitted | null>(null),
+    //: Bumped when something happened that the sidebar should show: a finished
+    //: turn names a new chat and counts its questions (finding F2-yan-1).
+    [listVersion, setListVersion] = useState(0),
+    //: The name of the file the person chose. The server keeps none (it names
+    //: documents belge_1, belge_2), and an image is admitted as a one-page PDF,
+    //: so without this the badge said "PDF" about a screenshot.
+    [attachedName, setAttachedName] = useState<string | null>(null),
     [dragging, setDragging] = useState(false),
     [uploading, setUploading] = useState(false),
-    [stopping, setStopping] = useState(false);
+    //: The turn a stop was asked for. It stays until that turn reaches a terminal
+    //: state, because the turn stops only after the model call that is out returns.
+    [stopRequestedFor, setStopRequestedFor] = useState<string | null>(null);
   // Conversations that outlive this tab: the browser's own key lists and reopens them.
   const [prompts, setPrompts] = useState<PromptParts | null>(null),
+    //: Why the prompt parts are not on screen: not read yet, this server has no
+    //: route for them, or the read failed and can be tried again.
+    [promptsState, setPromptsState] = useState<
+      "loading" | "ready" | "unsupported" | "error"
+    >("loading"),
     [openPrompt, setOpenPrompt] = useState<string | null>(null);
   // Header chrome for the open chat: its menu, an inline rename, the copy flash.
   const [chatMenu, setChatMenu] = useState(false),
     [headerRenaming, setHeaderRenaming] = useState(false),
+    //: The chat whose deletion is being confirmed. `window.confirm` blocks the
+    //: page, looks nothing like the rest of it and cannot say what is kept, so the
+    //: row asks in place instead (finding J-5).
+    [confirmDelete, setConfirmDelete] = useState<string | null>(null),
     [copied, setCopied] = useState(false);
   const [ownerToken, setOwnerToken] = useState<string | null>(null),
     [conversations, setConversations] = useState<ConversationSummary[]>([]),
     [conversationId, setConversationId] = useState<string | null>(null),
     [transcript, setTranscript] = useState<StoredMessage[]>([]),
+    //: Receipts this process answered for, and the ones it truly cannot serve.
+    [lostTables, setLostTables] = useState<string[]>([]),
+    [restoreTick, setRestoreTick] = useState(0),
+    //: Send the next message as its own question instead of an answer to the
+    //: pending clarification; the harness decides when this is off.
+    [asNewQuestion, setAsNewQuestion] = useState(false),
+    //: What the clarification this conversation is waiting on offered, for a reopened tab.
+    [pendingOffered, setPendingOffered] = useState<string[]>([]),
+    //: Documents this conversation holds on the server, named as it names them.
+    //: A reopened chat's uploads were invisible to the knowledge-base form,
+    //: which only knew the ones this tab had sent (finding F4-bt-4).
+    [storedDocuments, setStoredDocuments] = useState<
+      { document_ref: string; name: string; document_format: string }[]
+    >([]),
     [restoredTables, setRestoredTables] = useState<
       { turnId: string; result: Result }[]
     >([]),
@@ -251,20 +301,27 @@ export function Workspace() {
     health?.capabilities.includes("conversation_history") ?? false;
   const pending = pendingIndex !== null;
   const [settings, setSettings] = useState<RuntimeSettings | null>(null),
-    [savingSetting, setSavingSetting] = useState("");
+    [savingSetting, setSavingSetting] = useState(""),
+    //: What the slider shows while it is being dragged; saved on release.
+    [historyDraft, setHistoryDraft] = useState<number | null>(null);
   const uploads = health?.capabilities.includes("document_upload") ?? false;
   const ocr = health?.capabilities.includes("document_ocr") ?? false;
   const knowledgeBase =
     health?.capabilities.includes("knowledge_base") ?? false;
   const saved = useRef<Saved | null>(null),
     busyRef = useRef(false),
+    //: A chat is being opened. `busyRef` guards a running turn, this guards the
+    //: awaits inside `openChat`: without it a prompt sent meanwhile was dropped by
+    //: the `setItems([])` that follows them, and `busy` stayed on (finding F1-3).
+    opening = useRef(false),
     mounted = useRef(false),
     generation = useRef(0),
     recoveries = useRef<number[]>([]),
     chatEnd = useRef<HTMLDivElement>(null),
     atEnd = useRef(true),
     transcriptFor = useRef<string | null>(null),
-    shownCount = useRef(0),
+    hiddenDeleted = useRef<Set<string>>(new Set()),
+    pickedClarification = useRef<string | null>(null),
     input = useRef<HTMLTextAreaElement>(null),
     picker = useRef<HTMLInputElement>(null),
     imagePicker = useRef<HTMLInputElement>(null);
@@ -296,6 +353,15 @@ export function Workspace() {
     setTracing({ turnId, runId });
     setPanel("traces");
   }
+  /** Re-read the prepared pool's own numbers without touching the page's state. */
+  async function refreshPool() {
+    try {
+      const pool = await api("dataset", datasetSchema);
+      if (mounted.current) setDataset(pool);
+    } catch {
+      // The strip keeps the numbers it has; the page's own Yenile can retry.
+    }
+  }
   async function refreshSettings(token = ownerToken) {
     if (!token) return;
     try {
@@ -305,14 +371,22 @@ export function Workspace() {
     }
     try {
       setPrompts(await readPrompts(token));
-    } catch {
-      // An older server has no prompts route; the section says so itself.
+      setPromptsState("ready");
+    } catch (error) {
+      // Only a route this server does not have means "older server"; a timeout
+      // or a dropped connection is a retry, not a missing feature (F4-istem).
       setPrompts(null);
+      setPromptsState(
+        error instanceof ApiError && error.code === "not_found"
+          ? "unsupported"
+          : "error",
+      );
     }
   }
   async function changeSetting(change: {
     disabled?: string[];
     history_turns?: number;
+    model?: string;
   }) {
     if (!ownerToken) return;
     setSavingSetting(Object.keys(change)[0] ?? "");
@@ -324,6 +398,15 @@ export function Workspace() {
       setSavingSetting("");
     }
   }
+  function commitHistoryTurns() {
+    if (historyDraft === null || historyDraft === settings?.history_turns) {
+      setHistoryDraft(null);
+      return;
+    }
+    const chosen = historyDraft;
+    setHistoryDraft(null);
+    void changeSetting({ history_turns: chosen });
+  }
   async function refreshConversations(token = ownerToken) {
     if (!token) return;
     try {
@@ -331,7 +414,12 @@ export function Workspace() {
         archived: showArchived,
         search: chatSearch.trim() || undefined,
       });
-      if (mounted.current) setConversations(listed.conversations);
+      if (mounted.current)
+        setConversations(
+          listed.conversations.filter(
+            (item) => !hiddenDeleted.current.has(item.conversation_id),
+          ),
+        );
     } catch (error) {
       if (mounted.current) setIssue(describeError(error));
     }
@@ -351,15 +439,18 @@ export function Workspace() {
     return next;
   }
   function startChat() {
-    if (busyRef.current || pending || !ready) return;
+    if (busyRef.current || opening.current || pending || !ready) return;
+    resetChat();
+  }
+  function resetChat() {
     // Starting or opening a chat is a move to the studio: the page follows the
     // choice instead of leaving the person on a page that does not show it.
     setPanel(null);
+    let storageIssue = "";
     try {
       clearSession(sessionStorage);
     } catch (error) {
-      setIssue(describeError(error));
-      return;
+      storageIssue = describeError(error);
     }
     generation.current++;
     saved.current = null;
@@ -367,14 +458,25 @@ export function Workspace() {
     transcriptFor.current = null;
     setItems([]);
     setTranscript([]);
+    setPendingOffered([]);
+    setStoredDocuments([]);
     setRestoredTables([]);
+    setLostTables([]);
     setConversationId(null);
     setRatings({});
     setPendingIndex(null);
+    busyRef.current = false;
+    setBusy(false);
+    setStopRequestedFor(null);
     setSelected(null);
     setAttachment(null);
+    setAttachedName(null);
     setQuestion("");
-    setIssue("");
+    pickedClarification.current = null;
+    setIssue(storageIssue);
+    setChatMenu(false);
+    setConfirmDelete(null);
+    atEnd.current = true;
   }
   /** The tables a stored conversation published, read back from their receipts. */
   async function restoreTables(
@@ -383,23 +485,65 @@ export function Workspace() {
     token: string,
   ) {
     const published = messages.filter((message) => message.result_ref);
-    const restored = await Promise.all(
-      published.map(async (message) => {
-        try {
-          return {
-            turnId: message.turn_id,
-            result: await storedResult(id, message.turn_id, token),
-          };
-        } catch {
-          // Busy (a turn is running) or gone: the message says so in place.
-          return undefined;
-        }
-      }),
-    );
-    return restored.filter(
-      (entry): entry is { turnId: string; result: Result } => Boolean(entry),
-    );
+    const found: { turnId: string; result: Result }[] = [];
+    const gone: string[] = [];
+    // One at a time. The server reads a stored table under the runner's lock; asked for
+    // three at once it served one and answered "busy" to the rest, and every failure was
+    // taken for a lost table: a chat with two tables or more showed the first and said of
+    // the others that the server no longer had them (reported live 2026-09-21).
+    for (const message of published) {
+      try {
+        found.push({
+          turnId: message.turn_id,
+          result: await storedResult(id, message.turn_id, token),
+        });
+      } catch (error) {
+        // Only "not found" means the receipt is gone. Busy, a timeout or a dropped
+        // connection is asked again.
+        if (error instanceof ApiError && error.code === "not_found")
+          gone.push(message.result_ref as string);
+      }
+    }
+    return { found, gone };
   }
+  // A table published while a turn is running cannot be read back yet: the runner
+  // answers "busy" and `restoreTables` returns nothing for it. Ask again as soon as
+  // the runner is free, so a table that exists is never explained away as a restart
+  // (reported live 2026-09-20: the answer was accepted and the table was materialised,
+  // but the chat said the server had restarted).
+  useEffect(() => {
+    if (!ownerToken || !conversationId || busy) return;
+    const missing = unreadTables(transcript, restoredTables, lostTables);
+    if (!missing.length) return;
+    let cancelled = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    void (async () => {
+      const { found, gone } = await restoreTables(
+        conversationId,
+        missing,
+        ownerToken,
+      );
+      if (cancelled || !mounted.current) return;
+      if (found.length) setRestoredTables((old) => [...old, ...found]);
+      if (gone.length) setLostTables((old) => [...old, ...gone]);
+      // What neither arrived nor is gone was busy or timed out: ask again shortly.
+      if (found.length + gone.length < missing.length)
+        retry = setTimeout(() => setRestoreTick((tick) => tick + 1), 3000);
+    })();
+    return () => {
+      cancelled = true;
+      if (retry) clearTimeout(retry);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    transcript,
+    restoredTables,
+    lostTables,
+    busy,
+    conversationId,
+    ownerToken,
+    restoreTick,
+  ]);
   // Leaving the studio for another page and coming back remounts this component: the turns
   // of this tab come back from sessionStorage, but the conversation's EARLIER messages live
   // on the server. Without this they vanished, and with them the clarification being
@@ -422,8 +566,13 @@ export function Workspace() {
           (message) => !local.has(message.turn_id),
         );
         setTranscript(earlier);
+        setPendingOffered(detail.pending_offered);
+        setStoredDocuments(detail.documents);
         const kept = await restoreTables(conversationId, earlier, ownerToken);
-        if (!cancelled && mounted.current) setRestoredTables(kept);
+        if (!cancelled && mounted.current) {
+          setRestoredTables(kept.found);
+          if (kept.gone.length) setLostTables((old) => [...old, ...kept.gone]);
+        }
       } catch {
         // A chat still works without its earlier messages; the sidebar can reopen it.
         transcriptFor.current = null;
@@ -434,18 +583,31 @@ export function Workspace() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ownerToken, conversationId]);
-  async function openChat(id: string) {
-    if (busyRef.current || pending || !ready || !ownerToken) return;
+  async function openChat(id: string, options?: { force?: boolean }) {
+    if (!ownerToken) return;
+    // `force` is the restart recovery re-adopting this same conversation: it has
+    // already dropped the turn it was waiting on, so the guards below would only
+    // read their own stale state.
+    if (
+      !options?.force &&
+      (busyRef.current || opening.current || pending || !ready)
+    )
+      return;
+    opening.current = true;
+    const beforeOpen = generation.current;
     setPanel(null);
     setIssue("");
     try {
       const detail = await openConversation(id, ownerToken);
-      if (!mounted.current) return;
+      if (!mounted.current || generation.current !== beforeOpen) return;
       generation.current++;
+      const epoch = generation.current;
+      const active = () => mounted.current && generation.current === epoch;
       recoveries.current = [];
       transcriptFor.current = id;
+      atEnd.current = true;
       // The owner key opens this conversation's turn routes too; no second secret.
-      record({
+      const reopened: Saved = {
         session: {
           api_version: 1,
           session_id: id,
@@ -453,12 +615,15 @@ export function Workspace() {
           survives_restart: true,
         },
         turns: [],
-      });
+      };
+      record(reopened);
       setConversationId(id);
       setTranscript(detail.messages);
+      setPendingOffered(detail.pending_offered);
+      setStoredDocuments(detail.documents);
       try {
         const rated = await listFeedback(id, ownerToken);
-        if (mounted.current)
+        if (active())
           setRatings(
             Object.fromEntries(
               rated.feedback.map((item) => [item.turn_id, item]),
@@ -467,11 +632,15 @@ export function Workspace() {
       } catch {
         // Ratings are supporting information; a chat still opens without them.
       }
+      if (!active()) return;
       setItems([]);
       setSelected(null);
       setPendingIndex(null);
       setAttachment(null);
+      setAttachedName(null);
       setQuestion("");
+      setAsNewQuestion(false);
+      pickedClarification.current = null;
       // A reopened conversation keeps its tables: each published one is read
       // back from its receipt on the server, so it comes with the same reference
       // and version the messages recorded - whichever process produced it.
@@ -489,7 +658,7 @@ export function Workspace() {
           }
         }),
       );
-      if (mounted.current) {
+      if (active()) {
         const kept = restored.filter(
           (entry): entry is { turnId: string; result: Result } =>
             Boolean(entry),
@@ -500,8 +669,51 @@ export function Workspace() {
         const newest = kept.at(-1)?.result.result_ref;
         if (newest) setSelected(newest);
       }
+      // An in-flight turn is not yet a stored message. A reopened chat still
+      // needs its server-issued turn identity for polling and cancellation.
+      const listed = await listRuns(id, ownerToken).catch(() => null);
+      if (!active()) return;
+      const running = listed?.runs.find((run) => run.status === "running");
+      // Completion may race the first conversation read. Re-read only if a run
+      // finished after that snapshot, so its prompt and answer never disappear.
+      if (
+        !running &&
+        listed &&
+        hasUnrecordedRun(listed.runs, detail.messages)
+      ) {
+        const fresh = await openConversation(id, ownerToken);
+        if (!active()) return;
+        setTranscript(fresh.messages);
+        setPendingOffered(fresh.pending_offered);
+        setStoredDocuments(fresh.documents);
+        const freshTables = await restoreTables(id, fresh.messages, ownerToken);
+        if (!active()) return;
+        setRestoredTables(freshTables.found);
+        if (freshTables.gone.length)
+          setLostTables((old) => [...old, ...freshTables.gone]);
+        setSelected(freshTables.found.at(-1)?.result.result_ref ?? null);
+      }
+      if (running) {
+        const turn = await readTurn(reopened.session, running.turn_id).catch(
+          () => null,
+        );
+        if (active() && turn && ["queued", "running"].includes(turn.state)) {
+          const entry = {
+            request_id: turn.request_id,
+            turn_id: turn.turn_id,
+            question: running.question,
+            turn,
+          };
+          record({ ...reopened, turns: [entry] });
+          setItems([entry]);
+          recoveries.current = [0];
+          void watch(0, false);
+        }
+      }
     } catch (error) {
       if (mounted.current) setIssue(describeError(error));
+    } finally {
+      opening.current = false;
     }
   }
   async function renameChat(id: string, title: string) {
@@ -526,8 +738,31 @@ export function Workspace() {
       setIssue(describeError(error));
     }
   }
+  async function deleteChat(id: string) {
+    setConfirmDelete(null);
+    if (!ownerToken) return;
+    try {
+      await deleteConversation(id, ownerToken);
+      hiddenDeleted.current.add(id);
+      setConversations((old) =>
+        old.filter((item) => item.conversation_id !== id),
+      );
+      if (id === conversationId) resetChat();
+      await refreshConversations();
+    } catch (error) {
+      setIssue(describeError(error));
+    }
+  }
   function update(index: number, turn: Turn, selectResult = false) {
     const result = publishedResult(turn);
+    // A turn that answered is not waiting for anything: the server drops the pending
+    // clarification then (api/prepared.py), and this tab must stop offering to leave it.
+    // It only ever cleared on reopening the chat, so the composer went on showing
+    // "bekleyen netleştirmeyi bırak" under a finished answer (live 2026-09-21).
+    if (turn.answer && !turn.answer.needs_clarification) {
+      setPendingOffered([]);
+      setAsNewQuestion(false);
+    }
     if (selectResult && result && saved.current) {
       record({ ...saved.current, view_result_id: result.result_ref });
       setSelected(result.result_ref);
@@ -541,6 +776,90 @@ export function Workspace() {
       (pending) => pending !== index,
     );
     setPendingIndex(recoveries.current[0] ?? null);
+    // The finished turn gave this chat its title and one more question.
+    setListVersion((old) => old + 1);
+  }
+  // A file dropped anywhere but the composer used to be opened by the browser,
+  // which navigated away from the chat and lost the turn in flight. The window
+  // refuses every drop it is not meant to handle (finding F2-upl-4).
+  useEffect(() => {
+    const swallow = (event: DragEvent) => {
+      if (!event.dataTransfer?.types.includes("Files")) return;
+      if ((event.target as HTMLElement | null)?.closest?.(".composer")) return;
+      event.preventDefault();
+      if (event.type === "drop") event.dataTransfer.dropEffect = "none";
+    };
+    window.addEventListener("dragover", swallow);
+    window.addEventListener("drop", swallow);
+    return () => {
+      window.removeEventListener("dragover", swallow);
+      window.removeEventListener("drop", swallow);
+    };
+  }, []);
+  /**
+   * Drop a request the server never admitted, so the composer is usable again.
+   *
+   * A 409 "busy", a connection error or a 5xx left `pending` set with no turn to
+   * cancel, and that blocked sending, opening and starting a chat across reloads
+   * with no way out (finding F2-vazgeç).
+   */
+  function discardPending() {
+    const index = pendingIndex;
+    const state = saved.current;
+    if (index === null || !state || state.turns[index]?.turn_id) return;
+    const turns = state.turns.filter((_, at) => at !== index);
+    record({ ...state, turns });
+    setItems((old) => old.filter((_, at) => at !== index));
+    recoveries.current = [];
+    setPendingIndex(null);
+    busyRef.current = false;
+    setBusy(false);
+    setStopRequestedFor(null);
+    setIssue("");
+  }
+  /**
+   * The server forgot this turn: re-adopt the conversation instead of a dead end.
+   *
+   * A turn handle lives in the API process, a conversation lives in its store. A
+   * restart therefore answers 404 for the turn being polled while the chat itself
+   * is still readable with this browser's own key. Before this, `pending` stayed
+   * set with nothing to cancel and nothing to open: sending, opening and starting
+   * a chat were all refused until the tab was reloaded (finding F2-restart).
+   */
+  async function recoverFromRestart(index: number) {
+    const id = saved.current?.session.session_id ?? conversationId;
+    const unanswered = saved.current?.turns[index]?.question ?? "";
+    try {
+      clearSession(sessionStorage);
+    } catch {
+      // Nothing stored to clear.
+    }
+    saved.current = null;
+    recoveries.current = [];
+    setPendingIndex(null);
+    busyRef.current = false;
+    setBusy(false);
+    setStopRequestedFor(null);
+    if (!id || !ownerToken) {
+      // Nothing stored to go back to: the prompts stay on screen, marked as lost.
+      setItems((old) => keepSubmittedPrompts(old));
+      setConversationId(null);
+      setTranscript([]);
+      setPendingOffered([]);
+      setRestoredTables([]);
+      setLostTables([]);
+      transcriptFor.current = null;
+      setSelected(null);
+      setIssue(errorText.session_gone);
+      return;
+    }
+    transcriptFor.current = null;
+    await openChat(id, { force: true });
+    if (!mounted.current) return;
+    // The question the lost turn was carrying comes back in the composer, so
+    // asking it again is one key rather than retyping it.
+    if (unanswered) setQuestion((old) => old || unanswered);
+    setIssue(errorText.session_restored);
   }
   async function watch(index: number, canAdmit: boolean) {
     const state = saved.current;
@@ -553,10 +872,28 @@ export function Workspace() {
     setPendingIndex(index);
     setIssue("");
     try {
-      let turn = canAdmit
-        ? await admit(state, index)
-        : await readTurn(state.session, entry.turn_id!, entry.request_id);
+      const deadline = Date.now() + 60 * 60 * 1000;
+      let turn: Turn;
+      for (;;) {
+        try {
+          turn = canAdmit
+            ? await admit(state, index)
+            : await readTurn(state.session, entry.turn_id!, entry.request_id);
+          break;
+        } catch (error) {
+          if (
+            !(error instanceof ApiError) ||
+            !["connection", "unavailable"].includes(error.code) ||
+            Date.now() > deadline
+          )
+            throw error;
+          if (active()) setIssue((old) => old || describeError(error));
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          if (!active()) return;
+        }
+      }
       if (!active()) return;
+      setIssue("");
       const next = {
         ...state,
         turns: state.turns.map((entry, i) =>
@@ -567,7 +904,6 @@ export function Workspace() {
       update(index, turn, true);
       // A turn is several model calls and one call may run for its whole request
       // timeout; the turn keeps running server-side either way, so keep watching it.
-      const deadline = Date.now() + 60 * 60 * 1000;
       while (turn.state !== "completed" && turn.state !== "failed") {
         if (Date.now() > deadline) {
           setIssue(
@@ -577,13 +913,29 @@ export function Workspace() {
         }
         await new Promise((resolve) => setTimeout(resolve, 1000));
         if (!active()) return;
-        turn = await readTurn(next.session, turn.turn_id, entry.request_id);
+        try {
+          turn = await readTurn(next.session, turn.turn_id, entry.request_id);
+        } catch (error) {
+          if (
+            error instanceof ApiError &&
+            ["connection", "unavailable"].includes(error.code)
+          ) {
+            if (active()) setIssue((old) => old || describeError(error));
+            continue;
+          }
+          throw error;
+        }
         if (!active()) return;
+        setIssue("");
         update(index, turn, true);
       }
       recovered(index);
     } catch (error) {
       if (!active()) return;
+      if (lostTurn(error)) {
+        await recoverFromRestart(index);
+        return;
+      }
       const rejection = admissionRejection(error);
       if (rejection && !saved.current?.turns[index].turn_id) {
         try {
@@ -614,6 +966,13 @@ export function Workspace() {
   }
   useEffect(() => {
     mounted.current = true;
+    // Every `if (!active()) return` in `watch` skips the reset in its `finally`, so
+    // a remount used to start with a `busy` nothing could clear: the send button,
+    // "new chat" and the chat list were all dead (finding F1-3).
+    busyRef.current = false;
+    opening.current = false;
+    setBusy(false);
+    setStopRequestedFor(null);
     const epoch = ++generation.current;
     const active = () => mounted.current && generation.current === epoch;
     void refresh();
@@ -646,19 +1005,13 @@ export function Workspace() {
             if (!["completed", "failed"].includes(turn.state)) resume.push(i);
           } catch (error) {
             if (!active()) return;
-            if (error instanceof ApiError && error.status === 404) {
-              // The server no longer has this tab's session (restarted, or a new
-              // state root). Broken turns would only mislead: start clean and say so.
-              try {
-                clearSession(sessionStorage);
-              } catch {
-                // Nothing stored to clear.
-              }
-              saved.current = null;
-              setItems([]);
-              setPendingIndex(null);
-              setSelected(null);
-              setIssue(errorText.session_gone);
+            if (lostTurn(error)) {
+              // Keep the exact submitted prompt visible even when the server lost
+              // this turn, and leave no stale conversation behind: the id used to
+              // stay, so the next question opened a new session whose empty
+              // transcript wiped the chat on screen mid-send (finding F2-restart).
+              await recoverFromRestart(i);
+              if (!active()) return;
               setReady(true);
               return;
             }
@@ -685,6 +1038,10 @@ export function Workspace() {
         recoveries.current = resume;
         setPendingIndex(resume[0] ?? null);
         setReady(true);
+        // A refresh/navigation return must resume observing the same request,
+        // never silently leave a live turn behind a manual recovery button.
+        if (resume.length > 0)
+          void watch(resume[0], !stored.turns[resume[0]].turn_id);
       })();
     } else setReady(true);
     return () => {
@@ -701,7 +1058,6 @@ export function Workspace() {
         const token = await usableOwner(localStorage);
         if (cancelled || !mounted.current) return;
         setOwnerToken(token);
-        await refreshConversations(token);
         await refreshSettings(token);
       } catch (error) {
         if (!cancelled && mounted.current) setIssue(describeError(error));
@@ -711,7 +1067,25 @@ export function Workspace() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [history, showArchived, chatSearch]);
+  }, [history]);
+  // The list is its own effect: typing in the search box used to re-read the owner
+  // key, the settings and the prompt parts on every keystroke, and a slow earlier
+  // answer could overwrite a newer one (finding F2-yan-2).
+  useEffect(() => {
+    if (!history || !ownerToken) return;
+    let cancelled = false;
+    const timer = setTimeout(
+      () => {
+        if (!cancelled) void refreshConversations(ownerToken);
+      },
+      chatSearch.trim() ? 250 : 0,
+    );
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [history, ownerToken, showArchived, chatSearch, listVersion]);
   // The conversation follows new content only while the reader is at its end. Every poll
   // replaces `items`, and jumping to the end each time threw a reader who had scrolled up
   // to an earlier table back down while the agent was still working.
@@ -728,20 +1102,35 @@ export function Workspace() {
   });
   useEffect(() => {
     const body = chatEnd.current?.parentElement;
-    if (!body || !items.length) return;
-    // A question just asked, or another conversation opened, always shows its end.
-    const changed = items.length !== shownCount.current;
-    shownCount.current = items.length;
-    if (changed || atEnd.current) body.scrollTop = body.scrollHeight;
-  }, [items, busy]);
+    if (body && atEnd.current) body.scrollTop = body.scrollHeight;
+  }, [items, transcript, restoredTables, busy, conversationId]);
+  useEffect(() => {
+    const body = chatEnd.current?.parentElement;
+    const content = body?.querySelector(".messages");
+    if (!body || !content || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (atEnd.current) body.scrollTop = body.scrollHeight;
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [items.length, transcript.length, conversationId]);
   async function attach(file: File | undefined) {
-    if (!file || !uploads || busyRef.current || pending || !ready) return;
+    if (
+      !file ||
+      !uploads ||
+      busyRef.current ||
+      opening.current ||
+      pending ||
+      !ready
+    )
+      return;
     busyRef.current = true;
     setUploading(true);
     setIssue("");
     try {
       const state = await session();
       setAttachment(await uploadDocument(state.session, file));
+      setAttachedName(file.name);
     } catch (error) {
       setIssue(describeError(error));
     } finally {
@@ -751,8 +1140,14 @@ export function Workspace() {
     }
   }
   async function submit(text = question) {
+    if (savingSetting === "model") return;
+    if (uploading) {
+      setIssue("Belge yükleniyor; bitince gönderebilirsin.");
+      return;
+    }
     if (
       busyRef.current ||
+      opening.current ||
       pending ||
       !validQuestion(text) ||
       !health ||
@@ -768,26 +1163,32 @@ export function Workspace() {
     try {
       const state = await session();
       if (!active()) return;
-      if (state.turns.length >= 24) {
+      const turnCap = health?.max_turns_per_session ?? 24;
+      if (state.turns.length >= turnCap) {
         setIssue(
-          "Bu oturum 24 soruluk sınırına ulaştı. Yeni çalışma açabilirsin.",
+          `Bu sohbet ${turnCap} soruluk sınırına ulaştı. Yeni bir sohbet aç: bu sohbetin geçmişi ve tabloları duruyor.`,
         );
         return;
       }
-      // No table is pinned from here: the planner is shown every table this
-      // conversation published, and whether a message continues the previous
-      // request is the agent's reading, not a control the person operates.
+      // An offered card is an explicit continuation. Free text remains the
+      // harness's decision unless the person changed the card's drafted text.
       const entry = draftRequest(
         text,
         undefined,
-        undefined,
+        pickedClarification.current === text.trim()
+          ? true
+          : asNewQuestion
+            ? false
+            : undefined,
         attachment ?? undefined,
       );
       const next = { ...state, turns: [...state.turns, entry] };
       record(next);
       setItems((old) => [...old, entry]);
       setQuestion("");
+      pickedClarification.current = null;
       setAttachment(null);
+      setAttachedName(null);
       recoveries.current = [next.turns.length - 1];
       setPendingIndex(next.turns.length - 1);
       busyRef.current = false;
@@ -804,16 +1205,16 @@ export function Workspace() {
   async function stop() {
     const state = saved.current;
     const turnId =
-      pendingIndex === null ? undefined : items[pendingIndex]?.turn?.turn_id;
+      pendingIndex === null ? undefined : state?.turns[pendingIndex]?.turn_id;
     if (!state || !turnId) return;
-    setStopping(true);
+    setStopRequestedFor(turnId);
     try {
       // Accepted, not immediate: the running turn is polled until it stops.
       await cancelTurn(state.session.session_id, state.session.token, turnId);
     } catch (error) {
+      // The turn keeps running; let the person ask again.
+      setStopRequestedFor(null);
       setIssue(describeError(error));
-    } finally {
-      setStopping(false);
     }
   }
   /**
@@ -851,16 +1252,26 @@ export function Workspace() {
   // Documents this conversation uploaded, offered to the knowledge-base form.
   const chatDocuments: ChatDocument[] = saved.current
     ? [
-        ...new Set(
-          items.flatMap((item) =>
+        ...new Set([
+          // The server's own list first, in its own order: a reopened chat's
+          // uploads are there and this tab's `items` know only their own.
+          ...storedDocuments.map((document) => document.document_ref),
+          ...items.flatMap((item) =>
             item.document_ref ? [item.document_ref] : [],
           ),
-        ),
-      ].map((ref, index) => ({
-        sessionId: saved.current!.session.session_id,
-        ref,
-        label: `Belge ${index + 1}`,
-      }))
+        ]),
+      ].map((ref, index) => {
+        const known = storedDocuments.find(
+          (document) => document.document_ref === ref,
+        );
+        return {
+          sessionId: saved.current!.session.session_id,
+          ref,
+          label: known
+            ? `${known.name.replace("belge_", "Belge ")} · ${known.document_format.toUpperCase()}`
+            : `Belge ${index + 1}`,
+        };
+      })
     : [];
   function sourceLabel(reference?: string) {
     if (!reference) return "Serbest soru";
@@ -891,9 +1302,21 @@ export function Workspace() {
     ? "Bağlanıyor"
     : !health
       ? "Servis kapalı"
-      : (health.model ??
+      : (settings?.model ??
+        health.model ??
         (health.execution_mode === "scripted" ? "Prova modeli" : "Kloudeks"));
   const modelShort = modelLabel.split("/").pop() ?? modelLabel;
+  //: A turn of this tab is out: the button is the way to stop it.
+  const pendingTurnId =
+    pendingIndex === null
+      ? undefined
+      : (saved.current?.turns[pendingIndex]?.turn_id ??
+        items[pendingIndex]?.turn?.turn_id);
+  const running = Boolean(pending) || busy;
+  const canStop = Boolean(pendingTurnId);
+  const stopRequested = Boolean(
+    stopRequestedFor && stopRequestedFor === pendingTurnId,
+  );
   /** The table a stored message published, when this process still serves it. */
   const restoredTable = (ref: string | null | undefined) =>
     ref
@@ -974,7 +1397,27 @@ export function Workspace() {
                   key={item.conversation_id}
                   className={`chat-item ${item.conversation_id === conversationId ? "active" : ""}`}
                 >
-                  {renaming === item.conversation_id ? (
+                  {confirmDelete === item.conversation_id ? (
+                    <div className="chat-confirm">
+                      <span>
+                        Silinsin mi? Belgeleri de silinir, izleri kalır.
+                      </span>
+                      <button
+                        type="button"
+                        className="chat-confirm-yes"
+                        autoFocus
+                        onClick={() => void deleteChat(item.conversation_id)}
+                      >
+                        Sil
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDelete(null)}
+                      >
+                        Vazgeç
+                      </button>
+                    </div>
+                  ) : renaming === item.conversation_id ? (
                     <input
                       autoFocus
                       defaultValue={item.title}
@@ -1036,6 +1479,15 @@ export function Workspace() {
                           <Archive size={12} />
                         )}
                       </button>
+                      <button
+                        type="button"
+                        className="chat-delete"
+                        aria-label="Sohbeti sil"
+                        title="Sohbeti sil; işlem kayıtlarını koru"
+                        onClick={() => setConfirmDelete(item.conversation_id)}
+                      >
+                        <Trash2 size={12} />
+                      </button>
                     </>
                   )}
                 </div>
@@ -1045,7 +1497,10 @@ export function Workspace() {
         )}
         <button
           className={`nav-item ${panel === null ? "chosen" : ""}`}
-          onClick={() => setPanel(null)}
+          onClick={() => {
+            setTracing(null);
+            setPanel(null);
+          }}
         >
           <MessageSquare size={18} /> Analiz stüdyosu
         </button>
@@ -1061,7 +1516,12 @@ export function Workspace() {
         {history && ownerToken && (
           <button
             className={`nav-item ${panel === "traces" ? "chosen" : ""}`}
-            onClick={() => setPanel("traces")}
+            // Opened from here it is the whole page; the turn a "Canlı izle"
+            // asked for is not remembered for next time (finding F4-iz-3).
+            onClick={() => {
+              setTracing(null);
+              setPanel("traces");
+            }}
           >
             <ListTree size={18} /> İşlem kayıtları
           </button>
@@ -1134,14 +1594,49 @@ export function Workspace() {
                     <button
                       type="button"
                       role="menuitem"
-                      className="danger"
                       onClick={() => {
                         setChatMenu(false);
                         void archiveChat(conversationId, true);
                       }}
                     >
-                      <Trash2 size={13} /> Sohbeti sil (arşive taşı)
+                      <Archive size={13} /> Sohbeti arşivle
                     </button>
+                    {confirmDelete === conversationId ? (
+                      <>
+                        <p className="chat-menu-note">
+                          Sohbet ve yüklediğin belgeler silinir; işlem kayıtları
+                          korunur.
+                        </p>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="danger"
+                          autoFocus
+                          onClick={() => {
+                            setChatMenu(false);
+                            void deleteChat(conversationId);
+                          }}
+                        >
+                          <Trash2 size={13} /> Evet, sil
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => setConfirmDelete(null)}
+                        >
+                          Vazgeç
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="danger"
+                        onClick={() => setConfirmDelete(conversationId)}
+                      >
+                        <Trash2 size={13} /> Sohbeti sil
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -1240,12 +1735,16 @@ export function Workspace() {
                                     : {
                                         accepted: "Kontrolden geçti",
                                         qualified: "Sınırlı yanıt",
-                                        abstained: "Netleştirme gerekli",
+                                        abstained: "Sonuç üretilemedi",
+                                        queued: "Bekliyor",
+                                        running: "Çalışıyor",
+                                        completed: "Tamamlandı",
+                                        failed: "Başarısız",
                                       }[message.status]}
                                 </span>
                               </div>
                             )}
-                            <p className="answer-text">{message.text}</p>
+                            <AnswerText text={message.text} />
                             {table ? (
                               <div
                                 className={`inline-result ${table.result_ref === selected ? "newest" : ""}`}
@@ -1272,12 +1771,15 @@ export function Workspace() {
                                 />
                               </div>
                             ) : (
-                              message.result_ref && (
+                              message.result_ref &&
+                              (lostTables.includes(message.result_ref) ? (
                                 <p className="notice">
-                                  Bu turda bir tablo yayımlandı; sunucu yeniden
-                                  başladığı için burada yeniden gösterilemiyor.
+                                  Bu turda bir tablo yayımlandı; bu sunucu artık
+                                  onu sunmuyor (yeniden başlatılmış olabilir).
                                 </p>
-                              )
+                              ) : (
+                                <p className="notice">Tablo yükleniyor…</p>
+                              ))
                             )}
                             {history && conversationId && ownerToken && (
                               <div className="answer-actions">
@@ -1303,7 +1805,51 @@ export function Workspace() {
                       </div>
                     );
                   })}
-                  {items.map((item) => (
+                  {pendingOffered.length > 0 && items.length === 0 && (
+                    // Reopened in another tab or after a restart: the question the
+                    // agent is waiting on is stored, so its choices are shown again
+                    // instead of leaving the person to retype one (finding F2-netl).
+                    <div className="msg agent">
+                      <div className="bubble">
+                        <div className="series-choice">
+                          <p className="series-choice-head">
+                            Bekleyen netleştirme
+                            <span>
+                              {" "}
+                              · birini seç: soru kutusuna yazılır, gönderince
+                              istek o kayıtla sürer
+                            </span>
+                          </p>
+                          <ul>
+                            {pendingOffered.map((title) => (
+                              <li key={title}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const picked = clarificationPickText(
+                                      { title, detail: "" },
+                                      true,
+                                    );
+                                    // The pick answers the clarification this
+                                    // conversation is waiting on; without this it
+                                    // was sent as a brand-new question and the
+                                    // agent started over (finding F2-kart).
+                                    pickedClarification.current = picked;
+                                    setQuestion(picked);
+                                    setAsNewQuestion(false);
+                                    input.current?.focus();
+                                  }}
+                                >
+                                  {title}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {items.map((item, itemIndex) => (
                     <div className="turn-pair" key={item.request_id}>
                       <div className="msg user">
                         <div className="bubble">{item.question}</div>
@@ -1333,17 +1879,24 @@ export function Workspace() {
                                     : {
                                         accepted: "Kontrolden geçti",
                                         qualified: "Sınırlı yanıt",
-                                        abstained: "Netleştirme gerekli",
+                                        abstained: item.turn.answer
+                                          .needs_clarification
+                                          ? "Netleştirme gerekli"
+                                          : "Sonuç üretilemedi",
                                       }[item.turn.answer.status]}
                                 </span>
                               </div>
-                              <p className="answer-text">
-                                {item.turn.answer.text}
-                              </p>
+                              <AnswerText text={item.turn.answer.text} />
                               {item.turn.answer.selection && (
                                 <SeriesChoiceCard
                                   selection={item.turn.answer.selection}
-                                  onPick={setQuestion}
+                                  resolved={itemIndex < items.length - 1}
+                                  onPick={(picked) => {
+                                    pickedClarification.current = picked;
+                                    setQuestion(picked);
+                                    setAsNewQuestion(false);
+                                    input.current?.focus();
+                                  }}
                                 />
                               )}
                               {item.turn.answer.notices.length > 0 && (
@@ -1512,6 +2065,7 @@ export function Workspace() {
                       className="chip"
                       title={example.question}
                       onClick={() => {
+                        pickedClarification.current = null;
                         setQuestion(example.question);
                         input.current?.focus();
                       }}
@@ -1571,7 +2125,26 @@ export function Workspace() {
                     );
                     if (!uploads || !file) return;
                     e.preventDefault();
-                    const extension = file.type === "image/png" ? "png" : "jpg";
+                    // Only the two formats the server reads; webp or gif pasted from a
+                    // browser used to be renamed .jpg and refused without a word.
+                    const extension =
+                      file.type === "image/png"
+                        ? "png"
+                        : file.type === "image/jpeg"
+                          ? "jpg"
+                          : null;
+                    if (!extension) {
+                      setIssue(
+                        "Yapıştırılan görsel PNG ya da JPG olmalı. Ekran görüntüsünü PNG olarak kaydedip yükleyebilirsin.",
+                      );
+                      return;
+                    }
+                    if (busyRef.current || pending || uploading) {
+                      setIssue(
+                        "Analiz sürerken belge eklenemiyor; tur bitince yeniden yapıştır.",
+                      );
+                      return;
+                    }
                     void attach(
                       new File([file], `pano.${extension}`, {
                         type: file.type,
@@ -1579,12 +2152,16 @@ export function Workspace() {
                     );
                   }}
                   value={question}
-                  onChange={(e) => setQuestion(e.target.value)}
+                  onChange={(e) => {
+                    pickedClarification.current = null;
+                    setQuestion(e.target.value);
+                  }}
                   placeholder={
                     pending
                       ? "Analiz sürüyor; bitince devam edebilirsin"
                       : items.length || transcript.length
-                        ? items.at(-1)?.turn?.answer?.status === "abstained"
+                        ? items.at(-1)?.turn?.answer?.needs_clarification ===
+                          true
                           ? "Kısa bir cevap netleştirmeye eklenir; soru yazarsan yeni soru sayılır"
                           : "Devam et…"
                         : "Finansal sorunu yaz…"
@@ -1593,6 +2170,12 @@ export function Workspace() {
                   // Drafting is always allowed; only sending waits for the running
                   // turn (one turn at a time - the server refuses a second with 409).
                   onKeyDown={(e) => {
+                    if (e.key === "Escape" && running && !stopRequested) {
+                      e.preventDefault();
+                      if (canStop) void stop();
+                      else discardPending();
+                      return;
+                    }
                     if (
                       e.key === "Enter" &&
                       !e.shiftKey &&
@@ -1606,17 +2189,42 @@ export function Workspace() {
                 {attachment && (
                   <div className="composer-attachment" aria-live="polite">
                     <FileText size={13} /> Ekli belge:{" "}
-                    {attachment.document_format.toUpperCase()} ·{" "}
-                    {Math.max(1, Math.round(attachment.bytes / 1024))} KB
+                    {attachedName ?? attachment.document_format.toUpperCase()} ·{" "}
+                    {/^.+\.(png|jpe?g)$/i.test(attachedName ?? "")
+                      ? "görsel, tek sayfalık PDF olarak okunuyor"
+                      : attachment.document_format.toUpperCase()}{" "}
+                    · {Math.max(1, Math.round(attachment.bytes / 1024))} KB
                     <button
                       type="button"
-                      aria-label="Ekli belgeyi kaldır"
+                      // The document is admitted evidence: taking it off the
+                      // question does not unmake it, and a published table may
+                      // already cite it. Re-attaching the same file is free -
+                      // identical bytes are the same document (finding F2-upl-5).
+                      aria-label="Belgeyi bu sorudan çıkar"
+                      title="Belgeyi bu sorudan çıkarır. Belge sohbetin belgeleri arasında kalır; aynı dosyayı yeniden eklemek belge hakkından düşmez."
                       disabled={busy || pending}
-                      onClick={() => setAttachment(null)}
+                      onClick={() => {
+                        setAttachment(null);
+                        setAttachedName(null);
+                      }}
                     >
                       <X size={12} />
                     </button>
                   </div>
+                )}
+                {(pendingOffered.length > 0 ||
+                  items.at(-1)?.turn?.answer?.needs_clarification === true) && (
+                  <label className="composer-escape">
+                    <input
+                      type="checkbox"
+                      checked={asNewQuestion}
+                      disabled={busy || pending}
+                      onChange={(event) =>
+                        setAsNewQuestion(event.target.checked)
+                      }
+                    />
+                    Bekleyen netleştirmeyi bırak, bunu yeni soru olarak gönder
+                  </label>
                 )}
                 <div className="composer-bar">
                   <div className="composer-left">
@@ -1692,9 +2300,9 @@ export function Workspace() {
                       <button
                         type="button"
                         className="model-pick"
-                        aria-haspopup="listbox"
+                        aria-haspopup="dialog"
                         aria-expanded={modelMenu}
-                        title="Yanıtları üreten model"
+                        title="Sohbet modelini seç"
                         onClick={(e) => {
                           // The composer clips its children, so the menu is placed on the
                           // viewport from the button's own box instead of inside it.
@@ -1715,70 +2323,105 @@ export function Workspace() {
                         }}
                       >
                         <Cpu size={14} /> {modelShort}
-                        <ChevronDown size={12} />
+                        <Info size={12} />
                       </button>
                       {modelMenu && (
                         <ul
                           className="model-options"
-                          role="listbox"
-                          aria-label="Model"
+                          aria-label="Sohbet modeli"
                           style={{
                             left: modelMenuAt.left,
                             bottom: modelMenuAt.bottom,
                           }}
                         >
-                          {/* The deployment serves one planner/writer model; the list grows
-                              when the server reports more. */}
-                          <li role="option" aria-selected="true">
-                            <button
-                              type="button"
-                              onClick={() => setModelMenu(false)}
-                            >
-                              <Check size={13} /> {modelLabel}
-                            </button>
-                          </li>
+                          {(settings?.models.length
+                            ? settings.models
+                            : [modelLabel]
+                          ).map((model) => (
+                            <li key={model}>
+                              <button
+                                type="button"
+                                className="model-current"
+                                disabled={
+                                  busy ||
+                                  pending ||
+                                  !!savingSetting ||
+                                  !settings?.models.length
+                                }
+                                aria-pressed={model === modelLabel}
+                                onClick={() => {
+                                  void changeSetting({ model });
+                                  setModelMenu(false);
+                                }}
+                              >
+                                {model === modelLabel && <Check size={13} />}{" "}
+                                {model}
+                              </button>
+                            </li>
+                          ))}
                           <li className="model-note">
-                            Yarışma platformundaki en güçlü sohbet modeli.
-                            Anlamsal arama Qwen3-Embedding-8B, belge ve görsel
-                            okuma Unlimited-OCR ile yapılır.
+                            Seçim bu tarayıcıdaki sonraki turlara ve yeni
+                            sohbetlere uygulanır. Belge okuma ve anlamsal arama
+                            modelleri değişmez.
                           </li>
                         </ul>
                       )}
                     </div>
                   </div>
                   <div className="composer-right">
-                    {pending && (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={stopping}
-                        title="Çalışan model isteği bitince, bir sonraki adımdan önce durur."
-                        onClick={() => void stop()}
-                      >
-                        {stopping ? (
-                          <LoaderCircle size={14} className="spin" />
-                        ) : (
-                          <Square size={12} />
-                        )}{" "}
-                        Durdur
-                      </Button>
-                    )}
+                    {/* One round button: an arrow while idle, a running ring while a
+                        turn is out, and pressing it again asks that turn to stop. The
+                        separate "Durdur" button was a second control for the same
+                        moment, and it went back to normal the instant the request was
+                        accepted, although the turn stops only after the model call
+                        that is out returns. */}
                     <Button
-                      type="submit"
+                      type={running ? "button" : "submit"}
                       size="icon"
-                      className="send"
-                      aria-label="Gönder"
+                      className={
+                        running
+                          ? stopRequested
+                            ? "send stopping"
+                            : "send running"
+                          : "send"
+                      }
+                      aria-label={
+                        running
+                          ? stopRequested
+                            ? "Durduruluyor"
+                            : canStop
+                              ? "Durdur"
+                              : "Bekleyen isteği bırak"
+                          : "Gönder"
+                      }
+                      title={
+                        running
+                          ? stopRequested
+                            ? "Durduruluyor: çalışan model isteği bitince duracak."
+                            : canStop
+                              ? "Çalışan model isteği bitince, bir sonraki adımdan önce durur."
+                              : "Bu istek sunucuya iletilemedi; bırakıp yeniden yazabilirsin."
+                          : undefined
+                      }
                       disabled={
-                        !ready ||
-                        !health ||
-                        !dataset ||
-                        busy ||
-                        pending ||
-                        !validQuestion(question)
+                        running
+                          ? stopRequested
+                          : !ready ||
+                            !health ||
+                            !dataset ||
+                            uploading ||
+                            savingSetting === "model" ||
+                            !validQuestion(question)
+                      }
+                      onClick={
+                        running
+                          ? canStop
+                            ? () => void stop()
+                            : discardPending
+                          : undefined
                       }
                     >
-                      <ArrowUp size={17} />
+                      {running ? <Square size={13} /> : <ArrowUp size={17} />}
                     </Button>
                   </div>
                 </div>
@@ -1806,17 +2449,37 @@ export function Workspace() {
                     ? "Veri ve bilgi tabanı"
                     : "Çalışma ayarları"}
                 </h2>
+                {/* Settings and sidebar failures set the same notice as the chat,
+                    but it was drawn only inside the studio: a switch that did not
+                    save snapped back with no word at all (finding F4-2). */}
+                {issue && (
+                  <div className="request-issue" role="alert">
+                    <p>{issue}</p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setIssue("")}
+                    >
+                      Kapat
+                    </Button>
+                  </div>
+                )}
                 {panel === "data" ? (
                   <>
                     <div className="page-stats">
                       <span>
                         <strong>{dataset?.prepared_identities ?? "—"}</strong>{" "}
-                        hazır seri
+                        hazır seri (havuzda gözlemi olan)
                       </span>
-                      <span>
-                        <strong>{dataset?.catalog_identities ?? "—"}</strong>{" "}
-                        katalog kaydı
-                      </span>
+                      {!knowledgeBase && (
+                        // With the knowledge base on, its own strip states the
+                        // catalogue counts; two strips used to show the same
+                        // number under two names (finding B2).
+                        <span>
+                          <strong>{dataset?.catalog_identities ?? "—"}</strong>{" "}
+                          katalog kaydı
+                        </span>
+                      )}
                       {dataset && (
                         <span>
                           {(dataset.pool_bytes / 1024 / 1024).toLocaleString(
@@ -1840,6 +2503,7 @@ export function Workspace() {
                         owner={ownerToken}
                         documents={chatDocuments}
                         pool={dataset}
+                        onChanged={() => void refreshPool()}
                         onOpenConversation={(id) => void openChat(id)}
                         session={
                           saved.current
@@ -1958,18 +2622,24 @@ export function Workspace() {
                                 type="range"
                                 min={0}
                                 max={settings.max_history_turns}
-                                value={settings.history_turns}
-                                disabled={savingSetting !== ""}
+                                value={historyDraft ?? settings.history_turns}
+                                // Saving on every step sent one request per pixel and
+                                // disabled the slider mid-drag, which broke the drag
+                                // itself; the value is committed on release (F4-kaydırıcı).
                                 onChange={(event) =>
-                                  void changeSetting({
-                                    history_turns: Number(event.target.value),
-                                  })
+                                  setHistoryDraft(Number(event.target.value))
                                 }
+                                onPointerUp={() => commitHistoryTurns()}
+                                onKeyUp={() => commitHistoryTurns()}
+                                onBlur={() => commitHistoryTurns()}
                               />
                               <span>
-                                {settings.history_turns === 0
+                                {(historyDraft ?? settings.history_turns) === 0
                                   ? "Yok"
-                                  : `${settings.history_turns} tur`}
+                                  : `${historyDraft ?? settings.history_turns} tur`}
+                                {savingSetting === "history_turns"
+                                  ? " · kaydediliyor"
+                                  : ""}
                               </span>
                             </label>
                           ) : (
@@ -2026,7 +2696,11 @@ export function Workspace() {
                     </p>
                     {prompts === null ? (
                       <p className="helper">
-                        Bu sunucu istem parçalarını sunmuyor (eski sürüm).
+                        {promptsState === "loading"
+                          ? "İstem parçaları yükleniyor…"
+                          : promptsState === "unsupported"
+                            ? "Bu sunucu istem parçalarını sunmuyor (eski sürüm)."
+                            : "İstem parçaları okunamadı; sayfayı yenilemeyi dene."}
                       </p>
                     ) : (
                       <ul className="prompt-parts">

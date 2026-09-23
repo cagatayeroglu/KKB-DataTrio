@@ -384,18 +384,15 @@ def test_record_plan_attempts_continuation_recording(tmp_path):
         session.run(QUESTION)
 
     ledger_entries = entries(path)
-    assert len(ledger_entries) == 2
+    assert len(ledger_entries) == 3
     assert ledger_entries[0]["plan_attempts"] == [
         {"phase": "initial", "attempt": 1, "outcome": "accepted", "category": None}
     ]
     assert ledger_entries[1]["plan_attempts"] == [
-        {
-            "phase": "continuation",
-            "attempt": 1,
-            "outcome": "rejected",
-            "category": "discovery_rule",
-        },
-        {"phase": "continuation", "attempt": 2, "outcome": "accepted", "category": None},
+        {"phase": "continuation", "attempt": 1, "outcome": "accepted", "category": None}
+    ]
+    assert ledger_entries[2]["plan_attempts"] == [
+        {"phase": "continuation", "attempt": 1, "outcome": "accepted", "category": None}
     ]
 
 

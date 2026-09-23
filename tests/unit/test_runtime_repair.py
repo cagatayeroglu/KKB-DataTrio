@@ -8,7 +8,7 @@ rejection already gets a repair; a run-time refusal now gets the same one, once.
 import json
 
 from test_catalog_continuation import QUESTION as DISCOVERY_QUESTION
-from test_catalog_continuation import calculate, discover, enabled, proposal
+from test_catalog_continuation import calculate, enabled, proposal
 from test_catalog_continuation import rig as rig  # noqa: F401
 from test_co_movement import TOTAL_ID
 from test_co_movement import lake as lake  # noqa: F401 - the pool fixture builds on it
@@ -61,9 +61,40 @@ def test_a_refused_column_is_planned_again_once_and_the_corrected_plan_publishes
     ]
     # The second planner call saw what ran and the tool's own reason, as data turns.
     second = provider.seen[1]
-    assert second[-2].role is Role.ASSISTANT and '"column": "value"' in second[-2].content
+    from kkb_agent.agent.plan import AnalyticalPlan
+
+    assert second[-2].role is Role.ASSISTANT
+    feedback = AnalyticalPlan.model_validate_json(second[-2].content)
+    assert feedback.question == QUESTION
+    assert feedback.steps[0].arguments["column"] == "value"
     assert second[-1].role is Role.USER and "the table's columns are:" in second[-1].content
     assert workspace.names() == [PUBLISHED, "reel"]
+
+
+def test_runtime_repair_schema_correction_keeps_original_question_and_is_bounded(pool):  # noqa: F811
+    from kkb_agent.agent.plan import AnalyticalPlan
+
+    lake_, workspace = pool
+    # The model can still omit question despite receiving a valid prior plan.
+    missing = json.dumps({"steps": [deflate(TOTAL_ID)]})
+    provider = scripted(
+        plan(deflate("value"), question="Model paraphrase"),
+        missing,
+        plan(deflate(TOTAL_ID)),
+        "Tablo hazır.",
+    )
+    answered = session(provider, pool).answer(QUESTION, lake_.connection, workspace=workspace)
+    assert answered.answer.status is AnswerStatus.ACCEPTED, answered.answer
+    assert len(provider.seen) == 3
+    repaired = provider.seen[2]
+    previous = [message for message in repaired if message.role is Role.ASSISTANT]
+    assert AnalyticalPlan.model_validate_json(previous[0].content).question == QUESTION
+    assert any(message.content == QUESTION for message in repaired)
+
+    twice = scripted(plan(deflate("value")), missing, missing, plan(deflate(TOTAL_ID)))
+    refused = session(twice, pool).answer(QUESTION, lake_.connection, workspace=workspace)
+    assert refused.answer.status is AnswerStatus.ABSTAINED
+    assert len(twice.seen) == 3 and len(twice.responses) == 1
 
 
 def test_a_second_refusal_stands_and_costs_no_third_plan(pool):  # noqa: F811
@@ -122,13 +153,14 @@ def test_an_empty_discovery_is_searched_again_before_any_continuation(rig):  # n
         "tool": "catalog_search",
         "arguments": {"query": "toplam konut kredisi", "source": "TÜİK"},
     }
-    provider = scripted(proposal(emptied), proposal(discover("d2")), proposal(calculate("a")))
+    # A filter that matches nothing used to empty the search, and the turn paid a second
+    # discovery call for it. The search now answers without the filter and says so.
+    provider = scripted(proposal(emptied), proposal(calculate("a")))
     planned, outcome = enabled(provider, reg, repair_runtime_refusals=True).run(DISCOVERY_QUESTION)
     assert outcome.completed and len(calls) == 1
-    assert planned.discovery_rounds == 1 and planned.attempts == 3
-    assert any("returned no candidates" in reason for reason in planned.rejections)
-    # The second discovery saw why the first one came back empty.
-    assert "FILTERED_OUT" in provider.seen[1][-1].content
+    assert planned.discovery_rounds == 1 and planned.attempts == 2
+    assert planned.rejections == ()
+    assert "nothing matched with source" in provider.seen[1][-1].content
 
 
 def test_an_empty_discovery_still_gets_its_continuation_when_the_repair_fails(rig):  # noqa: F811

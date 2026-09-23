@@ -42,10 +42,11 @@ function lines(rows: string[][], dialect: CsvDialect) {
 function heading(
   cell: Pick<Cell, "label" | "unit" | "scale">,
   dataset: Dataset | null,
+  names: Record<string, string>,
 ) {
   const unit = unitLabel(cell.unit, cell.scale);
   return neutralized(
-    `${seriesLabel(cell.label, dataset)}${unit ? ` (${unit})` : ""}`,
+    `${seriesLabel(cell.label, dataset, names)}${unit ? ` (${unit})` : ""}`,
   );
 }
 
@@ -73,7 +74,7 @@ export function tableCsv(
       [
         ["Ölçü", "Dönem başı", "Dönem sonu", "Değer", "Birim"],
         ...metrics.map((cell) => [
-          neutralized(seriesLabel(cell.label, dataset)),
+          neutralized(seriesLabel(cell.label, dataset, result.series_names)),
           cell.period?.start ?? "",
           cell.period?.end ?? "",
           number(cell.value, dialect),
@@ -88,7 +89,9 @@ export function tableCsv(
       [
         "Dönem başı",
         "Dönem sonu",
-        ...columns.map((column) => heading(column, dataset)),
+        ...columns.map((column) =>
+          heading(column, dataset, result.series_names),
+        ),
       ],
       ...rows.map((row) => [
         row.period?.start ?? "",

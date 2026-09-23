@@ -20,7 +20,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from kkb_agent.catalog.lance_index import build_catalog_index
+from kkb_agent.catalog.lance_index import (
+    CatalogIndexError,
+    LocalCatalogIndex,
+    build_catalog_index,
+)
 from kkb_agent.catalog.mappings import ReviewedSnapshot, load_reviewed_snapshot
 from kkb_agent.catalog.vectors import (
     DIMENSION,
@@ -30,7 +34,7 @@ from kkb_agent.catalog.vectors import (
     VectorProfile,
     catalog_documents,
 )
-from kkb_agent.llm.provider import LLMProvider, ProviderError
+from kkb_agent.llm.provider import LLMProvider
 
 MODEL: Literal["kkbhackathon2026/Qwen3-Embedding-8B"] = "kkbhackathon2026/Qwen3-Embedding-8B"
 TASK = (
@@ -79,8 +83,10 @@ def profile_for(policy_id: str, origin: Origin) -> VectorProfile:
 
 
 def _checked(vectors: list[list[float]], expected: int) -> list[tuple[float, ...]]:
-    if len(vectors) != expected or any(len(vector) != DIMENSION for vector in vectors):
-        raise ProviderError("embedding count or dimension does not match the request")
+    if len(vectors) != expected:
+        raise CatalogIndexError("INDEX_EMBEDDING_COUNT_MISMATCH")
+    if any(len(vector) != DIMENSION for vector in vectors):
+        raise CatalogIndexError("INDEX_VECTOR_DIMENSION_MISMATCH")
     return [tuple(vector) for vector in vectors]
 
 
@@ -89,6 +95,8 @@ class EmbeddingStats:
     requests: int = 0
     texts: int = 0
     seconds: float = 0.0
+    #: Entries whose vector was taken from the generation in use instead of embedded.
+    reused: int = 0
 
 
 def embed_catalog(
@@ -99,28 +107,49 @@ def embed_catalog(
     origin: Origin,
     batch_size: int = 16,
     stats: EmbeddingStats | None = None,
+    reuse: LocalCatalogIndex | None = None,
 ) -> CatalogVectors:
-    """One vector per reviewed catalog document, in stable ID order."""
+    """One vector per reviewed catalog document, in stable ID order.
+
+    With `reuse`, an entry whose text that generation embedded under this very profile
+    keeps the vector it has; only new or changed entries are sent to the model. One saved
+    dataset used to send all 8,375 catalogue texts again in 524 requests, although 8,374
+    of them had not changed (measured 2026-09-22). The vectors that come back either way
+    go through the same checks, and the build verifies them all again.
+    """
     if type(batch_size) is not int or not 1 <= batch_size <= 64:
         raise ValueError("batch size must be between 1 and 64")
     chosen = policy(policy_id)
+    profile = profile_for(policy_id, origin)
     documents = catalog_documents(snapshot)
     stats = stats if stats is not None else EmbeddingStats()
-    values: list[tuple[float, ...]] = []
-    for start in range(0, len(documents), batch_size):
-        batch = documents[start : start + batch_size]
+    held = reuse.held_vectors(profile) if reuse is not None else {}
+    found: dict[str, tuple[float, ...]] = {}
+    for item in documents:
+        kept = held.get(item.series_id)
+        if kept is not None and kept[0] == item.text_sha256:
+            found[item.series_id] = kept[1]
+    stats.reused += len(found)
+    pending = [item for item in documents if item.series_id not in found]
+    for start in range(0, len(pending), batch_size):
+        batch = pending[start : start + batch_size]
         began = time.perf_counter()
         vectors = provider.embed([chosen.passage(item.text) for item in batch], kind="passage")
         stats.seconds += time.perf_counter() - began
         stats.requests += 1
         stats.texts += len(batch)
-        values.extend(_checked(vectors, len(batch)))
+        for item, vector in zip(batch, _checked(vectors, len(batch)), strict=True):
+            found[item.series_id] = vector
     return CatalogVectors(
         snapshot_sha256=snapshot.content_sha256,
-        profile=profile_for(policy_id, origin),
+        profile=profile,
         vectors=tuple(
-            SeriesVector(series_id=item.series_id, text_sha256=item.text_sha256, values=vector)
-            for item, vector in zip(documents, values, strict=True)
+            SeriesVector(
+                series_id=item.series_id,
+                text_sha256=item.text_sha256,
+                values=found[item.series_id],
+            )
+            for item in documents
         ),
     )
 

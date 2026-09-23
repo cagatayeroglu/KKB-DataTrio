@@ -96,8 +96,20 @@ def _dataset_series(item: DatasetVersion) -> ReviewedSeries:
         ),
         evidence_ids=(EVIDENCE_ID,),
         title_basis="documented_title",
-        note=USER_NOTE,
+        note=_note(item),
     )
+
+
+def _note(item: DatasetVersion) -> str:
+    """The standing note, and where the numbers were read when a conversation saved them.
+
+    A series saved from an address carried no trace of that address once it was in the
+    catalogue: a later conversation could find it and never say where it came from.
+    """
+    if not item.provenance:
+        return USER_NOTE
+    said = "; ".join(f"{key}={value}" for key, value in item.provenance)
+    return f"{USER_NOTE} Read from: {said}"[:1024]
 
 
 def _user_concept(concept_id: str, series_id: str, aliases: Sequence[str]) -> Concept | None:
@@ -184,14 +196,15 @@ def effective_snapshot(
         if concept is not None:
             concepts.append(concept)
 
+    # What the catalogue *is*, never how it got here. The note version used to be
+    # part of this, so archiving an entry and restoring it produced a third digest
+    # for the first content: the vectors stopped covering the catalogue and every
+    # meaning-based search was off until a full rebuild (finding F4-bt-10).
     state = json.dumps(
         {
             **({"directory": directory.digest} if directory is not None and listed else {}),
             "datasets": [[i.series_id, i.content_sha256()] for i in active],
-            "notes": [
-                [n.series_id, n.version, n.archived, list(n.aliases), n.note or ""]
-                for n in relevant
-            ],
+            "notes": [[n.series_id, n.archived, list(n.aliases), n.note or ""] for n in relevant],
         },
         sort_keys=True,
     ).encode()

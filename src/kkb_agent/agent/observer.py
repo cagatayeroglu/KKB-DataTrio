@@ -20,6 +20,7 @@ A `Tracer` collects those events as they occur. Three rules keep it honest:
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
@@ -34,6 +35,19 @@ MAX_EVENTS: Final = 5_000
 MAX_DETAIL_CHARS: Final = 2_000_000
 MAX_ATTRIBUTE_CHARS: Final = 4_000
 MAX_ATTRIBUTES: Final = 64
+#: Failures whose message is recorded as the step's reason: validation faults that
+#: describe a field and a constraint, and the provider's transport family, whose
+#: messages are fixed templates with at most a status code or an exception class.
+_TOLD: Final = frozenset(
+    {
+        "SchemaViolation",
+        "PlanRejected",
+        "PlanningFailed",
+        "TransportError",
+        "RateLimited",
+        "ModelUnavailable",
+    }
+)
 #: Stages a reader can filter by; each is a phase of one turn.
 STAGES: Final = (
     "request",
@@ -47,10 +61,26 @@ STAGES: Final = (
 )
 
 
+def _dropped(count: int) -> str:
+    return f"… [{count} more characters]"
+
+
 def _clip(text: str, limit: int) -> str:
+    """Shorten to `limit` characters, the note about what was dropped included.
+
+    The note used to be appended after the cut, so a step that reached the
+    ceiling came back longer than the ceiling and its own contract refused it:
+    reading that step answered 500 (finding F4-iz-6).
+    """
     if len(text) <= limit:
         return text
-    return text[:limit] + f"… [{len(text) - limit} more characters]"
+    head = limit
+    for _ in range(4):
+        adjusted = max(0, limit - len(_dropped(len(text) - head)))
+        if adjusted == head:
+            break
+        head = adjusted
+    return (text[:head] + _dropped(len(text) - head))[:limit]
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,9 +124,11 @@ class Span:
         """Attach the step's own text: a prompt, a model output, a tool preview."""
         self.detail = detail
 
-    def failed(self, category: str) -> None:
+    def failed(self, category: str, reason: str | None = None) -> None:
         self.status = "failed"
         self.attributes["error_category"] = category
+        if reason:
+            self.attributes["error_reason"] = reason[:400]
 
 
 class Tracer:
@@ -114,7 +146,19 @@ class Tracer:
         # run while it is still going and a crash leaves what already happened.
         self._sink = sink
         self._events: list[TraceEvent] = []
-        self._redactions = tuple(value for value in redactions if value)
+        # A secret is also looked for as JSON writes it, and as JSON writes that: a
+        # detail is often a JSON document holding JSON strings (a tool's observation
+        # inside a tool turn inside a recorded request), where a quote or backslash in
+        # the value appears escaped once or twice and the plain form matches neither.
+        # Longest first, so an escaped form is replaced before a part of it can be.
+        forms: set[str] = set()
+        for value in redactions:
+            for ascii_only in (False, True):
+                form = value
+                for _ in range(4):
+                    forms.add(form)
+                    form = json.dumps(form, ensure_ascii=ascii_only)[1:-1]
+        self._redactions = tuple(sorted((f for f in forms if f), key=len, reverse=True))
         self._start = time.monotonic()
         self._next = 0
         self._detail = detail
@@ -175,7 +219,21 @@ class Tracer:
         try:
             yield span
         except BaseException as error:
-            span.failed(type(error).__name__)
+            # These carry a deliberately value-free description — a field path and a
+            # constraint name, never the text that failed — so the reason can be kept.
+            # Without it a turn that died on validation says only "SchemaViolation",
+            # and 113 seconds of planning left nothing anyone could act on
+            # (live 2026-09-22). Everything else records its class alone.
+            #
+            # The provider's transport family is told too. Every message it raises is a
+            # fixed template carrying at most an HTTP status or an `httpx` exception class
+            # name — never a body, a URL or a credential (`llm.kloudeks`, all seven raise
+            # sites) — and the tracer still redacts what it records. Without it the jury's
+            # first live A1 (2026-09-23, run c00e2ae1) failed after 12 s with only
+            # "TransportError" in the trace, and a server 5xx, a dropped connection and a
+            # DNS failure could not be told apart after the fact.
+            told = type(error).__name__ in _TOLD
+            span.failed(type(error).__name__, str(error) if told else None)
             self._record(span, started, max(0, round((time.monotonic() - begin) * 1000)), parent)
             raise
         self._record(span, started, max(0, round((time.monotonic() - begin) * 1000)), parent)

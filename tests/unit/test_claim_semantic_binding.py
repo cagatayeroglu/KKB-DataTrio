@@ -19,9 +19,16 @@ from kkb_agent.core import (
     ResultKind,
     ResultStatus,
     ResultValue,
+    SampleCounts,
     Scale,
 )
 from kkb_agent.database import apply_schema
+
+
+@pytest.fixture(autouse=True)
+def _wording_rules(monkeypatch):
+    """These cases pin the optional wording contract; the served gate binds figures only."""
+    monkeypatch.setattr("kkb_agent.agent.verifier.WORDING_RULES", True)
 
 
 @pytest.fixture(autouse=True)
@@ -169,6 +176,39 @@ def test_period_selects_the_correct_value_not_the_first_magnitude():
     assert verdict.accepted
 
 
+def _january_and_june():
+    january = result()
+    june = result(
+        value=250.0,
+        period=Period(start=date(2025, 6, 1), end=date(2025, 6, 30), frequency=Frequency.MONTHLY),
+    )
+    return january.model_copy(update={"values": [january.values[0], june.values[0]]})
+
+
+def test_each_dated_figure_is_read_under_the_date_that_introduces_it():
+    # How an analyst says it, with both figures right. Read as one context, each figure was
+    # refused for the other's month and the turn paid a second writer call (live E7).
+    natural = "Ocak 2025'te 100 milyon TL olan bakiye Haziran 2025'te 250 milyon TL'ye ulaştı."
+    assert verify_claims(natural, _january_and_june()).accepted
+    # The same two figures under each other's month are refused as before.
+    swapped = "Ocak 2025'te 250 milyon TL olan bakiye Haziran 2025'te 100 milyon TL'ye ulaştı."
+    assert not verify_claims(swapped, _january_and_june()).accepted
+
+
+def test_a_month_written_as_digits_is_a_date_and_never_the_figure_after_it():
+    # "2026-06" once read as the year 2026 followed by a figure "06", which made the
+    # clause look paired and let an unrecorded second month through.
+    second_month = "Ocak 2025'te bakiye 100 milyon TL (2026-06 fiyatlarıyla)."
+    assert not verify_claims(second_month, _january_and_june()).accepted
+
+
+def test_two_dates_that_share_one_figure_both_have_to_hold():
+    # Nothing stands between the two dates, so the clause pairs nothing: the figure is
+    # claimed for both months, and it is only January's.
+    shared = "Ocak 2025 ve Haziran 2025'te bakiye 100 milyon TL oldu."
+    assert not verify_claims(shared, _january_and_june()).accepted
+
+
 def test_known_conflicting_identity_cannot_borrow_another_value():
     table = {"credit": result(), "other": result(label="other_series", value=200.0)}
     assert not verify_claims("other: 100 milyon TL.", table).accepted
@@ -293,3 +333,446 @@ def test_a_denial_in_causal_words_is_withheld_too(connection):
 
     assert gated.status is AnswerStatus.QUALIFIED
     assert gated.text == "Ocak 2025'te 100 milyon TL."
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "Bu veri nedensellik göstermez.",
+        "Bu veriler neden-sonuç ilişkisini kanıtlamak için yeterli değildir.",
+        "This is association, not causation.",
+    ],
+)
+def test_safe_causal_limitations_without_assertion_words_survive(sentence):
+    assert gate_answer(sentence, result()).status is AnswerStatus.ACCEPTED
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "Faiz kredileri artırmış olabilir.",
+        "Konut talebi krediyi tetiklemiş olabilir.",
+        "Politika kararı kredi büyümesini etkilemiş olabilir.",
+        "Faizler kredi miktarını azaltmış olabilir.",
+        "The policy move may have affected credit.",
+        "Faiz düşüşü kredi artışının sebebi olabilir.",
+    ],
+)
+def test_hedged_positive_causality_remains_unsupported(sentence):
+    gated = gate_answer("Ocak 2025'te 100 milyon TL. " + sentence, result())
+    assert gated.status is AnswerStatus.QUALIFIED
+    assert gated.text == "Ocak 2025'te 100 milyon TL."
+    assert any("causal" in fault for fault in gated.omitted[0].reasons)
+
+
+def _endpoint_result():
+    first = result()
+    last = first.values[0].model_copy(
+        update={
+            "period": Period(
+                start=date(2025, 6, 1), end=date(2025, 6, 30), frequency=Frequency.MONTHLY
+            ),
+            "value": 120.0,
+        }
+    )
+    return first.model_copy(update={"values": [first.values[0], last]})
+
+
+def test_typed_endpoint_observation_and_qualified_interpretation_survive():
+    draft = (
+        "İlk ve son dönem arasında kredi arttı. "
+        "Yorum: İlk ve son dönem arasındaki artış gözlenen net değişimi özetler; "
+        "ara aylarda aynı yönde hareket edildiği bundan çıkmaz."
+    )
+    gated = gate_answer(draft, _endpoint_result())
+    assert gated.status is AnswerStatus.ACCEPTED
+    assert gated.text == draft
+
+
+def test_wrong_direction_or_insufficient_visible_endpoints_is_withheld():
+    for response, values in (
+        ("İlk ve son dönemde kredi azaldı.", _endpoint_result()),
+        ("İlk ve son dönemde kredi arttı.", result()),
+        ("İlk ve son dönemde kredi yükselmedi.", _endpoint_result()),
+        ("İlk ve son dönemde kredi artmadı.", _endpoint_result()),
+    ):
+        gated = gate_answer(response, values)
+        assert gated.status is AnswerStatus.ABSTAINED
+        assert any("endpoint direction" in reason for reason in gated.omitted[0].reasons)
+
+
+def test_one_series_cannot_borrow_another_series_endpoint_direction():
+    rising = _endpoint_result()
+    other_first = result(label="other_series").model_copy(update={"result_id": "other-result"})
+    other_last = other_first.values[0].model_copy(
+        update={
+            "period": Period(
+                start=date(2025, 6, 1), end=date(2025, 6, 30), frequency=Frequency.MONTHLY
+            ),
+            "value": 80.0,
+        }
+    )
+    falling = other_first.model_copy(update={"values": [other_first.values[0], other_last]})
+    gated = gate_answer(
+        "İlk ve son dönem arasında other_series arttı.",
+        {"credit": rising, "other": falling},
+    )
+    assert gated.status is AnswerStatus.ABSTAINED
+    assert any("endpoint direction" in reason for reason in gated.omitted[0].reasons)
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "En belirgin artış son dönemde görüldü.",
+        "Düşüşlerin büyük bölümü ikinci yarıda görüldü.",
+        "Bu dönemde ivme zayıfladı.",
+    ],
+)
+def test_aggregate_or_superlative_requires_more_than_endpoint_values(sentence):
+    gated = gate_answer(sentence, _endpoint_result())
+    assert gated.status is AnswerStatus.ABSTAINED
+    assert any("aggregate observation" in reason for reason in gated.omitted[0].reasons)
+
+
+@pytest.mark.xfail(
+    strict=True, reason="Free-text external premises have no typed proposition binder"
+)
+def test_unlisted_external_premise_is_not_yet_deterministically_proven():
+    gated = gate_answer("Yorum: Merkez Bankası beklenmedik bir karar aldı.", _endpoint_result())
+    assert gated.status is AnswerStatus.ABSTAINED
+
+
+def test_unqualified_missing_data_cannot_contradict_a_complete_result():
+    complete = result().model_copy(update={"samples": SampleCounts(used=3, missing=0)})
+    gated = gate_answer("Ocak 2025'te 100 milyon TL. Veri eksik.", complete)
+    assert gated.status is AnswerStatus.QUALIFIED
+    assert gated.text == "Ocak 2025'te 100 milyon TL."
+
+
+def test_typed_missing_samples_allow_only_generic_coverage_disclosure():
+    partial = result().model_copy(update={"samples": SampleCounts(used=3, missing=2)})
+    supported = gate_answer("Ocak 2025'te 100 milyon TL. Bazı gözlemler eksik.", partial)
+    assert supported.status is AnswerStatus.ACCEPTED
+    unsupported = gate_answer("Ocak 2025'te 100 milyon TL. Mart verisi eksik.", partial)
+    assert unsupported.status is AnswerStatus.QUALIFIED
+    assert unsupported.text == "Ocak 2025'te 100 milyon TL."
+    # An unnamed absence over two results cannot borrow only one result's gap.
+    complete = result().model_copy(update={"samples": SampleCounts(used=3, missing=0)})
+    assert (
+        gate_answer("Veri eksik.", {"partial": partial, "complete": complete}).status
+        is AnswerStatus.ABSTAINED
+    )
+
+
+class TestTheWindowACountDescribes:
+    """A sentence about how much data was read is not a claim about a figure."""
+
+    @staticmethod
+    def _five_years(**changes):
+        """A result over 2021-01..2025-12: sixty monthly observations, five years."""
+        return result(
+            period=Period(
+                start=date(2021, 1, 1), end=date(2025, 12, 31), frequency=Frequency.MONTHLY
+            )
+        ).model_copy(
+            update={
+                "coverage": Period(
+                    start=date(2021, 1, 1), end=date(2025, 12, 31), frequency=Frequency.MONTHLY
+                ),
+                "samples": SampleCounts(used=60),
+                **changes,
+            }
+        )
+
+    def test_the_period_count_of_the_window_is_context(self):
+        verdict = verify_claims(
+            "2021-2025 arasındaki 60 aylık veride bakiye 100 milyon TL oldu.", self._five_years()
+        )
+
+        assert verdict.accepted
+        sixty = next(item for item in verdict.numbers if item.number.value == 60.0)
+        assert sixty.binding is Binding.CONTEXT
+
+    def test_the_window_in_whole_years_is_context(self):
+        verdict = verify_claims("Son 5 yılda bakiye 100 milyon TL oldu.", self._five_years())
+
+        assert verdict.accepted
+
+    def test_a_count_the_window_does_not_hold_is_still_unbound(self):
+        verdict = verify_claims("Son 7 yılda bakiye 100 milyon TL oldu.", self._five_years())
+
+        assert not verdict.accepted
+
+    def test_a_window_count_cannot_be_quoted_as_an_amount(self):
+        # 60 is the number of months read. It is not sixty million lira, and a
+        # figure that names a unit still has to be one of the result's values.
+        verdict = verify_claims("Bakiye 60 milyon TL oldu.", self._five_years())
+
+        assert not verdict.accepted
+
+    def test_periods_left_out_are_context_too(self):
+        # The tools now tell the writer how many periods were skipped; saying so
+        # in the answer must not cost the sentence.
+        result_with_gap = self._five_years(samples=SampleCounts(used=57, missing=2, excluded=1))
+        verdict = verify_claims(
+            "2 dönem yayımlanmamıştı ve 1 çift dışlandı; bakiye 100 milyon TL oldu.",
+            result_with_gap,
+        )
+
+        assert verdict.accepted
+
+
+class TestACountIsOnlyQuotedAsWhatItIs:
+    """Holding a number is not licence to use it for anything.
+
+    Over a five-year monthly window the harness holds 60 and 5. Binding those on
+    the digits alone accepted "5 dönem yayımlanmamıştı" although nothing was
+    missing, and "60 farklı seri incelendi" although one series was read - true
+    numbers in a false role, which is the sentence a reader would catch.
+    """
+
+    @staticmethod
+    def _window(**changes):
+        period = Period(start=date(2021, 1, 1), end=date(2025, 12, 31), frequency=Frequency.MONTHLY)
+        return result(period=period).model_copy(
+            update={"coverage": period, "samples": SampleCounts(used=60), **changes}
+        )
+
+    @pytest.mark.parametrize(
+        "draft",
+        [
+            "2021-2025 arasındaki 60 aylık veride bakiye 100 milyon TL oldu.",
+            "Son 5 yılda bakiye 100 milyon TL oldu.",
+            "60 gözlem okundu; bakiye 100 milyon TL oldu.",
+        ],
+    )
+    def test_a_count_called_what_it_is_passes(self, draft):
+        assert verify_claims(draft, self._window()).accepted
+
+    @pytest.mark.parametrize(
+        "draft",
+        [
+            "5 dönem yayımlanmamıştı; bakiye 100 milyon TL oldu.",  # 5 is the years
+            "60 farklı seri incelendi; bakiye 100 milyon TL oldu.",  # 60 is the months
+            "Analiz 5 ayı kapsıyor; bakiye 100 milyon TL oldu.",  # 5 is years, not months
+            "5 gözlem okundu; bakiye 100 milyon TL oldu.",  # 60 observations were read
+        ],
+    )
+    def test_the_same_number_in_another_role_is_unbound(self, draft):
+        assert not verify_claims(draft, self._window()).accepted
+
+    def test_periods_read_cannot_be_quoted_as_periods_missing(self):
+        gapped = self._window(samples=SampleCounts(used=57, missing=2, excluded=1))
+
+        assert verify_claims("2 dönem eksikti; bakiye 100 milyon TL.", gapped).accepted
+        assert not verify_claims("57 dönem eksikti; bakiye 100 milyon TL.", gapped).accepted
+
+    def test_count_role_must_belong_to_the_number_not_a_later_conjoined_phrase(self):
+        sample = self._window()
+        wrong = "60 farklı seri ve 60 gözlem incelendi. Bakiye 100 milyon TL oldu."
+        assert not verify_claims(wrong, sample).accepted
+        assert gate_answer(wrong, sample).status is AnswerStatus.QUALIFIED
+
+    def test_preceding_or_following_local_count_role_still_binds(self):
+        sample = self._window()
+        for phrase in (
+            "60 aylık veri ve 60 gözlem incelendi; bakiye 100 milyon TL oldu.",
+            "Gözlem sayısı 60 ve dönem 60 ay; bakiye 100 milyon TL oldu.",
+        ):
+            assert verify_claims(phrase, sample).accepted
+
+    @pytest.mark.parametrize(
+        "draft",
+        [
+            # The months belong to the first 60; they lend the second one nothing.
+            "60 aylık dönemde 60 milyarlık artış oldu.",
+            "60 aylık dönemde bakiye 60 puan arttı.",
+            "Son 5 yılda bakiye 5 kat arttı.",
+            # A multiple, an amount or points never count periods, whatever follows them.
+            "Bakiye 5 kat arttı; yıllık bazda da yükseldi.",
+            "Artış 60 bin aylık ödemeye denk geldi.",
+        ],
+    )
+    def test_a_role_word_another_number_owns_lends_nothing(self, draft):
+        assert not verify_claims(draft, self._window()).accepted
+
+    def test_a_role_named_before_its_own_number_still_binds(self):
+        sample = self._window()
+        for phrase in (
+            "Gözlem sayısı 60'tır; bakiye 100 milyon TL oldu.",
+            "Pencere 5 yıl, yani 60 ay; bakiye 100 milyon TL oldu.",
+        ):
+            assert verify_claims(phrase, sample).accepted, phrase
+
+    def test_question_number_does_not_make_a_new_financial_claim(self):
+        sample = self._window()
+        # The request may mention 60 months, but the result has no 60% rate.
+        assert not verify_claims("Faiz %60 oldu.", sample).accepted
+
+    @pytest.mark.parametrize("draft", ["İlk 3 dönemde bakiye arttı.", "Seri 3. sırada yer aldı."])
+    def test_ordinal_or_rank_without_typed_evidence_does_not_become_context(self, draft):
+        assert not verify_claims(draft, self._window()).accepted
+
+
+@pytest.mark.parametrize("separator", [" ve ", ", ", "; ", " = "])
+def test_year_month_value_pairs_bind_locally_and_swapped_months_fail(connection, separator):
+    january = result().values[0]
+    february = january.model_copy(
+        update={
+            "value": 200.0,
+            "period": Period(
+                start=date(2025, 2, 1), end=date(2025, 2, 28), frequency=Frequency.MONTHLY
+            ),
+        }
+    )
+    table = result().model_copy(update={"values": [january, february]})
+    correct = f"2025-01 dönemi 100 milyon TL{separator}2025-02 dönemi 200 milyon TL."
+    assert gate_answer(correct, {"credit": table}, connection).status is AnswerStatus.ACCEPTED
+    wrong = f"2025-02 dönemi 100 milyon TL{separator}2025-01 dönemi 200 milyon TL."
+    assert gate_answer(wrong, {"credit": table}, connection).status is AnswerStatus.ABSTAINED
+
+
+def test_wrong_scale_conversion_is_not_new_numeric_authority(connection):
+    table = result(value=512259.0)
+    assert (
+        gate_answer("0,512259 milyar TL.", {"credit": table}, connection).status
+        is AnswerStatus.ABSTAINED
+    )
+
+
+@pytest.mark.parametrize("unit, phrase", [("kg", "100 kg"), ("count", "100 adet")])
+def test_resolved_nonfinancial_values_have_safe_display_and_numeric_binding(
+    connection, unit, phrase
+):
+    from kkb_agent.agent.loop import render_result
+    from kkb_agent.agent.presentation import display_value
+
+    table = result(unit=unit, scale=Scale.ONE)
+    assert display_value(table.values[0]) is not None
+    context = render_result(table)
+    assert '"value_state": "value_present_unit_known"' in context
+    assert "display UNAVAILABLE" not in context
+    assert gate_answer(phrase, {"credit": table}, connection).status is AnswerStatus.ACCEPTED
+
+
+def test_typed_lag_observation_and_window_roles_do_not_license_money(connection):
+    table = result().model_copy(
+        update={
+            "values": [result().values[0].model_copy(update={"lag": 1})],
+            "samples": SampleCounts(used=13, missing=0, excluded=0),
+        }
+    )
+    assert (
+        gate_answer("Lag 1 kullanıldı; 13 gözlem var.", {"credit": table}, connection).status
+        is AnswerStatus.ACCEPTED
+    )
+    assert (
+        gate_answer("Lag 1 ile 1 milyon TL arttı.", {"credit": table}, connection).status
+        is AnswerStatus.ABSTAINED
+    )
+
+
+def _january_and_february():
+    january = result().values[0]
+    february = january.model_copy(
+        update={
+            "value": 200.0,
+            "period": Period(
+                start=date(2025, 2, 1), end=date(2025, 2, 28), frequency=Frequency.MONTHLY
+            ),
+        }
+    )
+    return result().model_copy(update={"values": [january, february]})
+
+
+@pytest.mark.parametrize("separator", [" ve ", ", ", "; "])
+def test_written_period_ranges_each_date_their_own_figure(connection, separator):
+    # N45 (live W1-W3, 2026-09-22): the writer is shown 2025-01-01..2025-01-31 and a model
+    # writes it back. Each range was read as two dates with nothing between them, so the
+    # clause paired nothing and both correct figures were refused for the other month.
+    table = {"credit": _january_and_february()}
+    correct = (
+        f"2025-01-01..2025-01-31 dönemi 100 milyon TL{separator}"
+        "2025-02-01..2025-02-28 dönemi 200 milyon TL."
+    )
+    assert gate_answer(correct, table, connection).status is AnswerStatus.ACCEPTED
+    swapped = (
+        f"2025-01-01..2025-01-31 dönemi 200 milyon TL{separator}"
+        "2025-02-01..2025-02-28 dönemi 100 milyon TL."
+    )
+    assert gate_answer(swapped, table, connection).status is AnswerStatus.ABSTAINED
+
+
+def test_two_written_ranges_that_share_one_figure_both_have_to_hold(connection):
+    shared = "2025-01-01..2025-01-31 ve 2025-02-01..2025-02-28 dönemlerinde 100 milyon TL."
+    table = {"credit": _january_and_february()}
+    assert gate_answer(shared, table, connection).status is AnswerStatus.ABSTAINED
+
+
+def test_one_written_range_still_bounds_its_figure(connection):
+    table = {"credit": _january_and_february()}
+    inside = "2025-02-01..2025-02-28 döneminde bakiye 200 milyon TL oldu."
+    assert gate_answer(inside, table, connection).status is AnswerStatus.ACCEPTED
+    # A range the value's own period does not contain is still refused.
+    wider = "2025-01-01..2025-02-28 döneminde bakiye 200 milyon TL oldu."
+    assert gate_answer(wider, table, connection).status is AnswerStatus.ABSTAINED
+
+
+@pytest.mark.parametrize(
+    "draft",
+    [
+        # Live G3 (N44): the model's own correct conversion lost the whole sentence.
+        "Ocak 2025'te 512.259 milyon TL idi; bu, 512,259 milyar TL'ye karşılık gelir.",
+        "Ocak 2025'te bakiye 512,259 milyar TL.",
+        "Ocak 2025'te bakiye 512,2590 milyar TL.",
+        "Ocak 2025'te 512,259 milyarlık bakiye.",
+        "Ocak 2025'te bakiye 512,259 milyara ulaştı.",
+        "Ocak 2025'te bakiye 512.259.000 bin TL.",
+    ],
+)
+def test_a_value_written_at_another_explicit_scale_binds_exactly(connection, draft):
+    table = {"credit": result(value=512259.0)}
+    assert gate_answer(draft, table, connection).status is AnswerStatus.ACCEPTED
+
+
+@pytest.mark.parametrize(
+    "draft",
+    [
+        "Ocak 2025'te bakiye 0,512259 milyar TL.",  # live G3b: a thousandfold error
+        "Ocak 2025'te bakiye 512.259 milyar TL.",  # Turkish thousands: 512 259 milyar
+        "Ocak 2025'te 512.259 milyarlık bakiye.",  # an inflected scale word is a scale word
+        "Ocak 2025'te bakiye 512.259 milyara ulaştı.",
+        "Ocak 2025'te bakiye 512,259 bin TL.",
+        "Ocak 2025'te bakiye 512,259 milyar USD.",
+        "Haziran 2025'te bakiye 512,259 milyar TL.",
+    ],
+)
+def test_a_wrong_conversion_or_its_qualifiers_still_fail(connection, draft):
+    table = {"credit": result(value=512259.0)}
+    assert gate_answer(draft, table, connection).status is AnswerStatus.ABSTAINED
+
+
+def test_a_conversion_needs_a_recorded_scale_on_both_sides(connection):
+    unresolved = result(value=512259.0).model_copy(
+        update={
+            "values": [
+                result().values[0].model_copy(update={"value": 512259.0, "scale": Scale.UNKNOWN})
+            ],
+            "unresolved_semantics": ["scale not stated by the source"],
+        }
+    )
+    unknown = {"credit": unresolved}
+    assert (
+        gate_answer("Ocak 2025'te bakiye 512,259 milyar TL.", unknown, connection).status
+        is AnswerStatus.ABSTAINED
+    )
+    thousands = {"credit": result(value=512259.0, scale=Scale.THOUSAND)}
+    assert (
+        gate_answer("Ocak 2025'te bakiye 512,259 milyon TL.", thousands, connection).status
+        is AnswerStatus.ACCEPTED
+    )
+    assert (
+        gate_answer("Ocak 2025'te bakiye 512.259 milyon TL.", thousands, connection).status
+        is AnswerStatus.ABSTAINED
+    )

@@ -19,7 +19,7 @@ const documentRoute = new RegExp(`^v1/sessions/${REF}/documents$`);
 const documentUrlRoute = new RegExp(`^v1/sessions/${REF}/documents/from-url$`);
 const conversationRoute = new RegExp(`^v1/conversations/${REF}$`);
 const runRoute = new RegExp(
-  `^v1/conversations/${REF}/runs(?:/${REF}(?:/steps/[1-9][0-9]{0,5})?)?$`,
+  `^v1/conversations/${REF}/runs(?:/${REF}(?:/progress|/steps/[1-9][0-9]{0,5})?)?$`,
 );
 /** A stored trace holds every prompt and tool output, so it may exceed the usual ceiling. */
 export const TRACE_LIMIT = 8 * 1024 * 1024;
@@ -38,10 +38,54 @@ const valuesRoute =
   /^v1\/knowledge\/series\/[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}\/values$/;
 const usesRoute =
   /^v1\/knowledge\/series\/[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}\/uses$/;
-/** Only the conversation list carries a query, and only these bounded filters. */
-export const SEARCH_QUERY = /^q=[^&]{1,512}$/;
-export const LIST_QUERY =
-  /^(?:archived=(?:true|false)|search=[^&]{0,120})(?:&(?:archived=(?:true|false)|search=[^&]{0,120}))?$/;
+/** The filters the conversation list accepts, measured after decoding. */
+export const LIST_FILTERS = {
+  archived: /^(?:true|false)$/,
+  search: /^[\s\S]{0,120}$/,
+};
+/** The one filter the knowledge search accepts, measured after decoding. */
+export const SEARCH_FILTERS = { q: /^[\s\S]{1,512}$/ };
+/** What the knowledge list may be asked for: one tab, one province, a search, one page. */
+export const KNOWLEDGE_FILTERS = {
+  tab: /^(?:all|reviewed|listed|prepared|fetchable|catalog|user|archived)$/,
+  province: /^[\s\S]{1,64}$/,
+  q: /^[\s\S]{1,200}$/,
+  page: /^[1-9]\d{0,3}$/,
+  page_size: /^(?:[1-9]\d?|100)$/,
+};
+/**
+ * A query string carrying only the named filters, each within its own bound.
+ *
+ * The bounds are on the characters the person typed, not on their percent-encoded
+ * form: one Turkish letter encodes to six characters there, so a 20-letter search
+ * was refused with 403 and no explanation (finding F4-vek-1). Anything else about
+ * the query is still refused: an unknown key, a repeated key, a malformed escape,
+ * a control character.
+ */
+export function queryWithin(
+  search: string,
+  filters: Record<string, RegExp>,
+): boolean {
+  if (!search) return false;
+  const seen = new Set<string>();
+  for (const part of search.split("&")) {
+    const at = part.indexOf("=");
+    if (at <= 0) return false;
+    const key = part.slice(0, at);
+    const filter = filters[key];
+    if (!filter || seen.has(key)) return false;
+    seen.add(key);
+    let value: string;
+    try {
+      value = decodeURIComponent(part.slice(at + 1).replace(/\+/g, " "));
+    } catch {
+      return false;
+    }
+    if (CONTROL.test(value) || !filter.test(value)) return false;
+  }
+  return true;
+}
+const CONTROL = /[\u0000-\u001f\u007f]/;
 const hosts = new Set(["127.0.0.1:3000", "localhost:3000"]);
 const tokenPattern = /^[A-Za-z0-9_-]{43}$/;
 const responseHeaders = {
@@ -125,15 +169,20 @@ export async function forward(
     (site !== null && !["same-origin", "none"].includes(site))
   )
     return error("forbidden", 403);
-  if (request.method === "POST" && origin !== `http://${host}`)
+  // Every write states its origin, not only POST: a page from elsewhere must not
+  // be able to rename, archive or delete through this bridge (finding F4-vek-3).
+  if (request.method !== "GET" && origin !== `http://${host}`)
     return error("forbidden", 403);
   const name = path.join("/");
   const publicGet = ["v1/health", "v1/dataset"].includes(name);
   const creation = name === "v1/sessions";
   const owner = name === "v1/owner";
   const list = name === "v1/conversations";
+  const traceList = name === "v1/trace-conversations";
   const conversation = conversationRoute.test(name);
   const runs = runRoute.test(name);
+  const deleteConversation = conversation && request.method === "DELETE";
+  const deleteRuns = runs && path.length === 4 && request.method === "DELETE";
   const feedback = feedbackRoute.test(name);
   const results = resultRoute.test(name);
   const turns = route.test(name);
@@ -169,8 +218,9 @@ export async function forward(
   const search = new URL(request.url).search.replace(/^\?/, "");
   if (
     search &&
-    !(list && LIST_QUERY.test(search)) &&
-    !(knowledgeSearch && SEARCH_QUERY.test(search))
+    !((list || traceList) && queryWithin(search, LIST_FILTERS)) &&
+    !(knowledgeSearch && queryWithin(search, SEARCH_FILTERS)) &&
+    !(knowledgeList && queryWithin(search, KNOWLEDGE_FILTERS))
   )
     return error("forbidden", 403);
   if (
@@ -179,6 +229,7 @@ export async function forward(
       (publicGet ||
         getTurn ||
         list ||
+        traceList ||
         settings ||
         prompts ||
         conversation ||
@@ -208,15 +259,16 @@ export async function forward(
         directoryRefresh ||
         (turns && path.length === 4))
     ) &&
-    !(request.method === "PATCH" && (conversation || settings))
+    !(request.method === "PATCH" && (conversation || settings)) &&
+    !(deleteConversation || deleteRuns)
   )
     return error("not_found", 404);
   const headers = new Headers({ Accept: "application/json" });
   if (
     turns ||
     documents ||
-    conversation ||
-    runs ||
+    (conversation && !deleteConversation) ||
+    (runs && !deleteRuns) ||
     results ||
     feedback ||
     cancel ||
@@ -232,11 +284,12 @@ export async function forward(
     if (!key || !tokenPattern.test(key)) return error("not_found", 404);
     headers.set("X-KKB-Owner-Token", key);
   }
-  if (list || creation) {
+  if (list || traceList || creation || deleteConversation || deleteRuns) {
     // The browser's own key: required to list, optional only where the backend says so.
     const key = request.headers.get("x-kkb-owner-token");
     if (key && !tokenPattern.test(key)) return error("not_found", 404);
-    if (!key && list) return error("not_found", 404);
+    if (!key && (list || traceList || deleteConversation || deleteRuns))
+      return error("not_found", 404);
     if (key) headers.set("X-KKB-Owner-Token", key);
   }
   let timeoutMs: number;

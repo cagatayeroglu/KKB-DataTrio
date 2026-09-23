@@ -21,8 +21,10 @@ the same boundary as `web_url`, and joins it on explicit months.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace as replace_semantics
 from datetime import UTC, date, datetime
-from typing import TYPE_CHECKING, Annotated, Any, Literal, Self
+from math import isfinite
+from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, RootModel, model_validator
 
@@ -36,6 +38,7 @@ from kkb_agent.analytics.accumulation import AccumulationRefused, to_flow_column
 from kkb_agent.analytics.deflation import FORMULA, METHOD, DeflationRefused, deflate
 from kkb_agent.analytics.resample import METHOD as RESAMPLE_METHOD
 from kkb_agent.analytics.resample import ResampleRefused, resample_column
+from kkb_agent.analytics.table_relationship import resolve_label
 from kkb_agent.analytics.table_series import (
     DOCUMENT_METHOD,
     JOIN_METHOD,
@@ -57,27 +60,43 @@ from kkb_agent.analytics.table_shape import (
     TableShapeRefused,
     align_periods,
     filter_periods,
+    names_only_excluded_months,
     period_change,
     rebase_index,
 )
+from kkb_agent.analytics.table_summary import METHOD as SUMMARY_METHOD
+from kkb_agent.analytics.table_summary import (
+    InvalidAggregation,
+    SummaryKind,
+    SummaryRefused,
+    summarize_column,
+)
 from kkb_agent.catalog.inspection import PreparedSeriesInspector
+from kkb_agent.catalog.normalization import normalize_search_text
 from kkb_agent.core import (
+    Aggregation,
     AnalyticalResult,
+    CumulativeKind,
+    Frequency,
+    Period,
     ResultEvidence,
     ResultKind,
     ResultStatus,
     ResultValue,
+    Scale,
     SeriesId,
     SourceRef,
+    StockFlow,
     TransformationRecord,
 )
 from kkb_agent.ingest.attached import Attachment
 from kkb_agent.ingest.fetched import source_id_for
 from kkb_agent.lakehouse.alignment import WeekAssignment
+from kkb_agent.lakehouse.column_contract import KEY, declarations, decode, encode
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.lakehouse.records import Observation
 from kkb_agent.lakehouse.result_evidence import _record_execution, canonical
-from kkb_agent.lakehouse.semantics import SeriesSemantics
+from kkb_agent.lakehouse.semantics import SemanticsError, SeriesSemantics
 from kkb_agent.pdf_ocr import OcrProvider
 from kkb_agent.tools._document_column import (
     ColumnRefused,
@@ -86,8 +105,17 @@ from kkb_agent.tools._document_column import (
     measure_limitation,
     read_column,
 )
-from kkb_agent.tools._document_value import as_of, csv_parsing, grids, year_in_question
+from kkb_agent.tools._document_table import read_row, table_result, table_snapshot, unit_of
+from kkb_agent.tools._document_value import (
+    _text,
+    as_of,
+    csv_parsing,
+    grids,
+    year_in_question,
+)
+from kkb_agent.tools._running_totals import declared_accumulation, running_total_refusal
 from kkb_agent.tools.change_detection import SeriesUnknown, read_series
+from kkb_agent.tools.inspect_result import document_passages
 from kkb_agent.tools.web_url import Fetcher, choose_document, read_attachment, read_document
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -97,16 +125,23 @@ INPUTS = ("silver_series", "silver_observations")
 NOMINAL_LIMITATION = "Values are nominal; no inflation adjustment was applied"
 
 
-#: Every table argument accepts a published result or a step of this plan (DEC-165).
-_SOURCE = (
-    "A published result from an earlier turn, or the step_id of an earlier step in this "
-    "plan that produced a table (then list that step in depends_on)"
+#: Every table argument accepts a published result or a step of this plan (DEC-165). What
+#: that means is said once, in the tool's description; ten operations each repeated it in
+#: full (1.7 KB of the planner's prompt saying one thing).
+_SOURCE = "The table to work on: a published table's name, or a table step_id of this plan"
+_SOURCE_UNCHANGED = _SOURCE
+#: A derived column is a copy beside the column it was made from, so nothing is lost and
+#: every figure can be traced. "Convert this column" asks for something else: the table the
+#: reader looks at should hold the converted column in the original's place. The original
+#: stays in the record (the proof and the next step can still read it) and is no longer
+#: shown. Which of the two the reader meant is the planner's reading of the question.
+_REPLACE = (
+    "true when the reader asks to convert the column itself (show it deflated, rebased, as "
+    "a flow, as its change) rather than to add a column: the original is kept in the record "
+    "and no longer shown in the table and the chart"
 )
-_SOURCE_UNCHANGED = _SOURCE + "; its rows stay unchanged"
-_OTHER = (
-    "Another published result, or an earlier step of this plan such as a fetched or "
-    "uploaded table (then list that step in depends_on)"
-)
+HIDDEN_COLUMNS = "hidden_columns"
+_OTHER = "The table to take columns from: a published table's name, or a table step_id of this plan"
 
 
 class DeflateArguments(BaseModel):
@@ -114,12 +149,7 @@ class DeflateArguments(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    operation: Literal["deflate"] = Field(
-        description=(
-            "deflate: add an inflation-adjusted copy of one currency column, in the prices of "
-            "reference_period, keeping every existing column unchanged"
-        )
-    )
+    operation: Literal["deflate"]
     source: str = Field(
         pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
         description=_SOURCE,
@@ -141,6 +171,7 @@ class DeflateArguments(BaseModel):
             "for example the table's last month"
         )
     )
+    replace: bool = Field(default=False, description=_REPLACE)
 
     @model_validator(mode="after")
     def month_end(self) -> Self:
@@ -155,14 +186,7 @@ class ToFlowArguments(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    operation: Literal["to_flow"] = Field(
-        description=(
-            "to_flow: add a per-period flow copy of one column the store records as a "
-            "cumulative series (yearly_reset or since_inception), keeping every existing "
-            "column unchanged. The store's declaration decides; a column that only looks "
-            "cumulative is refused"
-        )
-    )
+    operation: Literal["to_flow"]
     source: str = Field(
         pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
         description=_SOURCE_UNCHANGED,
@@ -172,6 +196,7 @@ class ToFlowArguments(BaseModel):
         max_length=400,
         description="The cumulative column's exact label in that result; it is a series id",
     )
+    replace: bool = Field(default=False, description=_REPLACE)
 
 
 class ResampleArguments(BaseModel):
@@ -179,18 +204,10 @@ class ResampleArguments(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    operation: Literal["resample"] = Field(
-        description=(
-            "resample: add a monthly copy of one weekly or daily column, reduced by the "
-            "aggregation the store declares for that series (a rate or an exchange rate "
-            "averaged, a flow summed, a stock at its last period), keeping every existing "
-            "column unchanged; then join_table can put it beside monthly tables. A monthly "
-            "column is never spread onto weeks or days"
-        )
-    )
+    operation: Literal["resample"]
     source: str = Field(
         pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
-        description=_SOURCE_UNCHANGED,
+        description=_SOURCE,
     )
     column: str = Field(
         min_length=1,
@@ -206,6 +223,32 @@ class ResampleArguments(BaseModel):
             "column: a day lies in one month"
         ),
     )
+
+
+class SummarizeArguments(BaseModel):
+    """One scalar aggregate of a typed period column, never model arithmetic."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation: Literal["summarize"]
+    source: str = Field(pattern=r"^[A-Za-z0-9_.:-]{1,64}$", description=_SOURCE)
+    column: str = Field(min_length=1, max_length=400, description="Exact target column label")
+    aggregation: SummaryKind
+    requested_aggregation: SummaryKind = Field(
+        description="User's requested metric before checking validity; never an alternative."
+    )
+    start_period: date | None = None
+    end_period: date | None = None
+
+    @model_validator(mode="after")
+    def bounded_range(self) -> Self:
+        if (
+            self.start_period is not None
+            and self.end_period is not None
+            and self.start_period > self.end_period
+        ):
+            raise ValueError("start_period must not be after end_period")
+        return self
 
 
 class AddSeriesArguments(BaseModel):
@@ -336,6 +379,7 @@ class RebaseArguments(BaseModel):
     )
     reference_period: date = Field(description="Existing period end that becomes the new base")
     new_base: float = Field(strict=True, gt=0, description="Explicit new index level, usually 100")
+    replace: bool = Field(default=False, description=_REPLACE)
 
 
 class ChangeArguments(BaseModel):
@@ -343,20 +387,24 @@ class ChangeArguments(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    operation: Literal["change"] = Field(
-        description=(
-            "change: add the period-over-period change of one column (month over month for a "
-            "monthly table, day over day for a daily one), keeping every existing column. It "
-            "answers how much a value rose or fell each period and which period moved most"
-        )
-    )
+    operation: Literal["change"]
     source: str = Field(pattern=r"^[A-Za-z0-9_.:-]{1,64}$", description=_SOURCE_UNCHANGED)
     column: str = Field(
-        min_length=1,
+        default="",
         max_length=400,
         description=(
             "The column's exact label (a fetched series' label is its series_id); a "
-            "one-column table is used as is"
+            "one-column table is used as is. Give `columns` instead for several"
+        ),
+    )
+    #: Live 2026-09-23 (B1) four columns' monthly changes took four calls, one after the
+    #: other, and the turn ran out of calls before the table was published.
+    columns: tuple[str, ...] = Field(
+        default=(),
+        max_length=32,
+        description=(
+            "Several columns' changes in one call, each added beside its column, the same "
+            "kind and lag for all; instead of `column`"
         ),
     )
     kind: Literal["difference", "percent"] = Field(
@@ -373,6 +421,13 @@ class ChangeArguments(BaseModel):
         description="Periods back to compare with: 1 for the previous period, 12 for a year "
         "earlier on monthly data",
     )
+    replace: bool = Field(default=False, description=_REPLACE)
+
+    @model_validator(mode="after")
+    def _one_way_to_name_columns(self) -> ChangeArguments:
+        if bool(self.column) == bool(self.columns):
+            raise ValueError("give `column` for one column or `columns` for several, not both")
+        return self
 
 
 class AlignArguments(BaseModel):
@@ -398,7 +453,7 @@ class AlignArguments(BaseModel):
 
 
 class FilterArguments(BaseModel):
-    """Keep cells in an inclusive period-end range; no free-form predicate."""
+    """Keep selected columns in an inclusive period-end range; no free-form predicate."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -406,6 +461,15 @@ class FilterArguments(BaseModel):
     source: str = Field(pattern=r"^[A-Za-z0-9_.:-]{1,64}$", description=_SOURCE_UNCHANGED)
     start_period: date | None = None
     end_period: date | None = None
+    columns: tuple[Annotated[str, Field(min_length=1, max_length=400)], ...] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=32,
+        description=(
+            "Exact final columns to keep; use this after calculations to exclude raw/helper "
+            "columns from the published table. Omit only when every current column is wanted"
+        ),
+    )
 
     @model_validator(mode="after")
     def bounded_range(self) -> Self:
@@ -417,7 +481,72 @@ class FilterArguments(BaseModel):
             and self.start_period > self.end_period
         ):
             raise ValueError("start_period must not be after end_period")
+        if self.columns is not None and len(set(self.columns)) != len(self.columns):
+            raise ValueError("columns must be distinct")
         return self
+
+
+class DocumentRowArguments(BaseModel):
+    """One row of a table in a document read this turn, its month columns as one column."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation: Literal["document_row"]
+    source: str = Field(
+        min_length=1,
+        max_length=64,
+        description="The id of the step that read the document (its web_url or upload read)",
+    )
+    page: int | None = Field(default=None, ge=1, description="The page the table is on (a PDF)")
+    table: int = Field(
+        default=1,
+        ge=1,
+        description="Which table: with page, the n-th on that page; without, the n-th in the "
+        "document",
+    )
+    row: str = Field(
+        min_length=1,
+        max_length=200,
+        description="The row as its first cell reads it, such as a year or a series name",
+    )
+    label: str = Field(min_length=1, max_length=200, description="Name of the new monthly column")
+    year: int | None = Field(
+        default=None,
+        ge=1900,
+        le=2100,
+        description="Year for month headers that carry none, when neither the row's label nor "
+        "the page above the table states it",
+    )
+    columns: tuple[Annotated[str, Field(min_length=1, max_length=100)], ...] | None = Field(
+        default=None,
+        max_length=24,
+        description="Only these month headers; omit for every month the row has",
+    )
+    unit: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=40,
+        description="The unit and scale the document states for this table, such as 'adet', "
+        "'milyon TL' or '%'; it must appear in the document. Omit when it states none",
+    )
+
+
+#: What a refusal of `document_row` means, said to the model with its code.
+_ROW_REFUSALS: Final = {
+    "ROW_NOT_FOUND": "no row of that table begins with that label",
+    "AMBIGUOUS_ROW": "more than one row begins with that label; give more of it",
+    "YEAR_NEEDED": "its month headers carry no year and nothing states one; give year",
+    "YEAR_CONFLICT": "the year given differs from the row's own year",
+    "DUPLICATE_PERIOD": "two headers name the same month",
+    "CELLS_NOT_ALIGNED": "the row's values sit in one cell and cannot be matched to its months "
+    "without guessing",
+    "COLUMN_NOT_FOUND": "a month header named in columns is not in that table",
+    "TOO_FEW_VALUES": "fewer than two months of that row hold a value",
+    "AMBIGUOUS_NUMBER": "the table's numbers have more than one reading",
+    "NOT_A_NUMBER": "a month cell of that row is not a number",
+    "UNIT_NOT_RECOGNISED": "the unit is not one this reads ('adet', 'milyon TL', '%', ...)",
+    "UNIT_NOT_IN_DOCUMENT": "the document does not state that unit",
+}
 
 
 class TableTransformArguments(
@@ -427,6 +556,7 @@ class TableTransformArguments(
             | AddSeriesArguments
             | ToFlowArguments
             | ResampleArguments
+            | SummarizeArguments
             | JoinTableArguments
             | RebaseArguments
             | ChangeArguments
@@ -446,7 +576,9 @@ class DocumentTableTransformArguments(
             | AddSeriesArguments
             | ToFlowArguments
             | ResampleArguments
+            | SummarizeArguments
             | AddDocumentColumnArguments
+            | DocumentRowArguments
             | JoinTableArguments
             | RebaseArguments
             | ChangeArguments
@@ -462,6 +594,7 @@ class DocumentTableTransformArguments(
 _METHODS = {
     "deflate": METHOD,
     "resample": RESAMPLE_METHOD,
+    "summarize": SUMMARY_METHOD,
     "to_flow": TO_FLOW_METHOD,
     "rebase": REBASE_METHOD,
     "change": CHANGE_METHOD,
@@ -484,6 +617,14 @@ def _column_of(source: AnalyticalResult, requested: str) -> tuple[str, str | Non
     labels = list(dict.fromkeys(value.label for value in source.values))
     if requested in labels:
         return requested, None
+    # The planner is told to name a column a step of this plan adds by its series ID, and a
+    # resample, a deflation or a change renames it ("EVDS:TP.KTF12 monthly average
+    # (by_end)"). Only table_co_movement kept that promise; live 2026-09-21 a join_table
+    # that named the resampled rate by its ID was refused, and the turn paid a second
+    # planner call (250 s) for a simpler plan.
+    meant = resolve_label(source, requested)
+    if meant in labels:
+        return meant, f"Column {requested!r} was read as {meant!r}, the one column holding it"
     if len(labels) == 1:
         return labels[0], (
             f"Column {requested!r} is not in the table; its only column {labels[0]!r} was used"
@@ -493,11 +634,46 @@ def _column_of(source: AnalyticalResult, requested: str) -> tuple[str, str | Non
     )
 
 
+def _named(source: AnalyticalResult, requested: str) -> str:
+    """`_column_of` for an operation that refuses an unknown column in its own words."""
+    try:
+        return _column_of(source, requested)[0]
+    except ColumnUnknown:
+        return requested
+
+
 def _table_input(arguments: BaseModel) -> TableInput | None:
     if isinstance(arguments, (TableTransformArguments, DocumentTableTransformArguments)):
         selected = arguments.root
+        if isinstance(selected, DocumentRowArguments):
+            return None  # Its source is a document, not a table.
         others = (selected.other,) if isinstance(selected, JoinTableArguments) else ()
         return TableInput(source=selected.source, others=others)
+    return None
+
+
+#: A monthly column compared with the same month a year earlier: the one change of a
+#: year-to-date total that means something, the running total against last year's.
+_SAME_MONTH_LAST_YEAR: Final = 12
+
+
+def _reads_each_period_as_its_own(selected: BaseModel) -> tuple[str, str] | None:
+    """The column an operation reads as each period's own amount, and what it computes of it.
+
+    None when it does not: `first`, `last` and `count` quote or count cells, a change over
+    twelve months sets one running total against last year's, and the remaining operations
+    move or relabel cells without doing arithmetic across periods.
+    """
+    if isinstance(selected, SummarizeArguments):
+        if selected.aggregation in ("sum", "mean", "min", "max"):
+            return selected.column, f"a {selected.aggregation}"
+        return None
+    if isinstance(selected, ChangeArguments):
+        if selected.lag == _SAME_MONTH_LAST_YEAR:
+            return None
+        return selected.column, "a period-over-period change"
+    if isinstance(selected, DeflateArguments):
+        return selected.column, "a price adjustment by one month's index"
     return None
 
 
@@ -521,7 +697,8 @@ def make_table_transform_tool(
     `document_ocr` reads PDF pages without text (DEC-149 column-total check).
     """
     names = dict(series_names or {})
-    documents = dict(library or {})
+    # Read when a call runs: a document admitted during this turn is one of them then.
+    documents: Mapping[str, Attachment] = library if library is not None else {}
     readable = attachment is not None or bool(documents)
 
     def failure(category: str, message: str) -> ToolResult:
@@ -559,12 +736,159 @@ def make_table_transform_tool(
             return failure("workspace_evidence", f"The {role} table cannot be verified")
         return table, origin
 
+    def document_row(selected: DocumentRowArguments, context: ExecutionContext) -> ToolResult:
+        """A row of months across a table the turn already holds, as a monthly column.
+
+        Nothing is fetched: the document is the one a step of this turn read, under its id,
+        and the table is chosen by page and position as `inspect` shows them.
+        """
+        held = context.outputs.get(selected.source)
+        document, table_file = getattr(held, "document", None), getattr(held, "table", None)
+        origin = getattr(held, "source", None)
+        media_type = getattr(held, "media_type", None)
+        if (document is None and table_file is None) or origin is None or media_type is None:
+            return failure(
+                "table_reference",
+                f"{selected.source!r} is not a document read in this turn; read it first, then "
+                "give the id of that read",
+            )
+        found = [
+            grid
+            for grid in grids(table_file, document)
+            if selected.page is None or grid.location.get("page") == selected.page
+        ]
+        if selected.table > len(found):
+            where = f"page {selected.page}" if selected.page is not None else "the document"
+            return failure(
+                "table_reference",
+                f"{where} has {len(found)} table(s); there is no table {selected.table}",
+            )
+        grid = found[selected.table - 1]
+        unit = None
+        if selected.unit is not None:
+            unit = unit_of(selected.unit)
+            stated = normalize_search_text(
+                " ".join(
+                    [text for _, text in document_passages(held) or ()]
+                    + [" ".join(_text(cell) for cell in row) for row in grid.rows]
+                    + [" ".join(_text(header) for header in grid.headers)]
+                )
+            )
+            code = (
+                "UNIT_NOT_RECOGNISED"
+                if unit is None
+                else "UNIT_NOT_IN_DOCUMENT"
+                if f" {normalize_search_text(selected.unit)} " not in f" {stated} "
+                else None
+            )
+            if code is not None:
+                return failure("needs_input", f"document_row {code}: {_ROW_REFUSALS[code]}")
+        try:
+            read = read_row(
+                grid,
+                selected.row,
+                label=selected.label,
+                year=selected.year,
+                columns=selected.columns,
+                unit=unit,
+                as_of=as_of(origin),
+            )
+        except ColumnRefused as error:
+            reason = _ROW_REFUSALS.get(error.code, "the row could not be read")
+            return failure("needs_input", f"document_row {error.code}: {reason}")
+        csv = csv_parsing(table_file)
+        source_node = (
+            lineage.record(
+                NodeKind.SOURCE_FILE,
+                origin.source_id,
+                attributes={
+                    "source_type": origin.source_type,
+                    "locator": origin.locator,
+                    "content_hash": origin.content_hash or "",
+                    "media_type": media_type,
+                },
+            )
+            if lineage is not None
+            else None
+        )
+        result = table_result(
+            read, origin, source_node=source_node, csv=csv, tool="table_transform"
+        )
+        recorded = {**selected.model_dump(mode="json"), "document_source_id": origin.source_id}
+        node = None
+        if lineage is not None:
+            node = lineage.record(
+                NodeKind.TRANSFORM, "table_transform_document_row", attributes=recorded
+            )
+            if result.evidence is not None:
+                result = result.model_copy(
+                    update={"evidence": result.evidence.model_copy(update={"lineage_node": node})}
+                )
+        result = _record_execution(
+            connection,
+            producer="table_transform",
+            arguments=canonical(recorded),
+            inputs=[table_snapshot(read, origin, media_type, csv=csv)],
+            result=result,
+        )
+        return ToolResult(
+            ToolStatus.SUCCESS,
+            step_id="",
+            tool="table_transform",
+            output=result,
+            warnings=tuple(result.warnings),
+            evidence=node,
+        )
+
+    def _each_column(
+        arguments: BaseModel, selected: ChangeArguments, context: ExecutionContext
+    ) -> ToolResult:
+        """`change` of several columns: the one-column change, run on each in turn.
+
+        Each step reads the table the step before it built, so the result holds every
+        column's change beside it, computed exactly as one call per column would.
+        """
+        outputs = dict(context.outputs)
+        source = selected.source
+        warnings: list[str] = []
+        done: ToolResult | None = None
+        for position, column in enumerate(selected.columns):
+            one = selected.model_copy(update={"column": column, "columns": (), "source": source})
+            step = run(
+                type(arguments).model_validate(one.model_dump()),
+                ExecutionContext(context.question, outputs=outputs, searched=context.searched),
+            )
+            output = step.output
+            if (
+                step.status is not ToolStatus.SUCCESS
+                or not isinstance(output, AnalyticalResult)
+                or output.status is not ResultStatus.COMPUTED
+            ):
+                return step
+            warnings.extend(w for w in step.warnings if w not in warnings)
+            source = f"__change_{position}"
+            outputs[source] = output
+            done = step
+        assert done is not None  # at least one column: the validator requires it
+        return ToolResult(
+            ToolStatus.SUCCESS,
+            done.step_id,
+            done.tool,
+            output=done.output,
+            warnings=tuple(warnings),
+            evidence=done.evidence,
+        )
+
     def run(arguments: BaseModel, context: ExecutionContext) -> ToolResult:
         if not isinstance(
             arguments, (TableTransformArguments, DocumentTableTransformArguments)
         ):  # pragma: no cover
             raise TypeError("table_transform received arguments it did not declare")
         selected = arguments.root
+        if isinstance(selected, DocumentRowArguments):
+            return document_row(selected, context)
+        if isinstance(selected, ChangeArguments) and selected.columns:
+            return _each_column(arguments, selected, context)
         resolved = resolve(selected.source, context, "source")
         if isinstance(resolved, ToolResult):
             return resolved
@@ -578,6 +902,7 @@ def make_table_transform_tool(
             (
                 DeflateArguments,
                 ResampleArguments,
+                SummarizeArguments,
                 ToFlowArguments,
                 RebaseArguments,
                 ChangeArguments,
@@ -598,6 +923,20 @@ def make_table_transform_tool(
                 if label != selected.column:
                     requested_column = selected.column
                     selected = selected.model_copy(update={"column": label})
+        if refusal is None and (totals := _reads_each_period_as_its_own(selected)) is not None:
+            # The column is resolved, so its label is the stored series it was read from,
+            # when it was read from one.
+            totalled, reading = totals
+            accumulates = declared_accumulation(connection, totalled)
+            if accumulates is not None:
+                refusal = AnalyticalResult(
+                    result_id=f"table_transform:{selected.operation}:{selected.source}",
+                    kind=ResultKind.SERIES,
+                    status=ResultStatus.ABSTAINED,
+                    tool="table_transform",
+                    method=_METHODS[selected.operation],
+                    reason=running_total_refusal(totalled, accumulates, reading),
+                )
         if refusal is not None:
             result = refusal
         elif isinstance(selected, (DeflateArguments, AddSeriesArguments)):
@@ -623,6 +962,8 @@ def make_table_transform_tool(
                 return failure("series_unknown", str(error))
             inputs.append(series.snapshot)
             result = _resampled(selected, source, series.semantics)
+        elif isinstance(selected, SummarizeArguments):
+            result = _summarized(selected, source)
         elif isinstance(selected, ToFlowArguments):
             try:
                 series = read_series(connection, selected.column, inspector=inspector)
@@ -635,10 +976,14 @@ def make_table_transform_tool(
             if isinstance(resolved_other, ToolResult):
                 return resolved_other
             other, other_origin = resolved_other
+            if selected.columns is not None:
+                selected = selected.model_copy(
+                    update={"columns": tuple(_named(other, item) for item in selected.columns)}
+                )
             inputs.append(
                 canonical({other_origin: selected.other, "result": other.model_dump(mode="json")})
             )
-            result = _joined(selected, source, other)
+            result = _joined(selected, source, other, require_full_other=other_origin == "step")
         elif isinstance(selected, AddDocumentColumnArguments):
             if selected.year is not None and not year_in_question(selected.year, context.question):
                 return failure("needs_input", "YEAR_NOT_IN_QUESTION")
@@ -701,11 +1046,23 @@ def make_table_transform_tool(
                 )
                 result = _documented(selected, source, column, document, source_node, csv)
         else:
-            result = _closed_transform(selected, source)
+            preceding: tuple[ResultValue, ...] = ()
+            if isinstance(selected, ChangeArguments):
+                # Each period's own predecessor, when the column is a stored series and the
+                # table does not hold it: December 2020 for January 2021, or the month before
+                # each of three chosen months. Read to complete changes, never a row.
+                preceding = _preceding_values(
+                    connection, selected.column, source, inspector=inspector
+                )
+            result = _closed_transform(selected, source, preceding=preceding)
         if resolution is not None and result.status is ResultStatus.COMPUTED:
+            # How this call's column was read is said to this call, not written on the
+            # table: every later table inherits its source's warnings, and live 2026-09-23
+            # "Column 'value' is not in the table" was repeated on four later steps that had
+            # named their columns exactly, and reached the reader. It is kept on the result
+            # as a parameter, where the proof reads it.
             result = result.model_copy(
                 update={
-                    "warnings": [*result.warnings, resolution],
                     "parameters": {
                         **result.parameters,
                         "column_resolution": {
@@ -713,6 +1070,26 @@ def make_table_transform_tool(
                             "used": getattr(selected, "column", None),
                         },
                     },
+                }
+            )
+        if (
+            isinstance(
+                selected, (DeflateArguments, ToFlowArguments, RebaseArguments, ChangeArguments)
+            )
+            and selected.replace
+            and result.status is ResultStatus.COMPUTED
+        ):
+            # Said on the result before it is recorded, so the record and every later table
+            # built on this one carry it: a column the reader asked to convert stays
+            # converted in the next turn's table too.
+            hidden = result.parameters.get(HIDDEN_COLUMNS)
+            shown = [*(hidden if isinstance(hidden, list) else []), selected.column]
+            result = result.model_copy(
+                update={
+                    "parameters": {
+                        **result.parameters,
+                        HIDDEN_COLUMNS: list(dict.fromkeys(shown)),
+                    }
                 }
             )
         recorded = _recorded_arguments(selected)
@@ -739,6 +1116,8 @@ def make_table_transform_tool(
             result=result,
         )
         warnings = tuple(result.warnings)
+        if resolution is not None and result.status is ResultStatus.COMPUTED:
+            warnings = (*warnings, resolution)
         if result.status is not ResultStatus.COMPUTED and result.reason is not None:
             warnings = (*warnings, result.reason)
         return ToolResult(
@@ -753,36 +1132,59 @@ def make_table_transform_tool(
     return ToolSpec(
         name="table_transform",
         description=(
-            "Change a table published in an earlier turn by producing a new result without "
-            "mutating the published source. deflate adds an "
-            "inflation-adjusted copy of one currency column (for example a credit balance) in "
-            "the prices of reference_period, using a registered monthly price index such as a "
-            "consumer price index. Refer to the published result by its name and to the column "
-            "by its exact label. add_series adds a registered monthly series (for example a "
-            "housing price index) on the table's exact months. Use source and series_id only "
-            "for add_series. It preserves every old column, records missing months without "
-            "filling them, and does not calculate a relationship or establish a cause. "
-            "to_flow adds a per-period flow copy of a column the store records as cumulative "
-            "(yearly_reset or since_inception), which is what comparison, breakpoint and "
-            "table direction comparison can use; series-based tools still read original series. "
-            "A column the store does "
-            "not declare cumulative is refused rather than differenced. "
-            "change adds the period-over-period change of one column (kind=difference in the "
-            "column's unit, or kind=percent; lag=12 for a year earlier on monthly data) and "
-            "marks the periods with the largest rise and fall; a period after a gap stays empty. "
-            "resample adds a monthly copy of a weekly or daily column by the series' declared "
-            "aggregation (state week_assignment for a weekly one), so a weekly rate or a daily "
-            "exchange rate can then be joined with monthly tables; a monthly column is never "
-            "spread onto weeks or days. "
-            "rebase adds an explicitly based copy of an existing index column. align selects "
-            "existing exact periods using inner or explicitly anchored-left policy. join_table "
-            "adds the monthly columns of another published result (for example a table built "
-            "from an uploaded document, or an official-series table) onto the source table's "
-            "exact months, keeping each column's own unit. filter "
-            "selects an inclusive period-end range. These unary operations never fill cells, "
-            "convert frequency, or accept SQL."
+            "Builds a new table from a table. One operation per step; chain steps to combine "
+            "them. `source` (and `other`) is the name of a published table, or the step_id of "
+            "an earlier step of this plan that returns a table (a lakehouse read, "
+            # Named only where it is offered: a description never advertises a tool the
+            # operator has switched off.
+            + ("a web_url read, " if document_fetch is not None or readable else "")
+            + "another table_transform). A column is named by its exact label; the "
+            "column of a series read in this plan is labelled by its series_id. Every "
+            "operation keeps the old columns and leaves the source as it was; no empty cell "
+            "is ever filled and no SQL is accepted. deflate, rebase, to_flow and change take "
+            "`replace`: true when the reader asks to convert a column rather than to add "
+            "one. Whether columns move together is "
+            "change_detection's table_co_movement, not this tool.\n"
+            "- deflate: inflation-adjusted copy of a currency column (a credit balance) in "
+            "the prices of reference_period, by a monthly price index series such as a "
+            "consumer price index.\n"
+            "- add_series: a catalogue monthly series (a housing price index) added as a "
+            "column on the table's own months; a month it lacks stays empty.\n"
+            "- join_table: the monthly columns of `other` added onto the months of `source`, "
+            "each in its own unit. This is how two reads of one plan become one table.\n"
+            "- change: how much a column rose or fell each period, month over month or day "
+            "over day (kind=difference in the "
+            "column's unit, or kind=percent; lag=12 for a year earlier on monthly data); "
+            "marks the largest rise and fall. Each period is compared with the period lag "
+            "steps before it on the calendar, never with the row above: from the table, or "
+            "from the store when the column is a stored series (the month before a window, "
+            "the month before each chosen month), and those are never added as rows. A "
+            "grouped or derived column is in no store: read the month before the window "
+            "too, group, change, then filter to the months to show. For a stock (a "
+            "balance) a difference is the net change of the balance, not new deposits or "
+            "new lending, which a balance does not record.\n"
+            "- resample: a weekly or daily column reduced to months by the series' declared "
+            "aggregation - a rate averaged, a flow summed, a stock at its last period "
+            "(week_assignment is required for a weekly column) - so a weekly "
+            "rate or a daily exchange rate can be joined with monthly tables. Monthly data "
+            "is never spread onto weeks or days.\n"
+            "- summarize: one number from a column - mean, sum, min, max, first, last or "
+            "count - optionally within a date range ('ortalaması ne', 'en yüksek değer'). "
+            "requested_aggregation records the user's metric and must equal aggregation. "
+            "Sum is refused for stocks, rates and indices; never replace it with mean.\n"
+            "- to_flow: per-period flow copy of a column the store declares cumulative "
+            "(yearly_reset or since_inception). Such a column holds running totals, so "
+            "summarize sum/mean/min/max, change, deflate and table_co_movement refuse it: "
+            "read it, to_flow it, then apply them to the flow column in the same plan. A "
+            "column not declared cumulative is refused rather than differenced.\n"
+            "- rebase: copy of an index column with reference_period set to new_base.\n"
+            "- align: keeps the periods the chosen columns share (join=inner), or those of "
+            "anchor_column (join=left).\n"
+            "- filter: keeps an inclusive period-end range and, with columns, only the "
+            "named final columns; after deriving an answer, use columns to keep raw/helper "
+            "columns internal instead of publishing them."
             + (
-                " add_document_column adds one column from a CSV, Excel, PDF or HTML table "
+                "\n- add_document_column: one column from a CSV, Excel, PDF or HTML table "
                 + (
                     "at a web address written in the question (give the address exactly as url)"
                     if document_fetch is not None
@@ -798,6 +1200,14 @@ def make_table_transform_tool(
                 + ", with the header of its month column and of the value column. Months must "
                 "be explicit, one row per month; the value header must state its unit in "
                 "parentheses. It needs no catalog_search and does not convert frequency."
+                "\n- document_row: the other shape of a document table, months across the "
+                "header and one row per year or series. source is the id of the step that "
+                "read the document, page and table as inspect shows them, row the row's "
+                "label (a year, a series name) and label the new column's name; year when "
+                "neither the row nor the page states it, unit as the document states it. "
+                "The row's month cells become a monthly column that summarize and change "
+                "read (its highest and lowest month, month-over-month changes); totals and "
+                "ranges such as 'Ocak-Ağustos' are left out, an empty cell stays empty."
                 if document_fetch is not None or readable
                 else ""
             )
@@ -812,9 +1222,66 @@ def make_table_transform_tool(
     )
 
 
+def _preceding_values(
+    connection: DuckDBPyConnection,
+    column: str,
+    source: AnalyticalResult,
+    *,
+    inspector: PreparedSeriesInspector | None,
+) -> tuple[ResultValue, ...]:
+    """The stored series' own values for periods the table does not hold.
+
+    A change needs each period's predecessor, and a table holds the periods the reader
+    asked to see: its first month's predecessor, or the month before each of three chosen
+    months, is outside it although the store holds it. Only a column that is itself a
+    stored series is looked up; a column a document or an earlier transform produced is
+    in no store and keeps the behaviour it had — for a grouped column, the base month has
+    to travel through the chain (read it, group it, change it, then filter to the months
+    shown). A cumulative series' per-period amount is to_flow, not a difference, so it
+    is not completed here. `period_change` uses these only to complete changes, never as
+    rows, and records how many it used.
+    """
+    cells = {value.period.end for value in source.values if value.label == column and value.period}
+    if not cells:
+        return ()
+    try:
+        series = read_series(connection, column, inspector=inspector)
+    except SeriesUnknown:
+        return ()
+    semantics = series.semantics
+    if semantics.cumulative is not CumulativeKind.NONE:
+        return ()
+    found: list[ResultValue] = []
+    for item in series.observations:
+        if item.value is None or item.period_end in cells or not isfinite(item.value):
+            continue
+        try:
+            period = Period(
+                start=item.period_start,
+                end=item.period_end,
+                frequency=semantics.frequency,
+                weekly_anchor=semantics.anchor,
+            )
+        except ValueError:
+            continue
+        found.append(
+            ResultValue(
+                label=column,
+                value=item.value,
+                unit=semantics.unit,
+                scale=semantics.scale,
+                measure=semantics.observation,
+                period=period,
+            )
+        )
+    return tuple(found)
+
+
 def _closed_transform(
     arguments: RebaseArguments | ChangeArguments | AlignArguments | FilterArguments,
     source: AnalyticalResult,
+    *,
+    preceding: Sequence[ResultValue] = (),
 ) -> AnalyticalResult:
     """Apply one no-I/O operation and preserve the source as a separate artifact."""
     try:
@@ -823,7 +1290,11 @@ def _closed_transform(
                 arguments,
                 source,
                 period_change(
-                    source, column_label=arguments.column, kind=arguments.kind, lag=arguments.lag
+                    source,
+                    column_label=arguments.column,
+                    kind=arguments.kind,
+                    lag=arguments.lag,
+                    preceding=preceding,
                 ),
             )
         if isinstance(arguments, RebaseArguments):
@@ -843,15 +1314,20 @@ def _closed_transform(
         if isinstance(arguments, AlignArguments):
             shaped = align_periods(
                 source,
-                columns=arguments.columns,
+                columns=tuple(_named(source, item) for item in arguments.columns),
                 join=arguments.join,
-                anchor_column=arguments.anchor_column,
+                anchor_column=(
+                    _named(source, arguments.anchor_column)
+                    if arguments.anchor_column is not None
+                    else None
+                ),
             )
             return _shaped(arguments, source, shaped, method=ALIGN_METHOD)
         shaped = filter_periods(
             source,
             start_period=arguments.start_period,
             end_period=arguments.end_period,
+            columns=arguments.columns,
         )
         return _shaped(arguments, source, shaped, method=FILTER_METHOD)
     except TableShapeRefused as error:
@@ -891,6 +1367,26 @@ def _changed(
             end.isoformat() for end in changed.largest_decrease
         ]
     parameters["highlighted_periods"] = highlighted
+    if arguments.kind == "percent":
+        try:
+            original = decode(source, arguments.column)
+        except SemanticsError:
+            pass  # A numeric ratio alone cannot establish missing source semantics.
+        else:
+            if original.cumulative is CumulativeKind.NONE:
+                carrier = declarations(source)
+                carrier[changed.label] = encode(
+                    replace_semantics(
+                        original,
+                        unit="percent",
+                        scale=Scale.ONE,
+                        observation=StockFlow.RATE,
+                        aggregation=Aggregation.UNKNOWN,
+                        base_year=None,
+                    ),
+                    column_id=changed.label,
+                )
+                parameters[KEY] = carrier
     return AnalyticalResult(
         result_id=(
             f"table_transform:change:{arguments.source}:{arguments.column}:"
@@ -914,6 +1410,20 @@ def _changed(
             *source.limitations,
             f"Only {changed.label} is new ({CHANGE_FORMULAS[arguments.kind]}); a period whose "
             "predecessor is missing has no change value, and existing columns are unchanged",
+            *(
+                # A balance's difference is how much the balance moved, net. It is not the
+                # period's new deposits or new lending, which a balance does not record.
+                [
+                    f"{changed.label} is the net change of a balance (closing minus the "
+                    "previous closing); it is not the gross amount newly deposited or lent"
+                ]
+                if arguments.kind == "difference"
+                and any(
+                    value.label == arguments.column and value.measure is StockFlow.STOCK
+                    for value in source.values
+                )
+                else []
+            ),
         ],
         unresolved_semantics=list(
             dict.fromkeys(
@@ -1004,8 +1514,15 @@ def _shaped(
     else:
         identity = (
             f"{arguments.start_period.isoformat() if arguments.start_period else '-'}:"
-            f"{arguments.end_period.isoformat() if arguments.end_period else '-'}"
+            f"{arguments.end_period.isoformat() if arguments.end_period else '-'}:"
+            f"{'|'.join(arguments.columns or ())}"
         )
+    # A narrowed range outlives the warnings about months it no longer holds: they
+    # read as limitations of this table, which they are not (finding L2-4). A warning
+    # that names no month is about the table itself and always travels.
+    inherited = [
+        item for item in source.warnings if not names_only_excluded_months(item, shaped.coverage)
+    ]
     return AnalyticalResult(
         result_id=f"table_transform:{arguments.operation}:{arguments.source}:{identity}",
         kind=source.kind,
@@ -1021,7 +1538,7 @@ def _shaped(
             transformations=[*previous, shaped.transformation],
             sources=list(source.evidence.sources) if source.evidence is not None else [],
         ),
-        warnings=[*source.warnings, *([warning] if shaped.dropped_non_period_values else [])],
+        warnings=[*inherited, *([warning] if shaped.dropped_non_period_values else [])],
         limitations=[
             *source.limitations,
             "Rows were selected by exact existing periods; no value was filled, interpolated, "
@@ -1197,7 +1714,7 @@ def _resampled(
     source: AnalyticalResult,
     semantics: SeriesSemantics,
 ) -> AnalyticalResult:
-    """The source table with a monthly copy of one weekly column."""
+    """A single-frequency monthly result; raw rows remain in upstream evidence."""
     result_id = f"table_transform:resample:{arguments.source}:{arguments.column}"
     column = [value for value in source.values if value.label == arguments.column]
     try:
@@ -1222,6 +1739,15 @@ def _resampled(
         )
     parameters = dict(source.parameters)
     parameters.update({"source": arguments.source, "resampled": arguments.column})
+    original = declarations(source).get(arguments.column)
+    artifact = original.get("artifact_id") if isinstance(original, dict) else None
+    parameters[KEY] = {
+        reduced.label: encode(
+            replace_semantics(semantics, frequency=Frequency.MONTHLY, anchor=None),
+            column_id=reduced.label,
+            artifact_id=artifact if isinstance(artifact, str) else None,
+        )
+    }
     warnings = list(source.warnings)
     if reduced.incomplete:
         warnings.append(
@@ -1229,16 +1755,30 @@ def _resampled(
             "their monthly value rests on fewer weeks or days and the coverage is recorded"
         )
     previous = source.evidence.transformations if source.evidence is not None else []
+    if not reduced.values:
+        return AnalyticalResult(
+            result_id=result_id,
+            kind=ResultKind.SERIES,
+            status=ResultStatus.INSUFFICIENT,
+            tool="table_transform",
+            method=RESAMPLE_METHOD,
+            reason="No monthly value could be produced from the source column",
+        )
+    monthly_coverage = Period(
+        start=min(value.period.start for value in reduced.values if value.period is not None),
+        end=max(value.period.end for value in reduced.values if value.period is not None),
+        frequency=Frequency.MONTHLY,
+    )
     return AnalyticalResult(
         result_id=result_id,
         kind=source.kind,
         status=ResultStatus.COMPUTED,
         tool="table_transform",
         method=RESAMPLE_METHOD,
-        values=[*source.values, *reduced.values],
-        coverage=source.coverage,
+        values=list(reduced.values),
+        coverage=monthly_coverage,
         parameters=parameters,
-        samples=source.samples,
+        samples=None,
         evidence=ResultEvidence(
             input_refs=[
                 *(
@@ -1254,9 +1794,71 @@ def _resampled(
         limitations=[
             *source.limitations,
             f"{reduced.label} is a monthly reduction by the series' declared aggregation; "
-            "the column it came from is unchanged beside it",
+            "the original finer-frequency column remains in upstream evidence",
         ],
         unresolved_semantics=list(source.unresolved_semantics),
+    )
+
+
+def _summarized(arguments: SummarizeArguments, source: AnalyticalResult) -> AnalyticalResult:
+    result_id = (
+        f"table_transform:summarize:{arguments.source}:{arguments.column}:{arguments.aggregation}"
+    )
+    if arguments.aggregation != arguments.requested_aggregation:
+        return AnalyticalResult(
+            result_id=result_id,
+            kind=ResultKind.LEVEL,
+            status=ResultStatus.ABSTAINED,
+            tool="table_transform",
+            method=SUMMARY_METHOD,
+            reason="A different aggregation cannot replace the user's requested metric",
+            parameters={"semantic_limitation": "aggregation_substitution"},
+        )
+    try:
+        summary = summarize_column(
+            source,
+            column_label=arguments.column,
+            aggregation=arguments.aggregation,
+            start_period=arguments.start_period,
+            end_period=arguments.end_period,
+        )
+    except SummaryRefused as error:
+        return AnalyticalResult(
+            result_id=result_id,
+            kind=ResultKind.LEVEL,
+            status=ResultStatus.ABSTAINED,
+            tool="table_transform",
+            method=SUMMARY_METHOD,
+            reason=str(error),
+            parameters={"semantic_limitation": "invalid_aggregation"}
+            if isinstance(error, InvalidAggregation)
+            else {},
+        )
+    refs, previous = _prior_evidence(source)
+    return AnalyticalResult(
+        result_id=result_id,
+        kind=ResultKind.LEVEL,
+        status=ResultStatus.COMPUTED,
+        tool="table_transform",
+        method=SUMMARY_METHOD,
+        values=list(summary.values),
+        coverage=summary.coverage,
+        samples=summary.samples,
+        parameters={
+            "source": arguments.source,
+            "column": arguments.column,
+            "aggregation": arguments.aggregation,
+            "requested_aggregation": arguments.requested_aggregation,
+            "start_period": arguments.start_period.isoformat() if arguments.start_period else None,
+            "end_period": arguments.end_period.isoformat() if arguments.end_period else None,
+        },
+        evidence=ResultEvidence(
+            input_refs=refs,
+            transformations=[*previous, summary.transformation],
+            sources=list(source.evidence.sources) if source.evidence is not None else [],
+        ),
+        warnings=list(source.warnings),
+        limitations=list(source.limitations),
     )
 
 
@@ -1326,7 +1928,11 @@ def _flowed(
 
 
 def _joined(
-    arguments: JoinTableArguments, source: AnalyticalResult, other: AnalyticalResult
+    arguments: JoinTableArguments,
+    source: AnalyticalResult,
+    other: AnalyticalResult,
+    *,
+    require_full_other: bool = False,
 ) -> AnalyticalResult:
     result_id = f"table_transform:join_table:{arguments.source}:{arguments.other}"
     try:
@@ -1342,6 +1948,19 @@ def _joined(
             method=JOIN_METHOD,
             reason=str(error),
         )
+    if require_full_other and len(joined.values) != len(other.values):
+        return AnalyticalResult(
+            result_id=result_id,
+            kind=ResultKind.SERIES,
+            status=ResultStatus.ABSTAINED,
+            tool="table_transform",
+            method=JOIN_METHOD,
+            reason=(
+                "The same-plan sibling table has values outside the exact-month join or "
+                "the selected columns. Its full result cannot be preserved; clarify or "
+                "separate the requested outputs"
+            ),
+        )
     series_names: dict[str, JsonValue] = {}
     for table in (source, other):
         known = table.parameters.get("series_names")
@@ -1353,6 +1972,10 @@ def _joined(
             "series_names": series_names,
             "source": arguments.source,
             "joined_table": joined.transformation.parameters,
+            KEY: {
+                **declarations(source),
+                **{k: v for k, v in declarations(other).items() if k in joined.columns},
+            },
         }
     )
     refs: list[str] = []

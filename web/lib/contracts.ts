@@ -156,7 +156,7 @@ export const proofSchema = z
           ),
     "Proof chain is inconsistent",
   );
-export const resultSchema = z
+const resultContentSchema = z
   .object({
     result_ref: ref,
     version: digest,
@@ -164,6 +164,13 @@ export const resultSchema = z
     claim_kind: z.string(),
     published: z.literal(true),
     cells: z.array(cellSchema).max(2048),
+    // Absent from a server older than the option; then nothing is hidden.
+    hidden_columns: z.array(z.string().max(240)).max(32).default([]),
+    // What each series in this result is called. A server that does not send it leaves
+    // the identities as they are, which is what every server did until 2026-09-21.
+    series_names: z
+      .record(z.string().max(240), z.string().max(240))
+      .default({}),
     proof: proofSchema,
   })
   .strict()
@@ -173,6 +180,9 @@ export const resultSchema = z
       result.proof.steps[0].result_version === result.version,
     "Proof must describe this exact result version",
   );
+export const resultSchema = resultContentSchema.safeExtend({
+  related: z.array(resultContentSchema).max(11).default([]),
+});
 const seriesChoiceSchema = z
   .object({
     series_id: z.string().min(1).max(200),
@@ -190,6 +200,7 @@ export const turnSchema = z
     answer: z
       .object({
         status: z.enum(["accepted", "qualified", "abstained"]),
+        needs_clarification: z.boolean().optional(),
         text: bounded,
         omitted_claims: z.number().int().nonnegative(),
         notices: z.array(bounded).max(16),
@@ -224,8 +235,8 @@ export const turnSchema = z
   .refine(
     (turn) =>
       !turn.answer?.result ||
-      (turn.state === "completed" && turn.answer.status === "accepted"),
-    "A published result requires an accepted completed turn",
+      (turn.state === "completed" && turn.answer.status !== "abstained"),
+    "A published result requires a completed turn that did not abstain",
   );
 
 export const healthSchema = z
@@ -315,12 +326,18 @@ export const savedSchema = z
                 "request_conflict",
                 "capacity",
                 "invalid_document",
+                "not_found",
+                "turn_interrupted",
+                "turn_not_sent",
               ])
               .optional(),
           })
           .strict(),
       )
-      .max(24),
+      // This tab's own record, not the server's policy: the per-conversation cap
+      // is the server's (`max_turns_per_session`, 100 here) and a fixed 24 here
+      // made a long chat unreadable after a reload.
+      .max(500),
   })
   .strict();
 export type Saved = z.infer<typeof savedSchema>;
@@ -345,13 +362,41 @@ export const conversationListSchema = z
     conversations: z.array(conversationSummarySchema).max(200),
   })
   .strict();
+export const traceConversationSummarySchema = conversationSummarySchema
+  .extend({ deleted: z.boolean() })
+  .strict();
+export const traceConversationListSchema = z
+  .object({
+    api_version: z.literal(1),
+    conversations: z.array(traceConversationSummarySchema).max(200),
+  })
+  .strict();
+export const conversationDeletedSchema = z
+  .object({ api_version: z.literal(1), deleted: z.literal(true) })
+  .strict();
+export const runsDeletedSchema = z
+  .object({
+    api_version: z.literal(1),
+    deleted_runs: z.number().int().nonnegative(),
+  })
+  .strict();
 export const storedMessageSchema = z
   .object({
     sequence: z.number().int().min(1),
     turn_id: ref,
     role: z.enum(["user", "assistant"]),
     text: bounded,
-    status: z.enum(["accepted", "qualified", "abstained"]).nullable(),
+    status: z
+      .enum([
+        "accepted",
+        "qualified",
+        "abstained",
+        "queued",
+        "running",
+        "completed",
+        "failed",
+      ])
+      .nullable(),
     result_ref: ref.nullable(),
     result_version: digest.nullable(),
     document_ref: ref.nullable(),
@@ -378,11 +423,28 @@ export const conversationDetailSchema = z
           .strict(),
       )
       .max(4),
+    // Titles the pending clarification offered, so a reopened chat can show them.
+    pending_offered: z.array(z.string().min(1).max(240)).max(12).default([]),
   })
   .strict();
 export type ConversationSummary = z.infer<typeof conversationSummarySchema>;
+export type TraceConversationSummary = z.infer<
+  typeof traceConversationSummarySchema
+>;
 export type ConversationDetail = z.infer<typeof conversationDetailSchema>;
 export type StoredMessage = z.infer<typeof storedMessageSchema>;
+
+export const runProgressSchema = z
+  .object({
+    api_version: z.literal(1),
+    run_id: ref,
+    status: z.enum(["running", "completed", "failed", "cancelled"]),
+    steps: z.number().int().nonnegative(),
+    stage: z.string().max(120).nullable(),
+    name: z.string().max(120).nullable(),
+  })
+  .strict();
+export type RunProgress = z.infer<typeof runProgressSchema>;
 
 export const runSummarySchema = z
   .object({
@@ -575,6 +637,8 @@ export const runtimeSettingsSchema = z
     disabled: z.array(z.string().max(60)).max(16),
     history_turns: z.number().int().min(0).max(64),
     max_history_turns: z.number().int().min(0).max(64),
+    models: z.array(z.string().max(200)).default([]),
+    model: z.string().max(200).nullable().optional(),
   })
   .strict();
 export type RuntimeSettings = z.infer<typeof runtimeSettingsSchema>;
@@ -645,6 +709,7 @@ export const knowledgeSeriesSchema = z
     reviewed_aliases: z.array(z.string().max(400)).max(400).optional(),
     reviewer_note: z.string().max(8192).nullable().optional(),
     search_text: z.string().max(16384).nullable().optional(),
+    geography: z.string().max(200).nullable().optional(),
   })
   .strict();
 export const knowledgeListSchema = z
@@ -655,7 +720,41 @@ export const knowledgeListSchema = z
     // Mirrors MAX_CATALOG_SERIES: a guard against a malformed body, not a catalog size.
     series: z.array(knowledgeSeriesSchema).max(10000),
     // Directory entries search finds and turns fetch on first use; absent on an older server.
-    listed_series: z.number().int().min(0).max(10000).optional(),
+    // Counts, not payloads (MAX_KNOWLEDGE_ENTRIES): the directory outgrows the catalogue.
+    listed_series: z.number().int().min(0).max(1_000_000).optional(),
+    total: z.number().int().min(0).max(1_000_000).nullable().optional(),
+    page: z.number().int().min(1).nullable().optional(),
+    page_size: z.number().int().min(1).max(100).nullable().optional(),
+    counts: z.record(z.string(), z.number().int().min(0)).nullable().optional(),
+    provinces: z.array(z.string().max(200)).max(128).optional(),
+    // Whether this installation takes catalogue notes (the operator's
+    // --allow-catalog-edits). Absent on an older server: read as not editable,
+    // as an absent capability is everywhere else on the page.
+    catalog_editable: z.boolean().optional(),
+  })
+  .strict();
+/**
+ * Where one version's numbers were read, when a conversation saved it: the
+ * address (scheme, host and path; the query is never kept) or an uploaded
+ * document, when it was read, and the place inside the document. A version
+ * typed into the form has none, and an older server sends none.
+ */
+export const datasetSourceSchema = z
+  .object({
+    kind: z.enum(["address", "upload"]),
+    url: z.string().max(512).nullable().optional(),
+    read_at: moment.nullable().optional(),
+    sha256: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .nullable()
+      .optional(),
+    document: z.string().max(40).nullable().optional(),
+    page: z.number().int().positive().nullable().optional(),
+    table: z.number().int().positive().nullable().optional(),
+    sheet: z.string().max(120).nullable().optional(),
+    period_column: z.string().max(120).nullable().optional(),
+    value_column: z.string().max(120).nullable().optional(),
   })
   .strict();
 export const datasetDetailSchema = z
@@ -686,12 +785,15 @@ export const datasetDetailSchema = z
             observations: z.number().int().nonnegative(),
             content_sha256: z.string().regex(/^[a-f0-9]{64}$/),
             created_at: moment,
+            source: datasetSourceSchema.nullable().optional(),
           })
           .strict(),
       )
       .max(500),
+    source: datasetSourceSchema.nullable().optional(),
   })
   .strict();
+export type DatasetSource = z.infer<typeof datasetSourceSchema>;
 export const noteHistorySchema = z
   .object({
     api_version: z.literal(1),
@@ -705,6 +807,9 @@ export const noteHistorySchema = z
             aliases: z.array(z.string().max(120)).max(10),
             note: z.string().max(1000).nullable(),
             created_at: moment,
+            // Whether this browser's key wrote the version; null when the row
+            // has no author, absent on an older server. Never an owner id.
+            by_you: z.boolean().nullable().optional(),
           })
           .strict(),
       )

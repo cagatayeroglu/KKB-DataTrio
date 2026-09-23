@@ -14,7 +14,7 @@ from kkb_agent.catalog.mappings import (
     ReviewedSnapshot,
     series_display_name,
 )
-from kkb_agent.catalog.records import CatalogStatus, CoverageRange
+from kkb_agent.catalog.records import CatalogRecord, CatalogStatus, CoverageRange
 from kkb_agent.core import Aggregation, CumulativeKind, Frequency, Scale, StockFlow, WeeklyAnchor
 from kkb_agent.core.models import ContractModel
 from kkb_agent.lakehouse.result_evidence import canonical
@@ -38,6 +38,26 @@ class InspectionRefused(ValueError):
     """Safe category/field names, no source text, values or locators."""
 
 
+def unresolved_read_fields(record: CatalogRecord) -> tuple[str, ...]:
+    """Required read semantics; completeness is not identity or availability evidence."""
+    unknown = [
+        name
+        for name, value in (
+            ("unit", record.unit),
+            ("scale", record.scale.value),
+            ("frequency", record.frequency.value),
+            ("observation", record.stock_flow.value),
+            ("cumulative", record.cumulative.value),
+        )
+        if value is None or value == "unknown"
+    ]
+    if record.frequency is Frequency.WEEKLY and record.weekly_anchor is None:
+        unknown.append("anchor")
+    if record.stock_flow is StockFlow.INDEX and record.base_year is None:
+        unknown.append("base_year")
+    return tuple(unknown)
+
+
 class SeriesInspection(ContractModel):
     series_id: str = Field(min_length=1, max_length=200)
     status: InspectionStatus
@@ -55,8 +75,12 @@ class SeriesInspection(ContractModel):
 
     def require_consistent(self) -> None:
         if self.status != "consistent":
+            # The identity is named: this text is what a refused step hands back to the
+            # planner, and "Series inspection refused: unresolved_catalog (cumulative)"
+            # told it neither which series had been refused nor that another catalogue
+            # candidate would do (live 2026-09-21, nine minutes and no recovery).
             raise InspectionRefused(
-                "Series inspection refused: "
+                f"Series inspection refused for {self.series_id!r}: "
                 + self.status
                 + (
                     " (" + ", ".join(self.unknown_fields or self.mismatch_fields) + ")"
@@ -149,11 +173,7 @@ class PreparedSeriesInspector:
             "observation": record.stock_flow.value,
             "cumulative": record.cumulative.value,
         }
-        unknown = [name for name, value in expected.items() if value is None or value == "unknown"]
-        if record.frequency is Frequency.WEEKLY and record.weekly_anchor is None:
-            unknown.append("anchor")
-        if record.stock_flow is StockFlow.INDEX and record.base_year is None:
-            unknown.append("base_year")
+        unknown = unresolved_read_fields(record)
         if unknown:
             result.status = "unresolved_catalog"
             result.unknown_fields = tuple(unknown)

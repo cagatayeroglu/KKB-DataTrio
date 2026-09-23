@@ -148,6 +148,10 @@ def project_reply(reply: SearchReply, request: SearchRequest) -> WebSearchOutput
     )
 
 
+#: The pause before an empty result page is asked for once more.
+EMPTY_RETRY_SECONDS = 1.5
+
+
 def _failure(code: SearchCode) -> WebSearchOutput:
     return WebSearchOutput(status="failed", code=code)
 
@@ -160,6 +164,13 @@ def _worker(backend: SearchBackend, request: SearchRequest, output: Path) -> Non
         try:
             try:
                 reply = backend.search(request)
+                if type(reply) is SearchReply and not reply.hits:
+                    # A metasearch instance whose engines were cold answers an empty page
+                    # and a full one a second later (live 2026-09-21: "no_results" for a
+                    # query that returned 42 hits when asked again). Asked once more,
+                    # inside the same deadline; an empty second answer is the answer.
+                    time.sleep(EMPTY_RETRY_SECONDS)
+                    reply = backend.search(request)
             except TimeoutError:
                 result = _failure(SearchCode.BACKEND_TIMEOUT)
             except Exception:
@@ -263,11 +274,13 @@ def make_web_search_tool(*, backend: SearchBackend, timeout_seconds: float = 5.0
         name="web_search",
         description=(
             "Public-page discovery using the operator-configured SearchBackend. "
-            "Returns bounded ranked untrusted metadata, not verified factual or numeric evidence. "
-            "URLs are redacted display locators; search does not fetch pages or authorize web_url. "
-            "web_url can fetch only an exact address the user wrote in the original question. "
-            "Use it to find where data is published: the person is shown the candidates as an "
-            "unverified list and can write an address into a question for web_url to read."
+            "Returns bounded ranked untrusted metadata, not verified factual or numeric evidence, "
+            "and fetches no page itself. To read a page it found, add a web_url step with "
+            "found_by=<this step's id> and result=<which hit>: the address is taken from "
+            "what the search returned, never written out. "
+            "When the question gives a web address, read that address with web_url first; "
+            "search only if it is insufficient. The person is shown the candidates as an "
+            "unverified list, beside any computed answer."
         ),
         arguments=SearchRequest,
         run=run,

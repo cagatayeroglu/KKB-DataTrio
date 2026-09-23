@@ -33,6 +33,7 @@ from kkb_agent.ingest.prepared_series import prepared_series_names
 from kkb_agent.lakehouse.records import Observation
 from kkb_agent.lakehouse.semantics import SeriesSemantics
 from kkb_agent.llm import scripted
+from kkb_agent.llm.provider import Role
 from kkb_agent.tools import make_change_detection_tool, make_table_transform_tool
 from kkb_agent.tools.table_transform import TableTransformArguments
 
@@ -184,6 +185,28 @@ def tool(lake, workspace):
     )
 
 
+def test_a_column_the_reader_asked_to_convert_is_kept_in_the_record_and_not_shown(pool):
+    # "Tabloyu bozmadan sadece konut kredisi tutarlarını enflasyondan arındır" asks for the
+    # column converted, where the next question says "yeni bir sütun olarak". The nominal
+    # column stays in the result - the proof and the next step read it - and the reader's
+    # table and chart show the real one in its place. Which was meant is the planner's call.
+    from kkb_agent.agent.verifier import result_faults
+    from kkb_agent.api.projection import project_result
+
+    lake, workspace = pool
+    source = workspace.value_of("konut_kredisi_ve_faiz")
+    kept = tool(lake, workspace).run(transform(), ExecutionContext("turn 2")).output
+    assert "hidden_columns" not in kept.parameters
+    result = tool(lake, workspace).run(transform(replace=True), ExecutionContext("turn 2")).output
+    assert result.status is ResultStatus.COMPUTED
+    assert result.values[: len(source.values)] == source.values  # nothing was removed
+    assert result.parameters["hidden_columns"] == [TOTAL_ID]
+    assert result_faults({"real": result}, lake.connection) == {}
+    shown = project_result(result, turn_id="0" * 32)
+    assert shown.hidden_columns == (TOTAL_ID,)
+    assert any(cell.label == TOTAL_ID for cell in shown.cells)
+
+
 def test_deflate_keeps_every_published_value_and_adds_one_column(pool):
     lake, workspace = pool
     source = workspace.value_of("konut_kredisi_ve_faiz")
@@ -267,9 +290,23 @@ def test_turn_two_end_to_end_is_accepted_published_and_keeps_turn_one(pool):
     assert table.columns[-1].endswith(
         "real, 2021-06 prices (TÜFE genel endeksi (2025=100), TÜİK, aylık)"
     )
-    planner_messages = [m.content for m in session.provider.seen[0]]
-    assert any("Results published in earlier turns" in m for m in planner_messages)
-    assert any("table_transform" in m for m in planner_messages)
+    planner_calls = [
+        call
+        for call in session.provider.seen
+        if any(
+            message.role is Role.SYSTEM
+            and "konut_kredisi_ve_faiz: produced by" in message.content
+            and "column labels:" in message.content
+            for message in call
+        )
+    ]
+    assert len(planner_calls) == 1
+    planner_messages = [message.content for message in planner_calls[0]]
+    assert any(
+        "coverage 2021-02-01..2021-06-30" in message and TOTAL_ID in message
+        for message in planner_messages
+    )
+    assert any("table_transform" in message for message in planner_messages)
     # Turn 1's published result is unchanged.
     assert workspace.value_of("konut_kredisi_ve_faiz").tool == "analytics"
 
@@ -361,7 +398,9 @@ def test_turn_two_quotes_bind_once_the_transform_supersedes_its_source(pool):
     assert "[konut_kredisi_ve_faiz_reel]" in writer_context
     assert "[konut_kredisi_ve_faiz]" not in writer_context
     assert workspace.names() == ["konut_kredisi_ve_faiz", "konut_kredisi_ve_faiz_reel"]
-    assert "second date" in session.provider.seen[1][0].content
+    assert "price-reference date separate from a different period's figure" in (
+        session.provider.seen[1][0].content
+    )
 
 
 def test_period_range_headers_qualify_list_items_and_still_check_the_period(pool):
@@ -377,3 +416,50 @@ def test_period_range_headers_qualify_list_items_and_still_check_the_period(pool
     assert gate_answer(listed, available, lake.connection).status is AnswerStatus.ACCEPTED
     wrong = "Öne çıkan dönemler: 2021-03-01..2021-03-31: 1.055,75 milyon TL."
     assert gate_answer(wrong, available, lake.connection).status is not AnswerStatus.ACCEPTED
+
+
+def test_a_price_index_is_deflated_into_a_real_index():
+    """The organizer's third question asks how real house prices moved.
+
+    Deflating the housing price index by the CPI is that measure, and it was refused as
+    "not a currency-denominated stock or flow" while no other operation could produce it
+    (live 2026-09-22). The arithmetic is the one deflation already does; what changes is
+    which columns it will do it for.
+    """
+    from kkb_agent.analytics.deflation import DeflationRefused, deflate
+
+    index_values = credit_column(
+        [100.0 + number * 10 for number in range(len(MONTHS))],
+        label="EVDS:TP.KFE.TR",
+        unit="index",
+        scale=Scale.ONE,
+        measure=StockFlow.INDEX,
+    )
+    real = deflate(
+        index_values,
+        index(),
+        CPI_SEMANTICS,
+        column_label="EVDS:TP.KFE.TR",
+        index_id=CPI_ID,
+        reference_end=MONTHS[-1],
+    )
+    assert "real, deflated by" in real.label and CPI_ID in real.label
+    assert len(real.values) == len(index_values)
+    assert all(value.measure is StockFlow.INDEX for value in real.values)
+    # The last month is the reference, so its real value is its nominal value.
+    assert real.values[-1].value == pytest.approx(index_values[-1].value)
+
+    # A rate divided by a price level measures nothing, and is still refused.
+    rates = [
+        value.model_copy(update={"unit": "percent", "scale": Scale.ONE, "measure": StockFlow.RATE})
+        for value in index_values
+    ]
+    with pytest.raises(DeflationRefused, match="neither a currency"):
+        deflate(
+            rates,
+            index(),
+            CPI_SEMANTICS,
+            column_label="faiz",
+            index_id=CPI_ID,
+            reference_end=MONTHS[-1],
+        )

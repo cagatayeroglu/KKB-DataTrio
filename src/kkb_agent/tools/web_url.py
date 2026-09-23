@@ -10,13 +10,10 @@ with a fixed code.
 Three rules carry the security weight, and each is enforced here rather than
 asked of the model:
 
-1. **Only an address the user wrote.** The URL argument must be one of the
-   addresses in the question, character for character. A link inside a
-   fetched document, or one a model decides would be useful, cannot become a
-   request — so a cell saying "now fetch https://attacker/?data=..." has
-   nowhere to send anything. The check reads `ExecutionContext.question`,
-   which `Session` fills with the user's own words; a caller building its own
-   context must do the same, never pass a plan's restated question.
+1. **Explicit address authority.** A URL must come from the user's question or
+   an actual search result in this turn. A fetched page delegates only its recorded
+   same-origin links, at most one hop. `read_from` consumes that actual output;
+   model-generated or unrelated addresses never acquire authority.
 2. **One fetch boundary.** Every request goes through `safe_fetch`: public
    destinations only, DNS bound to the socket, bounded bytes and time, and
    bounded redirects with fresh validation/binding at every hop; no TLS downgrade.
@@ -28,9 +25,9 @@ What comes back is a table or a document. It becomes an answer only when the
 planner names one cell by its column header and row label (M7-18): then the
 output also carries a `LEVEL` `AnalyticalResult` for that cell, which
 `collect_results` finds and the answer gate binds like any other result. The
-unit, scale and period rules live in `_document_value`; without a selection
-nothing is read out of the content. The content is not persisted; retention
-permission is still an open question.
+unit, scale and period rules live in `_document_value`; without a selection the
+harness may inspect the document in a bounded continuation and show an explicitly
+unverified reading. Operator-configured retention uses the existing admission boundary.
 
 Registering the tool is the operator's switch: nothing registers it by
 default while the organizer's URL policy (Q-NET-02) is unanswered.
@@ -43,26 +40,35 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Annotated, Literal
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, StringConstraints, model_validator
 
-from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
+from kkb_agent.agent.executor import (
+    ExecutionContext,
+    ExecutionOutcome,
+    ToolResult,
+    ToolStatus,
+)
 from kkb_agent.agent.registry import ToolSpec
 from kkb_agent.catalog.normalization import normalize_search_text
 from kkb_agent.core import AnalyticalResult, Scale, SourceRef
 from kkb_agent.csv_loader import CsvLoadResult, CsvTable
 from kkb_agent.html_loader import HtmlDocument, HtmlLoadResult
 from kkb_agent.ingest.attached import Attachment
+from kkb_agent.ingest.bist_index_semantics import bist_index_close_metrics
 from kkb_agent.ingest.fetched import (
-    DOCUMENT_MEDIA_TYPES,
+    FETCHED_MEDIA_TYPES,
+    PLAIN_TEXT_NOT_A_TABLE,
     fetched_source,
+    kept_media_type,
     load_document,
     load_fetched,
     source_id_for,
 )
 from kkb_agent.ingest.json_table import MEDIA_TYPE as JSON_MEDIA_TYPE
 from kkb_agent.ingest.json_table import JsonRejected, RecordTable, load_records
-from kkb_agent.ingest.page_links import LinkRefused, choose_link, page_links
+from kkb_agent.ingest.page_links import LinkRefused, PageLink, choose_link, page_links
 from kkb_agent.ingest.safe_fetch import (
     FetchFailure,
     FetchOutcome,
@@ -70,6 +76,7 @@ from kkb_agent.ingest.safe_fetch import (
     FetchSuccess,
     safe_fetch,
 )
+from kkb_agent.ingest.script_navigation import ScriptedLinks, script_links
 from kkb_agent.ingestion_policy import MIME_TYPES, AdmissionError, FileKind
 from kkb_agent.lakehouse.lineage import Lineage, NodeKind
 from kkb_agent.lakehouse.result_evidence import _record_execution, canonical
@@ -149,6 +156,22 @@ class WebUrlArguments(BaseModel):
         default=False,
         description="true to read a document uploaded in this conversation instead of a url",
     )
+    found_by: str | None = Field(
+        default=None,
+        pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
+        description=(
+            "Instead of url: the step_id of a completed web_search result, to read one of "
+            "the pages it found. Say which with `result`. "
+            "Use this rather than writing an address out of a search result: the address is "
+            "taken from what the search returned, so it is the page that was found"
+        ),
+    )
+    result: int = Field(
+        default=1,
+        ge=1,
+        le=10,
+        description="With found_by: which hit to read, 1 for the first the search returned",
+    )
     follow: str | None = Field(
         default=None,
         min_length=1,
@@ -157,6 +180,15 @@ class WebUrlArguments(BaseModel):
             "With url: the visible text or file name of a link on that page to read instead, "
             "such as 'Altın İşlemleri' or 'kmp_au.pdf'. Only a link on the same site is "
             "followed, one hop; the address itself always comes from the page"
+        ),
+    )
+    read_from: str | None = Field(
+        default=None,
+        pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
+        description=(
+            "With follow: the step_id of an already fetched web_url page. "
+            "Follow only a link recorded in that page. "
+            "Not a way to look inside a document you already have: that is inspect."
         ),
     )
     document: str | None = Field(
@@ -214,8 +246,9 @@ class WebUrlArguments(BaseModel):
         min_length=1,
         max_length=256,
         description=(
-            "To build a monthly table: the header of the column holding the months, as the "
-            "user named it. Needs value_columns."
+            "To build a table: the header of the column holding the periods, as the user "
+            "named it. A column of months publishes monthly rows and a column of single "
+            "days publishes daily rows, as the document dates them. Needs value_columns."
         ),
     )
     value_columns: list[Annotated[str, StringConstraints(min_length=1, max_length=256)]] | None = (
@@ -233,8 +266,9 @@ class WebUrlArguments(BaseModel):
     daily_to_monthly: Literal["last", "mean", "sum"] | None = Field(
         default=None,
         description=(
-            "With period_column when the rows are days: how each complete month is formed, only "
-            "as the user asked ('ay sonu' -> last, 'ortalama' -> mean, 'aylık toplam' -> sum)"
+            "Only when the rows are days and the user asked for months: how each complete "
+            "month is formed, in the user's own words ('ay sonu' -> last, 'ortalama' -> mean, "
+            "'aylık toplam' -> sum). Left out, the days publish as daily rows"
         ),
     )
     column_units: (
@@ -255,12 +289,52 @@ class WebUrlArguments(BaseModel):
 
     @model_validator(mode="after")
     def _column_and_row_together(self) -> WebUrlArguments:
-        if (self.url is None) == (not self.attached):
-            raise ValueError("give either url or attached=true, not both or neither")
+        sources = sum(
+            (
+                self.url is not None,
+                self.attached,
+                self.found_by is not None,
+                self.read_from is not None,
+            )
+        )
+        if sources != 1:
+            given = [
+                name
+                for name, present in (
+                    ("url", self.url is not None),
+                    ("attached", self.attached),
+                    ("found_by", self.found_by is not None),
+                    ("read_from", self.read_from is not None),
+                )
+                if present
+            ]
+            # Said with the way that works: live 2026-09-23 (TCMB 2024 announcements) the
+            # model followed a link of a page it had read with url, read_from and follow
+            # together, and spent a round learning only that one of them was too many.
+            follow = (
+                " To follow a link of a page read earlier, give read_from (that read's id) "
+                "and follow only: the page's own address is already that read's."
+                if self.read_from is not None and self.url is not None
+                else ""
+            )
+            raise ValueError(
+                "give exactly one of url, attached=true, found_by or read_from"
+                + (f"; this call gave {', '.join(given)}." if given else ".")
+                + follow
+            )
+        if self.read_from is not None and self.follow is None:
+            # Said with the way that works: live 2026-09-23 the model sent eight of these,
+            # one per month, to take cells from a PDF it had already read, and spent its
+            # budget learning only that this was not how (QA-A3).
+            raise ValueError(
+                "read_from needs a follow target from the fetched page. To read a page, a "
+                "table or rows of a document you already fetched, use inspect with "
+                "source=<its id> (page=N, table=J); web_url fetches, it does not re-read"
+            )
         if self.document is not None and not self.attached:
             raise ValueError("document names an upload; it needs attached=true")
-        if self.follow is not None and self.url is None:
-            raise ValueError("follow names a link on the page at url")
+        if self.follow is not None and self.attached:
+            raise ValueError("follow names a link on a page, not in an uploaded document")
         if (self.period_column is None) != (self.value_columns is None):
             raise ValueError("period_column and value_columns build a table together")
         if self.period_column is not None and self.column is not None:
@@ -296,6 +370,25 @@ def choose_document(
     if len(library) == 1:
         return next(iter(library.values()))
     return "DOCUMENT_NOT_NAMED" if library else "NO_ATTACHMENT"
+
+
+def library_name(chosen: Attachment, library: Mapping[str, Attachment]) -> str | None:
+    """The conversation's name for a chosen document, matched by the hash of its bytes.
+
+    Identity was enough while the library was a copy made at the start of the turn. A
+    library read when a tool asks (QA-29) returns each document freshly re-read, so
+    `is` never matched and a save of the question's attachment named no document. A
+    conversation admits a given set of bytes once, so the hash names one document.
+    """
+    digest = chosen.source.content_hash
+    return next(
+        (
+            label
+            for label, item in library.items()
+            if item is chosen or (digest is not None and item.source.content_hash == digest)
+        ),
+        None,
+    )
 
 
 def declared_units(
@@ -339,6 +432,34 @@ class WebUrlOutput:
     document: PdfDocument | HtmlDocument | None = field(default=None, repr=False)
     #: The selected cell as a result, when the planner named one (M7-18).
     result: AnalyticalResult | None = field(default=None, repr=False)
+    links: tuple[PageLink, ...] = field(default=(), repr=False)
+    followed: bool = False
+    #: With `followed`: the visible text (or file name) of the link that was followed and the
+    #: page it sat on, scheme, host and path only. Live 2026-09-22 (N46): a reading of a
+    #: followed press release said no link had needed following, because nothing it was
+    #: shown said how the document was reached.
+    followed_text: str | None = field(default=None, repr=False)
+    followed_from: str | None = field(default=None, repr=False)
+    #: Functions this page's markup calls with literal arguments whose target its
+    #: same-origin script does not spell out statically (`ingest.script_navigation`).
+    #: Said so, rather than guessed: nothing is evaluated.
+    unresolved_navigation: tuple[str, ...] = ()
+    #: Scripted targets read and then refused for leaving the page's authority.
+    refused_navigation: int = 0
+    #: The name the conversation now keeps this document under (belge_N), which every
+    #: tool working on the conversation's documents takes. None when it was not kept.
+    kept_as: str | None = None
+
+
+def _link_name(link: PageLink) -> str:
+    """What a link is called on its page: its visible text, else its file name."""
+    return link.text or unquote(urlsplit(link.url).path.rsplit("/", 1)[-1])
+
+
+def _page_locator(url: str) -> str:
+    """Scheme, host and path of a page, without the query or fragment a token may sit in."""
+    parts = urlsplit(url)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path or "/", "", ""))
 
 
 @dataclass(frozen=True)
@@ -376,6 +497,53 @@ def read_attachment(
     return _loaded(loaded, source, attachment.media_type)
 
 
+def _found_address(context: ExecutionContext, step_id: str, rank: int) -> str | None:
+    """The address a web_search step of this plan returned at `rank`, or None.
+
+    The planner names the hit, never the address: asked to read what a search found, it
+    wrote a TCMB address from memory instead of the one the search had returned, and the
+    read was refused as an address nobody had asked for (live 2026-09-22). A redacted
+    locator is not offered, because it no longer names the page that was found.
+    """
+    output = context.outputs.get(step_id)
+    hits = [
+        candidate
+        for candidate in (getattr(output, "candidates", ()) or ())
+        if not getattr(candidate, "locator_redacted", True)
+    ]
+    return str(hits[rank - 1].url) if 0 < rank <= len(hits) else None
+
+
+def _required_steps(arguments: BaseModel) -> tuple[str, ...]:
+    """The earlier search or fetched page whose authority this read consumes."""
+    if isinstance(arguments, WebUrlArguments) and arguments.read_from is not None:
+        return (arguments.read_from,)
+    if isinstance(arguments, WebUrlArguments) and arguments.found_by is not None:
+        return (arguments.found_by,)
+    return ()
+
+
+def searched_addresses(source: ExecutionContext | ExecutionOutcome) -> frozenset[str]:
+    """Addresses this turn's own web_search steps returned whole.
+
+    Read from the context the executor filled (a search earlier in the same plan) or from
+    a finished discovery outcome (a search in the round before this one). A redacted
+    locator is left out: its query string was dropped for display, so it no longer names
+    the resource the hit named.
+    """
+    if isinstance(source, ExecutionContext):
+        found: set[str] = set(source.searched)
+        outputs: list[object] = list(source.outputs.values())
+    else:
+        found = set()
+        outputs = [item.output for item in source.results if item.status is ToolStatus.SUCCESS]
+    for output in outputs:
+        for candidate in getattr(output, "candidates", ()) or ():
+            if not getattr(candidate, "locator_redacted", True):
+                found.add(str(candidate.url))
+    return frozenset(found)
+
+
 def read_document(
     url: str,
     question: str,
@@ -387,17 +555,23 @@ def read_document(
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     follow: str | None = None,
     endpoints: Mapping[str, str] | None = None,
+    keep: Callable[[str, bytes, str], str | None] | None = None,
+    searched: frozenset[str] = frozenset(),
+    delegated: bool = False,
 ) -> DocumentRead:
     """The prompt-address boundary every document reader shares (M7-17, M7-14).
 
-    `question` must be the user's own words: only an address written there is
-    requested, through `fetch`, and the bytes meet the upload admission rules.
+    `question` must be the user's own words: an address written there is requested,
+    through `fetch`, and the bytes meet the upload admission rules. `searched` adds the
+    addresses a web_search step of this same turn returned whole - the person asked for
+    the search and for what it finds - and nothing else ever widens the set: a fetched
+    page's own content cannot name the next request.
     With `follow`, that page is read for its links and the one same-site link
     matching the name is requested instead (see `ingest.page_links`); the
     address always comes from the page bytes, never from the planner.
     A loaded result always carries its source; nothing is recorded here.
     """
-    if url not in addresses_in(question):
+    if url not in set(addresses_in(question)) | searched:
         return DocumentRead(WebUrlOutput("rejected", "URL_NOT_IN_QUESTION"), "url_not_in_question")
     if follow is not None and ENDPOINT_NAME.fullmatch(follow):
         # A data endpoint named in this turn's page outline; the address came from the
@@ -426,6 +600,7 @@ def read_document(
                 WebUrlOutput("rejected", error.code, source, JSON_MEDIA_TYPE), "not_admitted"
             )
         return DocumentRead(WebUrlOutput("loaded", None, source, JSON_MEDIA_TYPE, table=records))
+    via: tuple[str, str] | None = None
     if follow is not None:
         page = fetch(
             FetchRequest(
@@ -442,19 +617,30 @@ def read_document(
         base = (
             page.effective_locator.get_secret_value() if page.effective_locator is not None else url
         )
+        scripted = script_links(page.content, base, fetch)
         try:
-            link = choose_link(page_links(page.content, base), follow)
+            link = choose_link((*page_links(page.content, base), *scripted.links), follow)
         except LinkRefused as error:
-            return DocumentRead(WebUrlOutput("needs_input", error.code), "needs_input")
+            return DocumentRead(
+                WebUrlOutput(
+                    "needs_input",
+                    error.code,
+                    unresolved_navigation=scripted.unresolved,
+                    refused_navigation=scripted.refused,
+                ),
+                "needs_input",
+            )
         url = link.url
+        via = (_link_name(link), _page_locator(base))
 
     outcome = fetch(
         FetchRequest(
             source_ref=source_id_for(url),
             url=SecretStr(url),
-            accepted_media_types=DOCUMENT_MEDIA_TYPES,
+            # Plain text too, read only as a CSV that proves to be one (QA-33).
+            accepted_media_types=FETCHED_MEDIA_TYPES,
             # Following a link is delegated authority: it may not leave the page's origin.
-            stay_within_origin=follow is not None,
+            stay_within_origin=follow is not None or delegated,
         )
     )
     if isinstance(outcome, FetchFailure):
@@ -475,7 +661,37 @@ def read_document(
             WebUrlOutput("rejected", error.code.value, source, outcome.media_type), "not_admitted"
         )
 
-    return _loaded(loaded, source, outcome.media_type)
+    # Plain text that loaded as a table is a CSV from here on; anything else keeps its type.
+    media_type = kept_media_type(outcome.media_type, loaded)
+    kept_as = None
+    if keep is not None:
+        # The same bytes this turn just read, offered once to the conversation's
+        # documents so that keeping them later costs no second download (DEC-183).
+        # Admission - media type, size, hash, capacity - is unchanged and decides.
+        kept_as = keep(media_type, outcome.content, source.locator)
+    read = _loaded(loaded, source, media_type)
+    if kept_as is not None:
+        read = replace(read, output=replace(read.output, kept_as=kept_as))
+    if read.failure is None:
+        listing = isinstance(read.output.document, HtmlDocument) and follow is None
+        scripted = (
+            script_links(outcome.content, source.locator, fetch) if listing else ScriptedLinks()
+        )
+        read = replace(
+            read,
+            output=replace(
+                read.output,
+                links=(*page_links(outcome.content, source.locator), *scripted.links)
+                if listing
+                else (),
+                unresolved_navigation=scripted.unresolved,
+                refused_navigation=scripted.refused,
+                followed=follow is not None,
+                followed_text=via[0] if via is not None else None,
+                followed_from=via[1] if via is not None else None,
+            ),
+        )
+    return read
 
 
 def _loaded(
@@ -512,6 +728,7 @@ def make_web_url_tool(
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     library: Mapping[str, Attachment] | None = None,
     endpoints: Mapping[str, str] | None = None,
+    keep: Callable[[str, bytes, str], str | None] | None = None,
 ) -> ToolSpec:
     """Bind the tool to a fetch boundary: the real `safe_fetch` unless a test substitutes it.
 
@@ -519,7 +736,8 @@ def make_web_url_tool(
     user uploaded with this question (M10-04), if any; `library` holds every
     document admitted in the conversation by server-owned name.
     """
-    documents = dict(library or {})
+    # Read when a call runs: a document admitted during this turn is one of them then.
+    documents: Mapping[str, Attachment] = library if library is not None else {}
 
     def run(arguments: BaseModel, context: ExecutionContext) -> ToolResult:
         # The registry parses arguments before dispatch, so this is a contract
@@ -536,11 +754,55 @@ def make_web_url_tool(
             read = read_attachment(
                 chosen, delimiter=arguments.delimiter, sheet=arguments.sheet, ocr=ocr
             )
-        elif fetch is None or arguments.url is None:
+        elif fetch is None:
             return _failed("fetch_failed", WebUrlOutput("rejected", "NETWORK_DISABLED"))
-        else:
+        elif arguments.read_from is not None:
+            parent = context.outputs.get(arguments.read_from)
+            if not isinstance(parent, WebUrlOutput) or parent.status != "loaded" or parent.followed:
+                return _failed(
+                    "navigation_refused", WebUrlOutput("rejected", "FOLLOW_SOURCE_INVALID")
+                )
+            try:
+                target = choose_link(parent.links, arguments.follow or "")
+            except LinkRefused as error:
+                return _failed("navigation_refused", WebUrlOutput("rejected", error.code))
             read = read_document(
-                arguments.url,
+                target.url,
+                context.question,
+                fetch=fetch,
+                delimiter=arguments.delimiter,
+                sheet=arguments.sheet,
+                ocr=ocr,
+                clock=clock,
+                keep=keep,
+                searched=frozenset({target.url}),
+                delegated=True,
+            )
+            read = replace(
+                read,
+                output=replace(
+                    read.output,
+                    followed=True,
+                    links=(),
+                    followed_text=_link_name(target),
+                    followed_from=(
+                        _page_locator(parent.source.locator) if parent.source is not None else None
+                    ),
+                ),
+            )
+        else:
+            address = arguments.url
+            if arguments.found_by is not None:
+                address = _found_address(context, arguments.found_by, arguments.result)
+                if address is None:
+                    return _failed(
+                        "needs_input",
+                        WebUrlOutput("rejected", "SEARCH_RESULT_NOT_FOUND"),
+                    )
+            if address is None:  # pragma: no cover - the validator admits no third case
+                return _failed("fetch_failed", WebUrlOutput("rejected", "NETWORK_DISABLED"))
+            read = read_document(
+                address,
                 context.question,
                 fetch=fetch,
                 delimiter=arguments.delimiter,
@@ -549,6 +811,8 @@ def make_web_url_tool(
                 clock=clock,
                 follow=arguments.follow,
                 endpoints=endpoints,
+                keep=keep,
+                searched=searched_addresses(context),
             )
         if read.failure is not None:
             return _failed(read.failure, read.output, extra=read.reasons)
@@ -583,6 +847,19 @@ def make_web_url_tool(
                 )
 
             try:
+                reviewed_metrics = (
+                    bist_index_close_metrics(arguments.url, endpoint, output.table)
+                    if arguments.url is not None
+                    and arguments.follow is not None
+                    and ENDPOINT_NAME.fullmatch(arguments.follow)
+                    and arguments.period_column == "hisTs"
+                    and rule in ("last", "mean")
+                    and (endpoint := (endpoints or {}).get(arguments.follow)) is not None
+                    and isinstance(output.table, RecordTable)
+                    and source.source_id == source_id_for(endpoint)
+                    and media_type == JSON_MEDIA_TYPE
+                    else {}
+                )
                 table = (
                     read_daily_table(
                         grids(output.table, output.document),
@@ -592,6 +869,7 @@ def make_web_url_tool(
                         as_of=as_of(source),
                         is_series=is_series,
                         declared_units=units,
+                        reviewed_metrics=reviewed_metrics,
                     )
                     if rule is not None
                     else read_table(
@@ -677,7 +955,10 @@ def make_web_url_tool(
         description=(
             "Read CSV/XLSX tables, PDF text/ruled tables, or static HTML text/tables from a "
             "web address the user wrote in the question. Pass the address exactly as "
-            "written; any other address is refused. PDF tables may be ruled or set out with "
+            "written; any other address is refused. To read a page a completed web_search "
+            "found, do not write its address out: give found_by=<that step_id> "
+            "with result=<which hit> - the address is then "
+            "taken from what the search returned. PDF tables may be ruled or set out with "
             "text alone. A CSV's column separator is detected "
             "from the file: give delimiter only when the user states one, and a CSV whose "
             "separator cannot be detected needs it stated; a workbook with several sheets "
@@ -692,7 +973,10 @@ def make_web_url_tool(
             "explicit "
             "rectangular tables; no JavaScript or CSS rendering. When the data sits behind a "
             "link on the page the user gave (a PDF or spreadsheet), give follow with that "
-            "link's visible text or file name; only same-site links are followed. Image "
+            "link's visible text or file name; only same-site links are followed. A page's "
+            "links include a row or button that opens its target through the page's own "
+            "same-origin script, when that script spells the address out in plain text; a "
+            "call it could not read that way is listed under unresolved_navigation. Image "
             "addresses are not supported. To build a monthly table that later turns can use, "
             "give period_column and up to twelve value_columns instead of column and "
             "row: months must be explicit, one row per month. A value header should state its unit "
@@ -714,19 +998,38 @@ def make_web_url_tool(
         ),
         arguments=WebUrlArguments,
         run=run,
+        required_steps=_required_steps,
     )
 
 
 def _failed(category: str, output: WebUrlOutput, *, extra: tuple[str, ...] = ()) -> ToolResult:
     """A refusal that names its fixed code and nothing from the document or URL."""
+    codes = tuple(code for code in (output.code, *extra) if code is not None)
     return ToolResult(
         ToolStatus.FAILURE,
         step_id="",
         tool="web_url",
         output=output,
         error_category=category,
-        warnings=tuple(code for code in (output.code, *extra) if code is not None),
+        warnings=(*codes, *(_EXPLAINED[code] for code in codes if code in _EXPLAINED)),
     )
+
+
+#: What a code means, said beside it where the code alone sent the model round in
+#: circles. Live 2026-09-23 (QA-33) a CSV served as plain text was refused four times as
+#: CONTENT_TYPE while the model changed its column arguments, and then concluded that
+#: saving was not possible at all. Fixed text: nothing from the document or the address.
+_EXPLAINED: dict[str, str] = {
+    "CONTENT_TYPE": (
+        "The address serves a type no reader here takes (CSV, XLSX, PDF, HTML, a picture, "
+        "or a table as plain text are read). Asking again with other arguments does not "
+        "change what the address serves."
+    ),
+    PLAIN_TEXT_NOT_A_TABLE: (
+        "The address serves plain text that is not a table: read as a CSV it needs at "
+        "least two columns and the same number of fields in every row."
+    ),
+}
 
 
 def _record(lineage: Lineage | None, source: SourceRef, media_type: str) -> str | None:

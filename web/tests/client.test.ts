@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   admit,
   admissionRejection,
+  lostTurn,
   draftRequest,
   publishedResult,
   restoredSelection,
@@ -13,9 +14,18 @@ import {
   describeError,
   documentMediaType,
   uploadDocument,
+  deleteConversation,
+  deleteConversationRuns,
+  listTraceConversations,
   ApiError,
 } from "../lib/client";
-import { cellSchema, turnSchema, type Saved } from "../lib/contracts";
+import {
+  cellSchema,
+  conversationSummarySchema,
+  traceConversationSummarySchema,
+  turnSchema,
+  type Saved,
+} from "../lib/contracts";
 import { arrange, displayValue, unitLabel, periodLabel } from "../lib/table";
 import { noticeText } from "../lib/language";
 const sid = "1".repeat(32),
@@ -98,6 +108,74 @@ test("an admitted turn is recovered by GET without another question submission",
   } finally {
     globalThis.fetch = old;
   }
+});
+test("deletion uses the owner key and keeps soft-delete separate from trace deletion", async () => {
+  const old = globalThis.fetch;
+  const seen: { url: string; method: string; headers: Headers }[] = [];
+  globalThis.fetch = async (url, init) => {
+    seen.push({
+      url: String(url),
+      method: init?.method ?? "GET",
+      headers: new Headers(init?.headers),
+    });
+    return Response.json(
+      seen.length === 1
+        ? { api_version: 1, deleted: true }
+        : { api_version: 1, deleted_runs: 2 },
+    );
+  };
+  try {
+    assert.equal((await deleteConversation(sid, session.token)).deleted, true);
+    assert.equal(
+      (await deleteConversationRuns(sid, session.token)).deleted_runs,
+      2,
+    );
+  } finally {
+    globalThis.fetch = old;
+  }
+  assert.deepEqual(
+    seen.map((item) => item.url),
+    [
+      `/api/kkb/v1/conversations/${sid}`,
+      `/api/kkb/v1/conversations/${sid}/runs`,
+    ],
+  );
+  assert.ok(seen.every((item) => item.method === "DELETE"));
+  assert.ok(
+    seen.every(
+      (item) => item.headers.get("x-kkb-owner-token") === session.token,
+    ),
+  );
+  assert.ok(seen.every((item) => !item.headers.has("x-kkb-session-token")));
+});
+test("deleted chats have a trace-only owner index and never satisfy normal chat schema", async () => {
+  const old = globalThis.fetch;
+  const seen: { url: string; headers: Headers }[] = [];
+  const entry = {
+    conversation_id: sid,
+    title: "Silinen test sohbeti",
+    archived: false,
+    created_at: "2026-09-19T10:00:00Z",
+    updated_at: "2026-09-19T10:01:00Z",
+    turns: 1,
+    deleted: true,
+  };
+  globalThis.fetch = async (url, init) => {
+    seen.push({ url: String(url), headers: new Headers(init?.headers) });
+    return Response.json({ api_version: 1, conversations: [entry] });
+  };
+  try {
+    const listed = await listTraceConversations(session.token, {
+      search: "test",
+    });
+    assert.equal(listed.conversations[0].deleted, true);
+  } finally {
+    globalThis.fetch = old;
+  }
+  assert.equal(seen[0].url, "/api/kkb/v1/trace-conversations?search=test");
+  assert.equal(seen[0].headers.get("x-kkb-owner-token"), session.token);
+  assert.ok(traceConversationSummarySchema.safeParse(entry).success);
+  assert.ok(!conversationSummarySchema.safeParse(entry).success);
 });
 test("session state is validated and storage failure is not ignored", () => {
   const memory = new Map<string, string>();
@@ -303,7 +381,7 @@ test("reload restores an older exact selection and never substitutes a missing r
   assert.equal(restoredSelection(saved, [first, second]), 1);
   assert.equal(restoredSelection(saved, [undefined, second, undefined]), 1);
 });
-test("only accepted completed publications can ground a new request", () => {
+test("a finished turn that did not abstain can ground a new request", () => {
   const first = completed();
   for (const state of ["running", "failed"] as const) {
     assert.equal(turnSchema.safeParse({ ...first, state }).success, false);
@@ -316,6 +394,17 @@ test("only accepted completed publications can ground a new request", () => {
   });
   assert.throws(() => draftRequest("Devam", abstained));
   assert.equal(draftRequest("Serbest soru").selected_result_id, undefined);
+  // A withheld sentence does not unpublish the table (DEC-186). The server attaches a
+  // result to every status but abstained; rejecting it here froze the chat on a
+  // qualified turn with "Yanıt beklenen veri biçimine uymuyor" (live 2026-09-21).
+  const qualified = turnSchema.parse({
+    ...first,
+    answer: { ...first.answer, status: "qualified" },
+  });
+  const published = first.answer?.result?.result_ref;
+  assert.ok(published);
+  assert.equal(publishedResult(qualified)?.result_ref, published);
+  assert.equal(draftRequest("Devam", qualified).selected_result_id, published);
 });
 test("legacy recovery does not inherit the current view's selected source", async () => {
   const old = globalThis.fetch;
@@ -343,6 +432,20 @@ test("GET recovery checks both request and turn identity", async () => {
   } finally {
     globalThis.fetch = old;
   }
+});
+test("a forgotten turn is a 404 and nothing else", () => {
+  // A restart is the one case where following the turn is pointless: the handle
+  // is gone from the API process while the conversation stays in its store.
+  assert.equal(lostTurn(new ApiError("not_found", 404)), true);
+  for (const error of [
+    new ApiError("busy", 409),
+    new ApiError("capacity", 429),
+    new ApiError("internal_error", 500),
+    new ApiError("unavailable", 503),
+    new ApiError("connection"),
+    new Error("network"),
+  ])
+    assert.equal(lostTurn(error), false);
 });
 test("only explicit admission rejection ends recovery; transport and server errors do not", async () => {
   for (const code of [
@@ -542,5 +645,59 @@ test("a key the server does not know is replaced; a known key and a network erro
     assert.equal(store.get("kkb.owner.v1"), fresh);
   } finally {
     globalThis.fetch = original;
+  }
+});
+
+test("model options come from settings and the selected exact ID is sent back", async () => {
+  const { readSettings, saveSettings } = await import("../lib/client");
+  const models = ["deployment/default", "deployment/second"];
+  const setting = {
+    api_version: 1,
+    available: [],
+    disabled: [],
+    history_turns: 6,
+    max_history_turns: 6,
+    models,
+    model: models[0],
+  };
+  const original = globalThis.fetch;
+  const sent: unknown[] = [];
+  globalThis.fetch = async (_url, init) => {
+    if (init?.body) {
+      sent.push(JSON.parse(String(init.body)));
+    }
+    return new Response(
+      JSON.stringify({ ...setting, ...((sent.at(-1) as object) ?? {}) }),
+      { status: 200 },
+    );
+  };
+  try {
+    const settings = await readSettings("o".repeat(43));
+    assert.deepEqual(settings.models, models);
+    assert.equal(
+      (await saveSettings("o".repeat(43), { model: settings.models[1] })).model,
+      models[1],
+    );
+    assert.deepEqual(sent, [{ model: models[1] }]);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("terminal limitations and clarification remain distinct answer contracts", () => {
+  for (const needs_clarification of [false, true]) {
+    const completed = turnSchema.parse({
+      ...turn,
+      state: "completed",
+      answer: {
+        status: "abstained",
+        text: "Kapsam sınırlı.",
+        omitted_claims: 0,
+        notices: [],
+        result: null,
+        needs_clarification,
+      },
+    });
+    assert.equal(completed.answer?.needs_clarification, needs_clarification);
   }
 });

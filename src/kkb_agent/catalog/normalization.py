@@ -7,8 +7,31 @@ match is never proof of series identity, financial meaning or alias equivalence.
 """
 
 import unicodedata
+from functools import cache, lru_cache
 
 _SEARCH_I = str.maketrans({"I": "i", "İ": "i", "ı": "i"})
+
+
+# Each character's answer never changes, and a catalogue repeats the same few hundred
+# characters millions of times. Asked afresh per character, `unicodedata.name` alone
+# made the knowledge page's first list after a restart take 27 s for 9,090 entries,
+# past the web client's 12 s, and the page showed "Analiz tamamlanamadı" (live
+# 2026-09-23). The rules are unchanged; each character is looked up once.
+@cache
+def _combining(char: str) -> bool:
+    return bool(unicodedata.combining(char))
+
+
+@cache
+def _latin(char: str) -> bool:
+    return unicodedata.name(char, "").startswith("LATIN ")
+
+
+@cache
+def _punctuation(char: str) -> bool:
+    """Punctuation that becomes a word boundary: not a dash, percent or slash."""
+    category = unicodedata.category(char)
+    return category.startswith("P") and category != "Pd" and char not in "%/"
 
 
 def normalize_search_text(text: str) -> str:
@@ -28,29 +51,36 @@ def normalize_search_text(text: str) -> str:
     """
     if not isinstance(text, str):
         raise TypeError("Search text must be a string")
+    # Every rule acts inside a run of non-space characters - a mark joins the letter
+    # before it, a separator sits between two digits - so each word is folded on its
+    # own, and a catalogue says the same words thousands of times.
+    return " ".join(folded for word in text.split() if (folded := _word(word)))
 
+
+@lru_cache(maxsize=262_144)
+def _word(text: str) -> str:
     folded = unicodedata.normalize("NFC", text).translate(_SEARCH_I).casefold()
     letters: list[str] = []
     latin_base = False
     for char in unicodedata.normalize("NFD", folded):
-        if unicodedata.combining(char):
+        if _combining(char):
             if not latin_base:
                 letters.append(char)
         else:
-            latin_base = unicodedata.name(char, "").startswith("LATIN ")
+            latin_base = _latin(char)
             letters.append(char)
     folded = unicodedata.normalize("NFC", "".join(letters))
 
     words: list[str] = []
+    last = len(folded) - 1
     for index, char in enumerate(folded):
-        category = unicodedata.category(char)
-        numeric_separator = (
-            char in ".,"
-            and 0 < index < len(folded) - 1
-            and folded[index - 1].isdecimal()
-            and folded[index + 1].isdecimal()
-        )
-        if category.startswith("P") and category != "Pd" and char not in "%/":
+        if _punctuation(char):
+            numeric_separator = (
+                char in ".,"
+                and 0 < index < last
+                and folded[index - 1].isdecimal()
+                and folded[index + 1].isdecimal()
+            )
             words.append(char if numeric_separator else " ")
         else:
             words.append(char)

@@ -139,7 +139,11 @@ def test_refuses_ambiguous_or_incompatible_joins(pool, case):
         semantics = replace(semantics, frequency=Frequency.WEEKLY, anchor=WeeklyAnchor.FRIDAY)
     else:
         semantics = replace(
-            semantics, observation=StockFlow.FLOW, cumulative=CumulativeKind.YEARLY_RESET
+            semantics,
+            unit="TRY",
+            observation=StockFlow.FLOW,
+            cumulative=CumulativeKind.YEARLY_RESET,
+            base_year=None,
         )
     with pytest.raises(SeriesAdditionRefused):
         add(source, observations, semantics, identity)
@@ -287,6 +291,7 @@ def test_planner_schema_exposes_separate_closed_operation_objects(pool):
         "filter",
         "to_flow",
         "resample",
+        "summarize",
     }
     definitions = schema["$defs"]
     # A weekly-to-monthly reduction always states which month a straddling week joins.

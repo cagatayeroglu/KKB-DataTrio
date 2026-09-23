@@ -10,14 +10,18 @@ from typing import Literal, get_args
 from kkb_agent.catalog.lance_index import LocalCatalogIndex
 from kkb_agent.catalog.mappings import ReviewedSnapshot, is_source_group
 from kkb_agent.catalog.normalization import normalize_query_text
-from kkb_agent.catalog.ranking import rerank_by_reviewed_intent
+from kkb_agent.catalog.ranking import rerank_by_reviewed_intent, rerank_widened
 from kkb_agent.catalog.search import (
     MAX_GROUPS,
     CatalogCandidate,
     CatalogSearchArguments,
     CatalogSearchOutput,
     eligible_catalog_series,
+    fold_bands,
+    named_calendar_first,
     one_per_listed_row,
+    row_bands,
+    scoped_to_named_calendar,
     search_catalog,
     top_candidate_signal,
 )
@@ -48,13 +52,21 @@ class CatalogDenseStage:
 
 
 def search_hybrid_catalog(
-    snapshot: ReviewedSnapshot, arguments: CatalogSearchArguments, dense: CatalogDenseStage
+    snapshot: ReviewedSnapshot,
+    arguments: CatalogSearchArguments,
+    dense: CatalogDenseStage,
+    *,
+    bounded: bool = True,
 ) -> CatalogSearchOutput:
+    """`bounded` as in `search_catalog`: unbounded, a reviewed match does not close either stage."""
     snapshot = ReviewedSnapshot.model_validate(snapshot)
     args = CatalogSearchArguments.model_validate(arguments)
+    # The same series for both stages: a question naming a finer calendar than its reviewed
+    # concept has is searched among series of that calendar (DEC-182).
+    args, _ = scoped_to_named_calendar(snapshot, args)
     # Equal fixed stage budgets; max_results only truncates the final union.
     stage_args = CatalogSearchArguments.model_validate({**args.model_dump(), "max_results": 10})
-    lexical = search_catalog(snapshot, stage_args)
+    lexical = search_catalog(snapshot, stage_args, bounded=bounded)
     profile = dense.index.profile
     metadata = {
         "retrieval_version": "m13-05-combined-v1",
@@ -84,17 +96,12 @@ def search_hybrid_catalog(
             }
         )
 
-    if dense.index.snapshot_sha256 != snapshot.content_sha256:
-        return lexical_result("failed", "snapshot_mismatch")
     eligible = {s.record.series_id: s for s in eligible_catalog_series(snapshot, args)}
-    if lexical.concepts:
-        matched = {c.concept_id for c in lexical.concepts}
-        mapped = {
-            sid
-            for c in snapshot.concepts
-            if c.concept_id in matched
-            for sid in c.candidate_series_ids
-        }
+    matched = {c.concept_id for c in lexical.concepts}
+    mapped = {
+        sid for c in snapshot.concepts if c.concept_id in matched for sid in c.candidate_series_ids
+    }
+    if lexical.concepts and bounded:
         # Exact/longest reviewed phrases cannot expand into a merely nearby concept.
         eligible = {sid: item for sid, item in eligible.items() if sid in mapped}
     # Datagroups are searched by meaning in their own lane (DEC-177), never among series.
@@ -102,6 +109,14 @@ def search_hybrid_catalog(
     eligible = {sid: item for sid, item in eligible.items() if sid not in containers}
     if not eligible:
         return lexical_result("skipped_no_eligible")
+    # A vector answers for the text it was made from. An entry added to the catalogue leaves
+    # every other entry's vector exactly as sound as it was, so meaning-based search keeps
+    # the identities this generation still covers instead of turning itself off (N27).
+    covered = dense.index.covering(snapshot)
+    dense_ids = frozenset(eligible) & covered
+    dense_groups_ids = frozenset(containers) & covered
+    if not dense_ids:
+        return lexical_result("failed", "snapshot_mismatch")
     try:
         query = QueryVector.model_validate(dense.embed_query(normalize_query_text(args.query)))
         if query.profile != profile:
@@ -109,13 +124,13 @@ def search_hybrid_catalog(
     except Exception:
         return lexical_result("failed", "embedding_failed")
     try:
-        hits = dense.index.search(query, eligible_ids=frozenset(eligible), limit=10)
+        hits = dense.index.search(query, eligible_ids=dense_ids, limit=10)
         # Recheck the public stage boundary even if an injected implementation fails.
         if (
-            len(hits) != min(len(eligible), 10)
+            len(hits) != min(len(dense_ids), 10)
             or len({hit.series_id for hit in hits}) != len(hits)
             or any(
-                hit.series_id not in eligible
+                hit.series_id not in dense_ids
                 or type(hit.rank) is not int
                 or hit.rank != i + 1
                 or not isinstance(hit.cosine_distance, float)
@@ -126,8 +141,8 @@ def search_hybrid_catalog(
         ):
             raise ValueError("invalid dense identities or ranks")
         group_hits = (
-            dense.index.search(query, eligible_ids=frozenset(containers), limit=MAX_GROUPS)
-            if containers
+            dense.index.search(query, eligible_ids=dense_groups_ids, limit=MAX_GROUPS)
+            if dense_groups_ids
             else []
         )
         if any(hit.series_id not in containers for hit in group_hits):
@@ -165,13 +180,13 @@ def search_hybrid_catalog(
     lexical_by_id = {c.series.record.series_id: c for c in lexical.candidates}
     dense_by_id = {h.series_id: h for h in hits}
     lexical_ids = [c.series.record.series_id for c in lexical.candidates]
-    dense_ids = [h.series_id for h in hits]
+    ranked_ids = [h.series_id for h in hits]
     # A reviewed alias/phrase match already bounded eligibility to its concepts;
     # without one, BM25 overlap is weaker evidence than the dense rank (M13-09).
     lexical_first = dense.combination_policy == "alternating-archive-tier-v1" or bool(
         lexical.concepts
     )
-    first, second = (lexical_ids, dense_ids) if lexical_first else (dense_ids, lexical_ids)
+    first, second = (lexical_ids, ranked_ids) if lexical_first else (ranked_ids, lexical_ids)
     order: list[str] = []
     for i in range(max(len(first), len(second))):
         for sid in (
@@ -182,10 +197,30 @@ def search_hybrid_catalog(
                 order.append(sid)
     # Explicit qualifiers may refine stage order, but not candidate membership or
     # retrieval status. Without archive intent, archived candidates remain last.
-    order = rerank_by_reviewed_intent(
-        args.query, order, reviewed_series=lambda series_id: eligible[series_id]
+    if lexical.concepts and not bounded:
+        order = rerank_widened(
+            args.query,
+            order,
+            reviewed_series=lambda series_id: eligible[series_id],
+            reviewed=lambda series_id: series_id in mapped,
+        )
+    else:
+        order = rerank_by_reviewed_intent(
+            args.query, order, reviewed_series=lambda series_id: eligible[series_id]
+        )
+    if not lexical.concepts:
+        order = named_calendar_first(
+            args.query, order, reviewed_series=lambda series_id: eligible[series_id]
+        )
+    order = one_per_listed_row(
+        order, reviewed_series=lambda series_id: eligible[series_id], query=args.query
     )
-    order = one_per_listed_row(order, reviewed_series=lambda series_id: eligible[series_id])
+    folded = fold_bands(order, reviewed_series=lambda series_id: eligible[series_id])
+    order = [series_id for series_id, _ in folded]
+    bands_of = {
+        series_id: (row_bands(snapshot, eligible[bands[0]]) or ()) if bands else ()
+        for series_id, bands in folded
+    }
     candidates = []
     for rank, sid in enumerate(order[: args.max_results], start=1):
         lex = lexical_by_id.get(sid)
@@ -207,6 +242,7 @@ def search_hybrid_catalog(
                 lexical_rank=lex.rank if lex else None,
                 dense_rank=hit.rank if hit else None,
                 cosine_distance=hit.cosine_distance if hit else None,
+                bands=bands_of.get(sid, ()),
             )
         )
     return CatalogSearchOutput.model_validate(
@@ -216,7 +252,11 @@ def search_hybrid_catalog(
             "candidates": [c.model_dump() for c in candidates],
             "groups": [c.model_dump() for c in groups],
             "top_candidate": top_candidate_signal(
-                args.query, candidates, reviewed_match=bool(lexical.concepts)
+                args.query,
+                candidates,
+                reviewed_match=bool(lexical.concepts),
+                available_kinds=frozenset(eligible[sid].record.stock_flow for sid in order),
+                runner_up=eligible[order[1]] if len(order) > 1 else None,
             ),
             # Dense/BM25 proximity without a reviewed concept is a candidate for
             # clarification, not evidence that the requested intent is mapped.
@@ -228,6 +268,8 @@ def search_hybrid_catalog(
             "clarification_required": True,
             "retrieval_mode": "hybrid",
             "dense_status": "success",
-            "dense_total_candidates": len(eligible),
+            # What the second stage actually ranked, which is not every eligible series when
+            # the catalogue has moved on since the vectors were built.
+            "dense_total_candidates": len(dense_ids),
         }
     )

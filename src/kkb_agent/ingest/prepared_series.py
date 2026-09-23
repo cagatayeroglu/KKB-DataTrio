@@ -12,6 +12,7 @@ ambiguity explicitly (stock, not disbursement; new-loan rate; base years).
 
 from __future__ import annotations
 
+from datetime import date
 from typing import TYPE_CHECKING
 
 from kkb_agent.ingest.bddk_monthly import BddkSelector
@@ -84,4 +85,17 @@ def prepared_series_coverage(connection: DuckDBPyConnection) -> dict[str, str]:
         str(row[0]): f"{row[1]:%Y-%m}..{row[2]:%Y-%m}"
         for row in rows
         if row[1] is not None and row[2] is not None
+    }
+
+
+def prepared_series_window(connection: DuckDBPyConnection) -> dict[str, tuple[date, date]]:
+    """The same window as dates, for deciding whether a read asks outside it."""
+    rows = connection.execute(
+        "SELECT series_id, min(period_end), max(period_end) FROM silver_observations "
+        "WHERE value IS NOT NULL GROUP BY series_id"
+    ).fetchall()
+    return {
+        str(row[0]): (row[1], row[2])
+        for row in rows
+        if isinstance(row[1], date) and isinstance(row[2], date)
     }
