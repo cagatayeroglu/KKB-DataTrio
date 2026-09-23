@@ -328,7 +328,9 @@ def test_nulls_are_preserved_and_never_filled(lake):
     assert load.materialized_monthly(lake, selector(), window()).missing_values == 2
 
 
-@pytest.mark.parametrize("change", ["value", "bytes", "range", "parser", "semantics"])
+# A longer window of unchanged months is an extension since 2026-09-23 (test_bddk_freshness);
+# a changed value, other bytes, another parser or other semantics are still a new version.
+@pytest.mark.parametrize("change", ["value", "bytes", "parser", "semantics"])
 def test_changed_history_or_contract_refuses_and_preserves_prior(lake, monkeypatch, change):
     first = load.ingest_monthly(lake, selector(), window(), retrieve=FakeSource())
     before = counts(lake)

@@ -58,6 +58,7 @@ from kkb_agent.ingest.bddk_weekly_request import FIRST_WEEK, WeeklyRequest, fetc
 from kkb_agent.ingest.evds_load import EvdsLoadCode, EvdsLoadError, ingest_series
 from kkb_agent.ingest.evds_request import EvdsRequest, EvdsWindow, fetch_series
 from kkb_agent.ingest.evds_series import REVIEWED_SERIES, ReviewedEvdsSeries
+from kkb_agent.ingest.prepared_series import prepared_series_window
 from kkb_agent.ingest.safe_fetch import FetchCode, FetchFailure, FetchOutcome, FetchSuccess
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -77,9 +78,12 @@ WINDOW_YEARS: Final = 10
 BDDK_FIRST_MONTH: Final = (2020, 12)
 #: The request contract's own ceiling; the window never asks for more months than this.
 BDDK_MAX_MONTHS: Final = 120
-#: Months before the clock's month the BDDK window ends. The bulletin is published
-#: with a lag; a month not yet published would fail the whole batch, never fill it.
-BDDK_LAG_MONTHS: Final = 3
+#: Months before the clock's month the BDDK window ends. The bulletin is published with a
+#: lag that moves by weeks, so the window asks up to last month and the loader leaves out
+#: the newest months the bulletin answers "not yet" (`MAX_UNPUBLISHED`). It was 3, which
+#: on 2026-09-23 stopped at 2026/6 although 2026/7 had been published: a question about
+#: July was told the store holds nothing after June.
+BDDK_LAG_MONTHS: Final = 1
 #: Listed calendars whose window runs to the clock's day instead of the last whole month.
 _DATED_TO_TODAY: Final = frozenset({Frequency.DAILY, Frequency.BUSINESS_DAY, Frequency.WEEKLY})
 #: Acquisitions one turn may start. Each is live traffic to a public source, so there is a
@@ -310,7 +314,14 @@ class AcquisitionStore:
                     )
             outcome = retrieve(request)
             source.append(True)
-            if isinstance(outcome, FetchSuccess) and outcome.effective_locator is None:
+            # A reply that only says "not yet" answers today, not the request: kept, the
+            # month would stay unpublished for every later turn after it appeared.
+            keepable = getattr(request, "keepable", None)
+            if (
+                isinstance(outcome, FetchSuccess)
+                and outcome.effective_locator is None
+                and (keepable is None or keepable(outcome.content))
+            ):
                 with self._lock:
                     path.write_text(
                         json.dumps(
@@ -617,3 +628,26 @@ class AcquiringInspector(PreparedSeriesInspector):
         if not self._acquirer.acquire(series_id).stored:
             return found
         return self._inner.inspect(connection, series_id)
+
+    def refresh(self, connection: DuckDBPyConnection, series_id: str, until: date | None) -> None:
+        """Fetch once more a stored BDDK monthly series a read wants past its last month.
+
+        A stored series was only ever fetched when it was not stored at all, so the months
+        the bulletin published after it was stored never arrived: live 2026-09-23 a
+        question to August was answered from a series ending in June, with July published.
+        A read that asks past the stored end - or for the latest periods (`until` None) -
+        tries the source once in the turn; what is stored stays as it is, and a newly
+        published month is added only if every stored month is unchanged.
+        """
+        if reviewed_selector(series_id) is None:
+            return
+        stored = prepared_series_window(connection).get(series_id)
+        if stored is None:
+            return
+        last = bddk_window(self._acquirer.today).end
+        newest = date(last.year + (last.month == 12), last.month % 12 + 1, 1)
+        if stored[1] >= date.fromordinal(newest.toordinal() - 1):
+            return
+        if until is not None and until <= stored[1]:
+            return
+        self._acquirer.acquire(series_id)

@@ -271,20 +271,21 @@ def test_a_reviewed_bddk_selector_is_fetched_month_by_month(lake):
     assert outcome.code is AcquisitionCode.ACQUIRED, outcome
     window = bddk_window(TODAY)
     # From the month before the first prepared one (2020-12, so that 2021-01 has a
-    # predecessor and its own change exists) to three months before the clock's month:
-    # 2021-03 for 2021-06-30. Two fixed years answered "2021-2025" with half the years.
+    # predecessor and its own change exists) to the month before the clock's month:
+    # 2021-05 for 2021-06-30 (it was three months back until 2026-09-23, which left out a
+    # published month). Two fixed years answered "2021-2025" with half the years.
     assert (window.start.year, window.start.month) == (2020, 12)
-    assert (window.end.year, window.end.month) == (2021, 3)
-    assert len(source.requests) == len(window.periods()) == 4
-    assert outcome.window_end == date(2021, 3, 31) and outcome.observations == 4
+    assert (window.end.year, window.end.month) == (2021, 5)
+    assert len(source.requests) == len(window.periods()) == 6
+    assert outcome.window_end == date(2021, 5, 31) and outcome.observations == 6
     later = bddk_window(date(2026, 9, 19))
     assert (later.start.year, later.start.month, later.end.year, later.end.month) == (
         2020,
         12,
         2026,
-        6,
+        8,
     )
-    assert len(later.periods()) == 67
+    assert len(later.periods()) == 69
 
 
 def test_fetched_responses_are_kept_for_the_next_conversation(tmp_path, lake):

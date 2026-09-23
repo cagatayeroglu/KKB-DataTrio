@@ -236,6 +236,87 @@ class Lakehouse:
             "INSERT INTO silver_series VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", row
         )
 
+    def extension_of(
+        self, series_id: str, observations: Iterable[Observation]
+    ) -> tuple[list[Observation], list[Observation]]:
+        """The stored periods and the ones a later batch adds around them; writes nothing.
+
+        A source publishes a new month; the months already stored do not change. Every
+        stored period the new batch also holds must carry the same value, and every added
+        period must lie before the first stored one or after the last: a revised value, or
+        a gap filled inside the history, is a new version of it, not an extension, and is
+        refused. (A prepared series may start a month later than a fetch window does, so an
+        earlier month is an extension too.)
+        """
+        stored = {
+            end: (start, value)
+            for start, end, value in self.connection.execute(
+                "SELECT period_start, period_end, value FROM silver_observations"
+                " WHERE series_id = ?",
+                [series_id],
+            ).fetchall()
+        }
+        if not stored:
+            raise LakehouseError(f"No silver series {series_id} to extend")
+        first, last = min(stored), max(stored)
+        added = []
+        for observation in observations:
+            kept = stored.get(observation.period_end)
+            if kept is not None:
+                if kept != (observation.period_start, observation.value):
+                    raise LakehouseError(f"{series_id} would revise a stored period")
+            elif observation.period_end > last or observation.period_end < first:
+                added.append(observation)
+            else:
+                raise LakehouseError(f"{series_id} would fill a period inside its history")
+        kept_rows = [
+            Observation(period_start=start, period_end=end, value=value)
+            for end, (start, value) in sorted(stored.items())
+        ]
+        return kept_rows, added
+
+    def move_series(
+        self,
+        series_id: str,
+        *,
+        artifact_id: str,
+        before: list[Observation],
+        after: list[Observation],
+    ) -> None:
+        """Point a series at a new batch and store `after` in place of `before`.
+
+        DuckDB applies an update to a row with a foreign key of its own as a delete and an
+        insert, and refuses it while another table's rows reference that row - even rows
+        deleted earlier in the same transaction. So the series' observations leave in one
+        transaction and the move happens in the next; if that fails, `before` is written
+        back, and the series is never left without its rows. Owns its transactions: never
+        called inside one.
+        """
+        if (
+            self.connection.execute(
+                "SELECT 1 FROM bronze_artifacts WHERE artifact_id = ?", [artifact_id]
+            ).fetchone()
+            is None
+        ):
+            raise LakehouseError("A silver series must cite a bronze artifact")
+        self.connection.execute("BEGIN TRANSACTION")
+        self.connection.execute("DELETE FROM silver_observations WHERE series_id = ?", [series_id])
+        self.connection.execute("COMMIT")
+        try:
+            self.connection.execute("BEGIN TRANSACTION")
+            self.connection.execute(
+                "UPDATE silver_series SET artifact_id = ? WHERE series_id = ?",
+                [artifact_id, series_id],
+            )
+            self.append_observations(series_id, after)
+            self.connection.execute("COMMIT")
+        except BaseException:
+            self.connection.execute("ROLLBACK")
+            self.connection.execute("BEGIN TRANSACTION")
+            self.append_observations(series_id, before)
+            self.connection.execute("COMMIT")
+            raise
+
     def semantics_of(self, series_id: str) -> SeriesSemantics:
         row = self.connection.execute(
             "SELECT unit, scale, frequency, anchor, observation, cumulative, aggregation, base_year"

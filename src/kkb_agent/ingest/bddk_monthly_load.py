@@ -26,6 +26,7 @@ from kkb_agent.ingest.bddk_monthly import (
     SUPPORTED_ROWS,
     BddkSelector,
     MonthlyHousingMetadata,
+    MonthlyPeriod,
     column_index,
     reviewed_monthly_catalog,
     row_key,
@@ -38,12 +39,13 @@ from kkb_agent.ingest.bddk_monthly_request import (
     MonthlyRequest,
     fetch_monthly,
     period_key,
+    unpublished,
 )
 from kkb_agent.ingest.safe_fetch import FetchFailure, FetchOutcome, FetchSuccess
 from kkb_agent.lakehouse.lineage import EdgeKind, NodeKind, node_id
 from kkb_agent.lakehouse.records import Observation
 from kkb_agent.lakehouse.semantics import SeriesSemantics, check_period
-from kkb_agent.lakehouse.store import Lakehouse
+from kkb_agent.lakehouse.store import Lakehouse, LakehouseError
 
 PARSER_VERSION = "bddk-monthly-json-v1"
 SEMANTIC_VERSION = "bddk-monthly-reviewed-v1"
@@ -52,6 +54,10 @@ TRANSFORMATION = "native-monthly;json-number-to-double;null-preserved;no-fill-or
 MAX_ROWS = 10000
 MAX_COLUMNS = 24
 _DIMENSION_INDEX = {"TP": 4, "YP": 5, "TOTAL": 6}
+#: Newest months of a window the bulletin may not have published yet. It publishes with a
+#: lag that moves by weeks: on 2026-09-23 it held 2026/7 and answered 2026/8 "not yet".
+#: More than this many at the end, or one in the middle, is not a lag.
+MAX_UNPUBLISHED = 2
 
 
 class MonthlyLoadCode(StrEnum):
@@ -309,6 +315,7 @@ def ingest_monthly(
     semantics = _semantics(selector)
     parsed = []
     sources: list[JsonValue] = []
+    waiting: list[MonthlyPeriod] = []
     for period in window.periods():
         request = MonthlyRequest(selector=selector, period=period)
         try:
@@ -325,6 +332,14 @@ def ingest_monthly(
                 raise ValueError("Unexpected retrieval result")
         except Exception:  # Trusted transport boundary: never expose provider exception text.
             raise MonthlyLoadError(MonthlyLoadCode.RETRIEVAL_FAILED) from None
+        if unpublished(outcome.content):
+            # Not a month's answer but today's: nothing is recorded for it.
+            waiting.append(period)
+            continue
+        if waiting:
+            # A published month after one the bulletin said it does not have is not a
+            # publication lag; the batch is refused as any invalid reply would be.
+            raise MonthlyLoadError(MonthlyLoadCode.RESPONSE_INVALID)
         now = datetime.now(UTC)
         artifact = lake.record_artifact(
             outcome.content,
@@ -350,6 +365,12 @@ def ingest_monthly(
                 "source_id": request.fetch_request().source_ref,
             }
         )
+    if len(waiting) > MAX_UNPUBLISHED or not parsed:
+        raise MonthlyLoadError(MonthlyLoadCode.RESPONSE_INVALID)
+    if waiting:
+        # The batch is the months the bulletin has: the same months fetched again another
+        # day are the same batch, whatever the clock asked for.
+        window = MonthlyRange(start=window.start, end=window.periods()[len(parsed) - 1])
     observations = tuple(parsed)
     manifest: dict[str, JsonValue] = {
         "schema": MANIFEST_VERSION,
@@ -384,14 +405,14 @@ def ingest_monthly(
     )
     lake.read_artifact(manifest_id)
     connection = lake.connection
+    existing = connection.execute(
+        "SELECT artifact_id FROM silver_series WHERE series_id = ?", [catalog.series_id]
+    ).fetchone()
+    if existing is not None and existing[0] != manifest_id:
+        return _extend(lake, catalog.series_id, manifest, manifest_id, observations)
     # BEGIN outside try: never roll back a transaction owned by another caller.
     connection.execute("BEGIN TRANSACTION")
     try:
-        existing = connection.execute(
-            "SELECT artifact_id FROM silver_series WHERE series_id = ?", [catalog.series_id]
-        ).fetchone()
-        if existing is not None and existing[0] != manifest_id:
-            raise MonthlyLoadError(MonthlyLoadCode.VERSION_CONFLICT)
         lake.register_series(
             catalog.series_id, title=catalog.title, semantics=semantics, artifact_id=manifest_id
         )
@@ -421,6 +442,66 @@ def ingest_monthly(
         len(observations),
         sum(o.value is None for o in observations),
         existing is not None,
+    )
+
+
+def _extend(
+    lake: Lakehouse,
+    series_id: str,
+    manifest: dict[str, JsonValue],
+    manifest_id: str,
+    observations: tuple[Observation, ...],
+) -> MonthlyMaterialization:
+    """A later window of a stored series: stored months unchanged, new ones added.
+
+    Live 2026-09-23 a series stored through June was read for August with July published;
+    a stored series was never fetched again, and a later window was a version conflict.
+    Now the months the bulletin has published since are added when every month already
+    stored comes back unchanged. A revised month is still a conflict and the store keeps
+    what it had.
+    """
+    # Only a batch read the same way as the stored one extends it, and only by a month:
+    # other bytes, another parser or other semantics for the same months are a new version.
+    stored_id = lake.connection.execute(
+        "SELECT artifact_id FROM silver_series WHERE series_id = ?", [series_id]
+    ).fetchone()
+    try:
+        prior = _object(json.loads(lake.read_artifact(str(stored_id[0]))))
+    except Exception:
+        raise MonthlyLoadError(MonthlyLoadCode.VERSION_CONFLICT) from None
+    if any(
+        prior.get(key) != manifest.get(key)
+        for key in ("schema", "selector", "parser", "semantics", "transformation")
+    ):
+        raise MonthlyLoadError(MonthlyLoadCode.VERSION_CONFLICT)
+    try:
+        before, added = lake.extension_of(series_id, observations)
+    except LakehouseError:
+        raise MonthlyLoadError(MonthlyLoadCode.VERSION_CONFLICT) from None
+    if not added:
+        raise MonthlyLoadError(MonthlyLoadCode.VERSION_CONFLICT)
+    after = sorted([*before, *added], key=lambda item: item.period_end)
+    try:
+        lake.move_series(series_id, artifact_id=manifest_id, before=before, after=after)
+    except Exception:
+        raise MonthlyLoadError(MonthlyLoadCode.MATERIALIZATION_FAILED) from None
+    connection = lake.connection
+    connection.execute("BEGIN TRANSACTION")
+    try:
+        lineage_id = _record_lineage(lake, manifest, manifest_id, series_id)
+        connection.execute("COMMIT")
+    except BaseException as error:
+        connection.execute("ROLLBACK")
+        if not isinstance(error, Exception):
+            raise
+        raise MonthlyLoadError(MonthlyLoadCode.MATERIALIZATION_FAILED) from None
+    return MonthlyMaterialization(
+        series_id,
+        manifest_id,
+        lineage_id,
+        len(after),
+        sum(o.value is None for o in after),
+        False,
     )
 
 

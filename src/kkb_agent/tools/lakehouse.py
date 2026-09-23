@@ -406,6 +406,12 @@ def make_lakehouse_tool(
                     error_category="series_unknown",
                     warnings=("Series cannot be read: " + "; ".join(refused),),
                 )
+            # A stored series may end before months its source has since published; a read
+            # that asks past its end, or for the latest periods, may bring them in first.
+            refresh = getattr(inspector, "refresh", None)
+            if refresh is not None and (arguments.end is not None or arguments.last is not None):
+                for identity in arguments.series:
+                    refresh(connection, identity, arguments.end)
             outside = _outside_stored_window(connection, arguments)
             if outside:
                 # A period the store does not hold is not an empty series. Read bare, it
