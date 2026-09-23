@@ -73,13 +73,18 @@ def as_answered(question: str, outcome: TurnOutcome, answer: Answer) -> Answered
 def _published(
     outcome: TurnOutcome, answer: Answer, results: tuple[AnalyticalResult, ...]
 ) -> tuple[AnalyticalResult, ...]:
-    """What the reader is shown: what the model named, else the last result."""
+    """What the reader is shown: what the model named, or what the answer defaulted to.
+
+    `answer.published` already holds the default when the model named nothing (the last
+    result built this turn, never a plain read). Falling back here to whatever result
+    came last undid that and published an intermediate read (QA-A3, 2026-09-23).
+    """
     wanted = answer.published or outcome.publish
     if wanted is not None:
         for item in outcome.observations:
             if item.action.id == wanted and (measured := analytical(item.result.output)):
                 return (measured,)
-    return results[-1:] if results else ()
+    return ()
 
 
 def _gated(answer: Answer) -> GatedAnswer:

@@ -1425,7 +1425,10 @@ class PreparedRunner:
                         # whose every source read failed still published `analiz_3` with
                         # no cells, so the reader was shown an empty table under an
                         # answer that said plainly no data had been obtained.
-                        for shown in answered.presented or answered.results[-1:]:
+                        # Only what the answer presents: the model's choice, or the last
+                        # table it built. The last result of any kind used to stand in, so
+                        # a series read on the way became the newest table (A3, QA review).
+                        for shown in answered.presented:
                             if shown.values:
                                 workspace.publish(workspace.preview(name, shown))
                             break

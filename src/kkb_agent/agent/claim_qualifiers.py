@@ -632,7 +632,18 @@ def period_fault(
     value: ResultValue,
     references: Sequence[date] = (),
     position: int | None = None,
+    *,
+    lenient: bool = False,
 ) -> str | None:
+    """Why a figure's sentence contradicts the period its value belongs to, if it does.
+
+    `lenient` is for a report that names a figure, not a gate that withholds it: a
+    sentence naming several periods, one of them the value's own to the month, is
+    ambiguous rather than wrong. "Ocak 2026 değişimi için Aralık 2025 bakiyesi (52.044
+    milyon TL) okunmuştur" names the right month and another, and strictly every period
+    it names must hold, so two correct statements were reported as misdated (QA-26). A
+    sentence that names no period the value falls in is still a fault either way.
+    """
     # A leading date may scope several columns. An explicit local date takes
     # precedence, so a later column cannot borrow another column's month.
     if references:
@@ -668,23 +679,39 @@ def period_fault(
     fault = (
         f"Claim is attributed to {context.strip()!r} but its period is {period.start}..{period.end}"
     )
+    # Whether some mention holds the value's own period to the month, and whether some
+    # mention does not. A bare year is too coarse to name the value's own period unless
+    # the value covers that whole year.
+    matched = False
+    outside = False
     for match in dates:
         try:
             written = date.fromisoformat(match[0])
         except ValueError:
             return fault
-        if not period.start <= written <= period.end:
-            return fault
-    if any(not period.start.year <= int(m[0]) <= period.end.year for m in years):
-        return fault
+        if period.start <= written <= period.end:
+            matched = True
+        else:
+            outside = True
+    whole_year = period.start.month == 1 and period.end.month == 12
+    for m in years:
+        if period.start.year <= int(m[0]) <= period.end.year:
+            matched = matched or whole_year
+        else:
+            outside = True
     for match in year_months:
         year, month = map(int, match[0].split("-"))
         if (
-            not (period.start.year, period.start.month)
+            (period.start.year, period.start.month)
             <= (year, month)
-            <= (period.end.year, period.end.month)
+            <= (
+                period.end.year,
+                period.end.month,
+            )
         ):
-            return fault
+            matched = True
+        else:
+            outside = True
     for match in months:
         month = MONTHS[fold(match[1])]
         following = YEAR.match(context[match.end() :].lstrip())
@@ -693,14 +720,18 @@ def period_fault(
             if following
             else list(range(period.start.year, period.end.year + 1))
         )
-        if not any(
+        if any(
             (period.start.year, period.start.month)
             <= (year, month)
             <= (period.end.year, period.end.month)
             for year in candidate_years
         ):
-            return fault
-    return None
+            matched = True
+        else:
+            outside = True
+    if not outside or (lenient and matched):
+        return None
+    return fault
 
 
 def unit_fault(text: str, start: int, end: int, value: ResultValue) -> str | None:

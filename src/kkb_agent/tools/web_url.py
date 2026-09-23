@@ -185,7 +185,8 @@ class WebUrlArguments(BaseModel):
         pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
         description=(
             "With follow: the step_id of an already fetched web_url page. "
-            "Follow only a link recorded in that page; declare it in depends_on."
+            "Follow only a link recorded in that page; declare it in depends_on. "
+            "Not a way to look inside a document you already have: that is inspect."
         ),
     )
     document: str | None = Field(
@@ -297,7 +298,14 @@ class WebUrlArguments(BaseModel):
         if sources != 1:
             raise ValueError("give exactly one of url, attached=true, found_by or read_from")
         if self.read_from is not None and self.follow is None:
-            raise ValueError("read_from needs a follow target from the fetched page")
+            # Said with the way that works: live 2026-09-23 the model sent eight of these,
+            # one per month, to take cells from a PDF it had already read, and spent its
+            # budget learning only that this was not how (QA-A3).
+            raise ValueError(
+                "read_from needs a follow target from the fetched page. To read a page, a "
+                "table or rows of a document you already fetched, use inspect with "
+                "source=<its id> (page=N, table=J); web_url fetches, it does not re-read"
+            )
         if self.document is not None and not self.attached:
             raise ValueError("document names an upload; it needs attached=true")
         if self.follow is not None and self.attached:

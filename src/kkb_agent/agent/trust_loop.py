@@ -103,7 +103,7 @@ class AgentStep(BaseModel):
     state: str | None = Field(default=None, max_length=8000)
     actions: list[Action] = Field(default_factory=list)
     done: bool = False
-    #: Which result the reader should see. Absent, the last computed one is used.
+    #: Which result the reader should see. Absent, the last one built this turn is used.
     publish: str | None = Field(default=None, max_length=64)
     #: Asked only when the model genuinely cannot tell what is wanted.
     ask: str | None = Field(default=None, max_length=1500)
@@ -653,6 +653,78 @@ CLOSING: Final = (
 #: Counters whose running out still leaves the model able to write from what it has.
 CLOSABLE: Final = frozenset({"iterations", "tool calls", "time"})
 
+#: Closing requests at most: the first, and one more when the first asked for tools.
+CLOSING_ATTEMPTS: Final = 2
+
+#: Said again when the closing request was answered with tool calls.
+CLOSING_AGAIN: Final = (
+    "İstediğin araçlar çalıştırılmadı: araç bütçesi doldu ve kapanışta araç çalışmaz. "
+    "Şimdi yalnız cevabı yaz (finish ile ya da düz metin olarak); elde olmayanı eksik "
+    "olarak söyle."
+)
+
+#: The answer to a call that was not run, by why. The model reads these.
+DEFERRED: Final = (
+    "Bir turda en çok {n} araç çalışır; bu çağrı çalıştırılmadı. Gerekiyorsa bir sonraki "
+    "turda yeniden iste."
+)
+OUT_OF_CALLS: Final = "Bu turun araç çağrısı bütçesi ({n}) doldu; bu çağrı çalıştırılmadı."
+CLOSED: Final = (
+    "Araç bütçesi doldu; kapanışta araç çalışmaz, bu çağrı çalıştırılmadı. Elindeki "
+    "sonuçlarla cevabı yaz."
+)
+
+#: Error categories of calls answered without being run. Bookkeeping between the loop
+#: and the model; nothing a reader is told.
+NOT_RUN: Final = frozenset({"deferred", "closed"})
+
+
+def _not_run(action: Action, reason: str, *, category: str = "deferred") -> Observation:
+    """A call answered, and not run: the model sees which and why, by its own id."""
+    return Observation(
+        action,
+        ToolResult(
+            ToolStatus.FAILURE, action.id, action.tool, error_category=category, warnings=(reason,)
+        ),
+    )
+
+
+def _recorded(tracer: Tracer, item: Observation) -> None:
+    """One call in the trace: what was asked, and what the model was shown back."""
+    action = item.action
+    sent = json.dumps(action.arguments, ensure_ascii=False)
+    seen = _describe(item.result, action.id)
+    tracer.event(
+        "tool",
+        action.tool,
+        status=(
+            "not_run" if item.result.error_category in NOT_RUN else "ok" if item.ok else "failed"
+        ),
+        step_id=action.id,
+        tool=action.tool,
+        # What the model actually asked for. Without this the record said a tool ran and
+        # never which question it was asked, so no reviewer could tell a right answer
+        # from a right-looking one, or see that a retry differed from the call before it.
+        # Shown in full up to the attribute ceiling, where the tracer marks the cut
+        # itself; cutting it here first was silent. The length says whether the whole
+        # call is in view, and the step's detail holds it.
+        arguments=sent,
+        arguments_chars=len(sent),
+        arguments_clipped=len(sent) > MAX_TRACE_ARGUMENT_CHARS,
+        # Which platform call this answers, so the exchange can be followed back to the
+        # request the model made.
+        call_id=action.call_id,
+        error_category=item.result.error_category,
+        warnings=list(item.result.warnings),
+        evidence=item.result.evidence,
+        # The complete record, under this step's own sequence: every argument as sent and
+        # the observation exactly as the model then received it. The tracer redacts
+        # secrets in it and keeps it whole (the step endpoint returns it unclipped), so a
+        # call can be reproduced from the record and a reviewer can see what the model saw
+        # rather than a preview of it.
+        detail=json.dumps({"arguments": action.arguments, "observation": seen}, ensure_ascii=False),
+    )
+
 
 def _compose(
     preamble: list[Message],
@@ -860,58 +932,34 @@ def run_turn(
             )
             outcome.observations.append(refused)
             carried.append(refused)
-        for action in step.actions[: limits.max_actions_per_iteration]:
-            if calls >= limits.max_tool_calls:
+        for position, action in enumerate(step.actions):
+            # Every call the model made is answered, run or not. The per-iteration cap
+            # used to slice the list, so live 2026-09-23 four of eight calls vanished: not
+            # run, not refused, and gone from the exchange the model was shown next — and
+            # their ids were handed to other calls a step later (QA-27). A cap may keep a
+            # call from running; it may not make it disappear.
+            if position >= limits.max_actions_per_iteration:
+                item = _not_run(action, DEFERRED.format(n=limits.max_actions_per_iteration))
+            elif calls >= limits.max_tool_calls:
                 outcome.exhausted = "tool calls"
-                break
-            calls += 1
-            item = Observation(action, _dispatch(action, registry, question, workspace, searched))
-            if item.ok and item.result.output is not None:
-                workspace[action.id] = item.result.output
+                item = _not_run(action, OUT_OF_CALLS.format(n=limits.max_tool_calls))
+            else:
+                calls += 1
+                item = Observation(
+                    action, _dispatch(action, registry, question, workspace, searched)
+                )
+                if item.ok and item.result.output is not None:
+                    workspace[action.id] = item.result.output
             outcome.observations.append(item)
             carried.append(item)
             if tracer is not None:
-                sent = json.dumps(action.arguments, ensure_ascii=False)
-                seen = _describe(item.result, action.id)
-                tracer.event(
-                    "tool",
-                    action.tool,
-                    status="ok" if item.ok else "failed",
-                    step_id=action.id,
-                    tool=action.tool,
-                    # What the model actually asked for. Without this the record said a
-                    # tool ran and never which question it was asked, so no reviewer
-                    # could tell a right answer from a right-looking one, or see that a
-                    # retry differed from the call before it.
-                    # Shown in full up to the attribute ceiling, where the tracer marks
-                    # the cut itself; cutting it here first was silent. The length says
-                    # whether the whole call is in view, and the step's detail holds it.
-                    arguments=sent,
-                    arguments_chars=len(sent),
-                    arguments_clipped=len(sent) > MAX_TRACE_ARGUMENT_CHARS,
-                    # Which platform call this answers, so the exchange can be followed
-                    # back to the request the model made.
-                    call_id=action.call_id,
-                    error_category=item.result.error_category,
-                    warnings=list(item.result.warnings),
-                    evidence=item.result.evidence,
-                    # The complete record, under this step's own sequence: every
-                    # argument as sent and the observation exactly as the model then
-                    # received it. The tracer redacts secrets in it and keeps it whole
-                    # (the step endpoint returns it unclipped), so a call can be
-                    # reproduced from the record and a reviewer can see what the model
-                    # saw rather than a preview of it.
-                    detail=json.dumps(
-                        {"arguments": action.arguments, "observation": seen},
-                        ensure_ascii=False,
-                    ),
-                )
+                _recorded(tracer, item)
         if outcome.exhausted or step.done:
             # `done` beside actions means finish after them, not instead of them: the
             # work was asked for and dropping it silently loses a turn's evidence.
             break
 
-    closed = False
+    closed = 0
     if (
         outcome.exhausted in CLOSABLE
         and outcome.reply is None
@@ -924,45 +972,77 @@ def run_turn(
         # the turn ended with no answer at all (QA-23). The model is asked once more, in
         # the same exchange with those results in it, and with nothing left to call but
         # `finish`: what it writes is the answer, limits and all.
-        messages = _compose(
-            preamble,
-            question,
-            outcome,
-            history,
-            carried,
-            native,
-            limits.max_exchange_bytes,
-            gone,
-            [Message(Role.SYSTEM, CLOSING)],
-        )
-        last: Completion | None
-        try:
-            last = traced_complete(
-                provider,
-                messages,
-                model=model,
-                tools=[entry for entry in menu if entry["function"]["name"] == FINISH],
-                schema=AgentStep,
-                tracer=tracer,
-                iteration=outcome.iterations + 1,
-                carried=len(carried),
-                closing=True,
+        #
+        # A menu of `finish` alone is a request, not a guarantee: live 2026-09-23 the
+        # model answered it with four `inspect` calls, nothing ran, nothing said so, and
+        # a separate writer wrote the answer instead (QA-27). Calls asked for here are
+        # answered as refused, the refusal is recorded, and the model is asked once more
+        # with those refusals in view; a second refusal leaves the writer to answer.
+        notes = [Message(Role.SYSTEM, CLOSING)]
+        for attempt in range(1, CLOSING_ATTEMPTS + 1):
+            messages = _compose(
+                preamble,
+                question,
+                outcome,
+                history,
+                carried,
+                native,
+                limits.max_exchange_bytes,
+                gone,
+                notes,
             )
-        except ProviderError:
-            last = None
-        if last is not None:
-            closed = True
+            shown, carried = len(carried), []
+            try:
+                last = traced_complete(
+                    provider,
+                    messages,
+                    model=model,
+                    tools=[entry for entry in menu if entry["function"]["name"] == FINISH],
+                    schema=AgentStep,
+                    tracer=tracer,
+                    iteration=outcome.iterations + 1,
+                    carried=shown,
+                    closing=True,
+                    closing_attempt=attempt,
+                )
+            except ProviderError:
+                break
+            closed += 1
             outcome.iterations += 1
+            native = bool(last.tool_calls)
             answer = _asked_for(last, len(outcome.observations))
-            if tracer is not None and answer is not None:
+            if answer is None:
+                break
+            if tracer is not None:
                 _decided(tracer, outcome, answer, last, closing=True)
-            if answer is not None:
-                # Only what answers: a tool asked for now could not be run.
-                if answer.state:
-                    outcome.state = answer.state
-                if answer.publish:
-                    outcome.publish = answer.publish
+            if answer.state:
+                outcome.state = answer.state
+            if answer.publish:
+                outcome.publish = answer.publish
+            asked = [
+                *answer.actions,
+                *(Action(id=m.id, tool=m.tool, call_id=m.call_id) for m in answer.malformed),
+            ]
+            if asked:
+                carried = [_not_run(action, CLOSED, category="closed") for action in asked]
+                outcome.observations.extend(carried)
+                if tracer is not None:
+                    tracer.event(
+                        "loop",
+                        "closing.refused",
+                        status="failed",
+                        attempt=attempt,
+                        calls=[f"{a.id}:{a.tool}" for a in asked],
+                        call_ids=[a.call_id for a in asked],
+                    )
+                    for item in carried:
+                        _recorded(tracer, item)
+            if answer.reply:
                 outcome.reply = answer.reply
+                break
+            if not asked:
+                break
+            notes = [Message(Role.SYSTEM, CLOSING_AGAIN)]
 
     if tracer is not None:
         tracer.event(
@@ -972,7 +1052,8 @@ def run_turn(
             tool_calls=calls,
             exhausted=outcome.exhausted,
             published=outcome.publish,
-            closing=closed,
+            closing=bool(closed),
+            closing_requests=closed,
         )
     return outcome
 

@@ -28,7 +28,14 @@ from duckdb import DuckDBPyConnection
 from kkb_agent.agent.executor import analytical
 from kkb_agent.agent.observer import Tracer
 from kkb_agent.agent.presentation import display_value
-from kkb_agent.agent.trust_loop import TurnOutcome, _outline, observed_payload, traced_complete
+from kkb_agent.agent.trust_loop import (
+    NOT_RUN,
+    TurnOutcome,
+    _describe,
+    _outline,
+    observed_payload,
+    traced_complete,
+)
 from kkb_agent.agent.trust_prompt import EXHAUSTED, WRITER
 from kkb_agent.agent.verifier import MINUS, Binding, result_faults, verify_claims
 from kkb_agent.catalog.search import CatalogSearchOutput
@@ -83,6 +90,23 @@ class Answer:
     notes: list[str] = field(default_factory=list)
 
 
+#: Tools whose result is a series, cell or table as its source holds it: read, not built.
+SOURCE_READS: Final = frozenset({"lakehouse", "web_url", "document_read", "web_search"})
+
+
+def _default_publication(results: dict[str, AnalyticalResult]) -> str | None:
+    """What the reader is shown when the model names nothing: the last result built.
+
+    A read is evidence, not an answer. Live 2026-09-23 A3 named no publication and the
+    last thing it had read — an eight-row rate series, fetched to check a month — became
+    the conversation's newest table, `analiz_3`, in place of anything the question asked
+    for. A table a transformation or computation built this turn is still shown; a series
+    read on the way is shown only when the model names it.
+    """
+    built = [name for name, result in results.items() if result.tool not in SOURCE_READS]
+    return built[-1] if built else None
+
+
 def _computed(outcome: TurnOutcome) -> dict[str, AnalyticalResult]:
     """Every analytical result this turn produced, under the id the model gave it."""
     found: dict[str, AnalyticalResult] = {}
@@ -109,6 +133,8 @@ def _evidence(outcome: TurnOutcome) -> str:
     """
     blocks: list[str] = []
     for item in outcome.observations:
+        if item.result.error_category in NOT_RUN:
+            continue
         payload = item.result.output
         if payload is None:
             if item.result.warnings:
@@ -203,6 +229,8 @@ def _digest(outcome: TurnOutcome, kept: Sequence[str]) -> str:
     """
     lines = []
     for item in outcome.observations:
+        if item.result.error_category in NOT_RUN:
+            continue
         head = f"- {item.action.id} ({item.action.tool}{_asked(item.action.arguments)})"
         output = item.result.output
         if not item.ok or output is None:
@@ -270,15 +298,18 @@ def _checked(
     figures: bool = True,
 ) -> Answer:
     """Attach what the turn knows, then report any figure that did not bind."""
-    answer.published = outcome.publish or (list(results)[-1] if results else None)
+    answer.published = outcome.publish or _default_publication(results)
     if outcome.exhausted:
         answer.notes.append(EXHAUSTED.get(outcome.exhausted, outcome.exhausted))
     answer.notes.extend(item.action.note for item in outcome.observations if item.action.note)
     for item in outcome.observations:
-        answer.limitations.extend(item.result.warnings)
+        # A call answered without being run is the loop's bookkeeping with the model.
+        if item.result.error_category not in NOT_RUN:
+            answer.limitations.extend(item.result.warnings)
 
     documents = _documents(outcome) if figures else []
-    if figures and (results or documents) and answer.text:
+    read = any(_is_document(item.result.output) for item in outcome.observations if item.ok)
+    if figures and (results or read) and answer.text:
         # The same binding as before, read as a report: a figure that does not
         # bind is named, and the model's sentence stays where the model put it.
         answer.unverified, answer.quoted, unattested = _report(
@@ -347,7 +378,9 @@ def _report(
     quoted: list[str] = []
     # A figure rounded correctly to the decimals it is written with binds here (QA-22):
     # this report names what does not bind, it does not withhold it.
-    for item in verify_claims(text, results, connection, written_precision=True).numbers:
+    for item in verify_claims(
+        text, results, connection, written_precision=True, lenient_periods=True
+    ).numbers:
         kept = [fault for fault in item.faults if not fault.endswith(_UNATTESTED)]
         if kept:
             reported.append(f"{item.number.text} ({'; '.join(kept)})")
@@ -360,8 +393,20 @@ def _report(
     return reported, quoted, unattested
 
 
+def _is_document(output: object) -> bool:
+    """Whether a tool returned something read: a document, a page, or a window of one."""
+    return isinstance(output, InspectOutput) or bool(document_passages(output))
+
+
 def _documents(outcome: TurnOutcome) -> list[Located]:
-    """The text of every document this turn read, piece by piece, tables first."""
+    """The document text the model actually read this turn, piece by piece, tables first.
+
+    What it asked `inspect` for, and a document it was shown whole. Not the rest of a
+    long document it saw only as an index: live 2026-09-23 a credit-balance decline the
+    model had worked out itself, 17,3, was listed as quoted from a PDF's page 13, where
+    17,3 is a luxury-car segment's growth — a page the model never opened (QA-28). A
+    figure is a quotation of a passage the model read, or it is not a quotation.
+    """
     found: list[Located] = []
     for item in outcome.observations:
         output = item.result.output
@@ -373,6 +418,8 @@ def _documents(outcome: TurnOutcome) -> list[Located]:
                 body = " | ".join(map(str, cells)) if isinstance(cells, list) else row.get("text")
                 if isinstance(body, str):
                     found.append((output.source, dict(row), body))
+            continue
+        if json.loads(_describe(item.result, item.action.id)).get("clipped"):
             continue
         for where, rows in document_tables(output, None):
             found.append((item.action.id, where, "\n".join(" | ".join(row) for row in rows)))

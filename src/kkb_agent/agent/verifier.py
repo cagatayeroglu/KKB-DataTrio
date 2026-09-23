@@ -577,6 +577,7 @@ def verify_claims(
     accept_years: bool = True,
     minimum_samples: int | None = None,
     written_precision: bool = False,
+    lenient_periods: bool = False,
 ) -> Verdict:
     """Gate an answer against the results it claims to describe.
 
@@ -634,6 +635,7 @@ def verify_claims(
             tolerance,
             accept_years,
             written_precision,
+            lenient_periods,
         )
         for number in extract_numbers(answer)
     ]
@@ -977,6 +979,7 @@ def _bind_to_results(
     tolerance: float,
     accept_years: bool,
     written_precision: bool = False,
+    lenient_periods: bool = False,
 ) -> NumberVerdict:
     end = number.start + len(number.text)
     amount_context = has_amount_context(answer, number.start, end)
@@ -1043,6 +1046,7 @@ def _bind_to_results(
                         value,
                         _price_references(result, value),
                         position=number.start - sentence_start - len(prefix),
+                        lenient=lenient_periods,
                     ),
                     unit_fault(answer, number.start, end, value),
                     identity_fault(clause, prefix, name, result, value, named),
