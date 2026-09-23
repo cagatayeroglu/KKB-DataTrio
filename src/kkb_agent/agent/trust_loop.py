@@ -119,7 +119,12 @@ class AgentStep(BaseModel):
 class Budget:
     """Counters, not policy. Nothing here says what a good answer looks like."""
 
-    max_iterations: int = 8
+    #: Live 2026-09-23 (A3 on 41bf55c) a question joining a PDF's three rows to a
+    #: two-series table needed seven dependent rounds - read, open, extract, then one
+    #: join per column - and one look at the table before joining ran the default of
+    #: eight out; the turn closed while the model was still checking pages. Every cell
+    #: was right. The time and call counters below still bound a turn that wanders.
+    max_iterations: int = 12
     max_tool_calls: int = 20
     max_actions_per_iteration: int = 4
     max_wall_seconds: float = 300.0
