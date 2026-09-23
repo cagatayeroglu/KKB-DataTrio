@@ -66,7 +66,15 @@ if TYPE_CHECKING:  # pragma: no cover
 #: number longer than three digits and written without separators — `801438` —
 #: would not match at all, and an unmatched number is one the verifier never
 #: checks, which is the worst possible failure for a gate like this.
-NUMBER = re.compile(r"(?<![\w.,])[+-]?(?:\d{1,3}(?:[.,  ]\d{3})+|\d+)(?:[.,]\d+)?(?![\w])")
+#:
+#: The sign may be the typographic minus, U+2212, as well as the ASCII hyphen. A model
+#: writing for a reader uses it: live 2026-09-23 the jury's A1 answer wrote its monthly
+#: differences with it, the sign was not part of the match, and five correct negative
+#: figures were each reported as a positive one no tool had returned (QA-20). A minus
+#: glued to a preceding digit or word is still not a sign — that is the lookbehind — so
+#: a range written with it between two years stays two years.
+MINUS: Final = "\u2212"
+NUMBER = re.compile(r"(?<![\w.,])[+\-\u2212]?(?:\d{1,3}(?:[.,  ]\d{3})+|\d+)(?:[.,]\d+)?(?![\w])")
 
 #: Relative closeness required to call a written number the same as a stored one.
 #: A written figure is usually rounded, so exact equality would reject correct
@@ -161,6 +169,7 @@ def parse_written(text: str) -> float | None:
     figure in an answer is a defect in the answer, not a puzzle to solve.
     """
     cleaned = text.replace(" ", "").replace(" ", "").replace("+", "")
+    cleaned = cleaned.replace(MINUS, "-")
     negative = cleaned.startswith("-")
     cleaned = cleaned.lstrip("-")
     if not cleaned:
@@ -345,7 +354,7 @@ def _scale_fault(answer: str, number: WrittenNumber, value: ResultValue) -> str 
 
 #: One comma and three digits after it: "512,259". Alone it is ambiguous, and the gate reads it
 #: as thousands grouping; after a scale word the value does not carry, Turkish means a decimal.
-_TURKISH_DECIMAL_OF_THREE = re.compile(r"[+-]?\d{1,3},\d{3}")
+_TURKISH_DECIMAL_OF_THREE = re.compile(r"[+\-\u2212]?\d{1,3},\d{3}")
 
 
 def _rescaled(
@@ -375,7 +384,7 @@ def _rescaled(
         return False
     reading = number.value
     if _TURKISH_DECIMAL_OF_THREE.fullmatch(number.text.strip()):
-        reading = float(number.text.strip().replace(",", "."))
+        reading = float(number.text.strip().replace(MINUS, "-").replace(",", "."))
     exact = value.value * value.scale.factor
     if _close(reading * written.factor, exact, tolerance):
         return True
