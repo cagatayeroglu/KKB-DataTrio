@@ -175,7 +175,8 @@ def test_a_one_column_fetched_table_is_used_when_the_planner_names_a_column_it_c
     assert answered.answer.status is AnswerStatus.ACCEPTED, answered.answer
     published = workspace.value_of("tufe_bazli_value")
     assert published.parameters["column_resolution"] == {"requested": "value", "used": CPI_ID}
-    assert any("its only column" in warning for warning in published.warnings)
+    # Said to the call that read it, not written on the table every later one inherits.
+    assert not any("its only column" in warning for warning in published.warnings)
     assert published.evidence.transformations[-1].operation == "rebase"
 
 

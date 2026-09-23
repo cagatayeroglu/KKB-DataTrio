@@ -988,9 +988,13 @@ def make_table_transform_tool(
                 )
             result = _closed_transform(selected, source, preceding=preceding)
         if resolution is not None and result.status is ResultStatus.COMPUTED:
+            # How this call's column was read is said to this call, not written on the
+            # table: every later table inherits its source's warnings, and live 2026-09-23
+            # "Column 'value' is not in the table" was repeated on four later steps that had
+            # named their columns exactly, and reached the reader. It is kept on the result
+            # as a parameter, where the proof reads it.
             result = result.model_copy(
                 update={
-                    "warnings": [*result.warnings, resolution],
                     "parameters": {
                         **result.parameters,
                         "column_resolution": {
@@ -1044,6 +1048,8 @@ def make_table_transform_tool(
             result=result,
         )
         warnings = tuple(result.warnings)
+        if resolution is not None and result.status is ResultStatus.COMPUTED:
+            warnings = (*warnings, resolution)
         if result.status is not ResultStatus.COMPUTED and result.reason is not None:
             warnings = (*warnings, result.reason)
         return ToolResult(
