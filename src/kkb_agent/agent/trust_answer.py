@@ -107,6 +107,33 @@ def _default_publication(results: dict[str, AnalyticalResult]) -> str | None:
     return built[-1] if built else None
 
 
+def _behind(published: str | None, outcome: TurnOutcome) -> set[str] | None:
+    """The steps the published result was built from, itself included, by the ids the
+    model passed between them. None when nothing this turn is published."""
+    steps = {item.action.id: item.action for item in outcome.observations}
+    if published not in steps:
+        return None
+    found: set[str] = set()
+    waiting = [published]
+    while waiting:
+        step = waiting.pop()
+        if step in found or step not in steps:
+            continue
+        found.add(step)
+        waiting.extend(_named(steps[step].arguments))
+    return found
+
+
+def _named(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [name for item in value.values() for name in _named(item)]
+    if isinstance(value, list):
+        return [name for item in value for name in _named(item)]
+    return []
+
+
 def _computed(outcome: TurnOutcome) -> dict[str, AnalyticalResult]:
     """Every analytical result this turn produced, under the id the model gave it."""
     found: dict[str, AnalyticalResult] = {}
@@ -302,10 +329,22 @@ def _checked(
     if outcome.exhausted:
         answer.notes.append(EXHAUSTED.get(outcome.exhausted, outcome.exhausted))
     answer.notes.extend(item.action.note for item in outcome.observations if item.action.note)
+    behind = _behind(answer.published, outcome)
     for item in outcome.observations:
         # A call answered without being run is the loop's bookkeeping with the model.
-        if item.result.error_category not in NOT_RUN:
-            answer.limitations.extend(item.result.warnings)
+        if item.result.error_category in NOT_RUN:
+            continue
+        # A table the model built and then built differently was its working, not the
+        # reader's. Live 2026-09-23 (A3) a join refused for dropping two months told the
+        # model to "clarify or separate the requested outputs"; it joined the other way
+        # round and published that, and the reader was still handed the refusal.
+        if (
+            behind is not None
+            and item.action.id not in behind
+            and analytical(item.result.output) is not None
+        ):
+            continue
+        answer.limitations.extend(item.result.warnings)
 
     documents = _documents(outcome) if figures else []
     read = any(_is_document(item.result.output) for item in outcome.observations if item.ok)
