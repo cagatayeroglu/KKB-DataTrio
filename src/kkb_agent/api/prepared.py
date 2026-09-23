@@ -1963,7 +1963,7 @@ class PreparedRunner:
         # A result travels by name; this is how a name becomes something readable.
         registry.register(make_inspect_tool())
         # A group, a ratio or a share: arithmetic the transform surface had no room for.
-        registry.register(make_table_compute_tool())
+        registry.register(make_table_compute_tool(connection))
         registry.register(make_lakehouse_tool(connection, lineage=lineage, inspector=inspector))
         registry.register(
             make_change_detection_tool(

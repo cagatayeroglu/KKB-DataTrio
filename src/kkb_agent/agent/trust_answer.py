@@ -51,9 +51,9 @@ UNVERIFIED: Final = "Şu sayı araç sonuçlarına bağlanamadı, okurken dikkat
 
 #: The fault a result raises for having been produced by a tool that is not on the
 #: trusted-producer list, rather than for anything wrong with its figures. On this
-#: branch the model reaches for whatever tool fits, including ones added after that
-#: list was frozen, so a `table_compute` column computed from a tool's own cells
-#: raises it every time. Reported once, beside the answer; it does not unbind a figure.
+#: branch the model reaches for whatever tool fits, including ones that record no
+#: execution of their own, so a result built by one of them raises it every time.
+#: Reported once, beside the answer; it does not unbind a figure.
 _UNATTESTED: Final = "Numeric analytical result lacks matching trusted producer execution evidence"
 
 #: Put before the evidence when the service that gathered it could not be asked to
