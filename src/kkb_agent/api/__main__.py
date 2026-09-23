@@ -9,7 +9,7 @@ import os
 import re
 import sys
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 import uvicorn
@@ -37,6 +37,37 @@ ACQUIRED_DIRECTORY = "acquired"
 DISCOVERED_DIRECTORY = "directory/evds"
 #: Built vector generations, one immutable directory per catalogue digest.
 GENERATIONS_DIRECTORY = "catalog-index"
+
+
+def _reported[T](embed: Callable[[str], T]) -> Callable[[str], T]:
+    """The query embedder, saying on the console why a question's vector was not made.
+
+    A failed query vector turns the search into words alone, and the search says only
+    `embedding_failed`: its contract names no cause, and the page and the turn read that
+    contract strictly. Live 2026-09-23, right after a full rebuild, every new query fell
+    back that way while the same request from another process came back in 0.2 s; there
+    was nothing to tell a timeout from a refusal. One line per failure: the error's class,
+    the provider's own fixed wording (never a body, a key or the question) and the time.
+    """
+
+    def call(text: str) -> T:
+        began = time.perf_counter()
+        try:
+            return embed(text)
+        except Exception as error:
+            print(
+                json.dumps(
+                    {
+                        "query_embedding_failed": type(error).__name__,
+                        "detail": str(error)[:160],
+                        "seconds": round(time.perf_counter() - began, 2),
+                    }
+                ),
+                flush=True,
+            )
+            raise
+
+    return call
 
 
 def literal_config(path: Path | None) -> ProviderConfig:
@@ -267,7 +298,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 from kkb_agent.catalog.hybrid import CatalogDenseStage
 
                 dense = CatalogDenseStage(
-                    index, query_embedder(provider, RUNTIME_QUERY_POLICY, origin="kloudeks")
+                    index,
+                    _reported(query_embedder(provider, RUNTIME_QUERY_POLICY, origin="kloudeks")),
                 )
             # Conversations, their messages and uploads outlive this process.
             store = ConversationStore(args.state_root.absolute() / STORE_NAME)
@@ -356,7 +388,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                         LocalCatalogIndex.open(
                             directory, catalog, profile_for(RUNTIME_QUERY_POLICY, "kloudeks")
                         ),
-                        query_embedder(provider, RUNTIME_QUERY_POLICY, origin="kloudeks"),
+                        _reported(
+                            query_embedder(provider, RUNTIME_QUERY_POLICY, origin="kloudeks")
+                        ),
                     )
 
                 def rebuild(
