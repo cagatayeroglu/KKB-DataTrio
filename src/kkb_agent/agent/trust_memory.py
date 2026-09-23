@@ -23,6 +23,7 @@ it, not a description of that sentence.
 
 from __future__ import annotations
 
+from collections.abc import Collection, Iterable
 from dataclasses import dataclass, field
 
 from kkb_agent.core import AnalyticalResult
@@ -74,6 +75,46 @@ class Conversation:
         return blocks
 
 
+def restored(
+    messages: Iterable[tuple[str, str, str, str | None]],
+    finished: Collection[str],
+    note: str | None = None,
+) -> Conversation:
+    """A conversation rebuilt from what was stored of it, after the process lost it.
+
+    `messages` are this conversation's own stored messages in order, each
+    `(turn_id, role, text, status)`; `finished` the turns whose run completed. A turn is
+    kept once, and only when it finished, its question completed and an answer was
+    stored: a failed, cancelled or still-running turn was never remembered while the
+    process lived, so it is not remembered now. The answer is the one the reader was
+    shown, which the live memory kept before it was fitted for display. `note` is the
+    model's last carry note from a finished turn, when one was recorded.
+
+    Live 2026-09-23 a restart between A2 and A3 left the published tables in place and
+    every question and answer before them gone, so the next turn started as if the
+    conversation had not happened.
+    """
+    questions: dict[str, tuple[str, str | None]] = {}
+    answers: dict[str, str] = {}
+    order: list[str] = []
+    for turn_id, role, text, status in messages:
+        if turn_id not in order:
+            order.append(turn_id)
+        if role == "user":
+            questions[turn_id] = (text, status)
+        elif role == "assistant":
+            answers[turn_id] = text
+    exchanges = [
+        Exchange(questions[turn_id][0], answers[turn_id])
+        for turn_id in order
+        if turn_id in finished
+        and turn_id in questions
+        and questions[turn_id][1] == "completed"
+        and answers.get(turn_id, "").strip()
+    ]
+    return Conversation(exchanges=exchanges, note=note)
+
+
 def _tables(published: dict[str, AnalyticalResult]) -> str:
     """What is already published, by name, without its values."""
     lines = [
@@ -113,4 +154,4 @@ def _spoken(exchanges: list[Exchange]) -> str:
     )
 
 
-__all__ = ["Conversation", "Exchange", "MAX_EXCHANGE_CHARS", "MAX_NAMED_COLUMNS"]
+__all__ = ["Conversation", "Exchange", "MAX_EXCHANGE_CHARS", "MAX_NAMED_COLUMNS", "restored"]

@@ -88,6 +88,7 @@ class TrustSession:
             model=self.model,
             connection=self.connection,
             tracer=self.tracer,
+            kept=tuple(published),
         )
         memory.remember(question, answer.text, outcome.state)
         return Turn(answer=answer, outcome=outcome, conversation=memory)

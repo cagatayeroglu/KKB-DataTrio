@@ -27,7 +27,7 @@ from kkb_agent.agent.loop import MAX_HISTORY_TURNS, PlanningFailed
 from kkb_agent.agent.observer import Tracer
 from kkb_agent.agent.selection import SelectedTable, SelectionError
 from kkb_agent.agent.trust_adapter import as_answered
-from kkb_agent.agent.trust_memory import Conversation
+from kkb_agent.agent.trust_memory import Conversation, restored
 from kkb_agent.agent.trust_session import TrustSession
 from kkb_agent.agent.verifier import AnswerStatus
 from kkb_agent.agent.workspace import WorkspaceError
@@ -527,6 +527,45 @@ def _copy(root: Path, destination: Path, expected: dict[str, tuple[int, str]]) -
                 raise PreparedError("prepared_pool_changed")
     if manifest(root) != expected or manifest(destination) != expected:
         raise PreparedError("prepared_pool_changed")
+
+
+def stored_conversation(store: ConversationStore, session_id: str) -> Conversation:
+    """The loop memory of one session, rebuilt from its own stored turns (`restored`).
+
+    Only this session's messages and runs are read. A turn counts when its run completed;
+    the carry note is the last `state` a finished run's decisions recorded — a decision's
+    detail is the model's step as JSON, and before that change it was the note itself.
+    """
+    messages = store.messages(session_id)
+    # Runs in the order their turns were asked: a message's sequence is strictly
+    # increasing within a conversation, a timestamp need not be.
+    asked: dict[str, int] = {}
+    for message in messages:
+        asked.setdefault(message.turn_id, message.sequence)
+    runs = sorted(
+        store.runs(session_id),
+        key=lambda run: (asked.get(run.turn_id, len(messages) + 1), run.started_at),
+    )
+    finished = {run.turn_id for run in runs if run.status == "completed"}
+    note: str | None = None
+    for run in runs:
+        if run.status != "completed":
+            continue
+        for event in store.events(run.run_id):
+            if event.stage != "loop" or event.name != "decision" or not event.detail:
+                continue
+            try:
+                step = json.loads(event.detail)
+                state = step.get("state") if isinstance(step, dict) else None
+            except ValueError:
+                state = event.detail
+            if isinstance(state, str) and state.strip():
+                note = state
+    return restored(
+        [(message.turn_id, message.role, message.text, message.status) for message in messages],
+        finished,
+        note,
+    )
 
 
 def _recent(history: Sequence[tuple[str, str]], turns: int | None) -> tuple[tuple[str, str], ...]:
@@ -1371,7 +1410,7 @@ class PreparedRunner:
                             today=self._clock(),
                         ).answer(
                             effective_question,
-                            conversation=self._memory.setdefault(session_id, Conversation()),
+                            conversation=self._conversation(session_id),
                             # Named results from earlier turns, so a tool given one of
                             # those names finds it without reading the series again.
                             published=workspace.values(),
@@ -1603,6 +1642,18 @@ class PreparedRunner:
                 session_id, turn_id=turn_id, role="assistant", text=receipt.said()
             )
         return Answer(status=AnswerStatus.ACCEPTED, text=receipt.said(), omitted_claims=0)
+
+    def _conversation(self, session_id: str) -> Conversation:
+        """This session's loop memory; after a restart, rebuilt once from the store."""
+        known = self._memory.get(session_id)
+        if known is None:
+            known = (
+                stored_conversation(self._store, session_id)
+                if self._store is not None
+                else Conversation()
+            )
+            self._memory[session_id] = known
+        return known
 
     def _remember_proven(self, session_id: str, identities: Iterable[str]) -> None:
         """Keep this conversation's proven identities in memory and in the store."""
@@ -1901,6 +1952,9 @@ class PreparedRunner:
                     if self._directory is not None
                     else None
                 ),
+                # The loop's model picks among what it is shown, so a reviewed alias
+                # must not hide what it did not name (QA-24); the planned path keeps it.
+                bounded=not self._trust_loop,
             )
         )
         # A result travels by name; this is how a name becomes something readable.

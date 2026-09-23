@@ -243,6 +243,16 @@ class _CandidateIntent:
     credit_subject: bool
 
 
+def _named_measure(text: str) -> RateMeasure | None:
+    """The one rate measure a text names, or None when it names neither or both."""
+    profit, interest = _contains(text, PROFIT_SHARE), _contains(text, INTEREST)
+    if profit and not interest:
+        return "profit_share"
+    if interest and not profit:
+        return "interest"
+    return None
+
+
 def _candidate_intent(item: ReviewedSeries) -> _CandidateIntent:
     record = item.record
     text = normalize_search_text(" ".join([record.title, record.description or "", *record.labels]))
@@ -269,19 +279,19 @@ def _candidate_intent(item: ReviewedSeries) -> _CandidateIntent:
         inclusion = "excluded"
     elif _contains(text, INCLUDED):
         inclusion = "included"
-    rate_measure: RateMeasure | None = None
     # A reviewed explanatory contrast after "; not ..." is not an affirmative
     # measure. The title/labels and the positive description still determine it.
     affirmative_description = re.split(
         r";\s*not\b", record.description or "", maxsplit=1, flags=re.I
     )[0]
-    affirmative = normalize_search_text(
-        " ".join([record.title, *record.labels, affirmative_description])
-    )
-    if _contains(affirmative, PROFIT_SHARE):
-        rate_measure = "profit_share"
-    elif _contains(affirmative, INTEREST):
-        rate_measure = "interest"
+    # The title and labels say which measure a series is; the description only when
+    # they say neither. And a text naming both says neither: a source's category path
+    # "FAİZ VE KÂR PAYI İSTATİSTİKLERİ" in a listed series' description made a TL loan
+    # rate read as profit share, so a question asking for "faiz" ranked it as a
+    # contradiction below every other credit's rate (QA-24).
+    rate_measure = _named_measure(
+        normalize_search_text(" ".join([record.title, *record.labels]))
+    ) or _named_measure(normalize_search_text(affirmative_description))
     return _CandidateIntent(
         kind=record.stock_flow if record.stock_flow is not StockFlow.UNKNOWN else None,
         rate_basis=item.rate_basis if item.rate_basis != "unknown" else None,
@@ -404,6 +414,40 @@ def intent_key(query: str, item: ReviewedSeries) -> tuple[int, ...]:
 def named_measure_kind(query: str) -> StockFlow | None:
     """Only an explicit stock/rate request resolves that axis; amount alone does not."""
     return _query_intent(query).kind
+
+
+#: Where the semantic key stops saying what the question rules out or names as a place,
+#: component or base, and starts counting what a series happens to declare.
+_DECIDED = 7
+
+
+def rerank_widened[T](
+    query: str,
+    items: list[T],
+    *,
+    reviewed_series: Callable[[T], ReviewedSeries],
+    reviewed: Callable[[T], bool],
+) -> list[T]:
+    """Order for a search a reviewed alias no longer bounds; `items` come by relevance.
+
+    What the question contradicts still goes down first, and a reviewed member of the
+    matched concept still leads its equals. After that the words decide, before the count
+    of qualifiers a series declares: a listed "Taşıt Kredisi (TL, Stok, %)" declares no
+    rate basis, and counted first it fell below every other credit's stock rate that
+    does, out of the ten shown, for a question naming "taşıt" and "stok" (QA-24).
+    """
+    intent = _query_intent(query)
+    keys = [_semantic_key(intent, reviewed_series(item)) for item in items]
+    order = sorted(
+        range(len(items)),
+        key=lambda index: (
+            *keys[index][:_DECIDED],
+            not reviewed(items[index]),
+            index,
+            *keys[index][_DECIDED:],
+        ),
+    )
+    return [items[index] for index in order]
 
 
 def rerank_by_reviewed_intent[T](

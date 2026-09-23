@@ -99,10 +99,18 @@ def _gated(answer: Answer) -> GatedAnswer:
     limitations = tuple(dict.fromkeys((*answer.limitations, *answer.notes)))
     if cut:
         limitations = (*limitations, CUT_NOTE)
+    if answer.quoted:
+        # Said apart from the unbound figures: these stand in a document the turn read,
+        # which is where the reader can check them, and nothing more is claimed.
+        limitations = (*limitations, _listed(QUOTED, answer.quoted))
     if answer.unverified:
-        limitations = (*limitations, _unbound(answer.unverified))
+        limitations = (*limitations, _listed(UNBOUND, answer.unverified))
     limitations = _bounded(limitations)
-    status = AnswerStatus.QUALIFIED if (answer.unverified or limitations) else AnswerStatus.ACCEPTED
+    status = (
+        AnswerStatus.QUALIFIED
+        if (answer.unverified or answer.quoted or limitations)
+        else AnswerStatus.ACCEPTED
+    )
     if not text.strip():
         status = AnswerStatus.ABSTAINED
     return GatedAnswer(status, text, Verdict(True, ()), limitations=limitations)
@@ -112,6 +120,10 @@ def _gated(answer: Answer) -> GatedAnswer:
 CUT: Final = "\n\n[Cevap gösterilebilecek uzunluğu aştığı için burada kesildi.]"
 CUT_NOTE: Final = "Cevap uzunluk sınırını aştığı için kısaltıldı; kesildiği yer metinde yazıyor."
 UNBOUND: Final = "Şu sayılar araç sonuçlarına bağlanamadı: "
+QUOTED: Final = (
+    "Belgeden alıntılanan sayılar — okunan belgede aynen geçiyor (yeri parantez içinde); "
+    "birimi, dönemi ve neyi saydığı ayrıca doğrulanmadı: "
+)
 
 
 def _fitted(text: str) -> tuple[str, bool]:
@@ -128,9 +140,9 @@ def _fitted(text: str) -> tuple[str, bool]:
     return head.rstrip() + CUT, True
 
 
-def _unbound(figures: list[str]) -> str:
-    """The figures that did not bind, as many as one notice holds, and how many more."""
-    line = UNBOUND
+def _listed(prefix: str, figures: list[str]) -> str:
+    """Figures under a heading, as many as one notice holds, and how many more."""
+    line = prefix
     for index, figure in enumerate(figures):
         rest = len(figures) - index
         addition = (" / " if index else "") + figure

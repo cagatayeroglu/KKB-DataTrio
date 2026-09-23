@@ -25,18 +25,22 @@ def make_catalog_search_tool(
     snapshot_bytes: bytes,
     dense: CatalogDenseStage | None = None,
     expand: Callable[[str, CatalogSearchOutput], CatalogSearchOutput] | None = None,
+    bounded: bool = True,
 ) -> ToolSpec:
     """`expand` is operator wiring (DEC-177): it opens a found source datagroup into the
-    series the source lists under it, so the planner only ever sees readable identities."""
+    series the source lists under it, so the planner only ever sees readable identities.
+
+    `bounded=False` is the model-driven loop's discovery: a reviewed alias ranks its
+    members first but no longer hides every other series the words reach (QA-24)."""
     snapshot = load_reviewed_snapshot(snapshot_bytes)
 
     def search(arguments: CatalogSearchArguments) -> CatalogSearchOutput:
         if dense is None:
-            return search_catalog(snapshot, arguments)
+            return search_catalog(snapshot, arguments, bounded=bounded)
         # Ordinary lexical/runtime imports do not initialize the native vector engine.
         from kkb_agent.catalog.hybrid import search_hybrid_catalog
 
-        return search_hybrid_catalog(snapshot, arguments, dense)
+        return search_hybrid_catalog(snapshot, arguments, dense, bounded=bounded)
 
     def run(arguments: BaseModel, context: ExecutionContext) -> ToolResult:
         # Fresh validated models per call prevent callers mutating subsequent results.

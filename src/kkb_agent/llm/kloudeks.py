@@ -27,6 +27,8 @@ from __future__ import annotations
 
 import base64
 import json
+import socket
+import ssl
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
@@ -99,12 +101,50 @@ def approved_base_url(url: str) -> str:
     return f"https://{host}{API_PATH}"
 
 
+#: The pause before each further attempt to connect, and so how many there are: a
+#: connection never established is tried three times in all (`KloudeksProvider._post`).
+CONNECT_PAUSES: Final = (0.5, 1.5)
+
+
+def _connect_cause(error: BaseException) -> str:
+    """Which part of connecting failed, as a fixed word: never a message, host or address.
+
+    `httpx` keeps the socket library's own exception as the cause of its `ConnectError`,
+    so a DNS failure, a refused or reset connection, a TLS failure and a timeout can be
+    told apart without reading any text the error carries.
+    """
+    seen: BaseException | None = error
+    for _ in range(8):
+        seen = (seen.__cause__ or seen.__context__) if seen is not None else None
+        if seen is None:
+            break
+        if isinstance(seen, socket.gaierror):
+            return "dns"
+        if isinstance(seen, ssl.SSLCertVerificationError):
+            return "tls-certificate"
+        if isinstance(seen, ssl.SSLError):
+            return "tls"
+        if isinstance(seen, ConnectionRefusedError):
+            return "refused"
+        if isinstance(seen, ConnectionResetError):
+            return "reset"
+        if isinstance(seen, ConnectionAbortedError):
+            return "aborted"
+        if isinstance(seen, TimeoutError):
+            return "timeout"
+        if isinstance(seen, OSError):
+            code = getattr(seen, "winerror", None) or seen.errno
+            return f"os-{code}" if isinstance(code, int) else "os"
+    return "timeout" if isinstance(error, httpx.ConnectTimeout) else "unknown"
+
+
 class KloudeksProvider:
     """`LLMProvider` over DEC-129's OpenAI-compatible chat and embedding endpoints.
 
-    Transport faults are not retried here; that policy is M4-10's. Schema
-    repair is: `complete_with_repair` feeds a malformed answer's fault back
-    within the configured attempt budget, exactly as the scripted double does.
+    Transport faults are not retried here, with one exception: a connection that was
+    never established (`_post`). Schema repair is: `complete_with_repair` feeds a
+    malformed answer's fault back within the configured attempt budget, exactly as the
+    scripted double does.
     """
 
     def __init__(
@@ -154,12 +194,15 @@ class KloudeksProvider:
             raise CapabilityUnavailable("The requested model is not one this deployment configures")
         spent: list[Usage] = []
         reasoning: list[str] = []
+        reconnected: list[str] = []
 
         def ask(
             conversation: list[Message],
         ) -> tuple[str, str | None, tuple[ToolCall, ...]]:
             document = self._post(
-                CHAT_PATH, self._chat_body(conversation, chosen, schema=schema, tools=tools)
+                CHAT_PATH,
+                self._chat_body(conversation, chosen, schema=schema, tools=tools),
+                reconnected=reconnected,
             )
             reply = _choice(document)
             # Recorded for traces only; neither changes what the caller receives.
@@ -181,6 +224,7 @@ class KloudeksProvider:
             completion,
             usage=_summed(spent) if spent else None,
             reasoning="\n\n---\n\n".join(reasoning) if reasoning else None,
+            reconnected=tuple(reconnected),
         )
 
     def request_body(
@@ -340,7 +384,12 @@ class KloudeksProvider:
         return Completion(text=text, model=model, finish_reason=finish)
 
     def _post(
-        self, path: str, body: dict[str, object], *, timeout: float | None = None
+        self,
+        path: str,
+        body: dict[str, object],
+        *,
+        timeout: float | None = None,
+        reconnected: list[str] | None = None,
     ) -> dict[str, Any]:
         if path not in (CHAT_PATH, EMBEDDINGS_PATH):
             raise ProviderError("Unknown provider path")
@@ -356,10 +405,35 @@ class KloudeksProvider:
         if request.url.scheme != "https" or request.url.host not in APPROVED_HOSTS:
             raise ConfigurationError("Refusing to send the credential outside the DEC-129 endpoint")
         deadline = time.monotonic() + allowed
-        try:
-            response = self._client.send(request, stream=True)
-        except httpx.HTTPError as error:
-            raise TransportError(f"Kloudeks request failed ({type(error).__name__})") from None
+        # A connection that was never established is tried again, twice at most and within
+        # the request's own deadline: nothing reached the server, so nothing was run or
+        # billed and a second attempt cannot duplicate one. Live 2026-09-23 (QA-19, then
+        # A2 on 92651bc) two requests of one turn failed with ConnectError while the host
+        # answered DNS, TLS and GET /models in a fifth of a second a minute later. A
+        # failure after the request may have gone — a read error, a read timeout, a
+        # dropped response — stays a failure: whether it ran cannot be known, and a paid
+        # request is never repeated blind.
+        failed: list[str] = []
+        while True:
+            try:
+                response = self._client.send(request, stream=True)
+                break
+            except (httpx.ConnectError, httpx.ConnectTimeout) as error:
+                failed.append(_connect_cause(error))
+                pause = (
+                    CONNECT_PAUSES[len(failed) - 1] if len(failed) <= len(CONNECT_PAUSES) else None
+                )
+                if pause is None or time.monotonic() + pause >= deadline:
+                    attempts = f"{len(failed)} connection attempt" + (
+                        "s" if len(failed) > 1 else ""
+                    )
+                    cause = f"{type(error).__name__}: {failed[-1]}"
+                    raise TransportError(f"Kloudeks request failed ({cause}; {attempts})") from None
+                time.sleep(pause)
+            except httpx.HTTPError as error:
+                raise TransportError(f"Kloudeks request failed ({type(error).__name__})") from None
+        if reconnected is not None:
+            reconnected.extend(failed)
         try:
             _check_status(response.status_code)
             payload = _read_capped(response, deadline)

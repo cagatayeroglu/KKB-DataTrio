@@ -366,4 +366,16 @@ def make_inspect_tool() -> ToolSpec:
     )
 
 
-__all__ = ["InspectArguments", "InspectOutput", "MAX_ROWS", "make_inspect_tool"]
+#: What a read document holds, by the same reading `inspect` gives it: its text piece by
+#: piece and its tables, each with where it is. The answer's quotation check reads these.
+document_passages = _passages
+document_tables = _tables
+
+__all__ = [
+    "InspectArguments",
+    "InspectOutput",
+    "MAX_ROWS",
+    "document_passages",
+    "document_tables",
+    "make_inspect_tool",
+]

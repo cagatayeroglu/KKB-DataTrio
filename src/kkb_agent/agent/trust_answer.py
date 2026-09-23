@@ -18,6 +18,8 @@ still visible, and a model that writes a correct sentence keeps it.
 from __future__ import annotations
 
 import json
+import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Final
 
@@ -25,11 +27,14 @@ from duckdb import DuckDBPyConnection
 
 from kkb_agent.agent.executor import analytical
 from kkb_agent.agent.observer import Tracer
-from kkb_agent.agent.trust_loop import TurnOutcome, observed_payload, traced_complete
+from kkb_agent.agent.presentation import display_value
+from kkb_agent.agent.trust_loop import TurnOutcome, _outline, observed_payload, traced_complete
 from kkb_agent.agent.trust_prompt import EXHAUSTED, WRITER
-from kkb_agent.agent.verifier import Binding, result_faults, verify_claims
+from kkb_agent.agent.verifier import MINUS, Binding, result_faults, verify_claims
+from kkb_agent.catalog.search import CatalogSearchOutput
 from kkb_agent.core import AnalyticalResult
 from kkb_agent.llm.provider import LLMProvider, Message, ProviderError, Role
+from kkb_agent.tools.inspect_result import InspectOutput, document_passages, document_tables
 
 #: How much of one tool's output the writer is shown before it is clipped.
 MAX_EVIDENCE_CHARS = 20_000
@@ -53,7 +58,7 @@ _UNATTESTED: Final = "Numeric analytical result lacks matching trusted producer 
 #: that none was.
 INTERRUPTED: Final = (
     "Modele yapılan yazım isteği geri dönmedi, bu yüzden aşağıda yorum yok. "
-    "Araçların döndürdüğü sonuçlar olduğu gibi veriliyor.\n\n"
+    "Bu turda araçların döndürdüğü sonuçların kısa özeti:\n\n"
 )
 
 #: Said once when results carry no execution attestation.
@@ -72,6 +77,9 @@ class Answer:
     limitations: list[str] = field(default_factory=list)
     #: Figures the verifier could not bind. Reported, never removed.
     unverified: list[str] = field(default_factory=list)
+    #: Figures found, written exactly so, in a document this turn read; with where.
+    #: Quoted, not verified: the unit, period and meaning are not checked by finding them.
+    quoted: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
 
@@ -126,8 +134,13 @@ def write_answer(
     model: str | None = None,
     connection: DuckDBPyConnection | None = None,
     tracer: Tracer | None = None,
+    kept: Sequence[str] = (),
 ) -> Answer:
-    """Ask the model to report what its own tools returned, then check the figures."""
+    """Ask the model to report what its own tools returned, then check the figures.
+
+    `kept` names the tables earlier turns published, so a turn that could not be
+    written can still tell the reader those are where they were.
+    """
     if outcome.ask:
         return Answer(text=outcome.ask)
 
@@ -165,9 +178,87 @@ def write_answer(
         # fails as it did.
         if not evidence:
             raise
-        draft = INTERRUPTED + evidence
+        # Written here, from the tool outputs themselves, so its figures are not the
+        # model's claims and there is nothing of them to check; the counts it states
+        # (pages, values) would only be reported back as figures no tool returned.
+        answer = Answer(text=(INTERRUPTED + _digest(outcome, kept)).strip())
+        return _checked(answer, outcome, results, connection, figures=False)
     answer = Answer(text=draft.strip())
     return _checked(answer, outcome, results, connection)
+
+
+#: Values of one table listed in the fallback; the rest are in the table itself.
+MAX_DIGEST_VALUES = 24
+#: A tool output this short is shown as it is; a longer one is summarized.
+MAX_INLINE_CHARS = 300
+
+
+def _digest(outcome: TurnOutcome, kept: Sequence[str]) -> str:
+    """What the tools returned, said briefly: every table's figures, never a raw dump.
+
+    The fallback used to be every observation as raw JSON. Live 2026-09-23 (A2 on
+    92651bc) both model requests of a turn failed to connect, and the reader was handed
+    a clipped wall of catalogue-listing JSON in place of an answer. A reader cannot use
+    that; they can use which searches ran, what they found, and what a table holds.
+    """
+    lines = []
+    for item in outcome.observations:
+        head = f"- {item.action.id} ({item.action.tool}{_asked(item.action.arguments)})"
+        output = item.result.output
+        if not item.ok or output is None:
+            reason = "; ".join(item.result.warnings)[:300] or item.result.error_category
+            lines.append(f"{head}: sonuç vermedi" + (f" — {reason}" if reason else ""))
+            continue
+        lines.append(f"{head}: {_summary(output)}")
+    if kept:
+        lines.append(
+            "\nÖnceki turlarda yayımlanan tablolar yerinde duruyor: " + ", ".join(kept) + "."
+        )
+    return "\n".join(lines)
+
+
+def _asked(arguments: Mapping[str, object]) -> str:
+    words = ", ".join(value for value in arguments.values() if isinstance(value, str))
+    return f" «{words[:100]}»" if words else ""
+
+
+def _summary(output: object) -> str:
+    """One observation in a line or a short list, by what it is."""
+    measured = analytical(output)
+    if measured is not None:
+        coverage = (
+            f", {measured.coverage.start}..{measured.coverage.end}"
+            if measured.coverage is not None
+            else ""
+        )
+        rows = [f"{len(measured.values)} değer{coverage}"]
+        for value in measured.values[:MAX_DIGEST_VALUES]:
+            when = value.period.end.isoformat() if value.period is not None else ""
+            rows.append(f"    {value.label[:60]} {when}: {display_value(value)}")
+        if len(measured.values) > MAX_DIGEST_VALUES:
+            rows.append(f"    … ve {len(measured.values) - MAX_DIGEST_VALUES} değer daha")
+        return "\n".join(rows)
+    if isinstance(output, CatalogSearchOutput):
+        if not output.candidates:
+            return "katalogda aday bulunamadı"
+        shown = "; ".join(
+            f"{c.series.record.title} ({c.series.record.provider})" for c in output.candidates[:3]
+        )
+        more = len(output.candidates) - 3
+        return f"{len(output.candidates)} aday: {shown}" + (f"; +{more} aday" if more > 0 else "")
+    if isinstance(output, InspectOutput):
+        return f"{len(output.values)} satır gösterildi ({output.kind}, toplam {output.rows})"
+    document = getattr(output, "document", None)
+    pages = getattr(document, "pages", None)
+    if isinstance(pages, tuple):
+        tables = sum(len(getattr(page, "tables", ())) for page in pages)
+        return f"belge okundu: {len(pages)} sayfa, {tables} tablo"
+    text = getattr(document, "text", None)
+    if isinstance(text, str):
+        tables = len(getattr(document, "tables", ()) or ())
+        return f"sayfa okundu: {len(text)} karakter metin, {tables} tablo"
+    rendered = json.dumps(observed_payload(output), ensure_ascii=False, default=str)
+    return rendered if len(rendered) <= MAX_INLINE_CHARS else _outline(output)
 
 
 def _checked(
@@ -175,6 +266,8 @@ def _checked(
     outcome: TurnOutcome,
     results: dict[str, AnalyticalResult],
     connection: DuckDBPyConnection | None,
+    *,
+    figures: bool = True,
 ) -> Answer:
     """Attach what the turn knows, then report any figure that did not bind."""
     answer.published = outcome.publish or (list(results)[-1] if results else None)
@@ -184,10 +277,13 @@ def _checked(
     for item in outcome.observations:
         answer.limitations.extend(item.result.warnings)
 
-    if results and answer.text:
+    documents = _documents(outcome) if figures else []
+    if figures and (results or documents) and answer.text:
         # The same binding as before, read as a report: a figure that does not
         # bind is named, and the model's sentence stays where the model put it.
-        answer.unverified, unattested = _figures(answer.text, results, connection)
+        answer.unverified, answer.quoted, unattested = _report(
+            answer.text, results, connection, documents
+        )
         if unattested:
             answer.limitations.append(UNATTESTED_NOTE + ", ".join(sorted(unattested)))
         for name, result in results.items():
@@ -212,12 +308,43 @@ def _figures(
     contradicted scale, a period the result never covered, a figure that
     disagrees with the store — is the figure's own and is reported with it.
     """
-    unattested = [
-        name
-        for name, faults in result_faults(results, connection).items()
-        if any(fault.endswith(_UNATTESTED) for fault in faults)
-    ]
+    reported, _, unattested = _report(text, results, connection, ())
+    return reported, unattested
+
+
+#: Where a figure was found in a read document, if it was: (result id, where, text).
+Located = tuple[str, dict[str, object], str]
+
+#: Fewer digits than this are too common to say anything by appearing in a document.
+MIN_QUOTED_DIGITS = 3
+
+
+def _report(
+    text: str,
+    results: dict[str, AnalyticalResult],
+    connection: DuckDBPyConnection | None,
+    documents: Sequence[Located],
+) -> tuple[list[str], list[str], list[str]]:
+    """Unbound figures, figures quoted from a document read this turn, unattested results.
+
+    A figure no tool computed but that stands, written exactly so, in a document this
+    turn read is a quotation, and it is said to be one with where it stands — page and
+    table. That is all it is: the check finds the characters, not their meaning, so
+    nothing about the figure's unit, period or what it counts is confirmed by it, and
+    the notice says so. Before, every such figure was reported as "not in the tool
+    results", which was untrue of a PDF the turn had just read.
+    """
+    unattested = (
+        [
+            name
+            for name, faults in result_faults(results, connection).items()
+            if any(fault.endswith(_UNATTESTED) for fault in faults)
+        ]
+        if results
+        else []
+    )
     reported: list[str] = []
+    quoted: list[str] = []
     # A figure rounded correctly to the decimals it is written with binds here (QA-22):
     # this report names what does not bind, it does not withhold it.
     for item in verify_claims(text, results, connection, written_precision=True).numbers:
@@ -225,8 +352,52 @@ def _figures(
         if kept:
             reported.append(f"{item.number.text} ({'; '.join(kept)})")
         elif item.binding is Binding.UNBOUND and not item.faults:
-            reported.append(f"{item.number.text} (araç sonuçlarında bu değer yok)")
-    return reported, unattested
+            place = _quoted_from(item.number.text, documents)
+            if place is not None:
+                quoted.append(f"{item.number.text} ({place})")
+            else:
+                reported.append(f"{item.number.text} (araç sonuçlarında bu değer yok)")
+    return reported, quoted, unattested
+
+
+def _documents(outcome: TurnOutcome) -> list[Located]:
+    """The text of every document this turn read, piece by piece, tables first."""
+    found: list[Located] = []
+    for item in outcome.observations:
+        output = item.result.output
+        if not item.ok or output is None:
+            continue
+        if isinstance(output, InspectOutput):
+            for row in output.values:
+                cells = row.get("cells")
+                body = " | ".join(map(str, cells)) if isinstance(cells, list) else row.get("text")
+                if isinstance(body, str):
+                    found.append((output.source, dict(row), body))
+            continue
+        for where, rows in document_tables(output, None):
+            found.append((item.action.id, where, "\n".join(" | ".join(row) for row in rows)))
+        for where, body in document_passages(output) or ():
+            found.append((item.action.id, where, body))
+    return found
+
+
+def _quoted_from(written: str, documents: Sequence[Located]) -> str | None:
+    """Where the figure stands, written exactly so, in a document this turn read."""
+    token = written.strip().replace(MINUS, "-")
+    if sum(character.isdigit() for character in token) < MIN_QUOTED_DIGITS:
+        return None
+    pattern = re.compile(r"(?<![\d.,])" + re.escape(token) + r"(?![.,]?\d)")
+    for source, where, body in documents:
+        if pattern.search(body.replace(MINUS, "-")):
+            parts = [source]
+            if where.get("page") is not None:
+                parts.append(f"s. {where['page']}")
+            if where.get("table_on_page") is not None:
+                parts.append(f"tablo {where['table_on_page']}")
+            elif where.get("table") is not None:
+                parts.append(f"tablo {where['table']}")
+            return ", ".join(parts)
+    return None
 
 
 __all__ = ["Answer", "UNVERIFIED", "write_answer"]

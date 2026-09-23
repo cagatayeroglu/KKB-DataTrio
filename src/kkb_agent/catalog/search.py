@@ -20,7 +20,12 @@ from kkb_agent.catalog.mappings import (
     is_source_group,
 )
 from kkb_agent.catalog.normalization import normalize_search_text
-from kkb_agent.catalog.ranking import intent_key, named_measure_kind, rerank_by_reviewed_intent
+from kkb_agent.catalog.ranking import (
+    intent_key,
+    named_measure_kind,
+    rerank_by_reviewed_intent,
+    rerank_widened,
+)
 from kkb_agent.catalog.records import MAX_CATALOG_CONCEPTS, MAX_CATALOG_SERIES, CatalogStatus
 from kkb_agent.core import Frequency, StockFlow
 from kkb_agent.core.models import ContractModel
@@ -469,8 +474,19 @@ def top_candidate_signal(
 
 
 def search_catalog(
-    snapshot: ReviewedSnapshot, arguments: CatalogSearchArguments
+    snapshot: ReviewedSnapshot, arguments: CatalogSearchArguments, *, bounded: bool = True
 ) -> CatalogSearchOutput:
+    """`bounded`: whether a reviewed alias match closes the candidate set to its concepts.
+
+    The planned path relies on that closure (its planner picks among reviewed candidates).
+    The model-driven loop does not: it reads titles and decides, and a closed set hides
+    what the alias did not name. Live 2026-09-23 (QA-24) "taşıt kredisi faiz oranı stok"
+    matched a reviewed alias whose only member is the new-loan (akım) rate, and the
+    outstanding-portfolio (stok) rate the question named was removed from the result —
+    found only by an English query. Unbounded, the concept's members come first among
+    equals and every other series the words reach is listed beside them, ordered by the
+    same qualifier check, so an explicit "stok" still puts an akım series below.
+    """
     snapshot = ReviewedSnapshot.model_validate(snapshot)
     args = CatalogSearchArguments.model_validate(arguments)
     key = normalize_search_text(args.query)
@@ -514,7 +530,11 @@ def search_catalog(
     ranked = [
         s
         for s in eligible
-        if (s.record.series_id in mapped if matches else scores[s.record.series_id] > 0)
+        if (
+            s.record.series_id in mapped
+            if matches and bounded
+            else s.record.series_id in mapped or scores[s.record.series_id] > 0
+        )
     ]
     ranked.sort(
         key=lambda s: (
@@ -527,7 +547,15 @@ def search_catalog(
     # every one of them below any series that does. They keep their own relevance order.
     found_groups = [s for s in ranked if is_source_group(s)][:MAX_GROUPS]
     ranked = [s for s in ranked if not is_source_group(s)]
-    ranked = rerank_by_reviewed_intent(args.query, ranked, reviewed_series=lambda item: item)
+    if matches and not bounded:
+        ranked = rerank_widened(
+            args.query,
+            ranked,
+            reviewed_series=lambda item: item,
+            reviewed=lambda item: item.record.series_id in mapped,
+        )
+    else:
+        ranked = rerank_by_reviewed_intent(args.query, ranked, reviewed_series=lambda item: item)
     if not matches:
         ranked = named_calendar_first(args.query, ranked, reviewed_series=lambda item: item)
     ranked = one_per_listed_row(ranked, reviewed_series=lambda item: item, query=args.query)
@@ -553,7 +581,8 @@ def search_catalog(
             rank=i + 1,
             bm25_score=scores[s.record.series_id],
             matched_terms=tuple(sorted(query_terms & documents[s.record.series_id].keys())),
-            method=method,
+            # A neighbour the words reached is said to be one, beside the reviewed members.
+            method=method if not matches or s.record.series_id in mapped else "bm25",
         )
         for i, s in enumerate(ranked[: args.max_results])
     )

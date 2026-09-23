@@ -287,10 +287,14 @@ class TestFailuresMapWithoutLeaking:
         assert [request.url.host for request in server.requests] == ["mia.csp.kloudeks.com"]
 
     @pytest.mark.parametrize("fault", [httpx.ConnectError, httpx.ReadTimeout])
-    def test_transport_faults_become_transport_errors(self, fault):
-        server = Server(fault(f"{PROMPT} {CANARY}"))
+    def test_transport_faults_become_transport_errors(self, fault, monkeypatch):
+        # A connection never made is tried three times in all; a read is tried once.
+        monkeypatch.setattr(kloudeks, "CONNECT_PAUSES", (0.0, 0.0))
+        tries = 3 if fault is httpx.ConnectError else 1
+        server = Server(*(fault(f"{PROMPT} {CANARY}") for _ in range(tries)))
         with pytest.raises(TransportError) as raised:
             ask(provider(server))
+        assert len(server.requests) == tries
         assert fault.__name__ in str(raised.value)
         assert PROMPT not in str(raised.value) and CANARY not in str(raised.value)
 

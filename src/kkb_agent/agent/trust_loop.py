@@ -729,6 +729,7 @@ def _received(completion: Completion) -> dict[str, Any]:
         "content": completion.text,
         "tool_calls": _calls(completion.tool_calls),
         "usage": asdict(completion.usage) if completion.usage is not None else None,
+        "reconnected": list(completion.reconnected),
     }
 
 

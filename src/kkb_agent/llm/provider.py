@@ -92,6 +92,9 @@ class Completion:
     #: The model's reasoning text, when it returned one beside the answer. It is
     #: never used as an answer; it is kept so a trace shows why a call was slow.
     reasoning: str | None = field(default=None, repr=False)
+    #: Why each connection attempt before the one that worked failed ("dns", "tls",
+    #: "refused", ...). Empty when the first attempt connected.
+    reconnected: tuple[str, ...] = ()
 
 
 class ProviderError(RuntimeError):
