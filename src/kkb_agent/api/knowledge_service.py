@@ -498,6 +498,10 @@ class KnowledgeService:
                 # A category, never a path, a query or vector contents.
                 self._build_error = _index_failure(error)
             finally:
+                # Released before `_stale` is read, and a save sets `_stale` before it asks
+                # again (`_refresh_after_save`): whichever way the two interleave, either
+                # this build sees the flag or that second ask finds no build running and
+                # starts one (QA-31).
                 self._building.release()
             if self._stale:
                 # A conversation saved a series while this ran from the catalogue before
@@ -532,7 +536,14 @@ class KnowledgeService:
             return "lexical"
         try:
             if not self._start_build():
+                # Busy: leave the refresh for the running build, then ask once more. A
+                # build that ended between the busy answer and the flag never read it,
+                # and nothing was left to build this save (QA-31); asking again after the
+                # flag is set finds either that build still running - it will read the
+                # flag - or no build, and starts one. The flag is left set: at worst the
+                # build it causes finds the catalogue already covered and does nothing.
                 self._stale = True
+                self._start_build()
         except Exception as error:  # noqa: BLE001 - the save stands; the vectors are said
             self._build_error = _index_failure(error)
             return "unchanged"

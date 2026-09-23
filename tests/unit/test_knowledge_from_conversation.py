@@ -244,6 +244,93 @@ def test_a_save_refreshes_the_vectors_and_a_save_during_a_build_is_not_lost(stac
     assert service._dense.index.snapshot_sha256 == service._effective().content_sha256
 
 
+def indexed(stack, rebuild):  # noqa: F811
+    build, store, knowledge, _ = stack
+    runner, _ = build()
+    service = KnowledgeService(
+        knowledge,
+        store,
+        runner.catalog,
+        prepared=frozenset(item.series_id for item in runner.status.series),
+        rebuild_index=rebuild,
+    )
+    return service, empty_conversation(store)
+
+
+def settled(service) -> None:
+    """Every build started so far, and every build those started, has ended."""
+    for _ in range(50):
+        thread = service._build_thread
+        if thread is None or not thread.is_alive():
+            if not service._building.locked():
+                return
+        else:
+            thread.join(5)
+    raise AssertionError("a build never ended")
+
+
+def test_a_build_ending_between_busy_and_the_flag_still_builds_the_save(stack, monkeypatch):  # noqa: F811
+    """QA-31: the running build ended after the save was told busy, before the flag was set.
+
+    It read no flag and left, and the save was told "refreshing" with nothing left to
+    build it. The save now asks again once the flag is set, and finds no build running.
+    """
+    built: list[str] = []
+    running, release = threading.Event(), threading.Event()
+
+    def rebuild(catalog, previous):
+        built.append(catalog.content_sha256)
+        running.set()
+        assert release.wait(5)
+        return _Stage(catalog.content_sha256)
+
+    service, session_id = indexed(stack, rebuild)
+    service.promote(proposal(session_id, "ilk_kayit"))
+    assert running.wait(5)
+    ask = service._start_build
+
+    def ending_right_after_busy(*args, **kwargs):
+        started = ask(*args, **kwargs)
+        if not started:
+            worker = service._build_thread
+            release.set()
+            worker.join(5)
+            assert not worker.is_alive()
+        return started
+
+    monkeypatch.setattr(service, "_start_build", ending_right_after_busy)
+    receipt = service.promote(proposal(session_id, "ikinci_kayit"))
+    settled(service)
+    assert receipt.index == "refreshing"
+    assert len(built) == 2  # the save's own build, and no more
+    assert service._dense is not None
+    assert service._dense.index.snapshot_sha256 == service._effective().content_sha256
+
+
+def test_a_failing_follow_up_is_recorded_and_not_retried(stack):  # noqa: F811
+    """The build a save leaves behind may fail; it is said, and nothing loops on it."""
+    built: list[str] = []
+    running, release = threading.Event(), threading.Event()
+
+    def rebuild(catalog, previous):
+        built.append(catalog.content_sha256)
+        if len(built) == 1:
+            running.set()
+            assert release.wait(5)
+            return _Stage(catalog.content_sha256)
+        raise OSError("/private/path")
+
+    service, session_id = indexed(stack, rebuild)
+    service.promote(proposal(session_id, "ilk_kayit"))
+    assert running.wait(5)
+    service.promote(proposal(session_id, "ikinci_kayit"))
+    release.set()
+    settled(service)
+    assert len(built) == 2
+    assert service._build_error == "state_filesystem_failure"
+    assert service._dense is None  # the first was built for a catalogue that had moved on
+
+
 def test_without_an_index_the_receipt_says_words_find_it(stack):  # noqa: F811
     build, store, knowledge, _ = stack
     runner, service = build()
