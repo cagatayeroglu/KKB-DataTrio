@@ -76,6 +76,11 @@ if TYPE_CHECKING:  # pragma: no cover
 MINUS: Final = "\u2212"
 NUMBER = re.compile(r"(?<![\w.,])[+\-\u2212]?(?:\d{1,3}(?:[.,  ]\d{3})+|\d+)(?:[.,]\d+)?(?![\w])")
 
+#: A web address written in an answer, as `web_url` reads one out of a question: it ends
+#: at white space, a quote or an angle bracket. Its digits - a folder, a document id,
+#: a percent-encoded letter - are part of a name, not quantities (QA-32).
+ADDRESS: Final = re.compile(r"https?://[^\s<>\"'`‘’“”«»]+")
+
 #: Relative closeness required to call a written number the same as a stored one.
 #: A written figure is usually rounded, so exact equality would reject correct
 #: answers; this permits presentation rounding and nothing more.
@@ -215,9 +220,15 @@ def extract_numbers(text: str) -> list[WrittenNumber]:
     answered the question (live 2026-09-20).
     """
     found: list[WrittenNumber] = []
+    # Live 2026-09-23 an answer that gave the right PDF's address was qualified for
+    # "2837", "6161" and the "20" of "%20" in it, none of which the tools had returned.
+    # Only what lies inside the address is skipped: a figure beside it is still a claim.
+    addresses = [match.span() for match in ADDRESS.finditer(text)]
     for match in NUMBER.finditer(text):
         value = parse_written(match.group())
         if value is None:
+            continue
+        if any(start <= match.start() < end for start, end in addresses):
             continue
         if is_list_marker(text, match.start(), match.end()) or is_base_notation(
             text, match.start(), match.end()
