@@ -298,7 +298,30 @@ class WebUrlArguments(BaseModel):
             )
         )
         if sources != 1:
-            raise ValueError("give exactly one of url, attached=true, found_by or read_from")
+            given = [
+                name
+                for name, present in (
+                    ("url", self.url is not None),
+                    ("attached", self.attached),
+                    ("found_by", self.found_by is not None),
+                    ("read_from", self.read_from is not None),
+                )
+                if present
+            ]
+            # Said with the way that works: live 2026-09-23 (TCMB 2024 announcements) the
+            # model followed a link of a page it had read with url, read_from and follow
+            # together, and spent a round learning only that one of them was too many.
+            follow = (
+                " To follow a link of a page read earlier, give read_from (that read's id) "
+                "and follow only: the page's own address is already that read's."
+                if self.read_from is not None and self.url is not None
+                else ""
+            )
+            raise ValueError(
+                "give exactly one of url, attached=true, found_by or read_from"
+                + (f"; this call gave {', '.join(given)}." if given else ".")
+                + follow
+            )
         if self.read_from is not None and self.follow is None:
             # Said with the way that works: live 2026-09-23 the model sent eight of these,
             # one per month, to take cells from a PDF it had already read, and spent its
