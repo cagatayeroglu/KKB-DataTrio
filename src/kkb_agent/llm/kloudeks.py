@@ -152,40 +152,15 @@ class KloudeksProvider:
         if chosen not in self._chat_models:
             # Not echoed: a model name can arrive from text nobody vetted.
             raise CapabilityUnavailable("The requested model is not one this deployment configures")
-        json_mode = schema is not None and self._config.structured_output
-        # A structured request is a plan; free text is the writer's sentence.
-        thinking = (
-            self._config.planner_thinking if schema is not None else self._config.writer_thinking
-        )
         spent: list[Usage] = []
         reasoning: list[str] = []
 
         def ask(
             conversation: list[Message],
         ) -> tuple[str, str | None, tuple[ToolCall, ...]]:
-            body: dict[str, object] = {
-                "model": chosen,
-                "messages": _wire_messages(conversation),
-                # Plans and summaries should not change between identical runs.
-                "temperature": 0.0,
-                # A memory/safety ceiling on runaway generation, not a latency
-                # knob: set well above any real plan or answer, so a legitimate
-                # call is never truncated (DEC-161 follow-up).
-                "max_tokens": self._config.max_output_tokens,
-            }
-            if tools:
-                # The model decides what to run; the server only needs the menu.
-                body["tools"] = list(tools)
-                body["tool_choice"] = "auto"
-            if json_mode:
-                # Opt-in only: Q-K-03 has not confirmed guaranteed JSON output,
-                # so strict local validation still decides.
-                body["response_format"] = {"type": "json_object"}
-            if not thinking:
-                # The served Qwen reasons by default; its chat template takes this
-                # switch (observed 2026-09-18: reasoning tokens 274 -> 0).
-                body["chat_template_kwargs"] = {"enable_thinking": False}
-            document = self._post(CHAT_PATH, body)
+            document = self._post(
+                CHAT_PATH, self._chat_body(conversation, chosen, schema=schema, tools=tools)
+            )
             reply = _choice(document)
             # Recorded for traces only; neither changes what the caller receives.
             if (usage := _usage(document)) is not None:
@@ -207,6 +182,61 @@ class KloudeksProvider:
             usage=_summed(spent) if spent else None,
             reasoning="\n\n---\n\n".join(reasoning) if reasoning else None,
         )
+
+    def request_body(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str | None = None,
+        schema: type[BaseModel] | None = None,
+        tools: Sequence[Mapping[str, object]] | None = None,
+    ) -> dict[str, object]:
+        """The body `complete` posts first for these arguments, built by the same code.
+
+        For a trace, so a reviewer reads the request the platform received rather than
+        the loop's intention of it. The credential travels in a header and is not part
+        of a body. A repair attempt appends turns to the conversation; the completion's
+        `attempts` says whether one ran.
+        """
+        chosen = self._config.planner_model if model is None else model
+        return self._chat_body(messages, chosen, schema=schema, tools=tools)
+
+    def _chat_body(
+        self,
+        conversation: Sequence[Message],
+        chosen: str,
+        *,
+        schema: type[BaseModel] | None,
+        tools: Sequence[Mapping[str, object]] | None,
+    ) -> dict[str, object]:
+        json_mode = schema is not None and self._config.structured_output
+        # A structured request is a plan; free text is the writer's sentence.
+        thinking = (
+            self._config.planner_thinking if schema is not None else self._config.writer_thinking
+        )
+        body: dict[str, object] = {
+            "model": chosen,
+            "messages": _wire_messages(conversation),
+            # Plans and summaries should not change between identical runs.
+            "temperature": 0.0,
+            # A memory/safety ceiling on runaway generation, not a latency
+            # knob: set well above any real plan or answer, so a legitimate
+            # call is never truncated (DEC-161 follow-up).
+            "max_tokens": self._config.max_output_tokens,
+        }
+        if tools:
+            # The model decides what to run; the server only needs the menu.
+            body["tools"] = list(tools)
+            body["tool_choice"] = "auto"
+        if json_mode:
+            # Opt-in only: Q-K-03 has not confirmed guaranteed JSON output,
+            # so strict local validation still decides.
+            body["response_format"] = {"type": "json_object"}
+        if not thinking:
+            # The served Qwen reasons by default; its chat template takes this
+            # switch (observed 2026-09-18: reasoning tokens 274 -> 0).
+            body["chat_template_kwargs"] = {"enable_thinking": False}
+        return body
 
     def embed(self, texts: Sequence[str], *, kind: EmbeddingKind) -> list[list[float]]:
         model = self._config.embedding_model

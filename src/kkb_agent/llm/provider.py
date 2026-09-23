@@ -167,3 +167,20 @@ class LLMProvider(Protocol):
     def vision(self, image_bytes: bytes, prompt: str) -> Completion:
         """Read an image. Output is untrusted extraction, never a verified number."""
         ...
+
+
+@runtime_checkable
+class ShowsRequests(Protocol):
+    """A provider that can show, for a trace, the body it would post. Optional.
+
+    Separate from `LLMProvider` so a test double need not render a wire format.
+    """
+
+    def request_body(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str | None = None,
+        schema: type[BaseModel] | None = None,
+        tools: Sequence[Mapping[str, object]] | None = None,
+    ) -> dict[str, object]: ...

@@ -20,6 +20,7 @@ A `Tracer` collects those events as they occur. Three rules keep it honest:
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
@@ -145,7 +146,19 @@ class Tracer:
         # run while it is still going and a crash leaves what already happened.
         self._sink = sink
         self._events: list[TraceEvent] = []
-        self._redactions = tuple(value for value in redactions if value)
+        # A secret is also looked for as JSON writes it, and as JSON writes that: a
+        # detail is often a JSON document holding JSON strings (a tool's observation
+        # inside a tool turn inside a recorded request), where a quote or backslash in
+        # the value appears escaped once or twice and the plain form matches neither.
+        # Longest first, so an escaped form is replaced before a part of it can be.
+        forms: set[str] = set()
+        for value in redactions:
+            for ascii_only in (False, True):
+                form = value
+                for _ in range(4):
+                    forms.add(form)
+                    form = json.dumps(form, ensure_ascii=ascii_only)[1:-1]
+        self._redactions = tuple(sorted((f for f in forms if f), key=len, reverse=True))
         self._start = time.monotonic()
         self._next = 0
         self._detail = detail

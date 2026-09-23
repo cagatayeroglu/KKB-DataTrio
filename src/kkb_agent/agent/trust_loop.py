@@ -35,7 +35,7 @@ from typing import Any, Final
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from kkb_agent.agent.executor import ExecutionContext, ToolResult, ToolStatus
-from kkb_agent.agent.observer import MAX_ATTRIBUTE_CHARS, Tracer
+from kkb_agent.agent.observer import MAX_ATTRIBUTE_CHARS, MAX_DETAIL_CHARS, Tracer
 from kkb_agent.agent.registry import ArgumentsRejected, ToolRegistry
 from kkb_agent.llm.provider import (
     Completion,
@@ -43,6 +43,7 @@ from kkb_agent.llm.provider import (
     Message,
     ProviderError,
     Role,
+    ShowsRequests,
     ToolCall,
 )
 
@@ -435,6 +436,50 @@ def _asked_for(completion: Completion, taken: int = 0) -> AgentStep | None:
     return None
 
 
+def _calls(calls: tuple[ToolCall, ...]) -> list[dict[str, str]]:
+    return [{"id": call.id, "name": call.name, "arguments": call.arguments} for call in calls]
+
+
+def _request(
+    provider: LLMProvider, messages: list[Message], model: str | None, menu: list[dict[str, Any]]
+) -> tuple[str, dict[str, Any]]:
+    """What this iteration sends the model, for the trace, and where the record came from.
+
+    A provider that renders its own wire body shows exactly that: every role, content,
+    `tool_calls` and `tool_call_id`, the tool schemas and the model options, as they
+    are posted. Any other provider gets the loop's own messages, field for field.
+    Recording never costs the turn: a rendering that fails falls back to the loop's.
+    """
+    if isinstance(provider, ShowsRequests):
+        try:
+            return "wire", provider.request_body(
+                messages, model=model, schema=AgentStep, tools=menu
+            )
+        except Exception:  # noqa: BLE001, S110 - a trace must not end a turn
+            pass
+    turns: list[dict[str, Any]] = []
+    for message in messages:
+        turn: dict[str, Any] = {"role": message.role.value, "content": message.content}
+        if message.tool_calls:
+            turn["tool_calls"] = _calls(message.tool_calls)
+        if message.tool_call_id is not None:
+            turn["tool_call_id"] = message.tool_call_id
+        turns.append(turn)
+    return "loop", {"model": model, "schema": AgentStep.__name__, "messages": turns, "tools": menu}
+
+
+def _received(completion: Completion) -> dict[str, Any]:
+    """What came back, as the provider handed it over. Hidden reasoning is not in it."""
+    return {
+        "model": completion.model,
+        "attempts": completion.attempts,
+        "finish_reason": completion.finish_reason,
+        "content": completion.text,
+        "tool_calls": _calls(completion.tool_calls),
+        "usage": asdict(completion.usage) if completion.usage is not None else None,
+    }
+
+
 def run_turn(
     question: str,
     *,
@@ -507,10 +552,36 @@ def run_turn(
                         prompt_bytes=sum(len(m.content.encode()) for m in messages),
                         carried=len(carried),
                     )
+                    # The whole protocol, both ways, so every iteration can be read and
+                    # replayed: live 2026-09-23 this step recorded sizes only, and what
+                    # the model had been shown could not be checked (QA-21). The request
+                    # is written before the call, so one that never comes back is still
+                    # on record; the tracer redacts it and caps it, and the length says
+                    # whether the cap was reached.
+                    source, request = _request(provider, messages, model, menu)
+                    sent = json.dumps(request, ensure_ascii=False, default=str)
+                    detail = '{"request": ' + sent + "}"
+                    span.describe(detail)
+                    span.set(
+                        request_source=source,
+                        detail_chars=len(detail),
+                        detail_clipped=len(detail) > MAX_DETAIL_CHARS,
+                    )
                     completion = provider.complete(
                         messages, model=model, schema=AgentStep, tools=menu
                     )
-                    span.set(model=completion.model, provider_attempts=completion.attempts)
+                    # The reply first: were the record ever capped, it is the request's
+                    # tail that goes, and the request is rebuilt from the steps before.
+                    received = json.dumps(_received(completion), ensure_ascii=False)
+                    detail = '{"response": ' + received + ', "request": ' + sent + "}"
+                    span.describe(detail)
+                    span.set(
+                        model=completion.model,
+                        provider_attempts=completion.attempts,
+                        finish_reason=completion.finish_reason,
+                        detail_chars=len(detail),
+                        detail_clipped=len(detail) > MAX_DETAIL_CHARS,
+                    )
         except ProviderError:
             # The request did not come back. That ends the deciding, not the turn: live
             # 2026-09-23 the sixth request of a turn died in the transport and the reader
@@ -536,7 +607,10 @@ def run_turn(
                 asked=step.ask is not None,
                 native=bool(completion.tool_calls),
                 malformed=[f"{item.id}:{item.tool}" for item in step.malformed],
-                detail=step.state,
+                # How the loop read the reply: the ids it gave each call, the arguments
+                # it will run, and the note, ask or answer. The note alone was here, and
+                # with native calls there is none, so every decision recorded nothing.
+                detail=step.model_dump_json(exclude_defaults=True),
             )
         if step is None:
             outcome.exhausted = "undecided"
