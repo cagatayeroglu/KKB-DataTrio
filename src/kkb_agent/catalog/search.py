@@ -518,6 +518,34 @@ def _band(series: ReviewedSeries) -> tuple[tuple[str, str | None, str], str] | N
     return None
 
 
+#: Every maturity column of each row of a catalogue, by the catalogue's digest.
+_ROW_BANDS: dict[str, dict[tuple[str, str | None, str], list[tuple[str, CatalogRecord]]]] = {}
+
+
+def row_bands(snapshot: ReviewedSnapshot, band: ReviewedSeries) -> tuple[BandChoice, ...] | None:
+    """All the maturity columns of `band`'s row, in the catalogue's order.
+
+    Live 2026-09-23 (B1 on 8012, twice) a row showed only the bands one search had reached -
+    three of six, then another three - and the model searched twenty times for the rest,
+    ran out of calls and published nothing. A row shown with any of its bands is shown
+    with all of them.
+    """
+    found = _band(band)
+    if found is None:
+        return None
+    rows = _ROW_BANDS.get(snapshot.content_sha256)
+    if rows is None:
+        rows = {}
+        for series in snapshot.series:
+            each = _band(series)
+            if each is not None:
+                rows.setdefault(each[0], []).append((each[1], series.record))
+        while len(_ROW_BANDS) >= _INDEXED_KEPT:
+            _ROW_BANDS.pop(next(iter(_ROW_BANDS)))
+        _ROW_BANDS[snapshot.content_sha256] = rows
+    return tuple(band_choice(name, record) for name, record in rows.get(found[0], ()))
+
+
 def fold_bands[T](
     ordered: Sequence[T], *, reviewed_series: Callable[[T], ReviewedSeries]
 ) -> list[tuple[T, list[T]]]:
@@ -682,11 +710,7 @@ def search_catalog(
     folded = fold_bands(ranked, reviewed_series=lambda item: item)
     ranked = [item for item, _ in folded]
     bands_of = {
-        item.record.series_id: tuple(
-            band_choice(found[1], band.record)
-            for band in bands
-            if (found := _band(band)) is not None
-        )
+        item.record.series_id: (row_bands(snapshot, bands[0]) or ()) if bands else ()
         for item, bands in folded
     }
     unresolved = any(c.unresolved for c in matches)

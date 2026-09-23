@@ -15,7 +15,7 @@ from pathlib import Path
 from kkb_agent.agent.trust_loop import observed_payload
 from kkb_agent.catalog.directory import source_directory
 from kkb_agent.catalog.mappings import load_reviewed_snapshot
-from kkb_agent.catalog.search import CatalogSearchArguments, search_catalog
+from kkb_agent.catalog.search import CatalogSearchArguments, row_bands, search_catalog
 from kkb_agent.knowledge.overlay import effective_snapshot
 
 CATALOG = Path(__file__).resolve().parents[2] / "docs" / "catalog" / "prepared_v3.json"
@@ -67,3 +67,25 @@ def test_no_candidate_carries_another_rows_bands():
         for candidate in seen(query):
             for band in candidate.get("bands") or []:
                 assert band["row"] == candidate["series"]["record"]["title"]
+
+
+def test_a_row_shown_with_a_band_is_shown_with_all_of_them():
+    # Twice on 8012 the combined (meaning) search showed three of the TP row's six bands,
+    # the next search another three, and the model searched twenty times for the rest.
+    # Whichever band a search reaches, the row is shown with every one of its bands.
+    names = {
+        "Vadesiz",
+        "1 Aya Kadar",
+        "1-3 Ay Arası",
+        "3-6 Ay Arası",
+        "6-12 Ay Arası",
+        "1 Yıl Üzeri",
+    }
+    snapshot = served()
+    tp_bands = [s for s in snapshot.series if s.record.title.startswith(TP_ROW + " (")]
+    assert {s.record.title.removeprefix(TP_ROW + " (").removesuffix(")") for s in tp_bands} == names
+    for reached in tp_bands:
+        shown = row_bands(snapshot, reached)
+        assert shown is not None
+        assert {b.band for b in shown} == names
+        assert {b.row for b in shown} == {TP_ROW} and {b.currency for b in shown} == {"TP"}

@@ -16,12 +16,11 @@ from kkb_agent.catalog.search import (
     CatalogCandidate,
     CatalogSearchArguments,
     CatalogSearchOutput,
-    _band,
-    band_choice,
     eligible_catalog_series,
     fold_bands,
     named_calendar_first,
     one_per_listed_row,
+    row_bands,
     scoped_to_named_calendar,
     search_catalog,
     top_candidate_signal,
@@ -219,11 +218,7 @@ def search_hybrid_catalog(
     folded = fold_bands(order, reviewed_series=lambda series_id: eligible[series_id])
     order = [series_id for series_id, _ in folded]
     bands_of = {
-        series_id: tuple(
-            band_choice(found[1], eligible[band].record)
-            for band in bands
-            if (found := _band(eligible[band])) is not None
-        )
+        series_id: (row_bands(snapshot, eligible[bands[0]]) or ()) if bands else ()
         for series_id, bands in folded
     }
     candidates = []
