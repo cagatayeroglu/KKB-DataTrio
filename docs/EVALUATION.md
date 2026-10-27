@@ -2,6 +2,36 @@
 
 This file defines what correctness means and how to measure it. [ROADMAP M9](ROADMAP.md#m9) tracks implementation and results. [ARCHITECTURE](ARCHITECTURE.md) defines the pipeline; [SECURITY](SECURITY.md) defines hostile-boundary expectations.
 
+<a id="public-visibility-review-2026-10-27"></a>
+
+## Public visibility review — 2026-10-27
+
+Task: PUBLIC-RELEASE-2026-10-27, [PR #322](https://github.com/cagatayeroglu/KKB-DataTrio/pull/322).
+Product baseline: final `origin/main` `b6f8a3d409216413f6ce04f517631be53e42cf61`.
+This is a publication exposure review, not a runtime security certification or a new live-acceptance run.
+
+**Git coverage.** A temporary local scanner read all locally reachable commit messages and blobs, plus the heads and ancestry of eight historical PRs whose original head commits were not locally reachable (#250, #251, #252, #254, #256, #258, #260, #262). Coverage: **1,327 commits and 3,767 distinct blobs** (3,765 text blobs and two XLSX ZIPs whose XML/text entries were also scanned; 359,334,158 uncompressed blob bytes). The scan includes the initial publication task claim `e0d5ab1`. All 321 pre-existing PR head commits were accounted for. No binary blob remained unexamined by this text/container scan. No tracked historical path matched the checked credential, private-state, generated lakehouse, upload, or log path patterns; the blank root `.env.example` was the explicit exception.
+
+**Detection and review.** Checks covered common provider/PAT/JWT/private-key formats, bearer strings, credential assignments, credential-bearing URLs, and exact matches against available local credential values. Values were kept in process memory and not printed or saved. There were 65 candidate occurrences across versions: 63 constructed test-input occurrences and two false matches across blank `.env.example` assignments. The latter arose from a whitespace pattern spanning a newline. No actual credential was identified, and no available local credential matched the scanned history. This is bounded pattern/exact-value coverage, not proof that every possible secret format or confidential fact is absent.
+
+**GitHub coverage**, before creating the documentation PR:
+
+| Surface | Inspected | Result |
+| --- | --- | --- |
+| PR/issue titles and bodies | 321 existing PRs | No secret-pattern or known-local-credential match |
+| Issue/PR conversation comments | 11 | No match |
+| Inline review comments / review bodies | 0 / 0, after checking all existing PRs | None present |
+| Actions | 601 runs, all 603 attempts; 1,892 log files; 47,092,691 decoded characters | All archives accessible and scanned; no match; no download errors |
+| Releases / uploaded Actions artifacts | 0 / 0 | None present |
+| Wiki / Discussions | Disabled / disabled | No enabled surface |
+| GitHub attachment links in existing PR bodies/comments | 0 detected | No linked attachment to inspect in that scope |
+
+GitHub authentication was read from the existing Git credential helper in memory. Log-archive redirects were downloaded without forwarding the GitHub Authorization header. Temporary scanners and redacted count/location reports stayed outside the repository; raw logs, credential values and private payloads were not persisted. Repository visibility remained **private**, with `main` as the default branch. No history, workflow run, or comment was deleted.
+
+**Documentation validation: PASS.** `git diff --check`; 13 added local Markdown links/anchors; exactly six documentation files changed; identical staged `src`/`tests`/`web`/`scripts`/`.github` tree hashes against final `origin/main`; no credential candidate in the added documentation. No application suite, external model call, dependency update, or runtime deployment is part of this preparation. Existing ignore rules cover `.env`, `.env.production`, prepared lakehouse/index paths and uploads. `python3 scripts/check_secrets.py` returns **exit 1** on the already-existing synthetic literal at `tests/unit/test_address_redaction.py:37`; that line is identical to final `main`, is used only by a redaction test, and contains a sequential-digit test value. This false positive was reviewed; the scanner, test and runtime were not changed to hide it.
+
+**Publication boundary.** [DEC-192](DECISIONS.md#dec-192--public-code-visibility-without-an-open-source-license) records the owner's code-sharing confirmation and no-open-source-license choice. Prepared observations, credentials, uploads and conversation state remain outside the Git publication. This review does not grant data redistribution rights, certify external dependencies, or authorize a public application service. New pushes, PR comments, attachments or Actions runs after this snapshot require review of their additional exposure. Review/merge of #322 and the owner's visibility change remain pending; see [publication steps](PUBLIC_RELEASE.md).
+
 ## Evaluation goals
 
 - Measure whether the system selects the right source/series, executes valid tools, and returns correct material results.

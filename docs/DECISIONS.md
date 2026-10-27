@@ -1011,6 +1011,15 @@ Confirmed team priority refinement, explicitly requested by Çağatay after M3-0
 - Risk accepted: a writer can now state a cause, call a present column absent, or name "the largest rise" without a typed summary, and it will be shown. Figures cannot be invented in any of those sentences, the table beside the prose is the tools' own, and the harness note says what was tested. The old contract is one flag away.
 - Tests: `test_plan_healing.py` (7), and the aligned contracts in the catalogue-continuation, discovery, gate, rehearsal, publication and API-boundary files; the wording suites run under the optional contract.
 
+### DEC-192 — Public code visibility without an open-source license
+
+- Status: CONFIRMED by Çağatay on 2026-10-27; publication itself remains an owner action.
+- Decision: prepare the frozen final `main` product for public source-code visibility without granting an open-source license. The owner explicitly chose "Kod görünsün; açık kaynak kullanım izni vermeyelim" and confirmed "Evet, paylaşabiliyoruz" when asked whether the competition terms permit code sharing. This is owner-reported confirmation, not an independently reviewed organizer contract.
+- Scope: a rights notice and publication documentation, based on final `main` `b6f8a3d409216413f6ce04f517631be53e42cf61`; no runtime/provider changes, no integration of old `dev` work, no prepared data or credentials. This narrowly scoped publication branch/PR targets `main`, following the user's frozen-product instruction; it does not change the normal development workflow.
+- Rights: [COPYRIGHT](../COPYRIGHT.md) reserves the respective contributors' rights without overriding applicable law, GitHub's public viewing/forking permissions, or third-party licenses. No MIT/Apache license or general reuse/commercialization grant is added.
+- Boundary: code-sharing confirmation does not resolve source-data caching/redistribution questions, transfer anyone's copyright, or authorize public hosting of the application. Existing data restrictions remain in force.
+- Evidence and operation: [publication exposure review](EVALUATION.md#public-visibility-review-2026-10-27), [publication steps](PUBLIC_RELEASE.md), [PR #322](https://github.com/cagatayeroglu/KKB-DataTrio/pull/322). Review/merge and changing repository visibility are separate actions; no automatic history rewrite or log deletion is authorized.
+
 ## Proposed decisions
 
 Candidates below are not approved selections. Compare options in a bounded task; do not silently promote a proposal to CONFIRMED.
