@@ -11,6 +11,23 @@ Model hangi aracı ne zaman çağıracağına kendisi karar verir; ancak finansa
 **Veri katmanı:** Bronze / Silver / Gold lakehouse  
 **Ana kaynaklar:** BDDK · TCMB/EVDS · TÜİK · BIST · web/PDF/XLSX/CSV/görsel belgeler
 
+## Paylaşım ve kullanım hakları
+
+Bu depo, projenin kaynak kodunu ve teknik yaklaşımını incelemeye açmak amacıyla
+paylaşılır. **Açık kaynak lisansı verilmemiştir; tüm hakları saklıdır.** Genel
+yeniden kullanım, değişiklik, dağıtım veya ticari kullanım izni verilmez;
+uygulanabilir hukuk ve GitHub kullanım koşullarının tanıdığı haklar saklıdır.
+Ayrıntılar: [haklar bildirimi](COPYRIGHT.md).
+
+GitHub'da public bir depo görüntülenebilir ve fork'lanabilir. Bu görünürlük,
+uygulamanın herkese açık bir hizmet olarak yayına alındığı anlamına gelmez.
+Kurulum kendi erişim bilgilerinizi ve veri hazırlığını gerektirir; `.env`, gerçek
+anahtarlar, hazırlanmış lakehouse/vektör dizinleri ve kişisel konuşma durumu
+depoya dahil değildir. Kaynakların erişim ve yeniden dağıtım koşulları ayrıca
+geçerlidir.
+
+Bakımcılar için: [public'e geçiş adımları](docs/PUBLIC_RELEASE.md).
+
 ---
 
 ## İçindekiler
